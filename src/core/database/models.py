@@ -1,5 +1,5 @@
 """
-Base Django model classes for ObserveX.
+Base Django model classes for ItsFriday.
 """
 
 from django.db import models

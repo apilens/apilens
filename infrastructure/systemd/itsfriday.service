@@ -1,13 +1,13 @@
 [Unit]
-Description=ObserveX Application
-Documentation=https://github.com/YOUR_ORG/observex
+Description=ItsFriday Application
+Documentation=https://github.com/itsfriday-in/itsfriday
 After=docker.service
 Requires=docker.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/opt/observex
+WorkingDirectory=/opt/itsfriday
 
 ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d
 ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down

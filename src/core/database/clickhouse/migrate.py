@@ -1,5 +1,5 @@
 """
-ClickHouse migration runner for ObserveX.
+ClickHouse migration runner for ItsFriday.
 """
 
 import logging

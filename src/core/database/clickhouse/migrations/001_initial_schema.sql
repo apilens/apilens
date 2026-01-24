@@ -1,4 +1,4 @@
--- ObserveX Initial ClickHouse Schema
+-- ItsFriday Initial ClickHouse Schema
 -- Migration: 001_initial_schema
 
 -- =============================================================================

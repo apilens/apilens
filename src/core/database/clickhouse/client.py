@@ -1,5 +1,5 @@
 """
-ClickHouse client singleton for ObserveX.
+ClickHouse client singleton for ItsFriday.
 """
 
 import logging

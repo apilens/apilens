@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# ObserveX Development Setup Script
+# ItsFriday Development Setup Script
 # =============================================================================
 # This script sets up a local development environment
 
@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║              ObserveX Development Setup                       ║"
+echo "║              ItsFriday Development Setup                       ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 

@@ -1,6 +1,6 @@
-# Contributing to ObserveX
+# Contributing to ItsFriday
 
-Thank you for your interest in contributing to ObserveX! This document provides guidelines and information for contributors.
+Thank you for your interest in contributing to ItsFriday! This document provides guidelines and information for contributors.
 
 ## Code of Conduct
 
@@ -10,8 +10,8 @@ Please read and follow our Code of Conduct. We expect all contributors to be res
 
 1. **Fork and Clone**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/observex.git
-   cd observex
+   git clone https://github.com/itsfriday-in/itsfriday.git
+   cd itsfriday
    ```
 
 2. **Run Setup Script**

@@ -1,5 +1,5 @@
 """
-URL configuration for ObserveX project.
+URL configuration for ItsFriday project.
 """
 
 from django.contrib import admin

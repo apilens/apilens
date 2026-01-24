@@ -1,5 +1,5 @@
 # =============================================================================
-# ObserveX Backend Dockerfile
+# ItsFriday Backend Dockerfile
 # =============================================================================
 # Multi-stage build for Django backend
 

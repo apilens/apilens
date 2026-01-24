@@ -1,31 +1,21 @@
-# ObserveX
+# ItsFriday
 
-[![CI](https://github.com/YOUR_ORG/observex/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_ORG/observex/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**ObserveX** is a modern observability platform for monitoring metrics, logs, and traces. Built with Django, React, ClickHouse, and PostgreSQL.
+**ItsFriday** is a modern observability platform for monitoring APIs. Built with Django, React, ClickHouse, and PostgreSQL.
 
 ## Quick Start
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_ORG/observex.git
-cd observex
+git clone https://github.com/itsfriday-in/itsfriday.git
+cd itsfriday
 
 # Run quickstart (Docker only required)
 ./scripts/quickstart.sh
 ```
 
 Access the application at http://localhost
-
-## Features
-
-- **Metrics** - Time-series metrics collection and visualization
-- **Logs** - Structured log aggregation and search
-- **Traces** - Distributed tracing support
-- **Multi-tenant** - Secure tenant isolation with Auth0
-- **Real-time** - Live dashboards and alerts
-- **Self-hosted** - Deploy on your own infrastructure
 
 ## Architecture
 
@@ -162,7 +152,7 @@ cd static && npm run format
 ## Project Structure
 
 ```
-observex/
+itsfriday/
 ├── src/                    # Django backend
 │   ├── api/               # API endpoints
 │   │   └── v1/           # API version 1

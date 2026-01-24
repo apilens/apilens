@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# ObserveX Combined Test Runner
+# ItsFriday Combined Test Runner
 # =============================================================================
 # Runs both backend and frontend tests
 
@@ -15,7 +15,7 @@ NC='\033[0m'
 BACKEND_RESULT=0
 FRONTEND_RESULT=0
 
-echo -e "${YELLOW}Running ObserveX Tests${NC}"
+echo -e "${YELLOW}Running ItsFriday Tests${NC}"
 echo "================================"
 
 # =============================================================================

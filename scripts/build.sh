@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# ObserveX Production Build Script
+# ItsFriday Production Build Script
 # =============================================================================
 # Builds frontend and collects Django static files
 
@@ -11,7 +11,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${YELLOW}Building ObserveX for Production${NC}"
+echo -e "${YELLOW}Building ItsFriday for Production${NC}"
 echo "================================"
 
 # =============================================================================

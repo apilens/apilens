@@ -1,16 +1,89 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Documentation",
-  "colors": {
-    "primary": "#0D9373"
+  "name": "ItsFriday Documentation",
+  "logo": {
+    "dark": "/images/logo-dark.svg",
+    "light": "/images/logo-light.svg"
   },
-  "navigation": {
-    "groups": [
-      {
-        "group": "Getting Started",
-        "pages": []
-      }
-    ]
+  "favicon": "/images/favicon.svg",
+  "colors": {
+    "primary": "#0D9373",
+    "light": "#07C983",
+    "dark": "#0D9373",
+    "anchors": {
+      "from": "#0D9373",
+      "to": "#07C983"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "Support",
+      "url": "mailto:support@itsfriday.in"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Dashboard",
+    "url": "https://app.itsfriday.in"
+  },
+  "tabs": [
+    {
+      "name": "API Reference",
+      "url": "api-reference"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/itsfriday-in/itsfriday"
+    },
+    {
+      "name": "Community",
+      "icon": "discord",
+      "url": "https://discord.gg/itsfriday"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "getting-started/introduction",
+        "getting-started/quickstart",
+        "getting-started/installation"
+      ]
+    },
+    {
+      "group": "Guides",
+      "pages": [
+        "guides/sending-metrics",
+        "guides/collecting-logs",
+        "guides/distributed-tracing",
+        "guides/creating-dashboards"
+      ]
+    },
+    {
+      "group": "Self-Hosting",
+      "pages": [
+        "self-hosting/requirements",
+        "self-hosting/docker-compose",
+        "self-hosting/production-deployment",
+        "self-hosting/configuration"
+      ]
+    },
+    {
+      "group": "API Reference",
+      "pages": [
+        "api-reference/introduction",
+        "api-reference/authentication",
+        "api-reference/metrics",
+        "api-reference/logs",
+        "api-reference/traces"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "twitter": "https://twitter.com/itsfridayin",
+    "github": "https://github.com/itsfriday-in/itsfriday",
+    "linkedin": "https://linkedin.com/company/itsfriday"
   }
 }

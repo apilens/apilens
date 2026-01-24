@@ -1,5 +1,5 @@
 """
-Django development settings for ObserveX project.
+Django development settings for ItsFriday project.
 """
 
 from .base import *  # noqa: F401, F403

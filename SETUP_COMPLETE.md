@@ -1,4 +1,4 @@
-# ObserveX Setup Complete
+# ItsFriday Setup Complete
 
 Setup completed successfully. Below is a summary of all files created and next steps.
 
@@ -38,7 +38,7 @@ Setup completed successfully. Below is a summary of all files created and next s
 - [x] `scripts/setup-dev.sh` - Local development setup
 - [x] `scripts/quickstart.sh` - Quick Docker deployment
 - [x] `scripts/deploy-vm.sh` - Production VM deployment
-- [x] `infrastructure/systemd/observex.service` - Systemd service file
+- [x] `infrastructure/systemd/itsfriday.service` - Systemd service file
 
 ### Phase 6: CI/CD Pipeline
 - [x] `.github/workflows/ci.yml` - Continuous Integration

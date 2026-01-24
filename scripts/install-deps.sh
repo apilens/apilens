@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# ObserveX Dependency Installation Script
+# ItsFriday Dependency Installation Script
 # =============================================================================
 # Usage: ./scripts/install-deps.sh [dev|prod|test]
 

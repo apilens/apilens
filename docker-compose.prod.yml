@@ -1,5 +1,5 @@
 # =============================================================================
-# ObserveX Production Docker Compose
+# ItsFriday Production Docker Compose
 # =============================================================================
 # Use: docker-compose -f docker-compose.prod.yml up -d
 
@@ -11,7 +11,7 @@ services:
   # ---------------------------------------------------------------------------
   nginx:
     image: nginx:alpine
-    container_name: observex-nginx
+    container_name: itsfriday-nginx
     restart: always
     ports:
       - "80:80"
@@ -41,20 +41,20 @@ services:
       context: .
       dockerfile: infrastructure/docker/backend.Dockerfile
       target: production
-    container_name: observex-backend
+    container_name: itsfriday-backend
     restart: always
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.production
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
-      POSTGRES_DB: ${POSTGRES_DB:-observex}
-      POSTGRES_USER: ${POSTGRES_USER:-observex}
+      POSTGRES_DB: ${POSTGRES_DB:-itsfriday}
+      POSTGRES_USER: ${POSTGRES_USER:-itsfriday}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: 9000
-      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-observex}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-itsfriday}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
@@ -87,7 +87,7 @@ services:
       context: .
       dockerfile: infrastructure/docker/frontend.Dockerfile
       target: production
-    container_name: observex-frontend
+    container_name: itsfriday-frontend
     restart: always
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost/health"]
@@ -101,11 +101,11 @@ services:
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:15-alpine
-    container_name: observex-postgres
+    container_name: itsfriday-postgres
     restart: always
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-observex}
-      POSTGRES_USER: ${POSTGRES_USER:-observex}
+      POSTGRES_DB: ${POSTGRES_DB:-itsfriday}
+      POSTGRES_USER: ${POSTGRES_USER:-itsfriday}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     command:
       - "postgres"
@@ -127,7 +127,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - postgres_backup:/backups
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-observex} -d ${POSTGRES_DB:-observex}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-itsfriday} -d ${POSTGRES_DB:-itsfriday}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -138,10 +138,10 @@ services:
   # ---------------------------------------------------------------------------
   clickhouse:
     image: clickhouse/clickhouse-server:latest
-    container_name: observex-clickhouse
+    container_name: itsfriday-clickhouse
     restart: always
     environment:
-      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-observex}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-itsfriday}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
     ulimits:
@@ -164,7 +164,7 @@ services:
   # ---------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
-    container_name: observex-redis
+    container_name: itsfriday-redis
     restart: always
     command: >
       redis-server
@@ -189,15 +189,15 @@ services:
       context: .
       dockerfile: infrastructure/docker/backend.Dockerfile
       target: production
-    container_name: observex-celery-worker
+    container_name: itsfriday-celery-worker
     restart: always
     command: celery -A config.celery worker --loglevel=info --concurrency=4
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.production
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       POSTGRES_HOST: postgres
-      POSTGRES_DB: ${POSTGRES_DB:-observex}
-      POSTGRES_USER: ${POSTGRES_USER:-observex}
+      POSTGRES_DB: ${POSTGRES_DB:-itsfriday}
+      POSTGRES_USER: ${POSTGRES_USER:-itsfriday}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       CLICKHOUSE_HOST: clickhouse
       REDIS_URL: redis://redis:6379/0
@@ -223,15 +223,15 @@ services:
       context: .
       dockerfile: infrastructure/docker/backend.Dockerfile
       target: production
-    container_name: observex-celery-beat
+    container_name: itsfriday-celery-beat
     restart: always
     command: celery -A config.celery beat --loglevel=info
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.production
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       POSTGRES_HOST: postgres
-      POSTGRES_DB: ${POSTGRES_DB:-observex}
-      POSTGRES_USER: ${POSTGRES_USER:-observex}
+      POSTGRES_DB: ${POSTGRES_DB:-itsfriday}
+      POSTGRES_USER: ${POSTGRES_USER:-itsfriday}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
@@ -258,4 +258,4 @@ volumes:
 
 networks:
   default:
-    name: observex-network
+    name: itsfriday-network

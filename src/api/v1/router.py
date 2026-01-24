@@ -1,5 +1,5 @@
 """
-ObserveX API v1 Router
+ItsFriday API v1 Router
 
 Main entry point for the v1 API using Django Ninja.
 """
@@ -9,9 +9,9 @@ from ninja import NinjaAPI
 
 # Create the main API instance
 api = NinjaAPI(
-    title="ObserveX API",
+    title="ItsFriday API",
     version="1.0.0",
-    description="ObserveX Observability Platform API",
+    description="ItsFriday Observability Platform API",
     docs_url="/docs",
     openapi_url="/openapi.json",
 )

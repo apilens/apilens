@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# ObserveX Quickstart Script
+# ItsFriday Quickstart Script
 # =============================================================================
 # Quick deployment using Docker only - no local dependencies required
 
@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║              ObserveX Quickstart                              ║"
+echo "║              ItsFriday Quickstart                              ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -74,7 +74,7 @@ fi
 # -----------------------------------------------------------------------------
 # Start Services
 # -----------------------------------------------------------------------------
-echo -e "\n${YELLOW}Starting ObserveX services...${NC}"
+echo -e "\n${YELLOW}Starting ItsFriday services...${NC}"
 
 $DOCKER_COMPOSE -f docker-compose.prod.yml up -d --build
 
@@ -106,10 +106,10 @@ echo -e "\n${YELLOW}Creating default admin user...${NC}"
 $DOCKER_COMPOSE -f docker-compose.prod.yml exec -T backend python src/manage.py shell << 'EOF'
 from django.contrib.auth import get_user_model
 User = get_user_model()
-if not User.objects.filter(email='admin@observex.local').exists():
+if not User.objects.filter(email='admin@itsfriday.local').exists():
     User.objects.create_superuser(
         username='admin',
-        email='admin@observex.local',
+        email='admin@itsfriday.local',
         password='admin'
     )
     print('Admin user created')
@@ -124,7 +124,7 @@ echo -e "${GREEN}✓ Admin user ready${NC}"
 # -----------------------------------------------------------------------------
 echo -e "\n${GREEN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║              ObserveX is Running! 🚀                          ║"
+echo "║              ItsFriday is Running! 🚀                          ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -134,7 +134,7 @@ echo "  API:          http://localhost/api/v1/"
 echo "  Admin Panel:  http://localhost/admin/"
 echo ""
 echo -e "${BLUE}Default Admin Credentials:${NC}"
-echo "  Email:    admin@observex.local"
+echo "  Email:    admin@itsfriday.local"
 echo "  Password: admin"
 echo ""
 echo -e "${RED}⚠ IMPORTANT: Change the admin password immediately!${NC}"

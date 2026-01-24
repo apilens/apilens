@@ -1,5 +1,5 @@
 # =============================================================================
-# ObserveX Frontend Dockerfile
+# ItsFriday Frontend Dockerfile
 # =============================================================================
 # Multi-stage build for React/Vite frontend
 

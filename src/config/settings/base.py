@@ -1,5 +1,5 @@
 """
-Django base settings for ObserveX project.
+Django base settings for ItsFriday project.
 """
 
 import os
@@ -89,9 +89,9 @@ ASGI_APPLICATION = "config.asgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ.get("POSTGRES_DB", "observex"),
-        "USER": os.environ.get("POSTGRES_USER", "observex"),
-        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "observex_password"),
+        "NAME": os.environ.get("POSTGRES_DB", "itsfriday"),
+        "USER": os.environ.get("POSTGRES_USER", "itsfriday"),
+        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "itsfriday_password"),
         "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
         "PORT": os.environ.get("POSTGRES_PORT", "5432"),
         "CONN_MAX_AGE": 60,
@@ -109,7 +109,7 @@ CLICKHOUSE = {
     "HOST": os.environ.get("CLICKHOUSE_HOST", "localhost"),
     "PORT": int(os.environ.get("CLICKHOUSE_PORT", "9000")),
     "HTTP_PORT": int(os.environ.get("CLICKHOUSE_HTTP_PORT", "8123")),
-    "DATABASE": os.environ.get("CLICKHOUSE_DB", "observex"),
+    "DATABASE": os.environ.get("CLICKHOUSE_DB", "itsfriday"),
     "USER": os.environ.get("CLICKHOUSE_USER", "default"),
     "PASSWORD": os.environ.get("CLICKHOUSE_PASSWORD", ""),
 }

@@ -1,5 +1,5 @@
 # =============================================================================
-# ObserveX Development Docker Compose
+# ItsFriday Development Docker Compose
 # =============================================================================
 # Use: docker-compose up -d
 
@@ -11,18 +11,18 @@ services:
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:15-alpine
-    container_name: observex-postgres
+    container_name: itsfriday-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-observex}
-      POSTGRES_USER: ${POSTGRES_USER:-observex}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-observex_password}
+      POSTGRES_DB: ${POSTGRES_DB:-itsfriday}
+      POSTGRES_USER: ${POSTGRES_USER:-itsfriday}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-itsfriday_password}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-observex} -d ${POSTGRES_DB:-observex}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-itsfriday} -d ${POSTGRES_DB:-itsfriday}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -33,10 +33,10 @@ services:
   # ---------------------------------------------------------------------------
   clickhouse:
     image: clickhouse/clickhouse-server:latest
-    container_name: observex-clickhouse
+    container_name: itsfriday-clickhouse
     restart: unless-stopped
     environment:
-      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-observex}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-itsfriday}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
@@ -58,7 +58,7 @@ services:
   # ---------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
-    container_name: observex-redis
+    container_name: itsfriday-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
     ports:
@@ -84,4 +84,4 @@ volumes:
 
 networks:
   default:
-    name: observex-network
+    name: itsfriday-network
