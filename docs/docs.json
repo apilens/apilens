@@ -1,19 +1,12 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "name": "ItsFriday Documentation",
-  "logo": {
-    "dark": "/images/logo-dark.svg",
-    "light": "/images/logo-light.svg"
-  },
+  "theme": "mint",
+  "name": "ItsFriday",
   "favicon": "/images/favicon.svg",
   "colors": {
     "primary": "#0D9373",
     "light": "#07C983",
-    "dark": "#0D9373",
-    "anchors": {
-      "from": "#0D9373",
-      "to": "#07C983"
-    }
+    "dark": "#0D9373"
   },
   "topbarLinks": [
     {
@@ -43,44 +36,46 @@
       "url": "https://discord.gg/itsfriday"
     }
   ],
-  "navigation": [
-    {
-      "group": "Getting Started",
-      "pages": [
-        "getting-started/introduction",
-        "getting-started/quickstart",
-        "getting-started/installation"
-      ]
-    },
-    {
-      "group": "Guides",
-      "pages": [
-        "guides/sending-metrics",
-        "guides/collecting-logs",
-        "guides/distributed-tracing",
-        "guides/creating-dashboards"
-      ]
-    },
-    {
-      "group": "Self-Hosting",
-      "pages": [
-        "self-hosting/requirements",
-        "self-hosting/docker-compose",
-        "self-hosting/production-deployment",
-        "self-hosting/configuration"
-      ]
-    },
-    {
-      "group": "API Reference",
-      "pages": [
-        "api-reference/introduction",
-        "api-reference/authentication",
-        "api-reference/metrics",
-        "api-reference/logs",
-        "api-reference/traces"
-      ]
-    }
-  ],
+  "navigation": {
+    "groups":[
+      {
+        "group": "Getting Started",
+        "pages": [
+          "getting-started/introduction",
+          "getting-started/quickstart",
+          "getting-started/installation"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "guides/sending-metrics",
+          "guides/collecting-logs",
+          "guides/distributed-tracing",
+          "guides/creating-dashboards"
+        ]
+      },
+      {
+        "group": "Self-Hosting",
+        "pages": [
+          "self-hosting/requirements",
+          "self-hosting/docker-compose",
+          "self-hosting/production-deployment",
+          "self-hosting/configuration"
+        ]
+      },
+      {
+        "group": "API Reference",
+        "pages": [
+          "api-reference/introduction",
+          "api-reference/authentication",
+          "api-reference/metrics",
+          "api-reference/logs",
+          "api-reference/traces"
+        ]
+      }
+    ]
+  },
   "footerSocials": {
     "twitter": "https://twitter.com/itsfridayin",
     "github": "https://github.com/itsfriday-in/itsfriday",
