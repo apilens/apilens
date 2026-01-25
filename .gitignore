@@ -167,3 +167,4 @@ credentials.json
 *.tmp
 *.temp
 .cadence/
+sidecar_app/
