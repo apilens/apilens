@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# ItsFriday Dependency Installation Script
+# apilens Dependency Installation Script
 # =============================================================================
 # Usage: ./scripts/install-deps.sh [dev|prod|test]
 

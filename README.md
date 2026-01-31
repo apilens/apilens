@@ -1,11 +1,11 @@
-# ItsFriday
+# apilens
 
 ### SettingUp Initial Project There is no First Release Yet
 [//]: # ()
 [//]: # ([![License: MIT]&#40;https://img.shields.io/badge/License-MIT-yellow.svg&#41;]&#40;https://opensource.org/licenses/MIT&#41;)
 
 [//]: # ()
-[//]: # (**ItsFriday** is a modern observability platform for monitoring APIs. Built with Django, React, ClickHouse, and PostgreSQL.)
+[//]: # (**apilens** is a modern observability platform for monitoring APIs. Built with Django, React, ClickHouse, and PostgreSQL.)
 
 [//]: # ()
 [//]: # (## Quick Start)
@@ -15,9 +15,9 @@
 
 [//]: # (# Clone the repository)
 
-[//]: # (git clone https://github.com/itsfriday-in/itsfriday.git)
+[//]: # (git clone https://github.com/apilens-in/apilens.git)
 
-[//]: # (cd itsfriday)
+[//]: # (cd apilens)
 
 [//]: # ()
 [//]: # (# Run quickstart &#40;Docker only required&#41;)
@@ -267,7 +267,7 @@
 [//]: # ()
 [//]: # (```)
 
-[//]: # (itsfriday/)
+[//]: # (apilens/)
 
 [//]: # (├── src/                    # Django backend)
 

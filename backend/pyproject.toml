@@ -1,12 +1,12 @@
 [project]
-name = "itsfriday"
+name = "apilens"
 version = "1.0.0"
-description = "ItsFriday - API Observability Platform"
+description = "apilens - API Observability Platform"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [
-    { name = "ItsFriday Team" }
+    { name = "apilens Team" }
 ]
 
 dependencies = [

@@ -1,5 +1,5 @@
 """
-ClickHouse client singleton for ItsFriday.
+ClickHouse client singleton for apilens.
 """
 
 import logging

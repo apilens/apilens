@@ -47,7 +47,7 @@ Send and query distributed tracing data.
 
 <CodeGroup>
 ```bash cURL
-curl -X POST https://api.itsfriday.in/v1/traces/ \
+curl -X POST https://api.apilens.in/v1/traces/ \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -99,7 +99,7 @@ client.traces.send_span(
 ## Send Batch Spans
 
 ```bash
-curl -X POST https://api.itsfriday.in/v1/traces/batch/ \
+curl -X POST https://api.apilens.in/v1/traces/batch/ \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -130,7 +130,7 @@ curl -X POST https://api.itsfriday.in/v1/traces/batch/ \
 Get a complete trace with all spans.
 
 ```bash
-curl "https://api.itsfriday.in/v1/traces/abc123def456/" \
+curl "https://api.apilens.in/v1/traces/abc123def456/" \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
@@ -202,7 +202,7 @@ curl "https://api.itsfriday.in/v1/traces/abc123def456/" \
 
 <CodeGroup>
 ```bash cURL
-curl -G "https://api.itsfriday.in/v1/traces/search/" \
+curl -G "https://api.apilens.in/v1/traces/search/" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   --data-urlencode "service=api-gateway" \
   --data-urlencode "min_duration_ms=100" \
@@ -242,7 +242,7 @@ curl -G "https://api.itsfriday.in/v1/traces/search/" \
 Get trace statistics per service.
 
 ```bash
-curl -G "https://api.itsfriday.in/v1/traces/services/" \
+curl -G "https://api.apilens.in/v1/traces/services/" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   --data-urlencode "from=2024-01-15T00:00:00Z"
 ```

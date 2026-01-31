@@ -27,7 +27,7 @@ Send and query time-series metrics data.
 
 <CodeGroup>
 ```bash cURL
-curl -X POST https://api.itsfriday.in/v1/metrics/ \
+curl -X POST https://api.apilens.in/v1/metrics/ \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -43,7 +43,7 @@ curl -X POST https://api.itsfriday.in/v1/metrics/ \
 ```
 
 ```python Python
-from itsfriday import Client
+from apilens import Client
 
 client = Client(api_key="YOUR_API_KEY")
 
@@ -59,9 +59,9 @@ client.metrics.send(
 ```
 
 ```javascript JavaScript
-import { ItsFriday } from '@itsfriday/sdk';
+import { apilens } from '@apilens/sdk';
 
-const client = new ItsFriday({ apiKey: 'YOUR_API_KEY' });
+const client = new apilens({ apiKey: 'YOUR_API_KEY' });
 
 await client.metrics.send({
   name: 'api.request.duration.ms',
@@ -96,7 +96,7 @@ Send multiple metrics in a single request.
 
 <CodeGroup>
 ```bash cURL
-curl -X POST https://api.itsfriday.in/v1/metrics/batch/ \
+curl -X POST https://api.apilens.in/v1/metrics/batch/ \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -166,7 +166,7 @@ Query aggregated metrics data.
 
 <CodeGroup>
 ```bash cURL
-curl -G "https://api.itsfriday.in/v1/metrics/query/" \
+curl -G "https://api.apilens.in/v1/metrics/query/" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   --data-urlencode "name=api.request.duration.ms" \
   --data-urlencode "from=2024-01-15T00:00:00Z" \
@@ -221,7 +221,7 @@ results = client.metrics.query(
 Get a list of all metric names.
 
 ```bash
-curl -G "https://api.itsfriday.in/v1/metrics/names/" \
+curl -G "https://api.apilens.in/v1/metrics/names/" \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
@@ -246,7 +246,7 @@ curl -G "https://api.itsfriday.in/v1/metrics/names/" \
 Get possible values for a metric tag.
 
 ```bash
-curl -G "https://api.itsfriday.in/v1/metrics/tags/" \
+curl -G "https://api.apilens.in/v1/metrics/tags/" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   --data-urlencode "name=api.request.count" \
   --data-urlencode "tag=endpoint"

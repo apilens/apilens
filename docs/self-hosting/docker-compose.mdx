@@ -1,18 +1,18 @@
 ---
 title: 'Docker Compose'
-description: 'Deploy ItsFriday with Docker Compose'
+description: 'Deploy apilens with Docker Compose'
 ---
 
 # Docker Compose Deployment
 
-The easiest way to self-host ItsFriday is using Docker Compose.
+The easiest way to self-host apilens is using Docker Compose.
 
 ## Quick Start
 
 ```bash
 # Clone the repository
-git clone https://github.com/itsfriday-in/itsfriday.git
-cd itsfriday
+git clone https://github.com/apilens-in/apilens.git
+cd apilens
 
 # Start with quickstart script
 ./scripts/quickstart.sh
@@ -23,8 +23,8 @@ cd itsfriday
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/itsfriday-in/itsfriday.git
-cd itsfriday
+git clone https://github.com/apilens-in/apilens.git
+cd apilens
 ```
 
 ### 2. Configure Environment
@@ -93,8 +93,8 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-itsfriday}
-      POSTGRES_USER: ${POSTGRES_USER:-itsfriday}
+      POSTGRES_DB: ${POSTGRES_DB:-apilens}
+      POSTGRES_USER: ${POSTGRES_USER:-apilens}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
@@ -190,7 +190,7 @@ docker-compose exec backend bash
 docker-compose exec backend python src/manage.py shell
 
 # Database shell
-docker-compose exec postgres psql -U itsfriday
+docker-compose exec postgres psql -U apilens
 ```
 
 ## Data Management
@@ -199,7 +199,7 @@ docker-compose exec postgres psql -U itsfriday
 
 ```bash
 # PostgreSQL
-docker-compose exec postgres pg_dump -U itsfriday itsfriday > backup.sql
+docker-compose exec postgres pg_dump -U apilens apilens > backup.sql
 
 # ClickHouse
 docker-compose exec clickhouse clickhouse-client --query "SELECT * FROM metrics" --format Native > metrics.native
@@ -209,7 +209,7 @@ docker-compose exec clickhouse clickhouse-client --query "SELECT * FROM metrics"
 
 ```bash
 # PostgreSQL
-cat backup.sql | docker-compose exec -T postgres psql -U itsfriday itsfriday
+cat backup.sql | docker-compose exec -T postgres psql -U apilens apilens
 
 # ClickHouse
 cat metrics.native | docker-compose exec -T clickhouse clickhouse-client --query "INSERT INTO metrics FORMAT Native"

@@ -1,6 +1,6 @@
 ---
 title: 'Sending Metrics'
-description: 'Learn how to send metrics to ItsFriday'
+description: 'Learn how to send metrics to apilens'
 ---
 
 # Sending Metrics
@@ -9,7 +9,7 @@ Metrics are time-series data points that help you track the performance and beha
 
 ## Metric Types
 
-ItsFriday supports several metric types:
+apilens supports several metric types:
 
 | Type | Description | Example |
 |------|-------------|---------|
@@ -23,7 +23,7 @@ ItsFriday supports several metric types:
 ### Basic Metric
 
 ```bash
-curl -X POST https://api.itsfriday.in/v1/metrics/ \
+curl -X POST https://api.apilens.in/v1/metrics/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
@@ -42,7 +42,7 @@ curl -X POST https://api.itsfriday.in/v1/metrics/ \
 Send multiple metrics in a single request:
 
 ```bash
-curl -X POST https://api.itsfriday.in/v1/metrics/batch/ \
+curl -X POST https://api.apilens.in/v1/metrics/batch/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
@@ -64,7 +64,7 @@ curl -X POST https://api.itsfriday.in/v1/metrics/batch/ \
 ## Python SDK
 
 ```python
-from itsfriday import Client
+from apilens import Client
 
 client = Client(api_key="YOUR_API_KEY")
 
@@ -93,7 +93,7 @@ client.metrics.send(
 
 ```python
 import time
-from itsfriday import Client
+from apilens import Client
 
 client = Client(api_key="YOUR_API_KEY")
 
@@ -126,9 +126,9 @@ class MetricsMiddleware:
 ## JavaScript/Node.js
 
 ```javascript
-import { ItsFriday } from '@itsfriday/sdk';
+import { apilens } from '@apilens/sdk';
 
-const client = new ItsFriday({ apiKey: 'YOUR_API_KEY' });
+const client = new apilens({ apiKey: 'YOUR_API_KEY' });
 
 // Send metric
 await client.metrics.send({
@@ -214,7 +214,7 @@ app.use((req, res, next) => {
 Once sent, query your metrics:
 
 ```bash
-curl "https://api.itsfriday.in/v1/metrics/query/" \
+curl "https://api.apilens.in/v1/metrics/query/" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -G \
   --data-urlencode "name=api.requests.total" \

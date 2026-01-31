@@ -1,5 +1,5 @@
 """
-Base Django model classes for ItsFriday.
+Base Django model classes for apilens.
 """
 
 from django.db import models

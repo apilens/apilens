@@ -1,5 +1,5 @@
 """
-Celery configuration for ItsFriday.
+Celery configuration for apilens.
 """
 
 import os
@@ -10,7 +10,7 @@ from celery import Celery
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.development")
 
 # Create Celery app
-app = Celery("itsfriday")
+app = Celery("apilens")
 
 # Load config from Django settings with CELERY_ prefix
 app.config_from_object("django.conf:settings", namespace="CELERY")

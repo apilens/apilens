@@ -1,5 +1,5 @@
 """
-ItsFriday API v1 Router
+apilens API v1 Router
 
 Main entry point for the v1 API using Django Ninja.
 """
@@ -9,9 +9,9 @@ from ninja import NinjaAPI
 
 # Create the main API instance
 api = NinjaAPI(
-    title="ItsFriday API",
+    title="apilens API",
     version="1.0.0",
-    description="ItsFriday Observability Platform API",
+    description="apilens Observability Platform API",
     docs_url="/docs",
     openapi_url="/openapi.json",
 )

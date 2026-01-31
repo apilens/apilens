@@ -1,5 +1,5 @@
 """
-URL configuration for ItsFriday project.
+URL configuration for apilens project.
 """
 
 from django.contrib import admin

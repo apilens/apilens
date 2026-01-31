@@ -1,16 +1,16 @@
 ---
 title: 'API Introduction'
-description: 'Getting started with the ItsFriday API'
+description: 'Getting started with the apilens API'
 ---
 
 # API Reference
 
-The ItsFriday API is a REST API that allows you to programmatically send and query observability data.
+The apilens API is a REST API that allows you to programmatically send and query observability data.
 
 ## Base URL
 
 ```
-https://api.itsfriday.in/v1
+https://api.apilens.in/v1
 ```
 
 For self-hosted installations:
@@ -23,7 +23,7 @@ https://your-domain.com/api/v1
 All API requests require authentication using a Bearer token:
 
 ```bash
-curl https://api.itsfriday.in/v1/metrics/ \
+curl https://api.apilens.in/v1/metrics/ \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
@@ -104,7 +104,7 @@ X-RateLimit-Reset: 1640000000
 List endpoints support pagination:
 
 ```bash
-curl "https://api.itsfriday.in/v1/logs/?limit=50&offset=100"
+curl "https://api.apilens.in/v1/logs/?limit=50&offset=100"
 ```
 
 Response includes pagination info:
@@ -141,9 +141,9 @@ Response includes pagination info:
 
 Official SDKs are available for:
 
-- Python: `pip install itsfriday`
-- JavaScript: `npm install @itsfriday/sdk`
-- Go: `go get github.com/itsfriday-in/sdk-go`
+- Python: `pip install apilens`
+- JavaScript: `npm install @apilens/sdk`
+- Go: `go get github.com/apilens-in/sdk-go`
 
 ## Interactive API Docs
 

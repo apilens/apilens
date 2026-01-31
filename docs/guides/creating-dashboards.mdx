@@ -28,7 +28,7 @@ Each dashboard can contain multiple panels displaying:
 ### Via API
 
 ```bash
-curl -X POST https://api.itsfriday.in/v1/dashboards/ \
+curl -X POST https://api.apilens.in/v1/dashboards/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
@@ -244,7 +244,7 @@ Make dashboards dynamic with variables:
 ### Public Link
 
 ```bash
-curl -X POST https://api.itsfriday.in/v1/dashboards/dash_123/share/ \
+curl -X POST https://api.apilens.in/v1/dashboards/dash_123/share/ \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{"public": true}'
 ```
@@ -253,12 +253,12 @@ curl -X POST https://api.itsfriday.in/v1/dashboards/dash_123/share/ \
 
 ```bash
 # Export
-curl https://api.itsfriday.in/v1/dashboards/dash_123/export/ \
+curl https://api.apilens.in/v1/dashboards/dash_123/export/ \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -o dashboard.json
 
 # Import
-curl -X POST https://api.itsfriday.in/v1/dashboards/import/ \
+curl -X POST https://api.apilens.in/v1/dashboards/import/ \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d @dashboard.json
 ```

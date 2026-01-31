@@ -1,9 +1,9 @@
 #!/bin/bash
 # =============================================================================
-# ItsFriday Production VM Deployment Script
+# apilens Production VM Deployment Script
 # =============================================================================
 # Usage: ./deploy-vm.sh <DOMAIN> <EMAIL>
-# Example: ./deploy-vm.sh itsfriday.example.com admin@example.com
+# Example: ./deploy-vm.sh apilens.example.com admin@example.com
 
 set -e
 
@@ -20,13 +20,13 @@ EMAIL=${2:-}
 
 if [ -z "$DOMAIN" ] || [ -z "$EMAIL" ]; then
     echo -e "${RED}Usage: $0 <DOMAIN> <EMAIL>${NC}"
-    echo "Example: $0 itsfriday.example.com admin@example.com"
+    echo "Example: $0 apilens.example.com admin@example.com"
     exit 1
 fi
 
 echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║         ItsFriday Production Deployment                        ║"
+echo "║         apilens Production Deployment                        ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -67,7 +67,7 @@ echo -e "${GREEN}✓ Docker Compose installed${NC}"
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}Setting up application directory...${NC}"
 
-APP_DIR="/opt/itsfriday"
+APP_DIR="/opt/apilens"
 mkdir -p $APP_DIR
 cd $APP_DIR
 
@@ -77,7 +77,7 @@ if [ -d ".git" ]; then
     git pull origin main
 else
     echo "Cloning repository..."
-    git clone https://github.com/itsfriday-in/itsfriday.git .
+    git clone https://github.com/apilens-in/apilens.git .
 fi
 
 # -----------------------------------------------------------------------------
@@ -202,7 +202,7 @@ echo -e "${GREEN}✓ SSL configured${NC}"
 # -----------------------------------------------------------------------------
 # Start Application
 # -----------------------------------------------------------------------------
-echo -e "${YELLOW}Starting ItsFriday...${NC}"
+echo -e "${YELLOW}Starting apilens...${NC}"
 
 docker compose -f docker-compose.prod.yml up -d --build
 
@@ -217,8 +217,8 @@ docker compose -f docker-compose.prod.yml exec -T backend python src/manage.py c
 docker compose -f docker-compose.prod.yml exec -T backend python src/manage.py shell << 'EOF'
 from django.contrib.auth import get_user_model
 User = get_user_model()
-if not User.objects.filter(email='admin@itsfriday.local').exists():
-    User.objects.create_superuser('admin', 'admin@itsfriday.local', 'admin')
+if not User.objects.filter(email='admin@apilens.local').exists():
+    User.objects.create_superuser('admin', 'admin@apilens.local', 'admin')
 EOF
 
 echo -e "${GREEN}✓ Application started${NC}"
@@ -228,12 +228,12 @@ echo -e "${GREEN}✓ Application started${NC}"
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}Setting up systemd service...${NC}"
 
-cp infrastructure/systemd/itsfriday.service /etc/systemd/system/
-sed -i "s|/opt/itsfriday|${APP_DIR}|g" /etc/systemd/system/itsfriday.service
+cp infrastructure/systemd/apilens.service /etc/systemd/system/
+sed -i "s|/opt/apilens|${APP_DIR}|g" /etc/systemd/system/apilens.service
 
 systemctl daemon-reload
-systemctl enable itsfriday
-systemctl start itsfriday
+systemctl enable apilens
+systemctl start apilens
 
 echo -e "${GREEN}✓ Systemd service configured${NC}"
 
@@ -256,19 +256,19 @@ echo "║         Deployment Complete! 🎉                               ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
-echo -e "${BLUE}Your ItsFriday instance is running at:${NC}"
+echo -e "${BLUE}Your apilens instance is running at:${NC}"
 echo "  https://${DOMAIN}"
 echo ""
 echo -e "${BLUE}Admin panel:${NC}"
 echo "  https://${DOMAIN}/admin/"
 echo ""
 echo -e "${BLUE}Default credentials:${NC}"
-echo "  Email:    admin@itsfriday.local"
+echo "  Email:    admin@apilens.local"
 echo "  Password: admin"
 echo ""
 echo -e "${RED}⚠ IMPORTANT: Change the admin password immediately!${NC}"
 echo ""
 echo -e "${BLUE}Management commands:${NC}"
-echo "  systemctl status itsfriday  - Check service status"
-echo "  systemctl restart itsfriday - Restart application"
-echo "  journalctl -u itsfriday -f  - View logs"
+echo "  systemctl status apilens  - Check service status"
+echo "  systemctl restart apilens - Restart application"
+echo "  journalctl -u apilens -f  - View logs"

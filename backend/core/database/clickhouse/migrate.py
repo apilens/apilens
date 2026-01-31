@@ -1,5 +1,5 @@
 """
-ClickHouse migration runner for ItsFriday.
+ClickHouse migration runner for apilens.
 """
 
 import logging

@@ -35,7 +35,7 @@ Trace: abc-123
 ### Basic Span
 
 ```bash
-curl -X POST https://api.itsfriday.in/v1/traces/ \
+curl -X POST https://api.apilens.in/v1/traces/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
@@ -57,7 +57,7 @@ curl -X POST https://api.itsfriday.in/v1/traces/ \
 ### Child Span
 
 ```bash
-curl -X POST https://api.itsfriday.in/v1/traces/ \
+curl -X POST https://api.apilens.in/v1/traces/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
@@ -78,8 +78,8 @@ curl -X POST https://api.itsfriday.in/v1/traces/ \
 ## Python Integration
 
 ```python
-from itsfriday import Client
-from itsfriday.tracing import Tracer
+from apilens import Client
+from apilens.tracing import Tracer
 import uuid
 
 client = Client(api_key="YOUR_API_KEY")
@@ -106,8 +106,8 @@ with tracer.start_trace("HTTP GET /users") as trace:
 
 ```python
 from flask import Flask, request, g
-from itsfriday import Client
-from itsfriday.tracing import Tracer
+from apilens import Client
+from apilens.tracing import Tracer
 import uuid
 
 app = Flask(__name__)
@@ -141,10 +141,10 @@ def get_users():
 ## JavaScript/Node.js
 
 ```javascript
-import { ItsFriday, Tracer } from '@itsfriday/sdk';
+import { apilens, Tracer } from '@apilens/sdk';
 import express from 'express';
 
-const client = new ItsFriday({ apiKey: 'YOUR_API_KEY' });
+const client = new apilens({ apiKey: 'YOUR_API_KEY' });
 const tracer = new Tracer(client);
 
 const app = express();
@@ -215,11 +215,11 @@ Query traces in the dashboard or via API:
 
 ```bash
 # Get trace by ID
-curl "https://api.itsfriday.in/v1/traces/abc123def456" \
+curl "https://api.apilens.in/v1/traces/abc123def456" \
   -H "Authorization: Bearer YOUR_API_KEY"
 
 # Search traces
-curl "https://api.itsfriday.in/v1/traces/search/" \
+curl "https://api.apilens.in/v1/traces/search/" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -G \
   --data-urlencode "service=api-gateway" \

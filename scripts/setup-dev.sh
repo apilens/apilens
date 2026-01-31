@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# ItsFriday Development Setup Script
+# apilens Development Setup Script
 # =============================================================================
 # This script sets up a local development environment
 
@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║              ItsFriday Development Setup                       ║"
+echo "║              apilens Development Setup                       ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 

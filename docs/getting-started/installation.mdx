@@ -1,6 +1,6 @@
 ---
 title: 'Installation'
-description: 'Detailed installation guide for ItsFriday'
+description: 'Detailed installation guide for apilens'
 ---
 
 # Installation Guide
@@ -31,8 +31,8 @@ For local development with hot-reloading:
 
 ```bash
 # Clone repository
-git clone https://github.com/itsfriday-in/itsfriday.git
-cd itsfriday
+git clone https://github.com/apilens-in/apilens.git
+cd apilens
 
 # Copy environment file
 cp .env.example .env
@@ -62,7 +62,7 @@ docker-compose -f docker-compose.prod.yml logs -f
 
 ## Option 2: Local Development
 
-For contributing or customizing ItsFriday.
+For contributing or customizing apilens.
 
 ### Prerequisites
 
@@ -76,8 +76,8 @@ For contributing or customizing ItsFriday.
 <Steps>
   <Step title="Clone Repository">
     ```bash
-    git clone https://github.com/itsfriday-in/itsfriday.git
-    cd itsfriday
+    git clone https://github.com/apilens-in/apilens.git
+    cd apilens
     ```
   </Step>
 
@@ -163,7 +163,7 @@ Deploy to a single Linux server with automatic SSL.
 ssh root@your-server-ip
 
 # Download and run deployment script
-curl -fsSL https://raw.githubusercontent.com/itsfriday-in/itsfriday/main/scripts/deploy-vm.sh -o deploy-vm.sh
+curl -fsSL https://raw.githubusercontent.com/apilens-in/apilens/main/scripts/deploy-vm.sh -o deploy-vm.sh
 chmod +x deploy-vm.sh
 
 # Deploy with your domain
@@ -183,13 +183,13 @@ The script will:
 
 ```bash
 # Check status
-systemctl status itsfriday
+systemctl status apilens
 
 # View logs
-journalctl -u itsfriday -f
+journalctl -u apilens -f
 
 # Restart application
-systemctl restart itsfriday
+systemctl restart apilens
 ```
 
 ---
@@ -204,15 +204,15 @@ DJANGO_SECRET_KEY=your-secret-key-here
 DJANGO_ALLOWED_HOSTS=your-domain.com
 
 # Database (auto-configured for Docker)
-POSTGRES_DB=itsfriday
-POSTGRES_USER=itsfriday
+POSTGRES_DB=apilens
+POSTGRES_USER=apilens
 POSTGRES_PASSWORD=secure-password
 
 # Auth0 (required for authentication)
 AUTH0_DOMAIN=your-tenant.auth0.com
 AUTH0_CLIENT_ID=your-client-id
 AUTH0_CLIENT_SECRET=your-secret
-AUTH0_AUDIENCE=https://api.itsfriday.in
+AUTH0_AUDIENCE=https://api.apilens.in
 ```
 
 <Warning>
@@ -283,6 +283,6 @@ docker-compose exec backend python src/manage.py check
     icon="paper-plane"
     href="/guides/sending-metrics"
   >
-    Start sending metrics to ItsFriday
+    Start sending metrics to apilens
   </Card>
 </CardGroup>

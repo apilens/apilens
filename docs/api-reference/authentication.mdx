@@ -1,11 +1,11 @@
 ---
 title: 'Authentication'
-description: 'Authenticate with the ItsFriday API'
+description: 'Authenticate with the apilens API'
 ---
 
 # Authentication
 
-ItsFriday uses API keys and OAuth 2.0 for authentication.
+apilens uses API keys and OAuth 2.0 for authentication.
 
 ## API Keys
 
@@ -27,7 +27,7 @@ API keys are used for server-to-server communication.
 Include the API key in the `Authorization` header:
 
 ```bash
-curl https://api.itsfriday.in/v1/metrics/ \
+curl https://api.apilens.in/v1/metrics/ \
   -H "Authorization: Bearer if_live_abc123..."
 ```
 
@@ -56,7 +56,7 @@ Set these environment variables:
 
 ```bash
 AUTH0_DOMAIN=your-tenant.auth0.com
-AUTH0_AUDIENCE=https://api.itsfriday.in
+AUTH0_AUDIENCE=https://api.apilens.in
 AUTH0_CLIENT_ID=your-client-id
 AUTH0_CLIENT_SECRET=your-client-secret
 ```
@@ -69,7 +69,7 @@ curl -X POST https://your-tenant.auth0.com/oauth/token \
   -d '{
     "client_id": "YOUR_CLIENT_ID",
     "client_secret": "YOUR_CLIENT_SECRET",
-    "audience": "https://api.itsfriday.in",
+    "audience": "https://api.apilens.in",
     "grant_type": "client_credentials"
   }'
 ```
@@ -87,7 +87,7 @@ Response:
 ### Using the Token
 
 ```bash
-curl https://api.itsfriday.in/v1/metrics/ \
+curl https://api.apilens.in/v1/metrics/ \
   -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
 ```
 

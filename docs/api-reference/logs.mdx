@@ -31,7 +31,7 @@ Send and search structured log data.
 
 <CodeGroup>
 ```bash cURL
-curl -X POST https://api.itsfriday.in/v1/logs/ \
+curl -X POST https://api.apilens.in/v1/logs/ \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -86,7 +86,7 @@ await client.logs.send({
 
 <CodeGroup>
 ```bash cURL
-curl -X POST https://api.itsfriday.in/v1/logs/batch/ \
+curl -X POST https://api.apilens.in/v1/logs/batch/ \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -140,7 +140,7 @@ curl -X POST https://api.itsfriday.in/v1/logs/batch/ \
 
 <CodeGroup>
 ```bash cURL
-curl -G "https://api.itsfriday.in/v1/logs/search/" \
+curl -G "https://api.apilens.in/v1/logs/search/" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   --data-urlencode "query=login failed" \
   --data-urlencode "level=error" \
@@ -190,7 +190,7 @@ results = client.logs.search(
 ## Get Log by ID
 
 ```bash
-curl "https://api.itsfriday.in/v1/logs/log_abc123/" \
+curl "https://api.apilens.in/v1/logs/log_abc123/" \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
@@ -217,7 +217,7 @@ Get log counts grouped by field.
 
 <CodeGroup>
 ```bash cURL
-curl -G "https://api.itsfriday.in/v1/logs/aggregate/" \
+curl -G "https://api.apilens.in/v1/logs/aggregate/" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   --data-urlencode "group_by=level" \
   --data-urlencode "from=2024-01-15T00:00:00Z"

@@ -1,4 +1,4 @@
--- ItsFriday Initial ClickHouse Schema
+-- apilens Initial ClickHouse Schema
 -- Migration: 001_initial_schema
 
 -- =============================================================================

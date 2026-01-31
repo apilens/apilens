@@ -1,11 +1,11 @@
 ---
 title: 'Production Deployment'
-description: 'Deploy ItsFriday in production with SSL and security best practices'
+description: 'Deploy apilens in production with SSL and security best practices'
 ---
 
 # Production Deployment
 
-This guide covers deploying ItsFriday to a production server with SSL, security hardening, and monitoring.
+This guide covers deploying apilens to a production server with SSL, security hardening, and monitoring.
 
 ## Automated Deployment
 
@@ -16,7 +16,7 @@ The fastest way to deploy:
 ssh root@your-server-ip
 
 # Download and run deployment script
-curl -fsSL https://raw.githubusercontent.com/itsfriday-in/itsfriday/main/scripts/deploy-vm.sh -o deploy.sh
+curl -fsSL https://raw.githubusercontent.com/apilens-in/apilens/main/scripts/deploy-vm.sh -o deploy.sh
 chmod +x deploy.sh
 
 # Deploy
@@ -47,11 +47,11 @@ usermod -aG docker $USER
 
 ```bash
 # Create application directory
-mkdir -p /opt/itsfriday
-cd /opt/itsfriday
+mkdir -p /opt/apilens
+cd /opt/apilens
 
 # Clone repository
-git clone https://github.com/itsfriday-in/itsfriday.git .
+git clone https://github.com/apilens-in/apilens.git .
 
 # Create environment file
 cp .env.example .env
@@ -174,18 +174,18 @@ docker compose -f docker-compose.prod.yml exec backend python src/manage.py crea
 
 ## Systemd Service
 
-Create `/etc/systemd/system/itsfriday.service`:
+Create `/etc/systemd/system/apilens.service`:
 
 ```ini
 [Unit]
-Description=ItsFriday Application
+Description=apilens Application
 After=docker.service
 Requires=docker.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/opt/itsfriday
+WorkingDirectory=/opt/apilens
 ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d
 ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
 Restart=on-failure
@@ -198,8 +198,8 @@ Enable and start:
 
 ```bash
 systemctl daemon-reload
-systemctl enable itsfriday
-systemctl start itsfriday
+systemctl enable apilens
+systemctl start apilens
 ```
 
 ## Certificate Auto-Renewal
@@ -210,7 +210,7 @@ Add cron job for certificate renewal:
 crontab -e
 
 # Add this line
-0 0 * * * certbot renew --quiet && docker compose -f /opt/itsfriday/docker-compose.prod.yml exec nginx nginx -s reload
+0 0 * * * certbot renew --quiet && docker compose -f /opt/apilens/docker-compose.prod.yml exec nginx nginx -s reload
 ```
 
 ## Security Checklist
@@ -240,7 +240,7 @@ docker compose -f docker-compose.prod.yml ps
 
 ```bash
 # View application logs
-journalctl -u itsfriday -f
+journalctl -u apilens -f
 
 # View Docker logs
 docker compose -f docker-compose.prod.yml logs -f
@@ -249,7 +249,7 @@ docker compose -f docker-compose.prod.yml logs -f
 ## Updates
 
 ```bash
-cd /opt/itsfriday
+cd /opt/apilens
 
 # Pull latest code
 git pull origin main

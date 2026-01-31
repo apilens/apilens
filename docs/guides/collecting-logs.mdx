@@ -1,11 +1,11 @@
 ---
 title: 'Collecting Logs'
-description: 'Send and search structured logs with ItsFriday'
+description: 'Send and search structured logs with apilens'
 ---
 
 # Collecting Logs
 
-ItsFriday provides powerful log aggregation and search capabilities for debugging and monitoring your applications.
+apilens provides powerful log aggregation and search capabilities for debugging and monitoring your applications.
 
 ## Log Structure
 
@@ -24,7 +24,7 @@ Each log entry contains:
 ### Single Log Entry
 
 ```bash
-curl -X POST https://api.itsfriday.in/v1/logs/ \
+curl -X POST https://api.apilens.in/v1/logs/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
@@ -41,7 +41,7 @@ curl -X POST https://api.itsfriday.in/v1/logs/ \
 ### Batch Logs
 
 ```bash
-curl -X POST https://api.itsfriday.in/v1/logs/batch/ \
+curl -X POST https://api.apilens.in/v1/logs/batch/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
@@ -65,7 +65,7 @@ curl -X POST https://api.itsfriday.in/v1/logs/batch/ \
 ### Using the SDK
 
 ```python
-from itsfriday import Client
+from apilens import Client
 import logging
 
 client = Client(api_key="YOUR_API_KEY")
@@ -86,9 +86,9 @@ client.logs.send(
 
 ```python
 import logging
-from itsfriday import Client
+from apilens import Client
 
-class ItsFridayHandler(logging.Handler):
+class apilensHandler(logging.Handler):
     def __init__(self, api_key: str):
         super().__init__()
         self.client = Client(api_key=api_key)
@@ -107,7 +107,7 @@ class ItsFridayHandler(logging.Handler):
 
 # Usage
 logger = logging.getLogger("myapp")
-logger.addHandler(ItsFridayHandler(api_key="YOUR_API_KEY"))
+logger.addHandler(apilensHandler(api_key="YOUR_API_KEY"))
 logger.setLevel(logging.INFO)
 
 logger.info("Application started")
@@ -121,14 +121,14 @@ logger.error("Something went wrong", extra={"error_code": "E001"})
 LOGGING = {
     'version': 1,
     'handlers': {
-        'itsfriday': {
-            'class': 'myapp.logging.ItsFridayHandler',
-            'api_key': os.environ.get('ITSFRIDAY_API_KEY'),
+        'apilens': {
+            'class': 'myapp.logging.apilensHandler',
+            'api_key': os.environ.get('apilens_API_KEY'),
         },
     },
     'loggers': {
         'django': {
-            'handlers': ['itsfriday'],
+            'handlers': ['apilens'],
             'level': 'INFO',
         },
     },
@@ -138,13 +138,13 @@ LOGGING = {
 ## JavaScript/Node.js
 
 ```javascript
-import { ItsFriday } from '@itsfriday/sdk';
+import { apilens } from '@apilens/sdk';
 import winston from 'winston';
 
-const client = new ItsFriday({ apiKey: 'YOUR_API_KEY' });
+const client = new apilens({ apiKey: 'YOUR_API_KEY' });
 
 // Winston transport
-class ItsFridayTransport extends winston.Transport {
+class apilensTransport extends winston.Transport {
   log(info, callback) {
     client.logs.send({
       level: info.level,
@@ -156,7 +156,7 @@ class ItsFridayTransport extends winston.Transport {
 }
 
 const logger = winston.createLogger({
-  transports: [new ItsFridayTransport()]
+  transports: [new apilensTransport()]
 });
 
 logger.info('User signed up', { userId: 'user_123' });
@@ -207,7 +207,7 @@ Query logs using the search API:
 
 ```bash
 # Search by message
-curl "https://api.itsfriday.in/v1/logs/search/" \
+curl "https://api.apilens.in/v1/logs/search/" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -G \
   --data-urlencode "query=error" \
@@ -215,7 +215,7 @@ curl "https://api.itsfriday.in/v1/logs/search/" \
   --data-urlencode "from=2024-01-01T00:00:00Z"
 
 # Search by attribute
-curl "https://api.itsfriday.in/v1/logs/search/" \
+curl "https://api.apilens.in/v1/logs/search/" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -G \
   --data-urlencode "attributes.user_id=user_123"

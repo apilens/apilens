@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "ItsFriday",
+  "name": "apilens",
   "favicon": "/images/favicon.svg",
   "colors": {
     "primary": "#0D9373",
@@ -11,12 +11,12 @@
   "topbarLinks": [
     {
       "name": "Support",
-      "url": "mailto:support@itsfriday.in"
+      "url": "mailto:support@apilens.in"
     }
   ],
   "topbarCtaButton": {
     "name": "Dashboard",
-    "url": "https://app.itsfriday.in"
+    "url": "https://app.apilens.in"
   },
   "tabs": [
     {
@@ -28,12 +28,12 @@
     {
       "name": "GitHub",
       "icon": "github",
-      "url": "https://github.com/itsfriday-in/itsfriday"
+      "url": "https://github.com/apilens-in/apilens"
     },
     {
       "name": "Community",
       "icon": "discord",
-      "url": "https://discord.gg/itsfriday"
+      "url": "https://discord.gg/apilens"
     }
   ],
   "navigation": {
@@ -77,8 +77,8 @@
     ]
   },
   "footerSocials": {
-    "twitter": "https://twitter.com/itsfridayin",
-    "github": "https://github.com/itsfriday-in/itsfriday",
-    "linkedin": "https://linkedin.com/company/itsfriday"
+    "twitter": "https://twitter.com/apilensin",
+    "github": "https://github.com/apilens-in/apilens",
+    "linkedin": "https://linkedin.com/company/apilens"
   }
 }

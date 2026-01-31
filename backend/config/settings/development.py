@@ -1,5 +1,5 @@
 """
-Django development settings for ItsFriday project.
+Django development settings for apilens project.
 """
 
 from .base import *  # noqa: F401, F403

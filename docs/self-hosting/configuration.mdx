@@ -1,6 +1,6 @@
 ---
 title: 'Configuration'
-description: 'Complete configuration reference for ItsFriday'
+description: 'Complete configuration reference for apilens'
 ---
 
 # Configuration Reference
@@ -34,15 +34,15 @@ DJANGO_ALLOWED_HOSTS=your-domain.com,www.your-domain.com
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `POSTGRES_DB` | Database name | `itsfriday` |
-| `POSTGRES_USER` | Database user | `itsfriday` |
+| `POSTGRES_DB` | Database name | `apilens` |
+| `POSTGRES_USER` | Database user | `apilens` |
 | `POSTGRES_PASSWORD` | Database password | - |
 | `POSTGRES_HOST` | Database host | `localhost` |
 | `POSTGRES_PORT` | Database port | `5432` |
 
 ```bash
-POSTGRES_DB=itsfriday
-POSTGRES_USER=itsfriday
+POSTGRES_DB=apilens
+POSTGRES_USER=apilens
 POSTGRES_PASSWORD=secure-password
 POSTGRES_HOST=postgres
 POSTGRES_PORT=5432
@@ -55,14 +55,14 @@ POSTGRES_PORT=5432
 | `CLICKHOUSE_HOST` | ClickHouse host | `localhost` |
 | `CLICKHOUSE_PORT` | Native port | `9000` |
 | `CLICKHOUSE_HTTP_PORT` | HTTP port | `8123` |
-| `CLICKHOUSE_DB` | Database name | `itsfriday` |
+| `CLICKHOUSE_DB` | Database name | `apilens` |
 | `CLICKHOUSE_USER` | Username | `default` |
 | `CLICKHOUSE_PASSWORD` | Password | `` |
 
 ```bash
 CLICKHOUSE_HOST=clickhouse
 CLICKHOUSE_PORT=9000
-CLICKHOUSE_DB=itsfriday
+CLICKHOUSE_DB=apilens
 ```
 
 ## Cache & Queue
@@ -205,7 +205,7 @@ ENVIRONMENT=production
 
 ```bash
 # =============================================================================
-# ItsFriday Production Configuration
+# apilens Production Configuration
 # =============================================================================
 
 # Core
@@ -215,8 +215,8 @@ DJANGO_ALLOWED_HOSTS=your-domain.com
 DJANGO_SETTINGS_MODULE=config.settings.production
 
 # PostgreSQL
-POSTGRES_DB=itsfriday
-POSTGRES_USER=itsfriday
+POSTGRES_DB=apilens
+POSTGRES_USER=apilens
 POSTGRES_PASSWORD=secure-database-password
 POSTGRES_HOST=postgres
 POSTGRES_PORT=5432
@@ -224,7 +224,7 @@ POSTGRES_PORT=5432
 # ClickHouse
 CLICKHOUSE_HOST=clickhouse
 CLICKHOUSE_PORT=9000
-CLICKHOUSE_DB=itsfriday
+CLICKHOUSE_DB=apilens
 CLICKHOUSE_USER=default
 CLICKHOUSE_PASSWORD=
 
