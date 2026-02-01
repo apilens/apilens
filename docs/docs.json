@@ -1,47 +1,55 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "apiLens",
-  "favicon": "/images/favicon.svg",
+  "name": "APILens",
   "colors": {
-    "primary": "#0D9373",
+    "primary": "#16A34A",
     "light": "#07C983",
-    "dark": "#0D9373"
+    "dark": "#15803D"
   },
-  "topbarLinks": [
-    {
-      "name": "Support",
-      "url": "mailto:support@apilens.ai"
-    }
-  ],
-  "topbarCtaButton": {
-    "name": "Dashboard",
-    "url": "https://app.apilens.ai"
-  },
-  "tabs": [
-    {
-      "name": "API Reference",
-      "url": "api-reference"
-    }
-  ],
-  "anchors": [
-    {
-      "name": "GitHub",
-      "icon": "github",
-      "url": "https://github.com/apilens/apilens"
-    }
-  ],
+  "favicon": "/favicon.svg",
   "navigation": {
-    "groups": [
+    "tabs": [
       {
-        "group": "Getting Started",
-        "pages": [
-          "getting-started/introduction"
+        "tab": "Overview",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "getting-started/introduction"
+            ]
+          }
         ]
       }
     ]
   },
-  "footerSocials": {
-    "github": "https://github.com/apilens/apilens"
+  "logo": {
+    "light": "/logo/light.png",
+    "dark": "/logo/dark.svg"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Contact",
+        "href": "mailto:hello@apilens.ai"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Dashboard",
+      "href": "https://apilens.ai"
+    }
+  },
+  "contextual": {
+    "options": [
+     "copy",
+     "view",
+     "chatgpt"
+   ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/apilens/apilens"
+    }
   }
 }
