@@ -123,8 +123,6 @@ dmypy.json
 # =============================================================================
 # Build Artifacts
 # =============================================================================
-dist/
-build/
 *.manifest
 *.spec
 
@@ -132,7 +130,6 @@ build/
 # Logs
 # =============================================================================
 logs/
-*.log
 log/
 
 # =============================================================================
@@ -169,3 +166,33 @@ credentials.json
 *.temp
 .cadence/
 sidecar_app/
+
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# testing
+/coverage
+
+# next.js
+/.next/
+.next/
+/out/
+
+# production
+/build
+
+# local env files
+.env
+.env*.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
