@@ -169,3 +169,21 @@ credentials.json
 *.temp
 .cadence/
 sidecar_app/
+
+# Next.js
+.next/
+out/
+
+# Environment
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Vercel
+.vercel
