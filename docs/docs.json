@@ -36,8 +36,8 @@
     ],
     "primary": {
       "type": "button",
-      "label": "Dashboard",
-      "href": "https://apilens.ai"
+      "label": "Get Started",
+      "href": "https://app.apilens.ai"
     }
   },
   "contextual": {
