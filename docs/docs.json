@@ -7,7 +7,7 @@
     "light": "#07C983",
     "dark": "#15803D"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "/logo/favicon/favicon.ico",
   "navigation": {
     "tabs": [
       {
@@ -24,8 +24,8 @@
     ]
   },
   "logo": {
-    "light": "/logo/light.png",
-    "dark": "/logo/dark.svg"
+    "light": "/logo/logo-transparent.svg",
+    "dark": "/logo/logo-transparent.svg"
   },
   "navbar": {
     "links": [
@@ -42,10 +42,10 @@
   },
   "contextual": {
     "options": [
-     "copy",
-     "view",
-     "chatgpt"
-   ]
+      "copy",
+      "view",
+      "chatgpt"
+    ]
   },
   "footer": {
     "socials": {
