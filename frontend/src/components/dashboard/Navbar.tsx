@@ -108,13 +108,19 @@ export default function Navbar() {
             onClick={() => setDropdownOpen(!dropdownOpen)}
           >
             <div className="user-avatar-gradient">
-              {hasValidPicture && !imgError ? (
+              {/* Picture/logo display commented out — initials only */}
+              {/* {hasValidPicture && !imgError ? (
                 <img
                   src={displayPicture}
                   alt={displayName || "User"}
                   onError={() => setImgError(true)}
                 />
               ) : isProfileLoaded ? (
+                <span className="user-avatar-initials">
+                  {getInitials(displayName, displayEmail)}
+                </span>
+              ) : null} */}
+              {isProfileLoaded ? (
                 <span className="user-avatar-initials">
                   {getInitials(displayName, displayEmail)}
                 </span>

@@ -83,49 +83,46 @@ export default function SettingsPage({ initialTab = "general" }: SettingsPagePro
     }
   };
 
-  const handleUpdatePicture = async (pictureData: string) => {
-    try {
-      const response = await fetch("/api/account/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ picture: pictureData }),
-      });
+  // Commented out — no picture upload
+  // const handleUpdatePicture = async (pictureData: string) => {
+  //   try {
+  //     const response = await fetch("/api/account/profile", {
+  //       method: "PATCH",
+  //       headers: { "Content-Type": "application/json" },
+  //       body: JSON.stringify({ picture: pictureData }),
+  //     });
+  //     if (!response.ok) {
+  //       const data = await response.json();
+  //       throw new Error(data.error || "Failed to update profile picture");
+  //     }
+  //     const data = await response.json();
+  //     setProfile(data.profile);
+  //     showToast("success", "Profile picture updated");
+  //   } catch (error) {
+  //     console.error("Error updating profile picture:", error);
+  //     showToast("error", error instanceof Error ? error.message : "Failed to update profile picture");
+  //   }
+  // };
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to update profile picture");
-      }
-
-      const data = await response.json();
-      setProfile(data.profile);
-      showToast("success", "Profile picture updated");
-    } catch (error) {
-      console.error("Error updating profile picture:", error);
-      showToast("error", error instanceof Error ? error.message : "Failed to update profile picture");
-    }
-  };
-
-  const handleRemovePicture = async () => {
-    try {
-      const response = await fetch("/api/account/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ picture: "" }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to remove profile picture");
-      }
-
-      const data = await response.json();
-      setProfile(data.profile);
-      showToast("success", "Profile picture removed");
-    } catch (error) {
-      console.error("Error removing profile picture:", error);
-      showToast("error", error instanceof Error ? error.message : "Failed to remove profile picture");
-    }
-  };
+  // const handleRemovePicture = async () => {
+  //   try {
+  //     const response = await fetch("/api/account/profile", {
+  //       method: "PATCH",
+  //       headers: { "Content-Type": "application/json" },
+  //       body: JSON.stringify({ picture: "" }),
+  //     });
+  //     if (!response.ok) {
+  //       const data = await response.json();
+  //       throw new Error(data.error || "Failed to remove profile picture");
+  //     }
+  //     const data = await response.json();
+  //     setProfile(data.profile);
+  //     showToast("success", "Profile picture removed");
+  //   } catch (error) {
+  //     console.error("Error removing profile picture:", error);
+  //     showToast("error", error instanceof Error ? error.message : "Failed to remove profile picture");
+  //   }
+  // };
 
   const handleDeleteAccount = async () => {
     try {
@@ -186,8 +183,8 @@ export default function SettingsPage({ initialTab = "general" }: SettingsPagePro
               profile={profile}
               identities={identities}
               onUpdateName={handleUpdateName}
-              onUpdatePicture={handleUpdatePicture}
-              onRemovePicture={handleRemovePicture}
+              // onUpdatePicture={handleUpdatePicture} // Commented out — no picture upload
+              // onRemovePicture={handleRemovePicture} // Commented out — no picture upload
               onRefreshIdentities={fetchIdentities}
               onDeleteAccount={handleDeleteAccount}
             />

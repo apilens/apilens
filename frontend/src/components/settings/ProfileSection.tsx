@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Pencil, Check, X, Loader2, Camera } from "lucide-react";
+import { useState } from "react";
+import { Pencil, Check, X, Loader2 } from "lucide-react";
+// import { Camera } from "lucide-react"; // Commented out — no picture upload
 import { UserProfile } from "@/types/settings";
 import SettingsCard from "./SettingsCard";
-import ProfilePictureEditor from "./ProfilePictureEditor";
+// import ProfilePictureEditor from "./ProfilePictureEditor"; // Commented out — no picture upload
 
 // Get initials from name (first letter of first name + first letter of last name)
 function getInitials(name?: string): string {
@@ -16,42 +17,36 @@ function getInitials(name?: string): string {
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 }
 
-// Validate if picture is a valid displayable image
-// Only base64 data URLs are valid (user-uploaded pictures)
-function isValidPictureUrl(url: string | undefined): boolean {
-  if (!url || typeof url !== 'string' || url.length === 0) {
-    return false;
-  }
-  // Only accept base64 data URLs (user-uploaded pictures)
-  return url.startsWith('data:image/');
-}
+// Commented out — no picture upload/display
+// function isValidPictureUrl(url: string | undefined): boolean {
+//   if (!url || typeof url !== 'string' || url.length === 0) {
+//     return false;
+//   }
+//   return url.startsWith('data:image/');
+// }
 
 interface ProfileSectionProps {
   profile: UserProfile | null;
   onUpdateName: (name: string) => Promise<void>;
-  onUpdatePicture?: (pictureData: string) => Promise<void>;
-  onRemovePicture?: () => Promise<void>;
+  // onUpdatePicture?: (pictureData: string) => Promise<void>; // Commented out — no picture upload
+  // onRemovePicture?: () => Promise<void>; // Commented out — no picture upload
 }
 
 export default function ProfileSection({
   profile,
   onUpdateName,
-  onUpdatePicture,
-  onRemovePicture
+  // onUpdatePicture, // Commented out — no picture upload
+  // onRemovePicture  // Commented out — no picture upload
 }: ProfileSectionProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(profile?.name || "");
   const [isSaving, setIsSaving] = useState(false);
-  const [imgError, setImgError] = useState(false);
-  const [isPictureEditorOpen, setIsPictureEditorOpen] = useState(false);
+  // const [imgError, setImgError] = useState(false); // Commented out — no picture display
+  // const [isPictureEditorOpen, setIsPictureEditorOpen] = useState(false); // Commented out — no picture upload
 
-  // Check if picture is valid (only base64 data URLs)
-  const hasValidPicture = isValidPictureUrl(profile?.picture);
-
-  // Reset image error when profile picture changes
-  useEffect(() => {
-    setImgError(false);
-  }, [profile?.picture]);
+  // Commented out — no picture display
+  // const hasValidPicture = isValidPictureUrl(profile?.picture);
+  // useEffect(() => { setImgError(false); }, [profile?.picture]);
 
   const handleStartEdit = () => {
     setEditedName(profile?.name || "");
@@ -86,12 +81,13 @@ export default function ProfileSection({
     }
   };
 
-  const handleSavePicture = async (pictureData: string) => {
-    if (onUpdatePicture) {
-      await onUpdatePicture(pictureData);
-      setImgError(false);
-    }
-  };
+  // Commented out — no picture upload
+  // const handleSavePicture = async (pictureData: string) => {
+  //   if (onUpdatePicture) {
+  //     await onUpdatePicture(pictureData);
+  //     setImgError(false);
+  //   }
+  // };
 
   if (!profile) {
     return (
@@ -121,7 +117,8 @@ export default function ProfileSection({
       }
     >
       <div className="profile-header">
-        <div
+        {/* Picture upload wrapper commented out — initials only, no click-to-edit */}
+        {/* <div
           className="profile-avatar-wrapper"
           onClick={() => setIsPictureEditorOpen(true)}
         >
@@ -141,6 +138,11 @@ export default function ProfileSection({
           <div className="profile-avatar-edit">
             <Camera size={20} className="profile-avatar-edit-icon" />
           </div>
+        </div> */}
+        <div className="profile-avatar-large">
+          <span className="profile-avatar-initial">
+            {getInitials(profile.name)}
+          </span>
         </div>
         <div className="profile-info">
           {isEditing ? (
@@ -180,13 +182,14 @@ export default function ProfileSection({
         </div>
       </div>
 
-      <ProfilePictureEditor
+      {/* ProfilePictureEditor commented out — no picture upload */}
+      {/* <ProfilePictureEditor
         isOpen={isPictureEditorOpen}
         onClose={() => setIsPictureEditorOpen(false)}
         onSave={handleSavePicture}
         onRemove={hasValidPicture ? onRemovePicture : undefined}
         currentPicture={hasValidPicture ? profile.picture : undefined}
-      />
+      /> */}
     </SettingsCard>
   );
 }

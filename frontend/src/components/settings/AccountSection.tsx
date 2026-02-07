@@ -9,8 +9,8 @@ interface AccountSectionProps {
   profile: UserProfile | null;
   identities: ConnectedAccount[];
   onUpdateName: (name: string) => Promise<void>;
-  onUpdatePicture: (pictureData: string) => Promise<void>;
-  onRemovePicture: () => Promise<void>;
+  // onUpdatePicture: (pictureData: string) => Promise<void>; // Commented out — no picture upload
+  // onRemovePicture: () => Promise<void>; // Commented out — no picture upload
   onRefreshIdentities: () => Promise<void>;
   onDeleteAccount: () => Promise<void>;
 }
@@ -19,8 +19,8 @@ export default function AccountSection({
   profile,
   identities,
   onUpdateName,
-  onUpdatePicture,
-  onRemovePicture,
+  // onUpdatePicture, // Commented out — no picture upload
+  // onRemovePicture, // Commented out — no picture upload
   onRefreshIdentities,
   onDeleteAccount,
 }: AccountSectionProps) {
@@ -29,8 +29,8 @@ export default function AccountSection({
       <ProfileSection
         profile={profile}
         onUpdateName={onUpdateName}
-        onUpdatePicture={onUpdatePicture}
-        onRemovePicture={onRemovePicture}
+        // onUpdatePicture={onUpdatePicture} // Commented out — no picture upload
+        // onRemovePicture={onRemovePicture} // Commented out — no picture upload
       />
 
       <ConnectedAccountsSection
