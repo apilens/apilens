@@ -1,12 +1,16 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useUser } from "@auth0/nextjs-auth0/client";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { X, Check } from "lucide-react";
-import { ConnectedAccount, UserProfile } from "@/types/settings";
+import { UserProfile } from "@/types/settings";
 import SettingsSidebar, { SettingsTab } from "./SettingsSidebar";
 import GeneralSection from "./GeneralSection";
-import AccountSection from "./AccountSection";
+import ProfileSection from "./ProfileSection";
+import LoginMethodsSection from "./LoginMethodsSection";
+import SessionsSection from "./SessionsSection";
+import ApiKeysSection from "./ApiKeysSection";
+import DangerZoneSection from "./DangerZoneSection";
 
 interface ToastState {
   type: "success" | "error";
@@ -18,9 +22,8 @@ interface SettingsPageProps {
 }
 
 export default function SettingsPage({ initialTab = "general" }: SettingsPageProps) {
-  const { user, isLoading: isUserLoading } = useUser();
+  const { user, isLoading: isUserLoading, logout, refreshUser } = useAuth();
   const activeTab = initialTab;
-  const [identities, setIdentities] = useState<ConnectedAccount[]>([]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -29,18 +32,6 @@ export default function SettingsPage({ initialTab = "general" }: SettingsPagePro
     setToast({ type, message });
     setTimeout(() => setToast(null), 5000);
   }, []);
-
-  const fetchIdentities = useCallback(async () => {
-    try {
-      const response = await fetch("/api/account/identities");
-      if (!response.ok) throw new Error("Failed to fetch identities");
-      const data = await response.json();
-      setIdentities(data.identities);
-    } catch (error) {
-      console.error("Error fetching identities:", error);
-      showToast("error", "Failed to load connected accounts");
-    }
-  }, [showToast]);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -55,11 +46,9 @@ export default function SettingsPage({ initialTab = "general" }: SettingsPagePro
 
   useEffect(() => {
     if (!isUserLoading && user) {
-      Promise.all([fetchIdentities(), fetchProfile()]).finally(() => {
-        setIsLoadingData(false);
-      });
+      fetchProfile().finally(() => setIsLoadingData(false));
     }
-  }, [isUserLoading, user, fetchIdentities, fetchProfile]);
+  }, [isUserLoading, user, fetchProfile]);
 
   const handleUpdateName = async (name: string) => {
     try {
@@ -76,6 +65,7 @@ export default function SettingsPage({ initialTab = "general" }: SettingsPagePro
 
       const data = await response.json();
       setProfile(data.profile);
+      await refreshUser();
       showToast("success", "Profile updated successfully");
     } catch (error) {
       console.error("Error updating profile:", error);
@@ -83,46 +73,49 @@ export default function SettingsPage({ initialTab = "general" }: SettingsPagePro
     }
   };
 
-  // Commented out — no picture upload
-  // const handleUpdatePicture = async (pictureData: string) => {
-  //   try {
-  //     const response = await fetch("/api/account/profile", {
-  //       method: "PATCH",
-  //       headers: { "Content-Type": "application/json" },
-  //       body: JSON.stringify({ picture: pictureData }),
-  //     });
-  //     if (!response.ok) {
-  //       const data = await response.json();
-  //       throw new Error(data.error || "Failed to update profile picture");
-  //     }
-  //     const data = await response.json();
-  //     setProfile(data.profile);
-  //     showToast("success", "Profile picture updated");
-  //   } catch (error) {
-  //     console.error("Error updating profile picture:", error);
-  //     showToast("error", error instanceof Error ? error.message : "Failed to update profile picture");
-  //   }
-  // };
+  const handlePictureUpload = async (blob: Blob) => {
+    try {
+      const formData = new FormData();
+      formData.append("file", blob, "profile.jpg");
 
-  // const handleRemovePicture = async () => {
-  //   try {
-  //     const response = await fetch("/api/account/profile", {
-  //       method: "PATCH",
-  //       headers: { "Content-Type": "application/json" },
-  //       body: JSON.stringify({ picture: "" }),
-  //     });
-  //     if (!response.ok) {
-  //       const data = await response.json();
-  //       throw new Error(data.error || "Failed to remove profile picture");
-  //     }
-  //     const data = await response.json();
-  //     setProfile(data.profile);
-  //     showToast("success", "Profile picture removed");
-  //   } catch (error) {
-  //     console.error("Error removing profile picture:", error);
-  //     showToast("error", error instanceof Error ? error.message : "Failed to remove profile picture");
-  //   }
-  // };
+      const response = await fetch("/api/account/profile/picture", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to upload picture");
+      }
+
+      await fetchProfile();
+      await refreshUser();
+      showToast("success", "Profile picture updated");
+    } catch (error) {
+      console.error("Error uploading picture:", error);
+      showToast("error", error instanceof Error ? error.message : "Failed to upload picture");
+    }
+  };
+
+  const handlePictureRemove = async () => {
+    try {
+      const response = await fetch("/api/account/profile/picture", {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to remove picture");
+      }
+
+      await fetchProfile();
+      await refreshUser();
+      showToast("success", "Profile picture removed");
+    } catch (error) {
+      console.error("Error removing picture:", error);
+      showToast("error", error instanceof Error ? error.message : "Failed to remove picture");
+    }
+  };
 
   const handleDeleteAccount = async () => {
     try {
@@ -135,10 +128,49 @@ export default function SettingsPage({ initialTab = "general" }: SettingsPagePro
         throw new Error(data.error || "Failed to delete account");
       }
 
-      window.location.href = "/auth/logout";
+      logout();
     } catch (error) {
       console.error("Error deleting account:", error);
       showToast("error", error instanceof Error ? error.message : "Failed to delete account");
+    }
+  };
+
+  const handleSetPassword = async (data: {
+    new_password: string;
+    confirm_password: string;
+    current_password?: string;
+  }) => {
+    const response = await fetch("/api/account/profile/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const result = await response.json();
+      throw new Error(result.error || "Failed to set password");
+    }
+
+    await fetchProfile();
+    await refreshUser();
+    showToast("success", "Password updated successfully");
+  };
+
+  const handleLogoutAll = async () => {
+    try {
+      const response = await fetch("/api/account/logout-all", {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to logout all devices");
+      }
+
+      // All refresh tokens revoked — log out current session too
+      await logout();
+    } catch (error) {
+      console.error("Error logging out all:", error);
+      showToast("error", error instanceof Error ? error.message : "Failed to logout all devices");
     }
   };
 
@@ -179,15 +211,26 @@ export default function SettingsPage({ initialTab = "general" }: SettingsPagePro
         <div className="settings-page-content">
           {activeTab === "general" && <GeneralSection />}
           {activeTab === "account" && (
-            <AccountSection
-              profile={profile}
-              identities={identities}
-              onUpdateName={handleUpdateName}
-              // onUpdatePicture={handleUpdatePicture} // Commented out — no picture upload
-              // onRemovePicture={handleRemovePicture} // Commented out — no picture upload
-              onRefreshIdentities={fetchIdentities}
-              onDeleteAccount={handleDeleteAccount}
-            />
+            <div className="settings-section-content">
+              <ProfileSection
+                profile={profile}
+                onUpdateName={handleUpdateName}
+                onPictureUpload={handlePictureUpload}
+                onPictureRemove={handlePictureRemove}
+              />
+              <SessionsSection onLogoutAll={handleLogoutAll} />
+              <LoginMethodsSection
+                email={profile?.email}
+                hasPassword={profile?.has_password}
+                onSetPassword={handleSetPassword}
+              />
+              <DangerZoneSection onDeleteAccount={handleDeleteAccount} />
+            </div>
+          )}
+          {activeTab === "api-keys" && (
+            <div className="settings-section-content">
+              <ApiKeysSection showToast={showToast} />
+            </div>
           )}
         </div>
       </div>

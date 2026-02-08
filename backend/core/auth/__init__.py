@@ -1,35 +1,22 @@
-"""
-Authentication module for APILens.
-
-This module provides Auth0 JWT authentication for Django Ninja APIs.
-"""
-
 from .context import TenantContext
-from .jwt import (
-    JWTValidator,
-    get_jwt_validator,
-    validate_token,
-    Auth0TokenError,
-    TokenExpiredError,
-    TokenInvalidError,
-)
+from .jwt import create_access_token, verify_access_token
 from .authentication import (
-    Auth0Bearer,
-    Auth0BearerOptional,
-    auth0_auth,
-    auth0_auth_optional,
+    JWTBearer,
+    JWTBearerOptional,
+    ApiKeyAuth,
+    jwt_auth,
+    jwt_auth_optional,
+    api_key_auth,
 )
 
 __all__ = [
     "TenantContext",
-    "JWTValidator",
-    "get_jwt_validator",
-    "validate_token",
-    "Auth0TokenError",
-    "TokenExpiredError",
-    "TokenInvalidError",
-    "Auth0Bearer",
-    "Auth0BearerOptional",
-    "auth0_auth",
-    "auth0_auth_optional",
+    "create_access_token",
+    "verify_access_token",
+    "JWTBearer",
+    "JWTBearerOptional",
+    "ApiKeyAuth",
+    "jwt_auth",
+    "jwt_auth_optional",
+    "api_key_auth",
 ]

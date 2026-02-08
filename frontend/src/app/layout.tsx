@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Auth0Provider } from "@auth0/nextjs-auth0/client";
+import { AuthProvider } from "@/components/providers/AuthProvider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import "./globals.css";
 
@@ -16,11 +16,11 @@ export default function RootLayout({
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>
       <body className="antialiased">
-        <Auth0Provider>
+        <AuthProvider>
           <ThemeProvider>
             {children}
           </ThemeProvider>
-        </Auth0Provider>
+        </AuthProvider>
       </body>
     </html>
   );

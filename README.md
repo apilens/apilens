@@ -1,358 +1,172 @@
-# apilens
+# APILens
 
-### SettingUp Initial Project There is no First Release Yet
-[//]: # ()
-[//]: # ([![License: MIT]&#40;https://img.shields.io/badge/License-MIT-yellow.svg&#41;]&#40;https://opensource.org/licenses/MIT&#41;)
+> **This project is under active development. There is no first release yet.**
+> Things will break, APIs will change, and features are incomplete.
+> If you'd like to contribute, you're warmly welcome — see [Contributing](#contributing) below.
 
-[//]: # ()
-[//]: # (**apilens** is a modern observability platform for monitoring APIs. Built with Django, React, ClickHouse, and PostgreSQL.)
+APILens is an observability platform for monitoring APIs. Track requests, analyze performance, and get alerts when things go wrong.
 
-[//]: # ()
-[//]: # (## Quick Start)
+## Tech Stack
 
-[//]: # ()
-[//]: # (```bash)
+| Layer | Technology |
+|-------|------------|
+| Backend | Python 3.13, Django 5, Django Ninja |
+| Frontend | Next.js 16, React 19, TypeScript |
+| Database | PostgreSQL |
+| Auth | Magic link email + JWT (custom, no third-party provider) |
 
-[//]: # (# Clone the repository)
+## Prerequisites
 
-[//]: # (git clone https://github.com/apilens-in/apilens.git)
+- **Python 3.11+** (we use 3.13)
+- **Node.js 20+**
+- **PostgreSQL 15+**
+- **uv** (Python package manager) — [install guide](https://docs.astral.sh/uv/getting-started/installation/)
 
-[//]: # (cd apilens)
+## Setting Up PostgreSQL
 
-[//]: # ()
-[//]: # (# Run quickstart &#40;Docker only required&#41;)
+### macOS (Homebrew)
 
-[//]: # (./scripts/quickstart.sh)
+```bash
+brew install postgresql@16
+brew services start postgresql@16
 
-[//]: # (```)
+# Create the database and user
+psql postgres -c "CREATE USER apilens WITH PASSWORD 'apilens_password';"
+psql postgres -c "CREATE DATABASE apilens OWNER apilens;"
+```
 
-[//]: # ()
-[//]: # (Access the application at http://localhost)
+### Ubuntu / Debian
 
-[//]: # ()
-[//]: # (## Architecture)
+```bash
+sudo apt install postgresql postgresql-contrib
+sudo systemctl start postgresql
 
-[//]: # ()
-[//]: # (```)
+sudo -u postgres psql -c "CREATE USER apilens WITH PASSWORD 'apilens_password';"
+sudo -u postgres psql -c "CREATE DATABASE apilens OWNER apilens;"
+```
 
-[//]: # (┌─────────────────────────────────────────────────────────────────┐)
+### Using an existing PostgreSQL instance
 
-[//]: # (│                         Load Balancer                            │)
+If you already have PostgreSQL running, just create a database and update the credentials in `backend/.env`.
 
-[//]: # (│                           &#40;Nginx&#41;                                │)
+## Installation
 
-[//]: # (└─────────────────────────┬───────────────────────────────────────┘)
+### 1. Clone the repository
 
-[//]: # (                          │)
+```bash
+git clone https://github.com/apilens/apilens.git
+cd apilens
+```
 
-[//]: # (          ┌───────────────┼───────────────┐)
+### 2. Backend setup
 
-[//]: # (          │               │               │)
+```bash
+cd backend
 
-[//]: # (          ▼               ▼               ▼)
+# Create virtual environment and install dependencies
+uv venv
+source .venv/bin/activate   # On Windows: .venv\Scripts\activate
+uv pip install -e .
 
-[//]: # (    ┌──────────┐    ┌──────────┐    ┌──────────┐)
+# Create your environment file
+cp .env.example .env
+# Edit .env with your PostgreSQL credentials
+```
 
-[//]: # (    │ Frontend │    │  API     │    │  Worker  │)
+Open `backend/.env` and update the database section to match your PostgreSQL setup:
 
-[//]: # (    │ &#40;React&#41;  │    │ &#40;Django&#41; │    │ &#40;Celery&#41; │)
+```
+POSTGRES_DB=apilens
+POSTGRES_USER=apilens
+POSTGRES_PASSWORD=apilens_password
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+```
 
-[//]: # (    └──────────┘    └────┬─────┘    └────┬─────┘)
+Then run migrations and start the server:
 
-[//]: # (                         │               │)
+```bash
+python manage.py migrate
+python manage.py runserver
+```
 
-[//]: # (         ┌───────────────┼───────────────┤)
+The backend API will be available at **http://localhost:8000/api/v1/**
 
-[//]: # (         │               │               │)
+API docs (Swagger): **http://localhost:8000/api/v1/docs**
 
-[//]: # (         ▼               ▼               ▼)
+### 3. Frontend setup
 
-[//]: # (   ┌──────────┐    ┌──────────┐    ┌──────────┐)
+Open a new terminal:
 
-[//]: # (   │PostgreSQL│    │ClickHouse│    │  Redis   │)
+```bash
+cd frontend
 
-[//]: # (   │ &#40;Config&#41; │    │ &#40;Metrics&#41;│    │ &#40;Cache&#41;  │)
+# Install dependencies
+npm install
 
-[//]: # (   └──────────┘    └──────────┘    └──────────┘)
+# Create your environment file
+cp .env.example .env.local
+```
 
-[//]: # (```)
+The defaults in `.env.example` work for local development. Then start the dev server:
 
-[//]: # ()
-[//]: # (## Tech Stack)
+```bash
+npm run dev
+```
 
-[//]: # ()
-[//]: # (| Component | Technology |)
+The frontend will be available at **http://localhost:3000**
 
-[//]: # (|-----------|------------|)
+## Project Structure
 
-[//]: # (| Backend API | Django 5 + Django Ninja |)
+```
+apilens/
+├── backend/                  # Django API
+│   ├── api/                  # API endpoints (thin routers + schemas)
+│   │   ├── auth/             # Auth endpoints (magic-link, verify, refresh)
+│   │   └── users/            # User endpoints (profile, sessions, api-keys)
+│   ├── apps/                 # Django apps (business logic)
+│   │   ├── auth/             # Tokens, magic links, API keys
+│   │   └── users/            # User model and services
+│   ├── config/               # Django settings, URLs
+│   └── core/                 # Infrastructure (auth, exceptions, utils)
+├── frontend/                 # Next.js app
+│   └── src/
+│       ├── app/              # App Router pages + API routes
+│       ├── components/       # React components
+│       └── lib/              # Utilities (session, API client)
+├── docs/                     # Documentation assets
+└── scripts/                  # Utility scripts
+```
 
-[//]: # (| Frontend | React 18 + Vite + TypeScript |)
+## Development
 
-[//]: # (| Analytics DB | ClickHouse |)
+### Running both servers
 
-[//]: # (| Config DB | PostgreSQL |)
+You need two terminals:
 
-[//]: # (| Cache/Queue | Redis |)
+```bash
+# Terminal 1 — Backend
+cd backend && source .venv/bin/activate && python manage.py runserver
 
-[//]: # (| Task Queue | Celery |)
+# Terminal 2 — Frontend
+cd frontend && npm run dev
+```
 
-[//]: # (| Auth | Auth0 |)
+### Magic link emails in development
 
-[//]: # ()
-[//]: # (## System Requirements)
+By default, the backend uses Django's console email backend. When you request a magic link, the email (with the login URL) will be printed in the backend terminal. Copy the link and open it in your browser.
 
-[//]: # ()
-[//]: # (| Resource | Minimum | Recommended |)
+## Contributing
 
-[//]: # (|----------|---------|-------------|)
+Contributions are welcome! This project is in its early stages, so there's plenty of room to help shape it.
 
-[//]: # (| CPU | 2 cores | 4+ cores |)
+1. Fork the repo
+2. Create your branch (`git checkout -b feature/your-feature`)
+3. Make your changes
+4. Open a pull request
 
-[//]: # (| RAM | 4 GB | 8+ GB |)
+Since there's no first release yet, expect breaking changes. If you're unsure about an approach, open an issue first to discuss.
 
-[//]: # (| Storage | 20 GB | 100+ GB SSD |)
+## License
 
-[//]: # (| Docker | 20.10+ | Latest |)
-
-[//]: # ()
-[//]: # (## Installation)
-
-[//]: # ()
-[//]: # (### Option 1: Docker &#40;Recommended&#41;)
-
-[//]: # ()
-[//]: # (```bash)
-
-[//]: # (# Development)
-
-[//]: # (docker-compose up -d)
-
-[//]: # ()
-[//]: # (# Production)
-
-[//]: # (docker-compose -f docker-compose.prod.yml up -d)
-
-[//]: # (```)
-
-[//]: # ()
-[//]: # (### Option 2: Local Development)
-
-[//]: # ()
-[//]: # (```bash)
-
-[//]: # (# Run setup script)
-
-[//]: # (./scripts/setup-dev.sh)
-
-[//]: # ()
-[//]: # (# Or manually:)
-
-[//]: # (# 1. Install dependencies)
-
-[//]: # (uv sync --extra dev)
-
-[//]: # (cd static && npm install && cd ..)
-
-[//]: # ()
-[//]: # (# 2. Start services)
-
-[//]: # (docker-compose up -d)
-
-[//]: # ()
-[//]: # (# 3. Run migrations)
-
-[//]: # (cd src && python manage.py migrate)
-
-[//]: # ()
-[//]: # (# 4. Start servers)
-
-[//]: # (python manage.py runserver  # Backend)
-
-[//]: # (cd ../static && npm run dev  # Frontend)
-
-[//]: # (```)
-
-[//]: # ()
-[//]: # (### Option 3: Production VM)
-
-[//]: # ()
-[//]: # (```bash)
-
-[//]: # (./scripts/deploy-vm.sh your-domain.com admin@email.com)
-
-[//]: # (```)
-
-[//]: # ()
-[//]: # (## Development)
-
-[//]: # ()
-[//]: # (### Running the Backend)
-
-[//]: # ()
-[//]: # (```bash)
-
-[//]: # (source .venv/bin/activate)
-
-[//]: # (cd src)
-
-[//]: # (python manage.py runserver)
-
-[//]: # (```)
-
-[//]: # ()
-[//]: # (API available at http://localhost:8000/api/v1/)
-
-[//]: # ()
-[//]: # (### Running the Frontend)
-
-[//]: # ()
-[//]: # (```bash)
-
-[//]: # (cd static)
-
-[//]: # (npm run dev)
-
-[//]: # (```)
-
-[//]: # ()
-[//]: # (Frontend available at http://localhost:3000)
-
-[//]: # ()
-[//]: # (### Running Tests)
-
-[//]: # ()
-[//]: # (```bash)
-
-[//]: # (# All tests)
-
-[//]: # (./scripts/test.sh)
-
-[//]: # ()
-[//]: # (# Backend only)
-
-[//]: # (cd src && pytest)
-
-[//]: # ()
-[//]: # (# Frontend only)
-
-[//]: # (cd static && npm test)
-
-[//]: # (```)
-
-[//]: # ()
-[//]: # (### Code Quality)
-
-[//]: # ()
-[//]: # (```bash)
-
-[//]: # (# Linting)
-
-[//]: # (ruff check src/)
-
-[//]: # (cd static && npm run lint)
-
-[//]: # ()
-[//]: # (# Formatting)
-
-[//]: # (black src/)
-
-[//]: # (cd static && npm run format)
-
-[//]: # (```)
-
-[//]: # ()
-[//]: # (## Project Structure)
-
-[//]: # ()
-[//]: # (```)
-
-[//]: # (apilens/)
-
-[//]: # (├── src/                    # Django backend)
-
-[//]: # (│   ├── api/               # API endpoints)
-
-[//]: # (│   │   └── v1/           # API version 1)
-
-[//]: # (│   ├── apps/             # Django apps)
-
-[//]: # (│   ├── config/           # Django settings)
-
-[//]: # (│   │   └── settings/     # Environment configs)
-
-[//]: # (│   ├── core/             # Shared utilities)
-
-[//]: # (│   │   ├── auth/        # Authentication)
-
-[//]: # (│   │   └── database/    # Database clients)
-
-[//]: # (│   └── tests/            # Test files)
-
-[//]: # (├── static/                # React frontend)
-
-[//]: # (│   ├── src/              # Source code)
-
-[//]: # (│   └── dist/             # Build output)
-
-[//]: # (├── infrastructure/        # Deployment configs)
-
-[//]: # (│   ├── docker/           # Dockerfiles)
-
-[//]: # (│   └── systemd/          # Service files)
-
-[//]: # (├── scripts/               # Utility scripts)
-
-[//]: # (├── docker-compose.yml     # Development services)
-
-[//]: # (└── docker-compose.prod.yml # Production services)
-
-[//]: # (```)
-
-[//]: # ()
-[//]: # (## Environment Variables)
-
-[//]: # ()
-[//]: # (Copy `.env.example` to `.env` and configure:)
-
-[//]: # ()
-[//]: # (```bash)
-
-[//]: # (cp .env.example .env)
-
-[//]: # (```)
-
-[//]: # ()
-[//]: # (Key variables:)
-
-[//]: # (- `DJANGO_SECRET_KEY` - Django secret key)
-
-[//]: # (- `POSTGRES_*` - PostgreSQL connection)
-
-[//]: # (- `CLICKHOUSE_*` - ClickHouse connection)
-
-[//]: # (- `AUTH0_*` - Auth0 configuration)
-
-[//]: # (- `VITE_*` - Frontend configuration)
-
-[//]: # ()
-[//]: # (## API Documentation)
-
-[//]: # ()
-[//]: # (When running, access API docs at:)
-
-[//]: # (- Swagger UI: http://localhost:8000/api/v1/docs)
-
-[//]: # (- OpenAPI JSON: http://localhost:8000/api/v1/openapi.json)
-
-[//]: # ()
-[//]: # (## Contributing)
-
-[//]: # ()
-[//]: # (See [CONTRIBUTING.md]&#40;CONTRIBUTING.md&#41; for guidelines.)
-
-[//]: # ()
-[//]: # (## License)
-
-[//]: # ()
-[//]: # (This project is licensed under the MIT License - see [LICENSE]&#40;LICENSE&#41; for details.)
+MIT — see [LICENSE](LICENSE) for details.

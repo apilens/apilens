@@ -1,16 +1,17 @@
 import { redirect, notFound } from "next/navigation";
-import { auth0 } from "@/lib/auth0";
+import { getSession } from "@/lib/session";
 import { DashboardLayout } from "@/components/dashboard";
 import { SettingsPage } from "@/components/settings";
 import { SettingsTab } from "@/components/settings/SettingsSidebar";
 
-const validTabs: SettingsTab[] = ["general", "account"];
+const validTabs: SettingsTab[] = ["general", "account", "api-keys"];
 
 export async function generateMetadata({ params }: { params: Promise<{ tab: string }> }) {
   const { tab } = await params;
   const tabTitles: Record<string, string> = {
     general: "General Settings",
     account: "Account Settings",
+    "api-keys": "API Keys",
   };
 
   return {
@@ -20,7 +21,7 @@ export async function generateMetadata({ params }: { params: Promise<{ tab: stri
 }
 
 export default async function SettingsTabPage({ params }: { params: Promise<{ tab: string }> }) {
-  const session = await auth0.getSession();
+  const session = await getSession();
 
   if (!session) {
     redirect("/auth/login");
@@ -28,7 +29,6 @@ export default async function SettingsTabPage({ params }: { params: Promise<{ ta
 
   const { tab } = await params;
 
-  // Validate tab parameter
   if (!validTabs.includes(tab as SettingsTab)) {
     notFound();
   }

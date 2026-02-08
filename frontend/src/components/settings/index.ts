@@ -1,11 +1,10 @@
 export { default as SettingsPage } from "./SettingsPage";
 export { default as SettingsSidebar } from "./SettingsSidebar";
 export { default as GeneralSection } from "./GeneralSection";
-export { default as AccountSection } from "./AccountSection";
 export { default as ProfileSection } from "./ProfileSection";
-export { default as ConnectedAccountsSection } from "./ConnectedAccountsSection";
+export { default as LoginMethodsSection } from "./LoginMethodsSection";
+export { default as SessionsSection } from "./SessionsSection";
+export { default as ApiKeysSection } from "./ApiKeysSection";
 export { default as DangerZoneSection } from "./DangerZoneSection";
 export { default as SettingsCard } from "./SettingsCard";
 export { default as ConfirmDialog } from "./ConfirmDialog";
-export { default as ProviderIcon } from "./ProviderIcon";
-export { default as ProfilePictureEditor } from "./ProfilePictureEditor";

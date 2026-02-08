@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Settings, User } from "lucide-react";
+import { Settings, User, Key } from "lucide-react";
 
-export type SettingsTab = "general" | "account";
+export type SettingsTab = "general" | "account" | "api-keys";
 
 interface SettingsSidebarProps {
   activeTab: SettingsTab;
@@ -11,7 +11,8 @@ interface SettingsSidebarProps {
 
 const menuItems: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: Settings },
-  { id: "account", label: "Account", icon: User },
+  { id: "account", label: "Accounts", icon: User },
+  { id: "api-keys", label: "API Keys", icon: Key },
 ];
 
 export default function SettingsSidebar({ activeTab }: SettingsSidebarProps) {

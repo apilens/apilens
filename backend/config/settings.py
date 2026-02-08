@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "ninja",
     # Local apps
     "apps.users",
+    "apps.auth",
 ]
 
 # Custom User Model
@@ -109,16 +110,19 @@ DATABASES = {
     }
 }
 
-# Auth0 Configuration
-AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN", "")
-AUTH0_AUDIENCE = os.environ.get("AUTH0_AUDIENCE", "")
-AUTH0_CLIENT_ID = os.environ.get("AUTH0_CLIENT_ID", "")
-AUTH0_CLIENT_SECRET = os.environ.get("AUTH0_CLIENT_SECRET", "")
-AUTH0_ALGORITHMS = os.environ.get("AUTH0_ALGORITHMS", "RS256").split(",")
+# Frontend URL (for magic link emails)
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
-# Webhook secret for Auth0 Post-Login Action
-# Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
-AUTH0_WEBHOOK_SECRET = os.environ.get("AUTH0_WEBHOOK_SECRET", "")
+# Email Configuration
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@apilens.io")
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True").lower() in ("true", "1", "yes")
 
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -137,6 +141,14 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+# Profile picture constraints
+PROFILE_PICTURE_MAX_SIZE = 5 * 1024 * 1024  # 5 MB
+PROFILE_PICTURE_MAX_DIMENSION = 800  # pixels
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Logging

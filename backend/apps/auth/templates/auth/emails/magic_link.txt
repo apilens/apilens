@@ -1,0 +1,10 @@
+Sign in to API Lens
+
+Click the link below to sign in:
+
+{{ verify_url }}
+
+This link expires in 15 minutes.
+If you didn't request this, you can safely ignore this email.
+
+— API Lens

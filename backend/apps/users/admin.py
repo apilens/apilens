@@ -1,7 +1,3 @@
-"""
-Admin configuration for User model.
-"""
-
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
@@ -10,13 +6,11 @@ from .models import User
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    """Admin configuration for custom User model."""
-
     list_display = [
         "email",
         "first_name",
         "last_name",
-        "auth0_connection",
+        "auth_provider",
         "email_verified",
         "is_active",
         "created_at",
@@ -25,36 +19,19 @@ class UserAdmin(BaseUserAdmin):
         "is_active",
         "is_staff",
         "email_verified",
-        "auth0_connection",
+        "auth_provider",
         "created_at",
     ]
-    search_fields = ["email", "first_name", "last_name", "auth0_id"]
+    search_fields = ["email", "first_name", "last_name"]
     ordering = ["-created_at"]
-    readonly_fields = [
-        "id",
-        "auth0_id",
-        "auth0_connection",
-        "created_at",
-        "updated_at",
-        "last_synced_at",
-    ]
+    readonly_fields = ["id", "created_at", "updated_at"]
 
     fieldsets = (
-        (None, {"fields": ("id", "auth0_id", "email", "password")}),
+        (None, {"fields": ("id", "email", "password")}),
+        ("Personal info", {"fields": ("first_name", "last_name", "picture")}),
         (
-            "Personal info",
-            {"fields": ("first_name", "last_name", "picture")},
-        ),
-        (
-            "Auth0 Info",
-            {
-                "fields": (
-                    "auth0_connection",
-                    "email_verified",
-                    "last_login_at",
-                    "last_synced_at",
-                )
-            },
+            "Auth",
+            {"fields": ("auth_provider", "email_verified", "last_login_at")},
         ),
         (
             "Permissions",
@@ -76,7 +53,7 @@ class UserAdmin(BaseUserAdmin):
             None,
             {
                 "classes": ("wide",),
-                "fields": ("email", "auth0_id", "password1", "password2"),
+                "fields": ("email", "password1", "password2"),
             },
         ),
     )

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useUser } from "@auth0/nextjs-auth0/client";
+import { useAuth } from "@/components/providers/AuthProvider";
 import Navbar from "./Navbar";
 
 interface AccountLayoutProps {
@@ -9,7 +9,7 @@ interface AccountLayoutProps {
 }
 
 export default function AccountLayout({ children }: AccountLayoutProps) {
-  const { isLoading } = useUser();
+  const { isLoading } = useAuth();
 
   if (isLoading) {
     return (

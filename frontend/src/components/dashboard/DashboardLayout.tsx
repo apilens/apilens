@@ -1,6 +1,6 @@
 "use client";
 
-import { useUser } from "@auth0/nextjs-auth0/client";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { SidebarProvider, useSidebar } from "@/components/providers/SidebarProvider";
 import Sidebar from "./Sidebar";
 import Navbar from "./Navbar";
@@ -10,7 +10,7 @@ interface DashboardLayoutProps {
 }
 
 function DashboardInner({ children }: DashboardLayoutProps) {
-  const { isLoading } = useUser();
+  const { isLoading } = useAuth();
   const { collapsed } = useSidebar();
 
   if (isLoading) {

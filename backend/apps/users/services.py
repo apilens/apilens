@@ -1,188 +1,152 @@
-"""
-User synchronization service for Auth0 integration.
-
-This service handles creating and updating Django users based on
-Auth0 JWT token claims. It's called on each authenticated request
-to ensure user data stays in sync.
-"""
-
 import logging
-from datetime import datetime
-from typing import Any, Optional
+import os
+from io import BytesIO
+from typing import Optional
 
+from django.conf import settings
+from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
+from PIL import Image
 
+from django.contrib.auth.password_validation import validate_password as django_validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+
+from core.exceptions.base import AuthenticationError, ValidationError
 from .models import User
 
 logger = logging.getLogger(__name__)
 
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
-class UserSyncService:
-    """
-    Service for synchronizing Auth0 users with Django User model.
 
-    This service is responsible for:
-    - Creating new users when they first authenticate
-    - Updating existing user data from Auth0 claims
-    - Handling edge cases like email changes
-    """
-
-    @classmethod
-    def get_or_create_from_token(cls, token_claims: dict[str, Any]) -> User:
-        """
-        Get or create a Django user from Auth0 JWT claims.
-
-        Args:
-            token_claims: Decoded JWT claims from Auth0 token.
-                         Expected fields: sub, email, name, picture, email_verified, etc.
-
-        Returns:
-            User: The Django user instance (created or updated)
-
-        Raises:
-            ValueError: If required claims are missing
-        """
-        # Validate required claims
-        auth0_id = token_claims.get("sub")
-        if not auth0_id:
-            raise ValueError("Missing 'sub' claim in token")
-
-        email = token_claims.get("email")
-        if not email:
-            raise ValueError("Missing 'email' claim in token")
-
-        # Try to get existing user by auth0_id
-        try:
-            user = User.objects.get(auth0_id=auth0_id)
-            return cls._update_user_from_claims(user, token_claims)
-        except User.DoesNotExist:
-            pass
-
-        # Check if user exists with same email but different auth0_id
-        # This can happen with account linking
-        try:
-            user = User.objects.get(email=email)
-            # Update the auth0_id if this is a linked account scenario
-            logger.info(
-                f"Found existing user with email {email}, updating auth0_id from {user.auth0_id} to {auth0_id}"
-            )
-            user.auth0_id = auth0_id
-            return cls._update_user_from_claims(user, token_claims)
-        except User.DoesNotExist:
-            pass
-
-        # Create new user
-        return cls._create_user_from_claims(token_claims)
-
-    @classmethod
+class UserService:
+    @staticmethod
     @transaction.atomic
-    def _create_user_from_claims(cls, claims: dict[str, Any]) -> User:
-        """Create a new user from Auth0 claims."""
-        auth0_id = claims["sub"]
-        email = claims["email"]
-
-        # Parse name
-        name = claims.get("name", "")
-        first_name, last_name = cls._parse_name(name)
-
-        # Extract connection from auth0_id
-        connection = auth0_id.split("|")[0] if "|" in auth0_id else ""
-
-        user = User.objects.create(
-            auth0_id=auth0_id,
-            email=email,
-            first_name=first_name,
-            last_name=last_name,
-            picture=claims.get("picture", ""),
-            email_verified=claims.get("email_verified", False),
-            auth0_connection=connection,
-            is_active=True,
+    def get_or_create_by_email(email: str, **defaults) -> tuple[User, bool]:
+        return User.objects.get_or_create(
+            email=email.lower().strip(),
+            defaults={
+                "email_verified": defaults.get("email_verified", False),
+                "auth_provider": defaults.get("auth_provider", "magic_link"),
+                "is_active": True,
+            },
         )
 
-        logger.info(f"Created new user: {user.email} (auth0_id: {auth0_id})")
-        return user
-
-    @classmethod
+    @staticmethod
     @transaction.atomic
-    def _update_user_from_claims(cls, user: User, claims: dict[str, Any]) -> User:
-        """Update existing user from Auth0 claims."""
-        updated_fields = []
+    def update_profile(user: User, first_name: str | None = None, last_name: str | None = None) -> User:
+        update_fields = []
 
-        # Update email if changed
-        new_email = claims.get("email")
-        if new_email and new_email != user.email:
-            # Check if new email is already taken by another user
-            if User.objects.filter(email=new_email).exclude(pk=user.pk).exists():
-                logger.warning(
-                    f"Cannot update email for user {user.auth0_id}: "
-                    f"email {new_email} already exists"
-                )
-            else:
-                user.email = new_email
-                updated_fields.append("email")
+        if first_name is not None:
+            user.first_name = first_name[:150]
+            update_fields.append("first_name")
 
-        # Update name
-        name = claims.get("name", "")
-        first_name, last_name = cls._parse_name(name)
-        if first_name and first_name != user.first_name:
-            user.first_name = first_name
-            updated_fields.append("first_name")
-        if last_name and last_name != user.last_name:
-            user.last_name = last_name
-            updated_fields.append("last_name")
+        if last_name is not None:
+            user.last_name = last_name[:150]
+            update_fields.append("last_name")
 
-        # Update picture
-        picture = claims.get("picture", "")
-        if picture and picture != user.picture:
-            user.picture = picture
-            updated_fields.append("picture")
-
-        # Update email_verified
-        email_verified = claims.get("email_verified", False)
-        if email_verified != user.email_verified:
-            user.email_verified = email_verified
-            updated_fields.append("email_verified")
-
-        # Update last_synced_at (auto_now handles this)
-        if updated_fields:
-            user.save(update_fields=updated_fields + ["updated_at", "last_synced_at"])
-            logger.debug(
-                f"Updated user {user.email}: fields={updated_fields}"
-            )
+        if update_fields:
+            user.save(update_fields=update_fields + ["updated_at"])
 
         return user
 
-    @classmethod
-    def update_last_login(cls, user: User) -> None:
-        """Update the last login timestamp."""
+    @staticmethod
+    @transaction.atomic
+    def deactivate_user(user: User) -> None:
+        user.is_active = False
+        user.save(update_fields=["is_active", "updated_at"])
+
+    @staticmethod
+    def update_last_login(user: User) -> None:
         user.last_login_at = timezone.now()
         user.save(update_fields=["last_login_at", "updated_at"])
 
     @staticmethod
-    def _parse_name(name: str) -> tuple[str, str]:
-        """Parse full name into first and last name."""
-        if not name:
-            return "", ""
-
-        parts = name.strip().split(None, 1)
-        first_name = parts[0] if parts else ""
-        last_name = parts[1] if len(parts) > 1 else ""
-
-        return first_name[:150], last_name[:150]
-
-    @classmethod
-    def get_by_auth0_id(cls, auth0_id: str) -> Optional[User]:
-        """Get user by Auth0 ID."""
+    def get_by_email(email: str) -> Optional[User]:
         try:
-            return User.objects.get(auth0_id=auth0_id)
+            return User.objects.get(email=email.lower().strip())
         except User.DoesNotExist:
             return None
 
-    @classmethod
-    def get_by_email(cls, email: str) -> Optional[User]:
-        """Get user by email."""
+    @staticmethod
+    @transaction.atomic
+    def set_password(
+        user: User, new_password: str, current_password: str | None = None,
+        auth_method: str | None = None,
+    ) -> User:
+        # Require current password only if user already has one AND they didn't
+        # authenticate via magic link (which serves as proof of email ownership).
+        if user.has_usable_password() and auth_method != "magic_link":
+            if not current_password:
+                raise ValidationError("Current password is required")
+            if not user.check_password(current_password):
+                raise AuthenticationError("Current password is incorrect")
+
         try:
-            return User.objects.get(email=email)
-        except User.DoesNotExist:
-            return None
+            django_validate_password(new_password, user)
+        except DjangoValidationError as e:
+            raise ValidationError("; ".join(e.messages))
+
+        user.set_password(new_password)
+        user.save(update_fields=["password", "updated_at"])
+        return user
+
+    @staticmethod
+    @transaction.atomic
+    def update_picture(user: User, file) -> User:
+        if file.content_type not in ALLOWED_IMAGE_TYPES:
+            raise ValidationError("Only JPEG, PNG, and WebP images are allowed")
+
+        max_size = getattr(settings, "PROFILE_PICTURE_MAX_SIZE", 5 * 1024 * 1024)
+        if file.size > max_size:
+            raise ValidationError(f"Image must be smaller than {max_size // (1024 * 1024)}MB")
+
+        try:
+            img = Image.open(file)
+            img.verify()
+            file.seek(0)
+            img = Image.open(file)
+        except Exception:
+            raise ValidationError("Invalid image file")
+
+        # Resize if needed
+        max_dim = getattr(settings, "PROFILE_PICTURE_MAX_DIMENSION", 800)
+        if img.width > max_dim or img.height > max_dim:
+            img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+
+        # Convert to RGB (strip alpha) and save as JPEG
+        if img.mode in ("RGBA", "P", "LA"):
+            img = img.convert("RGB")
+
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=90)
+        buffer.seek(0)
+
+        # Delete old file if exists
+        if user.picture:
+            old_path = user.picture.path
+            if os.path.exists(old_path):
+                os.remove(old_path)
+
+        user.picture.save(
+            f"{user.id}.jpg",
+            ContentFile(buffer.read()),
+            save=False,
+        )
+        user.save(update_fields=["picture", "updated_at"])
+        return user
+
+    @staticmethod
+    @transaction.atomic
+    def remove_picture(user: User) -> User:
+        if user.picture:
+            try:
+                old_path = user.picture.path
+                if os.path.exists(old_path):
+                    os.remove(old_path)
+            except Exception:
+                pass
+            user.picture = ""
+            user.save(update_fields=["picture", "updated_at"])
+        return user
