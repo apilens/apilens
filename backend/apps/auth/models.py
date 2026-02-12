@@ -76,6 +76,15 @@ class ApiKey(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="api_keys",
+        null=True,
+        blank=True,
+    )
+    app = models.ForeignKey(
+        "projects.App",
+        on_delete=models.CASCADE,
+        related_name="api_keys",
+        null=True,
+        blank=True,
     )
     key_hash = models.CharField(max_length=64, unique=True, db_index=True)
     prefix = models.CharField(max_length=16)

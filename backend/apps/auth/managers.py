@@ -21,6 +21,9 @@ class ApiKeyManager(models.Manager):
     def for_user(self, user):
         return self.active().filter(user=user)
 
+    def for_app(self, app):
+        return self.active().filter(app=app)
+
 
 class MagicLinkTokenManager(models.Manager):
     def active(self):
