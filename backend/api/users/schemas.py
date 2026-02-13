@@ -14,7 +14,8 @@ def _build_picture_url(user: User) -> str:
     if not user.picture:
         return ""
     base = os.environ.get("DJANGO_BASE_URL", "http://localhost:8000")
-    return f"{base}{settings.MEDIA_URL}{user.picture.name}"
+    cache_bust = int(user.updated_at.timestamp()) if user.updated_at else ""
+    return f"{base}{settings.MEDIA_URL}{user.picture.name}?v={cache_bust}"
 
 
 class UserProfileResponse(Schema):

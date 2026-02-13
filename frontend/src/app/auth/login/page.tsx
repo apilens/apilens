@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, Loader2, Mail, Eye, EyeOff, Zap, Shield, Globe } from "lucide-react";
+import { ArrowRight, Loader2, Mail, Eye, EyeOff, KeyRound } from "lucide-react";
 
 type ViewState = "default" | "magic-link-sent" | "forgot-sent";
+type AuthMode = "magic" | "password";
 
 export default function LoginPage() {
   const [view, setView] = useState<ViewState>("default");
+  const [authMode, setAuthMode] = useState<AuthMode>("magic");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -101,7 +103,6 @@ export default function LoginPage() {
     }
   };
 
-  // — "Check your email" states —
   if (view === "magic-link-sent" || view === "forgot-sent") {
     const isForgot = view === "forgot-sent";
     return (
@@ -116,9 +117,9 @@ export default function LoginPage() {
               Monitor, debug, and optimize API performance from a single dashboard.
             </p>
             <div className="auth-branding-features">
-              <div className="auth-branding-feature"><Zap size={16} /><span>Real-time monitoring</span></div>
-              <div className="auth-branding-feature"><Shield size={16} /><span>Security insights</span></div>
-              <div className="auth-branding-feature"><Globe size={16} /><span>Multi-region support</span></div>
+              <div className="auth-branding-feature"><span>Real-time monitoring</span></div>
+              <div className="auth-branding-feature"><span>Security insights</span></div>
+              <div className="auth-branding-feature"><span>Multi-region support</span></div>
             </div>
           </div>
           <div className="auth-branding-footer">
@@ -131,36 +132,46 @@ export default function LoginPage() {
         </div>
         <div className="auth-panel">
           <div className="auth-panel-inner">
-            <div className="auth-card">
-              <div className="auth-icon-primary">
-                <Mail size={36} strokeWidth={1.5} />
+            <div className="auth-card auth-status-card auth-status-minimal">
+              <div className="auth-icon-primary auth-status-icon">
+                <Mail size={24} strokeWidth={1.7} />
               </div>
-              <div className="auth-header">
-                <h1 className="auth-title">Check your email</h1>
-                <p className="auth-description">
-                  {isForgot ? (
-                    <>
-                      We sent a password reset link to <strong>{email}</strong>.
-                      Click the link in the email to reset your password.
-                    </>
-                  ) : (
-                    <>
-                      We sent a login link to <strong>{email}</strong>.
-                      Click the link in the email to sign in.
-                    </>
-                  )}
-                </p>
+              <p className="auth-status-kicker">{isForgot ? "Reset Link Sent" : "Magic Link Sent"}</p>
+              <h1 className="auth-title">Check your email</h1>
+              <p className="auth-description auth-status-description">
+                {isForgot ? "Open the link to continue password reset." : "Open the link to sign in."}
+              </p>
+              <p className="auth-status-email">
+                <span className="auth-status-email-label">Sent to</span>
+                <strong>{email}</strong>
+              </p>
+              <div className="auth-status-divider" aria-hidden="true" />
+              <div className="auth-status-actions auth-status-actions-minimal">
+                <button
+                  type="button"
+                  className="auth-link-btn"
+                  onClick={() => {
+                    if (isForgot) {
+                      void handleForgotPassword();
+                    } else {
+                      void handleMagicLink();
+                    }
+                  }}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? "Sending..." : "Resend link"}
+                </button>
+                <button
+                  className="auth-link-btn"
+                  onClick={() => {
+                    setView("default");
+                    setPassword("");
+                    setError("");
+                  }}
+                >
+                  Change email
+                </button>
               </div>
-              <button
-                className="auth-link-btn auth-action"
-                onClick={() => {
-                  setView("default");
-                  setPassword("");
-                  setError("");
-                }}
-              >
-                Back to login
-              </button>
             </div>
           </div>
         </div>
@@ -168,7 +179,6 @@ export default function LoginPage() {
     );
   }
 
-  // — Default: password login form —
   return (
     <div className="auth-split">
       <div className="auth-branding">
@@ -181,9 +191,9 @@ export default function LoginPage() {
             Monitor, debug, and optimize API performance from a single dashboard.
           </p>
           <div className="auth-branding-features">
-            <div className="auth-branding-feature"><Zap size={16} /><span>Real-time monitoring</span></div>
-            <div className="auth-branding-feature"><Shield size={16} /><span>Security insights</span></div>
-            <div className="auth-branding-feature"><Globe size={16} /><span>Multi-region support</span></div>
+            <div className="auth-branding-feature"><span>Real-time monitoring</span></div>
+            <div className="auth-branding-feature"><span>Security insights</span></div>
+            <div className="auth-branding-feature"><span>Multi-region support</span></div>
           </div>
         </div>
         <div className="auth-branding-footer">
@@ -199,13 +209,47 @@ export default function LoginPage() {
           <div className="auth-card">
             <p className="auth-mobile-logo">API Lens</p>
             <div className="auth-header">
-              <h1 className="auth-title">Sign in</h1>
+              <h1 className="auth-title">Welcome</h1>
               <p className="auth-description">
-                Enter your credentials to continue
+                Use email link to sign in or create your account.
               </p>
             </div>
 
-            <form onSubmit={handlePasswordLogin} className="auth-form">
+            <div className={`auth-mode-switch auth-mode-${authMode}`} role="tablist" aria-label="Authentication mode">
+              <span className="auth-mode-indicator" aria-hidden="true" />
+              <button
+                type="button"
+                className={`auth-mode-btn${authMode === "magic" ? " active" : ""}`}
+                onClick={() => {
+                  setAuthMode("magic");
+                  setError("");
+                }}
+                role="tab"
+                aria-selected={authMode === "magic"}
+              >
+                <span className="auth-mode-btn-icon" aria-hidden="true">
+                  <Mail size={13} />
+                </span>
+                <span>Email link</span>
+              </button>
+              <button
+                type="button"
+                className={`auth-mode-btn${authMode === "password" ? " active" : ""}`}
+                onClick={() => {
+                  setAuthMode("password");
+                  setError("");
+                }}
+                role="tab"
+                aria-selected={authMode === "password"}
+              >
+                <span className="auth-mode-btn-icon" aria-hidden="true">
+                  <KeyRound size={13} />
+                </span>
+                <span>Password</span>
+              </button>
+            </div>
+
+            <form onSubmit={authMode === "password" ? handlePasswordLogin : (e) => { e.preventDefault(); void handleMagicLink(); }} className="auth-form auth-form-tight">
               <div className="auth-input-group">
                 <label htmlFor="email" className="auth-label">Email</label>
                 <input
@@ -222,65 +266,78 @@ export default function LoginPage() {
                 />
               </div>
 
-              <div className="auth-input-group">
-                <label htmlFor="password" className="auth-label">Password</label>
-                <div className="auth-input-wrapper">
-                  <input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
-                    className="auth-input"
-                    required
-                    autoComplete="current-password"
-                    disabled={isSubmitting}
-                  />
-                  <button
-                    type="button"
-                    className="auth-input-toggle"
-                    onClick={() => setShowPassword(!showPassword)}
-                    tabIndex={-1}
-                  >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
+              <div className={`auth-password-region${authMode === "password" ? " open" : ""}`} aria-hidden={authMode !== "password"}>
+                <div className="auth-password-region-inner">
+                  <div className="auth-input-group">
+                    <label htmlFor="password" className="auth-label">Password</label>
+                    <div className="auth-input-wrapper">
+                      <input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Enter your password"
+                        className="auth-input"
+                        required={authMode === "password"}
+                        autoComplete="current-password"
+                        disabled={isSubmitting || authMode !== "password"}
+                      />
+                      <button
+                        type="button"
+                        className="auth-input-toggle"
+                        onClick={() => setShowPassword(!showPassword)}
+                        tabIndex={-1}
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="auth-form-options">
+                    <label className="auth-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        disabled={isSubmitting}
+                      />
+                      <span className="auth-checkbox-box">
+                        <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                          <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </span>
+                      Remember me
+                    </label>
+                    <button
+                      type="button"
+                      className="auth-forgot-link"
+                      onClick={handleForgotPassword}
+                      disabled={isSubmitting || authMode !== "password"}
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div className="auth-form-options">
-                <label className="auth-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    disabled={isSubmitting}
-                  />
-                  <span className="auth-checkbox-box">
-                    <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                      <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </span>
-                  Remember me
-                </label>
-                <button
-                  type="button"
-                  className="auth-forgot-link"
-                  onClick={handleForgotPassword}
-                  disabled={isSubmitting}
-                >
-                  Forgot password?
-                </button>
-              </div>
+              <p className={`auth-inline-note auth-inline-note-magic${authMode === "magic" ? " show" : ""}`}>
+                New here? No signup form needed. We create your account after email verification.
+              </p>
 
               {error && <p className="auth-error">{error}</p>}
 
               <button
                 type="submit"
                 className="auth-submit-btn"
-                disabled={isSubmitting || !email || !password}
+                disabled={isSubmitting || !email || (authMode === "password" && !password)}
               >
                 {isSubmitting ? (
                   <Loader2 size={16} className="animate-spin" />
+                ) : authMode === "magic" ? (
+                  <>
+                    Send secure link
+                    <ArrowRight size={14} />
+                  </>
                 ) : (
                   <>
                     Log in
@@ -289,20 +346,6 @@ export default function LoginPage() {
                 )}
               </button>
             </form>
-
-            <div className="auth-divider">
-              <span>or</span>
-            </div>
-
-            <button
-              type="button"
-              className="auth-magic-link-btn"
-              onClick={handleMagicLink}
-              disabled={isSubmitting}
-            >
-              <Mail size={16} />
-              Sign in with magic link
-            </button>
           </div>
         </div>
       </div>

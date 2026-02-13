@@ -21,8 +21,12 @@ ALLOWED_HOSTS = [
     for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
     if host.strip()
 ]
-# Allow ngrok domains for development
-ALLOWED_HOSTS += [".ngrok-free.app", ".ngrok.io"]
+# Allow ngrok domains for development only
+if DEBUG:
+    ALLOWED_HOSTS += [".ngrok-free.app", ".ngrok.io"]
+
+if not DEBUG and SECRET_KEY == "django-insecure-change-me-in-production":
+    raise RuntimeError("DJANGO_SECRET_KEY must be set to a strong value in production")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -38,7 +42,7 @@ INSTALLED_APPS = [
     "apps.users",
     "apps.auth",
     "apps.projects",
-    "apps.endpoints",
+    "apps.endpoints",  # stub — kept for migration history only
 ]
 
 # Custom User Model
@@ -54,6 +58,29 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+# Security hardening (safe defaults for production)
+if not DEBUG:
+    SECURE_SSL_REDIRECT = os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "True").lower() in ("true", "1", "yes")
+    SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_SECURE_HSTS_SECONDS", "31536000"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = os.environ.get("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", "True").lower() in ("true", "1", "yes")
+    SECURE_HSTS_PRELOAD = os.environ.get("DJANGO_SECURE_HSTS_PRELOAD", "True").lower() in ("true", "1", "yes")
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+else:
+    SECURE_SSL_REDIRECT = False
+    SECURE_HSTS_SECONDS = 0
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD = False
+
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+X_FRAME_OPTIONS = "DENY"
 
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = [
@@ -125,6 +152,15 @@ EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True").lower() in ("true", "1", "yes")
+
+# ClickHouse Configuration (analytics/event store)
+CLICKHOUSE = {
+    "HOST": os.environ.get("CLICKHOUSE_HOST", "localhost"),
+    "PORT": int(os.environ.get("CLICKHOUSE_PORT", "9000")),
+    "DATABASE": os.environ.get("CLICKHOUSE_DATABASE", "apilens"),
+    "USER": os.environ.get("CLICKHOUSE_USER", "default"),
+    "PASSWORD": os.environ.get("CLICKHOUSE_PASSWORD", ""),
+}
 
 
 AUTH_PASSWORD_VALIDATORS = [

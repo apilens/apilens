@@ -3,7 +3,7 @@ from django.http import HttpRequest
 from ninja import Router
 
 from apps.auth.services import ApiKeyService
-from apps.projects.services import AppService
+from apps.projects.services import AppService, EndpointService, EnvironmentService
 from apps.users.models import User
 from core.auth.authentication import jwt_auth
 from core.exceptions.base import ValidationError
@@ -11,9 +11,25 @@ from core.exceptions.base import ValidationError
 from .schemas import (
     AppListResponse,
     AppResponse,
+    AnalyticsSummaryResponse,
+    AnalyticsTimeseriesPointResponse,
+    RelatedApiResponse,
+    EndpointDetailResponse,
+    EndpointTimeseriesPointResponse,
+    EndpointConsumerResponse,
+    EndpointStatusCodeResponse,
     CreateApiKeyRequest,
     CreateAppRequest,
+    CreateEndpointRequest,
+    CreateEnvironmentRequest,
     UpdateAppRequest,
+    UpdateEndpointRequest,
+    UpdateEnvironmentRequest,
+    EndpointResponse,
+    EnvironmentResponse,
+    EndpointStatsListResponse,
+    EndpointOptionResponse,
+    ConsumerStatsResponse,
     ApiKeyResponse,
     CreateApiKeyResponse,
     MessageResponse,
@@ -149,3 +165,402 @@ def revoke_api_key(request: HttpRequest, app_slug: str, key_id: str):
         raise NotFoundError("API key not found")
     return {"message": "API key revoked"}
 
+
+# ── App-scoped Endpoints ─────────────────────────────────────────────
+
+
+@router.get("/{app_slug}/endpoints", response=list[EndpointResponse])
+def list_endpoints(request: HttpRequest, app_slug: str):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+    endpoints = EndpointService.list_endpoints(app)
+    return [EndpointResponse.from_orm(e) for e in endpoints]
+
+
+@router.post("/{app_slug}/endpoints", response={201: EndpointResponse})
+def create_endpoint(request: HttpRequest, app_slug: str, data: CreateEndpointRequest):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+    endpoint = EndpointService.create_endpoint(app, data.path, data.method, data.description)
+    return 201, EndpointResponse.from_orm(endpoint)
+
+
+@router.get("/{app_slug}/endpoints/{endpoint_id}", response=EndpointResponse)
+def get_endpoint(request: HttpRequest, app_slug: str, endpoint_id: str):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+    endpoint = EndpointService.get_endpoint(app, endpoint_id)
+    return EndpointResponse.from_orm(endpoint)
+
+
+@router.patch("/{app_slug}/endpoints/{endpoint_id}", response=EndpointResponse)
+def update_endpoint(request: HttpRequest, app_slug: str, endpoint_id: str, data: UpdateEndpointRequest):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+    endpoint = EndpointService.update_endpoint(
+        app, endpoint_id, data.path, data.method, data.description,
+    )
+    return EndpointResponse.from_orm(endpoint)
+
+
+@router.delete("/{app_slug}/endpoints/{endpoint_id}", response={204: None})
+def delete_endpoint(request: HttpRequest, app_slug: str, endpoint_id: str):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+    EndpointService.delete_endpoint(app, endpoint_id)
+    return 204, None
+
+
+# ── App-scoped Environments ──────────────────────────────────────────
+
+
+@router.get("/{app_slug}/environments", response=list[EnvironmentResponse])
+def list_environments(request: HttpRequest, app_slug: str):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+    envs = EnvironmentService.list_environments(app)
+    return [EnvironmentResponse.from_orm(e) for e in envs]
+
+
+@router.post("/{app_slug}/environments", response={201: EnvironmentResponse})
+def create_environment(request: HttpRequest, app_slug: str, data: CreateEnvironmentRequest):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+    env = EnvironmentService.create_environment(app, data.name, data.color)
+    return 201, EnvironmentResponse.from_orm(env)
+
+
+@router.patch("/{app_slug}/environments/{env_slug}", response=EnvironmentResponse)
+def update_environment(request: HttpRequest, app_slug: str, env_slug: str, data: UpdateEnvironmentRequest):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+    env = EnvironmentService.update_environment(app, env_slug, data.name, data.color)
+    return EnvironmentResponse.from_orm(env)
+
+
+@router.delete("/{app_slug}/environments/{env_slug}", response=MessageResponse)
+def delete_environment(request: HttpRequest, app_slug: str, env_slug: str):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+    EnvironmentService.delete_environment(app, env_slug)
+    return {"message": "Environment deleted"}
+
+
+# ── App-scoped Endpoint Stats ────────────────────────────────────────
+
+
+@router.get("/{app_slug}/endpoint-stats", response=EndpointStatsListResponse)
+def get_endpoint_stats(
+    request: HttpRequest,
+    app_slug: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    status_classes: str = None,
+    status_codes: str = None,
+    status_class: str = None,
+    status_code: int = None,
+    methods: str = None,
+    paths: str = None,
+    q: str = None,
+    sort_by: str = "total_requests",
+    sort_dir: str = "desc",
+    page: int = 1,
+    page_size: int = 25,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import EndpointStatsService
+    status_class_list: list[str] = []
+    if status_classes:
+        status_class_list.extend([s.strip() for s in status_classes.split(",") if s.strip()])
+    if status_class:
+        status_class_list.append(status_class)
+
+    status_code_list: list[int] = []
+    if status_codes:
+        for raw in status_codes.split(","):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                status_code_list.append(int(raw))
+            except ValueError:
+                continue
+    if status_code is not None:
+        status_code_list.append(status_code)
+
+    method_list: list[str] = []
+    if methods:
+        method_list = [m.strip().upper() for m in methods.split(",") if m.strip()]
+
+    path_list: list[str] = []
+    if paths:
+        path_list = [p.strip() for p in paths.split(",") if p.strip()]
+
+    endpoint_pairs: list[tuple[str, str]] = []
+    for raw in request.GET.getlist("endpoint"):
+        value = raw.strip()
+        if not value:
+            continue
+        if " " in value:
+            method, path = value.split(" ", 1)
+            endpoint_pairs.append((method.strip().upper(), path.strip()))
+
+    stats = EndpointStatsService.get_endpoint_stats(
+        app_id=str(app.id),
+        environment=environment,
+        since=since,
+        until=until,
+        status_classes=status_class_list or None,
+        status_codes=status_code_list or None,
+        methods=method_list or None,
+        paths=path_list or None,
+        endpoint_pairs=endpoint_pairs or None,
+        search=q,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        page=page,
+        page_size=page_size,
+    )
+    return stats
+
+
+@router.get("/{app_slug}/endpoint-options", response=list[EndpointOptionResponse])
+def get_endpoint_options(
+    request: HttpRequest,
+    app_slug: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    status_classes: str = None,
+    status_codes: str = None,
+    status_class: str = None,
+    status_code: int = None,
+    methods: str = None,
+    q: str = None,
+    limit: int = 500,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import EndpointStatsService
+    status_class_list: list[str] = []
+    if status_classes:
+        status_class_list.extend([s.strip() for s in status_classes.split(",") if s.strip()])
+    if status_class:
+        status_class_list.append(status_class)
+
+    status_code_list: list[int] = []
+    if status_codes:
+        for raw in status_codes.split(","):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                status_code_list.append(int(raw))
+            except ValueError:
+                continue
+    if status_code is not None:
+        status_code_list.append(status_code)
+
+    method_list: list[str] = []
+    if methods:
+        method_list = [m.strip().upper() for m in methods.split(",") if m.strip()]
+
+    return EndpointStatsService.get_endpoint_options(
+        app_id=str(app.id),
+        environment=environment,
+        since=since,
+        until=until,
+        status_classes=status_class_list or None,
+        status_codes=status_code_list or None,
+        methods=method_list or None,
+        search=q,
+        limit=limit,
+    )
+
+
+@router.get("/{app_slug}/consumers", response=list[ConsumerStatsResponse])
+def get_consumer_stats(
+    request: HttpRequest,
+    app_slug: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    limit: int = 20,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import ConsumerStatsService
+    return ConsumerStatsService.get_consumer_stats(
+        app_id=str(app.id),
+        environment=environment,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+
+
+@router.get("/{app_slug}/analytics/summary", response=AnalyticsSummaryResponse)
+def get_analytics_summary(
+    request: HttpRequest,
+    app_slug: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import AnalyticsService
+    return AnalyticsService.get_summary(
+        app_id=str(app.id),
+        environment=environment,
+        since=since,
+        until=until,
+    )
+
+
+@router.get("/{app_slug}/analytics/timeseries", response=list[AnalyticsTimeseriesPointResponse])
+def get_analytics_timeseries(
+    request: HttpRequest,
+    app_slug: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import AnalyticsService
+    return AnalyticsService.get_timeseries(
+        app_id=str(app.id),
+        environment=environment,
+        since=since,
+        until=until,
+    )
+
+
+@router.get("/{app_slug}/analytics/related-apis", response=list[RelatedApiResponse])
+def get_analytics_related_apis(
+    request: HttpRequest,
+    app_slug: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    limit: int = 20,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import AnalyticsService
+    return AnalyticsService.get_related_apis(
+        app_id=str(app.id),
+        environment=environment,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+
+
+@router.get("/{app_slug}/analytics/endpoint-detail", response=EndpointDetailResponse)
+def get_analytics_endpoint_detail(
+    request: HttpRequest,
+    app_slug: str,
+    method: str,
+    path: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import AnalyticsService
+    return AnalyticsService.get_endpoint_detail(
+        app_id=str(app.id),
+        method=method,
+        path=path,
+        environment=environment,
+        since=since,
+        until=until,
+    )
+
+
+@router.get("/{app_slug}/analytics/endpoint-timeseries", response=list[EndpointTimeseriesPointResponse])
+def get_analytics_endpoint_timeseries(
+    request: HttpRequest,
+    app_slug: str,
+    method: str,
+    path: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import AnalyticsService
+    return AnalyticsService.get_endpoint_timeseries(
+        app_id=str(app.id),
+        method=method,
+        path=path,
+        environment=environment,
+        since=since,
+        until=until,
+    )
+
+
+@router.get("/{app_slug}/analytics/endpoint-consumers", response=list[EndpointConsumerResponse])
+def get_analytics_endpoint_consumers(
+    request: HttpRequest,
+    app_slug: str,
+    method: str,
+    path: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    limit: int = 10,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import AnalyticsService
+    return AnalyticsService.get_endpoint_consumers(
+        app_id=str(app.id),
+        method=method,
+        path=path,
+        environment=environment,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+
+
+@router.get("/{app_slug}/analytics/endpoint-status-codes", response=list[EndpointStatusCodeResponse])
+def get_analytics_endpoint_status_codes(
+    request: HttpRequest,
+    app_slug: str,
+    method: str,
+    path: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    limit: int = 20,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import AnalyticsService
+    return AnalyticsService.get_endpoint_status_codes(
+        app_id=str(app.id),
+        method=method,
+        path=path,
+        environment=environment,
+        since=since,
+        until=until,
+        limit=limit,
+    )

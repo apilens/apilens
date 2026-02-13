@@ -70,9 +70,9 @@ def health_check(request: HttpRequest):
 from api.auth.router import router as auth_router
 from api.users.router import router as users_router
 from api.apps.router import router as apps_router
-from api.endpoints.router import router as endpoints_router
+from api.ingest.router import router as ingest_router
 
 api.add_router("/auth", auth_router, tags=["Auth"])
 api.add_router("/users", users_router, tags=["Users"])
 api.add_router("/apps", apps_router, tags=["Apps"])
-api.add_router("/apps", endpoints_router, tags=["Endpoints"])
+api.add_router("/ingest", ingest_router, tags=["Ingest"])

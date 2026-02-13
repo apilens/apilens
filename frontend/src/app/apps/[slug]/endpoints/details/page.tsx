@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-export default async function AnalyticsPage({
+export default async function EndpointDetailsPage({
   params,
 }: {
   params: Promise<{ slug: string }>;

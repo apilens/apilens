@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, X, Loader2 } from "lucide-react";
+import { Check, X, Loader2, Pencil } from "lucide-react";
 import { UserProfile } from "@/types/settings";
 import SettingsCard from "./SettingsCard";
 import UserAvatar from "@/components/shared/UserAvatar";
@@ -143,7 +143,10 @@ export default function ProfileSection({
                 </div>
               </div>
             ) : (
-              <p className="profile-name profile-name-editable" onClick={handleStartEdit}>{displayName}</p>
+              <span className="profile-name profile-name-editable" onClick={handleStartEdit}>
+                {displayName}
+                <Pencil size={13} className="profile-name-pencil" />
+              </span>
             )}
             <p className="profile-email">{profile.email}</p>
           </div>

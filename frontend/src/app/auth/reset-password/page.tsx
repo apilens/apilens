@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, EyeOff, Loader2, CheckCircle, Zap, Shield, Globe } from "lucide-react";
+import { Eye, EyeOff, Loader2, CheckCircle } from "lucide-react";
 
 function BrandingPanel() {
   return (
@@ -15,9 +15,9 @@ function BrandingPanel() {
           Monitor, debug, and optimize API performance from a single dashboard.
         </p>
         <div className="auth-branding-features">
-          <div className="auth-branding-feature"><Zap size={16} /><span>Real-time monitoring</span></div>
-          <div className="auth-branding-feature"><Shield size={16} /><span>Security insights</span></div>
-          <div className="auth-branding-feature"><Globe size={16} /><span>Multi-region support</span></div>
+          <div className="auth-branding-feature"><span>Real-time monitoring</span></div>
+          <div className="auth-branding-feature"><span>Security insights</span></div>
+          <div className="auth-branding-feature"><span>Multi-region support</span></div>
         </div>
       </div>
       <div className="auth-branding-footer">
@@ -96,7 +96,7 @@ export default function ResetPasswordPage() {
               <div className="auth-header">
                 <h1 className="auth-title">Password updated</h1>
                 <p className="auth-description">
-                  Your password has been set successfully. Redirecting you to the dashboard...
+                  Your password is now set. Redirecting you to the dashboard...
                 </p>
               </div>
             </div>
@@ -116,7 +116,7 @@ export default function ResetPasswordPage() {
             <div className="auth-header">
               <h1 className="auth-title">Reset your password</h1>
               <p className="auth-description">
-                Enter a new password for your account
+                Set a password after opening your secure email link.
               </p>
             </div>
 
@@ -177,6 +177,11 @@ export default function ResetPasswordPage() {
               </div>
 
               {error && <p className="auth-error">{error}</p>}
+              {error.toLowerCase().includes("not authenticated") && (
+                <a href="/auth/login" className="auth-link-btn">
+                  Request a new reset link
+                </a>
+              )}
 
               <button
                 type="submit"

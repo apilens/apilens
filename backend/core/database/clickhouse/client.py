@@ -1,8 +1,9 @@
 """
-ClickHouse client singleton for apilens.
+ClickHouse client wrapper for APILens.
 """
 
 import logging
+import threading
 from typing import Any
 
 from clickhouse_driver import Client
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class ClickHouseClient:
     """
-    Singleton ClickHouse client wrapper.
+    ClickHouse client wrapper.
 
     Usage:
         client = ClickHouseClient()
@@ -21,7 +22,6 @@ class ClickHouseClient:
     """
 
     _instance: "ClickHouseClient | None" = None
-    _client: Client | None = None
 
     def __new__(cls) -> "ClickHouseClient":
         if cls._instance is None:
@@ -29,18 +29,16 @@ class ClickHouseClient:
         return cls._instance
 
     def __init__(self) -> None:
-        if self._client is None:
+        if not hasattr(self, "_local"):
+            self._local = threading.local()
             config = settings.CLICKHOUSE
-            self._client = Client(
-                host=config["HOST"],
-                port=config["PORT"],
-                database=config["DATABASE"],
-                user=config["USER"],
-                password=config["PASSWORD"],
-                settings={
-                    "use_numpy": False,
-                },
-            )
+            self._config = {
+                "host": config["HOST"],
+                "port": config["PORT"],
+                "database": config["DATABASE"],
+                "user": config["USER"],
+                "password": config["PASSWORD"],
+            }
             logger.info(
                 "ClickHouse client initialized: %s:%s/%s",
                 config["HOST"],
@@ -48,12 +46,37 @@ class ClickHouseClient:
                 config["DATABASE"],
             )
 
+    def _create_client(self) -> Client:
+        return Client(
+            host=self._config["host"],
+            port=self._config["port"],
+            database=self._config["database"],
+            user=self._config["user"],
+            password=self._config["password"],
+            settings={"use_numpy": False},
+        )
+
     @property
     def client(self) -> Client:
-        """Get the underlying ClickHouse client."""
-        if self._client is None:
-            raise RuntimeError("ClickHouse client not initialized")
-        return self._client
+        """
+        Get per-thread ClickHouse client.
+        Avoids simultaneous-query conflicts caused by sharing one socket
+        across concurrent requests.
+        """
+        client = getattr(self._local, "client", None)
+        if client is None:
+            client = self._create_client()
+            self._local.client = client
+        return client
+
+    def _reset_client(self) -> None:
+        client = getattr(self._local, "client", None)
+        if client is not None:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+        self._local.client = self._create_client()
 
     def execute(
         self,
@@ -84,6 +107,21 @@ class ClickHouseClient:
 
             return [dict(zip(column_names, row)) for row in rows]
         except Exception as e:
+            msg = str(e).lower()
+            if "bad file descriptor" in msg or "connection refused" in msg or "socket" in msg:
+                try:
+                    self._reset_client()
+                    result = self.client.execute(
+                        query,
+                        params or {},
+                        with_column_types=True,
+                    )
+                    rows, columns = result
+                    column_names = [col[0] for col in columns]
+                    return [dict(zip(column_names, row)) for row in rows]
+                except Exception as retry_exc:
+                    logger.error("ClickHouse query retry failed: %s - %s", query[:100], str(retry_exc))
+                    raise retry_exc
             logger.error("ClickHouse query failed: %s - %s", query[:100], str(e))
             raise
 
@@ -142,6 +180,15 @@ class ClickHouseClient:
             logger.debug("Inserted %d rows into %s", len(rows), table)
             return result
         except Exception as e:
+            msg = str(e).lower()
+            if "bad file descriptor" in msg or "connection refused" in msg or "socket" in msg:
+                self._reset_client()
+                result = self.client.execute(
+                    f"INSERT INTO {table} ({', '.join(columns)}) VALUES",
+                    rows,
+                )
+                logger.debug("Inserted %d rows into %s (after reconnect)", len(rows), table)
+                return result
             logger.error("ClickHouse insert failed: %s - %s", table, str(e))
             raise
 

@@ -110,7 +110,16 @@ export default function Sidebar({ appSlug }: SidebarProps) {
               className="logo-icon-collapsed"
             />
           ) : (
-            <span className="logo-text">API Lens</span>
+            <span className="logo-mark">
+              <Image
+                src="/logo.svg"
+                alt="ApiLens"
+                width={18}
+                height={18}
+                className="logo-icon"
+              />
+              <span className="logo-text">API Lens</span>
+            </span>
           )}
         </Link>
       </div>

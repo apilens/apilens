@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Loader2, XCircle, Zap, Shield, Globe } from "lucide-react";
+import { Loader2, XCircle } from "lucide-react";
 
 function BrandingPanel() {
   return (
@@ -16,9 +16,9 @@ function BrandingPanel() {
           Monitor, debug, and optimize API performance from a single dashboard.
         </p>
         <div className="auth-branding-features">
-          <div className="auth-branding-feature"><Zap size={16} /><span>Real-time monitoring</span></div>
-          <div className="auth-branding-feature"><Shield size={16} /><span>Security insights</span></div>
-          <div className="auth-branding-feature"><Globe size={16} /><span>Multi-region support</span></div>
+          <div className="auth-branding-feature"><span>Real-time monitoring</span></div>
+          <div className="auth-branding-feature"><span>Security insights</span></div>
+          <div className="auth-branding-feature"><span>Multi-region support</span></div>
         </div>
       </div>
       <div className="auth-branding-footer">
@@ -81,7 +81,9 @@ function VerifyContent() {
         <Loader2 size={24} className="auth-spinner animate-spin" />
         <div className="auth-header">
           <h1 className="auth-title">Verifying your link</h1>
-          <p className="auth-description">Please wait while we sign you in.</p>
+          <p className="auth-description">
+            {flow === "reset" ? "Please wait while we verify secure reset access." : "Please wait while we sign you in."}
+          </p>
         </div>
       </div>
     );
@@ -98,7 +100,7 @@ function VerifyContent() {
           <p className="auth-description">{error}</p>
         </div>
         <a href="/auth/login" className="auth-submit-btn auth-action">
-          Back to login
+          Back to sign in
         </a>
       </div>
     );

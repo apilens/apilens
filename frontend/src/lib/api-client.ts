@@ -75,6 +75,80 @@ export interface AppListItem {
   created_at: string;
 }
 
+export interface ConsumerStats {
+  consumer: string;
+  total_requests: number;
+  error_count: number;
+  error_rate: number;
+  avg_response_time_ms: number;
+  last_seen_at: string | null;
+}
+
+export interface AnalyticsSummary {
+  total_requests: number;
+  error_count: number;
+  error_rate: number;
+  avg_response_time_ms: number;
+  p95_response_time_ms: number;
+  total_request_bytes: number;
+  total_response_bytes: number;
+  unique_endpoints: number;
+  unique_consumers: number;
+}
+
+export interface AnalyticsTimeseriesPoint {
+  bucket: string;
+  total_requests: number;
+  error_count: number;
+  error_rate: number;
+  avg_response_time_ms: number;
+  p95_response_time_ms: number;
+  total_request_bytes: number;
+  total_response_bytes: number;
+}
+
+export interface RelatedApi {
+  family: string;
+  endpoint_count: number;
+  total_requests: number;
+  error_count: number;
+  error_rate: number;
+  avg_response_time_ms: number;
+}
+
+export interface EndpointDetail {
+  method: string;
+  path: string;
+  total_requests: number;
+  error_count: number;
+  error_rate: number;
+  avg_response_time_ms: number;
+  p95_response_time_ms: number;
+  total_request_bytes: number;
+  total_response_bytes: number;
+  last_seen_at: string | null;
+}
+
+export interface EndpointTimeseriesPoint {
+  bucket: string;
+  total_requests: number;
+  error_count: number;
+  avg_response_time_ms: number;
+}
+
+export interface EndpointConsumer {
+  consumer: string;
+  total_requests: number;
+  error_count: number;
+  error_rate: number;
+  avg_response_time_ms: number;
+}
+
+export interface EndpointStatusCode {
+  status_code: number;
+  total_requests: number;
+}
+
 async function fetchDjango<T>(
   endpoint: string,
   options: RequestInit = {},
@@ -315,6 +389,237 @@ export const apiClient = {
     return fetchDjango<{ message: string }>(`/apps/${slug}/api-keys/${keyId}`, {
       method: "DELETE",
     });
+  },
+
+  // ── App-scoped Environments ─────────────────────────────────────────
+
+  async getEnvironments(slug: string): Promise<ApiResponse<import("@/types/app").Environment[]>> {
+    return fetchDjango<import("@/types/app").Environment[]>(`/apps/${slug}/environments`);
+  },
+
+  async createEnvironment(slug: string, data: { name: string; color?: string }): Promise<ApiResponse<import("@/types/app").Environment>> {
+    return fetchDjango<import("@/types/app").Environment>(`/apps/${slug}/environments`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteEnvironment(slug: string, envSlug: string): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>(`/apps/${slug}/environments/${envSlug}`, {
+      method: "DELETE",
+    });
+  },
+
+  // ── App-scoped Endpoint Stats ───────────────────────────────────────
+
+  async getEndpointStats(
+    slug: string,
+    params?: {
+      environment?: string;
+      since?: string;
+      until?: string;
+      status_classes?: Array<"2xx" | "3xx" | "4xx" | "5xx">;
+      status_codes?: number[];
+      status_class?: "2xx" | "3xx" | "4xx" | "5xx";
+      status_code?: number;
+      methods?: string[];
+      paths?: string[];
+      endpoints?: string[];
+      q?: string;
+      sort_by?: "endpoint" | "total_requests" | "error_rate" | "avg_response_time_ms" | "p95_response_time_ms" | "data_transfer" | "last_seen_at";
+      sort_dir?: "asc" | "desc";
+      page?: number;
+      page_size?: number;
+    },
+  ): Promise<ApiResponse<import("@/types/app").EndpointStatsListResponse>> {
+    const searchParams = new URLSearchParams();
+    if (params?.environment) searchParams.set("environment", params.environment);
+    if (params?.since) searchParams.set("since", params.since);
+    if (params?.until) searchParams.set("until", params.until);
+    if (params?.status_classes && params.status_classes.length > 0) {
+      searchParams.set("status_classes", params.status_classes.join(","));
+    }
+    if (params?.status_codes && params.status_codes.length > 0) {
+      searchParams.set("status_codes", params.status_codes.join(","));
+    }
+    if (params?.status_class) searchParams.set("status_class", params.status_class);
+    if (params?.status_code) searchParams.set("status_code", String(params.status_code));
+    if (params?.methods && params.methods.length > 0) {
+      searchParams.set("methods", params.methods.join(","));
+    }
+    if (params?.paths && params.paths.length > 0) {
+      searchParams.set("paths", params.paths.join(","));
+    }
+    if (params?.endpoints && params.endpoints.length > 0) {
+      for (const endpoint of params.endpoints) searchParams.append("endpoint", endpoint);
+    }
+    if (params?.q) searchParams.set("q", params.q);
+    if (params?.sort_by) searchParams.set("sort_by", params.sort_by);
+    if (params?.sort_dir) searchParams.set("sort_dir", params.sort_dir);
+    if (params?.page) searchParams.set("page", String(params.page));
+    if (params?.page_size) searchParams.set("page_size", String(params.page_size));
+    const qs = searchParams.toString();
+    return fetchDjango<import("@/types/app").EndpointStatsListResponse>(
+      `/apps/${slug}/endpoint-stats${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  async getEndpointOptions(
+    slug: string,
+    params?: {
+      environment?: string;
+      since?: string;
+      until?: string;
+      status_classes?: Array<"2xx" | "3xx" | "4xx" | "5xx">;
+      status_codes?: number[];
+      methods?: string[];
+      q?: string;
+      limit?: number;
+    },
+  ): Promise<ApiResponse<import("@/types/app").EndpointOption[]>> {
+    const searchParams = new URLSearchParams();
+    if (params?.environment) searchParams.set("environment", params.environment);
+    if (params?.since) searchParams.set("since", params.since);
+    if (params?.until) searchParams.set("until", params.until);
+    if (params?.status_classes && params.status_classes.length > 0) {
+      searchParams.set("status_classes", params.status_classes.join(","));
+    }
+    if (params?.status_codes && params.status_codes.length > 0) {
+      searchParams.set("status_codes", params.status_codes.join(","));
+    }
+    if (params?.methods && params.methods.length > 0) {
+      searchParams.set("methods", params.methods.join(","));
+    }
+    if (params?.q) searchParams.set("q", params.q);
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    return fetchDjango<import("@/types/app").EndpointOption[]>(
+      `/apps/${slug}/endpoint-options${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  async getConsumerStats(
+    slug: string,
+    params?: { environment?: string; since?: string; until?: string; limit?: number },
+  ): Promise<ApiResponse<ConsumerStats[]>> {
+    const searchParams = new URLSearchParams();
+    if (params?.environment) searchParams.set("environment", params.environment);
+    if (params?.since) searchParams.set("since", params.since);
+    if (params?.until) searchParams.set("until", params.until);
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    return fetchDjango<ConsumerStats[]>(
+      `/apps/${slug}/consumers${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  async getAnalyticsSummary(
+    slug: string,
+    params?: { environment?: string; since?: string; until?: string },
+  ): Promise<ApiResponse<AnalyticsSummary>> {
+    const searchParams = new URLSearchParams();
+    if (params?.environment) searchParams.set("environment", params.environment);
+    if (params?.since) searchParams.set("since", params.since);
+    if (params?.until) searchParams.set("until", params.until);
+    const qs = searchParams.toString();
+    return fetchDjango<AnalyticsSummary>(
+      `/apps/${slug}/analytics/summary${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  async getAnalyticsTimeseries(
+    slug: string,
+    params?: { environment?: string; since?: string; until?: string },
+  ): Promise<ApiResponse<AnalyticsTimeseriesPoint[]>> {
+    const searchParams = new URLSearchParams();
+    if (params?.environment) searchParams.set("environment", params.environment);
+    if (params?.since) searchParams.set("since", params.since);
+    if (params?.until) searchParams.set("until", params.until);
+    const qs = searchParams.toString();
+    return fetchDjango<AnalyticsTimeseriesPoint[]>(
+      `/apps/${slug}/analytics/timeseries${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  async getRelatedApis(
+    slug: string,
+    params?: { environment?: string; since?: string; until?: string; limit?: number },
+  ): Promise<ApiResponse<RelatedApi[]>> {
+    const searchParams = new URLSearchParams();
+    if (params?.environment) searchParams.set("environment", params.environment);
+    if (params?.since) searchParams.set("since", params.since);
+    if (params?.until) searchParams.set("until", params.until);
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    return fetchDjango<RelatedApi[]>(
+      `/apps/${slug}/analytics/related-apis${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  async getEndpointDetail(
+    slug: string,
+    params: { method: string; path: string; environment?: string; since?: string; until?: string },
+  ): Promise<ApiResponse<EndpointDetail>> {
+    const searchParams = new URLSearchParams();
+    searchParams.set("method", params.method);
+    searchParams.set("path", params.path);
+    if (params.environment) searchParams.set("environment", params.environment);
+    if (params.since) searchParams.set("since", params.since);
+    if (params.until) searchParams.set("until", params.until);
+    const qs = searchParams.toString();
+    return fetchDjango<EndpointDetail>(
+      `/apps/${slug}/analytics/endpoint-detail${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  async getEndpointTimeseries(
+    slug: string,
+    params: { method: string; path: string; environment?: string; since?: string; until?: string },
+  ): Promise<ApiResponse<EndpointTimeseriesPoint[]>> {
+    const searchParams = new URLSearchParams();
+    searchParams.set("method", params.method);
+    searchParams.set("path", params.path);
+    if (params.environment) searchParams.set("environment", params.environment);
+    if (params.since) searchParams.set("since", params.since);
+    if (params.until) searchParams.set("until", params.until);
+    const qs = searchParams.toString();
+    return fetchDjango<EndpointTimeseriesPoint[]>(
+      `/apps/${slug}/analytics/endpoint-timeseries${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  async getEndpointConsumers(
+    slug: string,
+    params: { method: string; path: string; environment?: string; since?: string; until?: string; limit?: number },
+  ): Promise<ApiResponse<EndpointConsumer[]>> {
+    const searchParams = new URLSearchParams();
+    searchParams.set("method", params.method);
+    searchParams.set("path", params.path);
+    if (params.environment) searchParams.set("environment", params.environment);
+    if (params.since) searchParams.set("since", params.since);
+    if (params.until) searchParams.set("until", params.until);
+    if (params.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    return fetchDjango<EndpointConsumer[]>(
+      `/apps/${slug}/analytics/endpoint-consumers${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  async getEndpointStatusCodes(
+    slug: string,
+    params: { method: string; path: string; environment?: string; since?: string; until?: string; limit?: number },
+  ): Promise<ApiResponse<EndpointStatusCode[]>> {
+    const searchParams = new URLSearchParams();
+    searchParams.set("method", params.method);
+    searchParams.set("path", params.path);
+    if (params.environment) searchParams.set("environment", params.environment);
+    if (params.since) searchParams.set("since", params.since);
+    if (params.until) searchParams.set("until", params.until);
+    if (params.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    return fetchDjango<EndpointStatusCode[]>(
+      `/apps/${slug}/analytics/endpoint-status-codes${qs ? `?${qs}` : ""}`,
+    );
   },
 
   async setPassword(data: {

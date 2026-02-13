@@ -1,15 +1,10 @@
-"use client";
+import EndpointsContent from "./EndpointsContent";
 
-import { Layers } from "lucide-react";
-import PageHeader from "@/components/dashboard/PageHeader";
-
-export default function EndpointsPage() {
-  return (
-    <div className="placeholder-page">
-      <PageHeader title="Endpoints" description="Endpoint monitoring and management will appear here." />
-      <div className="placeholder-icon">
-        <Layers size={32} />
-      </div>
-    </div>
-  );
+export default async function EndpointsPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  return <EndpointsContent appSlug={slug} />;
 }
