@@ -3,7 +3,7 @@ name = "apilens"
 version = "1.0.0"
 description = "apilens - API Observability Platform"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.11"
 authors = [
     { name = "apilens Team" }
@@ -20,3 +20,13 @@ dependencies = [
     "PyJWT[crypto]>=2.8,<3.0",
     "Pillow>=10.0,<12.0",
 ]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# This is not a distributable Python package — it's a Django project.
+# We list packages explicitly to avoid setuptools complaining about
+# the flat multi-package layout (api/, apps/, config/, core/).
+packages = []
