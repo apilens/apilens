@@ -1,22 +1,63 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "APILens",
+  "name": "API Lens Developer Docs",
+  "styling": {
+    "css": "styles.css"
+  },
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#111111",
+    "light": "#6B7280",
+    "dark": "#000000"
   },
   "favicon": "/logo/favicon/favicon.ico",
   "navigation": {
     "tabs": [
       {
-        "tab": "Overview",
+        "tab": "Developer",
         "groups": [
           {
-            "group": "Getting Started",
+            "group": "Start Here",
             "pages": [
-              "getting-started/introduction"
+              "index",
+              "getting-started/introduction",
+              "getting-started/quickstart",
+              "getting-started/architecture"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "pages": [
+              "auth/authentication-flow",
+              "auth/passwordless-and-password"
+            ]
+          },
+          {
+            "group": "Ingest",
+            "pages": [
+              "ingest/ingest-api",
+              "ingest/request-schema"
+            ]
+          },
+          {
+            "group": "API Reference",
+            "openapi": {
+              "source": "https://api.apilens.ai/api/v1/openapi.json",
+              "directory": "api-reference"
+            }
+          },
+          {
+            "group": "SDK",
+            "pages": [
+              "sdk/building-an-sdk"
+            ]
+          },
+          {
+            "group": "Engineering Blog",
+            "pages": [
+              "blog/server-driven-filtering",
+              "blog/multi-tenant-guardrails",
+              "blog/clickhouse-ingest-patterns"
             ]
           }
         ]
@@ -30,13 +71,21 @@
   "navbar": {
     "links": [
       {
-        "label": "Contact",
-        "href": "mailto:hello@apilens.ai"
+        "label": "Website",
+        "href": "https://apilens.ai"
+      },
+      {
+        "label": "Discord",
+        "href": "https://discord.com/invite/GucYGFRh"
+      },
+      {
+        "label": "GitHub",
+        "href": "https://github.com/apilens/apilens"
       }
     ],
     "primary": {
       "type": "button",
-      "label": "Get Started",
+      "label": "Open App",
       "href": "https://app.apilens.ai"
     }
   },
@@ -47,9 +96,25 @@
       "chatgpt"
     ]
   },
+  "api": {
+    "playground": {
+      "display": "interactive",
+      "proxy": true
+    },
+    "examples": {
+      "languages": [
+        "curl",
+        "javascript",
+        "python"
+      ],
+      "defaults": "required",
+      "prefill": true
+    }
+  },
   "footer": {
     "socials": {
-      "github": "https://github.com/apilens/apilens"
+      "github": "https://github.com/apilens/apilens",
+      "discord": "https://discord.com/invite/GucYGFRh"
     }
   }
 }

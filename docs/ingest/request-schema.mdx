@@ -1,0 +1,45 @@
+---
+title: 'Request Schema'
+description: 'Field-level schema reference for ingest request telemetry payloads.'
+---
+
+## Request Item Fields
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `timestamp` | ISO datetime | Yes | UTC recommended |
+| `environment` | string | Yes | Example: `production`, `staging` |
+| `method` | string | Yes | HTTP method, normalized uppercase |
+| `path` | string | Yes | Endpoint path (ex. `/v1/orders`) |
+| `status_code` | integer | Yes | HTTP status code |
+| `response_time_ms` | number | Yes | Duration in milliseconds |
+| `request_size` | integer | Yes | Request payload bytes |
+| `response_size` | integer | Yes | Response payload bytes |
+| `ip_address` | string | No | Optional source IP |
+| `user_agent` | string | No | Consumer identifier fallback |
+
+## Batch Envelope
+
+```json
+{
+  "requests": [
+    { "...request item...": "..." }
+  ]
+}
+```
+
+## Validation Notes
+
+- Keep batch size under `1000`
+- Ensure timestamps are valid ISO-8601
+- Use stable path format for accurate endpoint grouping
+- Ensure status codes are in valid HTTP ranges
+
+## Recommended SDK Normalization
+
+Before sending telemetry from SDK:
+
+1. Uppercase method
+2. Remove query string from path
+3. Convert durations to integer milliseconds
+4. Clamp negative sizes/timings to `0`

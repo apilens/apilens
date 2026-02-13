@@ -1,0 +1,22 @@
+---
+title: 'Multi-Tenant Guardrails'
+description: 'How APILens enforces app-scoped authorization and data isolation across auth and ingest paths.'
+---
+
+## Tenant Boundaries
+
+APILens applies app-scoped checks at every layer:
+
+- JWT-authenticated app routes resolve app ownership by `app_slug`
+- API-key ingest resolves tenant context from key
+- analytics queries always bind `app_id`
+
+## Security Posture
+
+- no cross-tenant route access by design
+- no ingest without valid app-scoped key
+- no analytics outside app-bound filters
+
+## Operational Advice
+
+For contributors, treat app scope as a non-optional invariant in services and query builders.

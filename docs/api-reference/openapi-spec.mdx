@@ -1,0 +1,27 @@
+---
+title: 'OpenAPI Spec'
+description: 'Production OpenAPI source for API Lens backend integration and SDK generation.'
+---
+
+## Production OpenAPI URL
+
+Use this spec as the source of truth for generated clients and API tooling:
+
+- [https://api.apilens.ai/api/v1/openapi.json](https://api.apilens.ai/api/v1/openapi.json)
+
+## Backend API Docs
+
+Interactive docs endpoint:
+
+- [https://api.apilens.ai/api/v1/docs](https://api.apilens.ai/api/v1/docs)
+
+## Typical Usage
+
+- generate SDK clients (TypeScript, Python, Go)
+- import into Postman / Insomnia
+- validate request/response contract in CI
+
+## Notes
+
+- Authentication and app scoping are required for protected routes
+- Keep generated SDKs versioned with your integration release process

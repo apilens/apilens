@@ -1,0 +1,86 @@
+---
+title: 'Building an SDK'
+description: 'Guide to build and ship an APILens ingest SDK with stable contracts and batching.'
+---
+
+## SDK Goal
+
+Your SDK should make ingest trivial:
+
+- capture request lifecycle data
+- normalize payloads
+- batch and flush safely
+- retry on transient failures
+
+## Recommended Pipeline
+
+1. Intercept request start/end timestamps
+2. Build normalized request item
+3. Add to in-memory queue
+4. Flush queue on interval or size threshold
+5. POST to `/ingest/requests` with API key
+
+## Required Headers
+
+- `Content-Type: application/json`
+- `X-API-Key: <app_api_key>`
+
+## Suggested Defaults
+
+- Batch size: 100-500
+- Flush interval: 2-5 seconds
+- Max retries: 3
+- Backoff: exponential with jitter
+
+## Normalization Rules
+
+- Uppercase HTTP method
+- Remove query string from route path
+- Convert response time to milliseconds
+- Include environment (`production`/`staging`)
+
+## Minimal Node Example
+
+```ts
+const payload = {
+  requests: [
+    {
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV === "production" ? "production" : "development",
+      method: "GET",
+      path: "/v1/orders",
+      status_code: 200,
+      response_time_ms: 96,
+      request_size: 240,
+      response_size: 1200,
+      ip_address: "",
+      user_agent: "my-sdk/0.1.0"
+    }
+  ]
+};
+
+await fetch("https://api.apilens.ai/api/v1/ingest/requests", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "X-API-Key": process.env.APILENS_API_KEY as string
+  },
+  body: JSON.stringify(payload)
+});
+```
+
+## Endpoint Checklist
+
+When generating SDK clients for dashboard APIs, include:
+
+- Auth endpoints (`/auth/*`)
+- App CRUD (`/apps/*`)
+- Endpoint stats + options (`/apps/{slug}/endpoint-stats`, `/endpoint-options`)
+- Analytics endpoints (`/apps/{slug}/analytics/*`)
+- Ingest endpoint (`/ingest/requests`)
+
+## Versioning Advice
+
+- Keep schema adapters per API version
+- Hide wire schema behind typed SDK interfaces
+- Add integration test against a running APILens local env

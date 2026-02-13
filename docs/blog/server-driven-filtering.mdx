@@ -1,0 +1,26 @@
+---
+title: 'Server-Driven Filtering at Scale'
+description: 'Why APILens moved endpoint filtering and pagination to backend queries with safe cache in frontend.'
+---
+
+## Context
+
+Endpoint analytics started with client-side filtering for fast iteration. As data volume grows, that model degrades quickly.
+
+## What Changed
+
+APILens now uses:
+
+- backend-driven filters, sorting, and pagination
+- endpoint options API for filter dropdowns
+- short-lived bounded cache on frontend for responsive UX
+
+## Why This Works
+
+- predictable query cost at high cardinality
+- no giant payload transfer for table interaction
+- consistent behavior across search/sort/page states
+
+## Key Principle
+
+Use client cache for speed, backend queries for truth.

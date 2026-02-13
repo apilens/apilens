@@ -1,0 +1,84 @@
+---
+title: 'Quickstart'
+description: 'Run APILens locally in minutes with backend, frontend, and telemetry ingest.'
+---
+
+## Prerequisites
+
+- Python 3.11+
+- Node.js 20+
+- PostgreSQL 15+
+- `uv`
+
+## 1. Clone and Setup
+
+```bash
+git clone https://github.com/apilens/apilens.git
+cd apilens
+```
+
+## 2. Backend
+
+```bash
+cd backend
+uv venv
+source .venv/bin/activate
+uv pip install -e .
+cp .env.example .env
+python manage.py migrate
+python manage.py runserver
+```
+
+Backend runs at `http://localhost:8000/api/v1`.
+
+## 3. Frontend
+
+In a new terminal:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+Frontend runs at `http://localhost:3000`.
+
+## 4. First Login
+
+1. Open `http://localhost:3000`
+2. Enter your email and request a magic link
+3. Copy verification link from backend console email output
+4. Open link and continue to app
+
+## 5. Send First Ingest Event
+
+Use an app API key and send sample request telemetry:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/ingest/requests" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: sk_live_xxxxxxxxx" \
+  -d '{
+    "requests": [
+      {
+        "timestamp": "2026-02-13T12:00:00Z",
+        "environment": "production",
+        "method": "GET",
+        "path": "/v1/orders",
+        "status_code": 200,
+        "response_time_ms": 120,
+        "request_size": 245,
+        "response_size": 1402,
+        "ip_address": "203.0.113.10",
+        "user_agent": "web-checkout"
+      }
+    ]
+  }'
+```
+
+Then open your app endpoints page to see the endpoint detected automatically.
+
+<Note>
+Endpoint records are auto-created from ingest traffic. You do not need to pre-create endpoints for normal usage.
+</Note>

@@ -1,0 +1,86 @@
+---
+title: 'REST API Reference'
+description: 'Practical endpoint map for APILens auth, users, apps, analytics, and ingest.'
+---
+
+## Base URL
+
+- Local: `http://localhost:8000/api/v1`
+
+## Health
+
+- `GET /health`
+
+## Auth
+
+- `POST /auth/magic-link`
+- `POST /auth/login`
+- `POST /auth/verify`
+- `POST /auth/refresh`
+- `POST /auth/validate`
+- `POST /auth/logout`
+
+## Users
+
+- `GET /users/me`
+- `PATCH /users/me`
+- `DELETE /users/me`
+- `GET /users/context`
+- `POST /users/me/picture`
+- `DELETE /users/me/picture`
+- `POST /users/me/password`
+- `POST /users/logout-all`
+- `GET /users/sessions`
+- `DELETE /users/sessions/{session_id}`
+
+## Apps
+
+- `POST /apps/`
+- `GET /apps/`
+- `GET /apps/{app_slug}`
+- `PATCH /apps/{app_slug}`
+- `DELETE /apps/{app_slug}`
+
+## App API Keys
+
+- `POST /apps/{app_slug}/api-keys`
+- `GET /apps/{app_slug}/api-keys`
+- `DELETE /apps/{app_slug}/api-keys/{key_id}`
+
+## App Endpoints and Environments
+
+- `GET /apps/{app_slug}/endpoints`
+- `POST /apps/{app_slug}/endpoints`
+- `GET /apps/{app_slug}/endpoints/{endpoint_id}`
+- `PATCH /apps/{app_slug}/endpoints/{endpoint_id}`
+- `DELETE /apps/{app_slug}/endpoints/{endpoint_id}`
+- `GET /apps/{app_slug}/environments`
+- `POST /apps/{app_slug}/environments`
+- `PATCH /apps/{app_slug}/environments/{env_slug}`
+- `DELETE /apps/{app_slug}/environments/{env_slug}`
+
+## Endpoint Metrics
+
+- `GET /apps/{app_slug}/endpoint-stats`
+- `GET /apps/{app_slug}/endpoint-options`
+- `GET /apps/{app_slug}/consumers`
+
+## Analytics
+
+- `GET /apps/{app_slug}/analytics/summary`
+- `GET /apps/{app_slug}/analytics/timeseries`
+- `GET /apps/{app_slug}/analytics/related-apis`
+- `GET /apps/{app_slug}/analytics/endpoint-detail`
+- `GET /apps/{app_slug}/analytics/endpoint-timeseries`
+- `GET /apps/{app_slug}/analytics/endpoint-consumers`
+- `GET /apps/{app_slug}/analytics/endpoint-status-codes`
+
+## Ingest
+
+- `POST /ingest/requests`
+
+> All `/users` and `/apps` routes use JWT auth. Ingest route uses API key auth.
+
+<Note>
+For full request/response schemas, use backend OpenAPI docs at `/api/v1/docs` in your running environment.
+</Note>

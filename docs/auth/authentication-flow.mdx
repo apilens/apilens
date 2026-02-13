@@ -1,0 +1,42 @@
+---
+title: 'Authentication Flow'
+description: 'Passwordless-first authentication, token lifecycle, and session behavior in APILens.'
+---
+
+## Overview
+
+APILens uses a passwordless-first authentication model.
+
+- New users: enter email, receive magic link, verify, account is available
+- Existing users: may continue with magic link or use password login if password exists
+
+## Main Endpoints
+
+- `POST /auth/magic-link`
+- `POST /auth/verify`
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `POST /auth/validate`
+- `POST /auth/logout`
+
+## Sequence
+
+1. Client calls `POST /auth/magic-link` with email
+2. User receives verification email
+3. Client calls `POST /auth/verify` with token
+4. Backend returns `access_token` + `refresh_token`
+5. Frontend persists encrypted session cookie
+6. Protected routes use JWT for API calls
+
+## Session Behavior
+
+- Access token is short-lived
+- Refresh token is used to rotate session
+- `POST /auth/refresh` issues fresh token pair
+- `POST /auth/logout` revokes refresh session
+
+## Error Handling
+
+- Unknown email on magic link should not leak account existence
+- Expired/invalid tokens return authentication error
+- Password login requires account with password already set

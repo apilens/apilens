@@ -1,0 +1,38 @@
+---
+title: 'Architecture'
+description: 'High-level APILens architecture for auth, ingestion, analytics, and multi-tenant isolation.'
+---
+
+## High-Level Components
+
+- **Frontend (Next.js)**: Dashboard UI, server-side API proxy routes, session cookie handling
+- **Backend (Django + Ninja)**: Auth, app management, ingest API, analytics/query endpoints
+- **PostgreSQL**: Core relational data (users, apps, API keys, sessions, environments, endpoint metadata)
+- **ClickHouse**: High-volume request event storage and analytical queries
+
+## Data Flow
+
+1. Client/service sends telemetry to `POST /ingest/requests` with app-scoped API key
+2. Ingest service validates payload and app scope
+3. Request events are written to ClickHouse
+4. Endpoint metadata is auto-discovered/updated from method + path
+5. Dashboard queries analytics endpoints with JWT auth
+6. Backend returns filtered aggregates to frontend
+
+## Tenant Isolation Model
+
+- User JWT routes are app-scoped through `/{app_slug}` and validated against owner
+- API-key ingest routes resolve tenant context from key and app relationship
+- Query filters enforce app IDs in analytics SQL
+
+## Auth Model
+
+- Passwordless-first via magic links (`/auth/magic-link` + `/auth/verify`)
+- Optional password login (`/auth/login`) only after password is set
+- Password reset flow starts with magic link reset request and ends with authenticated password set
+
+## Operational Notes
+
+- ClickHouse is required for analytics/ingest-backed metrics
+- Frontend filtering is hybrid: backend query + safe short-lived cache for responsive UX
+- Endpoint tables and filters are server-driven for scale

@@ -1,0 +1,26 @@
+---
+title: 'ClickHouse Ingest Patterns'
+description: 'Batch-first ingest model, endpoint auto-discovery, and query resilience for APILens telemetry.'
+---
+
+## Ingest Model
+
+APILens writes request events in batches and updates endpoint metadata from live traffic.
+
+## Endpoint Auto-Discovery
+
+During ingest:
+
+- method/path pairs are normalized
+- known endpoints are updated with `last_seen_at`
+- new endpoints are created automatically
+
+## Reliability Notes
+
+- enforce batch limits
+- retry transient failures with backoff
+- prefer isolated clients per thread for concurrent query safety
+
+## Practical Outcome
+
+High-throughput event storage with predictable endpoint analytics behavior.

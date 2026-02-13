@@ -1,19 +1,41 @@
 ---
 title: 'Introduction'
-description: 'We are apiLens which provides full visibility into API performance, errors, and latency.'
+description: 'Developer-first APILens documentation for auth, ingest, analytics, and SDK integrations.'
 ---
 
-## Coming Soon !
+## Developer-First Docs
 
-We're working hard to bring you comprehensive documentation for apiLens. Stay tuned for updates!
+This documentation is focused on engineers integrating and extending APILens.
 
-In the meantime, feel free to:
+Current scope:
 
-- **Explore our code**: Check out the [GitHub](https://github.com/apilens/apilens) - we're open source!
-- **Get in touch**: Reach out to us at [hello@apilens.ai](mailto:hello@apilens.ai) for any questions or early access
+- authentication flows
+- telemetry ingest contracts
+- analytics and endpoint APIs
+- SDK implementation guidance
+- engineering notes and architecture
 
----
+## Product Model
 
-<Note>
-  apiLens is under active development. Follow our GitHub repository to stay updated on the latest releases and features.
-</Note>
+- **User**: Authenticated account that owns one or more apps
+- **App**: Top-level tenant-scoped workspace for API monitoring
+- **Environment**: Deployment context inside an app (prod/staging/dev/custom)
+- **Endpoint**: Method + path pair auto-detected from ingest traffic
+- **Consumer**: Request source derived from telemetry metadata
+
+## What You Can Build
+
+- backend SDKs and middleware for ingest
+- internal API dashboards and observability workflows
+- high-volume endpoint analytics pipelines
+
+## Coming Soon
+
+Consumer/user-facing documentation will be published separately. This portal remains dev-centric for now.
+
+## Next Steps
+
+1. Read [Quickstart](/getting-started/quickstart)
+2. Review [Architecture](/getting-started/architecture)
+3. Integrate [Ingest API](/ingest/ingest-api)
+4. Build against [REST API](/api-reference/rest-api)

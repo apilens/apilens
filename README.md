@@ -140,6 +140,27 @@ npm run dev
 4. Copy the URL from the terminal and open it in your browser
 5. You should be logged in and redirected to the dashboard
 
+## Documentation
+
+APILens documentation is maintained in the `docs/` folder (Mintlify) and is currently developer-centric.
+
+- Docs config: `docs/docs.json`
+- Getting started: `docs/getting-started/introduction.mdx`
+- Auth flows: `docs/auth/authentication-flow.mdx`
+- Ingest API: `docs/ingest/ingest-api.mdx`
+- REST endpoints: `docs/api-reference/rest-api.mdx`
+- SDK guidance: `docs/sdk/building-an-sdk.mdx`
+- Engineering blog: `docs/blog/`
+
+Consumer/user-focused documentation is planned and will be published separately.
+
+### Run docs locally
+
+```bash
+cd docs
+npx mintlify dev
+```
+
 ## Project Structure
 
 ```
@@ -149,20 +170,19 @@ apilens/
 │   │   ├── auth/             # Auth endpoints (magic-link, verify, refresh)
 │   │   ├── users/            # User endpoints (profile, sessions)
 │   │   ├── apps/             # App CRUD + app-scoped API keys
-│   │   └── endpoints/        # Endpoint tracking
+│   │   └── ingest/           # Telemetry ingest endpoint
 │   ├── apps/                 # Django apps (business logic + models)
 │   │   ├── auth/             # Tokens, magic links, API keys
 │   │   ├── users/            # User model and services
-│   │   ├── projects/         # App model and services
-│   │   └── endpoints/        # Endpoint model and services
+│   │   └── projects/         # Apps, environments, endpoints, analytics
 │   ├── config/               # Django settings, URLs
-│   └── core/                 # Infrastructure (auth, exceptions, utils)
+│   └── core/                 # Infrastructure (auth, db, cache, exceptions, utils)
 ├── frontend/                 # Next.js app
 │   └── src/
 │       ├── app/              # App Router pages + API routes
 │       ├── components/       # React components
 │       └── lib/              # Utilities (session, API client)
-├── docs/                     # Documentation assets
+├── docs/                     # Mintlify documentation
 └── scripts/                  # Utility scripts
 ```
 

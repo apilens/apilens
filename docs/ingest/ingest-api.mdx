@@ -1,0 +1,60 @@
+---
+title: 'Ingest API'
+description: 'Send API request telemetry to APILens using app-scoped API keys.'
+---
+
+## Endpoint
+
+`POST /ingest/requests`
+
+- Auth: `X-API-Key` header
+- Max batch size: `1000` request items per call
+- Scope: API key must belong to target app
+
+## Request Example
+
+```json
+{
+  "requests": [
+    {
+      "timestamp": "2026-02-13T12:00:00Z",
+      "environment": "production",
+      "method": "POST",
+      "path": "/v1/orders",
+      "status_code": 201,
+      "response_time_ms": 184,
+      "request_size": 512,
+      "response_size": 1024,
+      "ip_address": "203.0.113.10",
+      "user_agent": "checkout-service"
+    }
+  ]
+}
+```
+
+## Response
+
+```json
+{
+  "accepted": 1
+}
+```
+
+## Behavior
+
+- Endpoint metadata is auto-created or updated from ingest events
+- Unsupported endpoint methods are still ingested as raw events
+- Environment is queryable in dashboard analytics filters
+
+## Failure Modes
+
+- `400/422`: invalid payload or batch too large
+- `401`: invalid/missing API key
+- `403`: key-app scope issue
+
+## Best Practices
+
+- Batch events per short interval (ex. every few seconds)
+- Include consistent `environment` labels
+- Normalize endpoint paths in your SDK before send
+- Track client identifiers via `user_agent` or extension fields if added
