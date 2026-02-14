@@ -24,16 +24,23 @@ Production-ready Python ingest client for API Lens with OpenTelemetry integratio
 ## Install
 
 ```bash
-pip install ./sdks/python
+pip install apilenss
 ```
 
 With framework support:
 
 ```bash
-pip install './sdks/python[all]'
+pip install 'apilenss[all]'
 # or only one
-pip install './sdks/python[fastapi]'
-pip install './sdks/python[flask]'
+pip install 'apilenss[fastapi]'
+pip install 'apilenss[flask]'
+```
+
+Local development install (from repo):
+
+```bash
+pip install ./sdks/python
+pip install './sdks/python[all]'
 ```
 
 ## Quick start (manual capture)
