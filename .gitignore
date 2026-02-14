@@ -181,6 +181,7 @@ credentials.json
 *.tmp
 *.temp
 .cadence/
+sidecar-testing/
 sidecar-testing/**/.env
 sidecar-testing/**/.venv/
 sidecar-testing/**/db.sqlite3
@@ -211,5 +212,5 @@ next-env.d.ts
 # ==============================
 # Migrations
 # ==============================
-*/migrations/
-!*/migrations/__init__.py
+**/migrations/
+**/migrations/**
