@@ -12,5 +12,11 @@ export const POST = (request: Request) =>
     if (!name) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
-    return apiResult(await apiClient.createApp({ name, description: body.description || "" }));
+    return apiResult(
+      await apiClient.createApp({
+        name,
+        description: body.description || "",
+        framework: body.framework || "fastapi",
+      }),
+    );
   });

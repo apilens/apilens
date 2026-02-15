@@ -12,12 +12,12 @@ Your SDK should make ingest trivial:
 - batch and flush safely
 - retry on transient failures
 
-## Official Python SDK (v0.1.0)
+## Official Python SDK
 
 APILens now ships a Python SDK scaffold in-repo:
 
 - `sdks/python`
-- package name: `apilens`
+- package name: `apilenss` (import as `apilens`)
 - integrations: OpenTelemetry core, FastAPI, Flask
 
 Current framework modules:
@@ -36,26 +36,28 @@ pip install ./sdks/python
 pip install './sdks/python[all]'
 ```
 
-Minimal usage:
+Install from PyPI:
+
+```bash
+pip install "apilenss[fastapi]"
+```
+
+Minimal FastAPI usage (no manual instrumentation):
 
 ```python
-from apilens import ApiLensClient, ApiLensConfig
+from fastapi import FastAPI
+from apilens.fastapi import ApiLensGatewayMiddleware
 
-client = ApiLensClient(
-    ApiLensConfig(
-        api_key="your_app_api_key",
-        base_url="https://api.apilens.ai/api/v1",
-        environment="production",
-    )
+app = FastAPI()
+app.add_middleware(
+    ApiLensGatewayMiddleware,
+    api_key="your_app_api_key",
+    base_url="https://api.apilens.ai/api/v1",
+    env="production",
+    enable_request_logging=True,
+    log_request_body=True,
+    log_response_body=True,
 )
-
-client.capture(
-    method="GET",
-    path="/health",
-    status_code=200,
-    response_time_ms=12.3,
-)
-client.shutdown(flush=True)
 ```
 
 ## Recommended Pipeline

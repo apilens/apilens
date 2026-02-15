@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Flask">
+  <rect x="1.5" y="1.5" width="21" height="21" rx="5" fill="#0f172a"/>
+  <path d="M10 5h4v3.4l3.6 5.6a3.2 3.2 0 0 1-2.7 5H9.1a3.2 3.2 0 0 1-2.7-5L10 8.4V5z" fill="#e2e8f0"/>
+  <path d="M8.5 14h7" stroke="#0ea5e9" stroke-width="1.2" stroke-linecap="round"/>
+  <path d="M9.6 16.3h4.8" stroke="#22c55e" stroke-width="1.2" stroke-linecap="round"/>
+</svg>

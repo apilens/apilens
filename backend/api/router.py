@@ -3,6 +3,7 @@ import logging
 from ninja import NinjaAPI
 from ninja.errors import AuthenticationError, ValidationError
 from django.http import HttpRequest, HttpResponse
+from django.db import IntegrityError, DatabaseError
 
 from core.exceptions.base import AppError
 
@@ -44,20 +45,32 @@ def validation_error_handler(request: HttpRequest, exc: ValidationError) -> Http
     )
 
 
-@api.exception_handler(Exception)
-def generic_error_handler(request: HttpRequest, exc: Exception) -> HttpResponse:
-    logger.exception(f"Unhandled exception: {exc}")
-
-    from django.conf import settings
-    if settings.DEBUG:
-        return api.create_response(
-            request,
-            {"error": "internal_error", "detail": str(exc)},
-            status=500,
-        )
+@api.exception_handler(IntegrityError)
+def integrity_error_handler(request: HttpRequest, exc: IntegrityError) -> HttpResponse:
+    logger.warning("IntegrityError: %s", exc, exc_info=True)
     return api.create_response(
         request,
-        {"error": "internal_error"},
+        {"error": "conflict", "detail": "Resource conflict"},
+        status=409,
+    )
+
+
+@api.exception_handler(DatabaseError)
+def database_error_handler(request: HttpRequest, exc: DatabaseError) -> HttpResponse:
+    logger.exception("DatabaseError: %s", exc)
+    return api.create_response(
+        request,
+        {"error": "internal_error", "detail": "Something went wrong"},
+        status=500,
+    )
+
+
+@api.exception_handler(Exception)
+def generic_error_handler(request: HttpRequest, exc: Exception) -> HttpResponse:
+    logger.exception("Unhandled exception: %s", exc)
+    return api.create_response(
+        request,
+        {"error": "internal_error", "detail": "Something went wrong"},
         status=500,
     )
 

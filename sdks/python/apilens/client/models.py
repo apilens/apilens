@@ -16,6 +16,9 @@ class RequestRecord:
     response_size: int = 0
     ip_address: str = ""
     user_agent: str = ""
+    consumer_id: str = ""
+    consumer_name: str = ""
+    consumer_group: str = ""
     request_payload: str = ""
     response_payload: str = ""
 
@@ -42,6 +45,9 @@ class RequestRecord:
             "response_size": int(self.response_size or 0),
             "ip_address": self.ip_address or "",
             "user_agent": self.user_agent or "",
+            "consumer_id": self.consumer_id or "",
+            "consumer_name": self.consumer_name or "",
+            "consumer_group": self.consumer_group or "",
             "request_payload": self.request_payload or "",
             "response_payload": self.response_payload or "",
         }

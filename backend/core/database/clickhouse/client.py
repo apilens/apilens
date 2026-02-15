@@ -38,6 +38,8 @@ class ClickHouseClient:
                 "database": config["DATABASE"],
                 "user": config["USER"],
                 "password": config["PASSWORD"],
+                "secure": config.get("SECURE", False),
+                "verify": config.get("VERIFY", True),
             }
             logger.info(
                 "ClickHouse client initialized: %s:%s/%s",
@@ -53,6 +55,8 @@ class ClickHouseClient:
             database=self._config["database"],
             user=self._config["user"],
             password=self._config["password"],
+            secure=self._config["secure"],
+            verify=self._config["verify"],
             settings={"use_numpy": False},
         )
 

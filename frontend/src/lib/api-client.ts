@@ -61,7 +61,9 @@ export interface AppInfo {
   id: string;
   name: string;
   slug: string;
+  icon_url: string;
   description: string;
+  framework: "fastapi" | "flask" | "django" | "starlette";
   created_at: string;
   updated_at: string;
 }
@@ -70,7 +72,9 @@ export interface AppListItem {
   id: string;
   name: string;
   slug: string;
+  icon_url: string;
   description: string;
+  framework: "fastapi" | "flask" | "django" | "starlette";
   api_key_count: number;
   created_at: string;
 }
@@ -154,11 +158,20 @@ export interface EndpointPayloadSample {
   method: string;
   path: string;
   status_code: number;
+  response_time_ms: number;
   environment: string;
   ip_address: string;
   user_agent: string;
+  consumer_id: string;
+  consumer_name: string;
+  consumer_group: string;
   request_payload: string;
   response_payload: string;
+}
+
+export interface EnvironmentOption {
+  environment: string;
+  total_requests: number;
 }
 
 async function fetchDjango<T>(
@@ -364,14 +377,14 @@ export const apiClient = {
     return fetchDjango<AppInfo>(`/apps/${slug}`);
   },
 
-  async createApp(data: { name: string; description?: string }): Promise<ApiResponse<AppInfo>> {
+  async createApp(data: { name: string; description?: string; framework?: "fastapi" | "flask" | "django" | "starlette" }): Promise<ApiResponse<AppInfo>> {
     return fetchDjango<AppInfo>("/apps/", {
       method: "POST",
       body: JSON.stringify(data),
     });
   },
 
-  async updateApp(slug: string, data: { name?: string; description?: string }): Promise<ApiResponse<AppInfo>> {
+  async updateApp(slug: string, data: { name?: string; description?: string; framework?: "fastapi" | "flask" | "django" | "starlette" }): Promise<ApiResponse<AppInfo>> {
     return fetchDjango<AppInfo>(`/apps/${slug}`, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -382,6 +395,51 @@ export const apiClient = {
     return fetchDjango<{ message: string }>(`/apps/${slug}`, {
       method: "DELETE",
     });
+  },
+
+  async uploadAppIcon(slug: string, file: Blob): Promise<ApiResponse<{ icon_url: string; message: string }>> {
+    const session = await getSession();
+    if (!session) return { error: "Not authenticated", status: 401 };
+
+    const formData = new FormData();
+    formData.append("file", file, "app-icon.jpg");
+    const url = `${DJANGO_API_URL}/apps/${slug}/icon`;
+
+    try {
+      let response = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+        body: formData,
+      });
+
+      if (response.status === 401) {
+        const refreshResult = await refreshTokens(session.refreshToken);
+        if (!refreshResult) {
+          await clearSession();
+          return { error: "Session expired", status: 401 };
+        }
+        response = await fetch(url, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${refreshResult.accessToken}` },
+          body: formData,
+        });
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        return {
+          error: errorData.detail || errorData.error || "Upload failed",
+          status: response.status,
+        };
+      }
+      return { data: await response.json(), status: response.status };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Upload failed", status: 500 };
+    }
+  },
+
+  async removeAppIcon(slug: string): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>(`/apps/${slug}/icon`, { method: "DELETE" });
   },
 
   // ── App-scoped API Keys ────────────────────────────────────────────
@@ -507,6 +565,20 @@ export const apiClient = {
     const qs = searchParams.toString();
     return fetchDjango<import("@/types/app").EndpointOption[]>(
       `/apps/${slug}/endpoint-options${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  async getEnvironmentOptions(
+    slug: string,
+    params?: { since?: string; until?: string; limit?: number },
+  ): Promise<ApiResponse<EnvironmentOption[]>> {
+    const searchParams = new URLSearchParams();
+    if (params?.since) searchParams.set("since", params.since);
+    if (params?.until) searchParams.set("until", params.until);
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    return fetchDjango<EnvironmentOption[]>(
+      `/apps/${slug}/environment-options${qs ? `?${qs}` : ""}`,
     );
   },
 

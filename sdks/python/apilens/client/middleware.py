@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -15,6 +16,45 @@ from ._capture import (
 )
 from .client import ApiLensClient
 
+_consumer_ctx: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar(
+    "apilens_consumer_ctx",
+    default=None,
+)
+
+
+def track_consumer(
+    request: Any | None = None,
+    *,
+    identifier: str,
+    name: str | None = None,
+    group: str | None = None,
+) -> None:
+    """
+    Attach consumer identity to the current request.
+
+    Works with FastAPI/Starlette when called from dependencies or handlers.
+    """
+    payload = {
+        "consumer_id": str(identifier or "").strip(),
+        "consumer_name": str(name or "").strip(),
+        "consumer_group": str(group or "").strip(),
+    }
+    _consumer_ctx.set(payload)
+    state = getattr(request, "state", None)
+    if state is not None:
+        setattr(state, "_apilens_consumer", payload)
+
+
+def set_consumer(
+    request: Any | None = None,
+    *,
+    identifier: str,
+    name: str | None = None,
+    group: str | None = None,
+) -> None:
+    """Backward-compatible alias for track_consumer."""
+    track_consumer(request, identifier=identifier, name=name, group=group)
+
 
 class ApiLensASGIMiddleware:
     """Generic ASGI middleware for HTTP request capture."""
@@ -25,13 +65,19 @@ class ApiLensASGIMiddleware:
         client: ApiLensClient,
         *,
         environment: str | None = None,
+        enable_request_logging: bool = True,
+        log_request_body: bool = True,
+        log_response_body: bool = True,
         capture_payloads: bool = True,
         max_payload_bytes: int = 8192,
     ) -> None:
         self.app = app
         self.client = client
         self.environment = environment
-        self.capture_payloads = capture_payloads
+        self.enable_request_logging = enable_request_logging
+        self.log_request_body = log_request_body
+        self.log_response_body = log_response_body
+        self.capture_payloads = capture_payloads and enable_request_logging
         self.max_payload_bytes = max(0, int(max_payload_bytes))
 
     async def __call__(self, scope, receive, send) -> None:
@@ -58,12 +104,14 @@ class ApiLensASGIMiddleware:
         response_size = 0
         response_payload_chunks: list[bytes] = []
         response_payload_len = 0
+        token = _consumer_ctx.set(None)
 
         async def wrapped_receive():
             nonlocal request_payload_len
             message = await receive()
             if (
                 self.capture_payloads
+                and self.log_request_body
                 and message.get("type") == "http.request"
                 and self.max_payload_bytes > 0
             ):
@@ -83,7 +131,7 @@ class ApiLensASGIMiddleware:
             elif msg_type == "http.response.body":
                 body = message.get("body") or b""
                 response_size += len(body)
-                if self.capture_payloads and self.max_payload_bytes > 0 and response_payload_len < self.max_payload_bytes:
+                if self.capture_payloads and self.log_response_body and self.max_payload_bytes > 0 and response_payload_len < self.max_payload_bytes:
                     remaining = self.max_payload_bytes - response_payload_len
                     part = body[:remaining]
                     response_payload_chunks.append(part)
@@ -93,9 +141,18 @@ class ApiLensASGIMiddleware:
         try:
             await self.app(scope, wrapped_receive, wrapped_send)
         finally:
+            consumer = _consumer_ctx.get() or {}
+            scope_state = scope.get("state")
+            if isinstance(scope_state, dict):
+                state_consumer = scope_state.get("_apilens_consumer")
+                if isinstance(state_consumer, dict):
+                    consumer = {**consumer, **state_consumer}
             request_payload = b"".join(request_payload_chunks).decode("utf-8", errors="replace")
             response_payload = b"".join(response_payload_chunks).decode("utf-8", errors="replace")
             ctx.request_payload = request_payload
+            ctx.consumer_id = str(consumer.get("consumer_id") or "")
+            ctx.consumer_name = str(consumer.get("consumer_name") or "")
+            ctx.consumer_group = str(consumer.get("consumer_group") or "")
             capture_response(
                 self.client,
                 ctx,
@@ -105,6 +162,7 @@ class ApiLensASGIMiddleware:
                 environment=self.environment,
                 response_payload=response_payload,
             )
+            _consumer_ctx.reset(token)
 
 
 class ApiLensWSGIMiddleware:
@@ -116,13 +174,19 @@ class ApiLensWSGIMiddleware:
         client: ApiLensClient,
         *,
         environment: str | None = None,
+        enable_request_logging: bool = True,
+        log_request_body: bool = True,
+        log_response_body: bool = True,
         capture_payloads: bool = True,
         max_payload_bytes: int = 8192,
     ) -> None:
         self.app = app
         self.client = client
         self.environment = environment
-        self.capture_payloads = capture_payloads
+        self.enable_request_logging = enable_request_logging
+        self.log_request_body = log_request_body
+        self.log_response_body = log_response_body
+        self.capture_payloads = capture_payloads and enable_request_logging
         self.max_payload_bytes = max(0, int(max_payload_bytes))
 
     def __call__(self, environ: dict[str, Any], start_response: Callable) -> Any:
@@ -140,7 +204,7 @@ class ApiLensWSGIMiddleware:
             ip_address = (environ.get("HTTP_X_REAL_IP") or "").strip() or (environ.get("REMOTE_ADDR") or "")
 
         request_payload = ""
-        if self.capture_payloads and self.max_payload_bytes > 0:
+        if self.capture_payloads and self.log_request_body and self.max_payload_bytes > 0:
             stream = environ.get("wsgi.input")
             if stream is not None and hasattr(stream, "read"):
                 body = stream.read(self.max_payload_bytes)
@@ -178,7 +242,7 @@ class ApiLensWSGIMiddleware:
         try:
             for chunk in result:
                 response_size += len(chunk or b"")
-                if self.capture_payloads and self.max_payload_bytes > 0 and response_payload_len < self.max_payload_bytes:
+                if self.capture_payloads and self.log_response_body and self.max_payload_bytes > 0 and response_payload_len < self.max_payload_bytes:
                     piece = chunk or b""
                     remaining = self.max_payload_bytes - response_payload_len
                     part = piece[:remaining]

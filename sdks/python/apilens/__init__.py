@@ -1,9 +1,10 @@
 from .client import ApiLensClient, ApiLensConfig
 from .client import RequestRecord
 from .django import ApiLensDjangoMiddleware
+from .fastapi import ApiLensGatewayMiddleware, ApiLensMiddleware, set_consumer, track_consumer
 from .litestar import ApiLensPlugin
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 
 
 def install_apilens_exporter(*args, **kwargs):
@@ -19,4 +20,8 @@ __all__ = [
     "install_apilens_exporter",
     "ApiLensDjangoMiddleware",
     "ApiLensPlugin",
+    "ApiLensGatewayMiddleware",
+    "ApiLensMiddleware",
+    "track_consumer",
+    "set_consumer",
 ]

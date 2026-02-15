@@ -1,9 +1,16 @@
 import logging
+import os
+import threading
 from datetime import datetime, timedelta, timezone as tz
+from io import BytesIO
 
-from django.db import transaction
+from django.conf import settings
+from django.core.files.base import ContentFile
+from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
+from PIL import Image
 
 from core.exceptions.base import NotFoundError, RateLimitError, ValidationError, ConflictError
 
@@ -20,6 +27,7 @@ RESERVED_SLUGS = {
     "null", "undefined", "true", "false",
     "system", "internal", "public", "private",
 }
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
 def _resolve_time_range(since: str | None, until: str | None) -> tuple[datetime, datetime]:
@@ -43,7 +51,9 @@ def _unique_slug(user, name: str, exclude_id=None) -> str:
             counter += 1
             continue
 
-        qs = App.objects.filter(owner=user, slug=candidate, is_active=True)
+        # Slug is protected by a DB unique constraint on (owner, slug),
+        # so uniqueness must be checked across all rows, not only active ones.
+        qs = App.objects.filter(owner=user, slug=candidate)
         if exclude_id:
             qs = qs.exclude(id=exclude_id)
         if not qs.exists():
@@ -55,24 +65,43 @@ def _unique_slug(user, name: str, exclude_id=None) -> str:
 
 class AppService:
     @staticmethod
-    @transaction.atomic
-    def create_app(user, name: str, description: str = "") -> App:
+    def create_app(
+        user,
+        name: str,
+        description: str = "",
+        framework: str = "fastapi",
+    ) -> App:
         name = name.strip()
         if not name:
             raise ValidationError("App name is required")
+        framework = (framework or "fastapi").strip().lower()
+        if framework not in App.Framework.values:
+            raise ValidationError("Invalid framework")
 
         if App.objects.for_user(user).count() >= MAX_APPS_PER_USER:
             raise RateLimitError(f"Maximum of {MAX_APPS_PER_USER} apps allowed")
 
-        slug = _unique_slug(user, name)
-        app = App.objects.create(
-            owner=user,
-            name=name,
-            slug=slug,
-            description=description.strip(),
-        )
-        EnvironmentService.create_default_environments(app)
-        return app
+        # Retry for rare concurrent create collisions.
+        for attempt in range(5):
+            slug = _unique_slug(user, name)
+            try:
+                with transaction.atomic():
+                    app = App.objects.create(
+                        owner=user,
+                        name=name,
+                        slug=slug,
+                        description=description.strip(),
+                        framework=framework,
+                    )
+                    return app
+            except IntegrityError as exc:
+                if "unique_owner_slug" in str(exc):
+                    if attempt == 4:
+                        raise ConflictError("App name already exists. Try a different name.")
+                    continue
+                raise
+
+        raise ConflictError("Unable to create app with that name. Try a different name.")
 
     @staticmethod
     def list_apps(user) -> list[App]:
@@ -87,7 +116,13 @@ class AppService:
 
     @staticmethod
     @transaction.atomic
-    def update_app(user, slug: str, name: str | None = None, description: str | None = None) -> App:
+    def update_app(
+        user,
+        slug: str,
+        name: str | None = None,
+        description: str | None = None,
+        framework: str | None = None,
+    ) -> App:
         app = AppService.get_app_by_slug(user, slug)
 
         if name is not None:
@@ -99,6 +134,12 @@ class AppService:
 
         if description is not None:
             app.description = description.strip()
+
+        if framework is not None:
+            normalized = framework.strip().lower()
+            if normalized not in App.Framework.values:
+                raise ValidationError("Invalid framework")
+            app.framework = normalized
 
         app.save()
         return app
@@ -114,6 +155,65 @@ class AppService:
 
         app.is_active = False
         app.save(update_fields=["is_active", "updated_at"])
+
+    @staticmethod
+    @transaction.atomic
+    def update_icon(app: App, file) -> App:
+        if file.content_type not in ALLOWED_IMAGE_TYPES:
+            raise ValidationError("Only JPEG, PNG, and WebP images are allowed")
+
+        max_size = getattr(settings, "APP_ICON_MAX_SIZE", 2 * 1024 * 1024)
+        if file.size > max_size:
+            raise ValidationError(f"Image must be smaller than {max_size // (1024 * 1024)}MB")
+
+        try:
+            img = Image.open(file)
+            img.verify()
+            file.seek(0)
+            img = Image.open(file)
+        except Exception:
+            raise ValidationError("Invalid image file")
+
+        max_dim = getattr(settings, "APP_ICON_MAX_DIMENSION", 512)
+        if img.width > max_dim or img.height > max_dim:
+            img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+
+        if img.mode in ("RGBA", "P", "LA"):
+            img = img.convert("RGB")
+
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=90)
+        buffer.seek(0)
+
+        if app.icon_image:
+            try:
+                old_path = app.icon_image.path
+                if os.path.exists(old_path):
+                    os.remove(old_path)
+            except Exception:
+                pass
+
+        app.icon_image.save(
+            f"{app.id}.jpg",
+            ContentFile(buffer.read()),
+            save=False,
+        )
+        app.save(update_fields=["icon_image", "updated_at"])
+        return app
+
+    @staticmethod
+    @transaction.atomic
+    def remove_icon(app: App) -> App:
+        if app.icon_image:
+            try:
+                old_path = app.icon_image.path
+                if os.path.exists(old_path):
+                    os.remove(old_path)
+            except Exception:
+                pass
+            app.icon_image = ""
+            app.save(update_fields=["icon_image", "updated_at"])
+        return app
 
 
 class EndpointService:
@@ -266,6 +366,51 @@ class EnvironmentService:
 
 class IngestService:
     MAX_PAYLOAD_CHARS = 16_384
+    _payload_columns_ready = False
+    _payload_columns_lock = threading.Lock()
+    _consumer_columns_ready = False
+    _consumer_columns_lock = threading.Lock()
+
+    @staticmethod
+    def ensure_payload_columns(client) -> None:
+        if IngestService._payload_columns_ready:
+            return
+        with IngestService._payload_columns_lock:
+            if IngestService._payload_columns_ready:
+                return
+            try:
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS request_payload String CODEC(ZSTD(3))"
+                )
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS response_payload String CODEC(ZSTD(3))"
+                )
+            except Exception as exc:
+                logger.warning("Unable to ensure payload columns on api_requests: %s", exc)
+                return
+            IngestService._payload_columns_ready = True
+
+    @staticmethod
+    def ensure_consumer_columns(client) -> None:
+        if IngestService._consumer_columns_ready:
+            return
+        with IngestService._consumer_columns_lock:
+            if IngestService._consumer_columns_ready:
+                return
+            try:
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_id String CODEC(ZSTD(3))"
+                )
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_name String CODEC(ZSTD(3))"
+                )
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_group String CODEC(ZSTD(3))"
+                )
+            except Exception as exc:
+                logger.warning("Unable to ensure consumer columns on api_requests: %s", exc)
+                return
+            IngestService._consumer_columns_ready = True
 
     @staticmethod
     def _safe_payload(value: str) -> str:
@@ -283,6 +428,8 @@ class IngestService:
 
         from core.database.clickhouse.client import get_clickhouse_client
         client = get_clickhouse_client()
+        IngestService.ensure_payload_columns(client)
+        IngestService.ensure_consumer_columns(client)
 
         method_choices = set(Endpoint.Method.values)
 
@@ -306,6 +453,9 @@ class IngestService:
                     "response_size": r.response_size,
                     "ip_address": r.ip_address,
                     "user_agent": r.user_agent,
+                    "consumer_id": (getattr(r, "consumer_id", "") or "")[:256],
+                    "consumer_name": (getattr(r, "consumer_name", "") or "")[:256],
+                    "consumer_group": (getattr(r, "consumer_group", "") or "")[:256],
                     "request_payload": IngestService._safe_payload(r.request_payload),
                     "response_payload": IngestService._safe_payload(r.response_payload),
                 }
@@ -397,6 +547,9 @@ class IngestService:
                     "response_size": r["response_size"],
                     "ip_address": r["ip_address"],
                     "user_agent": r["user_agent"],
+                    "consumer_id": r["consumer_id"],
+                    "consumer_name": r["consumer_name"],
+                    "consumer_group": r["consumer_group"],
                     "request_payload": r["request_payload"],
                     "response_payload": r["response_payload"],
                 }
@@ -428,13 +581,14 @@ class EndpointStatsService:
     ) -> dict:
         from core.database.clickhouse.client import get_clickhouse_client
 
+        safe_page = max(1, int(page))
+        safe_size = max(1, min(int(page_size), 200))
+
+        client = None
         try:
             client = get_clickhouse_client()
         except Exception as exc:
-            logger.warning("ClickHouse client initialization failed; returning empty endpoint stats: %s", exc)
-            safe_page = max(1, int(page))
-            safe_size = max(1, min(int(page_size), 200))
-            return {"items": [], "total_count": 0, "page": safe_page, "page_size": safe_size}
+            logger.warning("ClickHouse client initialization failed; continuing with endpoint-only stats: %s", exc)
 
         since_dt, until_dt = _resolve_time_range(since, until)
 
@@ -490,8 +644,8 @@ class EndpointStatsService:
             status_filter = f"AND ({' OR '.join(status_predicates)})"
 
         methods_filter = ""
+        normalized_methods: list[str] = []
         if methods:
-            normalized_methods = []
             for method in methods:
                 m = method.upper().strip()
                 if m and m not in normalized_methods:
@@ -505,8 +659,8 @@ class EndpointStatsService:
                 methods_filter = f"AND method IN ({', '.join(method_keys)})"
 
         paths_filter = ""
+        normalized_paths: list[str] = []
         if paths:
-            normalized_paths = []
             for p in paths:
                 path = p.strip()
                 if path and path not in normalized_paths:
@@ -520,8 +674,8 @@ class EndpointStatsService:
                 paths_filter = f"AND path IN ({', '.join(path_keys)})"
 
         endpoint_pairs_filter = ""
+        normalized_pairs: list[tuple[str, str]] = []
         if endpoint_pairs:
-            normalized_pairs: list[tuple[str, str]] = []
             for method, path in endpoint_pairs:
                 clean_method = (method or "").strip().upper()
                 clean_path = (path or "").strip()
@@ -547,23 +701,6 @@ class EndpointStatsService:
             params["search"] = f"%{normalized_search}%"
             search_filter = "AND (lower(path) LIKE %(search)s OR lower(method) LIKE %(search)s)"
 
-        sort_map = {
-            "endpoint": "method, path",
-            "total_requests": "total_requests",
-            "error_rate": "error_rate",
-            "avg_response_time_ms": "avg_response_time_ms",
-            "p95_response_time_ms": "p95_response_time_ms",
-            "data_transfer": "(total_request_bytes + total_response_bytes)",
-            "last_seen_at": "last_seen_at",
-        }
-        sort_expr = sort_map.get(sort_by, "total_requests")
-        sort_direction = "ASC" if str(sort_dir).lower() == "asc" else "DESC"
-        safe_page = max(1, int(page))
-        safe_size = max(1, min(int(page_size), 200))
-        offset = (safe_page - 1) * safe_size
-        params["limit"] = safe_size
-        params["offset"] = offset
-
         query = f"""
             SELECT
                 method,
@@ -587,35 +724,81 @@ class EndpointStatsService:
               {endpoint_pairs_filter}
               {search_filter}
             GROUP BY method, path
-            ORDER BY {sort_expr} {sort_direction}
-            LIMIT %(limit)s
-            OFFSET %(offset)s
-        """
-
-        total_query = f"""
-            SELECT count() AS total_count
-            FROM (
-                SELECT method, path
-                FROM api_requests
-                WHERE app_id = %(app_id)s
-                  AND timestamp >= %(since)s
-                  AND timestamp <= %(until)s
-                  {env_filter}
-                  {status_filter}
-                  {methods_filter}
-                  {paths_filter}
-                  {endpoint_pairs_filter}
-                  {search_filter}
-                GROUP BY method, path
-            )
         """
 
         try:
-            items = client.execute(query, params)
-            total_rows = client.execute(total_query, params)
-            total_count = int(total_rows[0]["total_count"]) if total_rows else 0
+            stats_rows = client.execute(query, params) if client is not None else []
+            stats_map: dict[tuple[str, str], dict] = {
+                (row["method"], row["path"]): row for row in stats_rows
+            }
+
+            endpoint_qs = Endpoint.objects.filter(app_id=app_id, is_active=True)
+            if normalized_methods:
+                endpoint_qs = endpoint_qs.filter(method__in=normalized_methods)
+            if normalized_paths:
+                endpoint_qs = endpoint_qs.filter(path__in=normalized_paths)
+            if normalized_pairs:
+                pair_query = Q()
+                for pair_method, pair_path in normalized_pairs:
+                    pair_query |= Q(method=pair_method, path=pair_path)
+                endpoint_qs = endpoint_qs.filter(pair_query)
+            if normalized_search:
+                endpoint_qs = endpoint_qs.filter(
+                    Q(path__icontains=normalized_search) | Q(method__icontains=normalized_search)
+                )
+
+            items: list[dict] = []
+            endpoint_keys: set[tuple[str, str]] = set()
+            for endpoint in endpoint_qs:
+                key = (endpoint.method, endpoint.path)
+                endpoint_keys.add(key)
+                row = stats_map.get(key)
+                if row:
+                    items.append(row)
+                    continue
+                items.append(
+                    {
+                        "method": endpoint.method,
+                        "path": endpoint.path,
+                        "total_requests": 0,
+                        "error_count": 0,
+                        "error_rate": 0.0,
+                        "avg_response_time_ms": 0.0,
+                        "p95_response_time_ms": 0.0,
+                        "total_request_bytes": 0,
+                        "total_response_bytes": 0,
+                        "last_seen_at": endpoint.last_seen_at,
+                    }
+                )
+
+            for key, row in stats_map.items():
+                if key not in endpoint_keys:
+                    items.append(row)
+
+            reverse = str(sort_dir).lower() != "asc"
+            if sort_by == "endpoint":
+                items.sort(key=lambda row: (str(row.get("method", "")), str(row.get("path", ""))), reverse=reverse)
+            elif sort_by == "error_rate":
+                items.sort(key=lambda row: float(row.get("error_rate") or 0.0), reverse=reverse)
+            elif sort_by == "avg_response_time_ms":
+                items.sort(key=lambda row: float(row.get("avg_response_time_ms") or 0.0), reverse=reverse)
+            elif sort_by == "p95_response_time_ms":
+                items.sort(key=lambda row: float(row.get("p95_response_time_ms") or 0.0), reverse=reverse)
+            elif sort_by == "data_transfer":
+                items.sort(
+                    key=lambda row: int(row.get("total_request_bytes") or 0) + int(row.get("total_response_bytes") or 0),
+                    reverse=reverse,
+                )
+            elif sort_by == "last_seen_at":
+                items.sort(key=lambda row: row.get("last_seen_at") or datetime.min.replace(tzinfo=tz.utc), reverse=reverse)
+            else:
+                items.sort(key=lambda row: int(row.get("total_requests") or 0), reverse=reverse)
+
+            total_count = len(items)
+            offset = (safe_page - 1) * safe_size
+            page_items = items[offset: offset + safe_size]
             return {
-                "items": items,
+                "items": page_items,
                 "total_count": total_count,
                 "page": safe_page,
                 "page_size": safe_size,
@@ -661,6 +844,47 @@ class EndpointStatsService:
             for row in data.get("items", [])
         ]
 
+    @staticmethod
+    def get_environment_options(
+        app_id: str,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty environment options: %s", exc)
+            return []
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params = {
+            "app_id": app_id,
+            "since": since_dt,
+            "until": until_dt,
+            "limit": max(1, min(limit, 100)),
+        }
+        query = """
+            SELECT
+                environment,
+                count() AS total_requests
+            FROM api_requests
+            WHERE app_id = %(app_id)s
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              AND length(environment) > 0
+            GROUP BY environment
+            ORDER BY total_requests DESC
+            LIMIT %(limit)s
+        """
+        try:
+            return client.execute(query, params)
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for environment options; returning empty list: %s", exc)
+            return []
+
 
 class ConsumerStatsService:
     @staticmethod
@@ -678,6 +902,7 @@ class ConsumerStatsService:
         except Exception as exc:
             logger.warning("ClickHouse client initialization failed; returning empty consumer stats: %s", exc)
             return []
+        IngestService.ensure_consumer_columns(client)
 
         since_dt, until_dt = _resolve_time_range(since, until)
 
@@ -695,7 +920,15 @@ class ConsumerStatsService:
 
         query = f"""
             SELECT
-                if(user_agent = '', 'unknown', user_agent) AS consumer,
+                if(
+                    consumer_name != '',
+                    consumer_name,
+                    if(
+                        consumer_id != '',
+                        consumer_id,
+                        if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                    )
+                ) AS consumer,
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
@@ -742,6 +975,7 @@ class AnalyticsService:
                 "unique_endpoints": 0,
                 "unique_consumers": 0,
             }
+        IngestService.ensure_consumer_columns(client)
 
         since_dt, until_dt = _resolve_time_range(since, until)
         params = {"app_id": app_id, "since": since_dt, "until": until_dt}
@@ -760,7 +994,17 @@ class AnalyticsService:
                 sum(request_size) AS total_request_bytes,
                 sum(response_size) AS total_response_bytes,
                 uniqExact((method, path)) AS unique_endpoints,
-                uniqExact(if(user_agent = '', 'unknown', user_agent)) AS unique_consumers
+                uniqExact(
+                    if(
+                        consumer_name != '',
+                        consumer_name,
+                        if(
+                            consumer_id != '',
+                            consumer_id,
+                            if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                        )
+                    )
+                ) AS unique_consumers
             FROM api_requests
             WHERE app_id = %(app_id)s
               AND timestamp >= %(since)s
@@ -1047,6 +1291,7 @@ class AnalyticsService:
         except Exception as exc:
             logger.warning("ClickHouse client initialization failed; returning empty endpoint consumers: %s", exc)
             return []
+        IngestService.ensure_consumer_columns(client)
 
         since_dt, until_dt = _resolve_time_range(since, until)
         params = {
@@ -1064,7 +1309,15 @@ class AnalyticsService:
 
         query = f"""
             SELECT
-                if(user_agent = '', 'unknown', user_agent) AS consumer,
+                if(
+                    consumer_name != '',
+                    consumer_name,
+                    if(
+                        consumer_id != '',
+                        consumer_id,
+                        if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                    )
+                ) AS consumer,
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
@@ -1156,6 +1409,8 @@ class AnalyticsService:
         except Exception as exc:
             logger.warning("ClickHouse client initialization failed; returning empty endpoint payloads: %s", exc)
             return []
+        IngestService.ensure_payload_columns(client)
+        IngestService.ensure_consumer_columns(client)
 
         since_dt, until_dt = _resolve_time_range(since, until)
         params = {
@@ -1177,9 +1432,13 @@ class AnalyticsService:
                 method,
                 path,
                 status_code,
+                response_time_ms,
                 environment,
                 ip_address,
                 user_agent,
+                consumer_id,
+                consumer_name,
+                consumer_group,
                 request_payload,
                 response_payload
             FROM api_requests
@@ -1189,7 +1448,6 @@ class AnalyticsService:
               AND timestamp >= %(since)s
               AND timestamp <= %(until)s
               {env_filter}
-              AND (length(request_payload) > 0 OR length(response_payload) > 0)
             ORDER BY timestamp DESC
             LIMIT %(limit)s
         """

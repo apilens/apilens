@@ -9,15 +9,21 @@ import type { AppListItem } from "@/types/app";
 export default function AppsListContent() {
   const [apps, setApps] = useState<AppListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     async function fetchApps() {
       try {
         const res = await fetch("/api/apps");
-        if (!res.ok) throw new Error("Failed to fetch apps");
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || "Failed to fetch apps");
+        }
         const data = await res.json();
         setApps(data.apps);
       } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to fetch apps";
+        setError(message);
         console.error(err);
       } finally {
         setIsLoading(false);
@@ -49,6 +55,7 @@ export default function AppsListContent() {
           Create App
         </Link>
       </div>
+      {error ? <div className="create-app-error">{error}</div> : null}
 
       {apps.length === 0 ? (
         <div className="apps-empty">
@@ -67,7 +74,13 @@ export default function AppsListContent() {
       ) : (
         <div className="apps-grid">
           {apps.map((app) => (
-            <AppCard key={app.id} app={app} />
+            <AppCard
+              key={app.id}
+              app={app}
+              onDeleted={(id) =>
+                setApps((prev) => prev.filter((existing) => existing.id !== id))
+              }
+            />
           ))}
         </div>
       )}

@@ -6,7 +6,7 @@ import PageHeader from "@/components/dashboard/PageHeader";
 export default function MonitorsPage() {
   return (
     <div className="placeholder-page">
-      <PageHeader title="Monitors" description="Uptime monitoring and alerts will appear here." />
+      <PageHeader title="Monitors" description="Coming soon. Uptime monitoring and alerts will appear here." />
       <div className="placeholder-icon">
         <Radio size={32} />
       </div>

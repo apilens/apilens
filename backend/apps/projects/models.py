@@ -6,7 +6,17 @@ from django.db import models
 from .managers import AppManager, EndpointManager, EnvironmentManager
 
 
+def app_icon_path(instance, filename):
+    return f"app_icons/{instance.id}.jpg"
+
+
 class App(models.Model):
+    class Framework(models.TextChoices):
+        FASTAPI = "fastapi"
+        FLASK = "flask"
+        DJANGO = "django"
+        STARLETTE = "starlette"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -15,7 +25,14 @@ class App(models.Model):
     )
     name = models.CharField(max_length=100)
     slug = models.SlugField(max_length=120, db_index=True)
+    icon = models.CharField(max_length=8, blank=True, default="")
+    icon_image = models.ImageField(upload_to=app_icon_path, blank=True, default="")
     description = models.TextField(blank=True, default="")
+    framework = models.CharField(
+        max_length=24,
+        choices=Framework.choices,
+        default=Framework.FASTAPI,
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

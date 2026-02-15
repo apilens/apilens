@@ -4,10 +4,20 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
+type FrameworkId = "fastapi" | "flask" | "django" | "starlette";
+
+const FRAMEWORK_OPTIONS: Array<{ id: FrameworkId; label: string }> = [
+  { id: "fastapi", label: "FastAPI" },
+  { id: "flask", label: "Flask" },
+  { id: "django", label: "Django / Django Ninja" },
+  { id: "starlette", label: "Starlette" },
+];
+
 export default function CreateAppForm() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [framework, setFramework] = useState<FrameworkId>("fastapi");
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
 
@@ -22,11 +32,56 @@ export default function CreateAppForm() {
       const res = await fetch("/api/apps", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), description: description.trim() }),
+        body: JSON.stringify({
+          name: name.trim(),
+          description: description.trim(),
+          framework,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create app");
-      router.push(`/apps/${data.slug}/settings/api-keys`);
+
+      const keyRes = await fetch(`/api/apps/${data.slug}/api-keys`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: `${framework}-default-key` }),
+      });
+      const keyData = await keyRes.json();
+      if (!keyRes.ok || !keyData.key) {
+        throw new Error(keyData.error || "App created, but API key generation failed");
+      }
+
+      if (typeof window !== "undefined") {
+        const createdAt = Date.now();
+        const apiKeyPrefix = keyData.prefix || String(keyData.key).slice(0, 16);
+
+        // Keep raw key ephemeral (session only), for one-time reveal.
+        window.sessionStorage.setItem(
+          `apilens_setup_secret_${data.slug}`,
+          JSON.stringify({
+            appName: data.name,
+            framework,
+            apiKey: keyData.key,
+            createdAt,
+          }),
+        );
+
+        // Keep non-sensitive setup metadata persistent for future refreshes.
+        window.localStorage.setItem(
+          `apilens_setup_meta_${data.slug}`,
+          JSON.stringify({
+            appName: data.name,
+            framework,
+            apiKeyPrefix,
+            createdAt,
+          }),
+        );
+
+        // Cleanup older key format if present.
+        window.sessionStorage.removeItem(`apilens_setup_${data.slug}`);
+      }
+
+      window.location.assign(`/apps/${data.slug}/setup`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create app");
     } finally {
@@ -67,6 +122,24 @@ export default function CreateAppForm() {
           maxLength={500}
           rows={3}
         />
+      </div>
+
+      <div className="create-app-field">
+        <label htmlFor="app-framework" className="create-app-label">
+          Framework
+        </label>
+        <select
+          id="app-framework"
+          className="create-app-input"
+          value={framework}
+          onChange={(e) => setFramework(e.target.value as FrameworkId)}
+        >
+          {FRAMEWORK_OPTIONS.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="create-app-actions">

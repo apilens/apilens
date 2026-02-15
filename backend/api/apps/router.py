@@ -1,9 +1,11 @@
 from django.db.models import Count, Q
 from django.http import HttpRequest
+from ninja import File
+from ninja.files import UploadedFile
 from ninja import Router
 
 from apps.auth.services import ApiKeyService
-from apps.projects.services import AppService, EndpointService, EnvironmentService
+from apps.projects.services import AppService, EnvironmentService
 from apps.users.models import User
 from core.auth.authentication import jwt_auth
 from core.exceptions.base import ValidationError
@@ -21,19 +23,17 @@ from .schemas import (
     EndpointPayloadSampleResponse,
     CreateApiKeyRequest,
     CreateAppRequest,
-    CreateEndpointRequest,
-    CreateEnvironmentRequest,
     UpdateAppRequest,
-    UpdateEndpointRequest,
-    UpdateEnvironmentRequest,
-    EndpointResponse,
     EnvironmentResponse,
     EndpointStatsListResponse,
     EndpointOptionResponse,
+    EnvironmentOptionResponse,
+    AppIconResponse,
     ConsumerStatsResponse,
     ApiKeyResponse,
     CreateApiKeyResponse,
     MessageResponse,
+    _build_app_icon_url,
 )
 
 router = Router(auth=[jwt_auth])
@@ -42,12 +42,14 @@ router = Router(auth=[jwt_auth])
 @router.post("/", response={201: AppResponse})
 def create_app(request: HttpRequest, data: CreateAppRequest):
     user: User = request.auth
-    app = AppService.create_app(user, data.name, data.description)
+    app = AppService.create_app(user, data.name, data.description, data.framework)
     return 201, AppResponse(
         id=app.id,
         name=app.name,
         slug=app.slug,
+        icon_url=_build_app_icon_url(app),
         description=app.description,
+        framework=app.framework,
         created_at=app.created_at,
         updated_at=app.updated_at,
     )
@@ -77,7 +79,9 @@ def list_apps(request: HttpRequest):
             id=a.id,
             name=a.name,
             slug=a.slug,
+            icon_url=_build_app_icon_url(a),
             description=a.description,
+            framework=a.framework,
             api_key_count=counts.get(a.id, 0),
             created_at=a.created_at,
         )
@@ -93,7 +97,9 @@ def get_app(request: HttpRequest, app_slug: str):
         id=app.id,
         name=app.name,
         slug=app.slug,
+        icon_url=_build_app_icon_url(app),
         description=app.description,
+        framework=app.framework,
         created_at=app.created_at,
         updated_at=app.updated_at,
     )
@@ -102,12 +108,14 @@ def get_app(request: HttpRequest, app_slug: str):
 @router.patch("/{app_slug}", response=AppResponse)
 def update_app(request: HttpRequest, app_slug: str, data: UpdateAppRequest):
     user: User = request.auth
-    app = AppService.update_app(user, app_slug, data.name, data.description)
+    app = AppService.update_app(user, app_slug, data.name, data.description, data.framework)
     return AppResponse(
         id=app.id,
         name=app.name,
         slug=app.slug,
+        icon_url=_build_app_icon_url(app),
         description=app.description,
+        framework=app.framework,
         created_at=app.created_at,
         updated_at=app.updated_at,
     )
@@ -118,6 +126,25 @@ def delete_app(request: HttpRequest, app_slug: str):
     user: User = request.auth
     AppService.delete_app(user, app_slug)
     return {"message": "App deleted"}
+
+
+@router.post("/{app_slug}/icon", response=AppIconResponse)
+def upload_app_icon(request: HttpRequest, app_slug: str, file: UploadedFile = File(...)):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+    app = AppService.update_icon(app, file)
+    return AppIconResponse(
+        icon_url=_build_app_icon_url(app),
+        message="App icon updated",
+    )
+
+
+@router.delete("/{app_slug}/icon", response=MessageResponse)
+def remove_app_icon(request: HttpRequest, app_slug: str):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+    AppService.remove_icon(app)
+    return {"message": "App icon removed"}
 
 
 # ── App-scoped API Keys ──────────────────────────────────────────────
@@ -167,51 +194,6 @@ def revoke_api_key(request: HttpRequest, app_slug: str, key_id: str):
     return {"message": "API key revoked"}
 
 
-# ── App-scoped Endpoints ─────────────────────────────────────────────
-
-
-@router.get("/{app_slug}/endpoints", response=list[EndpointResponse])
-def list_endpoints(request: HttpRequest, app_slug: str):
-    user: User = request.auth
-    app = AppService.get_app_by_slug(user, app_slug)
-    endpoints = EndpointService.list_endpoints(app)
-    return [EndpointResponse.from_orm(e) for e in endpoints]
-
-
-@router.post("/{app_slug}/endpoints", response={201: EndpointResponse})
-def create_endpoint(request: HttpRequest, app_slug: str, data: CreateEndpointRequest):
-    user: User = request.auth
-    app = AppService.get_app_by_slug(user, app_slug)
-    endpoint = EndpointService.create_endpoint(app, data.path, data.method, data.description)
-    return 201, EndpointResponse.from_orm(endpoint)
-
-
-@router.get("/{app_slug}/endpoints/{endpoint_id}", response=EndpointResponse)
-def get_endpoint(request: HttpRequest, app_slug: str, endpoint_id: str):
-    user: User = request.auth
-    app = AppService.get_app_by_slug(user, app_slug)
-    endpoint = EndpointService.get_endpoint(app, endpoint_id)
-    return EndpointResponse.from_orm(endpoint)
-
-
-@router.patch("/{app_slug}/endpoints/{endpoint_id}", response=EndpointResponse)
-def update_endpoint(request: HttpRequest, app_slug: str, endpoint_id: str, data: UpdateEndpointRequest):
-    user: User = request.auth
-    app = AppService.get_app_by_slug(user, app_slug)
-    endpoint = EndpointService.update_endpoint(
-        app, endpoint_id, data.path, data.method, data.description,
-    )
-    return EndpointResponse.from_orm(endpoint)
-
-
-@router.delete("/{app_slug}/endpoints/{endpoint_id}", response={204: None})
-def delete_endpoint(request: HttpRequest, app_slug: str, endpoint_id: str):
-    user: User = request.auth
-    app = AppService.get_app_by_slug(user, app_slug)
-    EndpointService.delete_endpoint(app, endpoint_id)
-    return 204, None
-
-
 # ── App-scoped Environments ──────────────────────────────────────────
 
 
@@ -221,30 +203,6 @@ def list_environments(request: HttpRequest, app_slug: str):
     app = AppService.get_app_by_slug(user, app_slug)
     envs = EnvironmentService.list_environments(app)
     return [EnvironmentResponse.from_orm(e) for e in envs]
-
-
-@router.post("/{app_slug}/environments", response={201: EnvironmentResponse})
-def create_environment(request: HttpRequest, app_slug: str, data: CreateEnvironmentRequest):
-    user: User = request.auth
-    app = AppService.get_app_by_slug(user, app_slug)
-    env = EnvironmentService.create_environment(app, data.name, data.color)
-    return 201, EnvironmentResponse.from_orm(env)
-
-
-@router.patch("/{app_slug}/environments/{env_slug}", response=EnvironmentResponse)
-def update_environment(request: HttpRequest, app_slug: str, env_slug: str, data: UpdateEnvironmentRequest):
-    user: User = request.auth
-    app = AppService.get_app_by_slug(user, app_slug)
-    env = EnvironmentService.update_environment(app, env_slug, data.name, data.color)
-    return EnvironmentResponse.from_orm(env)
-
-
-@router.delete("/{app_slug}/environments/{env_slug}", response=MessageResponse)
-def delete_environment(request: HttpRequest, app_slug: str, env_slug: str):
-    user: User = request.auth
-    app = AppService.get_app_by_slug(user, app_slug)
-    EnvironmentService.delete_environment(app, env_slug)
-    return {"message": "Environment deleted"}
 
 
 # ── App-scoped Endpoint Stats ────────────────────────────────────────
@@ -379,6 +337,26 @@ def get_endpoint_options(
         status_codes=status_code_list or None,
         methods=method_list or None,
         search=q,
+        limit=limit,
+    )
+
+
+@router.get("/{app_slug}/environment-options", response=list[EnvironmentOptionResponse])
+def get_environment_options(
+    request: HttpRequest,
+    app_slug: str,
+    since: str = None,
+    until: str = None,
+    limit: int = 50,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import EndpointStatsService
+    return EndpointStatsService.get_environment_options(
+        app_id=str(app.id),
+        since=since,
+        until=until,
         limit=limit,
     )
 

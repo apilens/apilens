@@ -25,10 +25,11 @@ interface AppListItem {
   id: string;
   name: string;
   slug: string;
+  icon_url: string;
 }
 
 interface SidebarProps {
-  appSlug: string;
+  appSlug?: string;
 }
 
 export default function Sidebar({ appSlug }: SidebarProps) {
@@ -41,7 +42,8 @@ export default function Sidebar({ appSlug }: SidebarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const basePath = `/apps/${appSlug}`;
+  const hasApp = Boolean(appSlug);
+  const basePath = hasApp ? `/apps/${appSlug}` : "/apps";
 
   const getCurrentSection = () => {
     const parts = pathname.split("/").filter(Boolean);
@@ -81,21 +83,27 @@ export default function Sidebar({ appSlug }: SidebarProps) {
     router.push(`/apps/${slug}/${section}`);
   };
 
-  const navigation = [
-    { name: "Endpoints", href: `${basePath}/endpoints`, icon: Layers },
-    { name: "Logs", href: `${basePath}/logs`, icon: ScrollText },
-    { name: "Analytics", href: `${basePath}/analytics`, icon: TrendingUp },
-    { name: "Monitors", href: `${basePath}/monitors`, icon: Radio },
-    { name: "Settings", href: `${basePath}/settings/general`, icon: Settings },
-  ];
+  const navigation = hasApp
+    ? [
+      { name: "Endpoints", href: `${basePath}/endpoints`, icon: Layers },
+      { name: "Logs", href: `${basePath}/logs`, icon: ScrollText },
+      { name: "Analytics", href: `${basePath}/analytics`, icon: TrendingUp },
+      { name: "Monitors", href: `${basePath}/monitors`, icon: Radio },
+      { name: "Settings", href: `${basePath}/settings/general`, icon: Settings },
+    ]
+    : [
+      { name: "Apps", href: "/apps", icon: Layers },
+      { name: "Create App", href: "/apps/new", icon: Plus },
+      { name: "Account", href: "/settings/general", icon: Settings },
+    ];
 
   const secondaryNavigation = [
     { name: "Notifications", href: "/notifications", icon: Bell },
     { name: "Help & Support", href: "/help", icon: CircleHelpIcon },
   ];
 
-  const displayName = currentApp?.name || appSlug;
-  const initial = displayName.charAt(0).toUpperCase();
+  const displayName = currentApp?.name || appSlug || "Select app";
+  const currentAvatar = (displayName.charAt(0) || "A").toUpperCase().slice(0, 2);
 
   return (
     <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`}>
@@ -110,16 +118,7 @@ export default function Sidebar({ appSlug }: SidebarProps) {
               className="logo-icon-collapsed"
             />
           ) : (
-            <span className="logo-mark">
-              <Image
-                src="/logo.svg"
-                alt="ApiLens"
-                width={18}
-                height={18}
-                className="logo-icon"
-              />
-              <span className="logo-text">API Lens</span>
-            </span>
+            <span className="logo-text">API Lens</span>
           )}
         </Link>
       </div>
@@ -131,7 +130,13 @@ export default function Sidebar({ appSlug }: SidebarProps) {
           onClick={() => setDropdownOpen((prev) => !prev)}
           title={collapsed ? displayName : undefined}
         >
-          <span className="app-switcher-avatar">{initial}</span>
+          <span className="app-switcher-avatar">
+            {currentApp?.icon_url ? (
+              <img src={currentApp.icon_url} alt={displayName} className="app-switcher-avatar-image" />
+            ) : (
+              currentAvatar
+            )}
+          </span>
           {!collapsed && (
             <>
               <span className="app-switcher-label">{displayName}</span>
@@ -153,7 +158,11 @@ export default function Sidebar({ appSlug }: SidebarProps) {
                     onClick={() => handleSwitchApp(app.slug)}
                   >
                     <span className="app-switcher-option-avatar">
-                      {app.name.charAt(0).toUpperCase()}
+                      {app.icon_url ? (
+                        <img src={app.icon_url} alt={app.name} className="app-switcher-option-avatar-image" />
+                      ) : (
+                        (app.name.charAt(0) || "A").toUpperCase().slice(0, 2)
+                      )}
                     </span>
                     <span className="app-switcher-option-name">{app.name}</span>
                     {isActive && <Check size={14} className="app-switcher-check" />}
@@ -180,10 +189,13 @@ export default function Sidebar({ appSlug }: SidebarProps) {
           {!collapsed && <span className="nav-section-title">Main</span>}
           <ul className="nav-list">
             {navigation.map((item) => {
-              const isActive =
-                item.name === "Settings"
-                  ? pathname.startsWith(`${basePath}/settings`)
-                  : pathname === item.href || pathname.startsWith(item.href + "/");
+              const isActive = hasApp
+                ? (
+                  item.name === "Settings"
+                    ? pathname.startsWith(`${basePath}/settings`)
+                    : pathname === item.href || pathname.startsWith(item.href + "/")
+                )
+                : pathname === item.href || pathname.startsWith(item.href + "/");
               return (
                 <li key={item.name}>
                   <Link

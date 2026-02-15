@@ -2,14 +2,13 @@ import { notFound } from "next/navigation";
 import { AppSettingsPage } from "@/components/apps";
 import type { AppSettingsTab } from "@/components/apps/AppSettingsSidebar";
 
-const validTabs: AppSettingsTab[] = ["general", "api-keys", "danger-zone"];
+const validTabs: AppSettingsTab[] = ["general", "api-keys"];
 
 export async function generateMetadata({ params }: { params: Promise<{ tab: string }> }) {
   const { tab } = await params;
   const tabTitles: Record<string, string> = {
     general: "General",
     "api-keys": "API Keys",
-    "danger-zone": "Danger Zone",
   };
 
   return {
@@ -30,4 +29,3 @@ export default async function AppSettingsTabPage({
 
   return <AppSettingsPage appSlug={slug} initialTab={tab as AppSettingsTab} />;
 }
-

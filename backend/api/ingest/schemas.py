@@ -15,6 +15,9 @@ class RequestRecord(Schema):
     response_size: int = 0
     ip_address: str = ""
     user_agent: str = ""
+    consumer_id: str = ""
+    consumer_name: str = ""
+    consumer_group: str = ""
     request_payload: str = ""
     response_payload: str = ""
 

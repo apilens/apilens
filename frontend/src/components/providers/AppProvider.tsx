@@ -42,3 +42,20 @@ export function AppProvider({ appSlug, children }: { appSlug: string; children: 
     </AppContext.Provider>
   );
 }
+
+export function OptionalAppProvider({
+  appSlug,
+  children,
+}: {
+  appSlug?: string;
+  children: React.ReactNode;
+}) {
+  if (!appSlug) {
+    return (
+      <AppContext.Provider value={{ app: null, isLoading: false }}>
+        {children}
+      </AppContext.Provider>
+    );
+  }
+  return <AppProvider appSlug={appSlug}>{children}</AppProvider>;
+}

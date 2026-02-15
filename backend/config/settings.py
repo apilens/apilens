@@ -4,6 +4,7 @@ Django base settings for apilens project.
 
 import os
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -124,20 +125,79 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ.get("POSTGRES_DB", "postgres"),
-        "USER": os.environ.get("POSTGRES_USER", "postgres"),
-        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "apilens_password"),
-        "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
-        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
-        "CONN_MAX_AGE": 60,
-        "OPTIONS": {
-            "connect_timeout": 10,
-        },
+database_url = os.environ.get("APILENS_DATABASE_URL", "").strip()
+if not database_url:
+    database_url = (
+        os.environ.get("APILENS_POSTGRES_URL", "").strip()
+        or os.environ.get("APILENS_DATABASE_URL_UNPOOLED", "").strip()
+        or os.environ.get("APILENS_POSTGRES_URL_NON_POOLING", "").strip()
+    )
+
+if database_url:
+    parsed = urlparse(database_url)
+    query = parse_qs(parsed.query)
+    db_options = {"connect_timeout": 10}
+    if "sslmode" in query and query["sslmode"]:
+        db_options["sslmode"] = query["sslmode"][-1]
+
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": (parsed.path or "").lstrip("/") or "postgres",
+            "USER": unquote(parsed.username or ""),
+            "PASSWORD": unquote(parsed.password or ""),
+            "HOST": parsed.hostname or "localhost",
+            "PORT": str(parsed.port or "5432"),
+            "CONN_MAX_AGE": 60,
+            "OPTIONS": db_options,
+        }
     }
-}
+else:
+    db_name = (
+        os.environ.get("APILENS_POSTGRES_DATABASE")
+        or os.environ.get("APILENS_PGDATABASE")
+        or os.environ.get("POSTGRES_DB")
+        or "postgres"
+    )
+    db_user = (
+        os.environ.get("APILENS_POSTGRES_USER")
+        or os.environ.get("APILENS_PGUSER")
+        or os.environ.get("POSTGRES_USER")
+        or "postgres"
+    )
+    db_password = (
+        os.environ.get("APILENS_POSTGRES_PASSWORD")
+        or os.environ.get("APILENS_PGPASSWORD")
+        or os.environ.get("POSTGRES_PASSWORD")
+        or "apilens_password"
+    )
+    db_host = (
+        os.environ.get("APILENS_POSTGRES_HOST")
+        or os.environ.get("APILENS_PGHOST")
+        or os.environ.get("POSTGRES_HOST")
+        or "localhost"
+    )
+    db_port = (
+        os.environ.get("APILENS_POSTGRES_PORT")
+        or os.environ.get("APILENS_PGPORT")
+        or os.environ.get("POSTGRES_PORT")
+        or "5432"
+    )
+
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": db_name,
+            "USER": db_user,
+            "PASSWORD": db_password,
+            "HOST": db_host,
+            "PORT": db_port,
+            "CONN_MAX_AGE": 60,
+            "OPTIONS": {
+                "connect_timeout": 10,
+            },
+        }
+    }
 
 # Frontend URL (for magic link emails)
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
@@ -154,13 +214,30 @@ EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True").lower() in ("true", "1", "yes")
 
 # ClickHouse Configuration (analytics/event store)
-CLICKHOUSE = {
-    "HOST": os.environ.get("CLICKHOUSE_HOST", "localhost"),
-    "PORT": int(os.environ.get("CLICKHOUSE_PORT", "9000")),
-    "DATABASE": os.environ.get("CLICKHOUSE_DATABASE", "apilens"),
-    "USER": os.environ.get("CLICKHOUSE_USER", "default"),
-    "PASSWORD": os.environ.get("CLICKHOUSE_PASSWORD", ""),
-}
+clickhouse_url = os.environ.get("APILENS_CLICKHOUSE_URL", "").strip() or os.environ.get("CLICKHOUSE_URL", "").strip()
+if clickhouse_url:
+    ch_parsed = urlparse(clickhouse_url)
+    ch_scheme = (ch_parsed.scheme or "").lower()
+    ch_secure = ch_scheme in {"https", "clickhouses"}
+    CLICKHOUSE = {
+        "HOST": ch_parsed.hostname or "localhost",
+        "PORT": int(ch_parsed.port or (8443 if ch_secure else 9000)),
+        "DATABASE": (ch_parsed.path or "").lstrip("/") or "default",
+        "USER": unquote(ch_parsed.username or "default"),
+        "PASSWORD": unquote(ch_parsed.password or ""),
+        "SECURE": ch_secure,
+        "VERIFY": os.environ.get("APILENS_CLICKHOUSE_VERIFY", "True").lower() in ("true", "1", "yes"),
+    }
+else:
+    CLICKHOUSE = {
+        "HOST": os.environ.get("APILENS_CLICKHOUSE_HOST", os.environ.get("CLICKHOUSE_HOST", "localhost")),
+        "PORT": int(os.environ.get("APILENS_CLICKHOUSE_PORT", os.environ.get("CLICKHOUSE_PORT", "9000"))),
+        "DATABASE": os.environ.get("APILENS_CLICKHOUSE_DATABASE", os.environ.get("CLICKHOUSE_DATABASE", "apilens")),
+        "USER": os.environ.get("APILENS_CLICKHOUSE_USER", os.environ.get("CLICKHOUSE_USER", "default")),
+        "PASSWORD": os.environ.get("APILENS_CLICKHOUSE_PASSWORD", os.environ.get("CLICKHOUSE_PASSWORD", "")),
+        "SECURE": os.environ.get("APILENS_CLICKHOUSE_SECURE", "False").lower() in ("true", "1", "yes"),
+        "VERIFY": os.environ.get("APILENS_CLICKHOUSE_VERIFY", "True").lower() in ("true", "1", "yes"),
+    }
 
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -186,6 +263,8 @@ MEDIA_ROOT = BASE_DIR / "media"
 # Profile picture constraints
 PROFILE_PICTURE_MAX_SIZE = 5 * 1024 * 1024  # 5 MB
 PROFILE_PICTURE_MAX_DIMENSION = 800  # pixels
+APP_ICON_MAX_SIZE = 2 * 1024 * 1024  # 2 MB
+APP_ICON_MAX_DIMENSION = 512  # pixels
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

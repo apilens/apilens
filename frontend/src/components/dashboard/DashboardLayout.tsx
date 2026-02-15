@@ -1,14 +1,14 @@
 "use client";
 
 import { useAuth } from "@/components/providers/AuthProvider";
-import { AppProvider } from "@/components/providers/AppProvider";
+import { OptionalAppProvider } from "@/components/providers/AppProvider";
 import { SidebarProvider, useSidebar } from "@/components/providers/SidebarProvider";
 import Sidebar from "./Sidebar";
 import Navbar from "./Navbar";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
-  appSlug: string;
+  appSlug?: string;
 }
 
 function DashboardInner({ children, appSlug }: DashboardLayoutProps) {
@@ -40,10 +40,9 @@ function DashboardInner({ children, appSlug }: DashboardLayoutProps) {
 export default function DashboardLayout({ children, appSlug }: DashboardLayoutProps) {
   return (
     <SidebarProvider>
-      <AppProvider appSlug={appSlug}>
+      <OptionalAppProvider appSlug={appSlug}>
         <DashboardInner appSlug={appSlug}>{children}</DashboardInner>
-      </AppProvider>
+      </OptionalAppProvider>
     </SidebarProvider>
   );
 }
-

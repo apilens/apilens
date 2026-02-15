@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import EndpointDetailsContent from "./EndpointDetailsContent";
 
 export default async function EndpointDetailsPage({
   params,
@@ -6,5 +6,5 @@ export default async function EndpointDetailsPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  redirect(`/apps/${slug}/endpoints`);
+  return <EndpointDetailsContent appSlug={slug} />;
 }

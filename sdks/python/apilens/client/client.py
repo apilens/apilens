@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import ssl
 import threading
 import time
 import urllib.error
@@ -26,6 +27,8 @@ class ApiLensConfig:
     batch_size: int = 200
     flush_interval: float = 3.0
     timeout: float = 5.0
+    verify_tls: bool = True
+    ca_bundle_path: str = ""
 
     max_queue_size: int = 10_000
     max_retries: int = 3
@@ -97,6 +100,9 @@ class ApiLensClient:
         response_size: int = 0,
         ip_address: str = "",
         user_agent: str = "",
+        consumer_id: str = "",
+        consumer_name: str = "",
+        consumer_group: str = "",
         request_payload: str = "",
         response_payload: str = "",
         environment: str | None = None,
@@ -112,6 +118,9 @@ class ApiLensClient:
             response_size=response_size,
             ip_address=ip_address,
             user_agent=user_agent,
+            consumer_id=consumer_id,
+            consumer_name=consumer_name,
+            consumer_group=consumer_group,
             request_payload=request_payload,
             response_payload=response_payload,
         )
@@ -213,7 +222,15 @@ class ApiLensClient:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=self.config.timeout) as resp:
+            ssl_context = None
+            if self.config.verify_tls:
+                ssl_context = ssl.create_default_context(
+                    cafile=self.config.ca_bundle_path or None
+                )
+            else:
+                ssl_context = ssl._create_unverified_context()  # noqa: SLF001
+
+            with urllib.request.urlopen(req, timeout=self.config.timeout, context=ssl_context) as resp:
                 status = getattr(resp, "status", 200)
                 if status >= 400:
                     raise RuntimeError(f"API Lens ingest returned status={status}")

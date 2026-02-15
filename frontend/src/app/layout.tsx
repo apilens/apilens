@@ -6,6 +6,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "APILens - API Monitoring Dashboard",
   description: "Monitor your API performance and health",
+  icons: {
+    icon: "/logo.svg",
+    shortcut: "/logo.svg",
+    apple: "/logo.svg",
+  },
 };
 
 export default function RootLayout({

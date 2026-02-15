@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Layers, Search, SlidersHorizontal, X } from "lucide-react";
 import type { Environment, EndpointOption, EndpointStats, EndpointStatsListResponse } from "@/types/app";
 
@@ -88,7 +89,9 @@ function setBoundedCache<T>(cache: Map<string, CacheEntry<T>>, key: string, valu
 }
 
 export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
+  const router = useRouter();
   const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [observedEnvironments, setObservedEnvironments] = useState<Array<{ environment: string; total_requests: number }>>([]);
   const [stats, setStats] = useState<EndpointStats[]>([]);
   const [endpointOptions, setEndpointOptions] = useState<EndpointOption[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -296,14 +299,18 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
   useEffect(() => {
     async function loadEnvs() {
       try {
-        const res = await fetch(`/api/apps/${appSlug}/environments`);
-        if (res.ok) setEnvironments(await res.json());
+        const [baseRes, observedRes] = await Promise.all([
+          fetch(`/api/apps/${appSlug}/environments`),
+          fetch(`/api/apps/${appSlug}/environment-options?since=${encodeURIComponent(timeParams.since)}${timeParams.until ? `&until=${encodeURIComponent(timeParams.until)}` : ""}&limit=100`),
+        ]);
+        if (baseRes.ok) setEnvironments(await baseRes.json());
+        if (observedRes.ok) setObservedEnvironments(await observedRes.json());
       } catch {
         // ignore
       }
     }
     loadEnvs();
-  }, [appSlug]);
+  }, [appSlug, timeParams.since, timeParams.until]);
 
   useEffect(() => {
     fetchStats();
@@ -508,6 +515,16 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
     return selected ? `Last ${selected.label}` : "Last 24h";
   }, [customActive, customSince, customUntil, selectedRange]);
 
+  const environmentOptions = useMemo(() => {
+    const mapped = environments.map((env) => ({ value: env.slug, label: env.name }));
+    const existingValues = new Set(mapped.map((env) => env.value));
+    for (const env of observedEnvironments) {
+      if (!env.environment || existingValues.has(env.environment)) continue;
+      mapped.push({ value: env.environment, label: env.environment });
+    }
+    return mapped;
+  }, [environments, observedEnvironments]);
+
   const sortIndicator = (key: SortKey) => {
     const active = sortKey === key;
     const symbol = active ? (sortDir === "asc" ? "↑" : "↓") : "";
@@ -519,14 +536,24 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
   const pageStart = totalCount === 0 ? 0 : (safePage - 1) * DEFAULT_PAGE_SIZE + 1;
   const pageEnd = Math.min(safePage * DEFAULT_PAGE_SIZE, totalCount);
 
+  const openEndpointDetails = (method: string, path: string) => {
+    const params = new URLSearchParams();
+    params.set("method", method);
+    params.set("path", path);
+    params.set("since", timeParams.since);
+    if (timeParams.until) params.set("until", timeParams.until);
+    if (selectedEnv) params.set("environment", selectedEnv);
+    router.push(`/apps/${appSlug}/endpoints/details?${params.toString()}`);
+  };
+
   return (
     <div className="endpoints-page">
       <div className="endpoints-toolbar">
         <div className="endpoints-toolbar-left">
           <select className="environment-dropdown" value={selectedEnv} onChange={(e) => setSelectedEnv(e.target.value)}>
             <option value="">All environments</option>
-            {environments.map((env) => (
-              <option key={env.id} value={env.slug}>{env.name}</option>
+            {environmentOptions.map((env) => (
+              <option key={env.value} value={env.value}>{env.label}</option>
             ))}
           </select>
 
@@ -628,7 +655,7 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
 
       <div className="active-filters-row">
         <span className="active-filter-chip">Time: {activeRangeLabel}</span>
-        {selectedEnv && <span className="active-filter-chip">Env: {environments.find((e) => e.slug === selectedEnv)?.name || selectedEnv}</span>}
+        {selectedEnv && <span className="active-filter-chip">Env: {environmentOptions.find((e) => e.value === selectedEnv)?.label || selectedEnv}</span>}
         {methodFilters.length > 0 && <span className="active-filter-chip">Method: {methodFilters.join(", ")}</span>}
         {endpointFilters.length > 0 && <span className="active-filter-chip">Endpoints: {endpointFilters.length} selected</span>}
         {statusClassFilters.length > 0 && <span className="active-filter-chip">Status: {statusClassFilters.join(", ")}</span>}
@@ -688,7 +715,7 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
                 <div className="status-matrix">
                   {STATUS_CLASS_OPTIONS.map((statusClass) => (
                     <div key={statusClass} className="status-class-block">
-                      <label className="filter-checkbox class">
+                      <label className={`filter-checkbox class${statusClassFilters.includes(statusClass) ? " active" : ""}`}>
                         <input
                           type="checkbox"
                           checked={statusClassFilters.includes(statusClass)}
@@ -754,7 +781,10 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
                   </div>
                   <div className="endpoint-list-scroll">
                     {filteredEndpointOptions.map((endpoint) => (
-                      <label key={endpoint.key} className="filter-checkbox">
+                      <label
+                        key={endpoint.key}
+                        className={`filter-checkbox${endpointFilters.includes(endpoint.key) ? " active" : ""}`}
+                      >
                         <input
                           type="checkbox"
                           checked={endpointFilters.includes(endpoint.key)}
@@ -838,15 +868,29 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
             <tbody>
               {stats.map((row) => {
                 const errorClass = row.error_rate < 1 ? "low" : row.error_rate < 5 ? "medium" : "high";
+                const hasTraffic = row.total_requests > 0;
                 return (
-                  <tr key={`${row.method}-${row.path}`}>
+                  <tr
+                    key={`${row.method}-${row.path}`}
+                    className="endpoint-row-clickable"
+                    onClick={() => openEndpointDetails(row.method, row.path)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openEndpointDetails(row.method, row.path);
+                      }
+                    }}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Open details for ${row.method} ${row.path}`}
+                  >
                     <td><span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span><span className="endpoint-path">{row.path}</span></td>
                     <td className="stat-value">{formatNumber(row.total_requests)}</td>
-                    <td><span className={`error-rate error-rate-${errorClass}`}>{row.error_rate.toFixed(1)}%</span></td>
-                    <td className="stat-value">{row.avg_response_time_ms.toFixed(0)} ms</td>
-                    <td className="stat-value">{row.p95_response_time_ms.toFixed(0)} ms</td>
-                    <td className="stat-value">{formatBytes(row.total_request_bytes + row.total_response_bytes)}</td>
-                    <td className="stat-value">{relativeTime(row.last_seen_at)}</td>
+                    <td>{hasTraffic ? <span className={`error-rate error-rate-${errorClass}`}>{row.error_rate.toFixed(1)}%</span> : <span className="stat-dash">--</span>}</td>
+                    <td className="stat-value">{hasTraffic ? `${row.avg_response_time_ms.toFixed(0)} ms` : <span className="stat-dash">--</span>}</td>
+                    <td className="stat-value">{hasTraffic ? `${row.p95_response_time_ms.toFixed(0)} ms` : <span className="stat-dash">--</span>}</td>
+                    <td className="stat-value">{hasTraffic ? formatBytes(row.total_request_bytes + row.total_response_bytes) : <span className="stat-dash">--</span>}</td>
+                    <td className="stat-value">{hasTraffic ? relativeTime(row.last_seen_at) : <span className="stat-dash">--</span>}</td>
                   </tr>
                 );
               })}

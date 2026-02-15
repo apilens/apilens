@@ -14,6 +14,9 @@ class CaptureContext:
     request_size: int = 0
     ip_address: str = ""
     user_agent: str = ""
+    consumer_id: str = ""
+    consumer_name: str = ""
+    consumer_group: str = ""
     request_payload: str = ""
 
 
@@ -84,6 +87,9 @@ def capture_response(
         response_size=max(response_size, 0),
         ip_address=ctx.ip_address,
         user_agent=ctx.user_agent,
+        consumer_id=ctx.consumer_id,
+        consumer_name=ctx.consumer_name,
+        consumer_group=ctx.consumer_group,
         request_payload=ctx.request_payload,
         response_payload=response_payload,
         environment=environment,
