@@ -4,7 +4,7 @@ from .django import ApiLensDjangoMiddleware
 from .fastapi import ApiLensGatewayMiddleware, ApiLensMiddleware, set_consumer, track_consumer
 from .litestar import ApiLensPlugin
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 
 def install_apilens_exporter(*args, **kwargs):
