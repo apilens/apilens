@@ -31,19 +31,12 @@ def get_current_user(request: HttpRequest):
 @router.patch("/me", response=UserProfileResponse)
 def update_current_user(request: HttpRequest, data: UserProfileUpdateRequest):
     user: User = request.auth
-    update_fields = []
-
-    if data.first_name is not None:
-        user.first_name = data.first_name[:150]
-        update_fields.append("first_name")
-
-    if data.last_name is not None:
-        user.last_name = data.last_name[:150]
-        update_fields.append("last_name")
-
-    if update_fields:
-        user.save(update_fields=update_fields + ["updated_at"])
-
+    user = UserService.update_profile(
+        user,
+        first_name=data.first_name,
+        last_name=data.last_name,
+        timezone_name=data.timezone,
+    )
     return UserProfileResponse.from_user(user)
 
 

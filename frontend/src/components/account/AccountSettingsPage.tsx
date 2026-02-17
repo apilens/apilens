@@ -8,6 +8,7 @@ import { UserProfile } from "@/types/settings";
 import AccountSettingsSidebar, { AccountSettingsTab } from "./AccountSettingsSidebar";
 import GeneralSection from "@/components/settings/GeneralSection";
 import ProfileSection from "@/components/settings/ProfileSection";
+import TimezoneSection from "@/components/settings/TimezoneSection";
 import SessionsSection from "@/components/settings/SessionsSection";
 import LoginMethodsSection from "@/components/settings/LoginMethodsSection";
 import DangerZoneSection from "@/components/settings/DangerZoneSection";
@@ -69,6 +70,27 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
       showToast("success", "Profile updated successfully");
     } catch (error) {
       showToast("error", error instanceof Error ? error.message : "Failed to update profile");
+    }
+  };
+
+  const handleUpdateTimezone = async (timezone: string) => {
+    try {
+      const response = await fetch("/api/account/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timezone }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to update timezone");
+      }
+
+      const data = await response.json();
+      setProfile(data.profile);
+      showToast("success", "Timezone updated");
+    } catch (error) {
+      showToast("error", error instanceof Error ? error.message : "Failed to update timezone");
     }
   };
 
@@ -220,7 +242,16 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
                 onPictureUpload={handlePictureUpload}
                 onPictureRemove={handlePictureRemove}
               />
-              <SessionsSection onLogoutAll={handleLogoutAll} />
+              <TimezoneSection
+                timezone={profile?.timezone || "UTC"}
+                onUpdateTimezone={handleUpdateTimezone}
+              />
+              <SessionsSection
+                onLogoutAll={handleLogoutAll}
+                timezone={profile?.timezone || "UTC"}
+                lastLoginAt={profile?.last_login_at || null}
+                memberSince={profile?.created_at || null}
+              />
               <LoginMethodsSection
                 email={profile?.email}
                 hasPassword={profile?.has_password}

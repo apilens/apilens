@@ -7,6 +7,7 @@ import { UserProfile } from "@/types/settings";
 import SettingsSidebar, { SettingsTab } from "./SettingsSidebar";
 import GeneralSection from "./GeneralSection";
 import ProfileSection from "./ProfileSection";
+import TimezoneSection from "./TimezoneSection";
 import LoginMethodsSection from "./LoginMethodsSection";
 import SessionsSection from "./SessionsSection";
 import ApiKeysSection from "./ApiKeysSection";
@@ -70,6 +71,27 @@ export default function SettingsPage({ initialTab = "general" }: SettingsPagePro
     } catch (error) {
       console.error("Error updating profile:", error);
       showToast("error", error instanceof Error ? error.message : "Failed to update profile");
+    }
+  };
+
+  const handleUpdateTimezone = async (timezone: string) => {
+    try {
+      const response = await fetch("/api/account/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timezone }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to update timezone");
+      }
+
+      const data = await response.json();
+      setProfile(data.profile);
+      showToast("success", "Timezone updated");
+    } catch (error) {
+      showToast("error", error instanceof Error ? error.message : "Failed to update timezone");
     }
   };
 
@@ -218,7 +240,16 @@ export default function SettingsPage({ initialTab = "general" }: SettingsPagePro
                 onPictureUpload={handlePictureUpload}
                 onPictureRemove={handlePictureRemove}
               />
-              <SessionsSection onLogoutAll={handleLogoutAll} />
+              <TimezoneSection
+                timezone={profile?.timezone || "UTC"}
+                onUpdateTimezone={handleUpdateTimezone}
+              />
+              <SessionsSection
+                onLogoutAll={handleLogoutAll}
+                timezone={profile?.timezone || "UTC"}
+                lastLoginAt={profile?.last_login_at || null}
+                memberSince={profile?.created_at || null}
+              />
               <LoginMethodsSection
                 email={profile?.email}
                 hasPassword={profile?.has_password}

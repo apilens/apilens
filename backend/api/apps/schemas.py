@@ -134,6 +134,7 @@ class EnvironmentResponse(Schema):
 
 
 class EndpointStatsResponse(Schema):
+    endpoint_id: Optional[str] = None
     method: str
     path: str
     total_requests: int
@@ -159,13 +160,47 @@ class EndpointOptionResponse(Schema):
     total_requests: int
 
 
+class EndpointMetaResponse(Schema):
+    id: UUID
+    method: str
+    path: str
+
+
 class ConsumerStatsResponse(Schema):
     consumer: str
+    consumer_identifier: str = ""
+    consumer_name: str = ""
+    consumer_group: str = ""
     total_requests: int
     error_count: int
     error_rate: float
     avg_response_time_ms: float
     last_seen_at: Optional[datetime] = None
+
+
+class ConsumerRequestStatsResponse(Schema):
+    consumer: str
+    method: str
+    path: str
+    total_requests: int
+    error_count: int
+    error_rate: float
+    avg_response_time_ms: float
+    last_seen_at: Optional[datetime] = None
+
+
+class ConsumerActivityResponse(Schema):
+    timestamp: datetime
+    method: str
+    path: str
+    status_code: int
+    response_time_ms: float
+    environment: str
+    consumer_id: str = ""
+    consumer_name: str = ""
+    consumer_group: str = ""
+    request_payload: str
+    response_payload: str
 
 
 class AnalyticsSummaryResponse(Schema):
@@ -252,3 +287,38 @@ class EndpointPayloadSampleResponse(Schema):
 class EnvironmentOptionResponse(Schema):
     environment: str
     total_requests: int
+
+
+class LogEntryResponse(Schema):
+    timestamp: datetime
+    environment: str
+    level: str
+    message: str
+    logger_name: str = ""
+    payload: str = ""
+    attributes: dict[str, str] = {}
+
+
+class LogsListResponse(Schema):
+    items: list[LogEntryResponse]
+    total_count: int
+    page: int
+    page_size: int
+
+
+class LogsSummaryResponse(Schema):
+    total_logs: int
+    error_logs: int
+    warning_logs: int
+    unique_loggers: int
+
+
+class LogsTimeseriesPointResponse(Schema):
+    bucket: datetime
+    count: int
+
+
+class LogsSearchOptionsResponse(Schema):
+    keys: list[str]
+    values: list[str]
+    loggers: list[str]

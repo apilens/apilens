@@ -27,9 +27,16 @@ from .schemas import (
     EnvironmentResponse,
     EndpointStatsListResponse,
     EndpointOptionResponse,
+    EndpointMetaResponse,
     EnvironmentOptionResponse,
     AppIconResponse,
     ConsumerStatsResponse,
+    ConsumerRequestStatsResponse,
+    ConsumerActivityResponse,
+    LogsListResponse,
+    LogsSummaryResponse,
+    LogsTimeseriesPointResponse,
+    LogsSearchOptionsResponse,
     ApiKeyResponse,
     CreateApiKeyResponse,
     MessageResponse,
@@ -37,6 +44,40 @@ from .schemas import (
 )
 
 router = Router(auth=[jwt_auth])
+
+
+def _parse_log_attr_filters(raw_values: list[str]) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw in raw_values:
+        token = (raw or "").strip()
+        if not token or ":" not in token:
+            continue
+        key, value = token.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key or not value:
+            continue
+        item = (key, value)
+        if item in seen:
+            continue
+        seen.add(item)
+        pairs.append(item)
+    return pairs
+
+
+def _parse_loggers(raw_values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        value = (raw or "").strip()
+        if not value:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 @router.post("/", response={201: AppResponse})
@@ -341,6 +382,22 @@ def get_endpoint_options(
     )
 
 
+@router.get("/{app_slug}/endpoint-meta", response=EndpointMetaResponse)
+def get_endpoint_meta(
+    request: HttpRequest,
+    app_slug: str,
+    endpoint_id: str,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import EndpointStatsService
+    return EndpointStatsService.get_endpoint_meta(
+        app_id=str(app.id),
+        endpoint_id=endpoint_id,
+    )
+
+
 @router.get("/{app_slug}/environment-options", response=list[EnvironmentOptionResponse])
 def get_environment_options(
     request: HttpRequest,
@@ -379,6 +436,186 @@ def get_consumer_stats(
         environment=environment,
         since=since,
         until=until,
+        limit=limit,
+    )
+
+
+@router.get("/{app_slug}/consumers/requests", response=list[ConsumerRequestStatsResponse])
+def get_consumer_request_stats(
+    request: HttpRequest,
+    app_slug: str,
+    consumer: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    limit: int = 100,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import ConsumerStatsService
+    return ConsumerStatsService.get_consumer_request_stats(
+        app_id=str(app.id),
+        consumer=consumer,
+        environment=environment,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+
+
+@router.get("/{app_slug}/consumers/activity", response=list[ConsumerActivityResponse])
+def get_consumer_activity(
+    request: HttpRequest,
+    app_slug: str,
+    consumer: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    method: str = None,
+    path: str = None,
+    limit: int = 100,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import ConsumerStatsService
+    return ConsumerStatsService.get_consumer_activity(
+        app_id=str(app.id),
+        consumer=consumer,
+        environment=environment,
+        since=since,
+        until=until,
+        method=method,
+        path=path,
+        limit=limit,
+    )
+
+
+@router.get("/{app_slug}/logs", response=LogsListResponse)
+def get_logs(
+    request: HttpRequest,
+    app_slug: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    levels: str = None,
+    q: str = None,
+    page: int = 1,
+    page_size: int = 50,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    level_list: list[str] = []
+    if levels:
+        level_list = [raw.strip().upper() for raw in levels.split(",") if raw.strip()]
+    attr_filters = _parse_log_attr_filters(request.GET.getlist("attr"))
+    logger_filters = _parse_loggers(request.GET.getlist("logger"))
+
+    from apps.projects.services import LogsService
+    return LogsService.get_logs(
+        app_id=str(app.id),
+        environment=environment,
+        since=since,
+        until=until,
+        levels=level_list or None,
+        search=q,
+        attribute_filters=attr_filters or None,
+        logger_filters=logger_filters or None,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/{app_slug}/logs/summary", response=LogsSummaryResponse)
+def get_logs_summary(
+    request: HttpRequest,
+    app_slug: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    levels: str = None,
+    q: str = None,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    level_list: list[str] = []
+    if levels:
+        level_list = [raw.strip().upper() for raw in levels.split(",") if raw.strip()]
+    attr_filters = _parse_log_attr_filters(request.GET.getlist("attr"))
+    logger_filters = _parse_loggers(request.GET.getlist("logger"))
+
+    from apps.projects.services import LogsService
+    return LogsService.get_logs_summary(
+        app_id=str(app.id),
+        environment=environment,
+        since=since,
+        until=until,
+        levels=level_list or None,
+        search=q,
+        attribute_filters=attr_filters or None,
+        logger_filters=logger_filters or None,
+    )
+
+
+@router.get("/{app_slug}/logs/timeseries", response=list[LogsTimeseriesPointResponse])
+def get_logs_timeseries(
+    request: HttpRequest,
+    app_slug: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    levels: str = None,
+    q: str = None,
+    granularity: int = 5,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    level_list: list[str] = []
+    if levels:
+        level_list = [raw.strip().upper() for raw in levels.split(",") if raw.strip()]
+    attr_filters = _parse_log_attr_filters(request.GET.getlist("attr"))
+    logger_filters = _parse_loggers(request.GET.getlist("logger"))
+
+    from apps.projects.services import LogsService
+    return LogsService.get_logs_timeseries(
+        app_id=str(app.id),
+        environment=environment,
+        since=since,
+        until=until,
+        levels=level_list or None,
+        search=q,
+        attribute_filters=attr_filters or None,
+        logger_filters=logger_filters or None,
+        bucket_minutes=granularity,
+    )
+
+
+@router.get("/{app_slug}/logs/search-options", response=LogsSearchOptionsResponse)
+def get_logs_search_options(
+    request: HttpRequest,
+    app_slug: str,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    key: str = None,
+    prefix: str = None,
+    limit: int = 12,
+):
+    user: User = request.auth
+    app = AppService.get_app_by_slug(user, app_slug)
+
+    from apps.projects.services import LogsService
+    return LogsService.get_logs_search_options(
+        app_id=str(app.id),
+        environment=environment,
+        since=since,
+        until=until,
+        key=key,
+        prefix=prefix,
         limit=limit,
     )
 

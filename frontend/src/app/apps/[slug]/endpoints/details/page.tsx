@@ -6,5 +6,5 @@ export default async function EndpointDetailsPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  return <EndpointDetailsContent appSlug={slug} />;
+  return <EndpointDetailsContent appSlug={slug} endpointId={undefined} />;
 }

@@ -57,7 +57,10 @@ function formatNumber(n: number): string {
 function relativeTime(dateStr: string | null): string {
   if (!dateStr) return "-";
   const now = Date.now();
-  const then = new Date(dateStr).getTime();
+  const hasZone = /([zZ]|[+-]\d{2}:\d{2})$/.test(dateStr);
+  const normalized = hasZone ? dateStr : `${dateStr}Z`;
+  const then = new Date(normalized).getTime();
+  if (Number.isNaN(then)) return "-";
   const diffMs = now - then;
   const diffSec = Math.floor(diffMs / 1000);
   if (diffSec < 60) return "just now";
@@ -536,13 +539,14 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
   const pageStart = totalCount === 0 ? 0 : (safePage - 1) * DEFAULT_PAGE_SIZE + 1;
   const pageEnd = Math.min(safePage * DEFAULT_PAGE_SIZE, totalCount);
 
-  const openEndpointDetails = (method: string, path: string) => {
+  const openEndpointDetails = (endpointId: string | null | undefined, method: string, path: string) => {
+    if (endpointId) {
+      router.push(`/apps/${appSlug}/endpoints/${endpointId}`);
+      return;
+    }
     const params = new URLSearchParams();
     params.set("method", method);
     params.set("path", path);
-    params.set("since", timeParams.since);
-    if (timeParams.until) params.set("until", timeParams.until);
-    if (selectedEnv) params.set("environment", selectedEnv);
     router.push(`/apps/${appSlug}/endpoints/details?${params.toString()}`);
   };
 
@@ -550,13 +554,6 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
     <div className="endpoints-page">
       <div className="endpoints-toolbar">
         <div className="endpoints-toolbar-left">
-          <select className="environment-dropdown" value={selectedEnv} onChange={(e) => setSelectedEnv(e.target.value)}>
-            <option value="">All environments</option>
-            {environmentOptions.map((env) => (
-              <option key={env.value} value={env.value}>{env.label}</option>
-            ))}
-          </select>
-
           <div className="endpoints-search">
             <Search size={14} />
             <input
@@ -568,8 +565,13 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
             />
           </div>
         </div>
-
         <div className="endpoints-toolbar-right">
+          <select className="environment-dropdown" value={selectedEnv} onChange={(e) => setSelectedEnv(e.target.value)}>
+            <option value="">All environments</option>
+            {environmentOptions.map((env) => (
+              <option key={env.value} value={env.value}>{env.label}</option>
+            ))}
+          </select>
           <div className="time-range-selector">
             {TIME_RANGES.map(({ label, value }) => (
               <button
@@ -873,11 +875,11 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
                   <tr
                     key={`${row.method}-${row.path}`}
                     className="endpoint-row-clickable"
-                    onClick={() => openEndpointDetails(row.method, row.path)}
+                    onClick={() => openEndpointDetails(row.endpoint_id, row.method, row.path)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        openEndpointDetails(row.method, row.path);
+                        openEndpointDetails(row.endpoint_id, row.method, row.path);
                       }
                     }}
                     tabIndex={0}

@@ -51,3 +51,59 @@ class RequestRecord:
             "request_payload": self.request_payload or "",
             "response_payload": self.response_payload or "",
         }
+
+
+@dataclass(slots=True)
+class LogRecord:
+    timestamp: datetime
+    environment: str
+    level: str
+    message: str
+    logger_name: str = ""
+    endpoint_method: str = ""
+    endpoint_path: str = ""
+    status_code: int = 0
+    consumer_id: str = ""
+    consumer_name: str = ""
+    consumer_group: str = ""
+    trace_id: str = ""
+    span_id: str = ""
+    payload: str = ""
+    attributes: dict[str, str | int | float | bool] | None = None
+
+    def to_wire(self) -> dict[str, object]:
+        ts = self.timestamp
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        else:
+            ts = ts.astimezone(timezone.utc)
+
+        iso = ts.isoformat().replace("+00:00", "Z")
+        path = self.endpoint_path or ""
+        if path and not path.startswith("/"):
+            path = f"/{path}"
+
+        flat_attributes: dict[str, str | int | float | bool] = {}
+        if isinstance(self.attributes, dict):
+            for key, value in self.attributes.items():
+                if isinstance(value, (dict, list, tuple, set)):
+                    continue
+                flat_attributes[str(key)] = value
+
+        return {
+            "timestamp": iso,
+            "environment": self.environment,
+            "level": (self.level or "INFO").upper(),
+            "message": self.message or "",
+            "logger_name": self.logger_name or "",
+            "endpoint_method": (self.endpoint_method or "").upper(),
+            "endpoint_path": path,
+            "status_code": int(self.status_code or 0),
+            "consumer_id": self.consumer_id or "",
+            "consumer_name": self.consumer_name or "",
+            "consumer_group": self.consumer_group or "",
+            "trace_id": self.trace_id or "",
+            "span_id": self.span_id or "",
+            "payload": self.payload or "",
+            "attributes": flat_attributes,
+        }

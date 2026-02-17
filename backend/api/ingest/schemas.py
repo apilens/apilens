@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from ninja import Schema
 
@@ -27,4 +27,30 @@ class IngestRequest(Schema):
 
 
 class IngestResponse(Schema):
+    accepted: int
+
+
+class LogRecord(Schema):
+    timestamp: datetime
+    environment: str
+    level: str
+    message: str
+    logger_name: str = ""
+    endpoint_method: str = ""
+    endpoint_path: str = ""
+    status_code: int = 0
+    consumer_id: str = ""
+    consumer_name: str = ""
+    consumer_group: str = ""
+    trace_id: str = ""
+    span_id: str = ""
+    payload: str = ""
+    attributes: dict[str, Any] = {}
+
+
+class IngestLogsRequest(Schema):
+    logs: list[LogRecord]
+
+
+class IngestLogsResponse(Schema):
     accepted: int
