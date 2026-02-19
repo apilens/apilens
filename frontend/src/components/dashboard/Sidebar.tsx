@@ -10,6 +10,7 @@ import {
   TrendingUp,
   Radio,
   Settings,
+  Users,
   Bell,
   CircleHelpIcon,
   PanelLeftClose,
@@ -88,6 +89,7 @@ export default function Sidebar({ appSlug }: SidebarProps) {
       { name: "Endpoints", href: `${basePath}/endpoints`, icon: Layers },
       { name: "Logs", href: `${basePath}/logs`, icon: ScrollText },
       { name: "Analytics", href: `${basePath}/analytics`, icon: TrendingUp },
+      { name: "Consumers", href: `${basePath}/consumers`, icon: Users },
       { name: "Monitors", href: `${basePath}/monitors`, icon: Radio },
       { name: "Settings", href: `${basePath}/settings/general`, icon: Settings },
     ]
@@ -118,7 +120,8 @@ export default function Sidebar({ appSlug }: SidebarProps) {
               className="logo-icon-collapsed"
             />
           ) : (
-            <span className="logo-text">API Lens</span>
+            // <span className="logo-text">API Lens</span>
+            <span className="logo-text">Motadata</span>
           )}
         </Link>
       </div>

@@ -16,11 +16,19 @@ interface Session {
 
 interface SessionsSectionProps {
   onLogoutAll: () => Promise<void>;
+  timezone: string;
+  lastLoginAt: string | null;
+  memberSince: string | null;
 }
 
 const POLL_INTERVAL = 30_000; // 30 seconds
 
-export default function SessionsSection({ onLogoutAll }: SessionsSectionProps) {
+export default function SessionsSection({
+  onLogoutAll,
+  timezone,
+  lastLoginAt,
+  memberSince,
+}: SessionsSectionProps) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [revokingId, setRevokingId] = useState<string | null>(null);
@@ -121,6 +129,22 @@ export default function SessionsSection({ onLogoutAll }: SessionsSectionProps) {
     };
   }
 
+  function formatAbsoluteTime(dateStr: string): string {
+    const date = new Date(dateStr);
+    try {
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(date);
+    } catch {
+      return date.toLocaleString();
+    }
+  }
+
   return (
     <SettingsCard
       title="Active Sessions"
@@ -189,6 +213,14 @@ export default function SessionsSection({ onLogoutAll }: SessionsSectionProps) {
           })}
         </div>
       )}
+      <div className="sessions-footer-meta">
+        <span className="sessions-footer-item">
+          Last login {lastLoginAt ? formatAbsoluteTime(lastLoginAt) : "--"}
+        </span>
+        <span className="sessions-footer-item">
+          Member since {memberSince ? formatAbsoluteTime(memberSince) : "--"}
+        </span>
+      </div>
     </SettingsCard>
   );
 }

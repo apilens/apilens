@@ -14,6 +14,7 @@ function toProfile(user: DjangoUser): UserProfile {
     picture: user.picture,
     email_verified: user.email_verified,
     has_password: user.has_password,
+    timezone: user.timezone,
     created_at: user.created_at,
     last_login_at: user.last_login_at,
   };
@@ -33,14 +34,22 @@ export const GET = () =>
 
 export const PATCH = (request: NextRequest) =>
   withAuth(async () => {
-    const { name } = await request.json();
-    if (!name?.trim()) {
-      return NextResponse.json({ error: "A valid name is required" }, { status: 400 });
+    const { name, timezone } = await request.json();
+    const nextTimezone =
+      typeof timezone === "string" && timezone.trim().length > 0 ? timezone.trim() : undefined;
+    const hasName = typeof name === "string" && name.trim().length > 0;
+
+    if (!hasName && !nextTimezone) {
+      return NextResponse.json(
+        { error: "Provide at least one field to update" },
+        { status: 400 },
+      );
     }
-    const parts = name.trim().split(/\s+/);
+
+    const parts = hasName ? name.trim().split(/\s+/) : [];
     const result = await apiClient.updateProfile({
-      first_name: parts[0] || "",
-      last_name: parts.slice(1).join(" ") || "",
+      ...(hasName ? { first_name: parts[0] || "", last_name: parts.slice(1).join(" ") || "" } : {}),
+      ...(nextTimezone ? { timezone: nextTimezone } : {}),
     });
     if (result.error || !result.data) {
       return NextResponse.json(

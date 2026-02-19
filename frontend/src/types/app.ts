@@ -33,6 +33,7 @@ export interface Environment {
 }
 
 export interface EndpointStats {
+  endpoint_id?: string | null;
   method: string;
   path: string;
   total_requests: number;

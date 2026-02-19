@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import type { EndpointDetail, EndpointPayloadSample } from "@/lib/api-client";
 
 interface EndpointDetailsContentProps {
   appSlug: string;
+  endpointId?: string;
 }
 
 const RANGES = [
@@ -35,11 +37,16 @@ function previewPayload(payload: string): string {
   return value.length > 160 ? `${value.slice(0, 160)}...` : value;
 }
 
-export default function EndpointDetailsContent({ appSlug }: EndpointDetailsContentProps) {
+function parseApiDate(input: string): Date {
+  const hasZone = /([zZ]|[+-]\d{2}:\d{2})$/.test(input);
+  return new Date(hasZone ? input : `${input}Z`);
+}
+
+export default function EndpointDetailsContent({ appSlug, endpointId }: EndpointDetailsContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const method = searchParams.get("method") || "GET";
-  const path = searchParams.get("path") || "/";
+  const [resolvedMethod, setResolvedMethod] = useState(searchParams.get("method") || "GET");
+  const [resolvedPath, setResolvedPath] = useState(searchParams.get("path") || "/");
   const environment = searchParams.get("environment") || "";
   const sinceParam = searchParams.get("since");
   const untilParam = searchParams.get("until");
@@ -52,13 +59,32 @@ export default function EndpointDetailsContent({ appSlug }: EndpointDetailsConte
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+    async function resolveEndpoint() {
+      if (!endpointId) return;
+      const params = new URLSearchParams();
+      params.set("endpoint_id", endpointId);
+      const res = await fetch(`/api/apps/${appSlug}/endpoint-meta?${params.toString()}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { method: string; path: string };
+      if (cancelled) return;
+      setResolvedMethod(data.method || "GET");
+      setResolvedPath(data.path || "/");
+    }
+    resolveEndpoint();
+    return () => {
+      cancelled = true;
+    };
+  }, [appSlug, endpointId]);
+
+  useEffect(() => {
     setUsePinnedWindow(Boolean(sinceParam));
   }, [sinceParam]);
 
   useEffect(() => {
     if (!sinceParam) return;
-    const sinceMs = new Date(sinceParam).getTime();
-    const untilMs = untilParam ? new Date(untilParam).getTime() : Date.now();
+    const sinceMs = parseApiDate(sinceParam).getTime();
+    const untilMs = untilParam ? parseApiDate(untilParam).getTime() : Date.now();
     if (Number.isNaN(sinceMs) || Number.isNaN(untilMs) || untilMs <= sinceMs) return;
     const hours = Math.max(1, Math.round((untilMs - sinceMs) / (1000 * 60 * 60)));
     setRangeHours(hours);
@@ -87,8 +113,8 @@ export default function EndpointDetailsContent({ appSlug }: EndpointDetailsConte
           : new Date(Date.now() - rangeHours * 60 * 60 * 1000).toISOString();
         const until = usePinnedWindow ? (untilParam || "") : "";
         const qs = new URLSearchParams();
-        qs.set("method", method);
-        qs.set("path", path);
+        qs.set("method", resolvedMethod);
+        qs.set("path", resolvedPath);
         qs.set("since", since);
         if (until) qs.set("until", until);
         if (environment) qs.set("environment", environment);
@@ -97,8 +123,8 @@ export default function EndpointDetailsContent({ appSlug }: EndpointDetailsConte
         const detailData = await fetchJson<EndpointDetail>(`/api/apps/${appSlug}/analytics/endpoint-detail?${common}`);
         setDetail(
           detailData || {
-            method,
-            path,
+            method: resolvedMethod,
+            path: resolvedPath,
             total_requests: 0,
             error_count: 0,
             error_rate: 0,
@@ -119,7 +145,7 @@ export default function EndpointDetailsContent({ appSlug }: EndpointDetailsConte
     }
 
     load();
-  }, [appSlug, environment, method, path, rangeHours, sinceParam, untilParam, usePinnedWindow]);
+  }, [appSlug, environment, resolvedMethod, resolvedPath, rangeHours, sinceParam, untilParam, usePinnedWindow]);
 
   const selectedCall = calls[selectedIndex] || null;
   const requestsPerMin = useMemo(
@@ -135,6 +161,7 @@ export default function EndpointDetailsContent({ appSlug }: EndpointDetailsConte
     <div className="endpoint-details-page">
       <div className="endpoint-details-topbar">
         <button type="button" className="endpoint-back-btn" onClick={() => router.push(`/apps/${appSlug}/endpoints`)}>
+          <ArrowLeft size={14} />
           Back to Endpoints
         </button>
         {environment && <span className="endpoint-details-env-chip">Env: {environment}</span>}
@@ -156,8 +183,8 @@ export default function EndpointDetailsContent({ appSlug }: EndpointDetailsConte
       </div>
 
       <div className="endpoint-details-head">
-        <span className={`method-badge method-badge-${method.toLowerCase()}`}>{method}</span>
-        <h2>{path}</h2>
+        <span className={`method-badge method-badge-${resolvedMethod.toLowerCase()}`}>{resolvedMethod}</span>
+        <h2>{resolvedPath}</h2>
       </div>
 
       <div className="endpoint-details-summary-grid endpoint-details-summary-grid-4">
@@ -182,7 +209,7 @@ export default function EndpointDetailsContent({ appSlug }: EndpointDetailsConte
                 >
                   <div className="endpoint-call-row-top">
                     <span className="endpoint-call-status">{call.status_code}</span>
-                    <span className="endpoint-call-time">{new Date(call.timestamp).toLocaleString()}</span>
+                    <span className="endpoint-call-time">{parseApiDate(call.timestamp).toLocaleString()}</span>
                   </div>
                   <p className="endpoint-call-consumer">{renderConsumer(call)}</p>
                   <p className="endpoint-call-preview">{previewPayload(call.request_payload)}</p>

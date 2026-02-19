@@ -95,6 +95,8 @@ backend/.env
 # OS Files
 # =============================================================================
 .DS_Store
+
+# Accidentally generated/exported artifacts
 .DS_Store?
 ._*
 .Spotlight-V100

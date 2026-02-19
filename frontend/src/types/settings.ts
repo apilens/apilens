@@ -16,6 +16,7 @@ export interface UserProfile {
   picture: string;
   email_verified: boolean;
   has_password: boolean;
+  timezone: string;
   created_at?: string;
   last_login_at?: string | null;
 }

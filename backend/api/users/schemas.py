@@ -8,6 +8,7 @@ from django.conf import settings
 from ninja import Schema
 
 from apps.users.models import User
+from apps.users.services import UserService
 
 
 def _build_picture_url(user: User) -> str:
@@ -27,6 +28,7 @@ class UserProfileResponse(Schema):
     picture: str
     email_verified: bool
     has_password: bool
+    timezone: str
     created_at: datetime
     last_login_at: Optional[datetime] = None
 
@@ -41,6 +43,7 @@ class UserProfileResponse(Schema):
             picture=_build_picture_url(user),
             email_verified=user.email_verified,
             has_password=user.has_usable_password(),
+            timezone=UserService.get_timezone(user),
             created_at=user.created_at,
             last_login_at=user.last_login_at,
         )
@@ -49,6 +52,7 @@ class UserProfileResponse(Schema):
 class UserProfileUpdateRequest(Schema):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    timezone: Optional[str] = None
 
 
 class SetPasswordRequest(Schema):

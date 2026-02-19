@@ -18,6 +18,7 @@ export interface DjangoUser {
   picture: string;
   email_verified: boolean;
   has_password: boolean;
+  timezone: string;
   created_at: string;
   last_login_at: string | null;
 }
@@ -82,11 +83,39 @@ export interface AppListItem {
 
 export interface ConsumerStats {
   consumer: string;
+  consumer_identifier: string;
+  consumer_name: string;
+  consumer_group: string;
   total_requests: number;
   error_count: number;
   error_rate: number;
   avg_response_time_ms: number;
   last_seen_at: string | null;
+}
+
+export interface ConsumerRequestStat {
+  consumer: string;
+  method: string;
+  path: string;
+  total_requests: number;
+  error_count: number;
+  error_rate: number;
+  avg_response_time_ms: number;
+  last_seen_at: string | null;
+}
+
+export interface ConsumerActivityItem {
+  timestamp: string;
+  method: string;
+  path: string;
+  status_code: number;
+  response_time_ms: number;
+  environment: string;
+  consumer_id: string;
+  consumer_name: string;
+  consumer_group: string;
+  request_payload: string;
+  response_payload: string;
 }
 
 export interface AnalyticsSummary {
@@ -134,6 +163,12 @@ export interface EndpointDetail {
   last_seen_at: string | null;
 }
 
+export interface EndpointMeta {
+  id: string;
+  method: string;
+  path: string;
+}
+
 export interface EndpointTimeseriesPoint {
   bucket: string;
   total_requests: number;
@@ -173,6 +208,41 @@ export interface EndpointPayloadSample {
 export interface EnvironmentOption {
   environment: string;
   total_requests: number;
+}
+
+export interface LogEntry {
+  timestamp: string;
+  environment: string;
+  level: "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+  message: string;
+  logger_name: string;
+  payload: string;
+  attributes: Record<string, string>;
+}
+
+export interface LogsListResponse {
+  items: LogEntry[];
+  total_count: number;
+  page: number;
+  page_size: number;
+}
+
+export interface LogsSummary {
+  total_logs: number;
+  error_logs: number;
+  warning_logs: number;
+  unique_loggers: number;
+}
+
+export interface LogsTimeseriesPoint {
+  bucket: string;
+  count: number;
+}
+
+export interface LogsSearchOptions {
+  keys: string[];
+  values: string[];
+  loggers: string[];
 }
 
 async function fetchDjango<T>(
@@ -277,6 +347,7 @@ export const apiClient = {
   async updateProfile(data: {
     first_name?: string;
     last_name?: string;
+    timezone?: string;
   }): Promise<ApiResponse<DjangoUser>> {
     return fetchDjango<DjangoUser>("/users/me", {
       method: "PATCH",
@@ -598,6 +669,172 @@ export const apiClient = {
     );
   },
 
+  async getConsumerRequestStats(
+    slug: string,
+    params: {
+      consumer: string;
+      environment?: string;
+      since?: string;
+      until?: string;
+      limit?: number;
+    },
+  ): Promise<ApiResponse<ConsumerRequestStat[]>> {
+    const searchParams = new URLSearchParams();
+    searchParams.set("consumer", params.consumer);
+    if (params.environment) searchParams.set("environment", params.environment);
+    if (params.since) searchParams.set("since", params.since);
+    if (params.until) searchParams.set("until", params.until);
+    if (params.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    return fetchDjango<ConsumerRequestStat[]>(
+      `/apps/${slug}/consumers/requests${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  async getConsumerActivity(
+    slug: string,
+    params: {
+      consumer: string;
+      environment?: string;
+      since?: string;
+      until?: string;
+      method?: string;
+      path?: string;
+      limit?: number;
+    },
+  ): Promise<ApiResponse<ConsumerActivityItem[]>> {
+    const searchParams = new URLSearchParams();
+    searchParams.set("consumer", params.consumer);
+    if (params.environment) searchParams.set("environment", params.environment);
+    if (params.since) searchParams.set("since", params.since);
+    if (params.until) searchParams.set("until", params.until);
+    if (params.method) searchParams.set("method", params.method);
+    if (params.path) searchParams.set("path", params.path);
+    if (params.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    return fetchDjango<ConsumerActivityItem[]>(
+      `/apps/${slug}/consumers/activity${qs ? `?${qs}` : ""}`,
+    );
+  },
+
+  async getLogs(
+    slug: string,
+    params?: {
+      environment?: string;
+      since?: string;
+      until?: string;
+      levels?: string[];
+      q?: string;
+      attr?: string[];
+      logger?: string[];
+      page?: number;
+      page_size?: number;
+    },
+  ): Promise<ApiResponse<LogsListResponse>> {
+    const searchParams = new URLSearchParams();
+    if (params?.environment) searchParams.set("environment", params.environment);
+    if (params?.since) searchParams.set("since", params.since);
+    if (params?.until) searchParams.set("until", params.until);
+    if (params?.levels && params.levels.length > 0) {
+      searchParams.set("levels", params.levels.join(","));
+    }
+    if (params?.q) searchParams.set("q", params.q);
+    if (params?.attr && params.attr.length > 0) {
+      for (const value of params.attr) searchParams.append("attr", value);
+    }
+    if (params?.logger && params.logger.length > 0) {
+      for (const value of params.logger) searchParams.append("logger", value);
+    }
+    if (params?.page) searchParams.set("page", String(params.page));
+    if (params?.page_size) searchParams.set("page_size", String(params.page_size));
+    const qs = searchParams.toString();
+    return fetchDjango<LogsListResponse>(`/apps/${slug}/logs${qs ? `?${qs}` : ""}`);
+  },
+
+  async getLogsSummary(
+    slug: string,
+    params?: {
+      environment?: string;
+      since?: string;
+      until?: string;
+      levels?: string[];
+      q?: string;
+      attr?: string[];
+      logger?: string[];
+    },
+  ): Promise<ApiResponse<LogsSummary>> {
+    const searchParams = new URLSearchParams();
+    if (params?.environment) searchParams.set("environment", params.environment);
+    if (params?.since) searchParams.set("since", params.since);
+    if (params?.until) searchParams.set("until", params.until);
+    if (params?.levels && params.levels.length > 0) {
+      searchParams.set("levels", params.levels.join(","));
+    }
+    if (params?.q) searchParams.set("q", params.q);
+    if (params?.attr && params.attr.length > 0) {
+      for (const value of params.attr) searchParams.append("attr", value);
+    }
+    if (params?.logger && params.logger.length > 0) {
+      for (const value of params.logger) searchParams.append("logger", value);
+    }
+    const qs = searchParams.toString();
+    return fetchDjango<LogsSummary>(`/apps/${slug}/logs/summary${qs ? `?${qs}` : ""}`);
+  },
+
+  async getLogsTimeseries(
+    slug: string,
+    params?: {
+      environment?: string;
+      since?: string;
+      until?: string;
+      levels?: string[];
+      q?: string;
+      attr?: string[];
+      logger?: string[];
+      granularity?: number;
+    },
+  ): Promise<ApiResponse<LogsTimeseriesPoint[]>> {
+    const searchParams = new URLSearchParams();
+    if (params?.environment) searchParams.set("environment", params.environment);
+    if (params?.since) searchParams.set("since", params.since);
+    if (params?.until) searchParams.set("until", params.until);
+    if (params?.levels && params.levels.length > 0) {
+      searchParams.set("levels", params.levels.join(","));
+    }
+    if (params?.q) searchParams.set("q", params.q);
+    if (params?.attr && params.attr.length > 0) {
+      for (const value of params.attr) searchParams.append("attr", value);
+    }
+    if (params?.logger && params.logger.length > 0) {
+      for (const value of params.logger) searchParams.append("logger", value);
+    }
+    if (params?.granularity) searchParams.set("granularity", String(params.granularity));
+    const qs = searchParams.toString();
+    return fetchDjango<LogsTimeseriesPoint[]>(`/apps/${slug}/logs/timeseries${qs ? `?${qs}` : ""}`);
+  },
+
+  async getLogsSearchOptions(
+    slug: string,
+    params?: {
+      environment?: string;
+      since?: string;
+      until?: string;
+      key?: string;
+      prefix?: string;
+      limit?: number;
+    },
+  ): Promise<ApiResponse<LogsSearchOptions>> {
+    const searchParams = new URLSearchParams();
+    if (params?.environment) searchParams.set("environment", params.environment);
+    if (params?.since) searchParams.set("since", params.since);
+    if (params?.until) searchParams.set("until", params.until);
+    if (params?.key) searchParams.set("key", params.key);
+    if (params?.prefix) searchParams.set("prefix", params.prefix);
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    return fetchDjango<LogsSearchOptions>(`/apps/${slug}/logs/search-options${qs ? `?${qs}` : ""}`);
+  },
+
   async getAnalyticsSummary(
     slug: string,
     params?: { environment?: string; since?: string; until?: string },
@@ -722,6 +959,15 @@ export const apiClient = {
     return fetchDjango<EndpointPayloadSample[]>(
       `/apps/${slug}/analytics/endpoint-payloads${qs ? `?${qs}` : ""}`,
     );
+  },
+
+  async getEndpointMeta(
+    slug: string,
+    endpointId: string,
+  ): Promise<ApiResponse<EndpointMeta>> {
+    const qs = new URLSearchParams();
+    qs.set("endpoint_id", endpointId);
+    return fetchDjango<EndpointMeta>(`/apps/${slug}/endpoint-meta?${qs.toString()}`);
   },
 
   async setPassword(data: {

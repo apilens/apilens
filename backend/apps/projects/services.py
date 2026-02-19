@@ -1,6 +1,8 @@
 import logging
 import os
 import threading
+import json
+from typing import Any
 from datetime import datetime, timedelta, timezone as tz
 from io import BytesIO
 
@@ -35,6 +37,14 @@ def _resolve_time_range(since: str | None, until: str | None) -> tuple[datetime,
     since_dt = datetime.fromisoformat(since.replace("Z", "+00:00")) if since else now - timedelta(hours=24)
     until_dt = datetime.fromisoformat(until.replace("Z", "+00:00")) if until else now
     return since_dt, until_dt
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=tz.utc)
+    return value.astimezone(tz.utc)
 
 
 def _unique_slug(user, name: str, exclude_id=None) -> str:
@@ -366,10 +376,17 @@ class EnvironmentService:
 
 class IngestService:
     MAX_PAYLOAD_CHARS = 16_384
+    MAX_LOG_MESSAGE_CHARS = 8_192
+    MAX_LOG_PAYLOAD_CHARS = 16_384
+    MAX_LOG_ATTRIBUTE_KEY_CHARS = 64
+    MAX_LOG_ATTRIBUTE_VALUE_CHARS = 512
+    MAX_LOG_ATTRIBUTES = 64
     _payload_columns_ready = False
     _payload_columns_lock = threading.Lock()
     _consumer_columns_ready = False
     _consumer_columns_lock = threading.Lock()
+    _api_logs_table_ready = False
+    _api_logs_table_lock = threading.Lock()
 
     @staticmethod
     def ensure_payload_columns(client) -> None:
@@ -420,6 +437,88 @@ class IngestService:
         if len(text) <= IngestService.MAX_PAYLOAD_CHARS:
             return text
         return text[: IngestService.MAX_PAYLOAD_CHARS]
+
+    @staticmethod
+    def ensure_api_logs_table(client) -> None:
+        if IngestService._api_logs_table_ready:
+            return
+        with IngestService._api_logs_table_lock:
+            if IngestService._api_logs_table_ready:
+                return
+            try:
+                client.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS api_logs (
+                        timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1)),
+                        app_id String CODEC(ZSTD(1)),
+                        environment LowCardinality(String) CODEC(ZSTD(1)),
+                        level LowCardinality(String) CODEC(ZSTD(1)),
+                        message String CODEC(ZSTD(3)),
+                        logger_name LowCardinality(String) CODEC(ZSTD(1)),
+                        payload String CODEC(ZSTD(3)),
+                        attributes_json String CODEC(ZSTD(3))
+                    ) ENGINE = MergeTree()
+                    PARTITION BY toYYYYMM(timestamp)
+                    ORDER BY (app_id, environment, level, timestamp)
+                    TTL toDateTime(timestamp) + INTERVAL 30 DAY
+                    SETTINGS index_granularity = 8192
+                    """
+                )
+                client.execute(
+                    "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_app_id app_id TYPE bloom_filter(0.01) GRANULARITY 1"
+                )
+                client.execute(
+                    "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_environment environment TYPE bloom_filter(0.01) GRANULARITY 1"
+                )
+                client.execute(
+                    "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_level level TYPE set(10) GRANULARITY 1"
+                )
+                client.execute(
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS attributes_json String CODEC(ZSTD(3))"
+                )
+            except Exception as exc:
+                logger.warning("Unable to ensure api_logs table: %s", exc)
+                return
+            IngestService._api_logs_table_ready = True
+
+    @staticmethod
+    def _safe_log_text(value: str, *, limit: int) -> str:
+        if not value:
+            return ""
+        text = str(value)
+        if len(text) <= limit:
+            return text
+        return text[:limit]
+
+    @staticmethod
+    def _normalize_log_level(value: str) -> str:
+        level = (value or "INFO").strip().upper()
+        if level in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            return level
+        if level == "WARN":
+            return "WARNING"
+        return "INFO"
+
+    @staticmethod
+    def _sanitize_log_attributes(attributes: Any) -> dict[str, str]:
+        if not isinstance(attributes, dict):
+            return {}
+        output: dict[str, str] = {}
+        for key, raw_value in attributes.items():
+            if len(output) >= IngestService.MAX_LOG_ATTRIBUTES:
+                break
+            clean_key = str(key or "").strip()
+            if not clean_key:
+                continue
+            clean_key = clean_key[: IngestService.MAX_LOG_ATTRIBUTE_KEY_CHARS]
+            # Keep attributes flat and scalar only (no nested objects/lists).
+            if isinstance(raw_value, (dict, list, tuple, set)):
+                continue
+            output[clean_key] = IngestService._safe_log_text(
+                str(raw_value or ""),
+                limit=IngestService.MAX_LOG_ATTRIBUTE_VALUE_CHARS,
+            )
+        return output
 
     @staticmethod
     def ingest(app_id: str, records: list) -> int:
@@ -558,8 +657,62 @@ class IngestService:
         client.insert("api_requests", rows)
         return len(rows)
 
+    @staticmethod
+    def ingest_logs(app_id: str, records: list) -> int:
+        if not records:
+            return 0
+
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        client = get_clickhouse_client()
+        IngestService.ensure_api_logs_table(client)
+
+        rows: list[dict[str, Any]] = []
+        for record in records:
+            attributes = IngestService._sanitize_log_attributes(getattr(record, "attributes", {}))
+
+            rows.append(
+                {
+                    "timestamp": record.timestamp,
+                    "app_id": app_id,
+                    "environment": (record.environment or "production").strip().lower(),
+                    "level": IngestService._normalize_log_level(record.level),
+                    "message": IngestService._safe_log_text(
+                        record.message,
+                        limit=IngestService.MAX_LOG_MESSAGE_CHARS,
+                    ),
+                    "logger_name": IngestService._safe_log_text(
+                        getattr(record, "logger_name", ""),
+                        limit=256,
+                    ),
+                    "payload": IngestService._safe_log_text(
+                        getattr(record, "payload", ""),
+                        limit=IngestService.MAX_LOG_PAYLOAD_CHARS,
+                    ),
+                    "attributes_json": json.dumps(attributes, separators=(",", ":")),
+                }
+            )
+
+        if not rows:
+            return 0
+
+        client.insert("api_logs", rows)
+        return len(rows)
+
 
 class EndpointStatsService:
+    @staticmethod
+    def get_endpoint_meta(app_id: str, endpoint_id: str) -> dict:
+        try:
+            endpoint = Endpoint.objects.get(id=endpoint_id, app_id=app_id, is_active=True)
+        except Endpoint.DoesNotExist as exc:
+            raise NotFoundError("Endpoint not found") from exc
+        return {
+            "id": str(endpoint.id),
+            "method": endpoint.method,
+            "path": endpoint.path,
+        }
+
     @staticmethod
     def get_endpoint_stats(
         app_id: str,
@@ -728,6 +881,8 @@ class EndpointStatsService:
 
         try:
             stats_rows = client.execute(query, params) if client is not None else []
+            for row in stats_rows:
+                row["last_seen_at"] = _as_utc(row.get("last_seen_at"))
             stats_map: dict[tuple[str, str], dict] = {
                 (row["method"], row["path"]): row for row in stats_rows
             }
@@ -747,17 +902,24 @@ class EndpointStatsService:
                     Q(path__icontains=normalized_search) | Q(method__icontains=normalized_search)
                 )
 
+            endpoints = list(endpoint_qs)
+            endpoint_model_map: dict[tuple[str, str], Endpoint] = {
+                (endpoint.method, endpoint.path): endpoint for endpoint in endpoints
+            }
+
             items: list[dict] = []
             endpoint_keys: set[tuple[str, str]] = set()
-            for endpoint in endpoint_qs:
+            for endpoint in endpoints:
                 key = (endpoint.method, endpoint.path)
                 endpoint_keys.add(key)
                 row = stats_map.get(key)
                 if row:
+                    row["endpoint_id"] = str(endpoint.id)
                     items.append(row)
                     continue
                 items.append(
                     {
+                        "endpoint_id": str(endpoint.id),
                         "method": endpoint.method,
                         "path": endpoint.path,
                         "total_requests": 0,
@@ -767,12 +929,13 @@ class EndpointStatsService:
                         "p95_response_time_ms": 0.0,
                         "total_request_bytes": 0,
                         "total_response_bytes": 0,
-                        "last_seen_at": endpoint.last_seen_at,
+                        "last_seen_at": _as_utc(endpoint.last_seen_at),
                     }
                 )
 
             for key, row in stats_map.items():
                 if key not in endpoint_keys:
+                    row["endpoint_id"] = None
                     items.append(row)
 
             reverse = str(sort_dir).lower() != "asc"
@@ -790,7 +953,10 @@ class EndpointStatsService:
                     reverse=reverse,
                 )
             elif sort_by == "last_seen_at":
-                items.sort(key=lambda row: row.get("last_seen_at") or datetime.min.replace(tzinfo=tz.utc), reverse=reverse)
+                items.sort(
+                    key=lambda row: _as_utc(row.get("last_seen_at")) or datetime.min.replace(tzinfo=tz.utc),
+                    reverse=reverse,
+                )
             else:
                 items.sort(key=lambda row: int(row.get("total_requests") or 0), reverse=reverse)
 
@@ -929,6 +1095,9 @@ class ConsumerStatsService:
                         if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
                     )
                 ) AS consumer,
+                if(consumer_id != '', consumer_id, '') AS consumer_identifier,
+                if(consumer_name != '', consumer_name, '') AS consumer_name,
+                if(consumer_group != '', consumer_group, '') AS consumer_group,
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
@@ -939,7 +1108,7 @@ class ConsumerStatsService:
               AND timestamp >= %(since)s
               AND timestamp <= %(until)s
               {env_filter}
-            GROUP BY consumer
+            GROUP BY consumer, consumer_identifier, consumer_name, consumer_group
             ORDER BY total_requests DESC
             LIMIT %(limit)s
         """
@@ -948,6 +1117,600 @@ class ConsumerStatsService:
         except Exception as exc:
             logger.warning("ClickHouse query failed for consumer stats; returning empty list: %s", exc)
             return []
+
+    @staticmethod
+    def get_consumer_request_stats(
+        app_id: str,
+        consumer: str,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        if not consumer or not consumer.strip():
+            return []
+
+    @staticmethod
+    def get_consumer_activity(
+        app_id: str,
+        consumer: str,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        method: str | None = None,
+        path: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        if not consumer or not consumer.strip():
+            return []
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning(
+                "ClickHouse client initialization failed; returning empty consumer activity: %s",
+                exc,
+            )
+            return []
+        IngestService.ensure_payload_columns(client)
+        IngestService.ensure_consumer_columns(client)
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params = {
+            "app_id": app_id,
+            "consumer": consumer.strip(),
+            "since": since_dt,
+            "until": until_dt,
+            "limit": max(1, min(limit, 500)),
+        }
+
+        env_filter = ""
+        if environment:
+            env_filter = "AND environment = %(environment)s"
+            params["environment"] = environment
+
+        method_filter = ""
+        if method:
+            method_filter = "AND method = %(method)s"
+            params["method"] = method.upper().strip()
+
+        path_filter = ""
+        if path:
+            path_filter = "AND path = %(path)s"
+            params["path"] = path.strip()
+
+        query = f"""
+            SELECT
+                timestamp,
+                method,
+                path,
+                status_code,
+                response_time_ms,
+                environment,
+                consumer_id,
+                consumer_name,
+                consumer_group,
+                request_payload,
+                response_payload
+            FROM api_requests
+            WHERE app_id = %(app_id)s
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              {env_filter}
+              {method_filter}
+              {path_filter}
+              AND if(
+                    consumer_name != '',
+                    consumer_name,
+                    if(
+                        consumer_id != '',
+                        consumer_id,
+                        if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                    )
+                  ) = %(consumer)s
+            ORDER BY timestamp DESC
+            LIMIT %(limit)s
+        """
+        try:
+            return client.execute(query, params)
+        except Exception as exc:
+            logger.warning(
+                "ClickHouse query failed for consumer activity; returning empty list: %s",
+                exc,
+            )
+            return []
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning(
+                "ClickHouse client initialization failed; returning empty consumer request stats: %s",
+                exc,
+            )
+            return []
+        IngestService.ensure_consumer_columns(client)
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+
+        params = {
+            "app_id": app_id,
+            "consumer": consumer.strip(),
+            "since": since_dt,
+            "until": until_dt,
+            "limit": max(1, min(limit, 500)),
+        }
+
+        env_filter = ""
+        if environment:
+            env_filter = "AND environment = %(environment)s"
+            params["environment"] = environment
+
+        query = f"""
+            SELECT
+                %(consumer)s AS consumer,
+                method,
+                path,
+                count() AS total_requests,
+                countIf(status_code >= 400) AS error_count,
+                if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                avg(response_time_ms) AS avg_response_time_ms,
+                max(timestamp) AS last_seen_at
+            FROM api_requests
+            WHERE app_id = %(app_id)s
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              {env_filter}
+              AND if(
+                    consumer_name != '',
+                    consumer_name,
+                    if(
+                        consumer_id != '',
+                        consumer_id,
+                        if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                    )
+                  ) = %(consumer)s
+            GROUP BY method, path
+            ORDER BY total_requests DESC
+            LIMIT %(limit)s
+        """
+        try:
+            rows = client.execute(query, params)
+            for row in rows:
+                row["last_seen_at"] = _as_utc(row.get("last_seen_at"))
+            return rows
+        except Exception as exc:
+            logger.warning(
+                "ClickHouse query failed for consumer request stats; returning empty list: %s",
+                exc,
+            )
+            return []
+
+
+class LogsService:
+    @staticmethod
+    def _build_log_filters(
+        params: dict[str, Any],
+        environment: str | None = None,
+        levels: list[str] | None = None,
+        search: str | None = None,
+        attribute_filters: list[tuple[str, str]] | None = None,
+        logger_filters: list[str] | None = None,
+    ) -> str:
+        filters: list[str] = []
+        if environment:
+            filters.append("AND environment = %(environment)s")
+            params["environment"] = environment
+
+        normalized_levels: list[str] = []
+        if levels:
+            for raw in levels:
+                value = IngestService._normalize_log_level(raw)
+                if value not in normalized_levels:
+                    normalized_levels.append(value)
+        if normalized_levels:
+            level_placeholders: list[str] = []
+            for idx, level in enumerate(normalized_levels):
+                key = f"level_{idx}"
+                params[key] = level
+                level_placeholders.append(f"%({key})s")
+            filters.append(f"AND level IN ({', '.join(level_placeholders)})")
+
+        if logger_filters:
+            logger_placeholders: list[str] = []
+            for idx, logger_name in enumerate(logger_filters):
+                key = f"logger_{idx}"
+                params[key] = logger_name
+                logger_placeholders.append(f"%({key})s")
+            filters.append(f"AND logger_name IN ({', '.join(logger_placeholders)})")
+
+        if attribute_filters:
+            for idx, (attr_key, attr_value) in enumerate(attribute_filters):
+                key_name = f"attr_key_{idx}"
+                value_name = f"attr_value_{idx}"
+                params[key_name] = attr_key
+                params[value_name] = attr_value
+                filters.append(
+                    f"AND JSONExtractString(attributes_json, %({key_name})s) = %({value_name})s"
+                )
+
+        if search:
+            filters.append(
+                "AND (lower(message) LIKE %(search)s OR lower(logger_name) LIKE %(search)s OR lower(attributes_json) LIKE %(search)s)"
+            )
+            params["search"] = f"%{search.strip().lower()}%"
+
+        return "\n              ".join(filters)
+
+    @staticmethod
+    def get_logs(
+        app_id: str,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        levels: list[str] | None = None,
+        search: str | None = None,
+        attribute_filters: list[tuple[str, str]] | None = None,
+        logger_filters: list[str] | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict:
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        safe_page = max(1, int(page))
+        safe_size = max(1, min(int(page_size), 200))
+        offset = (safe_page - 1) * safe_size
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty logs list: %s", exc)
+            return {
+                "items": [],
+                "total_count": 0,
+                "page": safe_page,
+                "page_size": safe_size,
+            }
+
+        IngestService.ensure_api_logs_table(client)
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params: dict[str, Any] = {
+            "app_id": app_id,
+            "since": since_dt,
+            "until": until_dt,
+            "limit": safe_size,
+            "offset": offset,
+        }
+
+        where_filters = LogsService._build_log_filters(
+            params,
+            environment=environment,
+            levels=levels,
+            search=search,
+            attribute_filters=attribute_filters,
+            logger_filters=logger_filters,
+        )
+
+        count_query = f"""
+            SELECT count() AS total_count
+            FROM api_logs
+            WHERE app_id = %(app_id)s
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              {where_filters}
+        """
+
+        rows_query = f"""
+            SELECT
+                timestamp,
+                environment,
+                level,
+                message,
+                logger_name,
+                payload,
+                attributes_json
+            FROM api_logs
+            WHERE app_id = %(app_id)s
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              {where_filters}
+            ORDER BY timestamp DESC
+            LIMIT %(limit)s
+            OFFSET %(offset)s
+        """
+        try:
+            count_rows = client.execute(count_query, params)
+            total_count = int(count_rows[0]["total_count"]) if count_rows else 0
+            items = client.execute(rows_query, params)
+            for item in items:
+                item["timestamp"] = _as_utc(item.get("timestamp"))
+                raw_attributes = item.get("attributes_json", "") or "{}"
+                try:
+                    parsed = json.loads(raw_attributes)
+                    if not isinstance(parsed, dict):
+                        parsed = {}
+                except Exception:
+                    parsed = {}
+                item["attributes"] = {str(k): str(v) for k, v in parsed.items()}
+                item.pop("attributes_json", None)
+            return {
+                "items": items,
+                "total_count": total_count,
+                "page": safe_page,
+                "page_size": safe_size,
+            }
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for logs; returning empty list: %s", exc)
+            return {
+                "items": [],
+                "total_count": 0,
+                "page": safe_page,
+                "page_size": safe_size,
+            }
+
+    @staticmethod
+    def get_logs_summary(
+        app_id: str,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        levels: list[str] | None = None,
+        search: str | None = None,
+        attribute_filters: list[tuple[str, str]] | None = None,
+        logger_filters: list[str] | None = None,
+    ) -> dict:
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty logs summary: %s", exc)
+            return {
+                "total_logs": 0,
+                "error_logs": 0,
+                "warning_logs": 0,
+                "unique_loggers": 0,
+            }
+
+        IngestService.ensure_api_logs_table(client)
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params: dict[str, Any] = {
+            "app_id": app_id,
+            "since": since_dt,
+            "until": until_dt,
+        }
+        where_filters = LogsService._build_log_filters(
+            params,
+            environment=environment,
+            levels=levels,
+            search=search,
+            attribute_filters=attribute_filters,
+            logger_filters=logger_filters,
+        )
+
+        query = f"""
+            SELECT
+                count() AS total_logs,
+                countIf(level IN ('ERROR', 'CRITICAL')) AS error_logs,
+                countIf(level = 'WARNING') AS warning_logs,
+                uniqExactIf(logger_name, logger_name != '') AS unique_loggers
+            FROM api_logs
+            WHERE app_id = %(app_id)s
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              {where_filters}
+        """
+        try:
+            rows = client.execute(query, params)
+            if rows:
+                return rows[0]
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for logs summary; returning empty summary: %s", exc)
+
+        return {
+            "total_logs": 0,
+            "error_logs": 0,
+            "warning_logs": 0,
+            "unique_loggers": 0,
+        }
+
+    @staticmethod
+    def get_logs_timeseries(
+        app_id: str,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        levels: list[str] | None = None,
+        search: str | None = None,
+        attribute_filters: list[tuple[str, str]] | None = None,
+        logger_filters: list[str] | None = None,
+        bucket_minutes: int = 5,
+    ) -> list[dict]:
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        allowed_buckets = {5, 10, 15, 30, 60, 120, 180, 240, 360, 720, 1440}
+        safe_bucket = int(bucket_minutes) if int(bucket_minutes) in allowed_buckets else 5
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty logs timeseries: %s", exc)
+            return []
+
+        IngestService.ensure_api_logs_table(client)
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params: dict[str, Any] = {
+            "app_id": app_id,
+            "since": since_dt,
+            "until": until_dt,
+            "bucket_minutes": safe_bucket,
+        }
+
+        where_filters = LogsService._build_log_filters(
+            params,
+            environment=environment,
+            levels=levels,
+            search=search,
+            attribute_filters=attribute_filters,
+            logger_filters=logger_filters,
+        )
+
+        query = f"""
+            SELECT
+                toStartOfInterval(timestamp, toIntervalMinute(%(bucket_minutes)s)) AS bucket,
+                count() AS count
+            FROM api_logs
+            WHERE app_id = %(app_id)s
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              {where_filters}
+            GROUP BY bucket
+            ORDER BY bucket ASC
+        """
+
+        try:
+            rows = client.execute(query, params)
+            for row in rows:
+                row["bucket"] = _as_utc(row.get("bucket"))
+            return rows
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for logs timeseries; returning empty list: %s", exc)
+            return []
+
+    @staticmethod
+    def get_logs_search_options(
+        app_id: str,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        key: str | None = None,
+        prefix: str | None = None,
+        limit: int = 12,
+    ) -> dict:
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        safe_limit = max(1, min(int(limit), 50))
+        normalized_prefix = (prefix or "").strip().lower()
+        normalized_key = (key or "").strip()
+        high_cardinality_keys = {
+            "trace_id",
+            "span_id",
+            "request_id",
+            "session_id",
+            "user_id",
+            "device_id",
+            "event_id",
+            "uuid",
+            "id",
+        }
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty logs search options: %s", exc)
+            return {"keys": [], "values": [], "loggers": []}
+
+        IngestService.ensure_api_logs_table(client)
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params: dict[str, Any] = {
+            "app_id": app_id,
+            "since": since_dt,
+            "until": until_dt,
+            "limit": safe_limit,
+        }
+        filters: list[str] = []
+        if environment:
+            filters.append("AND environment = %(environment)s")
+            params["environment"] = environment
+        if normalized_prefix:
+            params["prefix_like"] = f"%{normalized_prefix}%"
+        where_filters = "\n              ".join(filters)
+
+        try:
+            key_rows = client.execute(
+                f"""
+                SELECT key
+                FROM (
+                    SELECT arrayJoin(JSONExtractKeys(attributes_json)) AS key
+                    FROM api_logs
+                    WHERE app_id = %(app_id)s
+                      AND timestamp >= %(since)s
+                      AND timestamp <= %(until)s
+                      {where_filters}
+                )
+                WHERE key != ''
+                  {"AND lower(key) LIKE %(prefix_like)s" if normalized_prefix else ""}
+                GROUP BY key
+                ORDER BY count() DESC
+                LIMIT %(limit)s
+                """,
+                params,
+            )
+            logger_rows = client.execute(
+                f"""
+                SELECT logger_name AS value
+                FROM api_logs
+                WHERE app_id = %(app_id)s
+                  AND timestamp >= %(since)s
+                  AND timestamp <= %(until)s
+                  {where_filters}
+                  AND logger_name != ''
+                  {"AND lower(logger_name) LIKE %(prefix_like)s" if normalized_prefix else ""}
+                GROUP BY value
+                ORDER BY count() DESC
+                LIMIT %(limit)s
+                """,
+                params,
+            )
+
+            value_rows: list[dict[str, Any]] = []
+            if normalized_key.lower() == "logger":
+                value_rows = logger_rows
+            elif normalized_key:
+                # Prevent expensive scans on likely high-cardinality keys.
+                if normalized_key.lower() in high_cardinality_keys and len(normalized_prefix) < 4:
+                    return {
+                        "keys": [str(row.get("key", "")) for row in key_rows if row.get("key")],
+                        "values": [],
+                        "loggers": [str(row.get("value", "")) for row in logger_rows if row.get("value")],
+                    }
+                value_params = dict(params)
+                value_params["attr_key"] = normalized_key
+                value_rows = client.execute(
+                    f"""
+                    SELECT value
+                    FROM (
+                        SELECT JSONExtractString(attributes_json, %(attr_key)s) AS value
+                        FROM api_logs
+                        WHERE app_id = %(app_id)s
+                          AND timestamp >= %(since)s
+                          AND timestamp <= %(until)s
+                          {where_filters}
+                    )
+                    WHERE value != ''
+                      {"AND lower(value) LIKE %(prefix_like)s" if normalized_prefix else ""}
+                    GROUP BY value
+                    ORDER BY count() DESC
+                    LIMIT %(limit)s
+                    """,
+                    value_params,
+                )
+
+            return {
+                "keys": [str(row.get("key", "")) for row in key_rows if row.get("key")],
+                "values": [str(row.get("value", "")) for row in value_rows if row.get("value")],
+                "loggers": [str(row.get("value", "")) for row in logger_rows if row.get("value")],
+            }
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for logs search options; returning empty options: %s", exc)
+            return {"keys": [], "values": [], "loggers": []}
 
 
 class AnalyticsService:

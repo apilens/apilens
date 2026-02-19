@@ -1,5 +1,5 @@
 from .client import ApiLensClient, ApiLensConfig
-from .client import RequestRecord
+from .client import LogRecord, RequestRecord
 from .django import ApiLensDjangoMiddleware
 from .fastapi import ApiLensGatewayMiddleware, ApiLensMiddleware, set_consumer, track_consumer
 from .litestar import ApiLensPlugin
@@ -17,6 +17,7 @@ __all__ = [
     "ApiLensClient",
     "ApiLensConfig",
     "RequestRecord",
+    "LogRecord",
     "install_apilens_exporter",
     "ApiLensDjangoMiddleware",
     "ApiLensPlugin",

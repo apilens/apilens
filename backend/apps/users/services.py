@@ -2,6 +2,7 @@ import logging
 import os
 from io import BytesIO
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -22,6 +23,26 @@ ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 class UserService:
     @staticmethod
+    def get_timezone(user: User) -> str:
+        value = user.metadata.get("timezone") if isinstance(user.metadata, dict) else None
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return "UTC"
+
+    @staticmethod
+    def normalize_timezone(timezone_name: str | None) -> str:
+        if timezone_name is None:
+            raise ValidationError("Timezone is required")
+        tz = timezone_name.strip()
+        if not tz:
+            raise ValidationError("Timezone is required")
+        try:
+            ZoneInfo(tz)
+        except ZoneInfoNotFoundError as exc:
+            raise ValidationError("Invalid timezone") from exc
+        return tz
+
+    @staticmethod
     @transaction.atomic
     def get_or_create_by_email(email: str, **defaults) -> tuple[User, bool]:
         return User.objects.get_or_create(
@@ -35,7 +56,12 @@ class UserService:
 
     @staticmethod
     @transaction.atomic
-    def update_profile(user: User, first_name: str | None = None, last_name: str | None = None) -> User:
+    def update_profile(
+        user: User,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        timezone_name: str | None = None,
+    ) -> User:
         update_fields = []
 
         if first_name is not None:
@@ -45,6 +71,14 @@ class UserService:
         if last_name is not None:
             user.last_name = last_name[:150]
             update_fields.append("last_name")
+
+        if timezone_name is not None:
+            tz = UserService.normalize_timezone(timezone_name)
+            meta = dict(user.metadata or {})
+            if meta.get("timezone") != tz:
+                meta["timezone"] = tz
+                user.metadata = meta
+                update_fields.append("metadata")
 
         if update_fields:
             user.save(update_fields=update_fields + ["updated_at"])
