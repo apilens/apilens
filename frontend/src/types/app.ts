@@ -1,10 +1,12 @@
+export type FrameworkId = "fastapi" | "flask" | "django" | "starlette" | "express";
+
 export interface App {
   id: string;
   name: string;
   slug: string;
   icon_url: string;
   description: string;
-  framework: "fastapi" | "flask" | "django" | "starlette";
+  framework: FrameworkId;
   created_at: string;
   updated_at: string;
 }
@@ -15,7 +17,7 @@ export interface AppListItem {
   slug: string;
   icon_url: string;
   description: string;
-  framework: "fastapi" | "flask" | "django" | "starlette";
+  framework: FrameworkId;
   api_key_count: number;
   created_at: string;
 }

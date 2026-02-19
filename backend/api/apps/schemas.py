@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 import os
@@ -8,6 +8,8 @@ from django.conf import settings
 from ninja import Schema
 
 from apps.projects.models import App
+
+FrameworkValue = Literal["fastapi", "flask", "django", "starlette", "express"]
 
 
 def _build_app_icon_url(app: App) -> str:
@@ -21,13 +23,13 @@ def _build_app_icon_url(app: App) -> str:
 class CreateAppRequest(Schema):
     name: str
     description: str = ""
-    framework: str = "fastapi"
+    framework: FrameworkValue = "fastapi"
 
 
 class UpdateAppRequest(Schema):
     name: Optional[str] = None
     description: Optional[str] = None
-    framework: Optional[str] = None
+    framework: Optional[FrameworkValue] = None
 
 
 class AppResponse(Schema):
@@ -36,7 +38,7 @@ class AppResponse(Schema):
     slug: str
     icon_url: str
     description: str
-    framework: str
+    framework: FrameworkValue
     created_at: datetime
     updated_at: datetime
 
@@ -47,7 +49,7 @@ class AppListResponse(Schema):
     slug: str
     icon_url: str
     description: str
-    framework: str
+    framework: FrameworkValue
     api_key_count: int
     created_at: datetime
 

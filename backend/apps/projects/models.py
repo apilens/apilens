@@ -16,6 +16,7 @@ class App(models.Model):
         FLASK = "flask"
         DJANGO = "django"
         STARLETTE = "starlette"
+        EXPRESS = "express"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(

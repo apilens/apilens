@@ -239,6 +239,9 @@ else:
         "VERIFY": os.environ.get("APILENS_CLICKHOUSE_VERIFY", "True").lower() in ("true", "1", "yes"),
     }
 
+CLICKHOUSE_RETRY_COOLDOWN_SECONDS = float(
+    os.environ.get("APILENS_CLICKHOUSE_RETRY_COOLDOWN_SECONDS", "10")
+)
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -285,6 +288,11 @@ LOGGING = {
         "django": {
             "handlers": ["console"],
             "level": "INFO",
+            "propagate": False,
+        },
+        "clickhouse_driver": {
+            "handlers": ["console"],
+            "level": "CRITICAL",
             "propagate": False,
         },
     },

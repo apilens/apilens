@@ -27,6 +27,7 @@ const FRAMEWORK_META: Record<
   flask: { label: "Flask", icon: "/frameworks/flask.svg" },
   django: { label: "Django", icon: "/frameworks/django.svg" },
   starlette: { label: "Starlette", icon: "/frameworks/starlette.svg" },
+  express: { label: "Express", icon: "/frameworks/express.svg" },
 };
 
 export default function AppCard({ app, onDeleted }: AppCardProps) {

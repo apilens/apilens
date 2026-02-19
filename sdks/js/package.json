@@ -1,0 +1,78 @@
+{
+  "name": "apilens-js-sdk",
+  "version": "0.1.1",
+  "description": "API Lens JavaScript SDK with first-class Express middleware",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./express": {
+      "import": {
+        "types": "./dist/express.d.ts",
+        "default": "./dist/express.js"
+      },
+      "require": {
+        "types": "./dist/express.d.cts",
+        "default": "./dist/express.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "typesVersions": {
+    "*": {
+      "express": [
+        "./dist/express.d.ts"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "apilens",
+    "express",
+    "monitoring",
+    "sdk"
+  ],
+  "peerDependencies": {
+    "express": "^4 || ^5"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.10",
+    "@types/supertest": "^6.0.3",
+    "express": "^5.1.0",
+    "supertest": "^7.1.1",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  }
+}

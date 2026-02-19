@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import AppSetupGuide from "@/components/apps/AppSetupGuide";
-
-type FrameworkId = "fastapi" | "flask" | "django" | "starlette";
+import type { FrameworkId } from "@/types/app";
 
 type SetupMeta = {
   appName: string;
@@ -26,6 +25,11 @@ type SetupBootstrap = {
   apiKey: string;
   hasRawKey: boolean;
   createdAt: number;
+};
+
+type AppLookupResponse = {
+  name?: string;
+  framework?: FrameworkId;
 };
 
 export default function SetupContent({ appSlug }: { appSlug: string }) {
@@ -78,8 +82,9 @@ export default function SetupContent({ appSlug }: { appSlug: string }) {
         try {
           const res = await fetch(`/api/apps/${appSlug}`);
           if (res.ok) {
-            const app = await res.json();
+            const app = (await res.json()) as AppLookupResponse;
             appName = app?.name || appName;
+            framework = app?.framework || framework;
           }
         } catch {
           // ignore network errors; show fallback setup

@@ -3,14 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-
-type FrameworkId = "fastapi" | "flask" | "django" | "starlette";
+import type { FrameworkId } from "@/types/app";
 
 const FRAMEWORK_OPTIONS: Array<{ id: FrameworkId; label: string }> = [
   { id: "fastapi", label: "FastAPI" },
   { id: "flask", label: "Flask" },
   { id: "django", label: "Django / Django Ninja" },
   { id: "starlette", label: "Starlette" },
+  { id: "express", label: "Express" },
 ];
 
 export default function CreateAppForm() {

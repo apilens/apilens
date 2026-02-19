@@ -4,14 +4,17 @@ import Link from "next/link";
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import type { ReactNode } from "react";
+import type { FrameworkId } from "@/types/app";
 
-type FrameworkId = "fastapi" | "flask" | "django" | "starlette";
-
-const FRAMEWORK_OPTIONS: Record<FrameworkId, { label: string; installExtra: string }> = {
-  fastapi: { label: "FastAPI", installExtra: "fastapi" },
-  flask: { label: "Flask", installExtra: "flask" },
-  django: { label: "Django / Django Ninja", installExtra: "django" },
-  starlette: { label: "Starlette", installExtra: "starlette" },
+const FRAMEWORK_OPTIONS: Record<
+  FrameworkId,
+  { label: string; packageLanguage: "python" | "javascript"; installTarget: string }
+> = {
+  fastapi: { label: "FastAPI", packageLanguage: "python", installTarget: "fastapi" },
+  flask: { label: "Flask", packageLanguage: "python", installTarget: "flask" },
+  django: { label: "Django / Django Ninja", packageLanguage: "python", installTarget: "django" },
+  starlette: { label: "Starlette", packageLanguage: "python", installTarget: "starlette" },
+  express: { label: "Express", packageLanguage: "javascript", installTarget: "apilens-js-sdk" },
 };
 
 const PYTHON_KEYWORDS = new Set(["from", "import", "app", "True", "False", "None"]);
@@ -25,6 +28,24 @@ function getDefaultBaseUrl(): string {
 
 function buildFrameworkSnippet(framework: FrameworkId, apiKey: string): string {
   const baseUrl = getDefaultBaseUrl();
+  if (framework === "express") {
+    return `import express from "express";
+import { useApiLens } from "apilens-js-sdk/express";
+
+const app = express();
+app.use(express.json());
+
+useApiLens(app, {
+  apiKey: "${apiKey}",
+  baseUrl: "${baseUrl}",
+  environment: "production",
+  requestLogging: {
+    logRequestBody: true,
+    logResponseBody: true,
+    maxPayloadBytes: 8192,
+  },
+});`;
+  }
   if (framework === "fastapi") {
     return `from fastapi import FastAPI
 from apilens.fastapi import ApiLensGatewayMiddleware
@@ -86,6 +107,14 @@ APILENS_BASE_URL = "${baseUrl}"
 APILENS_ENVIRONMENT = "production"`;
 }
 
+function buildInstallCommand(framework: FrameworkId): string {
+  const option = FRAMEWORK_OPTIONS[framework];
+  if (option.packageLanguage === "javascript") {
+    return `npm install ${option.installTarget}`;
+  }
+  return `pip install "apilenss[${option.installTarget}]"`;
+}
+
 function tokenClass(token: string): string {
   if (token.startsWith("#")) return "comment";
   if ((token.startsWith('"') && token.endsWith('"')) || (token.startsWith("'") && token.endsWith("'"))) return "string";
@@ -138,7 +167,7 @@ function CodeBlock({
   copied,
   onCopy,
 }: {
-  language: "bash" | "python";
+  language: "bash" | "python" | "javascript";
   code: string;
   copied: boolean;
   onCopy: () => void;
@@ -146,7 +175,7 @@ function CodeBlock({
   return (
     <div className="create-app-codeblock">
       <div className="create-app-codeblock-head">
-        <span>{language === "bash" ? "Terminal" : "Python"}</span>
+        <span>{language === "bash" ? "Terminal" : language === "python" ? "Python" : "JavaScript"}</span>
         <button type="button" className="create-app-copy-btn" onClick={onCopy}>
           {copied ? <Check size={13} /> : <Copy size={13} />}
           {copied ? "Copied" : "Copy"}
@@ -157,7 +186,7 @@ function CodeBlock({
           <div key={`${language}-${idx}`} className="code-line">
             <span className="code-gutter">{idx + 1}</span>
             <span className="code-content">
-              {language === "python" ? renderPythonLine(line) : renderShellCode(line)}
+              {language === "python" ? renderPythonLine(line) : language === "javascript" ? <span className="code-token plain">{line || "\u00A0"}</span> : renderShellCode(line)}
             </span>
           </div>
         ))}
@@ -181,8 +210,9 @@ export default function AppSetupGuide({
 }) {
   const [copiedItem, setCopiedItem] = useState<"install" | "snippet" | "">("");
   const frameworkOption = FRAMEWORK_OPTIONS[framework] || FRAMEWORK_OPTIONS.fastapi;
-  const installCmd = `pip install "apilenss[${frameworkOption.installExtra}]"`;
+  const installCmd = buildInstallCommand(framework);
   const snippet = buildFrameworkSnippet(framework, apiKey);
+  const snippetLanguage = frameworkOption.packageLanguage === "python" ? "python" : "javascript";
 
   const copyText = async (text: string, item: "install" | "snippet") => {
     await navigator.clipboard.writeText(text);
@@ -205,7 +235,7 @@ export default function AppSetupGuide({
           <div className="create-app-guide-index">1</div>
           <div className="create-app-guide-body">
             <h4>Install package</h4>
-            <p>Install API Lens SDK with the {frameworkOption.label} extra.</p>
+            <p>Install the API Lens SDK package for {frameworkOption.label}.</p>
             <CodeBlock language="bash" code={installCmd} copied={copiedItem === "install"} onCopy={() => copyText(installCmd, "install")} />
           </div>
         </div>
@@ -215,7 +245,7 @@ export default function AppSetupGuide({
           <div className="create-app-guide-body">
             <h4>Add middleware in app bootstrap</h4>
             <p>Paste this snippet in your entry file and restart the app.</p>
-            <CodeBlock language="python" code={snippet} copied={copiedItem === "snippet"} onCopy={() => copyText(snippet, "snippet")} />
+            <CodeBlock language={snippetLanguage} code={snippet} copied={copiedItem === "snippet"} onCopy={() => copyText(snippet, "snippet")} />
           </div>
         </div>
 

@@ -1,4 +1,5 @@
 import { getSession, setSession, clearSession } from "./session";
+import type { FrameworkId } from "@/types/app";
 
 const DJANGO_API_URL = process.env.DJANGO_API_URL || "http://localhost:8000/api/v1";
 
@@ -64,7 +65,7 @@ export interface AppInfo {
   slug: string;
   icon_url: string;
   description: string;
-  framework: "fastapi" | "flask" | "django" | "starlette";
+  framework: FrameworkId;
   created_at: string;
   updated_at: string;
 }
@@ -75,7 +76,7 @@ export interface AppListItem {
   slug: string;
   icon_url: string;
   description: string;
-  framework: "fastapi" | "flask" | "django" | "starlette";
+  framework: FrameworkId;
   api_key_count: number;
   created_at: string;
 }
@@ -448,14 +449,14 @@ export const apiClient = {
     return fetchDjango<AppInfo>(`/apps/${slug}`);
   },
 
-  async createApp(data: { name: string; description?: string; framework?: "fastapi" | "flask" | "django" | "starlette" }): Promise<ApiResponse<AppInfo>> {
+  async createApp(data: { name: string; description?: string; framework?: FrameworkId }): Promise<ApiResponse<AppInfo>> {
     return fetchDjango<AppInfo>("/apps/", {
       method: "POST",
       body: JSON.stringify(data),
     });
   },
 
-  async updateApp(slug: string, data: { name?: string; description?: string; framework?: "fastapi" | "flask" | "django" | "starlette" }): Promise<ApiResponse<AppInfo>> {
+  async updateApp(slug: string, data: { name?: string; description?: string; framework?: FrameworkId }): Promise<ApiResponse<AppInfo>> {
     return fetchDjango<AppInfo>(`/apps/${slug}`, {
       method: "PATCH",
       body: JSON.stringify(data),

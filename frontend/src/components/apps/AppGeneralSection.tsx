@@ -5,14 +5,14 @@ import { Loader2, Upload, Trash2 } from "lucide-react";
 import SettingsCard from "@/components/settings/SettingsCard";
 import AppIconEditor from "./AppIconEditor";
 import ConfirmDialog from "@/components/settings/ConfirmDialog";
-import type { App } from "@/types/app";
-type FrameworkId = "fastapi" | "flask" | "django" | "starlette";
+import type { App, FrameworkId } from "@/types/app";
 
 const FRAMEWORK_OPTIONS: Array<{ id: FrameworkId; label: string }> = [
   { id: "fastapi", label: "FastAPI" },
   { id: "flask", label: "Flask" },
   { id: "django", label: "Django / Django Ninja" },
   { id: "starlette", label: "Starlette" },
+  { id: "express", label: "Express" },
 ];
 
 interface AppGeneralSectionProps {

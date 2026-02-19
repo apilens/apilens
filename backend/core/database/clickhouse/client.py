@@ -4,6 +4,7 @@ ClickHouse client wrapper for APILens.
 
 import logging
 import threading
+import time
 from typing import Any
 
 from clickhouse_driver import Client
@@ -31,6 +32,10 @@ class ClickHouseClient:
     def __init__(self) -> None:
         if not hasattr(self, "_local"):
             self._local = threading.local()
+            self._unavailable_until = 0.0
+            self._cooldown_seconds = float(
+                getattr(settings, "CLICKHOUSE_RETRY_COOLDOWN_SECONDS", 10.0)
+            )
             config = settings.CLICKHOUSE
             self._config = {
                 "host": config["HOST"],
@@ -47,6 +52,25 @@ class ClickHouseClient:
                 config["PORT"],
                 config["DATABASE"],
             )
+
+    @staticmethod
+    def _is_connection_error(exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return (
+            "bad file descriptor" in msg
+            or "connection refused" in msg
+            or "connection reset" in msg
+            or "socket" in msg
+            or "timed out" in msg
+        )
+
+    def _mark_unavailable(self, exc: Exception) -> None:
+        self._unavailable_until = time.monotonic() + max(1.0, self._cooldown_seconds)
+        logger.warning(
+            "ClickHouse unavailable; suppressing reconnect attempts for %.0fs: %s",
+            self._cooldown_seconds,
+            exc,
+        )
 
     def _create_client(self) -> Client:
         return Client(
@@ -99,6 +123,9 @@ class ClickHouseClient:
         Returns:
             List of dictionaries with column names as keys
         """
+        if time.monotonic() < self._unavailable_until:
+            raise RuntimeError("ClickHouse temporarily unavailable")
+
         try:
             result = self.client.execute(
                 query,
@@ -111,8 +138,7 @@ class ClickHouseClient:
 
             return [dict(zip(column_names, row)) for row in rows]
         except Exception as e:
-            msg = str(e).lower()
-            if "bad file descriptor" in msg or "connection refused" in msg or "socket" in msg:
+            if self._is_connection_error(e):
                 try:
                     self._reset_client()
                     result = self.client.execute(
@@ -124,6 +150,8 @@ class ClickHouseClient:
                     column_names = [col[0] for col in columns]
                     return [dict(zip(column_names, row)) for row in rows]
                 except Exception as retry_exc:
+                    if self._is_connection_error(retry_exc):
+                        self._mark_unavailable(retry_exc)
                     logger.error("ClickHouse query retry failed: %s - %s", query[:100], str(retry_exc))
                     raise retry_exc
             logger.error("ClickHouse query failed: %s - %s", query[:100], str(e))
@@ -176,6 +204,9 @@ class ClickHouseClient:
         # Convert list of dicts to list of tuples
         rows = [tuple(row.get(col) for col in columns) for row in data]
 
+        if time.monotonic() < self._unavailable_until:
+            raise RuntimeError("ClickHouse temporarily unavailable")
+
         try:
             result = self.client.execute(
                 f"INSERT INTO {table} ({', '.join(columns)}) VALUES",
@@ -184,15 +215,19 @@ class ClickHouseClient:
             logger.debug("Inserted %d rows into %s", len(rows), table)
             return result
         except Exception as e:
-            msg = str(e).lower()
-            if "bad file descriptor" in msg or "connection refused" in msg or "socket" in msg:
-                self._reset_client()
-                result = self.client.execute(
-                    f"INSERT INTO {table} ({', '.join(columns)}) VALUES",
-                    rows,
-                )
-                logger.debug("Inserted %d rows into %s (after reconnect)", len(rows), table)
-                return result
+            if self._is_connection_error(e):
+                try:
+                    self._reset_client()
+                    result = self.client.execute(
+                        f"INSERT INTO {table} ({', '.join(columns)}) VALUES",
+                        rows,
+                    )
+                    logger.debug("Inserted %d rows into %s (after reconnect)", len(rows), table)
+                    return result
+                except Exception as retry_exc:
+                    if self._is_connection_error(retry_exc):
+                        self._mark_unavailable(retry_exc)
+                    raise retry_exc
             logger.error("ClickHouse insert failed: %s - %s", table, str(e))
             raise
 

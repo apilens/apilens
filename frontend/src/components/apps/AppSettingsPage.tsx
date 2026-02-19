@@ -8,6 +8,7 @@ import PageHeader from "@/components/dashboard/PageHeader";
 import AppSettingsSidebar, { AppSettingsTab } from "./AppSettingsSidebar";
 import AppGeneralSection from "./AppGeneralSection";
 import AppApiKeysSection from "./AppApiKeysSection";
+import type { FrameworkId } from "@/types/app";
 
 interface ToastState {
   type: "success" | "error";
@@ -38,7 +39,7 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
   const handleUpdateApp = async (data: {
     name?: string;
     description?: string;
-    framework?: "fastapi" | "flask" | "django" | "starlette";
+    framework?: FrameworkId;
   }) => {
     try {
       const res = await fetch(`/api/apps/${appSlug}`, {
