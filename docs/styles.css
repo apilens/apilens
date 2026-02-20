@@ -9,3 +9,29 @@ body,
 * {
   font-family: var(--apilens-font);
 }
+
+/* Keep Mintlify logo icon and append brand text next to it */
+a[href="/"]:has(img)::after,
+a[href="/"]:has(svg)::after {
+  content: "apiLens";
+  display: block;
+  margin-left: 0.45rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: #ffffff;
+}
+
+a[href="/"]:has(img),
+a[href="/"]:has(svg) {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-start;
+}
+
+a[href="/"]:has(img) img,
+a[href="/"]:has(svg) svg {
+  display: block;
+  vertical-align: middle;
+}
