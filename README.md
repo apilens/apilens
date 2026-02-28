@@ -150,6 +150,9 @@ APILens documentation is maintained in the `docs/` folder (Mintlify) and is curr
 - Ingest API: `docs/ingest/ingest-api.mdx`
 - REST endpoints: `docs/api-reference/rest-api.mdx`
 - SDK guidance: `docs/sdk/building-an-sdk.mdx`
+- JavaScript SDK setup: `docs/sdk/javascript-setup.mdx`
+- Python SDK setup: `docs/sdk/python-setup.mdx`
+- JavaScript SDK package: `sdks/js`
 - Python SDK package: `sdks/python`
 - Engineering blog: `docs/blog/`
 
