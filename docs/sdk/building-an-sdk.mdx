@@ -1,122 +1,118 @@
 ---
 title: "Building an SDK"
-description: "Authoritative guidance for the official API Lens Python SDK and what is supported today."
+description: "Guidance for API Lens SDK architecture, official SDKs, and ingest/client implementation standards."
 ---
 
 ## SDK Goal
 
-Your SDK should make ingest trivial:
+An API Lens SDK should make telemetry ingest reliable by default:
 
 - capture request lifecycle data
-- normalize payloads
+- normalize request records consistently
 - batch and flush safely
-- retry on transient failures
+- retry transient failures
+- fail open (do not break the host API)
 
-## Official Python SDK
+## Official SDKs
 
-API Lens ships an official Python SDK in `sdks/python`, published as `apilenss`.
+API Lens currently ships two official SDKs in this repository:
 
-Supported today:
-- FastAPI (`apilens.fastapi` middleware)
-- Flask (`apilens.flask` wrapper)
-- Django / Django Ninja (`apilens.django` middleware)
+| SDK | Package | Integrations |
+|---|---|---|
+| Python | `apilenss` | FastAPI, Flask, Django/Django Ninja |
+| JavaScript | `apilens-js-sdk` | Express, Next.js App Router |
 
-Planned / not supported yet (do not wire these): Starlette, Litestar, BlackSheep. We’ll add them when they reach parity; track in the SDK repo issues.
+Setup guides:
 
-Get the exact install and middleware snippets in `sdk/python-setup.mdx`. Use extras for the framework you need:
-```bash
-pip install "apilenss[fastapi]"
-pip install "apilenss[flask]"
-pip install "apilenss[django]"
-```
+- Python: `/sdk/python-setup`
+- JavaScript: `/sdk/javascript-setup`
 
-Minimal FastAPI example (supported):
-```python
-from fastapi import FastAPI
-from apilens.fastapi import ApiLensMiddleware
+## Ingest Baseline
 
-app = FastAPI()
-app.add_middleware(
-    ApiLensMiddleware,
-    api_key="your_app_api_key",
-    base_url="https://api.apilens.ai/api/v1",
-    env="production",
-    enable_request_logging=True,
-    log_request_headers=True,
-    log_request_body=True,
-    log_response_body=True,
-)
-```
+SDKs send batches to:
 
-## Recommended Pipeline
+- `POST /ingest/requests`
 
-1. Intercept request start/end timestamps
-2. Build normalized request item
-3. Add to in-memory queue
-4. Flush queue on interval or size threshold
-5. POST to `/ingest/requests` with API key
-
-## Required Headers
+Required headers:
 
 - `Content-Type: application/json`
 - `X-API-Key: <app_api_key>`
 
-## Suggested Defaults
+Payload shape:
 
-- Batch size: 100-500
-- Flush interval: 2-5 seconds
-- Max retries: 3
-- Backoff: exponential with jitter
+```json
+{
+  "requests": [
+    {
+      "timestamp": "2026-02-13T12:00:00Z",
+      "environment": "production",
+      "method": "GET",
+      "path": "/v1/orders",
+      "status_code": 200,
+      "response_time_ms": 120,
+      "request_size": 245,
+      "response_size": 1402,
+      "ip_address": "203.0.113.10",
+      "user_agent": "web-checkout",
+      "consumer_id": "",
+      "consumer_name": "",
+      "consumer_group": "",
+      "request_payload": "",
+      "response_payload": ""
+    }
+  ]
+}
+```
 
 ## Normalization Rules
 
-- Uppercase HTTP method
-- Remove query string from route path
-- Convert response time to milliseconds
-- Include environment (`production`/`staging`)
+Apply consistent normalization before enqueue:
 
-## Minimal Node Example
+- uppercase HTTP method
+- normalized route path (without host; query removed)
+- response time in milliseconds
+- valid ISO timestamp
+- non-negative sizes and status code
+- explicit environment value
 
-```ts
-const payload = {
-  requests: [
-    {
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV === "production" ? "production" : "development",
-      method: "GET",
-      path: "/v1/orders",
-      status_code: 200,
-      response_time_ms: 96,
-      request_size: 240,
-      response_size: 1200,
-      ip_address: "",
-      user_agent: "my-sdk/0.1.0"
-    }
-  ]
-};
+## Reliability Expectations
 
-await fetch("https://api.apilens.ai/api/v1/ingest/requests", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "X-API-Key": process.env.APILENS_API_KEY as string
-  },
-  body: JSON.stringify(payload)
-});
-```
+Recommended defaults:
 
-## Endpoint Checklist
+- batch size: `100-500`
+- flush interval: `2-5s`
+- retries: `3` with exponential backoff
+- bounded queue with oldest-drop policy under pressure
 
-When generating SDK clients for dashboard APIs, include:
+Runtime behavior:
 
-- Auth endpoints (`/auth/*`)
-- App CRUD (`/apps/*`)
-- Endpoint stats + options (`/apps/{slug}/endpoint-stats`, `/endpoint-options`)
-- Analytics endpoints (`/apps/{slug}/analytics/*`)
-- Ingest endpoint (`/ingest/requests`)
+- never throw into user handler for ingest failures
+- log ingest errors in SDK logger
+- flush on graceful shutdown where runtime allows
+
+## Consumer Tracking
+
+SDKs should expose lightweight helpers to attach request identity:
+
+- `consumer_id`
+- `consumer_name`
+- `consumer_group`
+
+This enables API Lens consumer filtering and breakdowns in dashboard analytics.
+
+## Testing Standards
+
+Each SDK should include:
+
+- unit tests for normalization and config resolution
+- unit tests for retry and queue behavior
+- framework integration tests for middleware/wrapper behavior
+- regression tests for edge cases (error paths, payload truncation, disabled mode)
+- e2e check against a running local API Lens environment
 
 ## Versioning Advice
 
-- Keep schema adapters per API version
-- Hide wire schema behind typed SDK interfaces
-- Add integration test against a running APILens local env
+- hide wire schema behind typed SDK interfaces
+- keep transport and framework adapters decoupled
+- document behavior changes in SDK changelog per release
+- preserve backward compatibility for public helper names where possible

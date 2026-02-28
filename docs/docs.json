@@ -53,7 +53,8 @@
             "group": "SDK",
             "pages": [
               "sdk/building-an-sdk",
-              "sdk/python-setup"
+              "sdk/python-setup",
+              "sdk/javascript-setup"
             ]
           },
           {
