@@ -8,5 +8,5 @@ export default async function Home() {
     redirect("/auth/login");
   }
 
-  redirect("/apps");
+  redirect("/projects");
 }

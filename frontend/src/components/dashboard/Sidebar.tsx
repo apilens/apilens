@@ -29,6 +29,12 @@ interface AppListItem {
   icon_url: string;
 }
 
+interface ProjectListItem {
+  id: string;
+  name: string;
+  slug: string;
+}
+
 interface SidebarProps {
   appSlug?: string;
 }
@@ -39,7 +45,13 @@ export default function Sidebar({ appSlug }: SidebarProps) {
   const { collapsed, toggleSidebar } = useSidebar();
   const { app: currentApp } = useApp();
 
+  const parts = pathname.split("/").filter(Boolean);
+  const inProject = parts[0] === "projects" && parts[1];
+  const projectSlug = inProject ? parts[1] : "";
+  const currentSection = parts.slice(inProject ? 2 : 1).join("/") || "endpoints";
+
   const [apps, setApps] = useState<AppListItem[]>([]);
+  const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -63,7 +75,19 @@ export default function Sidebar({ appSlug }: SidebarProps) {
         // ignore
       }
     }
+    async function fetchProjects() {
+      try {
+        const res = await fetch("/api/projects");
+        if (res.ok) {
+          const data = await res.json();
+          setProjects(data.projects || []);
+        }
+      } catch {
+        // ignore
+      }
+    }
     fetchApps();
+    fetchProjects();
   }, []);
 
   useEffect(() => {
@@ -78,39 +102,45 @@ export default function Sidebar({ appSlug }: SidebarProps) {
     }
   }, [dropdownOpen]);
 
-  const handleSwitchApp = (slug: string) => {
+  const handleSwitchProject = (slug: string) => {
     setDropdownOpen(false);
-    const section = getCurrentSection();
-    router.push(`/apps/${slug}/${section}`);
+    router.push(`/projects/${slug}`);
   };
 
-  const navigation = hasApp
+  const navigation = inProject
     ? [
-      { name: "Endpoints", href: `${basePath}/endpoints`, icon: Layers },
-      { name: "Logs", href: `${basePath}/logs`, icon: ScrollText },
-      { name: "Analytics", href: `${basePath}/analytics`, icon: TrendingUp },
-      { name: "Consumers", href: `${basePath}/consumers`, icon: Users },
-      { name: "Monitors", href: `${basePath}/monitors`, icon: Radio },
-      { name: "Settings", href: `${basePath}/settings/general`, icon: Settings },
+      { name: "Overview", href: `/projects/${projectSlug}`, icon: Layers },
+      { name: "Apps", href: `/projects/${projectSlug}/apps`, icon: ScrollText },
+      { name: "Endpoints", href: `/projects/${projectSlug}/endpoints`, icon: TrendingUp },
+      { name: "Settings", href: `/projects/${projectSlug}/settings`, icon: Settings },
     ]
-    : [
-      { name: "Apps", href: "/apps", icon: Layers },
-      { name: "Create App", href: "/apps/new", icon: Plus },
-      { name: "Account", href: "/settings/general", icon: Settings },
-    ];
+    : hasApp
+      ? [
+        { name: "Endpoints", href: `${basePath}/endpoints`, icon: Layers },
+        { name: "Analytics", href: `${basePath}/analytics`, icon: TrendingUp },
+        { name: "Consumers", href: `${basePath}/consumers`, icon: Users },
+        { name: "Monitors", href: `${basePath}/monitors`, icon: Radio },
+        { name: "Settings", href: `${basePath}/settings/general`, icon: Settings },
+      ]
+      : [
+        { name: "Projects", href: "/projects", icon: Layers },
+        { name: "Create Project", href: "/projects/new", icon: Plus },
+        { name: "Account", href: "/settings/general", icon: Settings },
+      ];
 
   const secondaryNavigation = [
     { name: "Notifications", href: "/notifications", icon: Bell },
     { name: "Help & Support", href: "/help", icon: CircleHelpIcon },
   ];
 
-  const displayName = currentApp?.name || appSlug || "Select app";
-  const currentAvatar = (displayName.charAt(0) || "A").toUpperCase().slice(0, 2);
+  const currentProject = projects.find((p) => p.slug === projectSlug);
+  const displayName = currentProject?.name || (inProject ? projectSlug : "Select project");
+  const currentAvatar = (displayName?.charAt(0) || "P").toUpperCase().slice(0, 2);
 
   return (
     <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`}>
       <div className="sidebar-header">
-        <Link href="/apps" className="logo" title="Back to Apps">
+        <Link href="/projects" className="logo" title="Back to Projects">
           {collapsed ? (
             <Image
               src="/logo.svg"
@@ -120,13 +150,12 @@ export default function Sidebar({ appSlug }: SidebarProps) {
               className="logo-icon-collapsed"
             />
           ) : (
-            // <span className="logo-text">API Lens</span>
-            <span className="logo-text">Motadata</span>
+            <span className="logo-text">API Lens</span>
           )}
         </Link>
       </div>
 
-      {/* App Switcher */}
+      {/* Project Switcher */}
       <div className="app-switcher" ref={dropdownRef}>
         <button
           className="app-switcher-trigger"
@@ -134,11 +163,7 @@ export default function Sidebar({ appSlug }: SidebarProps) {
           title={collapsed ? displayName : undefined}
         >
           <span className="app-switcher-avatar">
-            {currentApp?.icon_url ? (
-              <img src={currentApp.icon_url} alt={displayName} className="app-switcher-avatar-image" />
-            ) : (
-              currentAvatar
-            )}
+            {currentAvatar}
           </span>
           {!collapsed && (
             <>
@@ -150,24 +175,20 @@ export default function Sidebar({ appSlug }: SidebarProps) {
 
         {dropdownOpen && (
           <div className="app-switcher-dropdown">
-            <div className="app-switcher-section-label">Apps</div>
+            <div className="app-switcher-section-label">Projects</div>
             <div className="app-switcher-list">
-              {apps.map((app) => {
-                const isActive = app.slug === appSlug;
+              {projects.map((project) => {
+                const isActive = project.slug === projectSlug;
                 return (
                   <button
-                    key={app.id}
+                    key={project.id}
                     className={`app-switcher-option ${isActive ? "app-switcher-option-active" : ""}`}
-                    onClick={() => handleSwitchApp(app.slug)}
+                    onClick={() => handleSwitchProject(project.slug)}
                   >
                     <span className="app-switcher-option-avatar">
-                      {app.icon_url ? (
-                        <img src={app.icon_url} alt={app.name} className="app-switcher-option-avatar-image" />
-                      ) : (
-                        (app.name.charAt(0) || "A").toUpperCase().slice(0, 2)
-                      )}
+                      {(project.name.charAt(0) || "P").toUpperCase().slice(0, 2)}
                     </span>
-                    <span className="app-switcher-option-name">{app.name}</span>
+                    <span className="app-switcher-option-name">{project.name}</span>
                     {isActive && <Check size={14} className="app-switcher-check" />}
                   </button>
                 );
@@ -175,12 +196,20 @@ export default function Sidebar({ appSlug }: SidebarProps) {
             </div>
             <div className="app-switcher-footer">
               <Link
-                href="/apps/new"
+                href="/projects"
+                className="app-switcher-action"
+                onClick={() => setDropdownOpen(false)}
+              >
+                <Layers size={14} />
+                <span>View all projects</span>
+              </Link>
+              <Link
+                href="/projects/new"
                 className="app-switcher-action"
                 onClick={() => setDropdownOpen(false)}
               >
                 <Plus size={14} />
-                <span>Create app</span>
+                <span>Create project</span>
               </Link>
             </div>
           </div>
@@ -192,13 +221,23 @@ export default function Sidebar({ appSlug }: SidebarProps) {
           {!collapsed && <span className="nav-section-title">Main</span>}
           <ul className="nav-list">
             {navigation.map((item) => {
-              const isActive = hasApp
-                ? (
-                  item.name === "Settings"
-                    ? pathname.startsWith(`${basePath}/settings`)
-                    : pathname === item.href || pathname.startsWith(item.href + "/")
-                )
-                : pathname === item.href || pathname.startsWith(item.href + "/");
+              let isActive = false;
+              if (inProject) {
+                // For project navigation, use exact match for Overview
+                if (item.name === "Overview") {
+                  isActive = pathname === item.href;
+                } else {
+                  isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+                }
+              } else if (hasApp) {
+                // For app navigation
+                isActive = item.name === "Settings"
+                  ? pathname.startsWith(`${basePath}/settings`)
+                  : pathname === item.href || pathname.startsWith(item.href + "/");
+              } else {
+                // For other navigation
+                isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+              }
               return (
                 <li key={item.name}>
                   <Link

@@ -86,23 +86,23 @@ class ApiKeyAuth(APIKeyHeader):
             key_hash = hashlib.sha256(key.encode()).hexdigest()
             api_key = (
                 ApiKey.objects.active()
-                .select_related("app", "app__owner")
+                .select_related("project", "project__owner")
                 .filter(
                     key_hash=key_hash,
-                    app__is_active=True,
-                    app__owner__is_active=True,
+                    project__is_active=True,
+                    project__owner__is_active=True,
                 )
                 .first()
             )
             if api_key is None:
                 return None
 
-            user = api_key.app.owner
+            user = api_key.project.owner
             request.tenant_context = TenantContext(
                 tenant_id=str(user.id),
                 user_id=str(user.id),
                 email=user.email,
-                app_id=str(api_key.app_id),
+                project_id=str(api_key.project_id),
             )
             request._auth_method = "api_key"
 

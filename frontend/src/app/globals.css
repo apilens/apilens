@@ -6650,6 +6650,37 @@ a.settings-btn {
   color: var(--text-secondary);
 }
 
+/* Page Breadcrumbs */
+.page-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding-right: 16px;
+}
+
+.breadcrumb-link {
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.breadcrumb-link:hover {
+  color: var(--text-primary);
+}
+
+.breadcrumb-separator {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.breadcrumb-current {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
 .endpoint-detail-overlay {
   position: fixed;
   inset: 0;

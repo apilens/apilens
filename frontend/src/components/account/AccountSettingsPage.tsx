@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { ArrowLeft, X, Check } from "lucide-react";
-import Link from "next/link";
+import { X, Check } from "lucide-react";
 import { UserProfile } from "@/types/settings";
+import PageHeader from "@/components/dashboard/PageHeader";
 import AccountSettingsSidebar, { AccountSettingsTab } from "./AccountSettingsSidebar";
 import GeneralSection from "@/components/settings/GeneralSection";
 import ProfileSection from "@/components/settings/ProfileSection";
@@ -192,14 +192,7 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
 
   if (isUserLoading || isLoadingData) {
     return (
-      <div className="account-settings-container">
-        <div className="account-settings-header">
-          <Link href="/apps" className="account-settings-back">
-            <ArrowLeft size={16} />
-            Back to Apps
-          </Link>
-          <h1 className="account-settings-title">Account Settings</h1>
-        </div>
+      <div className="settings-page">
         <div className="settings-page-loading">
           <div className="loading-spinner" />
         </div>
@@ -208,7 +201,7 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
   }
 
   return (
-    <div className="account-settings-container">
+    <div className="settings-page">
       {toast && (
         <div className={`settings-toast settings-toast-${toast.type}`}>
           <div className="settings-toast-icon">
@@ -221,18 +214,16 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
         </div>
       )}
 
-      <div className="account-settings-header">
-        <Link href="/apps" className="account-settings-back">
-          <ArrowLeft size={16} />
-          Back to Apps
-        </Link>
-        <h1 className="account-settings-title">Account Settings</h1>
-      </div>
+      <PageHeader
+        title="Account Settings"
+        backLink="/projects"
+        backText="Back to Projects"
+      />
 
-      <div className="account-settings-body">
+      <div className="settings-page-body">
         <AccountSettingsSidebar activeTab={activeTab} />
 
-        <div className="account-settings-content">
+        <div className="settings-page-content">
           {activeTab === "general" && <GeneralSection />}
           {activeTab === "account" && (
             <div className="settings-section-content">

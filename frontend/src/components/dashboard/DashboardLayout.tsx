@@ -9,9 +9,10 @@ import Navbar from "./Navbar";
 interface DashboardLayoutProps {
   children: React.ReactNode;
   appSlug?: string;
+  projectSlug?: string;
 }
 
-function DashboardInner({ children, appSlug }: DashboardLayoutProps) {
+function DashboardInner({ children, appSlug, projectSlug }: DashboardLayoutProps) {
   const { isLoading } = useAuth();
   const { collapsed } = useSidebar();
 
@@ -28,7 +29,7 @@ function DashboardInner({ children, appSlug }: DashboardLayoutProps) {
     <div className="dashboard-container">
       <Sidebar appSlug={appSlug} />
       <div className={`main-wrapper ${collapsed ? "main-wrapper-expanded" : ""}`}>
-        <Navbar appSlug={appSlug} />
+        <Navbar appSlug={appSlug} projectSlug={projectSlug} />
         <main className="main-content">
           {children}
         </main>
@@ -37,11 +38,11 @@ function DashboardInner({ children, appSlug }: DashboardLayoutProps) {
   );
 }
 
-export default function DashboardLayout({ children, appSlug }: DashboardLayoutProps) {
+export default function DashboardLayout({ children, appSlug, projectSlug }: DashboardLayoutProps) {
   return (
     <SidebarProvider>
       <OptionalAppProvider appSlug={appSlug}>
-        <DashboardInner appSlug={appSlug}>{children}</DashboardInner>
+        <DashboardInner appSlug={appSlug} projectSlug={projectSlug}>{children}</DashboardInner>
       </OptionalAppProvider>
     </SidebarProvider>
   );

@@ -24,7 +24,7 @@ export default function StandaloneShell({ children }: StandaloneShellProps) {
     <div className="standalone-layout">
       <header className="standalone-topbar">
         <div className="standalone-topbar-left">
-          <Link href="/apps" className="standalone-logo">
+          <Link href="/projects" className="standalone-logo">
             <span className="standalone-logo-text">API Lens</span>
           </Link>
         </div>

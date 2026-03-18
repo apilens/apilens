@@ -341,16 +341,17 @@ class AuthService:
 
 
 API_KEY_PREFIX = "apilens_"
-MAX_API_KEYS_PER_APP = 10
+MAX_API_KEYS_PER_PROJECT = 10
 
 
 class ApiKeyService:
     @staticmethod
-    def create_key(app, name: str) -> tuple[str, ApiKey]:
-        active_count = ApiKey.objects.for_app(app).count()
-        if active_count >= MAX_API_KEYS_PER_APP:
+    def create_key(project, name: str) -> tuple[str, ApiKey]:
+        """Create a new API key for a project."""
+        active_count = ApiKey.objects.for_project(project).count()
+        if active_count >= MAX_API_KEYS_PER_PROJECT:
             raise RateLimitError(
-                f"Maximum of {MAX_API_KEYS_PER_APP} active API keys allowed per app"
+                f"Maximum of {MAX_API_KEYS_PER_PROJECT} active API keys allowed per project"
             )
 
         raw_secret = secrets.token_urlsafe(40)
@@ -358,7 +359,7 @@ class ApiKeyService:
         prefix = raw_key[:16]
 
         api_key = ApiKey.objects.create(
-            app=app,
+            project=project,
             key_hash=_hash_token(raw_key),
             prefix=prefix,
             name=name[:100],
@@ -366,18 +367,21 @@ class ApiKeyService:
         return raw_key, api_key
 
     @staticmethod
-    def list_keys(app) -> list[ApiKey]:
-        return list(ApiKey.objects.for_app(app).order_by("-created_at"))
+    def list_keys(project) -> list[ApiKey]:
+        """List all active API keys for a project."""
+        return list(ApiKey.objects.for_project(project).order_by("-created_at"))
 
     @staticmethod
-    def revoke_key(app, key_id: str) -> bool:
+    def revoke_key(project, key_id: str) -> bool:
+        """Revoke a specific API key within a project."""
         updated = ApiKey.objects.filter(
-            id=key_id, app=app, is_revoked=False
+            id=key_id, project=project, is_revoked=False
         ).update(is_revoked=True)
         return updated > 0
 
     @staticmethod
-    def revoke_all_for_app(app) -> int:
+    def revoke_all_for_project(project) -> int:
+        """Revoke all active API keys for a project."""
         return ApiKey.objects.filter(
-            app=app, is_revoked=False
+            project=project, is_revoked=False
         ).update(is_revoked=True)
