@@ -1,0 +1,135 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
+
+type FrameworkId = "fastapi" | "flask" | "django" | "starlette";
+
+const FRAMEWORK_OPTIONS: Array<{ id: FrameworkId; label: string }> = [
+  { id: "fastapi", label: "FastAPI" },
+  { id: "flask", label: "Flask" },
+  { id: "django", label: "Django / Django Ninja" },
+  { id: "starlette", label: "Starlette" },
+];
+
+interface CreateProjectAppFormProps {
+  projectSlug: string;
+}
+
+export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFormProps) {
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [framework, setFramework] = useState<FrameworkId>("fastapi");
+  const [isCreating, setIsCreating] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+
+    setIsCreating(true);
+    setError("");
+
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/apps`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          description: description.trim(),
+          framework,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create app");
+
+      // Redirect back to project detail page
+      router.push(`/projects/${projectSlug}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create app");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="create-app-form">
+      {error && <div className="create-app-error">{error}</div>}
+
+      <div className="create-app-field">
+        <label htmlFor="app-name" className="create-app-label">
+          App name
+        </label>
+        <input
+          id="app-name"
+          className="create-app-input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="My API Service"
+          maxLength={100}
+          autoFocus
+          required
+        />
+      </div>
+
+      <div className="create-app-field">
+        <label htmlFor="app-description" className="create-app-label">
+          Description <span className="create-app-optional">(optional)</span>
+        </label>
+        <textarea
+          id="app-description"
+          className="create-app-textarea"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="What does this service do?"
+          maxLength={500}
+          rows={3}
+        />
+      </div>
+
+      <div className="create-app-field">
+        <label htmlFor="app-framework" className="create-app-label">
+          Framework
+        </label>
+        <select
+          id="app-framework"
+          className="create-app-input"
+          value={framework}
+          onChange={(e) => setFramework(e.target.value as FrameworkId)}
+        >
+          {FRAMEWORK_OPTIONS.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="create-app-actions">
+        <button
+          type="button"
+          className="settings-btn settings-btn-secondary"
+          onClick={() => router.push(`/projects/${projectSlug}`)}
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          className="settings-btn settings-btn-primary"
+          disabled={isCreating || !name.trim()}
+        >
+          {isCreating ? (
+            <>
+              <Loader2 size={14} strokeWidth={2} className="animate-spin" />
+              Creating...
+            </>
+          ) : (
+            "Create App"
+          )}
+        </button>
+      </div>
+    </form>
+  );
+}

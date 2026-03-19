@@ -16,19 +16,21 @@ from PIL import Image
 
 from core.exceptions.base import NotFoundError, RateLimitError, ValidationError, ConflictError
 
-from .models import App, Endpoint, Environment
+from .models import Project, App, Endpoint, Environment
+from .validators import (
+    validate_project_slug,
+    validate_app_slug,
+    RESERVED_PROJECT_SLUGS,
+    RESERVED_APP_SLUGS,
+)
 
 logger = logging.getLogger(__name__)
 
-MAX_APPS_PER_USER = 20
+MAX_PROJECTS_PER_USER = 50
+MAX_APPS_PER_PROJECT = 50
 
-RESERVED_SLUGS = {
-    "new", "create", "edit", "delete", "settings", "account",
-    "admin", "api", "auth", "login", "logout", "signup", "register",
-    "dashboard", "home", "help", "support",
-    "null", "undefined", "true", "false",
-    "system", "internal", "public", "private",
-}
+# For backwards compatibility - now imported from validators
+RESERVED_SLUGS = RESERVED_PROJECT_SLUGS
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
@@ -47,23 +49,21 @@ def _as_utc(value: datetime | None) -> datetime | None:
     return value.astimezone(tz.utc)
 
 
-def _unique_slug(user, name: str, exclude_id=None) -> str:
+def _unique_project_slug(user, name: str, exclude_id=None) -> str:
+    """Generate a unique slug for a project within a user's projects."""
     base = slugify(name)[:100]
     if not base:
-        base = "app"
+        base = "project"
+
+    # Check if the base slug is reserved - reject immediately
+    validate_project_slug(base)
 
     candidate = base
     counter = 1
 
     while True:
-        if candidate in RESERVED_SLUGS:
-            candidate = f"{base}-{counter}"
-            counter += 1
-            continue
-
-        # Slug is protected by a DB unique constraint on (owner, slug),
-        # so uniqueness must be checked across all rows, not only active ones.
-        qs = App.objects.filter(owner=user, slug=candidate)
+        # Slug is protected by a DB unique constraint on (owner, slug)
+        qs = Project.objects.filter(owner=user, slug=candidate)
         if exclude_id:
             qs = qs.exclude(id=exclude_id)
         if not qs.exists():
@@ -73,14 +73,137 @@ def _unique_slug(user, name: str, exclude_id=None) -> str:
         counter += 1
 
 
+def _unique_slug(project, name: str, exclude_id=None) -> str:
+    """Generate a unique slug for an app within a project."""
+    base = slugify(name)[:100]
+    if not base:
+        base = "app"
+
+    # Check if the base slug is reserved - reject immediately
+    validate_app_slug(base)
+
+    candidate = base
+    counter = 1
+
+    while True:
+        # Slug is protected by a DB unique constraint on (project, slug),
+        # so uniqueness must be checked across all rows, not only active ones.
+        qs = App.objects.filter(project=project, slug=candidate)
+        if exclude_id:
+            qs = qs.exclude(id=exclude_id)
+        if not qs.exists():
+            return candidate
+
+        candidate = f"{base}-{counter}"
+        counter += 1
+
+
+class ProjectService:
+    """Service for managing projects - top-level organizational units."""
+
+    @staticmethod
+    def create_project(
+        user,
+        name: str,
+        description: str = "",
+    ) -> Project:
+        """Create a new project for a user."""
+        name = name.strip()
+        if not name:
+            raise ValidationError("Project name is required")
+
+        if Project.objects.for_user(user).count() >= MAX_PROJECTS_PER_USER:
+            raise RateLimitError(f"Maximum of {MAX_PROJECTS_PER_USER} projects allowed")
+
+        # Retry for rare concurrent create collisions
+        for attempt in range(5):
+            slug = _unique_project_slug(user, name)
+            try:
+                with transaction.atomic():
+                    project = Project.objects.create(
+                        owner=user,
+                        name=name,
+                        slug=slug,
+                        description=description.strip(),
+                    )
+                    return project
+            except IntegrityError as exc:
+                if "unique_project_slug" in str(exc):
+                    if attempt == 4:
+                        raise ConflictError("Project name already exists. Try a different name.")
+                    continue
+                raise
+
+        raise ConflictError("Unable to create project with that name. Try a different name.")
+
+    @staticmethod
+    def list_projects(user) -> list[Project]:
+        """List all active projects for a user."""
+        return list(Project.objects.for_user(user).order_by("-created_at"))
+
+    @staticmethod
+    def get_project_by_slug(user, slug: str) -> Project:
+        """Get a project by slug for a specific user."""
+        try:
+            return Project.objects.get(owner=user, slug=slug, is_active=True)
+        except Project.DoesNotExist:
+            raise NotFoundError(f"Project '{slug}' not found")
+
+    @staticmethod
+    @transaction.atomic
+    def update_project(
+        user,
+        slug: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> Project:
+        """Update a project's details."""
+        project = ProjectService.get_project_by_slug(user, slug)
+
+        if name is not None:
+            name = name.strip()
+            if not name:
+                raise ValidationError("Project name is required")
+            project.name = name
+            project.slug = _unique_project_slug(user, name, exclude_id=project.id)
+
+        if description is not None:
+            project.description = description.strip()
+
+        project.save()
+        return project
+
+    @staticmethod
+    @transaction.atomic
+    def delete_project(user, slug: str) -> None:
+        """
+        Soft delete a project.
+        Also soft-deletes all apps in the project and revokes all API keys.
+        """
+        project = ProjectService.get_project_by_slug(user, slug)
+
+        # Soft delete all apps in this project
+        from apps.projects.models import App
+        App.objects.filter(project=project, is_active=True).update(is_active=False)
+
+        # Revoke all API keys for this project
+        from apps.auth.services import ApiKeyService
+        ApiKeyService.revoke_all_for_project(project)
+
+        # Soft delete the project
+        project.is_active = False
+        project.save(update_fields=["is_active", "updated_at"])
+
+
 class AppService:
     @staticmethod
     def create_app(
-        user,
+        project: Project,
         name: str,
         description: str = "",
         framework: str = "fastapi",
     ) -> App:
+        """Create a new app within a project."""
         name = name.strip()
         if not name:
             raise ValidationError("App name is required")
@@ -88,16 +211,16 @@ class AppService:
         if framework not in App.Framework.values:
             raise ValidationError("Invalid framework")
 
-        if App.objects.for_user(user).count() >= MAX_APPS_PER_USER:
-            raise RateLimitError(f"Maximum of {MAX_APPS_PER_USER} apps allowed")
+        if App.objects.for_project(project).count() >= MAX_APPS_PER_PROJECT:
+            raise RateLimitError(f"Maximum of {MAX_APPS_PER_PROJECT} apps allowed per project")
 
         # Retry for rare concurrent create collisions.
         for attempt in range(5):
-            slug = _unique_slug(user, name)
+            slug = _unique_slug(project, name)
             try:
                 with transaction.atomic():
                     app = App.objects.create(
-                        owner=user,
+                        project=project,
                         name=name,
                         slug=slug,
                         description=description.strip(),
@@ -105,7 +228,7 @@ class AppService:
                     )
                     return app
             except IntegrityError as exc:
-                if "unique_owner_slug" in str(exc):
+                if "unique_app_slug" in str(exc):
                     if attempt == 4:
                         raise ConflictError("App name already exists. Try a different name.")
                     continue
@@ -114,33 +237,47 @@ class AppService:
         raise ConflictError("Unable to create app with that name. Try a different name.")
 
     @staticmethod
-    def list_apps(user) -> list[App]:
-        return list(App.objects.for_user(user).order_by("-created_at"))
+    def list_apps(project: Project) -> list[App]:
+        """List all active apps in a project."""
+        return list(App.objects.for_project(project).order_by("-created_at"))
 
     @staticmethod
-    def get_app_by_slug(user, slug: str) -> App:
+    def get_apps_by_slugs(project: Project, slugs: list[str]) -> list[App]:
+        """Get multiple apps by slug within a project; raises if none found."""
+        cleaned = [s.strip() for s in slugs if s.strip()]
+        if not cleaned:
+            raise ValidationError("At least one app slug is required")
+        apps = list(App.objects.filter(project=project, slug__in=cleaned, is_active=True))
+        if not apps:
+            raise NotFoundError("No matching apps found for the provided slugs")
+        return apps
+
+    @staticmethod
+    def get_app_by_slug(project: Project, slug: str) -> App:
+        """Get an app by slug within a project."""
         try:
-            return App.objects.get(owner=user, slug=slug, is_active=True)
+            return App.objects.get(project=project, slug=slug, is_active=True)
         except App.DoesNotExist:
-            raise NotFoundError("App not found")
+            raise NotFoundError(f"App '{slug}' not found")
 
     @staticmethod
     @transaction.atomic
     def update_app(
-        user,
+        project: Project,
         slug: str,
         name: str | None = None,
         description: str | None = None,
         framework: str | None = None,
     ) -> App:
-        app = AppService.get_app_by_slug(user, slug)
+        """Update an app's details."""
+        app = AppService.get_app_by_slug(project, slug)
 
         if name is not None:
             name = name.strip()
             if not name:
                 raise ValidationError("App name is required")
             app.name = name
-            app.slug = _unique_slug(user, name, exclude_id=app.id)
+            app.slug = _unique_slug(project, name, exclude_id=app.id)
 
         if description is not None:
             app.description = description.strip()
@@ -156,12 +293,9 @@ class AppService:
 
     @staticmethod
     @transaction.atomic
-    def delete_app(user, slug: str) -> None:
-        app = AppService.get_app_by_slug(user, slug)
-
-        # Revoke all API keys for this app
-        from apps.auth.services import ApiKeyService
-        ApiKeyService.revoke_all_for_app(app)
+    def delete_app(project: Project, slug: str) -> None:
+        """Soft delete an app within a project."""
+        app = AppService.get_app_by_slug(project, slug)
 
         app.is_active = False
         app.save(update_fields=["is_active", "updated_at"])
@@ -530,6 +664,13 @@ class IngestService:
         IngestService.ensure_payload_columns(client)
         IngestService.ensure_consumer_columns(client)
 
+        # Fetch project_id from app
+        try:
+            app = App.objects.select_related("project").get(id=app_id)
+            project_id = str(app.project_id)
+        except App.DoesNotExist:
+            raise NotFoundError(f"App {app_id} not found")
+
         method_choices = set(Endpoint.Method.values)
 
         # Track latest seen timestamp per (method, path) for endpoint auto-discovery.
@@ -636,6 +777,7 @@ class IngestService:
                 {
                     "timestamp": r["timestamp"],
                     "app_id": app_id,
+                    "project_id": project_id,
                     "endpoint_id": endpoint_id,
                     "environment": r["environment"],
                     "method": r["method"],
@@ -667,6 +809,13 @@ class IngestService:
         client = get_clickhouse_client()
         IngestService.ensure_api_logs_table(client)
 
+        # Fetch project_id from app
+        try:
+            app = App.objects.select_related("project").get(id=app_id)
+            project_id = str(app.project_id)
+        except App.DoesNotExist:
+            raise NotFoundError(f"App {app_id} not found")
+
         rows: list[dict[str, Any]] = []
         for record in records:
             attributes = IngestService._sanitize_log_attributes(getattr(record, "attributes", {}))
@@ -675,6 +824,7 @@ class IngestService:
                 {
                     "timestamp": record.timestamp,
                     "app_id": app_id,
+                    "project_id": project_id,
                     "environment": (record.environment or "production").strip().lower(),
                     "level": IngestService._normalize_log_level(record.level),
                     "message": IngestService._safe_log_text(
@@ -1715,6 +1865,17 @@ class LogsService:
 
 class AnalyticsService:
     @staticmethod
+    def _clean_nan_values(data: dict) -> dict:
+        """Replace NaN float values with 0.0 to prevent JSON serialization errors."""
+        import math
+        cleaned = {}
+        for key, value in data.items():
+            if isinstance(value, float) and math.isnan(value):
+                cleaned[key] = 0.0
+            else:
+                cleaned[key] = value
+        return cleaned
+    @staticmethod
     def get_summary(
         app_id: str,
         environment: str | None = None,
@@ -1776,17 +1937,19 @@ class AnalyticsService:
         """
         try:
             rows = client.execute(query, params)
-            return rows[0] if rows else {
-                "total_requests": 0,
-                "error_count": 0,
-                "error_rate": 0.0,
-                "avg_response_time_ms": 0.0,
-                "p95_response_time_ms": 0.0,
-                "total_request_bytes": 0,
-                "total_response_bytes": 0,
-                "unique_endpoints": 0,
-                "unique_consumers": 0,
-            }
+            if not rows:
+                return {
+                    "total_requests": 0,
+                    "error_count": 0,
+                    "error_rate": 0.0,
+                    "avg_response_time_ms": 0.0,
+                    "p95_response_time_ms": 0.0,
+                    "total_request_bytes": 0,
+                    "total_response_bytes": 0,
+                    "unique_endpoints": 0,
+                    "unique_consumers": 0,
+                }
+            return AnalyticsService._clean_nan_values(rows[0])
         except Exception as exc:
             logger.warning("ClickHouse query failed for analytics summary; returning empty summary: %s", exc)
             return {
@@ -2219,3 +2382,352 @@ class AnalyticsService:
         except Exception as exc:
             logger.warning("ClickHouse query failed for endpoint payload samples; returning empty list: %s", exc)
             return []
+
+    # ── Project-Level Analytics Methods ──────────────────────────────────
+
+    @staticmethod
+    def get_project_summary(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> dict:
+        """
+        Get aggregated analytics summary for a project.
+        Optionally filter by specific app within the project.
+        """
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty analytics summary: %s", exc)
+            return {
+                "total_requests": 0,
+                "error_count": 0,
+                "error_rate": 0.0,
+                "avg_response_time_ms": 0.0,
+                "p95_response_time_ms": 0.0,
+                "total_request_bytes": 0,
+                "total_response_bytes": 0,
+                "unique_endpoints": 0,
+                "unique_consumers": 0,
+            }
+
+        IngestService.ensure_consumer_columns(client)
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params = {"project_id": project_id, "since": since_dt, "until": until_dt}
+
+        filters = ["WHERE project_id = %(project_id)s"]
+        filters.append("AND timestamp >= %(since)s")
+        filters.append("AND timestamp <= %(until)s")
+
+        if app_ids:
+            filters.append("AND app_id IN %(app_ids)s")
+            params["app_ids"] = app_ids
+
+        if environment:
+            filters.append("AND environment = %(environment)s")
+            params["environment"] = environment
+
+        query = f"""
+            SELECT
+                count() AS total_requests,
+                countIf(status_code >= 400) AS error_count,
+                if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                avg(response_time_ms) AS avg_response_time_ms,
+                quantile(0.95)(response_time_ms) AS p95_response_time_ms,
+                sum(request_size) AS total_request_bytes,
+                sum(response_size) AS total_response_bytes,
+                uniqExact((method, path)) AS unique_endpoints,
+                uniqExact(
+                    if(
+                        consumer_name != '',
+                        consumer_name,
+                        if(
+                            consumer_id != '',
+                            consumer_id,
+                            if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                        )
+                    )
+                ) AS unique_consumers
+            FROM api_requests
+            {' '.join(filters)}
+        """
+        try:
+            rows = client.execute(query, params)
+            if not rows:
+                return {
+                    "total_requests": 0,
+                    "error_count": 0,
+                    "error_rate": 0.0,
+                    "avg_response_time_ms": 0.0,
+                    "p95_response_time_ms": 0.0,
+                    "total_request_bytes": 0,
+                    "total_response_bytes": 0,
+                    "unique_endpoints": 0,
+                    "unique_consumers": 0,
+                }
+            return AnalyticsService._clean_nan_values(rows[0])
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project analytics summary; returning empty summary: %s", exc)
+            return {
+                "total_requests": 0,
+                "error_count": 0,
+                "error_rate": 0.0,
+                "avg_response_time_ms": 0.0,
+                "p95_response_time_ms": 0.0,
+                "total_request_bytes": 0,
+                "total_response_bytes": 0,
+                "unique_endpoints": 0,
+                "unique_consumers": 0,
+            }
+
+    @staticmethod
+    def get_project_timeseries(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[dict]:
+        """
+        Get time-series analytics for a project.
+        Optionally filter by specific app within the project.
+        """
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty timeseries: %s", exc)
+            return []
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params = {"project_id": project_id, "since": since_dt, "until": until_dt}
+
+        filters = ["WHERE project_id = %(project_id)s"]
+        filters.append("AND timestamp >= %(since)s")
+        filters.append("AND timestamp <= %(until)s")
+
+        if app_ids:
+            filters.append("AND app_id IN %(app_ids)s")
+            params["app_ids"] = app_ids
+
+        if environment:
+            filters.append("AND environment = %(environment)s")
+            params["environment"] = environment
+
+        query = f"""
+            SELECT
+                toStartOfInterval(timestamp, INTERVAL 1 HOUR) AS bucket,
+                count() AS total_requests,
+                countIf(status_code >= 400) AS error_count,
+                avg(response_time_ms) AS avg_response_time_ms
+            FROM api_requests
+            {' '.join(filters)}
+            GROUP BY bucket
+            ORDER BY bucket ASC
+        """
+        try:
+            return client.execute(query, params)
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project timeseries; returning empty list: %s", exc)
+            return []
+
+    @staticmethod
+    def get_project_endpoint_stats(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """
+        Get endpoint statistics aggregated across a project.
+        Optionally filter by specific app within the project.
+        """
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty endpoint stats: %s", exc)
+            return []
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params = {"project_id": project_id, "since": since_dt, "until": until_dt, "limit": limit}
+
+        filters = ["WHERE project_id = %(project_id)s"]
+        filters.append("AND timestamp >= %(since)s")
+        filters.append("AND timestamp <= %(until)s")
+
+        if app_ids:
+            filters.append("AND app_id IN %(app_ids)s")
+            params["app_ids"] = app_ids
+
+        if environment:
+            filters.append("AND environment = %(environment)s")
+            params["environment"] = environment
+
+        query = f"""
+            SELECT
+                method,
+                path,
+                count() AS total_requests,
+                countIf(status_code >= 400) AS error_count,
+                avg(response_time_ms) AS avg_response_time_ms,
+                quantile(0.95)(response_time_ms) AS p95_response_time_ms
+            FROM api_requests
+            {' '.join(filters)}
+            GROUP BY method, path
+            ORDER BY total_requests DESC
+            LIMIT %(limit)s
+        """
+        try:
+            rows = client.execute(query, params)
+            # Clean NaN values from each row
+            return [AnalyticsService._clean_nan_values(row) for row in rows]
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project endpoint stats; returning empty list: %s", exc)
+            return []
+
+    @staticmethod
+    def get_project_environments(
+        project_id: str,
+        app_ids: list[str] | None = None,
+    ) -> list[str]:
+        """
+        Get list of distinct environments with data for a project.
+        """
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty environments: %s", exc)
+            return []
+
+        params = {"project_id": project_id}
+        filters = ["WHERE project_id = %(project_id)s"]
+
+        if app_ids:
+            filters.append("AND app_id IN %(app_ids)s")
+            params["app_ids"] = app_ids
+
+        query = f"""
+            SELECT DISTINCT environment
+            FROM api_requests
+            {' '.join(filters)}
+            WHERE environment != ''
+            ORDER BY environment
+        """
+
+        try:
+            rows = client.execute(query, params)
+            return [row[0] for row in rows if row[0]]
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project environments; returning empty list: %s", exc)
+            return []
+
+    @staticmethod
+    def get_project_logs(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        levels: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict:
+        """
+        Get logs for a project with optional app filter.
+        """
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty logs: %s", exc)
+            return {"logs": [], "total": 0, "page": page, "page_size": page_size}
+
+        IngestService.ensure_api_logs_table(client)
+        since_dt, until_dt = _resolve_time_range(since, until)
+        offset = (page - 1) * page_size
+
+        params = {
+            "project_id": project_id,
+            "since": since_dt,
+            "until": until_dt,
+            "limit": page_size,
+            "offset": offset,
+        }
+
+        filters = ["WHERE project_id = %(project_id)s"]
+        filters.append("AND timestamp >= %(since)s")
+        filters.append("AND timestamp <= %(until)s")
+
+        if app_ids:
+            filters.append("AND app_id IN %(app_ids)s")
+            params["app_ids"] = app_ids
+
+        if environment:
+            filters.append("AND environment = %(environment)s")
+            params["environment"] = environment
+
+        if levels:
+            level_list = [level.strip().upper() for level in levels.split(",")]
+            filters.append("AND level IN %(levels)s")
+            params["levels"] = level_list
+
+        if search:
+            filters.append("AND (message ILIKE %(search)s OR logger_name ILIKE %(search)s)")
+            params["search"] = f"%{search}%"
+
+        count_query = f"""
+            SELECT count() AS total
+            FROM api_logs
+            {' '.join(filters)}
+        """
+
+        logs_query = f"""
+            SELECT
+                timestamp,
+                app_id,
+                environment,
+                level,
+                message,
+                logger_name,
+                endpoint_method,
+                endpoint_path,
+                status_code,
+                consumer_id,
+                consumer_name,
+                trace_id,
+                span_id
+            FROM api_logs
+            {' '.join(filters)}
+            ORDER BY timestamp DESC
+            LIMIT %(limit)s
+            OFFSET %(offset)s
+        """
+
+        try:
+            count_result = client.execute(count_query, params)
+            total = count_result[0]["total"] if count_result else 0
+
+            logs = client.execute(logs_query, params)
+
+            return {
+                "logs": logs,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            }
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project logs; returning empty logs: %s", exc)
+            return {"logs": [], "total": 0, "page": page, "page_size": page_size}

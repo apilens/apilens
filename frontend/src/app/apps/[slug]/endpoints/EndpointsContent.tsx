@@ -91,6 +91,8 @@ function setBoundedCache<T>(cache: Map<string, CacheEntry<T>>, key: string, valu
   }
 }
 
+type EndpointTab = "overview" | "performance" | "errors" | "traffic" | "status";
+
 export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
   const router = useRouter();
   const [environments, setEnvironments] = useState<Environment[]>([]);
@@ -100,6 +102,7 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
   const [totalCount, setTotalCount] = useState(0);
   const [selectedEnv, setSelectedEnv] = useState("");
   const [selectedRange, setSelectedRange] = useState(24);
+  const [activeTab, setActiveTab] = useState<EndpointTab>("overview");
 
   const [customPanelOpen, setCustomPanelOpen] = useState(false);
   const [customActive, setCustomActive] = useState(false);
@@ -680,6 +683,44 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
         <div className="summary-card"><p className="summary-label">Error rate</p><p className={`summary-value ${summary.errorRate >= 5 ? "tone-bad" : summary.errorRate >= 1 ? "tone-warn" : "tone-good"}`}>{summary.errorRate.toFixed(1)}%</p></div>
         <div className="summary-card"><p className="summary-label">Transfer</p><p className="summary-value">{formatBytes(summary.totalTransfer)}</p></div>
         <div className="summary-card"><p className="summary-label">Latency</p><p className="summary-value">{summary.weightedAvgLatency.toFixed(0)} ms</p><p className="summary-sub">P95 <span className="summary-sub-value">{summary.weightedP95.toFixed(0)} ms</span></p></div>
+      </div>
+
+      <div className="endpoints-tabs">
+        <button
+          type="button"
+          className={`endpoints-tab${activeTab === "overview" ? " active" : ""}`}
+          onClick={() => setActiveTab("overview")}
+        >
+          Overview
+        </button>
+        <button
+          type="button"
+          className={`endpoints-tab${activeTab === "performance" ? " active" : ""}`}
+          onClick={() => setActiveTab("performance")}
+        >
+          Performance
+        </button>
+        <button
+          type="button"
+          className={`endpoints-tab${activeTab === "errors" ? " active" : ""}`}
+          onClick={() => setActiveTab("errors")}
+        >
+          Errors
+        </button>
+        <button
+          type="button"
+          className={`endpoints-tab${activeTab === "status" ? " active" : ""}`}
+          onClick={() => setActiveTab("status")}
+        >
+          Status
+        </button>
+        <button
+          type="button"
+          className={`endpoints-tab${activeTab === "traffic" ? " active" : ""}`}
+          onClick={() => setActiveTab("traffic")}
+        >
+          Traffic
+        </button>
       </div>
 
       {filtersOpen && (

@@ -59,6 +59,24 @@ export interface ApiKeyCreateResult {
   created_at: string;
 }
 
+export interface ProjectInfo {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectListItem {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  app_count: number;
+  created_at: string;
+}
+
 export interface AppInfo {
   id: string;
   name: string;
@@ -208,41 +226,6 @@ export interface EndpointPayloadSample {
 export interface EnvironmentOption {
   environment: string;
   total_requests: number;
-}
-
-export interface LogEntry {
-  timestamp: string;
-  environment: string;
-  level: "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
-  message: string;
-  logger_name: string;
-  payload: string;
-  attributes: Record<string, string>;
-}
-
-export interface LogsListResponse {
-  items: LogEntry[];
-  total_count: number;
-  page: number;
-  page_size: number;
-}
-
-export interface LogsSummary {
-  total_logs: number;
-  error_logs: number;
-  warning_logs: number;
-  unique_loggers: number;
-}
-
-export interface LogsTimeseriesPoint {
-  bucket: string;
-  count: number;
-}
-
-export interface LogsSearchOptions {
-  keys: string[];
-  values: string[];
-  loggers: string[];
 }
 
 async function fetchDjango<T>(
@@ -439,7 +422,48 @@ export const apiClient = {
     });
   },
 
-  // ── Apps ──────────────────────────────────────────────────────────
+  // ── Projects ──────────────────────────────────────────────────────
+
+  async getProjects(): Promise<ApiResponse<ProjectListItem[]>> {
+    return fetchDjango<ProjectListItem[]>("/projects/");
+  },
+
+  async getProject(slug: string): Promise<ApiResponse<ProjectInfo>> {
+    return fetchDjango<ProjectInfo>(`/projects/${slug}`);
+  },
+
+  async createProject(data: { name: string; description?: string }): Promise<ApiResponse<ProjectInfo>> {
+    return fetchDjango<ProjectInfo>("/projects/", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateProject(slug: string, data: { name?: string; description?: string }): Promise<ApiResponse<ProjectInfo>> {
+    return fetchDjango<ProjectInfo>(`/projects/${slug}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteProject(slug: string): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>(`/projects/${slug}`, {
+      method: "DELETE",
+    });
+  },
+
+  // ── Apps (Project-scoped) ─────────────────────────────────────────
+
+  async getProjectApps(projectSlug: string): Promise<ApiResponse<AppListItem[]>> {
+    return fetchDjango<AppListItem[]>(`/projects/${projectSlug}/apps`);
+  },
+
+  async createProjectApp(projectSlug: string, data: { name: string; description?: string; framework?: "fastapi" | "flask" | "django" | "starlette" }): Promise<ApiResponse<AppInfo>> {
+    return fetchDjango<AppInfo>(`/projects/${projectSlug}/apps`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
 
   async getApps(): Promise<ApiResponse<AppListItem[]>> {
     return fetchDjango<AppListItem[]>("/apps/");
@@ -560,6 +584,7 @@ export const apiClient = {
       environment?: string;
       since?: string;
       until?: string;
+      appSlugs?: string[];
       status_classes?: Array<"2xx" | "3xx" | "4xx" | "5xx">;
       status_codes?: number[];
       status_class?: "2xx" | "3xx" | "4xx" | "5xx";
@@ -584,6 +609,9 @@ export const apiClient = {
     if (params?.status_codes && params.status_codes.length > 0) {
       searchParams.set("status_codes", params.status_codes.join(","));
     }
+    if (params?.appSlugs && params.appSlugs.length > 0) {
+      searchParams.set("app_slugs", params.appSlugs.join(","));
+    }
     if (params?.status_class) searchParams.set("status_class", params.status_class);
     if (params?.status_code) searchParams.set("status_code", String(params.status_code));
     if (params?.methods && params.methods.length > 0) {
@@ -602,7 +630,7 @@ export const apiClient = {
     if (params?.page_size) searchParams.set("page_size", String(params.page_size));
     const qs = searchParams.toString();
     return fetchDjango<import("@/types/app").EndpointStatsListResponse>(
-      `/apps/${slug}/endpoint-stats${qs ? `?${qs}` : ""}`,
+      `/projects/${slug}/analytics/endpoints${qs ? `?${qs}` : ""}`,
     );
   },
 
@@ -717,165 +745,50 @@ export const apiClient = {
     );
   },
 
-  async getLogs(
-    slug: string,
-    params?: {
-      environment?: string;
-      since?: string;
-      until?: string;
-      levels?: string[];
-      q?: string;
-      attr?: string[];
-      logger?: string[];
-      page?: number;
-      page_size?: number;
-    },
-  ): Promise<ApiResponse<LogsListResponse>> {
-    const searchParams = new URLSearchParams();
-    if (params?.environment) searchParams.set("environment", params.environment);
-    if (params?.since) searchParams.set("since", params.since);
-    if (params?.until) searchParams.set("until", params.until);
-    if (params?.levels && params.levels.length > 0) {
-      searchParams.set("levels", params.levels.join(","));
-    }
-    if (params?.q) searchParams.set("q", params.q);
-    if (params?.attr && params.attr.length > 0) {
-      for (const value of params.attr) searchParams.append("attr", value);
-    }
-    if (params?.logger && params.logger.length > 0) {
-      for (const value of params.logger) searchParams.append("logger", value);
-    }
-    if (params?.page) searchParams.set("page", String(params.page));
-    if (params?.page_size) searchParams.set("page_size", String(params.page_size));
-    const qs = searchParams.toString();
-    return fetchDjango<LogsListResponse>(`/apps/${slug}/logs${qs ? `?${qs}` : ""}`);
-  },
-
-  async getLogsSummary(
-    slug: string,
-    params?: {
-      environment?: string;
-      since?: string;
-      until?: string;
-      levels?: string[];
-      q?: string;
-      attr?: string[];
-      logger?: string[];
-    },
-  ): Promise<ApiResponse<LogsSummary>> {
-    const searchParams = new URLSearchParams();
-    if (params?.environment) searchParams.set("environment", params.environment);
-    if (params?.since) searchParams.set("since", params.since);
-    if (params?.until) searchParams.set("until", params.until);
-    if (params?.levels && params.levels.length > 0) {
-      searchParams.set("levels", params.levels.join(","));
-    }
-    if (params?.q) searchParams.set("q", params.q);
-    if (params?.attr && params.attr.length > 0) {
-      for (const value of params.attr) searchParams.append("attr", value);
-    }
-    if (params?.logger && params.logger.length > 0) {
-      for (const value of params.logger) searchParams.append("logger", value);
-    }
-    const qs = searchParams.toString();
-    return fetchDjango<LogsSummary>(`/apps/${slug}/logs/summary${qs ? `?${qs}` : ""}`);
-  },
-
-  async getLogsTimeseries(
-    slug: string,
-    params?: {
-      environment?: string;
-      since?: string;
-      until?: string;
-      levels?: string[];
-      q?: string;
-      attr?: string[];
-      logger?: string[];
-      granularity?: number;
-    },
-  ): Promise<ApiResponse<LogsTimeseriesPoint[]>> {
-    const searchParams = new URLSearchParams();
-    if (params?.environment) searchParams.set("environment", params.environment);
-    if (params?.since) searchParams.set("since", params.since);
-    if (params?.until) searchParams.set("until", params.until);
-    if (params?.levels && params.levels.length > 0) {
-      searchParams.set("levels", params.levels.join(","));
-    }
-    if (params?.q) searchParams.set("q", params.q);
-    if (params?.attr && params.attr.length > 0) {
-      for (const value of params.attr) searchParams.append("attr", value);
-    }
-    if (params?.logger && params.logger.length > 0) {
-      for (const value of params.logger) searchParams.append("logger", value);
-    }
-    if (params?.granularity) searchParams.set("granularity", String(params.granularity));
-    const qs = searchParams.toString();
-    return fetchDjango<LogsTimeseriesPoint[]>(`/apps/${slug}/logs/timeseries${qs ? `?${qs}` : ""}`);
-  },
-
-  async getLogsSearchOptions(
-    slug: string,
-    params?: {
-      environment?: string;
-      since?: string;
-      until?: string;
-      key?: string;
-      prefix?: string;
-      limit?: number;
-    },
-  ): Promise<ApiResponse<LogsSearchOptions>> {
-    const searchParams = new URLSearchParams();
-    if (params?.environment) searchParams.set("environment", params.environment);
-    if (params?.since) searchParams.set("since", params.since);
-    if (params?.until) searchParams.set("until", params.until);
-    if (params?.key) searchParams.set("key", params.key);
-    if (params?.prefix) searchParams.set("prefix", params.prefix);
-    if (params?.limit) searchParams.set("limit", String(params.limit));
-    const qs = searchParams.toString();
-    return fetchDjango<LogsSearchOptions>(`/apps/${slug}/logs/search-options${qs ? `?${qs}` : ""}`);
-  },
-
   async getAnalyticsSummary(
     slug: string,
-    params?: { environment?: string; since?: string; until?: string },
+    params?: { environment?: string; since?: string; until?: string; appSlugs?: string[] },
   ): Promise<ApiResponse<AnalyticsSummary>> {
     const searchParams = new URLSearchParams();
     if (params?.environment) searchParams.set("environment", params.environment);
     if (params?.since) searchParams.set("since", params.since);
     if (params?.until) searchParams.set("until", params.until);
+    if (params?.appSlugs && params.appSlugs.length > 0) {
+      searchParams.set("app_slugs", params.appSlugs.join(","));
+    }
     const qs = searchParams.toString();
-    return fetchDjango<AnalyticsSummary>(
-      `/apps/${slug}/analytics/summary${qs ? `?${qs}` : ""}`,
-    );
+    return fetchDjango<AnalyticsSummary>(`/projects/${slug}/analytics/summary${qs ? `?${qs}` : ""}`);
   },
 
   async getAnalyticsTimeseries(
     slug: string,
-    params?: { environment?: string; since?: string; until?: string },
+    params?: { environment?: string; since?: string; until?: string; appSlugs?: string[] },
   ): Promise<ApiResponse<AnalyticsTimeseriesPoint[]>> {
     const searchParams = new URLSearchParams();
     if (params?.environment) searchParams.set("environment", params.environment);
     if (params?.since) searchParams.set("since", params.since);
     if (params?.until) searchParams.set("until", params.until);
+    if (params?.appSlugs && params.appSlugs.length > 0) {
+      searchParams.set("app_slugs", params.appSlugs.join(","));
+    }
     const qs = searchParams.toString();
-    return fetchDjango<AnalyticsTimeseriesPoint[]>(
-      `/apps/${slug}/analytics/timeseries${qs ? `?${qs}` : ""}`,
-    );
+    return fetchDjango<AnalyticsTimeseriesPoint[]>(`/projects/${slug}/analytics/timeseries${qs ? `?${qs}` : ""}`);
   },
 
   async getRelatedApis(
     slug: string,
-    params?: { environment?: string; since?: string; until?: string; limit?: number },
+    params?: { environment?: string; since?: string; until?: string; limit?: number; appSlugs?: string[] },
   ): Promise<ApiResponse<RelatedApi[]>> {
     const searchParams = new URLSearchParams();
     if (params?.environment) searchParams.set("environment", params.environment);
     if (params?.since) searchParams.set("since", params.since);
     if (params?.until) searchParams.set("until", params.until);
     if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.appSlugs && params.appSlugs.length > 0) {
+      searchParams.set("app_slugs", params.appSlugs.join(","));
+    }
     const qs = searchParams.toString();
-    return fetchDjango<RelatedApi[]>(
-      `/apps/${slug}/analytics/related-apis${qs ? `?${qs}` : ""}`,
-    );
+    return fetchDjango<RelatedApi[]>(`/projects/${slug}/analytics/related-apis${qs ? `?${qs}` : ""}`);
   },
 
   async getEndpointDetail(

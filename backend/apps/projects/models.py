@@ -3,11 +3,46 @@ import uuid
 from django.conf import settings
 from django.db import models
 
-from .managers import AppManager, EndpointManager, EnvironmentManager
+from .managers import ProjectManager, AppManager, EndpointManager, EnvironmentManager
 
 
 def app_icon_path(instance, filename):
     return f"app_icons/{instance.id}.jpg"
+
+
+class Project(models.Model):
+    """
+    Represents a top-level organizational unit for grouping related apps/services.
+    Projects own API keys and provide aggregated analytics.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="projects",
+    )
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(max_length=120, db_index=True)
+    description = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = ProjectManager()
+
+    class Meta:
+        db_table = "projects"
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["owner", "slug"],
+                name="unique_project_slug_per_owner",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.slug})"
 
 
 class App(models.Model):
@@ -19,8 +54,8 @@ class App(models.Model):
         EXPRESS = "express"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+    project = models.ForeignKey(
+        "projects.Project",
         on_delete=models.CASCADE,
         related_name="apps",
     )
@@ -45,8 +80,8 @@ class App(models.Model):
         ordering = ["-created_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["owner", "slug"],
-                name="unique_app_slug_per_owner",
+                fields=["project", "slug"],
+                name="unique_app_slug_per_project",
             ),
         ]
 
