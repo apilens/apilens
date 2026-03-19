@@ -13,7 +13,7 @@ from ninja import Router
 
 from apps.auth.services import ApiKeyService
 from apps.projects.models import App
-from apps.projects.services import ProjectService, AppService, AnalyticsService
+from apps.projects.services import ProjectService, AppService, AnalyticsService, DataQueryService
 from apps.users.models import User
 from core.auth.authentication import jwt_auth
 
@@ -30,6 +30,8 @@ from .schemas import (
     CreateApiKeyResponse,
     ApiKeyResponse,
     MessageResponse,
+    LogsQueryResponse,
+    RequestsQueryResponse,
 )
 
 router = Router(auth=[jwt_auth])
@@ -297,3 +299,130 @@ def get_environments(
     )
 
     return {"environments": environments}
+
+
+# ── Project-level Data Query (raw telemetry access) ──────────────────
+
+@router.get("/{project_slug}/data/logs", response=LogsQueryResponse)
+def query_project_logs(
+    request: HttpRequest,
+    project_slug: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    levels: str = None,
+    search: str = None,
+    loggers: str = None,
+    page: int = 1,
+    page_size: int = 50,
+):
+    """
+    Query raw log data across all apps in a project (or specific apps).
+
+    Filters:
+    - app_slugs: Comma-separated app slugs (e.g., "api,worker")
+    - environment: Filter by environment name
+    - levels: Comma-separated log levels (e.g., "ERROR,WARNING")
+    - search: Search in message, logger_name, or attributes
+    - loggers: Comma-separated logger names
+    - since/until: ISO8601 timestamps for time range
+    - page/page_size: Pagination controls
+    """
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+
+    app_ids = None
+    if app_slugs:
+        slugs = [s.strip() for s in app_slugs.split(",") if s.strip()]
+        if slugs:
+            apps = AppService.get_apps_by_slugs(project, slugs)
+            app_ids = [str(app.id) for app in apps]
+
+    level_list = None
+    if levels:
+        level_list = [l.strip().upper() for l in levels.split(",") if l.strip()]
+
+    logger_list = None
+    if loggers:
+        logger_list = [lg.strip() for lg in loggers.split(",") if lg.strip()]
+
+    result = DataQueryService.get_project_logs(
+        project_id=str(project.id),
+        app_ids=app_ids,
+        environment=environment,
+        since=since,
+        until=until,
+        levels=level_list,
+        search=search,
+        logger_filters=logger_list,
+        page=page,
+        page_size=page_size,
+    )
+
+    return LogsQueryResponse(**result)
+
+
+@router.get("/{project_slug}/data/requests", response=RequestsQueryResponse)
+def query_project_requests(
+    request: HttpRequest,
+    project_slug: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    methods: str = None,
+    status_codes: str = None,
+    min_response_time: float = None,
+    max_response_time: float = None,
+    path_filter: str = None,
+    page: int = 1,
+    page_size: int = 50,
+):
+    """
+    Query raw API request data across all apps in a project (or specific apps).
+
+    Filters:
+    - app_slugs: Comma-separated app slugs (e.g., "api,worker")
+    - environment: Filter by environment name
+    - methods: Comma-separated HTTP methods (e.g., "GET,POST")
+    - status_codes: Comma-separated status codes (e.g., "200,201,404")
+    - min_response_time/max_response_time: Response time range in ms
+    - path_filter: Path pattern (use * for wildcards, e.g., "/api/users/*")
+    - since/until: ISO8601 timestamps for time range
+    - page/page_size: Pagination controls
+    """
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+
+    app_ids = None
+    if app_slugs:
+        slugs = [s.strip() for s in app_slugs.split(",") if s.strip()]
+        if slugs:
+            apps = AppService.get_apps_by_slugs(project, slugs)
+            app_ids = [str(app.id) for app in apps]
+
+    method_list = None
+    if methods:
+        method_list = [m.strip().upper() for m in methods.split(",") if m.strip()]
+
+    status_list = None
+    if status_codes:
+        status_list = [int(s.strip()) for s in status_codes.split(",") if s.strip().isdigit()]
+
+    result = DataQueryService.get_project_requests(
+        project_id=str(project.id),
+        app_ids=app_ids,
+        environment=environment,
+        since=since,
+        until=until,
+        methods=method_list,
+        status_codes=status_list,
+        min_response_time=min_response_time,
+        max_response_time=max_response_time,
+        path_filter=path_filter,
+        page=page,
+        page_size=page_size,
+    )
+
+    return RequestsQueryResponse(**result)

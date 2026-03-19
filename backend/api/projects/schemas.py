@@ -156,6 +156,47 @@ class ApiKeyResponse(Schema):
         )
 
 
+# ── Data Query Schemas ──────────────────────────────────────────────
+
+class LogItemResponse(Schema):
+    timestamp: datetime
+    app_id: str
+    environment: str
+    level: str
+    message: str
+    logger_name: str
+    payload: str
+    attributes: dict
+
+class LogsQueryResponse(Schema):
+    items: list[LogItemResponse]
+    total_count: int
+    page: int
+    page_size: int
+
+class RequestItemResponse(Schema):
+    timestamp: datetime
+    app_id: str
+    environment: str
+    method: str
+    path: str
+    status_code: int
+    response_time_ms: float
+    request_size: int
+    response_size: int
+    ip_address: str
+    user_agent: str
+    consumer_id: str
+    consumer_name: str
+    consumer_group: str
+
+class RequestsQueryResponse(Schema):
+    items: list[RequestItemResponse]
+    total_count: int
+    page: int
+    page_size: int
+
+
 # ── Generic Response Schemas ──────────────────────────────────────────
 
 class MessageResponse(Schema):
