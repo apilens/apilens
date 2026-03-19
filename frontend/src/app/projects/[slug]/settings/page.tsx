@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
-import ProjectSettingsContent from "./ProjectSettingsContent";
 
 export const metadata = {
   title: "Project Settings | APILens",
@@ -13,5 +12,6 @@ export default async function ProjectSettingsPage({ params }: { params: Promise<
   }
 
   const { slug } = await params;
-  return <ProjectSettingsContent projectSlug={slug} />;
+  // Redirect to general tab by default
+  redirect(`/projects/${slug}/settings/general`);
 }

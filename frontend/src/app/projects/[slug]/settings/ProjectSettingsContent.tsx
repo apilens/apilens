@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import { Trash2, Loader2, X, Check } from "lucide-react";
 import PageHeader from "@/components/dashboard/PageHeader";
 import SettingsCard from "@/components/settings/SettingsCard";
+import ProjectApiKeysSection from "@/components/projects/ProjectApiKeysSection";
+import ProjectSettingsSidebar, { ProjectSettingsTab } from "@/components/projects/ProjectSettingsSidebar";
 
 interface ProjectSettingsContentProps {
   projectSlug: string;
+  initialTab?: ProjectSettingsTab;
 }
 
 interface ProjectInfo {
@@ -24,8 +27,12 @@ interface ToastState {
   message: string;
 }
 
-export default function ProjectSettingsContent({ projectSlug }: ProjectSettingsContentProps) {
+export default function ProjectSettingsContent({
+  projectSlug,
+  initialTab = "general"
+}: ProjectSettingsContentProps) {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<ProjectSettingsTab>(initialTab);
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -41,6 +48,10 @@ export default function ProjectSettingsContent({ projectSlug }: ProjectSettingsC
     setToast({ type, message });
     setTimeout(() => setToast(null), 5000);
   };
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     async function fetchProject() {
@@ -88,7 +99,7 @@ export default function ProjectSettingsContent({ projectSlug }: ProjectSettingsC
       // Redirect if slug changed
       if (updated.slug !== projectSlug) {
         setTimeout(() => {
-          router.push(`/projects/${updated.slug}/settings`);
+          router.push(`/projects/${updated.slug}/settings/${activeTab}`);
         }, 1000);
       }
     } catch (err) {
@@ -160,78 +171,88 @@ export default function ProjectSettingsContent({ projectSlug }: ProjectSettingsC
       <PageHeader title="Project Settings" subtitle="Manage your project configuration" />
 
       <div className="settings-page-body">
+        <ProjectSettingsSidebar projectSlug={projectSlug} activeTab={activeTab} />
+
         <div className="settings-page-content">
-          <div className="settings-section-content">
-            <SettingsCard title="General" description="Update your project details">
-              <form onSubmit={handleSave} className="app-general-form">
-                <div className="create-app-field">
-                  <label htmlFor="name" className="create-app-label">
-                    Project Name
-                  </label>
-                  <input
-                    id="name"
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="create-app-input"
-                    required
-                  />
-                </div>
+          {activeTab === "general" && (
+            <div className="settings-section-content">
+              <SettingsCard title="General" description="Update your project details">
+                <form onSubmit={handleSave} className="app-general-form">
+                  <div className="create-app-field">
+                    <label htmlFor="name" className="create-app-label">
+                      Project Name
+                    </label>
+                    <input
+                      id="name"
+                      type="text"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      className="create-app-input"
+                      required
+                    />
+                  </div>
 
-                <div className="create-app-field">
-                  <label htmlFor="description" className="create-app-label">
-                    Description
-                  </label>
-                  <textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    className="create-app-textarea"
-                    rows={3}
-                    placeholder="Add a description for your project"
-                  />
-                </div>
+                  <div className="create-app-field">
+                    <label htmlFor="description" className="create-app-label">
+                      Description
+                    </label>
+                    <textarea
+                      id="description"
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      className="create-app-textarea"
+                      rows={3}
+                      placeholder="Add a description for your project"
+                    />
+                  </div>
 
-                <div className="app-general-actions">
-                  <button type="submit" className="settings-btn settings-btn-primary" disabled={isSaving}>
-                    {isSaving ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      "Save changes"
-                    )}
-                  </button>
-                </div>
-              </form>
-            </SettingsCard>
+                  <div className="app-general-actions">
+                    <button type="submit" className="settings-btn settings-btn-primary" disabled={isSaving}>
+                      {isSaving ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        "Save changes"
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </SettingsCard>
 
-            <SettingsCard
-              title="Danger Zone"
-              description="Deleting a project will permanently remove it and all associated apps, API keys, and data. This action cannot be undone."
-              variant="danger"
-            >
-              <button
-                type="button"
-                onClick={handleDelete}
-                className="settings-btn settings-btn-danger"
-                disabled={isDeleting}
+              <SettingsCard
+                title="Danger Zone"
+                description="Deleting a project will permanently remove it and all associated apps, API keys, and data. This action cannot be undone."
+                variant="danger"
               >
-                {isDeleting ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Deleting...
-                  </>
-                ) : (
-                  <>
-                    <Trash2 size={16} />
-                    Delete Project
-                  </>
-                )}
-              </button>
-            </SettingsCard>
-          </div>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="settings-btn settings-btn-danger"
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={16} />
+                      Delete Project
+                    </>
+                  )}
+                </button>
+              </SettingsCard>
+            </div>
+          )}
+
+          {activeTab === "api-keys" && (
+            <div className="settings-section-content">
+              <ProjectApiKeysSection projectSlug={projectSlug} showToast={showToast} />
+            </div>
+          )}
         </div>
       </div>
     </div>

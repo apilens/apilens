@@ -452,6 +452,25 @@ export const apiClient = {
     });
   },
 
+  // ── Project-scoped API Keys ────────────────────────────────────────
+
+  async getProjectApiKeys(projectSlug: string): Promise<ApiResponse<ApiKeyInfo[]>> {
+    return fetchDjango<ApiKeyInfo[]>(`/projects/${projectSlug}/api-keys`);
+  },
+
+  async createProjectApiKey(projectSlug: string, name: string): Promise<ApiResponse<ApiKeyCreateResult>> {
+    return fetchDjango<ApiKeyCreateResult>(`/projects/${projectSlug}/api-keys`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  async revokeProjectApiKey(projectSlug: string, keyId: string): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>(`/projects/${projectSlug}/api-keys/${keyId}`, {
+      method: "DELETE",
+    });
+  },
+
   // ── Apps (Project-scoped) ─────────────────────────────────────────
 
   async getProjectApps(projectSlug: string): Promise<ApiResponse<AppListItem[]>> {

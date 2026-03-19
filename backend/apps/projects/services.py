@@ -1863,6 +1863,289 @@ class LogsService:
             return {"keys": [], "values": [], "loggers": []}
 
 
+class DataQueryService:
+    """Service for querying raw telemetry data at project level."""
+
+    @staticmethod
+    def get_project_logs(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        levels: list[str] | None = None,
+        search: str | None = None,
+        attribute_filters: list[tuple[str, str]] | None = None,
+        logger_filters: list[str] | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict:
+        """
+        Query logs across all apps in a project or specific apps.
+        Returns paginated log records with filters.
+        """
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        safe_page = max(1, int(page))
+        safe_size = max(1, min(int(page_size), 200))
+        offset = (safe_page - 1) * safe_size
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty logs: %s", exc)
+            return {
+                "items": [],
+                "total_count": 0,
+                "page": safe_page,
+                "page_size": safe_size,
+            }
+
+        IngestService.ensure_api_logs_table(client)
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params: dict[str, Any] = {
+            "project_id": project_id,
+            "since": since_dt,
+            "until": until_dt,
+            "limit": safe_size,
+            "offset": offset,
+        }
+
+        # Build app_ids filter
+        app_filter = ""
+        if app_ids:
+            app_placeholders = []
+            for idx, app_id in enumerate(app_ids):
+                key = f"app_id_{idx}"
+                params[key] = app_id
+                app_placeholders.append(f"%({key})s")
+            app_filter = f"AND app_id IN ({', '.join(app_placeholders)})"
+
+        where_filters = LogsService._build_log_filters(
+            params,
+            environment=environment,
+            levels=levels,
+            search=search,
+            attribute_filters=attribute_filters,
+            logger_filters=logger_filters,
+        )
+
+        count_query = f"""
+            SELECT count() AS total_count
+            FROM api_logs
+            WHERE project_id = %(project_id)s
+              {app_filter}
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              {where_filters}
+        """
+
+        rows_query = f"""
+            SELECT
+                timestamp,
+                app_id,
+                environment,
+                level,
+                message,
+                logger_name,
+                payload,
+                attributes_json
+            FROM api_logs
+            WHERE project_id = %(project_id)s
+              {app_filter}
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              {where_filters}
+            ORDER BY timestamp DESC
+            LIMIT %(limit)s
+            OFFSET %(offset)s
+        """
+
+        try:
+            count_rows = client.execute(count_query, params)
+            total_count = int(count_rows[0]["total_count"]) if count_rows else 0
+            items = client.execute(rows_query, params)
+            for item in items:
+                item["timestamp"] = _as_utc(item.get("timestamp"))
+                raw_attributes = item.get("attributes_json", "") or "{}"
+                try:
+                    parsed = json.loads(raw_attributes)
+                    if not isinstance(parsed, dict):
+                        parsed = {}
+                except Exception:
+                    parsed = {}
+                item["attributes"] = {str(k): str(v) for k, v in parsed.items()}
+                item.pop("attributes_json", None)
+            return {
+                "items": items,
+                "total_count": total_count,
+                "page": safe_page,
+                "page_size": safe_size,
+            }
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project logs: %s", exc)
+            return {
+                "items": [],
+                "total_count": 0,
+                "page": safe_page,
+                "page_size": safe_size,
+            }
+
+    @staticmethod
+    def get_project_requests(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        methods: list[str] | None = None,
+        status_codes: list[int] | None = None,
+        min_response_time: float | None = None,
+        max_response_time: float | None = None,
+        path_filter: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict:
+        """
+        Query API requests across all apps in a project or specific apps.
+        Returns paginated request records with filters.
+        """
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        safe_page = max(1, int(page))
+        safe_size = max(1, min(int(page_size), 200))
+        offset = (safe_page - 1) * safe_size
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty requests: %s", exc)
+            return {
+                "items": [],
+                "total_count": 0,
+                "page": safe_page,
+                "page_size": safe_size,
+            }
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params: dict[str, Any] = {
+            "project_id": project_id,
+            "since": since_dt,
+            "until": until_dt,
+            "limit": safe_size,
+            "offset": offset,
+        }
+
+        filters: list[str] = []
+
+        # App filter
+        if app_ids:
+            app_placeholders = []
+            for idx, app_id in enumerate(app_ids):
+                key = f"app_id_{idx}"
+                params[key] = app_id
+                app_placeholders.append(f"%({key})s")
+            filters.append(f"app_id IN ({', '.join(app_placeholders)})")
+
+        # Environment filter
+        if environment:
+            filters.append("environment = %(environment)s")
+            params["environment"] = environment
+
+        # Methods filter
+        if methods:
+            method_placeholders = []
+            for idx, method in enumerate(methods):
+                key = f"method_{idx}"
+                params[key] = method.upper()
+                method_placeholders.append(f"%({key})s")
+            filters.append(f"method IN ({', '.join(method_placeholders)})")
+
+        # Status codes filter
+        if status_codes:
+            status_placeholders = []
+            for idx, code in enumerate(status_codes):
+                key = f"status_{idx}"
+                params[key] = int(code)
+                status_placeholders.append(f"%({key})s")
+            filters.append(f"status_code IN ({', '.join(status_placeholders)})")
+
+        # Response time filters
+        if min_response_time is not None:
+            filters.append("response_time_ms >= %(min_response_time)s")
+            params["min_response_time"] = float(min_response_time)
+
+        if max_response_time is not None:
+            filters.append("response_time_ms <= %(max_response_time)s")
+            params["max_response_time"] = float(max_response_time)
+
+        # Path filter (supports wildcards)
+        if path_filter:
+            filters.append("path LIKE %(path_filter)s")
+            params["path_filter"] = path_filter.replace("*", "%")
+
+        where_clause = ""
+        if filters:
+            where_clause = "AND " + " AND ".join(filters)
+
+        count_query = f"""
+            SELECT count() AS total_count
+            FROM api_requests
+            WHERE project_id = %(project_id)s
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              {where_clause}
+        """
+
+        rows_query = f"""
+            SELECT
+                timestamp,
+                app_id,
+                environment,
+                method,
+                path,
+                status_code,
+                response_time_ms,
+                request_size,
+                response_size,
+                ip_address,
+                user_agent,
+                consumer_id,
+                consumer_name,
+                consumer_group
+            FROM api_requests
+            WHERE project_id = %(project_id)s
+              AND timestamp >= %(since)s
+              AND timestamp <= %(until)s
+              {where_clause}
+            ORDER BY timestamp DESC
+            LIMIT %(limit)s
+            OFFSET %(offset)s
+        """
+
+        try:
+            count_rows = client.execute(count_query, params)
+            total_count = int(count_rows[0]["total_count"]) if count_rows else 0
+            items = client.execute(rows_query, params)
+            for item in items:
+                item["timestamp"] = _as_utc(item.get("timestamp"))
+            return {
+                "items": items,
+                "total_count": total_count,
+                "page": safe_page,
+                "page_size": safe_size,
+            }
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project requests: %s", exc)
+            return {
+                "items": [],
+                "total_count": 0,
+                "page": safe_page,
+                "page_size": safe_size,
+            }
+
+
 class AnalyticsService:
     @staticmethod
     def _clean_nan_values(data: dict) -> dict:

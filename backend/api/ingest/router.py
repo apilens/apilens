@@ -8,7 +8,7 @@ from apps.projects.services import IngestService
 from core.auth.authentication import api_key_auth
 from core.exceptions.base import AuthenticationError, ValidationError
 
-from .schemas import IngestRequest, IngestResponse
+from .schemas import IngestRequest, IngestResponse, IngestLogsRequest, IngestLogsResponse
 
 router = Router(auth=[api_key_auth])
 
@@ -53,3 +53,43 @@ def ingest_requests(request: HttpRequest, data: IngestRequest):
         total_accepted += accepted
 
     return IngestResponse(accepted=total_accepted)
+
+
+@router.post("/logs", response=IngestLogsResponse)
+def ingest_logs(request: HttpRequest, data: IngestLogsRequest):
+    """
+    Ingest application log records.
+    API key provides project_id, payload provides app_id for each log.
+    """
+    if len(data.logs) > MAX_BATCH_SIZE:
+        raise ValidationError(f"Batch size exceeds maximum of {MAX_BATCH_SIZE}")
+
+    project_id = request.tenant_context.project_id
+    if not project_id:
+        raise AuthenticationError("API key must be scoped to a project")
+
+    # Validate all app_ids belong to this project
+    app_ids = {log.app_id for log in data.logs}
+    valid_app_ids = set(
+        App.objects.filter(
+            project_id=project_id,
+            id__in=app_ids,
+            is_active=True
+        ).values_list("id", flat=True)
+    )
+
+    invalid_app_ids = app_ids - {str(aid) for aid in valid_app_ids}
+    if invalid_app_ids:
+        raise ValidationError(f"Invalid app_ids: {invalid_app_ids}")
+
+    # Group logs by app_id for batch processing
+    logs_by_app = defaultdict(list)
+    for log in data.logs:
+        logs_by_app[log.app_id].append(log)
+
+    total_accepted = 0
+    for app_id, logs in logs_by_app.items():
+        accepted = IngestService.ingest_logs(app_id, logs)
+        total_accepted += accepted
+
+    return IngestLogsResponse(accepted=total_accepted)
