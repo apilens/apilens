@@ -542,6 +542,13 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
   const pageStart = totalCount === 0 ? 0 : (safePage - 1) * DEFAULT_PAGE_SIZE + 1;
   const pageEnd = Math.min(safePage * DEFAULT_PAGE_SIZE, totalCount);
 
+  const goToPage = (page: number) => {
+    const clampedPage = Math.max(1, Math.min(page, totalPages));
+    setCurrentPage(clampedPage);
+    // Scroll to top of page when changing pages
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const openEndpointDetails = (endpointId: string | null | undefined, method: string, path: string) => {
     if (endpointId) {
       router.push(`/apps/${appSlug}/endpoints/${endpointId}`);
@@ -951,19 +958,19 @@ export default function EndpointsContent({ appSlug }: EndpointsContentProps) {
             <button
               type="button"
               className="endpoints-page-btn"
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={safePage <= 1}
+              onClick={() => goToPage(currentPage - 1)}
+              disabled={currentPage <= 1}
             >
               Previous
             </button>
             <span className="endpoints-page-indicator">
-              Page {safePage} / {totalPages}
+              Page {currentPage} / {totalPages}
             </span>
             <button
               type="button"
               className="endpoints-page-btn"
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={safePage >= totalPages}
+              onClick={() => goToPage(currentPage + 1)}
+              disabled={currentPage >= totalPages}
             >
               Next
             </button>
