@@ -370,6 +370,13 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
   const safePage = Math.max(1, Math.min(currentPage, Math.ceil(totalCount / DEFAULT_PAGE_SIZE) || 1));
   const totalPages = Math.ceil(totalCount / DEFAULT_PAGE_SIZE) || 1;
 
+  const goToPage = (page: number) => {
+    const clampedPage = Math.max(1, Math.min(page, totalPages));
+    setCurrentPage(clampedPage);
+    // Scroll to top of page when changing pages
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const activeWindowMinutes = useMemo(() => {
     if (customActive && customSince && customUntil) {
       const sinceMs = new Date(customSince).getTime();
@@ -791,19 +798,19 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
             <button
               type="button"
               className="endpoints-page-btn"
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={safePage <= 1}
+              onClick={() => goToPage(currentPage - 1)}
+              disabled={currentPage <= 1}
             >
               Previous
             </button>
             <span className="endpoints-page-indicator">
-              Page {safePage} / {totalPages}
+              Page {currentPage} / {totalPages}
             </span>
             <button
               type="button"
               className="endpoints-page-btn"
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={safePage >= totalPages}
+              onClick={() => goToPage(currentPage + 1)}
+              disabled={currentPage >= totalPages}
             >
               Next
             </button>
