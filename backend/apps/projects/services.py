@@ -2826,11 +2826,20 @@ class AnalyticsService:
         environment: str | None = None,
         since: str | None = None,
         until: str | None = None,
-        limit: int = 100,
-    ) -> list[dict]:
+        methods: list[str] | None = None,
+        status_classes: list[str] | None = None,
+        status_codes: list[int] | None = None,
+        search_query: str | None = None,
+        sort_by: str = "total_requests",
+        sort_dir: str = "desc",
+        page: int = 1,
+        page_size: int = 25,
+    ) -> dict:
         """
-        Get endpoint statistics aggregated across a project.
+        Get endpoint statistics aggregated across a project with pagination.
         Optionally filter by specific app within the project.
+
+        Returns dict with 'items' (list of stats) and 'total_count' (int).
         """
         from core.database.clickhouse.client import get_clickhouse_client
 
@@ -2838,10 +2847,10 @@ class AnalyticsService:
             client = get_clickhouse_client()
         except Exception as exc:
             logger.warning("ClickHouse client initialization failed; returning empty endpoint stats: %s", exc)
-            return []
+            return {"items": [], "total_count": 0}
 
         since_dt, until_dt = _resolve_time_range(since, until)
-        params = {"project_id": project_id, "since": since_dt, "until": until_dt, "limit": limit}
+        params = {"project_id": project_id, "since": since_dt, "until": until_dt}
 
         filters = ["WHERE project_id = %(project_id)s"]
         filters.append("AND timestamp >= %(since)s")
@@ -2855,27 +2864,190 @@ class AnalyticsService:
             filters.append("AND environment = %(environment)s")
             params["environment"] = environment
 
+        if methods:
+            filters.append("AND method IN %(methods)s")
+            params["methods"] = methods
+
+        # Handle status class filters (2xx, 3xx, 4xx, 5xx)
+        status_code_ranges = []
+        if status_classes:
+            for cls in status_classes:
+                if cls == "2xx":
+                    status_code_ranges.extend([200, 201, 202, 204, 206])
+                elif cls == "3xx":
+                    status_code_ranges.extend([301, 302, 304, 307, 308])
+                elif cls == "4xx":
+                    status_code_ranges.extend([400, 401, 403, 404, 409, 422, 429])
+                elif cls == "5xx":
+                    status_code_ranges.extend([500, 502, 503, 504])
+
+        # Combine status_codes from classes and explicit codes
+        all_status_codes = list(set(status_code_ranges + (status_codes or [])))
+        if all_status_codes:
+            filters.append("AND status_code IN %(status_codes)s")
+            params["status_codes"] = all_status_codes
+
+        # Search by path (case-insensitive)
+        if search_query:
+            filters.append("AND (lower(path) LIKE %(search_pattern)s OR lower(method) LIKE %(search_pattern)s)")
+            params["search_pattern"] = f"%{search_query.lower()}%"
+
+        # Map sort_by to valid column names
+        sort_column_map = {
+            "endpoint": "path",
+            "total_requests": "total_requests",
+            "error_rate": "error_rate",
+            "avg_response_time_ms": "avg_response_time_ms",
+            "p95_response_time_ms": "p95_response_time_ms",
+        }
+        sort_column = sort_column_map.get(sort_by, "total_requests")
+        sort_direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
+
+        # Count total matching endpoints
+        count_query = f"""
+            SELECT count(DISTINCT (method, path))
+            FROM api_requests
+            {' '.join(filters)}
+        """
+
+        try:
+            count_result = client.execute(count_query, params)
+            total_count = count_result[0][0] if count_result else 0
+        except Exception as exc:
+            logger.warning("ClickHouse count query failed for project endpoint stats: %s", exc)
+            total_count = 0
+
+        # Calculate offset for pagination
+        offset = (page - 1) * page_size
+        params["limit"] = page_size
+        params["offset"] = offset
+
+        # Main query with pagination
         query = f"""
             SELECT
                 method,
                 path,
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
+                (countIf(status_code >= 400) / count()) * 100 AS error_rate,
                 avg(response_time_ms) AS avg_response_time_ms,
                 quantile(0.95)(response_time_ms) AS p95_response_time_ms
             FROM api_requests
             {' '.join(filters)}
             GROUP BY method, path
-            ORDER BY total_requests DESC
+            ORDER BY {sort_column} {sort_direction}
             LIMIT %(limit)s
+            OFFSET %(offset)s
         """
+
         try:
             rows = client.execute(query, params)
-            # Clean NaN values from each row
-            return [AnalyticsService._clean_nan_values(row) for row in rows]
+            items = [AnalyticsService._clean_nan_values(row) for row in rows]
+
+            # If ClickHouse has no data, fall back to PostgreSQL endpoint records
+            if total_count == 0:
+                return AnalyticsService._get_endpoints_from_db(
+                    project_id=project_id,
+                    app_ids=app_ids,
+                    methods=methods,
+                    search_query=search_query,
+                    sort_by=sort_by,
+                    sort_dir=sort_dir,
+                    page=page,
+                    page_size=page_size,
+                )
+
+            return {"items": items, "total_count": total_count}
         except Exception as exc:
-            logger.warning("ClickHouse query failed for project endpoint stats; returning empty list: %s", exc)
-            return []
+            logger.warning("ClickHouse query failed for project endpoint stats: %s", exc)
+            # Fall back to PostgreSQL endpoint records
+            return AnalyticsService._get_endpoints_from_db(
+                project_id=project_id,
+                app_ids=app_ids,
+                methods=methods,
+                search_query=search_query,
+                sort_by=sort_by,
+                sort_dir=sort_dir,
+                page=page,
+                page_size=page_size,
+            )
+
+    @staticmethod
+    def _get_endpoints_from_db(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        methods: list[str] | None = None,
+        search_query: str | None = None,
+        sort_by: str = "total_requests",
+        sort_dir: str = "desc",
+        page: int = 1,
+        page_size: int = 25,
+    ) -> dict:
+        """
+        Fallback to PostgreSQL when ClickHouse has no telemetry data.
+        Returns endpoint records from the database.
+        """
+        from apps.projects.models import Endpoint
+        from django.db.models import Q
+
+        # Start with base query for endpoints in this project
+        queryset = Endpoint.objects.filter(
+            app__project_id=project_id,
+            app__is_active=True,
+            is_active=True
+        )
+
+        # Filter by apps if specified
+        if app_ids:
+            queryset = queryset.filter(app_id__in=app_ids)
+
+        # Filter by methods
+        if methods:
+            queryset = queryset.filter(method__in=methods)
+
+        # Search filter
+        if search_query:
+            queryset = queryset.filter(
+                Q(path__icontains=search_query) | Q(method__icontains=search_query)
+            )
+
+        # Get total count before pagination
+        total_count = queryset.count()
+
+        # Sorting - map analytics sort fields to database fields
+        sort_field_map = {
+            "endpoint": "path",
+            "total_requests": "-last_seen_at",  # Most recent as proxy for popular
+            "error_rate": "path",
+            "avg_response_time_ms": "path",
+            "p95_response_time_ms": "path",
+        }
+        db_sort_field = sort_field_map.get(sort_by, "-last_seen_at")
+        if sort_dir.lower() == "asc" and db_sort_field.startswith("-"):
+            db_sort_field = db_sort_field[1:]
+        elif sort_dir.lower() == "desc" and not db_sort_field.startswith("-"):
+            db_sort_field = f"-{db_sort_field}"
+
+        queryset = queryset.order_by(db_sort_field, "method", "path")
+
+        # Pagination
+        offset = (page - 1) * page_size
+        endpoints = queryset[offset:offset + page_size]
+
+        # Format as analytics response (with zeros for metrics)
+        items = []
+        for endpoint in endpoints:
+            items.append({
+                "method": endpoint.method,
+                "path": endpoint.path,
+                "total_requests": 0,
+                "error_count": 0,
+                "error_rate": 0.0,
+                "avg_response_time_ms": 0.0,
+                "p95_response_time_ms": 0.0,
+            })
+
+        return {"items": items, "total_count": total_count}
 
     @staticmethod
     def get_project_environments(
