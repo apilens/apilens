@@ -240,7 +240,7 @@ def get_analytics_timeseries(
     )
 
 
-@router.get("/{project_slug}/analytics/endpoints", response=list[dict])
+@router.get("/{project_slug}/analytics/endpoints", response=dict)
 def get_endpoint_stats(
     request: HttpRequest,
     project_slug: str,
@@ -248,11 +248,37 @@ def get_endpoint_stats(
     environment: str = None,
     since: str = None,
     until: str = None,
-    limit: int = 100,
+    methods: str = None,
+    status_classes: str = None,
+    status_codes: str = None,
+    q: str = None,
+    sort_by: str = "total_requests",
+    sort_dir: str = "desc",
+    page: int = 1,
+    page_size: int = 25,
 ):
     """
-    Get endpoint statistics aggregated across a project.
-    Optionally filter by a specific app within the project.
+    Get endpoint statistics aggregated across a project with pagination.
+    Optionally filter by specific apps within the project.
+
+    Query parameters:
+    - app_slugs: Comma-separated app slugs to filter
+    - environment: Filter by environment name
+    - since/until: Time range
+    - methods: Comma-separated HTTP methods (e.g., "GET,POST")
+    - status_classes: Comma-separated status classes (e.g., "2xx,4xx")
+    - status_codes: Comma-separated status codes (e.g., "200,404")
+    - q: Search query for path or method
+    - sort_by: Field to sort by (endpoint, total_requests, error_rate, avg_response_time_ms, p95_response_time_ms)
+    - sort_dir: Sort direction (asc or desc)
+    - page: Page number (1-indexed)
+    - page_size: Items per page
+
+    Returns:
+    {
+        "items": [...],
+        "total_count": int
+    }
     """
     user: User = request.auth
     project = ProjectService.get_project_by_slug(user, project_slug)
@@ -264,13 +290,32 @@ def get_endpoint_stats(
             apps = AppService.get_apps_by_slugs(project, slugs)
             app_ids = [str(app.id) for app in apps]
 
+    method_list = None
+    if methods:
+        method_list = [m.strip().upper() for m in methods.split(",") if m.strip()]
+
+    status_class_list = None
+    if status_classes:
+        status_class_list = [sc.strip() for sc in status_classes.split(",") if sc.strip()]
+
+    status_code_list = None
+    if status_codes:
+        status_code_list = [int(sc.strip()) for sc in status_codes.split(",") if sc.strip().isdigit()]
+
     return AnalyticsService.get_project_endpoint_stats(
         project_id=str(project.id),
         app_ids=app_ids,
         environment=environment,
         since=since,
         until=until,
-        limit=limit,
+        methods=method_list,
+        status_classes=status_class_list,
+        status_codes=status_code_list,
+        search_query=q,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        page=page,
+        page_size=page_size,
     )
 
 
