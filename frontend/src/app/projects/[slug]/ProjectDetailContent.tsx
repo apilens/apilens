@@ -61,10 +61,11 @@ export default function ProjectDetailContent({ slug }: ProjectDetailContentProps
           throw new Error(body.error || "Failed to fetch apps");
         }
         const appsData = await appsRes.json();
-        setApps(appsData.apps || []);
+        const appsList = appsData.apps || [];
+        setApps(appsList);
 
         // Fetch analytics
-        const appSlugs = list.map((a) => a.slug);
+        const appSlugs = appsList.map((a: any) => a.slug);
         const qs = appSlugs.length ? `?app_slugs=${encodeURIComponent(appSlugs.join(","))}` : "";
 
         const summaryRes = await fetch(`/api/projects/${slug}/analytics/summary${qs}`);
