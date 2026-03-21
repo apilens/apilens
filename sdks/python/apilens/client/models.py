@@ -12,6 +12,7 @@ class RequestRecord:
     path: str
     status_code: int
     response_time_ms: float
+    app_id: str = ""  # Required by backend API
     request_size: int = 0
     response_size: int = 0
     ip_address: str = ""
@@ -35,6 +36,7 @@ class RequestRecord:
             path = f"/{path}"
 
         return {
+            "app_id": self.app_id or "",
             "timestamp": iso,
             "environment": self.environment,
             "method": (self.method or "GET").upper(),

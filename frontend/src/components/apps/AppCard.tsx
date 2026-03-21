@@ -6,7 +6,6 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Calendar,
-  Settings,
   Trash2,
   Ellipsis,
   ArrowRight,
@@ -16,6 +15,7 @@ import type { AppListItem } from "@/types/app";
 
 interface AppCardProps {
   app: AppListItem;
+  projectSlug?: string;
   onDeleted?: (id: string) => void;
 }
 
@@ -30,7 +30,7 @@ const FRAMEWORK_META: Record<
   express: { label: "Express", icon: "/frameworks/express.svg" },
 };
 
-export default function AppCard({ app, onDeleted }: AppCardProps) {
+export default function AppCard({ app, projectSlug, onDeleted }: AppCardProps) {
   const router = useRouter();
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
@@ -48,7 +48,11 @@ export default function AppCard({ app, onDeleted }: AppCardProps) {
   const appAvatar = (app.name.charAt(0) || "A").slice(0, 2);
 
   const openApp = () => {
-    router.push(`/apps/${app.slug}/endpoints`);
+    if (projectSlug) {
+      router.push(`/projects/${projectSlug}/endpoints?app=${app.slug}`);
+    } else {
+      router.push(`/apps/${app.slug}/endpoints`);
+    }
   };
 
   const handleDelete = async (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -125,19 +129,8 @@ export default function AppCard({ app, onDeleted }: AppCardProps) {
                 }}
               >
                 <ArrowRight size={14} />
-                Open app
+                View endpoints
               </button>
-              <Link
-                href={`/apps/${app.slug}/settings/general`}
-                className="app-card-menu-item"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMenuOpen(false);
-                }}
-              >
-                <Settings size={14} />
-                Settings
-              </Link>
               <button
                 type="button"
                 className="app-card-menu-item app-card-menu-item-danger"
@@ -148,7 +141,7 @@ export default function AppCard({ app, onDeleted }: AppCardProps) {
                 disabled={isDeleting}
               >
                 {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                Delete
+                Delete app
               </button>
             </div>
           ) : null}

@@ -2912,7 +2912,8 @@ class AnalyticsService:
 
         try:
             count_result = client.execute(count_query, params)
-            total_count = count_result[0][0] if count_result else 0
+            # count_result is a list of dicts, get the first dict's first value
+            total_count = list(count_result[0].values())[0] if count_result else 0
         except Exception as exc:
             logger.warning("ClickHouse count query failed for project endpoint stats: %s", exc)
             total_count = 0
@@ -2942,22 +2943,37 @@ class AnalyticsService:
 
         try:
             rows = client.execute(query, params)
-            items = [AnalyticsService._clean_nan_values(row) for row in rows]
+            # Rows are already dicts from the ClickHouse client wrapper
+            clickhouse_items = [AnalyticsService._clean_nan_values(row) for row in rows]
 
-            # If ClickHouse has no data, fall back to PostgreSQL endpoint records
-            if total_count == 0:
-                return AnalyticsService._get_endpoints_from_db(
-                    project_id=project_id,
-                    app_ids=app_ids,
-                    methods=methods,
-                    search_query=search_query,
-                    sort_by=sort_by,
-                    sort_dir=sort_dir,
-                    page=page,
-                    page_size=page_size,
-                )
+            # Get all registered endpoints from PostgreSQL
+            db_result = AnalyticsService._get_endpoints_from_db(
+                project_id=project_id,
+                app_ids=app_ids,
+                methods=methods,
+                search_query=search_query,
+                sort_by=sort_by,
+                sort_dir=sort_dir,
+                page=page,
+                page_size=page_size,
+            )
 
-            return {"items": items, "total_count": total_count}
+            # Merge ClickHouse stats into PostgreSQL endpoints
+            # Create a lookup map for ClickHouse data
+            stats_map = {(item["method"], item["path"]): item for item in clickhouse_items}
+
+            # Overlay ClickHouse stats onto DB endpoints
+            merged_items = []
+            for db_item in db_result["items"]:
+                key = (db_item["method"], db_item["path"])
+                if key in stats_map:
+                    # Use ClickHouse stats if available
+                    merged_items.append(stats_map[key])
+                else:
+                    # Keep DB endpoint with 0 stats
+                    merged_items.append(db_item)
+
+            return {"items": merged_items, "total_count": db_result["total_count"]}
         except Exception as exc:
             logger.warning("ClickHouse query failed for project endpoint stats: %s", exc)
             # Fall back to PostgreSQL endpoint records
@@ -3076,7 +3092,7 @@ class AnalyticsService:
             SELECT DISTINCT environment
             FROM api_requests
             {' '.join(filters)}
-            WHERE environment != ''
+            AND environment != ''
             ORDER BY environment
         """
 

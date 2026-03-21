@@ -91,6 +91,7 @@ export default function ProjectAppsContent({ slug }: ProjectAppsContentProps) {
             <AppCard
               key={app.id}
               app={app}
+              projectSlug={slug}
               onDeleted={(id) => setApps((prev) => prev.filter((existing) => existing.id !== id))}
             />
           ))}
