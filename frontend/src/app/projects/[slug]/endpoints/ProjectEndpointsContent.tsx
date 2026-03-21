@@ -121,6 +121,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
 
     const range = searchParams.get("range");
     const env = searchParams.get("env");
+    const app = searchParams.get("app");
     const methods = searchParams.get("methods");
     const statusClasses = searchParams.get("status_classes");
     const statusCodes = searchParams.get("status_codes");
@@ -129,6 +130,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
 
     if (range) setSelectedRange(parseInt(range, 10));
     if (env) setSelectedEnv(env);
+    if (app) setSelectedAppSlugs([app]);
     if (methods) setMethodFilters(methods.split(","));
     if (statusClasses) setStatusClassFilters(statusClasses.split(",") as any);
     if (statusCodes) setStatusCodeFilters(statusCodes.split(",").map(Number));
@@ -145,6 +147,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     const params = new URLSearchParams();
     if (selectedRange !== 24) params.set("range", String(selectedRange));
     if (selectedEnv) params.set("env", selectedEnv);
+    if (selectedAppSlugs.length === 1) params.set("app", selectedAppSlugs[0]);
     if (methodFilters.length > 0) params.set("methods", methodFilters.join(","));
     if (statusClassFilters.length > 0) params.set("status_classes", statusClassFilters.join(","));
     if (statusCodeFilters.length > 0) params.set("status_codes", statusCodeFilters.join(","));
@@ -153,7 +156,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
 
     const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
     router.replace(newUrl, { scroll: false });
-  }, [isInitialized, selectedRange, selectedEnv, methodFilters, statusClassFilters, statusCodeFilters, searchTerm, currentPage, router]);
+  }, [isInitialized, selectedRange, selectedEnv, selectedAppSlugs, methodFilters, statusClassFilters, statusCodeFilters, searchTerm, currentPage, router]);
 
   // Debounce search
   useEffect(() => {

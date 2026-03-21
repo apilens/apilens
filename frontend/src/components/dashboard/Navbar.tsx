@@ -7,11 +7,10 @@ import { Bell, LogOut, Settings } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 
 export interface NavbarProps {
-  appSlug?: string;
   projectSlug?: string;
 }
 
-export default function Navbar({ appSlug, projectSlug }: NavbarProps) {
+export default function Navbar({ projectSlug }: NavbarProps) {
   const { user, isLoading, logout } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -32,8 +31,7 @@ export default function Navbar({ appSlug, projectSlug }: NavbarProps) {
   return (
     <header className="navbar">
       <div className="navbar-left">
-        {appSlug && <Breadcrumbs appSlug={appSlug} />}
-        {projectSlug && !appSlug && <Breadcrumbs projectSlug={projectSlug} />}
+        {projectSlug && <Breadcrumbs projectSlug={projectSlug} />}
       </div>
 
       <div className="navbar-right">

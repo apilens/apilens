@@ -64,6 +64,7 @@ class ApiLensASGIMiddleware:
         app,
         client: ApiLensClient,
         *,
+        app_id: str = "",
         environment: str | None = None,
         enable_request_logging: bool = True,
         log_request_body: bool = True,
@@ -73,6 +74,7 @@ class ApiLensASGIMiddleware:
     ) -> None:
         self.app = app
         self.client = client
+        self.app_id = app_id
         self.environment = environment
         self.enable_request_logging = enable_request_logging
         self.log_request_body = log_request_body
@@ -94,6 +96,7 @@ class ApiLensASGIMiddleware:
         ctx = CaptureContext(
             method=(scope.get("method") or "GET").upper(),
             path=path,
+            app_id=self.app_id,
             request_size=_to_int(headers.get("content-length"), 0),
             ip_address=_extract_ip(headers, fallback=(scope.get("client") or ("", 0))[0] or ""),
             user_agent=_extract_user_agent(headers),
@@ -173,6 +176,7 @@ class ApiLensWSGIMiddleware:
         app: Callable,
         client: ApiLensClient,
         *,
+        app_id: str = "",
         environment: str | None = None,
         enable_request_logging: bool = True,
         log_request_body: bool = True,
@@ -182,6 +186,7 @@ class ApiLensWSGIMiddleware:
     ) -> None:
         self.app = app
         self.client = client
+        self.app_id = app_id
         self.environment = environment
         self.enable_request_logging = enable_request_logging
         self.log_request_body = log_request_body
@@ -221,6 +226,7 @@ class ApiLensWSGIMiddleware:
         ctx = CaptureContext(
             method=(environ.get("REQUEST_METHOD") or "GET").upper(),
             path=path,
+            app_id=self.app_id,
             request_size=_to_int(environ.get("CONTENT_LENGTH"), 0),
             ip_address=ip_address,
             user_agent=(environ.get("HTTP_USER_AGENT") or "").strip(),

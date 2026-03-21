@@ -13,6 +13,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         app.add_middleware(
             ApiLensGatewayMiddleware,
             api_key="your_app_api_key",
+            app_id="your_app_id",
             base_url="https://api.apilens.ai/api/v1",
             env="production",
         )
@@ -24,6 +25,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         *,
         api_key: str | None = None,
         client_id: str | None = None,
+        app_id: str = "",
         base_url: str = "https://api.apilens.ai/api/v1",
         env: str = "production",
         verify_tls: bool = True,
@@ -53,6 +55,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         super().__init__(
             app,
             client=client,
+            app_id=app_id,
             environment=env,
             enable_request_logging=enable_request_logging,
             log_request_body=log_request_body,

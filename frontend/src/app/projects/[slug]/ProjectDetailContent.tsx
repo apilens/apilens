@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Loader2, Plus, Layers } from "lucide-react";
+import { AppCard } from "@/components/apps";
+import type { AppListItem } from "@/types/app";
 
 interface ProjectInfo {
   id: string;
@@ -21,7 +23,7 @@ export default function ProjectDetailContent({ slug }: ProjectDetailContentProps
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
-  const [apps, setApps] = useState<Array<{ id: string; name: string; slug: string }>>([]);
+  const [apps, setApps] = useState<AppListItem[]>([]);
   const [summary, setSummary] = useState<Record<string, number>>({
     total_requests: 0,
     error_count: 0,
@@ -59,8 +61,7 @@ export default function ProjectDetailContent({ slug }: ProjectDetailContentProps
           throw new Error(body.error || "Failed to fetch apps");
         }
         const appsData = await appsRes.json();
-        const list = (appsData.apps || []).map((a: any) => ({ id: a.id, name: a.name, slug: a.slug }));
-        setApps(list);
+        setApps(appsData.apps || []);
 
         // Fetch analytics
         const appSlugs = list.map((a) => a.slug);
@@ -156,6 +157,35 @@ export default function ProjectDetailContent({ slug }: ProjectDetailContentProps
           <p className="logs-metric-value">{Math.round(summary.p95_response_time_ms)} ms</p>
         </article>
       </section>
+
+      {/* Apps Grid */}
+      {apps.length > 0 && (
+        <div style={{ marginTop: "2rem" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+            <h2 className="create-app-page-title">Apps</h2>
+            <Link href={`/projects/${slug}/apps`} className="settings-btn settings-btn-secondary" style={{ fontSize: "0.875rem" }}>
+              View All
+            </Link>
+          </div>
+          <div className="apps-grid">
+            {apps.slice(0, 6).map((app) => (
+              <AppCard
+                key={app.id}
+                app={app}
+                projectSlug={slug}
+                onDeleted={(id) => setApps((prev) => prev.filter((a) => a.id !== id))}
+              />
+            ))}
+          </div>
+          {apps.length > 6 && (
+            <div style={{ marginTop: "1rem", textAlign: "center" }}>
+              <Link href={`/projects/${slug}/apps`} className="settings-btn">
+                View All {apps.length} Apps
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Top Endpoints */}
       {topEndpoints.length > 0 && (

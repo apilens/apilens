@@ -20,14 +20,6 @@ import {
   Check,
 } from "lucide-react";
 import { useSidebar } from "@/components/providers/SidebarProvider";
-import { useApp } from "@/components/providers/AppProvider";
-
-interface AppListItem {
-  id: string;
-  name: string;
-  slug: string;
-  icon_url: string;
-}
 
 interface ProjectListItem {
   id: string;
@@ -35,28 +27,19 @@ interface ProjectListItem {
   slug: string;
 }
 
-interface SidebarProps {
-  appSlug?: string;
-}
-
-export default function Sidebar({ appSlug }: SidebarProps) {
+export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { collapsed, toggleSidebar } = useSidebar();
-  const { app: currentApp } = useApp();
 
   const parts = pathname.split("/").filter(Boolean);
   const inProject = parts[0] === "projects" && parts[1];
   const projectSlug = inProject ? parts[1] : "";
   const currentSection = parts.slice(inProject ? 2 : 1).join("/") || "endpoints";
 
-  const [apps, setApps] = useState<AppListItem[]>([]);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const hasApp = Boolean(appSlug);
-  const basePath = hasApp ? `/apps/${appSlug}` : "/apps";
 
   const getCurrentSection = () => {
     const parts = pathname.split("/").filter(Boolean);
@@ -64,17 +47,6 @@ export default function Sidebar({ appSlug }: SidebarProps) {
   };
 
   useEffect(() => {
-    async function fetchApps() {
-      try {
-        const res = await fetch("/api/apps");
-        if (res.ok) {
-          const data = await res.json();
-          setApps(data.apps || []);
-        }
-      } catch {
-        // ignore
-      }
-    }
     async function fetchProjects() {
       try {
         const res = await fetch("/api/projects");
@@ -86,7 +58,6 @@ export default function Sidebar({ appSlug }: SidebarProps) {
         // ignore
       }
     }
-    fetchApps();
     fetchProjects();
   }, []);
 
@@ -114,15 +85,7 @@ export default function Sidebar({ appSlug }: SidebarProps) {
       { name: "Endpoints", href: `/projects/${projectSlug}/endpoints`, icon: TrendingUp },
       { name: "Settings", href: `/projects/${projectSlug}/settings`, icon: Settings },
     ]
-    : hasApp
-      ? [
-        { name: "Endpoints", href: `${basePath}/endpoints`, icon: Layers },
-        { name: "Analytics", href: `${basePath}/analytics`, icon: TrendingUp },
-        { name: "Consumers", href: `${basePath}/consumers`, icon: Users },
-        { name: "Monitors", href: `${basePath}/monitors`, icon: Radio },
-        { name: "Settings", href: `${basePath}/settings/general`, icon: Settings },
-      ]
-      : [
+    : [
         { name: "Projects", href: "/projects", icon: Layers },
         { name: "Create Project", href: "/projects/new", icon: Plus },
         { name: "Account", href: "/settings/general", icon: Settings },
@@ -229,13 +192,8 @@ export default function Sidebar({ appSlug }: SidebarProps) {
                 } else {
                   isActive = pathname === item.href || pathname.startsWith(item.href + "/");
                 }
-              } else if (hasApp) {
-                // For app navigation
-                isActive = item.name === "Settings"
-                  ? pathname.startsWith(`${basePath}/settings`)
-                  : pathname === item.href || pathname.startsWith(item.href + "/");
               } else {
-                // For other navigation
+                // For home navigation
                 isActive = pathname === item.href || pathname.startsWith(item.href + "/");
               }
               return (

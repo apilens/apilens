@@ -11,6 +11,7 @@ from .client import ApiLensClient
 class CaptureContext:
     method: str
     path: str
+    app_id: str = ""
     request_size: int = 0
     ip_address: str = ""
     user_agent: str = ""
@@ -83,6 +84,7 @@ def capture_response(
         path=ctx.path,
         status_code=status_code,
         response_time_ms=elapsed_ms,
+        app_id=ctx.app_id,
         request_size=ctx.request_size,
         response_size=max(response_size, 0),
         ip_address=ctx.ip_address,
