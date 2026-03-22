@@ -45,6 +45,10 @@ def create_project(request: HttpRequest, data: CreateProjectRequest):
     """Create a new project."""
     user: User = request.auth
     project = ProjectService.create_project(user, data.name, data.description)
+
+    # Auto-create default API key for the project
+    ApiKeyService.create_api_key(project, f"{project.name} API Key")
+
     return 201, ProjectResponse.from_orm(project)
 
 
@@ -95,7 +99,7 @@ def create_app(request: HttpRequest, project_slug: str, data: CreateAppRequest):
     """Create a new app within a project."""
     user: User = request.auth
     project = ProjectService.get_project_by_slug(user, project_slug)
-    app = AppService.create_app(project, data.name, data.description, data.framework)
+    app = AppService.create_app(project, data.name, data.description, data.framework, data.slug)
     return 201, AppResponse.from_orm(app)
 
 

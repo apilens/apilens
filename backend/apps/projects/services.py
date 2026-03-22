@@ -202,6 +202,7 @@ class AppService:
         name: str,
         description: str = "",
         framework: str = "fastapi",
+        custom_slug: str = "",
     ) -> App:
         """Create a new app within a project."""
         name = name.strip()
@@ -214,7 +215,30 @@ class AppService:
         if App.objects.for_project(project).count() >= MAX_APPS_PER_PROJECT:
             raise RateLimitError(f"Maximum of {MAX_APPS_PER_PROJECT} apps allowed per project")
 
-        # Retry for rare concurrent create collisions.
+        # Use custom slug if provided, otherwise auto-generate from name
+        custom_slug = custom_slug.strip()
+        if custom_slug:
+            # Validate the custom slug
+            validate_app_slug(custom_slug)
+            slug = custom_slug
+            # Check for uniqueness
+            if App.objects.filter(project=project, slug=slug).exists():
+                raise ConflictError(f"App slug '{slug}' already exists in this project")
+
+            try:
+                with transaction.atomic():
+                    app = App.objects.create(
+                        project=project,
+                        name=name,
+                        slug=slug,
+                        description=description.strip(),
+                        framework=framework,
+                    )
+                    return app
+            except IntegrityError:
+                raise ConflictError(f"App slug '{slug}' already exists in this project")
+
+        # Retry for rare concurrent create collisions with auto-generated slug.
         for attempt in range(5):
             slug = _unique_slug(project, name)
             try:

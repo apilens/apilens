@@ -64,6 +64,7 @@ class ProjectListResponse(Schema):
 
 class CreateAppRequest(Schema):
     name: str
+    slug: str = ""
     description: str = ""
     framework: str = "fastapi"
 
