@@ -26,7 +26,7 @@ function getDefaultBaseUrl(): string {
   return "https://api.apilens.ai/api/v1";
 }
 
-function buildFrameworkSnippet(framework: FrameworkId, apiKey: string): string {
+function buildFrameworkSnippet(framework: FrameworkId, apiKey: string, appSlug: string): string {
   const baseUrl = getDefaultBaseUrl();
   if (framework === "express") {
     return `import express from "express";
@@ -37,6 +37,7 @@ app.use(express.json());
 
 useApiLens(app, {
   apiKey: "${apiKey}",
+  appId: "${appSlug}",
   baseUrl: "${baseUrl}",
   environment: "production",
   requestLogging: {
@@ -48,13 +49,14 @@ useApiLens(app, {
   }
   if (framework === "fastapi") {
     return `from fastapi import FastAPI
-from apilens.fastapi import ApiLensGatewayMiddleware
+from apilens.fastapi import ApiLensMiddleware
 
 app = FastAPI()
 
 app.add_middleware(
-    ApiLensGatewayMiddleware,
+    ApiLensMiddleware,
     api_key="${apiKey}",
+    app_id="${appSlug}",
     base_url="${baseUrl}",
     env="production",
     enable_request_logging=True,
@@ -77,7 +79,7 @@ client = ApiLensClient(
     )
 )
 
-instrument_app(app, client)`;
+instrument_app(app, client, app_id="${appSlug}")`;
   }
   if (framework === "starlette") {
     return `from starlette.applications import Starlette
@@ -94,7 +96,7 @@ client = ApiLensClient(
     )
 )
 
-instrument_app(app, client)`;
+instrument_app(app, client, app_id="${appSlug}")`;
   }
   return `# settings.py
 MIDDLEWARE = [
@@ -103,6 +105,7 @@ MIDDLEWARE = [
 ]
 
 APILENS_API_KEY = "${apiKey}"
+APILENS_APP_ID = "${appSlug}"
 APILENS_BASE_URL = "${baseUrl}"
 APILENS_ENVIRONMENT = "production"`;
 }
@@ -201,17 +204,19 @@ export default function AppSetupGuide({
   apiKey,
   hasRawKey,
   appSlug,
+  projectSlug,
 }: {
   appName: string;
   framework: FrameworkId;
   apiKey: string;
   hasRawKey: boolean;
   appSlug: string;
+  projectSlug?: string;
 }) {
   const [copiedItem, setCopiedItem] = useState<"install" | "snippet" | "">("");
   const frameworkOption = FRAMEWORK_OPTIONS[framework] || FRAMEWORK_OPTIONS.fastapi;
   const installCmd = buildInstallCommand(framework);
-  const snippet = buildFrameworkSnippet(framework, apiKey);
+  const snippet = buildFrameworkSnippet(framework, apiKey, appSlug);
   const snippetLanguage = frameworkOption.packageLanguage === "python" ? "python" : "javascript";
 
   const copyText = async (text: string, item: "install" | "snippet") => {
@@ -226,7 +231,12 @@ export default function AppSetupGuide({
         <p className="create-app-setup-kicker">Quickstart</p>
         <h3>{appName} is live</h3>
         <p>
-          {frameworkOption.label} setup guide. {hasRawKey ? "Copy, paste, and start sending traffic." : "Paste, then replace masked API key with your active key."}
+          {frameworkOption.label} setup guide. Replace the masked API key below with your project API key.{" "}
+          {projectSlug && (
+            <Link href={`/projects/${projectSlug}/settings/api-keys`} style={{ textDecoration: "underline" }}>
+              View API Keys
+            </Link>
+          )}
         </p>
       </div>
 
@@ -251,7 +261,10 @@ export default function AppSetupGuide({
 
         <div className="create-app-setup-footer">
           <p>After restarting your app, hit a few endpoints and open Endpoints to verify traffic.</p>
-          <Link href={`/apps/${appSlug}/endpoints`} className="settings-btn settings-btn-primary">
+          <Link
+            href={projectSlug ? `/projects/${projectSlug}/endpoints?app=${appSlug}` : `/apps/${appSlug}/endpoints`}
+            className="settings-btn settings-btn-primary"
+          >
             Continue to app
           </Link>
         </div>
