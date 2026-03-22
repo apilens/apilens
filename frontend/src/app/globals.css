@@ -7948,3 +7948,54 @@ a.settings-btn {
     gap: 6px;
   }
 }
+
+/* Apps Table Styles */
+.apps-table-wrapper {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.apps-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.apps-table thead {
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.apps-table th {
+  text-align: left;
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.apps-table tbody tr {
+  border-bottom: 1px solid var(--border-color);
+  transition: background-color 0.15s ease;
+}
+
+.apps-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.apps-table tbody tr:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.apps-table td {
+  padding: 16px;
+  font-size: 14px;
+  vertical-align: middle;
+}
+
+.apps-table-row {
+  position: relative;
+}
