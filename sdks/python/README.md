@@ -59,7 +59,7 @@ client = ApiLensClient(
 )
 
 client.capture(
-    app_id="your_app_id",  # Required: Get this from API Lens dashboard
+    app_id="my-api-service",  # Required: App slug or UUID
     method="GET",
     path="/health",
     status_code=200,
@@ -71,10 +71,18 @@ client.shutdown(flush=True)
 
 ### Getting your App ID
 
+You can use either the **app slug** (recommended) or **app UUID**:
+
+**Using App Slug (Recommended):**
+```python
+app_id = "my-api-service"  # Human-readable, easy to remember
+```
+
+**Using App UUID:**
 1. Log in to [API Lens Dashboard](https://app.apilens.ai)
 2. Navigate to your project
 3. Select or create an app
-4. Copy the **App ID** from the app settings
+4. Copy the **App UUID** from the app settings
 
 ## FastAPI
 
@@ -91,7 +99,7 @@ app = FastAPI()
 app.add_middleware(
     ApiLensMiddleware,
     api_key="your_app_api_key",      # Required: Your API key
-    app_id="your_app_id",              # Required: Your app ID from dashboard
+    app_id="my-api-service",           # Required: App slug (or UUID)
     base_url="https://api.apilens.ai/api/v1",
     env="production",
     enable_request_logging=True,
@@ -251,8 +259,8 @@ instrument_app(
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `api_key` | ✅ Yes | - | Your API key from API Lens dashboard |
-| `app_id` | ✅ Yes | - | Your app ID from API Lens dashboard |
+| `api_key` | Yes | - | Your API key from API Lens dashboard |
+| `app_id` | Yes | - | Your app slug or UUID from API Lens dashboard |
 | `base_url` | No | `https://api.apilens.ai/api/v1` | API Lens ingest endpoint |
 | `environment` | No | `production` | Environment name (e.g., production, staging, dev) |
 | `enable_request_logging` | No | `True` | Enable request/response logging |
@@ -289,13 +297,19 @@ app.add_middleware(
 
 ### Finding Your App ID
 
+**Using App Slug (Recommended):**
+The slug is shown in the app list and is human-readable (e.g., `user-service`, `api-gateway`).
+
+**Using App UUID:**
 1. Log in to [API Lens Dashboard](https://app.apilens.ai)
 2. Navigate to your project
 3. Go to the Apps tab
 4. Select your app or create a new one
-5. Copy the **App ID** from the URL or app settings
+5. Copy the UUID from the URL or app settings
 
-Example App ID format: `c2537f6e-9b59-47ec-ab13-3559ae645c60`
+Example formats:
+- Slug: `user-service` (recommended)
+- UUID: `c2537f6e-9b59-47ec-ab13-3559ae645c60`
 
 ### Data Not Appearing in Dashboard
 
