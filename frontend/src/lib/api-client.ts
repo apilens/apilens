@@ -477,10 +477,27 @@ export const apiClient = {
     return fetchDjango<AppListItem[]>(`/projects/${projectSlug}/apps`);
   },
 
-  async createProjectApp(projectSlug: string, data: { name: string; description?: string; framework?: "fastapi" | "flask" | "django" | "starlette" }): Promise<ApiResponse<AppInfo>> {
+  async createProjectApp(projectSlug: string, data: { name: string; slug?: string; description?: string; framework?: "fastapi" | "flask" | "django" | "starlette" }): Promise<ApiResponse<AppInfo>> {
     return fetchDjango<AppInfo>(`/projects/${projectSlug}/apps`, {
       method: "POST",
       body: JSON.stringify(data),
+    });
+  },
+
+  async getProjectApp(projectSlug: string, appSlug: string): Promise<ApiResponse<AppInfo>> {
+    return fetchDjango<AppInfo>(`/projects/${projectSlug}/apps/${appSlug}`);
+  },
+
+  async updateProjectApp(projectSlug: string, appSlug: string, data: { name?: string; description?: string; framework?: string }): Promise<ApiResponse<AppInfo>> {
+    return fetchDjango<AppInfo>(`/projects/${projectSlug}/apps/${appSlug}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteProjectApp(projectSlug: string, appSlug: string): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>(`/projects/${projectSlug}/apps/${appSlug}`, {
+      method: "DELETE",
     });
   },
 

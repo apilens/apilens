@@ -72,7 +72,7 @@ export default function ProjectAppsContent({ slug }: ProjectAppsContentProps) {
 
     setIsDeleting(app.id);
     try {
-      const res = await fetch(`/api/apps/${app.slug}`, { method: "DELETE" });
+      const res = await fetch(`/api/projects/${slug}/apps/${app.slug}`, { method: "DELETE" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || "Failed to delete app");
