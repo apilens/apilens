@@ -11,6 +11,8 @@ export type {
   ApiLensClientConfig,
   ApiLensConsumer,
   ApiLensExpressConfig,
+  ApiLensNextConfig,
+  ApiLensNextEnvSummary,
   ApiLensRecord,
   ApiLensRecordInput,
   Logger,

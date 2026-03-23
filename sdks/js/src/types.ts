@@ -87,3 +87,22 @@ export type ApiLensExpressConfig = ApiLensClientConfig & {
   requestLogging?: RequestLoggingConfig;
   getConsumer?: (req: unknown, res: unknown) => ApiLensConsumer | string | null | undefined;
 };
+
+export type ApiLensNextConfig = ApiLensClientConfig & {
+  client?: unknown;
+  env?: string;
+  clientId?: string;
+  client_id?: string;
+  requestLogging?: RequestLoggingConfig;
+  getConsumer?: (
+    request: Request,
+    response?: Response,
+    context?: unknown,
+  ) => ApiLensConsumer | string | null | undefined;
+};
+
+export type ApiLensNextEnvSummary = {
+  hasApiKey: boolean;
+  baseUrl: string;
+  environment: string;
+};

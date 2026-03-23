@@ -13,7 +13,7 @@ import type {
   Logger,
 } from "./types.js";
 
-const SDK_VERSION = "0.1.0";
+const SDK_VERSION = "0.1.2";
 
 type RequiredConfig = {
   apiKey: string;
