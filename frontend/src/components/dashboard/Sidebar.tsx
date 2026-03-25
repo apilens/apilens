@@ -8,9 +8,7 @@ import {
   Layers,
   ScrollText,
   TrendingUp,
-  Radio,
   Settings,
-  Users,
   Bell,
   CircleHelpIcon,
   PanelLeftClose,
@@ -75,12 +73,11 @@ export default function Sidebar() {
 
   const handleSwitchProject = (slug: string) => {
     setDropdownOpen(false);
-    router.push(`/projects/${slug}`);
+    router.push(`/projects/${slug}/apps`);
   };
 
   const navigation = inProject
     ? [
-      { name: "Overview", href: `/projects/${projectSlug}`, icon: Layers },
       { name: "Apps", href: `/projects/${projectSlug}/apps`, icon: ScrollText },
       { name: "Endpoints", href: `/projects/${projectSlug}/endpoints`, icon: TrendingUp },
       { name: "Settings", href: `/projects/${projectSlug}/settings`, icon: Settings },
@@ -184,18 +181,7 @@ export default function Sidebar() {
           {!collapsed && <span className="nav-section-title">Main</span>}
           <ul className="nav-list">
             {navigation.map((item) => {
-              let isActive = false;
-              if (inProject) {
-                // For project navigation, use exact match for Overview
-                if (item.name === "Overview") {
-                  isActive = pathname === item.href;
-                } else {
-                  isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-                }
-              } else {
-                // For home navigation
-                isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-              }
+              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
               return (
                 <li key={item.name}>
                   <Link

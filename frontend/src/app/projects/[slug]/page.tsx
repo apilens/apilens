@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
-import ProjectDetailContent from "./ProjectDetailContent";
 
 export default async function ProjectDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const session = await getSession();
@@ -9,5 +8,5 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   }
 
   const { slug } = await params;
-  return <ProjectDetailContent slug={slug} />;
+  redirect(`/projects/${slug}/apps`);
 }

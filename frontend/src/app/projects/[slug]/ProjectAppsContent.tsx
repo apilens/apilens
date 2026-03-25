@@ -104,9 +104,9 @@ export default function ProjectAppsContent({ slug }: ProjectAppsContentProps) {
     return (
       <div className="apps-page">
         <div className="apps-page-header">
-          <Link href={`/projects/${slug}`} className="settings-btn">
+          <Link href={`/projects/${slug}/apps`} className="settings-btn">
             <ArrowLeft size={16} strokeWidth={2} />
-            Back to Overview
+            Back to Apps
           </Link>
         </div>
         <div className="create-app-error">{error}</div>
