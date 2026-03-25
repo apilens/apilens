@@ -23,9 +23,13 @@ def _get_client_from_settings() -> ApiLensClient:
     api_key = getattr(settings, "APILENS_API_KEY", "")
     if not api_key:
         raise RuntimeError("APILENS_API_KEY is required in Django settings")
+    project_slug = getattr(settings, "APILENS_PROJECT_SLUG", "")
+    if not project_slug:
+        raise RuntimeError("APILENS_PROJECT_SLUG is required in Django settings")
 
     cfg = ApiLensConfig(
         api_key=api_key,
+        project_slug=project_slug,
         base_url=getattr(settings, "APILENS_BASE_URL", "https://api.apilens.ai/api/v1"),
         environment=getattr(settings, "APILENS_ENVIRONMENT", "production"),
         batch_size=int(getattr(settings, "APILENS_BATCH_SIZE", 200)),
@@ -39,8 +43,14 @@ class ApiLensDjangoMiddleware:
     """Django middleware for DRF + Django Ninja."""
 
     def __init__(self, get_response):
+        from django.conf import settings
+
         self.get_response = get_response
         self.client = _get_client_from_settings()
+        self.project_slug = getattr(settings, "APILENS_PROJECT_SLUG", "")
+        self.app_id = getattr(settings, "APILENS_APP_ID", "")
+        if not self.app_id:
+            raise RuntimeError("APILENS_APP_ID is required in Django settings")
         self.max_payload_bytes = 8192
 
     def __call__(self, request):
@@ -58,6 +68,8 @@ class ApiLensDjangoMiddleware:
         ctx = CaptureContext(
             method=(request.method or "GET").upper(),
             path=_normalize_path(getattr(request, "path", "/") or "/"),
+            project_slug=self.project_slug or self.client.config.project_slug,
+            app_id=self.app_id,
             request_size=_to_int(request.META.get("CONTENT_LENGTH"), 0),
             ip_address=ip_address,
             user_agent=(request.META.get("HTTP_USER_AGENT") or "").strip(),

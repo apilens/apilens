@@ -103,6 +103,7 @@ class ApiKeyAuth(APIKeyHeader):
                 user_id=str(user.id),
                 email=user.email,
                 project_id=str(api_key.project_id),
+                project_slug=api_key.project.slug,
             )
             request._auth_method = "api_key"
 

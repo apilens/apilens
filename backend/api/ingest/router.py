@@ -17,6 +17,18 @@ router = Router(auth=[api_key_auth])
 MAX_BATCH_SIZE = 1000
 
 
+def validate_project_slug(authenticated_project_slug: str, payload_project_slugs: set[str]) -> None:
+    normalized = {slug.strip() for slug in payload_project_slugs}
+    if not authenticated_project_slug:
+        raise AuthenticationError("API key must be scoped to a project")
+    if not normalized or "" in normalized:
+        raise ValidationError("project_slug is required for every record")
+    if normalized != {authenticated_project_slug}:
+        raise ValidationError(
+            f"project_slug must match the API key project '{authenticated_project_slug}'"
+        )
+
+
 def resolve_app_identifiers(project_id: str, app_identifiers: set[str]) -> dict[str, str]:
     """
     Resolve app identifiers (UUID or slug) to UUIDs.
@@ -78,8 +90,10 @@ def ingest_requests(request: HttpRequest, data: IngestRequest):
         raise ValidationError(f"Batch size exceeds maximum of {MAX_BATCH_SIZE}")
 
     project_id = request.tenant_context.project_id
+    project_slug = request.tenant_context.project_slug
     if not project_id:
         raise AuthenticationError("API key must be scoped to a project")
+    validate_project_slug(project_slug, {record.project_slug for record in data.requests})
 
     # Resolve app identifiers (UUID or slug) to UUIDs
     app_identifiers = {record.app_id for record in data.requests}
@@ -109,8 +123,10 @@ def ingest_logs(request: HttpRequest, data: IngestLogsRequest):
         raise ValidationError(f"Batch size exceeds maximum of {MAX_BATCH_SIZE}")
 
     project_id = request.tenant_context.project_id
+    project_slug = request.tenant_context.project_slug
     if not project_id:
         raise AuthenticationError("API key must be scoped to a project")
+    validate_project_slug(project_slug, {log.project_slug for log in data.logs})
 
     # Resolve app identifiers (UUID or slug) to UUIDs
     app_identifiers = {log.app_id for log in data.logs}

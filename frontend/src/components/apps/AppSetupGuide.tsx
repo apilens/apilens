@@ -26,17 +26,34 @@ function getDefaultBaseUrl(): string {
   return "https://api.apilens.ai/api/v1";
 }
 
-function buildFrameworkSnippet(framework: FrameworkId, apiKey: string, appSlug: string): string {
+function buildFrameworkSnippet(
+  framework: FrameworkId,
+  apiKey: string,
+  appSlug: string,
+  projectSlug?: string,
+  projectLabel?: string,
+): string {
   const baseUrl = getDefaultBaseUrl();
+  const projectSlugValue = projectSlug?.trim() || "your-project-slug";
+  const projectComment = projectLabel?.trim()
+    ? framework === "express"
+      ? `// Project: ${projectLabel}\n// This API key must come from the same project.\n`
+      : `# Project: ${projectLabel}\n# This API key must come from the same project.\n`
+    : "";
+
   if (framework === "express") {
-    return `import express from "express";
+    return `${projectComment}import express from "express";
 import { useApiLens } from "apilens-js-sdk/express";
 
 const app = express();
 app.use(express.json());
 
 useApiLens(app, {
+  // Project-scoped key for ${projectLabel || "this app's project"}
   apiKey: "${apiKey}",
+  // Project slug from the dashboard
+  projectSlug: "${projectSlugValue}",
+  // App slug inside that project
   appId: "${appSlug}",
   baseUrl: "${baseUrl}",
   environment: "production",
@@ -48,14 +65,18 @@ useApiLens(app, {
 });`;
   }
   if (framework === "fastapi") {
-    return `from fastapi import FastAPI
+    return `${projectComment}from fastapi import FastAPI
 from apilens.fastapi import ApiLensMiddleware
 
 app = FastAPI()
 
 app.add_middleware(
     ApiLensMiddleware,
+    # Project-scoped key for ${projectLabel || "this app's project"}
     api_key="${apiKey}",
+    # Project slug from the dashboard
+    project_slug="${projectSlugValue}",
+    # App slug inside that project
     app_id="${appSlug}",
     base_url="${baseUrl}",
     env="production",
@@ -65,7 +86,7 @@ app.add_middleware(
 )`;
   }
   if (framework === "flask") {
-    return `from flask import Flask
+    return `${projectComment}from flask import Flask
 from apilens import ApiLensClient, ApiLensConfig
 from apilens.flask import instrument_app
 
@@ -73,16 +94,23 @@ app = Flask(__name__)
 
 client = ApiLensClient(
     ApiLensConfig(
+        # Project-scoped key for ${projectLabel || "this app's project"}
         api_key="${apiKey}",
+        project_slug="${projectSlugValue}",
         base_url="${baseUrl}",
         environment="production",
     )
 )
 
-instrument_app(app, client, app_id="${appSlug}")`;
+instrument_app(
+    app,
+    client,
+    project_slug="${projectSlugValue}",
+    app_id="${appSlug}",
+)`;
   }
   if (framework === "starlette") {
-    return `from starlette.applications import Starlette
+    return `${projectComment}from starlette.applications import Starlette
 from apilens import ApiLensClient, ApiLensConfig
 from apilens.starlette import instrument_app
 
@@ -90,21 +118,32 @@ app = Starlette()
 
 client = ApiLensClient(
     ApiLensConfig(
+        # Project-scoped key for ${projectLabel || "this app's project"}
         api_key="${apiKey}",
+        project_slug="${projectSlugValue}",
         base_url="${baseUrl}",
         environment="production",
     )
 )
 
-instrument_app(app, client, app_id="${appSlug}")`;
+instrument_app(
+    app,
+    client,
+    project_slug="${projectSlugValue}",
+    app_id="${appSlug}",
+)`;
   }
-  return `# settings.py
+  return `${projectComment}# settings.py
 MIDDLEWARE = [
     # ...
     "apilens.django.ApiLensDjangoMiddleware",
 ]
 
+# Project-scoped key for ${projectLabel || "this app's project"}
 APILENS_API_KEY = "${apiKey}"
+# Project slug from the dashboard
+APILENS_PROJECT_SLUG = "${projectSlugValue}"
+# App slug inside that project
 APILENS_APP_ID = "${appSlug}"
 APILENS_BASE_URL = "${baseUrl}"
 APILENS_ENVIRONMENT = "production"`;
@@ -205,6 +244,7 @@ export default function AppSetupGuide({
   hasRawKey,
   appSlug,
   projectSlug,
+  projectName,
 }: {
   appName: string;
   framework: FrameworkId;
@@ -212,11 +252,13 @@ export default function AppSetupGuide({
   hasRawKey: boolean;
   appSlug: string;
   projectSlug?: string;
+  projectName?: string;
 }) {
   const [copiedItem, setCopiedItem] = useState<"install" | "snippet" | "">("");
   const frameworkOption = FRAMEWORK_OPTIONS[framework] || FRAMEWORK_OPTIONS.fastapi;
   const installCmd = buildInstallCommand(framework);
-  const snippet = buildFrameworkSnippet(framework, apiKey, appSlug);
+  const projectLabel = projectName?.trim() || projectSlug;
+  const snippet = buildFrameworkSnippet(framework, apiKey, appSlug, projectSlug, projectLabel);
   const snippetLanguage = frameworkOption.packageLanguage === "python" ? "python" : "javascript";
 
   const copyText = async (text: string, item: "install" | "snippet") => {
@@ -231,7 +273,8 @@ export default function AppSetupGuide({
         <p className="create-app-setup-kicker">Quickstart</p>
         <h3>{appName} is live</h3>
         <p>
-          {frameworkOption.label} setup guide. Replace the masked API key below with your project API key.{" "}
+          {frameworkOption.label} setup guide. Replace the masked API key below with the API key from{" "}
+          {projectLabel ? <strong>{projectLabel}</strong> : "this project"}.{" "}
           {projectSlug && (
             <Link href={`/projects/${projectSlug}/settings/api-keys`} style={{ textDecoration: "underline" }}>
               View API Keys
@@ -254,7 +297,10 @@ export default function AppSetupGuide({
           <div className="create-app-guide-index">2</div>
           <div className="create-app-guide-body">
             <h4>Add middleware in app bootstrap</h4>
-            <p>Paste this snippet in your entry file and restart the app.</p>
+            <p>
+              Paste this snippet in your entry file, keep the app slug as <code>{appSlug}</code>, and use a key from{" "}
+              {projectLabel ? <strong>{projectLabel}</strong> : "the same project"}.
+            </p>
             <CodeBlock language={snippetLanguage} code={snippet} copied={copiedItem === "snippet"} onCopy={() => copyText(snippet, "snippet")} />
           </div>
         </div>

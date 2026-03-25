@@ -13,6 +13,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         app.add_middleware(
             ApiLensGatewayMiddleware,
             api_key="your_app_api_key",
+            project_slug="your-project-slug",
             app_id="your_app_id",
             base_url="https://api.apilens.ai/api/v1",
             env="production",
@@ -25,6 +26,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         *,
         api_key: str | None = None,
         client_id: str | None = None,
+        project_slug: str = "",
         app_id: str = "",
         base_url: str = "https://api.apilens.ai/api/v1",
         env: str = "production",
@@ -37,12 +39,16 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         max_payload_bytes: int = 8192,
     ) -> None:
         resolved_key = (api_key or client_id or "").strip()
+        resolved_project_slug = project_slug.strip()
         if client is None:
             if not resolved_key:
                 raise ValueError("api_key (or client_id) is required")
+            if not resolved_project_slug:
+                raise ValueError("project_slug is required")
             client = ApiLensClient(
                 ApiLensConfig(
                     api_key=resolved_key,
+                    project_slug=resolved_project_slug,
                     base_url=base_url,
                     environment=env,
                     verify_tls=verify_tls,
@@ -55,6 +61,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         super().__init__(
             app,
             client=client,
+            project_slug=resolved_project_slug or client.config.project_slug,
             app_id=app_id,
             environment=env,
             enable_request_logging=enable_request_logging,
@@ -72,6 +79,8 @@ def instrument_app(
     app,
     client: ApiLensClient,
     *,
+    project_slug: str = "",
+    app_id: str = "",
     environment: str | None = None,
     enable_request_logging: bool = True,
     log_request_body: bool = True,
@@ -82,6 +91,8 @@ def instrument_app(
     return instrument_fastapi(
         app,
         client,
+        project_slug=project_slug,
+        app_id=app_id,
         environment=environment,
         enable_request_logging=enable_request_logging,
         log_request_body=log_request_body,

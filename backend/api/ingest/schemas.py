@@ -5,6 +5,7 @@ from ninja import Schema
 
 
 class RequestRecord(Schema):
+    project_slug: str  # Explicit project identifier (slug, required)
     app_id: str  # Explicit app identifier (required)
     timestamp: datetime
     environment: str
@@ -32,6 +33,7 @@ class IngestResponse(Schema):
 
 
 class LogRecord(Schema):
+    project_slug: str  # Explicit project identifier (slug, required)
     app_id: str  # Explicit app identifier (required)
     timestamp: datetime
     environment: str

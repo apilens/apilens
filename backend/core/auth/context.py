@@ -16,6 +16,7 @@ class TenantContext:
     user_id: str
     email: str
     project_id: str = ""
+    project_slug: str = ""
     app_id: str = ""  # Deprecated: kept for backwards compatibility
     role: str = "member"
     permissions: list[str] = field(default_factory=list)

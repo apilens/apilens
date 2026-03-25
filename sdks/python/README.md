@@ -2,7 +2,7 @@
 
 Production-ready Python ingest client for API Lens with OpenTelemetry integration.
 
-> **⚠️ Breaking Change in v0.1.4:** The `app_id` parameter is now **required** for all integrations. Make sure to include it in your configuration.
+> **⚠️ Breaking Change in v0.1.6:** Both `project_slug` and `app_id` are now required for all ingest paths. Make sure both match the same project in your dashboard.
 
 ## Framework support matrix
 
@@ -53,13 +53,14 @@ from apilens import ApiLensClient, ApiLensConfig
 client = ApiLensClient(
     ApiLensConfig(
         api_key="your_app_api_key",
+        project_slug="your-project-slug",
         base_url="https://api.apilens.ai/api/v1",
         environment="production",
     )
 )
 
 client.capture(
-    app_id="my-api-service",  # Required: App slug or UUID
+    app_id="my-api-service",  # Required: App slug inside that project
     method="GET",
     path="/health",
     status_code=200,
@@ -69,20 +70,16 @@ client.capture(
 client.shutdown(flush=True)
 ```
 
-### Getting your App ID
+### Getting your Project Slug and App ID
 
-You can use either the **app slug** (recommended) or **app UUID**:
+You now need both:
 
-**Using App Slug (Recommended):**
 ```python
-app_id = "my-api-service"  # Human-readable, easy to remember
+project_slug = "astra"
+app_id = "sidecar"
 ```
 
-**Using App UUID:**
-1. Log in to [API Lens Dashboard](https://app.apilens.ai)
-2. Navigate to your project
-3. Select or create an app
-4. Copy the **App UUID** from the app settings
+Use the project slug from the project page, and the app slug from the app page in that same project.
 
 ## FastAPI
 
@@ -99,7 +96,8 @@ app = FastAPI()
 app.add_middleware(
     ApiLensMiddleware,
     api_key="your_app_api_key",      # Required: Your API key
-    app_id="my-api-service",           # Required: App slug (or UUID)
+    project_slug="your-project-slug",  # Required: Project slug from dashboard
+    app_id="my-api-service",           # Required: App slug inside that project
     base_url="https://api.apilens.ai/api/v1",
     env="production",
     enable_request_logging=True,
@@ -129,6 +127,7 @@ app = FastAPI()
 app.add_middleware(
     ApiLensMiddleware,
     api_key=os.getenv("APILENS_API_KEY"),
+    project_slug=os.getenv("APILENS_PROJECT_SLUG"),
     app_id=os.getenv("APILENS_APP_ID"),
     base_url=os.getenv("APILENS_BASE_URL", "https://api.apilens.ai/api/v1"),
     env=os.getenv("APILENS_ENVIRONMENT", "production"),
@@ -150,6 +149,7 @@ app = Starlette()
 client = ApiLensClient(
     ApiLensConfig(
         api_key="your_app_api_key",
+        project_slug="your-project-slug",
         base_url="https://api.apilens.ai/api/v1",
         environment="production",
     )
@@ -158,7 +158,8 @@ client = ApiLensClient(
 instrument_app(
     app,
     client,
-    app_id="your_app_id"  # Required: Your app ID from dashboard
+    project_slug="your-project-slug",
+    app_id="your_app_id"
 )
 ```
 
@@ -174,6 +175,7 @@ app = Flask(__name__)
 client = ApiLensClient(
     ApiLensConfig(
         api_key="your_app_api_key",
+        project_slug="your-project-slug",
         base_url="https://api.apilens.ai/api/v1",
         environment="production",
     )
@@ -182,7 +184,8 @@ client = ApiLensClient(
 instrument_app(
     app,
     client,
-    app_id="your_app_id"  # Required: Your app ID from dashboard
+    project_slug="your-project-slug",
+    app_id="your_app_id"
 )
 
 @app.get("/v1/invoices")
@@ -202,7 +205,8 @@ MIDDLEWARE = [
 
 # Required configuration
 APILENS_API_KEY = "your_app_api_key"
-APILENS_APP_ID = "your_app_id"  # Required: Your app ID from dashboard
+APILENS_PROJECT_SLUG = "your-project-slug"
+APILENS_APP_ID = "your_app_id"
 APILENS_BASE_URL = "https://api.apilens.ai/api/v1"
 APILENS_ENVIRONMENT = "production"
 ```
@@ -260,7 +264,8 @@ instrument_app(
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
 | `api_key` | Yes | - | Your API key from API Lens dashboard |
-| `app_id` | Yes | - | Your app slug or UUID from API Lens dashboard |
+| `project_slug` | Yes | - | Your project slug from API Lens dashboard |
+| `app_id` | Yes | - | Your app slug inside that project |
 | `base_url` | No | `https://api.apilens.ai/api/v1` | API Lens ingest endpoint |
 | `environment` | No | `production` | Environment name (e.g., production, staging, dev) |
 | `enable_request_logging` | No | `True` | Enable request/response logging |
@@ -278,7 +283,7 @@ instrument_app(
 
 ### 422 Unprocessable Entity Error
 
-If you're getting 422 errors, make sure you've included the `app_id` parameter:
+If you're getting 422 errors, make sure you've included both `project_slug` and `app_id`:
 
 ```python
 # ❌ Old way (will fail)
@@ -287,56 +292,50 @@ app.add_middleware(
     api_key="your_key",
 )
 
-# ✅ New way (required since v0.1.4)
+# ✅ New way (required since v0.1.6)
 app.add_middleware(
     ApiLensMiddleware,
     api_key="your_key",
+    project_slug="your-project-slug",
     app_id="your_app_id",
 )
 ```
 
-### Finding Your App ID
+### Finding Your Project Slug and App ID
 
-**Using App Slug (Recommended):**
-The slug is shown in the app list and is human-readable (e.g., `user-service`, `api-gateway`).
-
-**Using App UUID:**
 1. Log in to [API Lens Dashboard](https://app.apilens.ai)
-2. Navigate to your project
-3. Go to the Apps tab
-4. Select your app or create a new one
-5. Copy the UUID from the URL or app settings
-
-Example formats:
-- Slug: `user-service` (recommended)
-- UUID: `c2537f6e-9b59-47ec-ab13-3559ae645c60`
+2. Open your project and copy the project slug
+3. Open the app inside that project and copy the app slug
 
 ### Data Not Appearing in Dashboard
 
-1. Verify `app_id` is correct
-2. Check that `api_key` is valid
-3. Ensure `base_url` points to the correct endpoint
-4. Check application logs for SDK errors
-5. Wait up to 30 seconds for data to appear (batching delay)
+1. Verify `project_slug` is correct
+2. Verify `app_id` is correct for that project
+3. Check that `api_key` is valid
+4. Ensure `base_url` points to the correct endpoint
+5. Check application logs for SDK errors
+6. Wait up to 30 seconds for data to appear (batching delay)
 
-## Migration from v0.1.3 to v0.1.4
+## Migration from v0.1.5 to v0.1.6
 
-**Breaking change:** The `app_id` parameter is now required.
+**Breaking change:** `project_slug` is now required alongside `app_id`.
 
-Update all middleware/client configurations to include `app_id`:
+Update all middleware/client configurations to include `project_slug` and `app_id`:
 
 ```python
-# Before (v0.1.3)
-client = ApiLensClient(ApiLensConfig(api_key="..."))
-
-# After (v0.1.4)
+# Before (v0.1.5)
 client = ApiLensClient(ApiLensConfig(
     api_key="...",
-    # No app_id needed for client, but required when calling capture()
+))
+
+# After (v0.1.6)
+client = ApiLensClient(ApiLensConfig(
+    api_key="...",
+    project_slug="your-project-slug",
 ))
 
 client.capture(
-    app_id="your_app_id",  # Now required
+    app_id="your_app_id",
     method="GET",
     path="/health",
     # ...

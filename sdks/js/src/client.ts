@@ -17,6 +17,8 @@ const SDK_VERSION = "0.1.0";
 
 type RequiredConfig = {
   apiKey: string;
+  projectSlug: string;
+  appId: string;
   baseUrl: string;
   ingestPath: string;
   environment: string;
@@ -50,11 +52,15 @@ function resolveFetch(fetchImpl?: typeof fetch): typeof fetch {
 function normalizeRecord(
   input: ApiLensRecordInput,
   defaultEnvironment: string,
+  defaultProjectSlug: string,
+  defaultAppId: string,
 ): ApiLensRecord {
   const payload = input || ({} as ApiLensRecordInput);
   return {
     timestamp: toISO8601(payload.timestamp),
     environment: String(payload.environment || defaultEnvironment || "production"),
+    project_slug: String(payload.project_slug || defaultProjectSlug || ""),
+    app_id: String(payload.app_id || defaultAppId || ""),
     method: String(payload.method || "GET").toUpperCase(),
     path: normalizePath(payload.path || "/"),
     status_code: toNonNegativeInt(payload.status_code, 0),
@@ -99,6 +105,8 @@ class ApiLensClient {
 
     this.config = {
       apiKey: String(config.apiKey || config.api_key || "").trim(),
+      projectSlug: String(config.projectSlug || config.project_slug || "").trim(),
+      appId: String(config.appId || config.app_id || "").trim(),
       baseUrl: String(
         config.baseUrl || config.base_url || "https://api.apilens.ai/api/v1",
       ),
@@ -125,6 +133,12 @@ class ApiLensClient {
 
     if (!isNonEmptyString(this.config.apiKey)) {
       throw new Error("apiKey is required");
+    }
+    if (!isNonEmptyString(this.config.projectSlug)) {
+      throw new Error("projectSlug is required");
+    }
+    if (!isNonEmptyString(this.config.appId)) {
+      throw new Error("appId is required");
     }
 
     this.queue = [];
@@ -165,7 +179,14 @@ class ApiLensClient {
   }
 
   public capture(payload: ApiLensRecordInput): void {
-    this.captureRecord(normalizeRecord(payload, this.config.environment));
+    this.captureRecord(
+      normalizeRecord(
+        payload,
+        this.config.environment,
+        this.config.projectSlug,
+        this.config.appId,
+      ),
+    );
   }
 
   public captureRecord(record: ApiLensRecord): void {
@@ -188,7 +209,14 @@ class ApiLensClient {
   public captureMany(records: ApiLensRecordInput[]): void {
     const items = Array.isArray(records) ? records : [];
     for (const record of items) {
-      this.captureRecord(normalizeRecord(record, this.config.environment));
+      this.captureRecord(
+        normalizeRecord(
+          record,
+          this.config.environment,
+          this.config.projectSlug,
+          this.config.appId,
+        ),
+      );
     }
   }
 

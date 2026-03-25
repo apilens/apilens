@@ -68,6 +68,8 @@ function buildClient(config: ApiLensExpressConfig = {}): ApiLensClient {
 
   return new ApiLensClient({
     apiKey: config.apiKey || config.api_key || config.clientId || config.client_id,
+    projectSlug: config.projectSlug || config.project_slug,
+    appId: config.appId || config.app_id,
     baseUrl: config.baseUrl || config.base_url,
     ingestPath: config.ingestPath || config.ingest_path,
     environment: config.environment || config.env,
@@ -204,6 +206,8 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
         client.capture({
           timestamp: new Date(),
           environment,
+          project_slug: client.config.projectSlug,
+          app_id: client.config.appId,
           method,
           path,
           status_code: res.statusCode,

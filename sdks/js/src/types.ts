@@ -8,6 +8,8 @@ export type Logger = {
 export type ApiLensRecordInput = {
   timestamp?: Date | string | number;
   environment?: string;
+  project_slug?: string;
+  app_id?: string;
   method: string;
   path: string;
   status_code: number;
@@ -26,6 +28,8 @@ export type ApiLensRecordInput = {
 export type ApiLensRecord = {
   timestamp: string;
   environment: string;
+  project_slug: string;
+  app_id: string;
   method: string;
   path: string;
   status_code: number;
@@ -44,6 +48,10 @@ export type ApiLensRecord = {
 export type ApiLensClientConfig = {
   apiKey?: string;
   api_key?: string;
+  projectSlug?: string;
+  project_slug?: string;
+  appId?: string;
+  app_id?: string;
   baseUrl?: string;
   base_url?: string;
   ingestPath?: string;

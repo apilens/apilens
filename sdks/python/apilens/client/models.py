@@ -12,6 +12,7 @@ class RequestRecord:
     path: str
     status_code: int
     response_time_ms: float
+    project_slug: str = ""
     app_id: str = ""  # Required by backend API
     request_size: int = 0
     response_size: int = 0
@@ -36,6 +37,7 @@ class RequestRecord:
             path = f"/{path}"
 
         return {
+            "project_slug": self.project_slug or "",
             "app_id": self.app_id or "",
             "timestamp": iso,
             "environment": self.environment,

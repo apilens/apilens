@@ -10,6 +10,7 @@ interface SetupMeta {
   framework: FrameworkId;
   apiKeyPrefix: string;
   projectSlug: string;
+  projectName?: string;
   createdAt: number;
 }
 
@@ -20,6 +21,7 @@ export default function ProjectAppSetupPage() {
   const appSlug = params.app_slug as string;
 
   const [meta, setMeta] = useState<SetupMeta | null>(null);
+  const [projectName, setProjectName] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -38,6 +40,31 @@ export default function ProjectAppSetupPage() {
 
     setLoading(false);
   }, [appSlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProjectName() {
+      if (!projectSlug) return;
+      try {
+        const res = await fetch(`/api/projects/${projectSlug}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) {
+          setProjectName(data.name || projectSlug);
+        }
+      } catch {
+        if (!cancelled) {
+          setProjectName("");
+        }
+      }
+    }
+
+    loadProjectName();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectSlug]);
 
   if (loading) {
     return (
@@ -61,6 +88,7 @@ export default function ProjectAppSetupPage() {
         hasRawKey={false}
         appSlug={appSlug}
         projectSlug={projectSlug}
+        projectName={projectName || meta.projectName}
       />
     </div>
   );

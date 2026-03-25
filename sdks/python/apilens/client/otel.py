@@ -76,11 +76,13 @@ class ApiLensSpanExporter(SpanExporter):
         self,
         client: ApiLensClient,
         *,
+        app_id: str,
         environment: str,
         capture_client_ip: bool = False,
         capture_user_agent: bool = True,
     ) -> None:
         self.client = client
+        self.app_id = app_id
         self.environment = environment
         self.capture_client_ip = capture_client_ip
         self.capture_user_agent = capture_user_agent
@@ -115,6 +117,8 @@ class ApiLensSpanExporter(SpanExporter):
             record = RequestRecord(
                 timestamp=timestamp,
                 environment=self.environment,
+                project_slug=self.client.config.project_slug,
+                app_id=self.app_id,
                 method=method,
                 path=path,
                 status_code=status_code,
@@ -138,6 +142,7 @@ class ApiLensSpanExporter(SpanExporter):
 def install_apilens_exporter(
     client: ApiLensClient,
     *,
+    app_id: str,
     service_name: str,
     environment: str,
     tracer_provider: TracerProvider | None = None,
@@ -165,6 +170,7 @@ def install_apilens_exporter(
 
     exporter = ApiLensSpanExporter(
         client,
+        app_id=app_id,
         environment=environment,
         capture_client_ip=capture_client_ip,
         capture_user_agent=capture_user_agent,

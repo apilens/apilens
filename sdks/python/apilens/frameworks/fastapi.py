@@ -8,6 +8,8 @@ def instrument_fastapi(
     app,
     client: ApiLensClient,
     *,
+    project_slug: str = "",
+    app_id: str = "",
     environment: str | None = None,
     enable_request_logging: bool = True,
     log_request_body: bool = True,
@@ -18,6 +20,8 @@ def instrument_fastapi(
     app.add_middleware(
         ApiLensASGIMiddleware,
         client=client,
+        project_slug=project_slug,
+        app_id=app_id,
         environment=environment,
         enable_request_logging=enable_request_logging,
         log_request_body=log_request_body,

@@ -20,6 +20,7 @@ logger = logging.getLogger("apilens")
 @dataclass(slots=True)
 class ApiLensConfig:
     api_key: str
+    project_slug: str = ""
     base_url: str = "https://api.apilens.ai/api/v1"
     environment: str = "production"
     ingest_path: str = "/ingest/requests"
@@ -43,6 +44,8 @@ class ApiLensClient:
     def __init__(self, config: ApiLensConfig, *, start_worker: bool = True) -> None:
         if not config.api_key:
             raise ValueError("api_key is required")
+        if not config.project_slug:
+            raise ValueError("project_slug is required")
 
         if config.batch_size <= 0:
             raise ValueError("batch_size must be > 0")
@@ -96,6 +99,7 @@ class ApiLensClient:
         path: str,
         status_code: int,
         response_time_ms: float,
+        project_slug: str = "",
         app_id: str = "",
         request_size: int = 0,
         response_size: int = 0,
@@ -115,6 +119,7 @@ class ApiLensClient:
             path=path,
             status_code=status_code,
             response_time_ms=response_time_ms,
+            project_slug=project_slug or self.config.project_slug,
             app_id=app_id,
             request_size=request_size,
             response_size=response_size,
