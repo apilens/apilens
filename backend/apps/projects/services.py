@@ -5,6 +5,7 @@ import json
 from typing import Any
 from datetime import datetime, timedelta, timezone as tz
 from io import BytesIO
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -47,6 +48,16 @@ def _as_utc(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=tz.utc)
     return value.astimezone(tz.utc)
+
+
+def _resolve_bucket_timezone(timezone_name: str | None) -> str:
+    if not timezone_name:
+        return "UTC"
+    try:
+        ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return "UTC"
+    return timezone_name
 
 
 def _unique_project_slug(user, name: str, exclude_id=None) -> str:
@@ -2277,6 +2288,7 @@ class AnalyticsService:
         environment: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        timezone_name: str | None = None,
     ) -> list[dict]:
         from core.database.clickhouse.client import get_clickhouse_client
 
@@ -2287,7 +2299,12 @@ class AnalyticsService:
             return []
 
         since_dt, until_dt = _resolve_time_range(since, until)
-        params = {"app_id": app_id, "since": since_dt, "until": until_dt}
+        params = {
+            "app_id": app_id,
+            "since": since_dt,
+            "until": until_dt,
+            "timezone": _resolve_bucket_timezone(timezone_name),
+        }
         env_filter = ""
         if environment:
             env_filter = "AND environment = %(environment)s"
@@ -2295,7 +2312,7 @@ class AnalyticsService:
 
         query = f"""
             SELECT
-                toStartOfHour(timestamp) AS bucket,
+                toTimeZone(toStartOfHour(toTimeZone(timestamp, %(timezone)s)), 'UTC') AS bucket,
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
@@ -2463,6 +2480,7 @@ class AnalyticsService:
         environment: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        timezone_name: str | None = None,
     ) -> list[dict]:
         from core.database.clickhouse.client import get_clickhouse_client
 
@@ -2479,6 +2497,7 @@ class AnalyticsService:
             "path": path,
             "since": since_dt,
             "until": until_dt,
+            "timezone": _resolve_bucket_timezone(timezone_name),
         }
         env_filter = ""
         if environment:
@@ -2487,7 +2506,7 @@ class AnalyticsService:
 
         query = f"""
             SELECT
-                toStartOfHour(timestamp) AS bucket,
+                toTimeZone(toStartOfHour(toTimeZone(timestamp, %(timezone)s)), 'UTC') AS bucket,
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 avg(response_time_ms) AS avg_response_time_ms
@@ -2798,6 +2817,7 @@ class AnalyticsService:
         environment: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        timezone_name: str | None = None,
     ) -> list[dict]:
         """
         Get time-series analytics for a project.
@@ -2812,7 +2832,12 @@ class AnalyticsService:
             return []
 
         since_dt, until_dt = _resolve_time_range(since, until)
-        params = {"project_id": project_id, "since": since_dt, "until": until_dt}
+        params = {
+            "project_id": project_id,
+            "since": since_dt,
+            "until": until_dt,
+            "timezone": _resolve_bucket_timezone(timezone_name),
+        }
 
         filters = ["WHERE project_id = %(project_id)s"]
         filters.append("AND timestamp >= %(since)s")
@@ -2828,10 +2853,14 @@ class AnalyticsService:
 
         query = f"""
             SELECT
-                toStartOfInterval(timestamp, INTERVAL 1 HOUR) AS bucket,
+                toTimeZone(toStartOfHour(toTimeZone(timestamp, %(timezone)s)), 'UTC') AS bucket,
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
-                avg(response_time_ms) AS avg_response_time_ms
+                if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                avg(response_time_ms) AS avg_response_time_ms,
+                quantile(0.95)(response_time_ms) AS p95_response_time_ms,
+                sum(request_size) AS total_request_bytes,
+                sum(response_size) AS total_response_bytes
             FROM api_requests
             {' '.join(filters)}
             GROUP BY bucket
@@ -3025,10 +3054,10 @@ class AnalyticsService:
     ) -> dict:
         """
         Fallback to PostgreSQL when ClickHouse has no telemetry data.
-        Returns endpoint records from the database.
+        Returns endpoint records from the database, grouped by (method, path).
         """
         from apps.projects.models import Endpoint
-        from django.db.models import Q
+        from django.db.models import Q, Max
 
         # Start with base query for endpoints in this project
         queryset = Endpoint.objects.filter(
@@ -3051,18 +3080,23 @@ class AnalyticsService:
                 Q(path__icontains=search_query) | Q(method__icontains=search_query)
             )
 
+        # Group by (method, path) and get the latest last_seen_at for each group
+        queryset = queryset.values("method", "path").annotate(
+            latest_seen=Max("last_seen_at")
+        )
+
         # Get total count before pagination
         total_count = queryset.count()
 
         # Sorting - map analytics sort fields to database fields
         sort_field_map = {
             "endpoint": "path",
-            "total_requests": "-last_seen_at",  # Most recent as proxy for popular
+            "total_requests": "-latest_seen",  # Most recent as proxy for popular
             "error_rate": "path",
             "avg_response_time_ms": "path",
             "p95_response_time_ms": "path",
         }
-        db_sort_field = sort_field_map.get(sort_by, "-last_seen_at")
+        db_sort_field = sort_field_map.get(sort_by, "-latest_seen")
         if sort_dir.lower() == "asc" and db_sort_field.startswith("-"):
             db_sort_field = db_sort_field[1:]
         elif sort_dir.lower() == "desc" and not db_sort_field.startswith("-"):
@@ -3078,8 +3112,8 @@ class AnalyticsService:
         items = []
         for endpoint in endpoints:
             items.append({
-                "method": endpoint.method,
-                "path": endpoint.path,
+                "method": endpoint["method"],
+                "path": endpoint["path"],
                 "total_requests": 0,
                 "error_count": 0,
                 "error_rate": 0.0,

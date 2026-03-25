@@ -37,7 +37,7 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
   const [framework, setFramework] = useState<FrameworkId>("fastapi");
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
-  const debounceTimer = useRef<NodeJS.Timeout>();
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
   // Reserved slugs
   const RESERVED_SLUGS = ["api", "admin", "dashboard", "settings", "new", "create", "edit", "delete", "health", "docs"];

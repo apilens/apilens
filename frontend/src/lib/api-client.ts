@@ -798,12 +798,13 @@ export const apiClient = {
 
   async getAnalyticsTimeseries(
     slug: string,
-    params?: { environment?: string; since?: string; until?: string; appSlugs?: string[] },
+    params?: { environment?: string; since?: string; until?: string; appSlugs?: string[]; timezone?: string },
   ): Promise<ApiResponse<AnalyticsTimeseriesPoint[]>> {
     const searchParams = new URLSearchParams();
     if (params?.environment) searchParams.set("environment", params.environment);
     if (params?.since) searchParams.set("since", params.since);
     if (params?.until) searchParams.set("until", params.until);
+    if (params?.timezone) searchParams.set("timezone", params.timezone);
     if (params?.appSlugs && params.appSlugs.length > 0) {
       searchParams.set("app_slugs", params.appSlugs.join(","));
     }
@@ -845,7 +846,7 @@ export const apiClient = {
 
   async getEndpointTimeseries(
     slug: string,
-    params: { method: string; path: string; environment?: string; since?: string; until?: string },
+    params: { method: string; path: string; environment?: string; since?: string; until?: string; timezone?: string },
   ): Promise<ApiResponse<EndpointTimeseriesPoint[]>> {
     const searchParams = new URLSearchParams();
     searchParams.set("method", params.method);
@@ -853,6 +854,7 @@ export const apiClient = {
     if (params.environment) searchParams.set("environment", params.environment);
     if (params.since) searchParams.set("since", params.since);
     if (params.until) searchParams.set("until", params.until);
+    if (params.timezone) searchParams.set("timezone", params.timezone);
     const qs = searchParams.toString();
     return fetchDjango<EndpointTimeseriesPoint[]>(
       `/apps/${slug}/analytics/endpoint-timeseries${qs ? `?${qs}` : ""}`,

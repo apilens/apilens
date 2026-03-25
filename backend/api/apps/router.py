@@ -7,6 +7,7 @@ from ninja import Router
 from apps.auth.services import ApiKeyService
 from apps.projects.services import AppService, EnvironmentService
 from apps.users.models import User
+from apps.users.services import UserService
 from core.auth.authentication import jwt_auth
 from core.exceptions.base import ValidationError
 
@@ -481,9 +482,15 @@ def get_analytics_timeseries(
     environment: str = None,
     since: str = None,
     until: str = None,
+    timezone: str = None,
 ):
     user: User = request.auth
     app = AppService.get_app_by_slug(user, app_slug)
+    bucket_timezone = (
+        UserService.normalize_timezone(timezone)
+        if timezone
+        else UserService.get_timezone(user)
+    )
 
     from apps.projects.services import AnalyticsService
     return AnalyticsService.get_timeseries(
@@ -491,6 +498,7 @@ def get_analytics_timeseries(
         environment=environment,
         since=since,
         until=until,
+        timezone_name=bucket_timezone,
     )
 
 
@@ -549,9 +557,15 @@ def get_analytics_endpoint_timeseries(
     environment: str = None,
     since: str = None,
     until: str = None,
+    timezone: str = None,
 ):
     user: User = request.auth
     app = AppService.get_app_by_slug(user, app_slug)
+    bucket_timezone = (
+        UserService.normalize_timezone(timezone)
+        if timezone
+        else UserService.get_timezone(user)
+    )
 
     from apps.projects.services import AnalyticsService
     return AnalyticsService.get_endpoint_timeseries(
@@ -561,6 +575,7 @@ def get_analytics_endpoint_timeseries(
         environment=environment,
         since=since,
         until=until,
+        timezone_name=bucket_timezone,
     )
 
 

@@ -1,39 +1,105 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Loader2, Plus, Layers } from "lucide-react";
-import { AppCard } from "@/components/apps";
+import { useSearchParams } from "next/navigation";
+import { ArrowRight, Loader2, Plus } from "lucide-react";
 import type { AppListItem } from "@/types/app";
-
-interface ProjectInfo {
-  id: string;
-  name: string;
-  slug: string;
-  description: string;
-  created_at: string;
-  updated_at: string;
-}
+import type {
+  AnalyticsSummary,
+  AnalyticsTimeseriesPoint,
+  ProjectInfo,
+} from "@/lib/api-client";
+import { useAuth } from "@/components/providers/AuthProvider";
+import MetricsGrid from "@/components/dashboard/MetricsGrid";
+import ChartContainer from "@/components/dashboard/charts/ChartContainer";
+import RequestVolumeChart from "@/components/dashboard/charts/RequestVolumeChart";
+import ResponseTimeChart from "@/components/dashboard/charts/ResponseTimeChart";
+import TimeRangeSelector from "@/components/dashboard/filters/TimeRangeSelector";
+import EnvironmentFilter from "@/components/dashboard/filters/EnvironmentFilter";
 
 interface ProjectDetailContentProps {
   slug: string;
 }
 
-export default function ProjectDetailContent({ slug }: ProjectDetailContentProps) {
+interface EndpointInsight {
+  method: string;
+  path: string;
+  total_requests: number;
+  error_count: number;
+  avg_response_time_ms: number;
+  p95_response_time_ms: number;
+}
+
+interface TimeRange {
+  since?: string;
+  until?: string;
+}
+
+const EMPTY_SUMMARY: AnalyticsSummary = {
+  total_requests: 0,
+  error_count: 0,
+  error_rate: 0,
+  avg_response_time_ms: 0,
+  p95_response_time_ms: 0,
+  total_request_bytes: 0,
+  total_response_bytes: 0,
+  unique_endpoints: 0,
+  unique_consumers: 0,
+};
+
+function ProjectDetailContentInner({ slug }: ProjectDetailContentProps) {
+  const searchParams = useSearchParams();
+  const { user } = useAuth();
   const [project, setProject] = useState<ProjectInfo | null>(null);
+  const [apps, setApps] = useState<AppListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
-  const [apps, setApps] = useState<AppListItem[]>([]);
-  const [summary, setSummary] = useState<Record<string, number>>({
-    total_requests: 0,
-    error_count: 0,
-    error_rate: 0,
-    avg_response_time_ms: 0,
-    p95_response_time_ms: 0,
+  const [analyticsError, setAnalyticsError] = useState("");
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [summary, setSummary] = useState<AnalyticsSummary>(EMPTY_SUMMARY);
+  const [timeseries, setTimeseries] = useState<AnalyticsTimeseriesPoint[]>([]);
+  const [topEndpoints, setTopEndpoints] = useState<EndpointInsight[]>([]);
+  const [errorEndpoints, setErrorEndpoints] = useState<EndpointInsight[]>([]);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+  const [browserTimezone, setBrowserTimezone] = useState("UTC");
+  const [timeRange, setTimeRange] = useState<TimeRange>(() => {
+    const since = searchParams.get("since") || undefined;
+    const until = searchParams.get("until") || undefined;
+
+    if (since) {
+      return { since, until };
+    }
+
+    return getDefaultTimeRange();
   });
-  const [topEndpoints, setTopEndpoints] = useState<
-    Array<{ method: string; path: string; total_requests: number; error_count: number; p95_response_time_ms: number }>
-  >([]);
+  const [selectedEnv, setSelectedEnv] = useState<string | undefined>(
+    searchParams.get("environment") || undefined,
+  );
+
+  const appSlugs = useMemo(() => apps.map((app) => app.slug), [apps]);
+  const chartTimezone = user?.timezone || browserTimezone;
+  const hasApps = apps.length > 0;
+  const hasTraffic = useMemo(
+    () =>
+      summary.total_requests > 0 ||
+      topEndpoints.length > 0 ||
+      timeseries.some((point) => point.total_requests > 0),
+    [summary.total_requests, topEndpoints.length, timeseries],
+  );
+  const health = useMemo(() => getOverviewHealth(summary), [summary]);
+  const selectedWindowLabel = useMemo(
+    () => formatTimeRangeLabel(timeRange, chartTimezone),
+    [chartTimezone, timeRange],
+  );
+  const timezoneLabel = useMemo(
+    () => chartTimezone.replace(/_/g, " "),
+    [chartTimezone],
+  );
+
+  useEffect(() => {
+    setBrowserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+  }, []);
 
   useEffect(() => {
     if (!slug) {
@@ -42,66 +108,171 @@ export default function ProjectDetailContent({ slug }: ProjectDetailContentProps
       return;
     }
 
-    async function fetchData() {
+    let isMounted = true;
+    const controller = new AbortController();
+
+    async function fetchProjectData() {
+      setIsLoading(true);
+      setError("");
+
       try {
-        console.log("Fetching project with slug:", slug);
-        // Fetch project details
-        const projectRes = await fetch(`/api/projects/${slug}`);
-        if (!projectRes.ok) {
-          const body = await projectRes.json().catch(() => ({}));
-          throw new Error(body.error || "Failed to fetch project");
-        }
-        const projectData = await projectRes.json();
+        const [projectData, appsData] = await Promise.all([
+          fetchJson<ProjectInfo>(`/api/projects/${slug}`, controller.signal),
+          fetchJson<{ apps?: AppListItem[] }>(
+            `/api/projects/${slug}/apps`,
+            controller.signal,
+          ),
+        ]);
+
+        if (!isMounted) return;
+
         setProject(projectData);
-
-        // Fetch apps
-        const appsRes = await fetch(`/api/projects/${slug}/apps`);
-        if (!appsRes.ok) {
-          const body = await appsRes.json().catch(() => ({}));
-          throw new Error(body.error || "Failed to fetch apps");
-        }
-        const appsData = await appsRes.json();
-        const appsList = appsData.apps || [];
-        setApps(appsList);
-
-        // Fetch analytics
-        const appSlugs = appsList.map((a: any) => a.slug);
-        const qs = appSlugs.length ? `?app_slugs=${encodeURIComponent(appSlugs.join(","))}` : "";
-
-        const summaryRes = await fetch(`/api/projects/${slug}/analytics/summary${qs}`);
-        if (summaryRes.ok) {
-          const sumBody = await summaryRes.json();
-          setSummary({
-            total_requests: Number(sumBody.total_requests) || 0,
-            error_count: Number(sumBody.error_count) || 0,
-            error_rate: Number(sumBody.error_rate) || 0,
-            avg_response_time_ms: Number(sumBody.avg_response_time_ms) || 0,
-            p95_response_time_ms: Number(sumBody.p95_response_time_ms) || 0,
-          });
-        }
-
-        const epRes = await fetch(`/api/projects/${slug}/analytics/endpoints${qs ? `${qs}&limit=5` : "?limit=5"}`);
-        if (epRes.ok) {
-          const data = await epRes.json();
-          setTopEndpoints(data.items || data || []);
-        }
+        setApps(appsData.apps || []);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to fetch data";
-        setError(message);
-        console.error(err);
+        if (!isMounted || isAbortError(err)) return;
+        setError(err instanceof Error ? err.message : "Failed to load project");
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     }
-    fetchData();
+
+    fetchProjectData();
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
   }, [slug]);
+
+  useEffect(() => {
+    if (!project || isLoading) {
+      return;
+    }
+
+    if (!hasApps) {
+      setSummary(EMPTY_SUMMARY);
+      setTimeseries([]);
+      setTopEndpoints([]);
+      setErrorEndpoints([]);
+      setAnalyticsError("");
+      setAnalyticsLoading(false);
+      setLastRefreshedAt(null);
+      return;
+    }
+
+    let isMounted = true;
+    const controller = new AbortController();
+    const baseQuery = buildAnalyticsQuery({
+      timeRange,
+      environment: selectedEnv,
+      appSlugs,
+    });
+    const timeseriesQuery = buildAnalyticsQuery({
+      timeRange,
+      environment: selectedEnv,
+      appSlugs,
+      timezone: chartTimezone,
+    });
+    const endpointsQuery = buildAnalyticsQuery({
+      timeRange,
+      environment: selectedEnv,
+      appSlugs,
+      limit: 6,
+      sortBy: "total_requests",
+      sortDir: "desc",
+    });
+    const errorQuery = buildAnalyticsQuery({
+      timeRange,
+      environment: selectedEnv,
+      appSlugs,
+      limit: 6,
+      statusClasses: "4xx,5xx",
+      sortBy: "error_count",
+      sortDir: "desc",
+    });
+
+    async function fetchAnalytics() {
+      setAnalyticsLoading(true);
+      setAnalyticsError("");
+
+      const [summaryResult, timeseriesResult, topEndpointsResult, errorEndpointsResult] =
+        await Promise.allSettled([
+          fetchJson(`/api/projects/${slug}/analytics/summary${baseQuery}`, controller.signal),
+          fetchJson(`/api/projects/${slug}/analytics/timeseries${timeseriesQuery}`, controller.signal),
+          fetchJson(`/api/projects/${slug}/analytics/endpoints${endpointsQuery}`, controller.signal),
+          fetchJson(`/api/projects/${slug}/analytics/endpoints${errorQuery}`, controller.signal),
+        ]);
+
+      if (!isMounted) return;
+
+      if (summaryResult.status === "fulfilled") {
+        setSummary(normalizeSummary(summaryResult.value));
+      } else {
+        setSummary(EMPTY_SUMMARY);
+      }
+
+      if (timeseriesResult.status === "fulfilled") {
+        setTimeseries(normalizeTimeseries(timeseriesResult.value));
+      } else {
+        setTimeseries([]);
+      }
+
+      if (topEndpointsResult.status === "fulfilled") {
+        setTopEndpoints(normalizeEndpointItems(topEndpointsResult.value));
+      } else {
+        setTopEndpoints([]);
+      }
+
+      if (errorEndpointsResult.status === "fulfilled") {
+        setErrorEndpoints(normalizeEndpointItems(errorEndpointsResult.value));
+      } else {
+        setErrorEndpoints([]);
+      }
+
+      const failedCount = [
+        summaryResult,
+        timeseriesResult,
+        topEndpointsResult,
+        errorEndpointsResult,
+      ].filter((result) => result.status === "rejected").length;
+
+      if (failedCount === 4) {
+        setAnalyticsError("Unable to load analytics for this project right now.");
+      } else if (failedCount > 0) {
+        setAnalyticsError("Some analytics panels could not be refreshed.");
+      } else {
+        setAnalyticsError("");
+      }
+
+      setLastRefreshedAt(new Date().toISOString());
+      setAnalyticsLoading(false);
+    }
+
+    fetchAnalytics().catch((err) => {
+      if (!isMounted || isAbortError(err)) return;
+      setAnalyticsError(err instanceof Error ? err.message : "Failed to refresh analytics");
+      setSummary(EMPTY_SUMMARY);
+      setTimeseries([]);
+      setTopEndpoints([]);
+      setErrorEndpoints([]);
+      setAnalyticsLoading(false);
+      setLastRefreshedAt(null);
+    });
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, [appSlugs, chartTimezone, hasApps, isLoading, project, selectedEnv, slug, timeRange]);
 
   if (isLoading) {
     return (
-      <div className="apps-page">
+      <div className="overview-page">
         <div className="apps-page-loading">
           <Loader2 size={24} strokeWidth={2} className="animate-spin" />
-          <span>Loading project...</span>
+          <span>Loading project overview...</span>
         </div>
       </div>
     );
@@ -109,153 +280,485 @@ export default function ProjectDetailContent({ slug }: ProjectDetailContentProps
 
   if (error || !project) {
     return (
-      <div className="apps-page">
+      <div className="overview-page">
         <div className="create-app-error">{error || "Project not found"}</div>
       </div>
     );
   }
 
   return (
-    <div className="apps-page">
-      {/* Header */}
-      <div className="apps-page-header">
-        <div className="apps-page-header-left">
-          <div className="apps-page-header-info">
-            <h1 className="apps-page-title">{project.name}</h1>
-            {project.description && <p className="apps-page-subtitle">{project.description}</p>}
+    <div className="overview-page">
+      <section className="overview-hero">
+        <div className="overview-hero-copy">
+          <span className="overview-kicker">Project overview</span>
+          <div className="overview-heading-row">
+            <h1 className="overview-title">{project.name}</h1>
+            <span className="overview-status-pill" data-tone={health.tone}>
+              {health.label}
+            </span>
+          </div>
+          <p className="overview-description">
+            {project.description ||
+              "A focused operational snapshot of traffic, latency, and reliability across your APIs."}
+          </p>
+
+          <div className="overview-meta">
+            <span>{apps.length} {apps.length === 1 ? "app" : "apps"}</span>
+            <span>{formatNumber(summary.unique_endpoints)} endpoints</span>
+            {lastRefreshedAt ? (
+              <span>Updated {formatRefreshTime(lastRefreshedAt, chartTimezone)}</span>
+            ) : null}
           </div>
         </div>
-        <div className="apps-page-header-actions">
-          <Link href={`/projects/${slug}/new-app`} className="settings-btn settings-btn-primary">
+
+        <div className="overview-hero-side">
+          <div className="overview-hero-note">
+            <span className="overview-hero-note-label">Selected window</span>
+            <strong className="overview-hero-note-value">{selectedWindowLabel}</strong>
+            <span className="overview-hero-note-caption">
+              {selectedEnv ? `Environment: ${selectedEnv}` : "All environments"} · {timezoneLabel}
+            </span>
+          </div>
+
+          <Link
+            href={`/projects/${slug}/new-app`}
+            className="settings-btn settings-btn-primary overview-hero-action"
+          >
             <Plus size={16} strokeWidth={2} />
-            Create App
+            {hasApps ? "Create App" : "Create your first app"}
           </Link>
         </div>
-      </div>
-
-      {/* Key Metrics */}
-      <section className="logs-metrics-tabs" aria-label="Project metrics">
-        <article className="logs-metric-tab">
-          <p className="logs-metric-label">Apps</p>
-          <p className="logs-metric-value">{apps.length}</p>
-        </article>
-        <article className="logs-metric-tab">
-          <p className="logs-metric-label">Total Requests</p>
-          <p className="logs-metric-value">{formatNumber(summary.total_requests)}</p>
-        </article>
-        <article className="logs-metric-tab">
-          <p className="logs-metric-label">Error Rate</p>
-          <p className={`logs-metric-value ${summary.error_rate >= 5 ? "tone-bad" : summary.error_rate >= 2 ? "tone-warn" : "tone-good"}`}>
-            {summary.error_rate.toFixed(1)}%
-          </p>
-        </article>
-        <article className="logs-metric-tab">
-          <p className="logs-metric-label">Avg Latency</p>
-          <p className="logs-metric-value">{Math.round(summary.avg_response_time_ms)} ms</p>
-        </article>
-        <article className="logs-metric-tab">
-          <p className="logs-metric-label">P95 Latency</p>
-          <p className="logs-metric-value">{Math.round(summary.p95_response_time_ms)} ms</p>
-        </article>
       </section>
 
-      {/* Apps Grid */}
-      {apps.length > 0 && (
-        <div style={{ marginTop: "2rem" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
-            <h2 className="create-app-page-title">Apps</h2>
-            <Link href={`/projects/${slug}/apps`} className="settings-btn settings-btn-secondary" style={{ fontSize: "0.875rem" }}>
-              View All
+      <section className="overview-toolbar">
+        <div className="dashboard-filters">
+          <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
+          <EnvironmentFilter
+            projectSlug={slug}
+            value={selectedEnv}
+            onChange={setSelectedEnv}
+          />
+        </div>
+        <p className="overview-toolbar-hint">{health.message}</p>
+      </section>
+
+      {hasApps ? (
+        <MetricsGrid
+          summary={summary}
+          appsCount={apps.length}
+          loading={analyticsLoading}
+        />
+      ) : null}
+
+      {analyticsError ? (
+        <div className="overview-inline-alert">{analyticsError}</div>
+      ) : null}
+
+      {!hasApps ? (
+        <OverviewEmptyState
+          eyebrow="No apps connected"
+          title="Connect your first app to turn this page into a live overview."
+          description="Once telemetry starts flowing, request volume, latency trends, and endpoint issues will appear here automatically."
+          actionHref={`/projects/${slug}/new-app`}
+          actionLabel="Create your first app"
+        />
+      ) : !analyticsLoading && !hasTraffic ? (
+        <OverviewEmptyState
+          eyebrow="No traffic in this window"
+          title="This project is connected, but there’s nothing to review yet."
+          description="Try a wider time range or send a request through one of your apps. The overview will refresh as new traffic arrives."
+          secondaryText={`${selectedWindowLabel}${selectedEnv ? ` · ${selectedEnv}` : ""}`}
+          actionHref={`/projects/${slug}/endpoints`}
+          actionLabel="Open endpoints explorer"
+        />
+      ) : (
+        <>
+          <section className="dashboard-charts-grid">
+            <ChartContainer
+              title="Request volume"
+              span={2}
+              loading={analyticsLoading}
+              info="Traffic over the selected time window."
+            >
+              <RequestVolumeChart data={timeseries} timezone={chartTimezone} />
+            </ChartContainer>
+
+            <ChartContainer
+              title="Latency trend"
+              span={2}
+              loading={analyticsLoading}
+              info="Average and 95th percentile latency."
+            >
+              <ResponseTimeChart data={timeseries} timezone={chartTimezone} />
+            </ChartContainer>
+          </section>
+
+          <section className="overview-insights-grid">
+            <EndpointInsightCard
+              title="Highest traffic endpoints"
+              description="The routes carrying the most load in the selected window."
+              items={topEndpoints}
+              loading={analyticsLoading}
+              variant="traffic"
+            />
+
+            <EndpointInsightCard
+              title="Reliability watch"
+              description="Endpoints contributing the most errors right now."
+              items={errorEndpoints}
+              loading={analyticsLoading}
+              variant="errors"
+            />
+          </section>
+
+          <div className="overview-footer">
+            <Link href={`/projects/${slug}/endpoints`} className="overview-inline-link">
+              Open the full endpoints explorer
+              <ArrowRight size={16} strokeWidth={2} />
             </Link>
           </div>
-          <div className="apps-grid">
-            {apps.slice(0, 6).map((app) => (
-              <AppCard
-                key={app.id}
-                app={app}
-                projectSlug={slug}
-                onDeleted={(id) => setApps((prev) => prev.filter((a) => a.id !== id))}
-              />
-            ))}
-          </div>
-          {apps.length > 6 && (
-            <div style={{ marginTop: "1rem", textAlign: "center" }}>
-              <Link href={`/projects/${slug}/apps`} className="settings-btn">
-                View All {apps.length} Apps
-              </Link>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Top Endpoints */}
-      {topEndpoints.length > 0 && (
-        <div className="create-app-guide">
-          <div className="create-app-guide-step" style={{ gridColumn: "1 / -1" }}>
-            <div className="create-app-guide-body">
-              <h4 className="create-app-page-title">Top Endpoints (Last 24h)</h4>
-              <div style={{ marginTop: "1rem" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr style={{ borderBottom: "1px solid var(--color-border)", textAlign: "left" }}>
-                      <th style={{ padding: "0.5rem 0", fontSize: "0.75rem", fontWeight: 500, color: "var(--color-text-secondary)" }}>Endpoint</th>
-                      <th style={{ padding: "0.5rem 0", fontSize: "0.75rem", fontWeight: 500, color: "var(--color-text-secondary)", textAlign: "right" }}>Requests</th>
-                      <th style={{ padding: "0.5rem 0", fontSize: "0.75rem", fontWeight: 500, color: "var(--color-text-secondary)", textAlign: "right" }}>Errors</th>
-                      <th style={{ padding: "0.5rem 0", fontSize: "0.75rem", fontWeight: 500, color: "var(--color-text-secondary)", textAlign: "right" }}>P95</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {topEndpoints.map((ep) => (
-                      <tr key={`${ep.method}-${ep.path}`} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                        <td style={{ padding: "0.75rem 0" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                            <span className="endpoint-method">{ep.method}</span>
-                            <span className="endpoint-path">{ep.path}</span>
-                          </div>
-                        </td>
-                        <td style={{ padding: "0.75rem 0", textAlign: "right", fontSize: "0.875rem" }}>{formatNumber(ep.total_requests)}</td>
-                        <td style={{ padding: "0.75rem 0", textAlign: "right", fontSize: "0.875rem" }}>
-                          <span className={ep.error_count > 0 ? "error-rate-high" : ""}>{ep.error_count}</span>
-                        </td>
-                        <td style={{ padding: "0.75rem 0", textAlign: "right", fontSize: "0.875rem" }}>{Math.round(ep.p95_response_time_ms)} ms</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="create-app-actions" style={{ marginTop: "1.5rem" }}>
-                <Link href={`/projects/${slug}/endpoints`} className="settings-btn">
-                  View All Endpoints
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Empty State */}
-      {apps.length === 0 && (
-        <div className="create-app-guide">
-          <div className="create-app-guide-step" style={{ gridColumn: "1 / -1" }}>
-            <div className="create-app-guide-body" style={{ textAlign: "center", padding: "3rem 1rem" }}>
-              <Layers size={48} strokeWidth={1.5} style={{ margin: "0 auto 1rem", opacity: 0.3 }} />
-              <h4 className="create-app-page-title">No apps yet</h4>
-              <p className="apps-page-subtitle">Create your first app to start monitoring your APIs.</p>
-              <div className="create-app-actions" style={{ marginTop: "1.5rem", justifyContent: "center" }}>
-                <Link href={`/projects/${slug}/new-app`} className="settings-btn settings-btn-primary">
-                  <Plus size={16} />
-                  Create Your First App
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
+        </>
       )}
     </div>
   );
 }
 
+function EndpointInsightCard({
+  title,
+  description,
+  items,
+  loading,
+  variant,
+}: {
+  title: string;
+  description: string;
+  items: EndpointInsight[];
+  loading: boolean;
+  variant: "traffic" | "errors";
+}) {
+  return (
+    <section className="overview-insight-card">
+      <div className="overview-insight-header">
+        <div>
+          <h2 className="overview-insight-title">{title}</h2>
+          <p className="overview-insight-description">{description}</p>
+        </div>
+      </div>
+
+      <div className="overview-insight-list">
+        {loading
+          ? Array.from({ length: 5 }).map((_, index) => (
+              <div
+                key={index}
+                className="overview-insight-row overview-insight-row-skeleton"
+                aria-hidden="true"
+              >
+                <div className="overview-insight-skeleton-main" />
+                <div className="overview-insight-skeleton-metrics" />
+              </div>
+            ))
+          : items.length > 0
+            ? items.slice(0, 5).map((item) => {
+                const errorRate =
+                  item.total_requests > 0
+                    ? (item.error_count / item.total_requests) * 100
+                    : 0;
+
+                return (
+                  <div
+                    key={`${variant}-${item.method}-${item.path}`}
+                    className="overview-insight-row"
+                  >
+                    <div className="overview-insight-row-main">
+                      <div className="overview-endpoint">
+                        <span className="endpoint-method">{item.method}</span>
+                        <span className="overview-endpoint-path">{item.path}</span>
+                      </div>
+
+                      <p className="overview-insight-row-subtext">
+                        {variant === "traffic"
+                          ? `${formatNumber(item.total_requests)} requests in the selected window`
+                          : `${formatNumber(item.error_count)} errors across ${formatNumber(item.total_requests)} requests`}
+                      </p>
+                    </div>
+
+                    <div className="overview-insight-row-value">
+                      {variant === "traffic" ? (
+                        <>
+                          <strong>{formatNumber(item.total_requests)}</strong>
+                          <span>P95 {Math.round(item.p95_response_time_ms)} ms</span>
+                        </>
+                      ) : (
+                        <>
+                          <strong
+                            className={
+                              errorRate >= 5
+                                ? "tone-bad"
+                                : errorRate >= 2
+                                  ? "tone-warn"
+                                  : ""
+                            }
+                          >
+                            {errorRate.toFixed(1)}%
+                          </strong>
+                          <span>{formatNumber(item.error_count)} errors</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            : (
+              <p className="overview-insight-empty">
+                {variant === "traffic"
+                  ? "No endpoint traffic was recorded in this window."
+                  : "No error-heavy endpoints were found in this window."}
+              </p>
+            )}
+      </div>
+    </section>
+  );
+}
+
+function OverviewEmptyState({
+  eyebrow,
+  title,
+  description,
+  secondaryText,
+  actionHref,
+  actionLabel,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  secondaryText?: string;
+  actionHref: string;
+  actionLabel: string;
+}) {
+  return (
+    <section className="overview-empty-state">
+      <span className="overview-kicker">{eyebrow}</span>
+      <h2 className="overview-empty-title">{title}</h2>
+      <p className="overview-empty-description">{description}</p>
+      {secondaryText ? (
+        <p className="overview-empty-secondary">{secondaryText}</p>
+      ) : null}
+      <Link href={actionHref} className="settings-btn settings-btn-primary">
+        {actionLabel}
+      </Link>
+    </section>
+  );
+}
+
+function buildAnalyticsQuery({
+  timeRange,
+  environment,
+  appSlugs,
+  limit,
+  statusClasses,
+  sortBy,
+  sortDir,
+  timezone,
+}: {
+  timeRange: TimeRange;
+  environment?: string;
+  appSlugs?: string[];
+  limit?: number;
+  statusClasses?: string;
+  sortBy?: string;
+  sortDir?: string;
+  timezone?: string;
+}) {
+  const params = new URLSearchParams();
+
+  if (timeRange.since) params.set("since", timeRange.since);
+  if (timeRange.until) params.set("until", timeRange.until);
+  if (environment) params.set("environment", environment);
+  if (appSlugs && appSlugs.length > 0) {
+    params.set("app_slugs", appSlugs.join(","));
+  }
+  if (typeof limit === "number") params.set("limit", String(limit));
+  if (statusClasses) params.set("status_classes", statusClasses);
+  if (sortBy) params.set("sort_by", sortBy);
+  if (sortDir) params.set("sort_dir", sortDir);
+  if (timezone) params.set("timezone", timezone);
+
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+function normalizeSummary(data: any): AnalyticsSummary {
+  return {
+    total_requests: Number(data?.total_requests) || 0,
+    error_count: Number(data?.error_count) || 0,
+    error_rate: Number(data?.error_rate) || 0,
+    avg_response_time_ms: Number(data?.avg_response_time_ms) || 0,
+    p95_response_time_ms: Number(data?.p95_response_time_ms) || 0,
+    total_request_bytes: Number(data?.total_request_bytes) || 0,
+    total_response_bytes: Number(data?.total_response_bytes) || 0,
+    unique_endpoints: Number(data?.unique_endpoints) || 0,
+    unique_consumers: Number(data?.unique_consumers) || 0,
+  };
+}
+
+function normalizeTimeseries(data: any): AnalyticsTimeseriesPoint[] {
+  const items = Array.isArray(data) ? data : data?.items || [];
+  return items.map((point: any) => ({
+    bucket: point.bucket,
+    total_requests: Number(point.total_requests) || 0,
+    error_count: Number(point.error_count) || 0,
+    error_rate: Number(point.error_rate) || 0,
+    avg_response_time_ms: Number(point.avg_response_time_ms) || 0,
+    p95_response_time_ms: Number(point.p95_response_time_ms) || 0,
+    total_request_bytes: Number(point.total_request_bytes) || 0,
+    total_response_bytes: Number(point.total_response_bytes) || 0,
+  }));
+}
+
+function normalizeEndpointItems(data: any): EndpointInsight[] {
+  const items = Array.isArray(data) ? data : data?.items || [];
+  return items.map((item: any) => ({
+    method: item.method || "GET",
+    path: item.path || "/",
+    total_requests: Number(item.total_requests) || 0,
+    error_count: Number(item.error_count) || 0,
+    avg_response_time_ms: Number(item.avg_response_time_ms) || 0,
+    p95_response_time_ms: Number(item.p95_response_time_ms) || 0,
+  }));
+}
+
+function getDefaultTimeRange(): TimeRange {
+  const until = new Date();
+  const since = new Date(until.getTime() - 24 * 60 * 60 * 1000);
+  return {
+    since: since.toISOString(),
+    until: until.toISOString(),
+  };
+}
+
+function getOverviewHealth(summary: AnalyticsSummary) {
+  if (summary.total_requests === 0) {
+    return {
+      label: "Waiting for traffic",
+      tone: "neutral",
+      message: "The overview updates automatically once this project starts receiving traffic.",
+    };
+  }
+
+  if (summary.error_rate >= 5 || summary.p95_response_time_ms >= 1200) {
+    return {
+      label: "Needs attention",
+      tone: "critical",
+      message:
+        "Reliability or tail latency is elevated in the selected window. Use the endpoint panels below to isolate the source quickly.",
+    };
+  }
+
+  if (summary.error_rate >= 2 || summary.p95_response_time_ms >= 600) {
+    return {
+      label: "Watch closely",
+      tone: "warning",
+      message:
+        "Core signals are mostly stable, but latency or error rate is trending above a comfortable range.",
+    };
+  }
+
+  return {
+    label: "Healthy",
+    tone: "good",
+    message:
+      "Traffic, latency, and error rate look healthy for the selected window.",
+  };
+}
+
+function getDateTimeFormatOptions(timezone?: string) {
+  if (!timezone) {
+    return {};
+  }
+
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: timezone });
+    return { timeZone: timezone };
+  } catch {
+    return {};
+  }
+}
+
+function formatTimeRangeLabel(timeRange: TimeRange, timezone?: string): string {
+  if (!timeRange.since || !timeRange.until) {
+    return "Last 24 hours";
+  }
+
+  const since = new Date(timeRange.since);
+  const until = new Date(timeRange.until);
+  const diffHours = Math.round(
+    (until.getTime() - since.getTime()) / (1000 * 60 * 60),
+  );
+
+  if (diffHours === 1) return "Last 1 hour";
+  if (diffHours === 6) return "Last 6 hours";
+  if (diffHours === 24) return "Last 24 hours";
+  if (diffHours === 168) return "Last 7 days";
+  if (diffHours === 720) return "Last 30 days";
+
+  return `${since.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    ...getDateTimeFormatOptions(timezone),
+  })} to ${until.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    ...getDateTimeFormatOptions(timezone),
+  })}`;
+}
+
+function formatRefreshTime(timestamp: string, timezone?: string) {
+  return new Date(timestamp).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    ...getDateTimeFormatOptions(timezone),
+  });
+}
+
 function formatNumber(value: number | undefined): string {
   if (value == null) return "0";
   return Number(value).toLocaleString();
+}
+
+async function fetchJson<T>(url: string, signal: AbortSignal): Promise<T> {
+  const response = await fetch(url, { signal });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || "Request failed");
+  }
+
+  return response.json();
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+export default function ProjectDetailContent({
+  slug,
+}: ProjectDetailContentProps) {
+  return (
+    <Suspense
+      fallback={
+        <div className="overview-page">
+          <div className="apps-page-loading">
+            <Loader2 size={24} strokeWidth={2} className="animate-spin" />
+            <span>Loading project overview...</span>
+          </div>
+        </div>
+      }
+    >
+      <ProjectDetailContentInner slug={slug} />
+    </Suspense>
+  );
 }

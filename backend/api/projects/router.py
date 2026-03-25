@@ -15,6 +15,7 @@ from apps.auth.services import ApiKeyService
 from apps.projects.models import App
 from apps.projects.services import ProjectService, AppService, AnalyticsService, DataQueryService
 from apps.users.models import User
+from apps.users.services import UserService
 from core.auth.authentication import jwt_auth
 
 from .schemas import (
@@ -32,6 +33,7 @@ from .schemas import (
     MessageResponse,
     LogsQueryResponse,
     RequestsQueryResponse,
+    AnalyticsTimeseriesPointResponse,
 )
 
 router = Router(auth=[jwt_auth])
@@ -212,7 +214,7 @@ def get_analytics_summary(
     )
 
 
-@router.get("/{project_slug}/analytics/timeseries", response=list[dict])
+@router.get("/{project_slug}/analytics/timeseries", response=list[AnalyticsTimeseriesPointResponse])
 def get_analytics_timeseries(
     request: HttpRequest,
     project_slug: str,
@@ -220,6 +222,7 @@ def get_analytics_timeseries(
     environment: str = None,
     since: str = None,
     until: str = None,
+    timezone: str = None,
 ):
     """
     Get time-series analytics for a project.
@@ -235,12 +238,19 @@ def get_analytics_timeseries(
             apps = AppService.get_apps_by_slugs(project, slugs)
             app_ids = [str(app.id) for app in apps]
 
+    bucket_timezone = (
+        UserService.normalize_timezone(timezone)
+        if timezone
+        else UserService.get_timezone(user)
+    )
+
     return AnalyticsService.get_project_timeseries(
         project_id=str(project.id),
         app_ids=app_ids,
         environment=environment,
         since=since,
         until=until,
+        timezone_name=bucket_timezone,
     )
 
 

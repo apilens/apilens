@@ -89,6 +89,7 @@ export default function SettingsPage({ initialTab = "general" }: SettingsPagePro
 
       const data = await response.json();
       setProfile(data.profile);
+      await refreshUser();
       showToast("success", "Timezone updated");
     } catch (error) {
       showToast("error", error instanceof Error ? error.message : "Failed to update timezone");

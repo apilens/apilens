@@ -168,7 +168,7 @@ export default function ProjectSettingsContent({
         </div>
       )}
 
-      <PageHeader title="Project Settings" subtitle="Manage your project configuration" />
+      <PageHeader title="Project Settings" description="Manage your project configuration" />
 
       <div className="settings-page-body">
         <ProjectSettingsSidebar projectSlug={projectSlug} activeTab={activeTab} />

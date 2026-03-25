@@ -760,12 +760,12 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
               </tr>
             </thead>
             <tbody>
-              {stats.map((row) => {
+              {stats.map((row, index) => {
                 const errorRate = row.error_rate || (row.total_requests > 0 ? (row.error_count / row.total_requests) * 100 : 0);
                 const errorClass = errorRate < 1 ? "low" : errorRate < 5 ? "medium" : "high";
                 const hasTraffic = row.total_requests > 0;
                 return (
-                  <tr key={`${row.method}-${row.path}`}>
+                  <tr key={`${row.method}-${row.path}-${index}`}>
                     <td>
                       <span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span>
                       <span className="endpoint-path">{row.path}</span>

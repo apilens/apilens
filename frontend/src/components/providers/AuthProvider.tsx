@@ -11,6 +11,7 @@ interface AuthUser {
   picture: string;
   email_verified: boolean;
   has_password: boolean;
+  timezone: string;
 }
 
 interface AuthContextType {
