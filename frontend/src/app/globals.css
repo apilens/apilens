@@ -2666,6 +2666,28 @@ body {
   padding: 0;
 }
 
+.settings-identifier-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-identifier-input {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+}
+
+.settings-identifier-help {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.settings-identifier-help code {
+  font-family: var(--font-mono, monospace);
+  color: var(--text-primary);
+}
+
 /* Button Loading */
 .btn-loading {
   display: inline-flex;
@@ -5319,6 +5341,40 @@ a.settings-btn {
   color: var(--text-secondary);
 }
 
+.create-app-identifiers {
+  display: grid;
+  gap: 8px;
+}
+
+.create-app-identifier {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  padding: 12px;
+}
+
+.create-app-identifier-copy {
+  min-width: 0;
+}
+
+.create-app-identifier-label {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.create-app-identifier-value {
+  display: block;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
 .create-app-setup-footer {
   display: flex;
   align-items: center;
@@ -5435,6 +5491,12 @@ a.settings-btn {
 
 @media (max-width: 980px) {
   .create-app-setup-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-identifier-row,
+  .create-app-identifier {
     flex-direction: column;
     align-items: stretch;
   }

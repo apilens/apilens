@@ -136,7 +136,7 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
       // Store setup metadata for the setup page
       if (typeof window !== "undefined") {
         window.localStorage.setItem(
-          `apilens_setup_meta_${data.slug}`,
+          `apilens_setup_meta_${projectSlug}_${data.slug}`,
           JSON.stringify({
             appName: data.name,
             framework,
@@ -223,7 +223,8 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
         )}
         {!slugError && (
           <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "4px" }}>
-            Used in SDK configuration (e.g., app_id=&quot;{slug || "my-api-service"}&quot;)
+            Used in SDK configuration with <code>project_slug=&quot;{projectSlug}&quot;</code> as{" "}
+            <code>app_id=&quot;{slug || "my-api-service"}&quot;</code>
           </p>
         )}
       </div>

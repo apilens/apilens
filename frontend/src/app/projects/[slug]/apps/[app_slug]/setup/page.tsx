@@ -27,8 +27,9 @@ export default function ProjectAppSetupPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const metaKey = `apilens_setup_meta_${appSlug}`;
-    const rawMeta = window.localStorage.getItem(metaKey);
+    const metaKey = `apilens_setup_meta_${projectSlug}_${appSlug}`;
+    const legacyMetaKey = `apilens_setup_meta_${appSlug}`;
+    const rawMeta = window.localStorage.getItem(metaKey) || window.localStorage.getItem(legacyMetaKey);
 
     if (rawMeta) {
       try {

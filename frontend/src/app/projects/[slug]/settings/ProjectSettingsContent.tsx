@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Loader2, X, Check } from "lucide-react";
+import { Trash2, Loader2, X, Check, Copy } from "lucide-react";
 import PageHeader from "@/components/dashboard/PageHeader";
 import SettingsCard from "@/components/settings/SettingsCard";
 import ProjectApiKeysSection from "@/components/projects/ProjectApiKeysSection";
@@ -38,6 +38,7 @@ export default function ProjectSettingsContent({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [copiedSlug, setCopiedSlug] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -47,6 +48,18 @@ export default function ProjectSettingsContent({
   const showToast = (type: "success" | "error", message: string) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 5000);
+  };
+
+  const handleCopySlug = async () => {
+    if (!project?.slug) return;
+
+    try {
+      await navigator.clipboard.writeText(project.slug);
+      setCopiedSlug(true);
+      window.setTimeout(() => setCopiedSlug(false), 1600);
+    } catch {
+      showToast("error", "Failed to copy slug. Copy it manually.");
+    }
   };
 
   useEffect(() => {
@@ -178,6 +191,33 @@ export default function ProjectSettingsContent({
             <div className="settings-section-content">
               <SettingsCard title="General" description="Update your project details">
                 <form onSubmit={handleSave} className="app-general-form">
+                  <div className="create-app-field">
+                    <label htmlFor="project-slug" className="create-app-label">
+                      Project slug
+                    </label>
+                    <div className="settings-identifier-row">
+                      <input
+                        id="project-slug"
+                        type="text"
+                        value={project.slug}
+                        className="create-app-input settings-identifier-input"
+                        readOnly
+                        aria-readonly="true"
+                      />
+                      <button
+                        type="button"
+                        className="settings-btn settings-btn-secondary"
+                        onClick={handleCopySlug}
+                      >
+                        {copiedSlug ? <Check size={14} /> : <Copy size={14} />}
+                        {copiedSlug ? "Copied" : "Copy"}
+                      </button>
+                    </div>
+                    <p className="settings-identifier-help">
+                      Use this exact value as <code>project_slug</code> in every SDK setup for apps in this project.
+                    </p>
+                  </div>
+
                   <div className="create-app-field">
                     <label htmlFor="name" className="create-app-label">
                       Project Name

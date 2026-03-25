@@ -237,6 +237,31 @@ function CodeBlock({
   );
 }
 
+function SetupIdentifier({
+  label,
+  value,
+  copied,
+  onCopy,
+}: {
+  label: string;
+  value: string;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="create-app-identifier">
+      <div className="create-app-identifier-copy">
+        <div className="create-app-identifier-label">{label}</div>
+        <code className="create-app-identifier-value">{value}</code>
+      </div>
+      <button type="button" className="settings-btn settings-btn-secondary settings-btn-sm" onClick={onCopy}>
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
 export default function AppSetupGuide({
   appName,
   framework,
@@ -254,14 +279,15 @@ export default function AppSetupGuide({
   projectSlug?: string;
   projectName?: string;
 }) {
-  const [copiedItem, setCopiedItem] = useState<"install" | "snippet" | "">("");
+  const [copiedItem, setCopiedItem] = useState<"install" | "snippet" | "project-slug" | "app-id" | "">("");
   const frameworkOption = FRAMEWORK_OPTIONS[framework] || FRAMEWORK_OPTIONS.fastapi;
   const installCmd = buildInstallCommand(framework);
   const projectLabel = projectName?.trim() || projectSlug;
+  const projectSlugValue = projectSlug?.trim() || "your-project-slug";
   const snippet = buildFrameworkSnippet(framework, apiKey, appSlug, projectSlug, projectLabel);
   const snippetLanguage = frameworkOption.packageLanguage === "python" ? "python" : "javascript";
 
-  const copyText = async (text: string, item: "install" | "snippet") => {
+  const copyText = async (text: string, item: "install" | "snippet" | "project-slug" | "app-id") => {
     await navigator.clipboard.writeText(text);
     setCopiedItem(item);
     window.setTimeout(() => setCopiedItem(""), 1400);
@@ -298,9 +324,23 @@ export default function AppSetupGuide({
           <div className="create-app-guide-body">
             <h4>Add middleware in app bootstrap</h4>
             <p>
-              Paste this snippet in your entry file, keep the app slug as <code>{appSlug}</code>, and use a key from{" "}
+              Paste this snippet in your entry file, keep these identifiers exactly as shown, and use a key from{" "}
               {projectLabel ? <strong>{projectLabel}</strong> : "the same project"}.
             </p>
+            <div className="create-app-identifiers">
+              <SetupIdentifier
+                label="Project slug"
+                value={projectSlugValue}
+                copied={copiedItem === "project-slug"}
+                onCopy={() => copyText(projectSlugValue, "project-slug")}
+              />
+              <SetupIdentifier
+                label="App ID"
+                value={appSlug}
+                copied={copiedItem === "app-id"}
+                onCopy={() => copyText(appSlug, "app-id")}
+              />
+            </div>
             <CodeBlock language={snippetLanguage} code={snippet} copied={copiedItem === "snippet"} onCopy={() => copyText(snippet, "snippet")} />
           </div>
         </div>
