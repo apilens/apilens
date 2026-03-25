@@ -214,7 +214,9 @@ function ProjectDetailContentInner({ slug }: ProjectDetailContentProps) {
       }
 
       if (timeseriesResult.status === "fulfilled") {
-        setTimeseries(normalizeTimeseries(timeseriesResult.value));
+        setTimeseries(
+          normalizeTimeseries(timeseriesResult.value, timeRange, chartTimezone),
+        );
       } else {
         setTimeseries([]);
       }
@@ -601,18 +603,57 @@ function normalizeSummary(data: any): AnalyticsSummary {
   };
 }
 
-function normalizeTimeseries(data: any): AnalyticsTimeseriesPoint[] {
+function normalizeTimeseries(
+  data: any,
+  timeRange?: TimeRange,
+  timezone?: string,
+): AnalyticsTimeseriesPoint[] {
   const items = Array.isArray(data) ? data : data?.items || [];
-  return items.map((point: any) => ({
+  const normalizedItems: AnalyticsTimeseriesPoint[] = items.map(
+    (point: any): AnalyticsTimeseriesPoint => ({
     bucket: point.bucket,
     total_requests: Number(point.total_requests) || 0,
     error_count: Number(point.error_count) || 0,
     error_rate: Number(point.error_rate) || 0,
-    avg_response_time_ms: Number(point.avg_response_time_ms) || 0,
-    p95_response_time_ms: Number(point.p95_response_time_ms) || 0,
+    avg_response_time_ms:
+      Number(point.total_requests) > 0
+        ? Number(point.avg_response_time_ms) || 0
+        : null,
+    p95_response_time_ms:
+      Number(point.total_requests) > 0
+        ? Number(point.p95_response_time_ms) || 0
+        : null,
     total_request_bytes: Number(point.total_request_bytes) || 0,
     total_response_bytes: Number(point.total_response_bytes) || 0,
-  }));
+  }),
+  );
+
+  const buckets = buildHourlyBuckets(timeRange, timezone);
+  if (buckets.length <= 1) {
+    return normalizedItems;
+  }
+
+  const itemMap = new Map(
+    normalizedItems.map((point) => [new Date(point.bucket).toISOString(), point]),
+  );
+
+  return buckets.map((bucket): AnalyticsTimeseriesPoint => {
+    const existing = itemMap.get(bucket);
+    if (existing) {
+      return existing;
+    }
+
+    return {
+      bucket,
+      total_requests: 0,
+      error_count: 0,
+      error_rate: 0,
+      avg_response_time_ms: null,
+      p95_response_time_ms: null,
+      total_request_bytes: 0,
+      total_response_bytes: 0,
+    };
+  });
 }
 
 function normalizeEndpointItems(data: any): EndpointInsight[] {
@@ -681,6 +722,109 @@ function getDateTimeFormatOptions(timezone?: string) {
     return { timeZone: timezone };
   } catch {
     return {};
+  }
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+function buildHourlyBuckets(timeRange?: TimeRange, timezone?: string): string[] {
+  if (!timeRange?.since || !timeRange?.until) {
+    return [];
+  }
+
+  const start = new Date(timeRange.since);
+  const endExclusive = new Date(timeRange.until);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(endExclusive.getTime())) {
+    return [];
+  }
+
+  const inclusiveEnd = new Date(endExclusive.getTime() - 1);
+  if (inclusiveEnd < start) {
+    return [];
+  }
+
+  const firstBucket = floorToHourInTimeZone(start, timezone);
+  const lastBucket = floorToHourInTimeZone(inclusiveEnd, timezone);
+  const buckets: string[] = [];
+
+  for (
+    let cursor = firstBucket.getTime();
+    cursor <= lastBucket.getTime();
+    cursor += HOUR_MS
+  ) {
+    buckets.push(new Date(cursor).toISOString());
+  }
+
+  return buckets;
+}
+
+function floorToHourInTimeZone(date: Date, timezone?: string): Date {
+  const zonedTimestamp = date.getTime() + getTimeZoneOffsetMs(date, timezone);
+  const flooredZonedTimestamp = Math.floor(zonedTimestamp / HOUR_MS) * HOUR_MS;
+  return zonedLocalTimestampToUtcDate(flooredZonedTimestamp, timezone);
+}
+
+function zonedLocalTimestampToUtcDate(
+  localTimestamp: number,
+  timezone?: string,
+): Date {
+  if (!timezone) {
+    return new Date(localTimestamp);
+  }
+
+  let guess = new Date(localTimestamp);
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const offset = getTimeZoneOffsetMs(guess, timezone);
+    const nextGuess = new Date(localTimestamp - offset);
+
+    if (Math.abs(nextGuess.getTime() - guess.getTime()) < 1) {
+      return nextGuess;
+    }
+
+    guess = nextGuess;
+  }
+
+  return guess;
+}
+
+function getTimeZoneOffsetMs(date: Date, timezone?: string): number {
+  if (!timezone) {
+    return 0;
+  }
+
+  try {
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    });
+
+    const parts = formatter.formatToParts(date);
+    const values = Object.fromEntries(
+      parts
+        .filter((part) => part.type !== "literal")
+        .map((part) => [part.type, part.value]),
+    );
+
+    const zonedTimestamp = Date.UTC(
+      Number(values.year),
+      Number(values.month) - 1,
+      Number(values.day),
+      Number(values.hour),
+      Number(values.minute),
+      Number(values.second),
+    );
+
+    return zonedTimestamp - date.getTime();
+  } catch {
+    return 0;
   }
 }
 

@@ -20,8 +20,8 @@ interface TimeseriesPoint {
   total_requests: number;
   error_count: number;
   error_rate: number;
-  avg_response_time_ms: number;
-  p95_response_time_ms: number;
+  avg_response_time_ms: number | null;
+  p95_response_time_ms: number | null;
 }
 
 interface ResponseTimeChartProps {
@@ -119,7 +119,9 @@ export default function ResponseTimeChart({
                 color: CHART_COLORS.info,
               }}
             >
-              {formatDuration(point.avg_response_time_ms)}
+              {point.avg_response_time_ms == null
+                ? 'No data'
+                : formatDuration(point.avg_response_time_ms)}
             </strong>
           </div>
           <div style={SINGLE_POINT_STAT}>
@@ -132,7 +134,9 @@ export default function ResponseTimeChart({
                 color: CHART_COLORS.danger,
               }}
             >
-              {formatDuration(point.p95_response_time_ms)}
+              {point.p95_response_time_ms == null
+                ? 'No data'
+                : formatDuration(point.p95_response_time_ms)}
             </strong>
           </div>
         </div>
@@ -176,7 +180,10 @@ export default function ResponseTimeChart({
             padding: '8px 12px',
           }}
           labelFormatter={(value) => formatTimestamp(value as string, timezone)}
-          formatter={(value: any, name: any) => [formatDuration(value), name]}
+          formatter={(value: any, name: any) => [
+            value == null ? 'No requests' : formatDuration(value),
+            name,
+          ]}
         />
         <Legend
           wrapperStyle={{ fontSize: 12, color: 'var(--text-secondary)' }}
