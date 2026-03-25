@@ -9,6 +9,7 @@ This router provides all project-level operations including:
 """
 
 from django.http import HttpRequest
+from django.db import transaction
 from ninja import Router
 
 from apps.auth.services import ApiKeyService
@@ -46,10 +47,11 @@ router = Router(auth=[jwt_auth])
 def create_project(request: HttpRequest, data: CreateProjectRequest):
     """Create a new project."""
     user: User = request.auth
-    project = ProjectService.create_project(user, data.name, data.description)
+    with transaction.atomic():
+        project = ProjectService.create_project(user, data.name, data.description)
 
-    # Auto-create default API key for the project
-    ApiKeyService.create_api_key(project, f"{project.name} API Key")
+        # Auto-create a default API key and roll back project creation if it fails.
+        ApiKeyService.create_key(project, f"{project.name} API Key")
 
     return 201, ProjectResponse.from_orm(project)
 
