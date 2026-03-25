@@ -91,7 +91,7 @@ export default function Breadcrumbs({ appSlug, projectSlug }: BreadcrumbsProps) 
   if (isProject && projectSlug) {
     crumbs = [
       { label: "Projects", href: "/projects" },
-      { label: displayName as string, href: `/projects/${projectSlug}` },
+      { label: displayName as string, href: `/projects/${projectSlug}/apps` },
     ];
 
     if (sectionName && section) {
