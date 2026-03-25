@@ -88,6 +88,7 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
 
       const data = await response.json();
       setProfile(data.profile);
+      await refreshUser();
       showToast("success", "Timezone updated");
     } catch (error) {
       showToast("error", error instanceof Error ? error.message : "Failed to update timezone");
@@ -216,8 +217,6 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
 
       <PageHeader
         title="Account Settings"
-        backLink="/projects"
-        backText="Back to Projects"
       />
 
       <div className="settings-page-body">

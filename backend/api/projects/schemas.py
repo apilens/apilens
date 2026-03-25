@@ -198,6 +198,17 @@ class RequestsQueryResponse(Schema):
     page_size: int
 
 
+class AnalyticsTimeseriesPointResponse(Schema):
+    bucket: datetime
+    total_requests: int
+    error_count: int
+    error_rate: float
+    avg_response_time_ms: float
+    p95_response_time_ms: float
+    total_request_bytes: int
+    total_response_bytes: int
+
+
 # ── Generic Response Schemas ──────────────────────────────────────────
 
 class MessageResponse(Schema):

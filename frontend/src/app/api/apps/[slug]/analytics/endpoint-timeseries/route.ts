@@ -12,6 +12,7 @@ export const GET = (
     const environment = url.searchParams.get("environment") || undefined;
     const since = url.searchParams.get("since") || undefined;
     const until = url.searchParams.get("until") || undefined;
+    const timezone = url.searchParams.get("timezone") || undefined;
     const slug = (await params).slug;
-    return apiResult(await apiClient.getEndpointTimeseries(slug, { method, path, environment, since, until }));
+    return apiResult(await apiClient.getEndpointTimeseries(slug, { method, path, environment, since, until, timezone }));
   });
