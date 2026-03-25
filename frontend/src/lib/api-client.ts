@@ -153,8 +153,8 @@ export interface AnalyticsTimeseriesPoint {
   total_requests: number;
   error_count: number;
   error_rate: number;
-  avg_response_time_ms: number;
-  p95_response_time_ms: number;
+  avg_response_time_ms: number | null;
+  p95_response_time_ms: number | null;
   total_request_bytes: number;
   total_response_bytes: number;
 }
