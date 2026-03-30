@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, ArrowLeft, Box, Trash2, MoreVertical, ArrowRight } from "lucide-react";
+import { Loader2, Plus, ArrowLeft, Box, Trash2, MoreVertical, ArrowRight, BookOpen } from "lucide-react";
 import Image from "next/image";
 import type { AppListItem } from "@/types/app";
 
@@ -271,6 +271,18 @@ export default function ProjectAppsContent({ slug }: ProjectAppsContentProps) {
                             >
                               <ArrowRight size={14} />
                               View endpoints
+                            </button>
+                            <button
+                              type="button"
+                              className="app-card-menu-item"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuId(null);
+                                router.push(`/projects/${slug}/apps/${app.slug}/settings/setup`);
+                              }}
+                            >
+                              <BookOpen size={14} />
+                              View setup guide
                             </button>
                             <button
                               type="button"
