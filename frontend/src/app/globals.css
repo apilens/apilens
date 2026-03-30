@@ -5948,6 +5948,32 @@ a.settings-btn {
   margin: 6px 0 0;
 }
 
+.page-header-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  margin: 0 0 8px -8px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.12s ease;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.page-header-back:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.page-header-back:active {
+  background: var(--bg-secondary);
+}
+
 .placeholder-page {
   display: flex;
   flex-direction: column;
