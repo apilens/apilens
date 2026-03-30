@@ -7,6 +7,7 @@ import { useApp } from "@/components/providers/AppProvider";
 import AppSettingsSidebar, { AppSettingsTab } from "./AppSettingsSidebar";
 import AppGeneralSection from "./AppGeneralSection";
 import AppApiKeysSection from "./AppApiKeysSection";
+import AppSetupGuide from "./AppSetupGuide";
 import type { FrameworkId } from "@/types/app";
 
 interface ToastState {
@@ -25,10 +26,32 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
   const { app, isLoading } = useApp();
   const [localApp, setLocalApp] = useState(app);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [apiKeyPrefix, setApiKeyPrefix] = useState<string>("");
 
   useEffect(() => {
     setLocalApp(app);
   }, [app]);
+
+  // Fetch API key prefix for setup guide
+  useEffect(() => {
+    if (activeTab !== "setup" || !appSlug) return;
+
+    async function fetchApiKeys() {
+      try {
+        const res = await fetch(`/api/apps/${appSlug}/api-keys`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.keys && data.keys.length > 0) {
+            setApiKeyPrefix(data.keys[0].prefix);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch API keys:", err);
+      }
+    }
+
+    fetchApiKeys();
+  }, [activeTab, appSlug]);
 
   const showToast = useCallback((type: "success" | "error", message: string) => {
     setToast({ type, message });
@@ -170,6 +193,19 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
           {activeTab === "api-keys" && (
             <div className="settings-section-content">
               <AppApiKeysSection appSlug={appSlug} showToast={showToast} />
+            </div>
+          )}
+          {activeTab === "setup" && localApp && (
+            <div className="settings-section-content">
+              <AppSetupGuide
+                appName={localApp.name}
+                framework={localApp.framework}
+                apiKey={apiKeyPrefix ? `${apiKeyPrefix}********` : "Generate an API key first"}
+                hasRawKey={false}
+                appSlug={appSlug}
+                projectSlug={undefined}
+                projectName={undefined}
+              />
             </div>
           )}
         </div>
