@@ -26,10 +26,11 @@ interface ApiKey {
 
 interface AppApiKeysSectionProps {
   appSlug: string;
+  projectSlug?: string;
   showToast: (type: "success" | "error", message: string) => void;
 }
 
-export default function AppApiKeysSection({ appSlug, showToast }: AppApiKeysSectionProps) {
+export default function AppApiKeysSection({ appSlug, projectSlug, showToast }: AppApiKeysSectionProps) {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -46,7 +47,10 @@ export default function AppApiKeysSection({ appSlug, showToast }: AppApiKeysSect
 
   const fetchKeys = useCallback(async () => {
     try {
-      const res = await fetch(`/api/apps/${appSlug}/api-keys`);
+      const url = projectSlug
+        ? `/api/projects/${projectSlug}/apps/${appSlug}/api-keys`
+        : `/api/apps/${appSlug}/api-keys`;
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch API keys");
       const data = await res.json();
       setKeys(data.keys);
@@ -55,7 +59,7 @@ export default function AppApiKeysSection({ appSlug, showToast }: AppApiKeysSect
     } finally {
       setIsLoading(false);
     }
-  }, [appSlug]);
+  }, [appSlug, projectSlug]);
 
   useEffect(() => {
     fetchKeys();
@@ -97,7 +101,10 @@ export default function AppApiKeysSection({ appSlug, showToast }: AppApiKeysSect
     if (!newKeyName.trim()) return;
     setIsCreating(true);
     try {
-      const res = await fetch(`/api/apps/${appSlug}/api-keys`, {
+      const url = projectSlug
+        ? `/api/projects/${projectSlug}/apps/${appSlug}/api-keys`
+        : `/api/apps/${appSlug}/api-keys`;
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newKeyName.trim() }),
@@ -132,7 +139,10 @@ export default function AppApiKeysSection({ appSlug, showToast }: AppApiKeysSect
     if (!revokeTarget) return;
     setIsRevoking(true);
     try {
-      const res = await fetch(`/api/apps/${appSlug}/api-keys/${revokeTarget.id}`, {
+      const url = projectSlug
+        ? `/api/projects/${projectSlug}/apps/${appSlug}/api-keys/${revokeTarget.id}`
+        : `/api/apps/${appSlug}/api-keys/${revokeTarget.id}`;
+      const res = await fetch(url, {
         method: "DELETE",
       });
       const data = await res.json();

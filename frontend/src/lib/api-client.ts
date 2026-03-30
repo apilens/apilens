@@ -593,6 +593,23 @@ export const apiClient = {
     });
   },
 
+  async getProjectAppApiKeys(projectSlug: string, appSlug: string): Promise<ApiResponse<{ keys: ApiKeyInfo[] }>> {
+    return fetchDjango<{ keys: ApiKeyInfo[] }>(`/projects/${projectSlug}/apps/${appSlug}/api-keys`);
+  },
+
+  async createProjectAppApiKey(projectSlug: string, appSlug: string, data: { name: string }): Promise<ApiResponse<ApiKeyCreateResult>> {
+    return fetchDjango<ApiKeyCreateResult>(`/projects/${projectSlug}/apps/${appSlug}/api-keys`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async revokeProjectAppApiKey(projectSlug: string, appSlug: string, keyId: string): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>(`/projects/${projectSlug}/apps/${appSlug}/api-keys/${keyId}`, {
+      method: "DELETE",
+    });
+  },
+
   // ── App-scoped Environments ─────────────────────────────────────────
 
   async getEnvironments(slug: string): Promise<ApiResponse<import("@/types/app").Environment[]>> {

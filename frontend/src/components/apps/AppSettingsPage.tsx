@@ -196,7 +196,7 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
           )}
           {activeTab === "api-keys" && (
             <div className="settings-section-content">
-              <AppApiKeysSection appSlug={appSlug} showToast={showToast} />
+              <AppApiKeysSection appSlug={appSlug} projectSlug={projectSlug} showToast={showToast} />
             </div>
           )}
           {activeTab === "setup" && localApp && (
