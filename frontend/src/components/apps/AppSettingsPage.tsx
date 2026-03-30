@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { X, Check } from "lucide-react";
+import Link from "next/link";
+import { X, Check, ArrowLeft, Settings } from "lucide-react";
 import { useApp } from "@/components/providers/AppProvider";
 import AppSettingsSidebar, { AppSettingsTab } from "./AppSettingsSidebar";
 import AppGeneralSection from "./AppGeneralSection";
@@ -193,6 +194,24 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
           </button>
         </div>
       )}
+
+      <div className="settings-page-header">
+        {projectSlug && (
+          <Link href={`/projects/${projectSlug}/apps`} className="settings-back-btn">
+            <ArrowLeft size={16} />
+            Back to Apps
+          </Link>
+        )}
+        <div className="settings-page-title-wrap">
+          <Settings size={20} />
+          <h1 className="settings-page-title">
+            {localApp.name} Settings
+          </h1>
+        </div>
+        <p className="settings-page-subtitle">
+          Manage this app's configuration and view setup instructions
+        </p>
+      </div>
 
       <div className="settings-page-body">
         <AppSettingsSidebar appSlug={appSlug} projectSlug={projectSlug} activeTab={activeTab} />
