@@ -60,6 +60,77 @@ class TokenService:
         return (device_info or "").strip()[:255]
 
     @staticmethod
+    def _parse_user_agent(ua: str) -> dict[str, str]:
+        """
+        Parse User-Agent to extract browser and OS for better session identification.
+        Returns a consistent identifier even if UA string has minor variations.
+        """
+        if not ua or len(ua) < 10:
+            return {"browser": "", "os": "", "device_type": "desktop"}
+
+        ua_lower = ua.lower()
+        browser = ""
+        os_name = ""
+        device_type = "desktop"
+
+        # Device type detection
+        if any(x in ua_lower for x in ["iphone", "ipad", "android", "mobile"]):
+            device_type = "mobile"
+
+        # Browser detection (order matters - Edge contains Chrome, Chrome contains Safari)
+        if "edg/" in ua_lower or "edge/" in ua_lower:
+            browser = "edge"
+        elif "chrome/" in ua_lower and "edg/" not in ua_lower:
+            browser = "chrome"
+        elif "firefox/" in ua_lower:
+            browser = "firefox"
+        elif "safari/" in ua_lower and "chrome/" not in ua_lower:
+            browser = "safari"
+        else:
+            browser = "other"
+
+        # OS detection (check mobile first to avoid false macOS detection on iOS)
+        if "iphone" in ua_lower or "ipad" in ua_lower:
+            os_name = "ios"
+        elif "android" in ua_lower:
+            os_name = "android"
+        elif "mac os x" in ua_lower or "macintosh" in ua_lower:
+            os_name = "macos"
+        elif "windows" in ua_lower:
+            os_name = "windows"
+        elif "linux" in ua_lower:
+            os_name = "linux"
+        else:
+            os_name = "other"
+
+        return {
+            "browser": browser,
+            "os": os_name,
+            "device_type": device_type,
+        }
+
+    @staticmethod
+    def _get_session_fingerprint(device_info: str, ip_address: str | None = None) -> str:
+        """
+        Create a consistent fingerprint for session deduplication.
+        Uses parsed browser+OS when available, falls back to IP for unknown devices.
+        """
+        parsed = TokenService._parse_user_agent(device_info)
+
+        # If we have browser and OS info, use that (ignore IP - it can change)
+        if parsed["browser"] and parsed["os"]:
+            return f"{parsed['browser']}|{parsed['os']}|{parsed['device_type']}"
+
+        # Fallback: use full device_info + IP if we couldn't parse
+        normalized = TokenService._normalized_device(device_info)
+        if normalized:
+            # Use device string but still ignore IP to avoid duplicates from network changes
+            return normalized
+
+        # Last resort: IP only (for cases where User-Agent is completely missing)
+        return f"unknown|{ip_address or 'no-ip'}"
+
+    @staticmethod
     def create_access_token(
         user: User, token_family: str | None = None, auth_method: str | None = None,
     ) -> str:
@@ -87,13 +158,19 @@ class TokenService:
         lifetime = REFRESH_TOKEN_LIFETIME if remember_me else REFRESH_TOKEN_SESSION_LIFETIME
         normalized_device = TokenService._normalized_device(device_info)
 
-        # Revoke existing tokens from the same device to avoid duplicate entries in
-        # active sessions. If device info is missing, fall back to IP-only dedupe.
-        existing = RefreshToken.objects.for_user(user)
-        if normalized_device:
-            existing.filter(device_info=normalized_device).update(is_revoked=True)
-        elif ip_address:
-            existing.filter(ip_address=ip_address).update(is_revoked=True)
+        # Revoke existing tokens from the same device fingerprint to avoid duplicate
+        # sessions. Uses smart fingerprinting (browser+OS) to deduplicate properly.
+        fingerprint = TokenService._get_session_fingerprint(device_info, ip_address)
+
+        # Find all tokens with the same session fingerprint and revoke them
+        existing_tokens = RefreshToken.objects.for_user(user)
+        for token in existing_tokens:
+            token_fingerprint = TokenService._get_session_fingerprint(
+                token.device_info, token.ip_address
+            )
+            if token_fingerprint == fingerprint:
+                token.is_revoked = True
+                token.save(update_fields=["is_revoked"])
 
         location = resolve_location(ip_address)
 
@@ -183,8 +260,11 @@ class TokenService:
 
     @staticmethod
     def get_active_sessions(user: User) -> list[RefreshToken]:
-        # One visible session per device/IP fingerprint (latest activity wins).
-        # This keeps the UI clean even if historical active rows exist.
+        """
+        Get one session per unique device (browser+OS combination).
+        Uses smart fingerprinting that ignores IP changes and browser version updates.
+        Most recently used token wins for each fingerprint.
+        """
         rows = (
             RefreshToken.objects.for_user(user)
             .order_by("-last_used_at")
@@ -192,7 +272,7 @@ class TokenService:
         seen_fingerprints: set[str] = set()
         result: list[RefreshToken] = []
         for row in rows:
-            fingerprint = f"{TokenService._normalized_device(row.device_info)}|{row.ip_address or ''}"
+            fingerprint = TokenService._get_session_fingerprint(row.device_info, row.ip_address)
             if fingerprint in seen_fingerprints:
                 continue
             seen_fingerprints.add(fingerprint)
