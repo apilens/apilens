@@ -1015,55 +1015,6 @@ body {
   flex-shrink: 0;
 }
 
-.settings-page-header {
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 20px;
-  margin-bottom: 0;
-  flex-shrink: 0;
-}
-
-.settings-back-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  margin-bottom: 16px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  text-decoration: none;
-  transition: all 0.15s ease;
-}
-
-.settings-back-btn:hover {
-  background-color: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--border-hover);
-}
-
-.settings-page-title-wrap {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
-  color: var(--text-primary);
-}
-
-.settings-page-title {
-  font-size: 24px;
-  font-weight: 600;
-  margin: 0;
-  color: var(--text-primary);
-}
-
-.settings-page-subtitle {
-  font-size: 14px;
-  color: var(--text-secondary);
-  margin: 0;
-}
 
 .settings-page-body {
   display: flex;
