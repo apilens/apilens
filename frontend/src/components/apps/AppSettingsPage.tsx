@@ -39,7 +39,10 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
 
     async function fetchApiKeys() {
       try {
-        const res = await fetch(`/api/apps/${appSlug}/api-keys`);
+        const url = projectSlug
+          ? `/api/projects/${projectSlug}/apps/${appSlug}/api-keys`
+          : `/api/apps/${appSlug}/api-keys`;
+        const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
           if (data.keys && data.keys.length > 0) {
@@ -52,7 +55,7 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
     }
 
     fetchApiKeys();
-  }, [activeTab, appSlug]);
+  }, [activeTab, appSlug, projectSlug]);
 
   const showToast = useCallback((type: "success" | "error", message: string) => {
     setToast({ type, message });
@@ -65,7 +68,10 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
     framework?: FrameworkId;
   }) => {
     try {
-      const res = await fetch(`/api/apps/${appSlug}`, {
+      const url = projectSlug
+        ? `/api/projects/${projectSlug}/apps/${appSlug}`
+        : `/api/apps/${appSlug}`;
+      const res = await fetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -92,7 +98,10 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
   };
 
   const refreshApp = async () => {
-    const res = await fetch(`/api/apps/${appSlug}`);
+    const url = projectSlug
+      ? `/api/projects/${projectSlug}/apps/${appSlug}`
+      : `/api/apps/${appSlug}`;
+    const res = await fetch(url);
     if (!res.ok) return;
     const next = await res.json();
     setLocalApp(next);
@@ -102,7 +111,10 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
     try {
       const formData = new FormData();
       formData.append("file", file, "app-icon.jpg");
-      const res = await fetch(`/api/apps/${appSlug}/icon`, {
+      const url = projectSlug
+        ? `/api/projects/${projectSlug}/apps/${appSlug}/icon`
+        : `/api/apps/${appSlug}/icon`;
+      const res = await fetch(url, {
         method: "POST",
         body: formData,
       });
@@ -119,7 +131,10 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
 
   const handleRemoveAppIcon = async () => {
     try {
-      const res = await fetch(`/api/apps/${appSlug}/icon`, { method: "DELETE" });
+      const url = projectSlug
+        ? `/api/projects/${projectSlug}/apps/${appSlug}/icon`
+        : `/api/apps/${appSlug}/icon`;
+      const res = await fetch(url, { method: "DELETE" });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Failed to remove app icon");
@@ -133,7 +148,10 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
 
   const handleDeleteApp = async () => {
     try {
-      const res = await fetch(`/api/apps/${appSlug}`, {
+      const url = projectSlug
+        ? `/api/projects/${projectSlug}/apps/${appSlug}`
+        : `/api/apps/${appSlug}`;
+      const res = await fetch(url, {
         method: "DELETE",
       });
 
