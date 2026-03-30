@@ -122,20 +122,61 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     const range = searchParams.get("range");
     const env = searchParams.get("env");
     const app = searchParams.get("app");
+    const apps = searchParams.get("apps");
     const methods = searchParams.get("methods");
     const statusClasses = searchParams.get("status_classes");
     const statusCodes = searchParams.get("status_codes");
     const search = searchParams.get("q");
     const page = searchParams.get("page");
+    const customSince = searchParams.get("custom_since");
+    const customUntil = searchParams.get("custom_until");
+    const sort = searchParams.get("sort");
+    const order = searchParams.get("order");
 
     if (range) setSelectedRange(parseInt(range, 10));
     if (env) setSelectedEnv(env);
-    if (app) setSelectedAppSlugs([app]);
-    if (methods) setMethodFilters(methods.split(","));
-    if (statusClasses) setStatusClassFilters(statusClasses.split(",") as any);
-    if (statusCodes) setStatusCodeFilters(statusCodes.split(",").map(Number));
+
+    // Handle both old single app and new multiple apps format
+    if (apps) {
+      setSelectedAppSlugs(apps.split(",").filter(Boolean));
+    } else if (app) {
+      setSelectedAppSlugs([app]);
+    }
+
+    if (methods) setMethodFilters(methods.split(",").filter(Boolean));
+    if (statusClasses) setStatusClassFilters(statusClasses.split(",").filter(Boolean) as any);
+    if (statusCodes) setStatusCodeFilters(statusCodes.split(",").map(Number).filter(n => !isNaN(n)));
     if (search) setSearchTerm(search);
     if (page) setCurrentPage(parseInt(page, 10));
+
+    // Custom time range
+    if (customSince) {
+      try {
+        const sinceDate = new Date(customSince);
+        if (!isNaN(sinceDate.getTime())) {
+          setCustomSince(customSince);
+          setCustomSinceDraft(customSince);
+          if (customUntil) {
+            const untilDate = new Date(customUntil);
+            if (!isNaN(untilDate.getTime())) {
+              setCustomUntil(customUntil);
+              setCustomUntilDraft(customUntil);
+            }
+          }
+          setCustomActive(true);
+        }
+      } catch {
+        // Invalid date, ignore
+      }
+    }
+
+    // Sort state
+    if (sort && ["endpoint", "total_requests", "error_rate", "avg_response_time_ms", "p95_response_time_ms"].includes(sort)) {
+      setSortKey(sort as SortKey);
+    }
+    if (order && ["asc", "desc"].includes(order)) {
+      setSortDir(order as SortDir);
+    }
 
     setIsInitialized(true);
   }, [searchParams, isInitialized]);
@@ -145,18 +186,38 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     if (!isInitialized) return;
 
     const params = new URLSearchParams();
-    if (selectedRange !== 24) params.set("range", String(selectedRange));
+
+    // Time range - custom takes precedence
+    if (customActive && customSince) {
+      params.set("custom_since", customSince);
+      if (customUntil) params.set("custom_until", customUntil);
+    } else if (selectedRange !== 24) {
+      params.set("range", String(selectedRange));
+    }
+
+    // Filters
     if (selectedEnv) params.set("env", selectedEnv);
-    if (selectedAppSlugs.length === 1) params.set("app", selectedAppSlugs[0]);
+
+    // Apps - only persist if not all apps are selected
+    if (selectedAppSlugs.length > 0 && selectedAppSlugs.length < apps.length) {
+      params.set("apps", selectedAppSlugs.join(","));
+    }
+
     if (methodFilters.length > 0) params.set("methods", methodFilters.join(","));
     if (statusClassFilters.length > 0) params.set("status_classes", statusClassFilters.join(","));
     if (statusCodeFilters.length > 0) params.set("status_codes", statusCodeFilters.join(","));
     if (searchTerm) params.set("q", searchTerm);
     if (currentPage > 1) params.set("page", String(currentPage));
 
+    // Sort state - only persist if not default
+    if (sortKey !== "total_requests" || sortDir !== "desc") {
+      params.set("sort", sortKey);
+      params.set("order", sortDir);
+    }
+
     const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
     router.replace(newUrl, { scroll: false });
-  }, [isInitialized, selectedRange, selectedEnv, selectedAppSlugs, methodFilters, statusClassFilters, statusCodeFilters, searchTerm, currentPage, router]);
+  }, [isInitialized, selectedRange, selectedEnv, selectedAppSlugs, methodFilters, statusClassFilters, statusCodeFilters, searchTerm, currentPage, customActive, customSince, customUntil, sortKey, sortDir, apps.length, router]);
 
   // Debounce search
   useEffect(() => {
@@ -183,8 +244,18 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
           const data = await res.json();
           const list = (data.apps || []).map((a: any) => ({ id: a.id, name: a.name, slug: a.slug }));
           setApps(list);
-          if (!isInitialized) {
+
+          // Only set default (all apps) if not already initialized from URL
+          if (!isInitialized && selectedAppSlugs.length === 0) {
             setSelectedAppSlugs(list.map((a: { slug: string }) => a.slug));
+          } else if (isInitialized && selectedAppSlugs.length > 0) {
+            // Validate URL app slugs against loaded apps, filter out invalid ones
+            const validSlugs = selectedAppSlugs.filter(slug =>
+              list.some((a: { slug: string }) => a.slug === slug)
+            );
+            if (validSlugs.length !== selectedAppSlugs.length) {
+              setSelectedAppSlugs(validSlugs.length > 0 ? validSlugs : list.map((a: { slug: string }) => a.slug));
+            }
           }
         }
       } catch (err) {
@@ -206,7 +277,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
 
     fetchApps();
     fetchEnvironments();
-  }, [projectSlug, isInitialized]);
+  }, [projectSlug, isInitialized, selectedAppSlugs]);
 
   const timeParams = useMemo(() => {
     if (customActive && customSince) {
@@ -537,24 +608,176 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       </div>
 
       <div className="active-filters-row">
-        <span className="active-filter-chip">Time: {activeRangeLabel}</span>
-        {selectedEnv && <span className="active-filter-chip">Env: {selectedEnv}</span>}
-        {apps.length > 0 && selectedAppSlugs.length < apps.length && (
-          <span className="active-filter-chip">
-            Apps: {selectedAppSlugs.map(slug => apps.find(a => a.slug === slug)?.name).join(", ")}
+        {/* Time range chip */}
+        {customActive ? (
+          <span className="active-filter-chip active-filter-chip-removable">
+            Time: {activeRangeLabel}
+            <button
+              type="button"
+              className="active-filter-chip-remove"
+              onClick={resetToPresets}
+              aria-label="Clear custom time range"
+            >
+              <X size={12} />
+            </button>
+          </span>
+        ) : selectedRange !== 24 && (
+          <span className="active-filter-chip active-filter-chip-removable">
+            Time: {activeRangeLabel}
+            <button
+              type="button"
+              className="active-filter-chip-remove"
+              onClick={() => {
+                setSelectedRange(24);
+                setCurrentPage(1);
+              }}
+              aria-label="Clear time range"
+            >
+              <X size={12} />
+            </button>
           </span>
         )}
-        {methodFilters.length > 0 && <span className="active-filter-chip">Method: {methodFilters.join(", ")}</span>}
-        {statusClassFilters.length > 0 && <span className="active-filter-chip">Status: {statusClassFilters.join(", ")}</span>}
-        {statusCodeFilters.length > 0 && <span className="active-filter-chip">Codes: {statusCodeFilters.join(", ")}</span>}
-        {customActive && (
-          <button type="button" className="active-filter-clear" onClick={resetToPresets}>
-            Clear custom range
-          </button>
+
+        {/* Environment chip */}
+        {selectedEnv && (
+          <span className="active-filter-chip active-filter-chip-removable">
+            Env: {selectedEnv}
+            <button
+              type="button"
+              className="active-filter-chip-remove"
+              onClick={() => {
+                setSelectedEnv("");
+                setCurrentPage(1);
+              }}
+              aria-label="Clear environment filter"
+            >
+              <X size={12} />
+            </button>
+          </span>
         )}
-        {advancedFilterCount > 0 && (
-          <button type="button" className="active-filter-clear" onClick={clearAdvancedFilters}>
-            Clear filters
+
+        {/* Apps chips - show individual app chips when filtered */}
+        {apps.length > 0 && selectedAppSlugs.length > 0 && selectedAppSlugs.length < apps.length && (
+          selectedAppSlugs.map(slug => {
+            const app = apps.find(a => a.slug === slug);
+            if (!app) return null;
+            return (
+              <span key={slug} className="active-filter-chip active-filter-chip-removable">
+                App: {app.name}
+                <button
+                  type="button"
+                  className="active-filter-chip-remove"
+                  onClick={() => toggleApp(slug)}
+                  aria-label={`Remove ${app.name} filter`}
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            );
+          })
+        )}
+
+        {/* Method chips - individual for each method */}
+        {methodFilters.map(method => (
+          <span key={method} className="active-filter-chip active-filter-chip-removable">
+            {method}
+            <button
+              type="button"
+              className="active-filter-chip-remove"
+              onClick={() => toggleMethodFilter(method)}
+              aria-label={`Remove ${method} filter`}
+            >
+              <X size={12} />
+            </button>
+          </span>
+        ))}
+
+        {/* Status class chips - individual for each class */}
+        {statusClassFilters.map(statusClass => (
+          <span key={statusClass} className="active-filter-chip active-filter-chip-removable">
+            {statusClass}
+            <button
+              type="button"
+              className="active-filter-chip-remove"
+              onClick={() => toggleStatusClassFilter(statusClass)}
+              aria-label={`Remove ${statusClass} filter`}
+            >
+              <X size={12} />
+            </button>
+          </span>
+        ))}
+
+        {/* Status code chips - individual for each code */}
+        {statusCodeFilters.map(code => (
+          <span key={code} className="active-filter-chip active-filter-chip-removable">
+            {code}
+            <button
+              type="button"
+              className="active-filter-chip-remove"
+              onClick={() => toggleStatusCodeFilter(code)}
+              aria-label={`Remove ${code} filter`}
+            >
+              <X size={12} />
+            </button>
+          </span>
+        ))}
+
+        {/* Search query chip */}
+        {searchTerm && (
+          <span className="active-filter-chip active-filter-chip-removable">
+            Search: "{searchTerm}"
+            <button
+              type="button"
+              className="active-filter-chip-remove"
+              onClick={() => {
+                setSearchTerm("");
+                setCurrentPage(1);
+              }}
+              aria-label="Clear search"
+            >
+              <X size={12} />
+            </button>
+          </span>
+        )}
+
+        {/* Sort chip - only show if non-default */}
+        {(sortKey !== "total_requests" || sortDir !== "desc") && (
+          <span className="active-filter-chip active-filter-chip-removable">
+            Sort: {sortKey.replace(/_/g, " ")} ({sortDir})
+            <button
+              type="button"
+              className="active-filter-chip-remove"
+              onClick={() => {
+                setSortKey("total_requests");
+                setSortDir("desc");
+                setCurrentPage(1);
+              }}
+              aria-label="Clear sort"
+            >
+              <X size={12} />
+            </button>
+          </span>
+        )}
+
+        {/* Clear all button - only show if any filters are active */}
+        {(customActive || selectedRange !== 24 || selectedEnv || selectedAppSlugs.length < apps.length ||
+          methodFilters.length > 0 || statusClassFilters.length > 0 || statusCodeFilters.length > 0 ||
+          searchTerm || sortKey !== "total_requests" || sortDir !== "desc") && (
+          <button
+            type="button"
+            className="active-filter-clear"
+            onClick={() => {
+              resetToPresets();
+              setSelectedEnv("");
+              if (apps.length > 0) setSelectedAppSlugs(apps.map(a => a.slug));
+              clearAdvancedFilters();
+              setSearchTerm("");
+              setSortKey("total_requests");
+              setSortDir("desc");
+              setSelectedRange(24);
+            }}
+          >
+            Clear all filters
           </button>
         )}
       </div>
