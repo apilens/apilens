@@ -31,12 +31,16 @@ export default function Breadcrumbs({ appSlug, projectSlug }: BreadcrumbsProps) 
 
   // For projects: /projects/[slug]/[section]
   // For apps: /apps/[slug]/[section]
+  // For app settings: /projects/[slug]/apps/[app_slug]/settings/[tab]
   const isProject = parts[0] === "projects";
   const section = isProject ? parts[2] : parts[2];
+  const isAppSettings = isProject && section === "apps" && parts[3] && parts[4] === "settings";
+  const appSlugFromPath = isAppSettings ? parts[3] : null;
   const sectionName = section ? (sectionMap[section] || section.charAt(0).toUpperCase() + section.slice(1)) : null;
   const displayName = isProject ? (projectName || projectSlug) : (app?.name || appSlug);
   const endpointId = section === "endpoints" && parts[3] && parts[3] !== "details" ? parts[3] : null;
   const [endpointLabel, setEndpointLabel] = useState<string>("Details");
+  const [appNameForSettings, setAppNameForSettings] = useState<string>("");
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +90,25 @@ export default function Breadcrumbs({ appSlug, projectSlug }: BreadcrumbsProps) 
     };
   }, [appSlug, endpointId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAppName() {
+      if (!isAppSettings || !projectSlug || !appSlugFromPath) return;
+      try {
+        const res = await fetch(`/api/projects/${projectSlug}/apps/${appSlugFromPath}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setAppNameForSettings(data.name || appSlugFromPath);
+      } catch {
+        if (!cancelled) setAppNameForSettings(appSlugFromPath);
+      }
+    }
+    loadAppName();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAppSettings, projectSlug, appSlugFromPath]);
+
   let crumbs: Array<{ label: string; href?: string }> = [];
 
   if (isProject && projectSlug) {
@@ -94,7 +117,13 @@ export default function Breadcrumbs({ appSlug, projectSlug }: BreadcrumbsProps) 
       { label: displayName as string, href: `/projects/${projectSlug}/apps` },
     ];
 
-    if (sectionName && section) {
+    if (isAppSettings && appSlugFromPath) {
+      // /projects/[slug]/apps/[app_slug]/settings/[tab]
+      const settingsTab = parts[5]; // general, setup, etc.
+      crumbs.push({ label: "Apps", href: `/projects/${projectSlug}/apps` });
+      crumbs.push({ label: appNameForSettings || appSlugFromPath });
+      crumbs.push({ label: "App Settings" });
+    } else if (sectionName && section) {
       crumbs.push({ label: sectionName, href: `/projects/${projectSlug}/${section}` });
     }
   } else if (appSlug) {
