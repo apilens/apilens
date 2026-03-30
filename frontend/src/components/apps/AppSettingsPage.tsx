@@ -6,7 +6,6 @@ import { X, Check } from "lucide-react";
 import { useApp } from "@/components/providers/AppProvider";
 import AppSettingsSidebar, { AppSettingsTab } from "./AppSettingsSidebar";
 import AppGeneralSection from "./AppGeneralSection";
-import AppApiKeysSection from "./AppApiKeysSection";
 import AppSetupGuide from "./AppSetupGuide";
 import type { FrameworkId } from "@/types/app";
 
@@ -33,16 +32,13 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
     setLocalApp(app);
   }, [app]);
 
-  // Fetch API key prefix for setup guide
+  // Fetch PROJECT API key prefix for setup guide
   useEffect(() => {
-    if (activeTab !== "setup" || !appSlug) return;
+    if (activeTab !== "setup" || !projectSlug) return;
 
     async function fetchApiKeys() {
       try {
-        const url = projectSlug
-          ? `/api/projects/${projectSlug}/apps/${appSlug}/api-keys`
-          : `/api/apps/${appSlug}/api-keys`;
-        const res = await fetch(url);
+        const res = await fetch(`/api/projects/${projectSlug}/api-keys`);
         if (res.ok) {
           const data = await res.json();
           if (data.keys && data.keys.length > 0) {
@@ -50,12 +46,12 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
           }
         }
       } catch (err) {
-        console.error("Failed to fetch API keys:", err);
+        console.error("Failed to fetch project API keys:", err);
       }
     }
 
     fetchApiKeys();
-  }, [activeTab, appSlug, projectSlug]);
+  }, [activeTab, projectSlug]);
 
   const showToast = useCallback((type: "success" | "error", message: string) => {
     setToast({ type, message });
@@ -212,17 +208,12 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
               onDelete={handleDeleteApp}
             />
           )}
-          {activeTab === "api-keys" && (
-            <div className="settings-section-content">
-              <AppApiKeysSection appSlug={appSlug} projectSlug={projectSlug} showToast={showToast} />
-            </div>
-          )}
-          {activeTab === "setup" && localApp && (
+          {activeTab === "setup" && localApp && projectSlug && (
             <div className="settings-section-content">
               <AppSetupGuide
                 appName={localApp.name}
                 framework={localApp.framework}
-                apiKey={apiKeyPrefix ? `${apiKeyPrefix}********` : "Generate an API key first"}
+                apiKey={apiKeyPrefix ? `${apiKeyPrefix}********` : "Generate a project API key first"}
                 hasRawKey={false}
                 appSlug={appSlug}
                 projectSlug={projectSlug}

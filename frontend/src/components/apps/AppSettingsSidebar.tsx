@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Settings, Key, BookOpen } from "lucide-react";
+import { Settings, BookOpen } from "lucide-react";
 
-export type AppSettingsTab = "general" | "api-keys" | "setup";
+export type AppSettingsTab = "general" | "setup";
 
 interface AppSettingsSidebarProps {
   appSlug: string;
@@ -13,7 +13,6 @@ interface AppSettingsSidebarProps {
 
 const menuItems: { id: AppSettingsTab; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: Settings },
-  { id: "api-keys", label: "API Keys", icon: Key },
   { id: "setup", label: "Setup Guide", icon: BookOpen },
 ];
 

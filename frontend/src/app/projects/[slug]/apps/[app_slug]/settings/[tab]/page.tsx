@@ -21,7 +21,7 @@ export default async function ProjectAppSettingsPage({
   const { slug, app_slug, tab } = await params;
 
   // Validate tab
-  const validTabs: AppSettingsTab[] = ["general", "api-keys", "setup"];
+  const validTabs: AppSettingsTab[] = ["general", "setup"];
   const activeTab = validTabs.includes(tab as AppSettingsTab)
     ? (tab as AppSettingsTab)
     : "general";
