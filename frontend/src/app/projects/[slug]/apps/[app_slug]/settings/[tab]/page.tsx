@@ -18,7 +18,7 @@ export default async function ProjectAppSettingsPage({
     redirect("/auth/login");
   }
 
-  const { app_slug, tab } = await params;
+  const { slug, app_slug, tab } = await params;
 
   // Validate tab
   const validTabs: AppSettingsTab[] = ["general", "api-keys", "setup"];
@@ -28,7 +28,7 @@ export default async function ProjectAppSettingsPage({
 
   return (
     <AppProvider appSlug={app_slug}>
-      <AppSettingsPage appSlug={app_slug} initialTab={activeTab} />
+      <AppSettingsPage appSlug={app_slug} projectSlug={slug} initialTab={activeTab} />
     </AppProvider>
   );
 }

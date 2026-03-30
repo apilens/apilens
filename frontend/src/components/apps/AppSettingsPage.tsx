@@ -17,10 +17,11 @@ interface ToastState {
 
 interface AppSettingsPageProps {
   appSlug: string;
+  projectSlug?: string;
   initialTab?: AppSettingsTab;
 }
 
-export default function AppSettingsPage({ appSlug, initialTab = "general" }: AppSettingsPageProps) {
+export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "general" }: AppSettingsPageProps) {
   const router = useRouter();
   const activeTab = initialTab;
   const { app, isLoading } = useApp();
@@ -80,7 +81,10 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
       showToast("success", "App updated successfully");
 
       if (updated.slug && updated.slug !== appSlug) {
-        router.replace(`/apps/${updated.slug}/settings/${activeTab}`);
+        const baseUrl = projectSlug
+          ? `/projects/${projectSlug}/apps/${updated.slug}/settings`
+          : `/apps/${updated.slug}/settings`;
+        router.replace(`${baseUrl}/${activeTab}`);
       }
     } catch (error) {
       showToast("error", error instanceof Error ? error.message : "Failed to update app");
@@ -138,7 +142,7 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
         throw new Error(data.error || "Failed to delete app");
       }
 
-      router.push("/apps");
+      router.push(projectSlug ? `/projects/${projectSlug}` : "/apps");
     } catch (error) {
       showToast("error", error instanceof Error ? error.message : "Failed to delete app");
     }
@@ -177,7 +181,7 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
       )}
 
       <div className="settings-page-body">
-        <AppSettingsSidebar appSlug={appSlug} activeTab={activeTab} />
+        <AppSettingsSidebar appSlug={appSlug} projectSlug={projectSlug} activeTab={activeTab} />
 
         <div className="settings-page-content">
           {activeTab === "general" && (
@@ -203,7 +207,7 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
                 apiKey={apiKeyPrefix ? `${apiKeyPrefix}********` : "Generate an API key first"}
                 hasRawKey={false}
                 appSlug={appSlug}
-                projectSlug={undefined}
+                projectSlug={projectSlug}
                 projectName={undefined}
               />
             </div>

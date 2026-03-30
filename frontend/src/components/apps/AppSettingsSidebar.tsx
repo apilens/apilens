@@ -7,6 +7,7 @@ export type AppSettingsTab = "general" | "api-keys" | "setup";
 
 interface AppSettingsSidebarProps {
   appSlug: string;
+  projectSlug?: string;
   activeTab: AppSettingsTab;
 }
 
@@ -16,14 +17,18 @@ const menuItems: { id: AppSettingsTab; label: string; icon: React.ElementType }[
   { id: "setup", label: "Setup Guide", icon: BookOpen },
 ];
 
-export default function AppSettingsSidebar({ appSlug, activeTab }: AppSettingsSidebarProps) {
+export default function AppSettingsSidebar({ appSlug, projectSlug, activeTab }: AppSettingsSidebarProps) {
+  const baseUrl = projectSlug
+    ? `/projects/${projectSlug}/apps/${appSlug}/settings`
+    : `/apps/${appSlug}/settings`;
+
   return (
     <nav className="settings-sidebar">
       <ul className="settings-sidebar-menu">
         {menuItems.map((item) => (
           <li key={item.id}>
             <Link
-              href={`/apps/${appSlug}/settings/${item.id}`}
+              href={`${baseUrl}/${item.id}`}
               className={`settings-sidebar-item ${activeTab === item.id ? "active" : ""}`}
             >
               <item.icon size={16} />
