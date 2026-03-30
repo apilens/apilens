@@ -27,7 +27,7 @@ export default async function ProjectAppSettingsPage({
     : "general";
 
   return (
-    <AppProvider appSlug={app_slug}>
+    <AppProvider appSlug={app_slug} projectSlug={slug}>
       <AppSettingsPage appSlug={app_slug} projectSlug={slug} initialTab={activeTab} />
     </AppProvider>
   );

@@ -14,7 +14,15 @@ export function useApp() {
   return useContext(AppContext);
 }
 
-export function AppProvider({ appSlug, children }: { appSlug: string; children: React.ReactNode }) {
+export function AppProvider({
+  appSlug,
+  projectSlug,
+  children
+}: {
+  appSlug: string;
+  projectSlug?: string;
+  children: React.ReactNode;
+}) {
   const [app, setApp] = useState<App | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -22,7 +30,11 @@ export function AppProvider({ appSlug, children }: { appSlug: string; children: 
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch(`/api/apps/${appSlug}`);
+        // Use project-scoped endpoint if projectSlug is provided, otherwise fall back to legacy endpoint
+        const url = projectSlug
+          ? `/api/projects/${projectSlug}/apps/${appSlug}`
+          : `/api/apps/${appSlug}`;
+        const res = await fetch(url);
         if (res.ok && !cancelled) {
           setApp(await res.json());
         }
@@ -34,7 +46,7 @@ export function AppProvider({ appSlug, children }: { appSlug: string; children: 
     }
     load();
     return () => { cancelled = true; };
-  }, [appSlug]);
+  }, [appSlug, projectSlug]);
 
   return (
     <AppContext.Provider value={{ app, isLoading }}>
@@ -45,9 +57,11 @@ export function AppProvider({ appSlug, children }: { appSlug: string; children: 
 
 export function OptionalAppProvider({
   appSlug,
+  projectSlug,
   children,
 }: {
   appSlug?: string;
+  projectSlug?: string;
   children: React.ReactNode;
 }) {
   if (!appSlug) {
@@ -57,5 +71,5 @@ export function OptionalAppProvider({
       </AppContext.Provider>
     );
   }
-  return <AppProvider appSlug={appSlug}>{children}</AppProvider>;
+  return <AppProvider appSlug={appSlug} projectSlug={projectSlug}>{children}</AppProvider>;
 }
