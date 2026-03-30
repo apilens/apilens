@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { X, Check } from "lucide-react";
 import { UserProfile } from "@/types/settings";
@@ -24,6 +25,7 @@ interface AccountSettingsPageProps {
 }
 
 export default function AccountSettingsPage({ initialTab = "general" }: AccountSettingsPageProps) {
+  const router = useRouter();
   const { user, isLoading: isUserLoading, logout, refreshUser } = useAuth();
   const activeTab = initialTab;
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -218,6 +220,8 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
 
       <PageHeader
         title="Account Settings"
+        onBack={() => router.push("/projects")}
+        backLabel="Back to Projects"
       />
 
       <div className="settings-page-body">
