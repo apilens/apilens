@@ -1,8 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Mail, Lock, Eye, EyeOff, Fingerprint, Trash2, Loader2 } from "lucide-react";
+import { isPasskeySupported, registerPasskey, credentialToJSON } from "@/lib/webauthn";
 import SettingsCard from "./SettingsCard";
+
+interface PasskeyCredential {
+  id: string;
+  device_name: string;
+  created_at: string;
+  last_used_at: string | null;
+}
 
 interface LoginMethodsSectionProps {
   email?: string;
@@ -43,6 +51,143 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Passkey state
+  const [passkeySupported, setPasskeySupported] = useState(false);
+  const [passkeys, setPasskeys] = useState<PasskeyCredential[]>([]);
+  const [isLoadingPasskeys, setIsLoadingPasskeys] = useState(false);
+  const [isAddingPasskey, setIsAddingPasskey] = useState(false);
+  const [passkeyError, setPasskeyError] = useState("");
+  const [deviceName, setDeviceName] = useState("");
+  const [showAddPasskey, setShowAddPasskey] = useState(false);
+
+  // Check passkey support on mount
+  useEffect(() => {
+    void isPasskeySupported().then((supported) => {
+      setPasskeySupported(supported);
+      if (supported) {
+        void fetchPasskeys();
+      }
+    });
+  }, []);
+
+  const fetchPasskeys = async () => {
+    setIsLoadingPasskeys(true);
+    try {
+      const response = await fetch("/api/account/passkeys");
+      if (response.ok) {
+        const data = await response.json();
+        setPasskeys(data.passkeys || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch passkeys:", err);
+    } finally {
+      setIsLoadingPasskeys(false);
+    }
+  };
+
+  const handleAddPasskey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasskeyError("");
+    setIsAddingPasskey(true);
+
+    try {
+      // Get registration options from server
+      console.log("Fetching passkey registration options...");
+      const optionsResponse = await fetch("/api/account/passkeys/register/options", {
+        method: "POST",
+      });
+
+      console.log("Options response status:", optionsResponse.status);
+      console.log("Options response headers:", Object.fromEntries(optionsResponse.headers.entries()));
+
+      if (!optionsResponse.ok) {
+        const responseText = await optionsResponse.text();
+        console.error("Failed response text:", responseText);
+
+        let data;
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          data = { error: responseText || "Failed to start passkey registration" };
+        }
+
+        console.error("Failed to get options:", data);
+        const errorMessage = typeof data.error === 'string' ? data.error : "Failed to start passkey registration";
+        throw new Error(errorMessage);
+      }
+
+      const options = await optionsResponse.json();
+      console.log("Got options:", options);
+      console.log("Challenge from server:", options.publicKey.challenge);
+
+      // Store the original challenge before registerPasskey
+      const originalChallenge = options.publicKey.challenge;
+
+      // Prompt user to create passkey
+      console.log("Calling registerPasskey...");
+      const credential = await registerPasskey(options);
+      console.log("Got credential:", credential);
+
+      const credentialJSON = credentialToJSON(credential);
+      console.log("Credential JSON:", credentialJSON);
+
+      // Verify and save the passkey
+      console.log("Sending challenge to verify:", originalChallenge);
+      const verifyResponse = await fetch("/api/account/passkeys/register/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          credential: credentialJSON,
+          challenge: originalChallenge,
+          device_name: deviceName || "My Device",
+        }),
+      });
+
+      if (!verifyResponse.ok) {
+        const data = await verifyResponse.json();
+        throw new Error(data.error || "Failed to verify passkey");
+      }
+
+      // Success - refresh the list
+      await fetchPasskeys();
+      setShowAddPasskey(false);
+      setDeviceName("");
+    } catch (err) {
+      console.error("Passkey registration error:", err);
+      let errorMessage = "Failed to add passkey";
+
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (typeof err === "string") {
+        errorMessage = err;
+      } else if (err && typeof err === "object" && "message" in err) {
+        errorMessage = String((err as any).message);
+      }
+
+      setPasskeyError(errorMessage);
+    } finally {
+      setIsAddingPasskey(false);
+    }
+  };
+
+  const handleDeletePasskey = async (passkeyId: string) => {
+    if (!confirm("Are you sure you want to delete this passkey?")) return;
+
+    try {
+      const response = await fetch(`/api/account/passkeys/${passkeyId}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete passkey");
+      }
+
+      await fetchPasskeys();
+    } catch (err) {
+      alert("Failed to delete passkey");
+    }
+  };
 
   const resetForm = () => {
     setNewPassword("");
@@ -229,6 +374,108 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
             </form>
           )}
         </div>
+
+        {passkeySupported && (
+          <div className="login-method-item-wrapper">
+            <div className="login-method-item">
+              <div className="login-method-icon">
+                <Fingerprint size={16} />
+              </div>
+              <div className="login-method-info">
+                <p className="login-method-name">Passkeys</p>
+                <p className="login-method-detail">
+                  {passkeys.length > 0
+                    ? `${passkeys.length} passkey${passkeys.length === 1 ? "" : "s"} registered`
+                    : "Use your fingerprint, face, or device PIN"}
+                </p>
+              </div>
+              {!showAddPasskey && (
+                <button
+                  className="settings-btn settings-btn-secondary settings-btn-sm"
+                  onClick={() => setShowAddPasskey(true)}
+                >
+                  Add passkey
+                </button>
+              )}
+            </div>
+
+            {showAddPasskey && (
+              <form className="password-form" onSubmit={handleAddPasskey}>
+                <p className="password-label" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "8px" }}>
+                  💡 <strong>Tip:</strong> If you already have a passkey on this device, it will sync automatically via iCloud Keychain (iOS/macOS) or Google Password Manager (Android). Only register a new one if you want a device-specific passkey.
+                </p>
+
+                <div className="password-field">
+                  <label className="password-label">Device name (optional)</label>
+                  <input
+                    type="text"
+                    className="password-input"
+                    value={deviceName}
+                    onChange={(e) => setDeviceName(e.target.value)}
+                    placeholder="e.g., iPhone, MacBook, Work Laptop"
+                  />
+                </div>
+
+                {passkeyError && <p className="password-error">{passkeyError}</p>}
+
+                <div className="password-actions">
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn-secondary settings-btn-sm"
+                    onClick={() => {
+                      setShowAddPasskey(false);
+                      setDeviceName("");
+                      setPasskeyError("");
+                    }}
+                    disabled={isAddingPasskey}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="settings-btn settings-btn-primary settings-btn-sm"
+                    disabled={isAddingPasskey}
+                  >
+                    {isAddingPasskey ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Adding...
+                      </>
+                    ) : (
+                      "Add passkey"
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {passkeys.length > 0 && (
+              <div className="passkeys-list">
+                {passkeys.map((passkey) => (
+                  <div key={passkey.id} className="passkey-item">
+                    <div className="passkey-info">
+                      <p className="passkey-name">
+                        <Fingerprint size={14} />
+                        {passkey.device_name}
+                      </p>
+                      <p className="passkey-detail">
+                        Added {new Date(passkey.created_at).toLocaleDateString()}
+                        {passkey.last_used_at && ` • Last used ${new Date(passkey.last_used_at).toLocaleDateString()}`}
+                      </p>
+                    </div>
+                    <button
+                      className="passkey-delete-btn"
+                      onClick={() => handleDeletePasskey(passkey.id)}
+                      title="Delete passkey"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="login-method-item">
           <div className="login-method-icon">

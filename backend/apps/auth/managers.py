@@ -32,3 +32,16 @@ class MagicLinkTokenManager(models.Manager):
 
     def cleanup_expired(self):
         return self.filter(expires_at__lte=timezone.now()).delete()
+
+
+class PasswordResetTokenManager(models.Manager):
+    def active(self):
+        return self.filter(is_used=False, expires_at__gt=timezone.now())
+
+    def cleanup_expired(self):
+        return self.filter(expires_at__lte=timezone.now()).delete()
+
+
+class PasskeyCredentialManager(models.Manager):
+    def for_user(self, user):
+        return self.filter(user=user)

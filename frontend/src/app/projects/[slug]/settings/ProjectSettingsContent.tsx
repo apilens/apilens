@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2, Loader2, X, Check, Copy } from "lucide-react";
-import PageHeader from "@/components/dashboard/PageHeader";
 import SettingsCard from "@/components/settings/SettingsCard";
 import ProjectApiKeysSection from "@/components/projects/ProjectApiKeysSection";
 import ProjectSettingsSidebar, { ProjectSettingsTab } from "@/components/projects/ProjectSettingsSidebar";
@@ -161,7 +160,6 @@ export default function ProjectSettingsContent({
   if (!project) {
     return (
       <div className="settings-page">
-        <PageHeader title="Project Settings" />
         <div className="error-message">Project not found</div>
       </div>
     );
@@ -181,8 +179,6 @@ export default function ProjectSettingsContent({
         </div>
       )}
 
-      <PageHeader title="Project Settings" description="Manage your project configuration" />
-
       <div className="settings-page-body">
         <ProjectSettingsSidebar projectSlug={projectSlug} activeTab={activeTab} />
 
@@ -195,27 +191,20 @@ export default function ProjectSettingsContent({
                     <label htmlFor="project-slug" className="create-app-label">
                       Project slug
                     </label>
-                    <div className="settings-identifier-row">
-                      <input
-                        id="project-slug"
-                        type="text"
-                        value={project.slug}
-                        className="create-app-input settings-identifier-input"
-                        readOnly
-                        aria-readonly="true"
-                      />
+                    <div className="settings-inline-field">
+                      <div id="project-slug" className="settings-inline-value" aria-readonly="true">
+                        <code className="settings-inline-code">{project.slug}</code>
+                      </div>
                       <button
                         type="button"
-                        className="settings-btn settings-btn-secondary"
+                        className="settings-btn settings-btn-secondary settings-btn-sm settings-inline-action"
                         onClick={handleCopySlug}
                       >
                         {copiedSlug ? <Check size={14} /> : <Copy size={14} />}
                         {copiedSlug ? "Copied" : "Copy"}
                       </button>
                     </div>
-                    <p className="settings-identifier-help">
-                      Use this exact value as <code>project_slug</code> in every SDK setup for apps in this project.
-                    </p>
+                    <p className="settings-inline-help">Use this exact value as <code>project_slug</code> in SDK setup.</p>
                   </div>
 
                   <div className="create-app-field">

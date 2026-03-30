@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Eye, EyeOff, Loader2, CheckCircle } from "lucide-react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { Eye, EyeOff, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 
 function BrandingPanel() {
   return (
@@ -31,7 +32,10 @@ function BrandingPanel() {
   );
 }
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
+  const searchParams = useSearchParams();
+  const token = searchParams.get("token");
+
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNew, setShowNew] = useState(false);
@@ -39,10 +43,51 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(true);
+  const [tokenValid, setTokenValid] = useState(false);
+
+  useEffect(() => {
+    if (!token) {
+      setError("No reset token provided");
+      setIsVerifying(false);
+      return;
+    }
+
+    // Verify token on mount
+    const verifyToken = async () => {
+      try {
+        const response = await fetch("/api/auth/password-reset/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          setError(data.error || "Invalid or expired reset link");
+          setTokenValid(false);
+        } else {
+          setTokenValid(true);
+        }
+      } catch {
+        setError("Failed to verify reset link. Please try again.");
+        setTokenValid(false);
+      } finally {
+        setIsVerifying(false);
+      }
+    };
+
+    void verifyToken();
+  }, [token]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (!token) {
+      setError("No reset token provided");
+      return;
+    }
 
     if (newPassword.length < 8) {
       setError("Password must be at least 8 characters");
@@ -56,12 +101,12 @@ export default function ResetPasswordPage() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/account/profile/password", {
+      const response = await fetch("/api/auth/password-reset/reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          token,
           new_password: newPassword,
-          confirm_password: confirmPassword,
         }),
       });
 
@@ -74,7 +119,7 @@ export default function ResetPasswordPage() {
 
       setSuccess(true);
       setTimeout(() => {
-        window.location.href = "/";
+        window.location.href = "/auth/login";
       }, 2000);
     } catch {
       setError("Something went wrong. Please try again.");
@@ -83,6 +128,50 @@ export default function ResetPasswordPage() {
     }
   };
 
+  if (isVerifying) {
+    return (
+      <div className="auth-split">
+        <BrandingPanel />
+        <div className="auth-panel">
+          <div className="auth-panel-inner">
+            <div className="auth-card">
+              <div className="auth-header">
+                <Loader2 size={32} className="animate-spin" style={{ margin: "0 auto 16px" }} />
+                <h1 className="auth-title">Verifying reset link...</h1>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!tokenValid) {
+    return (
+      <div className="auth-split">
+        <BrandingPanel />
+        <div className="auth-panel">
+          <div className="auth-panel-inner">
+            <div className="auth-card">
+              <div className="auth-icon-error" style={{ color: "#dc3545", margin: "0 auto 16px" }}>
+                <AlertCircle size={36} strokeWidth={1.5} />
+              </div>
+              <div className="auth-header">
+                <h1 className="auth-title">Invalid reset link</h1>
+                <p className="auth-description">
+                  {error || "This password reset link is invalid or has expired."}
+                </p>
+              </div>
+              <a href="/auth/login" className="auth-submit-btn" style={{ display: "block", textAlign: "center", textDecoration: "none" }}>
+                Request a new reset link
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (success) {
     return (
       <div className="auth-split">
@@ -90,13 +179,13 @@ export default function ResetPasswordPage() {
         <div className="auth-panel">
           <div className="auth-panel-inner">
             <div className="auth-card">
-              <div className="auth-icon-success">
+              <div className="auth-icon-success" style={{ color: "#28a745", margin: "0 auto 16px" }}>
                 <CheckCircle size={36} strokeWidth={1.5} />
               </div>
               <div className="auth-header">
-                <h1 className="auth-title">Password updated</h1>
+                <h1 className="auth-title">Password reset successful</h1>
                 <p className="auth-description">
-                  Your password is now set. Redirecting you to the dashboard...
+                  Your password has been reset. Redirecting you to login...
                 </p>
               </div>
             </div>
@@ -114,9 +203,9 @@ export default function ResetPasswordPage() {
           <div className="auth-card">
             <p className="auth-mobile-logo">API Lens</p>
             <div className="auth-header">
-              <h1 className="auth-title">Reset your password</h1>
+              <h1 className="auth-title">Set new password</h1>
               <p className="auth-description">
-                Set a password after opening your secure email link.
+                Choose a strong password for your account.
               </p>
             </div>
 
@@ -176,11 +265,15 @@ export default function ResetPasswordPage() {
                 </div>
               </div>
 
-              {error && <p className="auth-error">{error}</p>}
-              {error.toLowerCase().includes("not authenticated") && (
-                <a href="/auth/login" className="auth-link-btn">
-                  Request a new reset link
-                </a>
+              {error && (
+                <>
+                  <p className="auth-error">{error}</p>
+                  {(error.toLowerCase().includes("invalid") || error.toLowerCase().includes("expired")) && (
+                    <a href="/auth/login" className="auth-link-btn">
+                      Request a new reset link
+                    </a>
+                  )}
+                </>
               )}
 
               <button
@@ -199,5 +292,27 @@ export default function ResetPasswordPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={
+      <div className="auth-split">
+        <BrandingPanel />
+        <div className="auth-panel">
+          <div className="auth-panel-inner">
+            <div className="auth-card">
+              <div className="auth-header">
+                <Loader2 size={32} className="animate-spin" style={{ margin: "0 auto 16px" }} />
+                <h1 className="auth-title">Loading...</h1>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    }>
+      <ResetPasswordContent />
+    </Suspense>
   );
 }

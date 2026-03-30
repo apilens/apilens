@@ -149,11 +149,12 @@ export default function ProjectAppsContent({ slug }: ProjectAppsContentProps) {
               </tr>
             </thead>
             <tbody>
-              {apps.map((app) => {
+              {apps.map((app, index) => {
                 const framework = FRAMEWORK_META[app.framework] || FRAMEWORK_META.fastapi;
                 const appAvatar = (app.name.charAt(0) || "A").toUpperCase();
                 const isMenuOpen = openMenuId === app.id;
                 const isAppDeleting = isDeleting === app.id;
+                const shouldOpenMenuUp = index === apps.length - 1;
 
                 return (
                   <tr
@@ -253,8 +254,10 @@ export default function ProjectAppsContent({ slug }: ProjectAppsContentProps) {
                           <div className="app-card-menu" style={{
                             position: "absolute",
                             right: 0,
-                            top: "100%",
-                            marginTop: "4px",
+                            top: shouldOpenMenuUp ? "auto" : "100%",
+                            bottom: shouldOpenMenuUp ? "100%" : "auto",
+                            marginTop: shouldOpenMenuUp ? 0 : "4px",
+                            marginBottom: shouldOpenMenuUp ? "4px" : 0,
                             zIndex: 10
                           }}>
                             <button

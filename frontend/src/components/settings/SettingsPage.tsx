@@ -9,6 +9,7 @@ import GeneralSection from "./GeneralSection";
 import ProfileSection from "./ProfileSection";
 import TimezoneSection from "./TimezoneSection";
 import LoginMethodsSection from "./LoginMethodsSection";
+import TwoFactorSection from "./TwoFactorSection";
 import SessionsSection from "./SessionsSection";
 import ApiKeysSection from "./ApiKeysSection";
 import DangerZoneSection from "./DangerZoneSection";
@@ -256,6 +257,7 @@ export default function SettingsPage({ initialTab = "general" }: SettingsPagePro
                 hasPassword={profile?.has_password}
                 onSetPassword={handleSetPassword}
               />
+              <TwoFactorSection />
               <DangerZoneSection onDeleteAccount={handleDeleteAccount} />
             </div>
           )}
