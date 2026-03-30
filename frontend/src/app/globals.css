@@ -7530,6 +7530,42 @@ a.settings-btn {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  gap: 6px;
+}
+
+.active-filter-chip-removable {
+  padding-right: 4px;
+  transition: all 0.15s ease;
+}
+
+.active-filter-chip-removable:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-hover);
+}
+
+.active-filter-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.active-filter-chip-remove:hover {
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+}
+
+.active-filter-chip-remove:active {
+  transform: scale(0.9);
 }
 
 .active-filter-clear {
