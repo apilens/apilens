@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATHS = ["/auth/login", "/auth/verify", "/api/auth/"];
+const PUBLIC_PATHS = ["/auth/login", "/auth/verify", "/auth/reset-password", "/api/auth/"];
 const AUTH_PAGES = ["/auth/login", "/auth/verify", "/auth/reset-password"];
 
 export function middleware(request: NextRequest) {

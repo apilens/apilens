@@ -1,4 +1,6 @@
+import base64
 import hashlib
+import json
 import logging
 import secrets
 from datetime import timedelta
@@ -19,7 +21,23 @@ from core.exceptions.base import (
 )
 
 from core.utils.geoip import resolve_location
-from .models import ApiKey, MagicLinkToken, RefreshToken
+from .models import ApiKey, MagicLinkToken, RefreshToken, PasswordResetToken, PasskeyCredential
+
+from webauthn import (
+    generate_registration_options,
+    verify_registration_response,
+    generate_authentication_options,
+    verify_authentication_response,
+    options_to_json,
+)
+from webauthn.helpers.structs import (
+    PublicKeyCredentialDescriptor,
+    AuthenticatorTransport,
+    UserVerificationRequirement,
+    AuthenticatorSelectionCriteria,
+    ResidentKeyRequirement,
+)
+from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +46,8 @@ REFRESH_TOKEN_LIFETIME = timedelta(days=30)
 REFRESH_TOKEN_SESSION_LIFETIME = timedelta(hours=24)
 MAGIC_LINK_LIFETIME = timedelta(minutes=15)
 MAGIC_LINK_RATE_LIMIT = 3  # per minute per email
+PASSWORD_RESET_LIFETIME = timedelta(hours=1)
+PASSWORD_RESET_RATE_LIMIT = 3  # per minute per email
 
 
 def _hash_token(raw_token: str) -> str:
@@ -183,7 +203,8 @@ class TokenService:
     def cleanup_expired() -> int:
         count, _ = RefreshToken.objects.cleanup_expired()
         ml_count, _ = MagicLinkToken.objects.cleanup_expired()
-        return count + ml_count
+        pr_count, _ = PasswordResetToken.objects.cleanup_expired()
+        return count + ml_count + pr_count
 
 
 class MagicLinkService:
@@ -252,6 +273,120 @@ class MagicLinkService:
         token_obj.save(update_fields=["is_used"])
 
         return token_obj.email
+
+
+class PasswordResetService:
+    @staticmethod
+    @transaction.atomic
+    def create_and_send(email: str, ip_address: str | None = None) -> None:
+        email = email.lower().strip()
+
+        # Check if user exists with a usable password
+        try:
+            user = User.objects.get(email=email, is_active=True)
+        except User.DoesNotExist:
+            # For security, don't reveal if email exists or not
+            logger.info(f"Password reset requested for non-existent user: {email}")
+            return
+
+        if not user.has_usable_password():
+            # User uses magic link only, can't reset password
+            logger.info(f"Password reset requested for magic-link-only user: {email}")
+            return
+
+        # Rate limiting: max 3 per minute per email
+        one_minute_ago = timezone.now() - timedelta(minutes=1)
+        recent_count = PasswordResetToken.objects.filter(
+            email=email, created_at__gte=one_minute_ago
+        ).count()
+        if recent_count >= PASSWORD_RESET_RATE_LIMIT:
+            raise RateLimitError("Too many password reset requests. Please wait a moment.")
+
+        raw_token = secrets.token_urlsafe(48)
+
+        PasswordResetToken.objects.create(
+            email=email,
+            token_hash=_hash_token(raw_token),
+            expires_at=timezone.now() + PASSWORD_RESET_LIFETIME,
+            ip_address=ip_address,
+        )
+
+        frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
+        reset_url = f"{frontend_url}/auth/reset-password?token={raw_token}"
+
+        from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@apilens.ai")
+        context = {"reset_url": reset_url, "email": email}
+        plain_text = render_to_string("auth/emails/password_reset.txt", context)
+        html_content = render_to_string("auth/emails/password_reset.html", context)
+
+        msg = EmailMultiAlternatives(
+            subject="Reset your API Lens password",
+            body=plain_text,
+            from_email=from_email,
+            to=[email],
+        )
+        msg.attach_alternative(html_content, "text/html")
+        msg.send(fail_silently=False)
+
+        logger.info(f"Password reset link sent to {email}")
+
+    @staticmethod
+    def verify_token(raw_token: str) -> str:
+        """Verify a password reset token is valid and return the email."""
+        token_hash = _hash_token(raw_token)
+
+        try:
+            token_obj = PasswordResetToken.objects.get(token_hash=token_hash)
+        except PasswordResetToken.DoesNotExist:
+            raise TokenInvalidError("Invalid password reset link")
+
+        if token_obj.is_used:
+            raise TokenInvalidError("Password reset link has already been used")
+
+        if token_obj.is_expired:
+            raise TokenExpiredError("Password reset link has expired")
+
+        return token_obj.email
+
+    @staticmethod
+    @transaction.atomic
+    def reset_password(
+        raw_token: str, new_password: str, invalidate_sessions: bool = True
+    ) -> User:
+        """Reset user password using a valid token."""
+        token_hash = _hash_token(raw_token)
+
+        try:
+            token_obj = PasswordResetToken.objects.get(token_hash=token_hash)
+        except PasswordResetToken.DoesNotExist:
+            raise TokenInvalidError("Invalid password reset link")
+
+        if token_obj.is_used:
+            raise TokenInvalidError("Password reset link has already been used")
+
+        if token_obj.is_expired:
+            raise TokenExpiredError("Password reset link has expired")
+
+        # Mark token as used
+        token_obj.is_used = True
+        token_obj.save(update_fields=["is_used"])
+
+        # Get user and update password
+        try:
+            user = User.objects.get(email=token_obj.email, is_active=True)
+        except User.DoesNotExist:
+            raise AuthenticationError("User account not found")
+
+        user.set_password(new_password)
+        user.save(update_fields=["password", "updated_at"])
+
+        # Optionally invalidate all existing sessions for security
+        if invalidate_sessions:
+            TokenService.revoke_all_for_user(user)
+            logger.info(f"Revoked all sessions for user {user.email} after password reset")
+
+        logger.info(f"Password reset successful for {user.email}")
+        return user
 
 
 class AuthService:
@@ -385,3 +520,337 @@ class ApiKeyService:
         return ApiKey.objects.filter(
             project=project, is_revoked=False
         ).update(is_revoked=True)
+
+
+class PasskeyService:
+    """Service for WebAuthn/Passkey authentication."""
+
+    RP_ID = getattr(settings, "WEBAUTHN_RP_ID", "localhost")
+    RP_NAME = getattr(settings, "WEBAUTHN_RP_NAME", "API Lens")
+    RP_ORIGIN = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
+
+    @staticmethod
+    def generate_registration_options(user: User) -> dict:
+        """Generate WebAuthn registration options for a user."""
+        # Get existing credentials to exclude them
+        existing_creds = PasskeyCredential.objects.for_user(user)
+        exclude_credentials = [
+            PublicKeyCredentialDescriptor(
+                id=base64.urlsafe_b64decode(cred.credential_id + "==")
+            )
+            for cred in existing_creds
+        ]
+
+        options = generate_registration_options(
+            rp_id=PasskeyService.RP_ID,
+            rp_name=PasskeyService.RP_NAME,
+            user_id=str(user.id).encode(),
+            user_name=user.email,
+            user_display_name=user.email.split("@")[0],
+            exclude_credentials=exclude_credentials,
+            authenticator_selection=AuthenticatorSelectionCriteria(
+                resident_key=ResidentKeyRequirement.PREFERRED,
+                user_verification=UserVerificationRequirement.PREFERRED,
+            ),
+            supported_pub_key_algs=[
+                COSEAlgorithmIdentifier.ECDSA_SHA_256,
+                COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256,
+            ],
+        )
+
+        # Store challenge in user session or cache (for verification)
+        # For simplicity, we'll return it and expect the frontend to send it back
+        return {"publicKey": json.loads(options_to_json(options))}
+
+    @staticmethod
+    @transaction.atomic
+    def verify_and_save_credential(
+        user: User,
+        credential_data: dict,
+        challenge: str,
+        device_name: str = "",
+    ) -> PasskeyCredential:
+        """Verify registration response and save the credential."""
+        try:
+            # Decode the base64url challenge back to bytes
+            challenge_bytes = base64.urlsafe_b64decode(challenge + "==")
+
+            verification = verify_registration_response(
+                credential=credential_data,
+                expected_challenge=challenge_bytes,
+                expected_rp_id=PasskeyService.RP_ID,
+                expected_origin=PasskeyService.RP_ORIGIN,
+            )
+
+            # Save the credential
+            credential_id_b64 = base64.urlsafe_b64encode(
+                verification.credential_id
+            ).decode().rstrip("=")
+
+            public_key_b64 = base64.urlsafe_b64encode(
+                verification.credential_public_key
+            ).decode().rstrip("=")
+
+            passkey = PasskeyCredential.objects.create(
+                user=user,
+                credential_id=credential_id_b64,
+                public_key=public_key_b64,
+                sign_count=verification.sign_count,
+                aaguid=str(verification.aaguid) if verification.aaguid else "",
+                device_name=device_name or "Unnamed Device",
+                transports=credential_data.get("transports", []),
+            )
+
+            logger.info(f"Passkey registered for user {user.email}")
+            return passkey
+
+        except Exception as e:
+            logger.error(f"Passkey registration failed: {e}")
+            raise AuthenticationError(f"Failed to register passkey: {str(e)}")
+
+    @staticmethod
+    def generate_authentication_options(email: str | None = None) -> dict:
+        """Generate WebAuthn authentication options."""
+        # If email is provided, get user's credentials for better UX
+        allow_credentials = []
+        if email:
+            try:
+                user = User.objects.get(email=email.lower().strip(), is_active=True)
+                credentials = PasskeyCredential.objects.for_user(user)
+                allow_credentials = [
+                    PublicKeyCredentialDescriptor(
+                        id=base64.urlsafe_b64decode(cred.credential_id + "=="),
+                        transports=[AuthenticatorTransport(t) for t in cred.transports] if cred.transports else None,
+                    )
+                    for cred in credentials
+                ]
+            except User.DoesNotExist:
+                pass  # Don't reveal if user exists
+
+        options = generate_authentication_options(
+            rp_id=PasskeyService.RP_ID,
+            allow_credentials=allow_credentials if allow_credentials else None,
+            user_verification=UserVerificationRequirement.PREFERRED,
+        )
+
+        return {"publicKey": json.loads(options_to_json(options))}
+
+    @staticmethod
+    @transaction.atomic
+    def verify_and_authenticate(
+        credential_data: dict,
+        challenge: str,
+    ) -> tuple[User, PasskeyCredential]:
+        """Verify authentication response and return the user."""
+        try:
+            # Get credential ID from response
+            credential_id_raw = credential_data.get("rawId") or credential_data.get("id")
+            if isinstance(credential_id_raw, str):
+                credential_id_b64 = credential_id_raw.replace("+", "-").replace("/", "_").rstrip("=")
+            else:
+                credential_id_b64 = base64.urlsafe_b64encode(credential_id_raw).decode().rstrip("=")
+
+            # Find the credential in database
+            try:
+                passkey = PasskeyCredential.objects.select_related("user").get(
+                    credential_id=credential_id_b64
+                )
+            except PasskeyCredential.DoesNotExist:
+                raise AuthenticationError("Passkey not found")
+
+            if not passkey.user.is_active:
+                raise AuthenticationError("User account is inactive")
+
+            # Decode the stored public key
+            public_key_bytes = base64.urlsafe_b64decode(passkey.public_key + "==")
+
+            # Decode the base64url challenge back to bytes
+            challenge_bytes = base64.urlsafe_b64decode(challenge + "==")
+
+            # Verify the authentication response
+            verification = verify_authentication_response(
+                credential=credential_data,
+                expected_challenge=challenge_bytes,
+                expected_rp_id=PasskeyService.RP_ID,
+                expected_origin=PasskeyService.RP_ORIGIN,
+                credential_public_key=public_key_bytes,
+                credential_current_sign_count=passkey.sign_count,
+            )
+
+            # Update sign count and last used timestamp
+            passkey.sign_count = verification.new_sign_count
+            passkey.last_used_at = timezone.now()
+            passkey.save(update_fields=["sign_count", "last_used_at"])
+
+            # Update user's last login
+            passkey.user.last_login_at = timezone.now()
+            passkey.user.save(update_fields=["last_login_at", "updated_at"])
+
+            logger.info(f"Passkey authentication successful for user {passkey.user.email}")
+            return passkey.user, passkey
+
+        except Exception as e:
+            logger.error(f"Passkey authentication failed: {e}")
+            raise AuthenticationError(f"Failed to authenticate with passkey: {str(e)}")
+
+    @staticmethod
+    def list_credentials(user: User) -> list[PasskeyCredential]:
+        """List all passkey credentials for a user."""
+        return list(PasskeyCredential.objects.for_user(user).order_by("-last_used_at"))
+
+    @staticmethod
+    def delete_credential(user: User, credential_id: str) -> bool:
+        """Delete a passkey credential."""
+        deleted, _ = PasskeyCredential.objects.filter(
+            id=credential_id, user=user
+        ).delete()
+        return deleted > 0
+
+
+class TwoFactorService:
+    """Service for handling Two-Factor Authentication with TOTP."""
+
+    @staticmethod
+    def enable_2fa(user) -> tuple[str, str]:
+        """
+        Enable 2FA for a user and return secret + QR code URI.
+        Returns: (secret, provisioning_uri)
+        """
+        import pyotp
+        from .models import TOTPDevice
+
+        # Generate a new secret
+        secret = pyotp.random_base32()
+
+        # Create or update TOTP device (not verified yet)
+        TOTPDevice.objects.update_or_create(
+            user=user,
+            defaults={"secret": secret, "is_verified": False}
+        )
+
+        # Generate provisioning URI for QR code
+        totp = pyotp.TOTP(secret)
+        provisioning_uri = totp.provisioning_uri(
+            name=user.email,
+            issuer_name="API Lens"
+        )
+
+        return secret, provisioning_uri
+
+    @staticmethod
+    def verify_and_activate_2fa(user, code: str) -> bool:
+        """Verify TOTP code and activate 2FA."""
+        import pyotp
+        from .models import TOTPDevice
+
+        try:
+            device = TOTPDevice.objects.get(user=user)
+        except TOTPDevice.DoesNotExist:
+            return False
+
+        totp = pyotp.TOTP(device.secret)
+        
+        # Verify code with 1-step window (30s before/after)
+        if totp.verify(code, valid_window=1):
+            device.is_verified = True
+            device.save()
+            return True
+        
+        return False
+
+    @staticmethod
+    def verify_totp_code(user, code: str) -> bool:
+        """Verify TOTP code during login."""
+        import pyotp
+        from django.utils import timezone
+        from .models import TOTPDevice
+
+        try:
+            device = TOTPDevice.objects.get(user=user, is_verified=True)
+        except TOTPDevice.DoesNotExist:
+            return False
+
+        totp = pyotp.TOTP(device.secret)
+        
+        # Verify with 1-step window
+        if totp.verify(code, valid_window=1):
+            device.last_used_at = timezone.now()
+            device.save()
+            return True
+        
+        return False
+
+    @staticmethod
+    def disable_2fa(user) -> bool:
+        """Disable 2FA for a user."""
+        from .models import TOTPDevice, BackupCode
+        
+        try:
+            device = TOTPDevice.objects.get(user=user)
+            device.delete()
+            # Also delete all backup codes
+            BackupCode.objects.filter(user=user).delete()
+            return True
+        except TOTPDevice.DoesNotExist:
+            return False
+
+    @staticmethod
+    def has_2fa_enabled(user) -> bool:
+        """Check if user has 2FA enabled and verified."""
+        from .models import TOTPDevice
+        
+        return TOTPDevice.objects.filter(user=user, is_verified=True).exists()
+
+    @staticmethod
+    def generate_backup_codes(user, count: int = 8) -> list[str]:
+        """Generate backup codes for 2FA recovery."""
+        import secrets
+        import hashlib
+        from .models import BackupCode
+
+        # Delete old backup codes
+        BackupCode.objects.filter(user=user).delete()
+
+        codes = []
+        for _ in range(count):
+            # Generate 8-character alphanumeric code
+            code = ''.join(secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZ23456789') for _ in range(8))
+            code_formatted = f"{code[:4]}-{code[4:]}"  # Format as XXXX-XXXX
+            codes.append(code_formatted)
+
+            # Hash and store
+            code_hash = hashlib.sha256(code.encode()).hexdigest()
+            BackupCode.objects.create(user=user, code_hash=code_hash)
+
+        return codes
+
+    @staticmethod
+    def verify_backup_code(user, code: str) -> bool:
+        """Verify and consume a backup code."""
+        import hashlib
+        from django.utils import timezone
+        from .models import BackupCode
+
+        # Remove formatting (dashes, spaces)
+        code = code.replace("-", "").replace(" ", "").upper()
+        code_hash = hashlib.sha256(code.encode()).hexdigest()
+
+        try:
+            backup_code = BackupCode.objects.get(
+                user=user,
+                code_hash=code_hash,
+                is_used=False
+            )
+            backup_code.is_used = True
+            backup_code.used_at = timezone.now()
+            backup_code.save()
+            return True
+        except BackupCode.DoesNotExist:
+            return False
+
+    @staticmethod
+    def get_remaining_backup_codes_count(user) -> int:
+        """Get count of remaining unused backup codes."""
+        from .models import BackupCode
+        
+        return BackupCode.objects.filter(user=user, is_used=False).count()

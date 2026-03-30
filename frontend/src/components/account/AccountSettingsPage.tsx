@@ -11,6 +11,7 @@ import ProfileSection from "@/components/settings/ProfileSection";
 import TimezoneSection from "@/components/settings/TimezoneSection";
 import SessionsSection from "@/components/settings/SessionsSection";
 import LoginMethodsSection from "@/components/settings/LoginMethodsSection";
+import TwoFactorSection from "@/components/settings/TwoFactorSection";
 import DangerZoneSection from "@/components/settings/DangerZoneSection";
 
 interface ToastState {
@@ -247,6 +248,7 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
                 hasPassword={profile?.has_password}
                 onSetPassword={handleSetPassword}
               />
+              <TwoFactorSection />
               <DangerZoneSection onDeleteAccount={handleDeleteAccount} />
             </div>
           )}

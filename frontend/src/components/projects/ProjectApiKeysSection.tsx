@@ -292,32 +292,34 @@ export default function ProjectApiKeysSection({ projectSlug, showToast }: Projec
             </p>
           </div>
         ) : keys.length > 0 ? (
-          <div
-            className={`apikeys-list${hasInlineContent ? " apikeys-list-separated" : ""}`}
-          >
+          <div className={`project-apikeys-list${hasInlineContent ? " project-apikeys-list-separated" : ""}`}>
             {keys.map((k) => (
-              <div key={k.id} className="apikeys-item">
-                <div className="apikeys-item-icon">
-                  <Key size={16} />
+              <div key={k.id} className="project-apikey-row">
+                <div className="project-apikey-main">
+                  <div className="apikeys-item-icon">
+                    <Key size={16} />
+                  </div>
+                  <div className="apikeys-item-info">
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <p className="apikeys-item-name">{k.name}</p>
+                      <code className="apikeys-item-prefix">{k.prefix}...••••••••</code>
+                    </div>
+                    <p className="apikeys-item-subtitle">
+                      Created {formatDate(k.created_at)} · Last used {formatRelativeTime(k.last_used_at)}
+                    </p>
+                  </div>
                 </div>
-                <div className="apikeys-item-info">
-                  <p className="apikeys-item-name">{k.name}</p>
-                  <p className="apikeys-item-meta">
-                    <code className="apikeys-item-prefix">{k.prefix}...</code>
-                    <span>Created {formatDate(k.created_at)}</span>
-                    <span>
-                      Last used: {formatRelativeTime(k.last_used_at)}
-                    </span>
-                  </p>
+
+                <div className="project-apikey-row-action">
+                  <button
+                    className="settings-btn settings-btn-ghost settings-btn-sm"
+                    onClick={() => setRevokeTarget(k)}
+                    aria-label={`Revoke ${k.name}`}
+                  >
+                    <Trash2 size={14} />
+                    Revoke
+                  </button>
                 </div>
-                <button
-                  className="settings-btn settings-btn-ghost settings-btn-sm"
-                  onClick={() => setRevokeTarget(k)}
-                  aria-label={`Revoke ${k.name}`}
-                >
-                  <Trash2 size={14} />
-                  Revoke
-                </button>
               </div>
             ))}
           </div>

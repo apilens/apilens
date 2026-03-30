@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Copy, Check } from "lucide-react";
 
 type FrameworkId = "fastapi" | "flask" | "django" | "starlette";
 
@@ -37,6 +37,7 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
   const [framework, setFramework] = useState<FrameworkId>("fastapi");
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
+  const [copiedProjectSlug, setCopiedProjectSlug] = useState(false);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
   // Reserved slugs
@@ -156,6 +157,24 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
     }
   };
 
+  const handleCopyProjectSlug = async () => {
+    try {
+      await navigator.clipboard.writeText(projectSlug);
+      setCopiedProjectSlug(true);
+      window.setTimeout(() => setCopiedProjectSlug(false), 1400);
+    } catch {
+      setError("Failed to copy project slug. Copy it manually.");
+    }
+  };
+
+  const slugState = slugTouched
+    ? slugChecking
+      ? "checking"
+      : slugError
+        ? "error"
+        : "valid"
+    : "idle";
+
   return (
     <form onSubmit={handleSubmit} className="create-app-form">
       {error && <div className="create-app-error">{error}</div>}
@@ -183,13 +202,33 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
       </div>
 
       <div className="create-app-field">
-        <label htmlFor="app-slug" className="create-app-label">
-          App slug
+        <label htmlFor="project-slug" className="create-app-label">
+          Project slug
         </label>
-        <div style={{ position: "relative" }}>
+        <div className="settings-inline-field">
+          <div id="project-slug" className="settings-inline-value" aria-readonly="true">
+            <code className="settings-inline-code">{projectSlug}</code>
+          </div>
+          <button
+            type="button"
+            className="settings-btn settings-btn-secondary settings-btn-sm settings-inline-action"
+            onClick={handleCopyProjectSlug}
+          >
+            {copiedProjectSlug ? <Check size={14} /> : <Copy size={14} />}
+            {copiedProjectSlug ? "Copied" : "Copy"}
+          </button>
+        </div>
+        <p className="settings-inline-help">This stays fixed for every app inside this project.</p>
+      </div>
+
+      <div className="create-app-field">
+        <label htmlFor="app-slug" className="create-app-label">
+          App ID
+        </label>
+        <div className="create-app-slug-input-wrap">
           <input
             id="app-slug"
-            className="create-app-input"
+            className={`create-app-input create-app-slug-input ${slugState === "error" ? "create-app-input-error" : slugState === "valid" ? "create-app-input-valid" : ""}`}
             value={slug}
             onChange={(e) => {
               const value = e.target.value.toLowerCase();
@@ -199,13 +238,9 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
             placeholder="my-api-service"
             maxLength={100}
             required
-            style={{
-              borderColor: slugError ? "#ef4444" : slugTouched && !slugChecking && !slugError ? "#10b981" : undefined,
-              paddingRight: "40px",
-            }}
           />
           {slugTouched && (
-            <div style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)" }}>
+            <div className="create-app-slug-indicator">
               {slugChecking ? (
                 <Loader2 size={16} className="animate-spin" style={{ color: "var(--text-secondary)" }} />
               ) : slugError ? (
@@ -216,17 +251,12 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
             </div>
           )}
         </div>
-        {slugError && (
-          <p style={{ fontSize: "12px", color: "#ef4444", marginTop: "4px" }}>
-            {slugError}
-          </p>
-        )}
-        {!slugError && (
-          <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "4px" }}>
-            Used in SDK configuration with <code>project_slug=&quot;{projectSlug}&quot;</code> as{" "}
-            <code>app_id=&quot;{slug || "my-api-service"}&quot;</code>
-          </p>
-        )}
+        <div className={`create-app-slug-help ${slugState === "error" ? "create-app-slug-help-error" : slugState === "valid" ? "create-app-slug-help-valid" : ""}`}>
+          {slugState === "checking" && "Checking availability for this app ID."}
+          {slugState === "error" && slugError}
+          {slugState === "valid" && "Available. This will be used as app_id in the SDK."}
+          {slugState === "idle" && "Auto-generated from the app name. You can change it if needed."}
+        </div>
       </div>
 
       <div className="create-app-field">

@@ -4,7 +4,6 @@ import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { X, Check } from "lucide-react";
 import { useApp } from "@/components/providers/AppProvider";
-import PageHeader from "@/components/dashboard/PageHeader";
 import AppSettingsSidebar, { AppSettingsTab } from "./AppSettingsSidebar";
 import AppGeneralSection from "./AppGeneralSection";
 import AppApiKeysSection from "./AppApiKeysSection";
@@ -135,7 +134,7 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
   if (!localApp) {
     return (
       <div className="settings-page">
-        <PageHeader title="App not found" />
+        <div className="error-message">App not found</div>
       </div>
     );
   }
@@ -153,8 +152,6 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
           </button>
         </div>
       )}
-
-      <PageHeader title="Settings" />
 
       <div className="settings-page-body">
         <AppSettingsSidebar appSlug={appSlug} activeTab={activeTab} />
