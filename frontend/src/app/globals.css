@@ -1015,6 +1015,7 @@ body {
   flex-shrink: 0;
 }
 
+
 .settings-page-body {
   display: flex;
   flex: 1;
@@ -1034,7 +1035,7 @@ body {
 .settings-sidebar {
   width: 200px;
   flex-shrink: 0;
-  padding: 24px 0;
+  padding: 32px 0 24px 0;
   margin-right: 48px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1080,7 +1081,7 @@ body {
 .settings-page-content {
   flex: 1;
   overflow-y: scroll;
-  padding: 24px 0 80px 0;
+  padding: 32px 0 80px 0;
   overscroll-behavior: contain;
 }
 

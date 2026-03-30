@@ -7,24 +7,15 @@ export const GET = (
 ) =>
   withAuth(async () => {
     const { slug, app_slug } = await params;
-    return apiResult(await apiClient.getProjectApp(slug, app_slug));
+    return apiResult(await apiClient.getProjectAppApiKeys(slug, app_slug));
   });
 
-export const PATCH = (
+export const POST = (
   request: Request,
   { params }: { params: Promise<{ slug: string; app_slug: string }> },
 ) =>
   withAuth(async () => {
     const { slug, app_slug } = await params;
     const body = await request.json();
-    return apiResult(await apiClient.updateProjectApp(slug, app_slug, body));
-  });
-
-export const DELETE = (
-  _request: Request,
-  { params }: { params: Promise<{ slug: string; app_slug: string }> },
-) =>
-  withAuth(async () => {
-    const { slug, app_slug } = await params;
-    return apiResult(await apiClient.deleteProjectApp(slug, app_slug));
+    return apiResult(await apiClient.createProjectAppApiKey(slug, app_slug, body));
   });

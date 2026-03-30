@@ -10,6 +10,7 @@ import {
   Ellipsis,
   ArrowRight,
   Loader2,
+  BookOpen,
 } from "lucide-react";
 import type { AppListItem } from "@/types/app";
 
@@ -130,6 +131,19 @@ export default function AppCard({ app, projectSlug, onDeleted }: AppCardProps) {
               >
                 <ArrowRight size={14} />
                 View endpoints
+              </button>
+              <button
+                type="button"
+                className="app-card-menu-item"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setMenuOpen(false);
+                  router.push(`/projects/${projectSlug}/apps/${app.slug}/settings/setup`);
+                }}
+              >
+                <BookOpen size={14} />
+                View setup guide
               </button>
               <button
                 type="button"

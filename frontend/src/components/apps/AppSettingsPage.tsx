@@ -6,7 +6,7 @@ import { X, Check } from "lucide-react";
 import { useApp } from "@/components/providers/AppProvider";
 import AppSettingsSidebar, { AppSettingsTab } from "./AppSettingsSidebar";
 import AppGeneralSection from "./AppGeneralSection";
-import AppApiKeysSection from "./AppApiKeysSection";
+import AppSetupGuide from "./AppSetupGuide";
 import type { FrameworkId } from "@/types/app";
 
 interface ToastState {
@@ -16,19 +16,42 @@ interface ToastState {
 
 interface AppSettingsPageProps {
   appSlug: string;
+  projectSlug?: string;
   initialTab?: AppSettingsTab;
 }
 
-export default function AppSettingsPage({ appSlug, initialTab = "general" }: AppSettingsPageProps) {
+export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "general" }: AppSettingsPageProps) {
   const router = useRouter();
   const activeTab = initialTab;
   const { app, isLoading } = useApp();
   const [localApp, setLocalApp] = useState(app);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [apiKeyPrefix, setApiKeyPrefix] = useState<string>("");
 
   useEffect(() => {
     setLocalApp(app);
   }, [app]);
+
+  // Fetch PROJECT API key prefix for setup guide
+  useEffect(() => {
+    if (activeTab !== "setup" || !projectSlug) return;
+
+    async function fetchApiKeys() {
+      try {
+        const res = await fetch(`/api/projects/${projectSlug}/api-keys`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.keys && data.keys.length > 0) {
+            setApiKeyPrefix(data.keys[0].prefix);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch project API keys:", err);
+      }
+    }
+
+    fetchApiKeys();
+  }, [activeTab, projectSlug]);
 
   const showToast = useCallback((type: "success" | "error", message: string) => {
     setToast({ type, message });
@@ -41,7 +64,10 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
     framework?: FrameworkId;
   }) => {
     try {
-      const res = await fetch(`/api/apps/${appSlug}`, {
+      const url = projectSlug
+        ? `/api/projects/${projectSlug}/apps/${appSlug}`
+        : `/api/apps/${appSlug}`;
+      const res = await fetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -57,7 +83,10 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
       showToast("success", "App updated successfully");
 
       if (updated.slug && updated.slug !== appSlug) {
-        router.replace(`/apps/${updated.slug}/settings/${activeTab}`);
+        const baseUrl = projectSlug
+          ? `/projects/${projectSlug}/apps/${updated.slug}/settings`
+          : `/apps/${updated.slug}/settings`;
+        router.replace(`${baseUrl}/${activeTab}`);
       }
     } catch (error) {
       showToast("error", error instanceof Error ? error.message : "Failed to update app");
@@ -65,7 +94,10 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
   };
 
   const refreshApp = async () => {
-    const res = await fetch(`/api/apps/${appSlug}`);
+    const url = projectSlug
+      ? `/api/projects/${projectSlug}/apps/${appSlug}`
+      : `/api/apps/${appSlug}`;
+    const res = await fetch(url);
     if (!res.ok) return;
     const next = await res.json();
     setLocalApp(next);
@@ -75,7 +107,10 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
     try {
       const formData = new FormData();
       formData.append("file", file, "app-icon.jpg");
-      const res = await fetch(`/api/apps/${appSlug}/icon`, {
+      const url = projectSlug
+        ? `/api/projects/${projectSlug}/apps/${appSlug}/icon`
+        : `/api/apps/${appSlug}/icon`;
+      const res = await fetch(url, {
         method: "POST",
         body: formData,
       });
@@ -92,7 +127,10 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
 
   const handleRemoveAppIcon = async () => {
     try {
-      const res = await fetch(`/api/apps/${appSlug}/icon`, { method: "DELETE" });
+      const url = projectSlug
+        ? `/api/projects/${projectSlug}/apps/${appSlug}/icon`
+        : `/api/apps/${appSlug}/icon`;
+      const res = await fetch(url, { method: "DELETE" });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Failed to remove app icon");
@@ -106,7 +144,10 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
 
   const handleDeleteApp = async () => {
     try {
-      const res = await fetch(`/api/apps/${appSlug}`, {
+      const url = projectSlug
+        ? `/api/projects/${projectSlug}/apps/${appSlug}`
+        : `/api/apps/${appSlug}`;
+      const res = await fetch(url, {
         method: "DELETE",
       });
 
@@ -115,7 +156,7 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
         throw new Error(data.error || "Failed to delete app");
       }
 
-      router.push("/apps");
+      router.push(projectSlug ? `/projects/${projectSlug}` : "/apps");
     } catch (error) {
       showToast("error", error instanceof Error ? error.message : "Failed to delete app");
     }
@@ -153,8 +194,12 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
         </div>
       )}
 
+      <div className="page-header">
+        <h1 className="page-title">Settings</h1>
+      </div>
+
       <div className="settings-page-body">
-        <AppSettingsSidebar appSlug={appSlug} activeTab={activeTab} />
+        <AppSettingsSidebar appSlug={appSlug} projectSlug={projectSlug} activeTab={activeTab} />
 
         <div className="settings-page-content">
           {activeTab === "general" && (
@@ -167,9 +212,17 @@ export default function AppSettingsPage({ appSlug, initialTab = "general" }: App
               onDelete={handleDeleteApp}
             />
           )}
-          {activeTab === "api-keys" && (
+          {activeTab === "setup" && localApp && projectSlug && (
             <div className="settings-section-content">
-              <AppApiKeysSection appSlug={appSlug} showToast={showToast} />
+              <AppSetupGuide
+                appName={localApp.name}
+                framework={localApp.framework}
+                apiKey={apiKeyPrefix ? `${apiKeyPrefix}********` : "Generate a project API key first"}
+                hasRawKey={false}
+                appSlug={appSlug}
+                projectSlug={projectSlug}
+                projectName={undefined}
+              />
             </div>
           )}
         </div>
