@@ -1,0 +1,91 @@
+---
+title: "JavaScript SDK Setup"
+description: "Install, configure, and verify API Lens JavaScript SDK for Express and Next.js."
+---
+
+# JavaScript SDK Setup
+
+Use `apilens-js-sdk` to capture API request telemetry with first-class integrations for Express and Next.js App Router.
+
+## 1) Install
+
+```bash
+npm install apilens-js-sdk
+```
+
+## 2) Configure environment
+
+Add these to your environment or secret manager:
+
+```bash
+APILENS_API_KEY=your-app-api-key
+APILENS_BASE_URL=https://api.apilens.ai/api/v1
+APILENS_ENVIRONMENT=production
+```
+
+## 3) Framework wiring
+
+### Express
+
+```ts
+import express from "express";
+import { setConsumer, useApiLens } from "apilens-js-sdk/express";
+
+const app = express();
+app.use(express.json());
+
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  baseUrl: process.env.APILENS_BASE_URL,
+  environment: process.env.APILENS_ENVIRONMENT,
+  requestLogging: {
+    maxPayloadBytes: 8192,
+  },
+});
+
+app.get("/v1/orders", (req, res) => {
+  setConsumer(req, { id: "user_123", name: "Demo User", group: "starter" });
+  res.json({ ok: true });
+});
+```
+
+### Next.js App Router
+
+Use route handlers in `app/api/**/route.ts`.
+
+```ts
+import { NextResponse } from "next/server";
+import { createApiLensNextConfig, setConsumer, withApiLens } from "apilens-js-sdk/next";
+
+export const runtime = "nodejs";
+
+const apilensConfig = createApiLensNextConfig();
+
+export const POST = withApiLens(async (request) => {
+  const body = await request.json();
+  setConsumer(request, { id: "user_123", name: "Demo User", group: "starter" });
+  return NextResponse.json({ ok: true, item: body.item }, { status: 201 });
+}, apilensConfig);
+```
+
+## 4) Optional consumer tracking
+
+Add consumer identity to unlock consumer filters in API Lens.
+
+- Express: `setConsumer(req, { id, name, group })`
+- Next.js: `setConsumer(request, { id, name, group })`
+
+## 5) Verify traffic
+
+1. Restart your API service.
+2. Send real requests to your instrumented endpoints.
+3. Open the app in API Lens and check **Endpoints** and **Logs**.
+
+You should start seeing data shortly after traffic is sent.
+
+## 6) Troubleshooting
+
+- No data: verify `APILENS_API_KEY` belongs to the same API Lens app.
+- Wrong environment grouping: check `APILENS_ENVIRONMENT`.
+- Next.js route not captured: ensure App Router route handlers are used and `runtime = "nodejs"` is set.
+- Request/response bodies missing: enable request logging flags and increase `maxPayloadBytes` if needed.

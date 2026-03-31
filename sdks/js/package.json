@@ -1,7 +1,7 @@
 {
   "name": "apilens-js-sdk",
-  "version": "0.1.1",
-  "description": "API Lens JavaScript SDK with first-class Express middleware",
+  "version": "0.1.2",
+  "description": "API Lens JavaScript SDK with first-class Express and Next.js instrumentation",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -34,12 +34,25 @@
         "default": "./dist/express.cjs"
       }
     },
+    "./next": {
+      "import": {
+        "types": "./dist/next.d.ts",
+        "default": "./dist/next.js"
+      },
+      "require": {
+        "types": "./dist/next.d.cts",
+        "default": "./dist/next.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "typesVersions": {
     "*": {
       "express": [
         "./dist/express.d.ts"
+      ],
+      "next": [
+        "./dist/next.d.ts"
       ]
     }
   },
@@ -54,6 +67,7 @@
   "keywords": [
     "apilens",
     "express",
+    "nextjs",
     "monitoring",
     "sdk"
   ],
