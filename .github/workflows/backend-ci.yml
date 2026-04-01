@@ -99,7 +99,7 @@ jobs:
           DATABASE_URL: sqlite:///test.db
 
       - name: Upload coverage reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-reports
           path: |
@@ -138,7 +138,7 @@ jobs:
             || true
 
       - name: Upload Bandit report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bandit-security-report
           path: backend/bandit-report.json
