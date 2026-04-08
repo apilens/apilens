@@ -1,6 +1,7 @@
+import { createServer } from "node:net";
 import express from "express";
 import request from "supertest";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { ApiLensClient } from "../src/client.js";
 import { setConsumer, useApiLens } from "../src/express.js";
@@ -9,8 +10,32 @@ afterEach(async () => {
   await ApiLensClient.shutdown();
 });
 
+let canListen = true;
+
+async function detectListenSupport(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+
+    server.once("error", () => {
+      resolve(false);
+    });
+
+    server.listen(0, "127.0.0.1", () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
 describe("Express E2E", () => {
+  beforeAll(async () => {
+    canListen = await detectListenSupport();
+  });
+
   it("captures request, response, and consumer metadata", async () => {
+    if (!canListen) {
+      return;
+    }
+
     const ingestCalls: string[] = [];
     const app = express();
     app.use(express.json());
@@ -59,6 +84,10 @@ describe("Express E2E", () => {
   });
 
   it("skips capture for OPTIONS requests", async () => {
+    if (!canListen) {
+      return;
+    }
+
     const ingestCalls: string[] = [];
     const app = express();
 

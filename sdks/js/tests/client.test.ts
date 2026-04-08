@@ -7,6 +7,14 @@ afterEach(async () => {
 });
 
 describe("ApiLensClient", () => {
+  it("throws when apiKey is missing", () => {
+    expect(() => {
+      new ApiLensClient({
+        fetchImpl: async () => new Response(null, { status: 200 }),
+      });
+    }).toThrow("apiKey is required");
+  });
+
   it("normalizes records and fills defaults", async () => {
     const calls: Array<{ body?: string }> = [];
     const client = new ApiLensClient({
@@ -142,5 +150,57 @@ describe("ApiLensClient", () => {
     client.capture({ method: "GET", path: "/x", status_code: 200, response_time_ms: 1 });
     await client.flushAll();
     expect(urls[0]).toBe("https://ingest.example.com/v2/requests");
+  });
+
+  it("does not queue or send records when disabled", async () => {
+    let calls = 0;
+    const client = new ApiLensClient({
+      apiKey: "disabled-key",
+      enabled: false,
+      batchSize: 1,
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response(null, { status: 200 });
+      },
+    });
+
+    client.capture({
+      method: "POST",
+      path: "/disabled",
+      status_code: 201,
+      response_time_ms: 1,
+    });
+    const flushed = await client.flushAll();
+
+    expect(client.queue).toHaveLength(0);
+    expect(flushed).toBe(0);
+    expect(calls).toBe(0);
+  });
+
+  it("drops failed batch after retry exhaustion", async () => {
+    let calls = 0;
+    const client = new ApiLensClient({
+      apiKey: "test",
+      enabled: true,
+      batchSize: 10,
+      maxRetries: 1,
+      retryBackoffBaseMs: 1,
+      retryBackoffMaxMs: 1,
+      logger: {
+        warn: () => undefined,
+      },
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response(null, { status: 503 });
+      },
+    });
+
+    client.stop();
+    client.capture({ method: "GET", path: "/fail", status_code: 200, response_time_ms: 1 });
+
+    const sent = await client.flushAll();
+    expect(sent).toBe(0);
+    expect(calls).toBe(2);
+    expect(client.queue).toHaveLength(0);
   });
 });
