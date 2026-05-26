@@ -54,9 +54,6 @@ jobs:
   test:
     name: Test & Coverage
     runs-on: ubuntu-latest
-    # TODO: no backend test suite yet; pytest exits 5 (no tests collected)
-    # which fails the job. Non-blocking until real tests land.
-    continue-on-error: true
     defaults:
       run:
         working-directory: backend
@@ -87,7 +84,10 @@ jobs:
           uv pip install --system pytest pytest-cov pytest-django
 
       - name: Run tests with coverage
+        # TODO: no backend test suite yet; pytest returns 5 ("no tests collected")
+        # which would otherwise fail the job. Swallow that specific code only.
         run: |
+          set +e
           pytest tests/ \
             --cov=api \
             --cov=apps \
@@ -96,6 +96,12 @@ jobs:
             --cov-report=xml \
             --cov-report=term \
             --cov-report=html
+          code=$?
+          if [ $code -eq 5 ]; then
+            echo "::warning::No tests collected (exit 5); soft-passing until a real suite lands."
+            exit 0
+          fi
+          exit $code
         env:
           DJANGO_SETTINGS_MODULE: config.settings
           DJANGO_SECRET_KEY: test-secret-key-for-ci-only-not-for-production
