@@ -12,12 +12,20 @@ from .schemas import (
     UserProfileResponse,
     UserProfileUpdateRequest,
     SetPasswordRequest,
+    SetPasswordResponse,
     UserContextResponse,
     PictureResponse,
     SessionResponse,
     MessageResponse,
     _build_picture_url,
 )
+
+
+def _get_client_ip(request: HttpRequest) -> str | None:
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")
 
 router = Router(auth=[jwt_auth])
 
@@ -82,14 +90,34 @@ def remove_picture(request: HttpRequest):
     return {"message": "Profile picture removed"}
 
 
-@router.post("/me/password", response=MessageResponse)
+@router.post("/me/password", response=SetPasswordResponse)
 def set_password(request: HttpRequest, data: SetPasswordRequest):
     user: User = request.auth
     if data.new_password != data.confirm_password:
         raise ValidationError("Passwords do not match")
     auth_method = getattr(request, "token_claims", {}).get("am")
-    UserService.set_password(user, data.new_password, data.current_password, auth_method=auth_method)
-    return {"message": "Password updated successfully"}
+    ip = _get_client_ip(request)
+    device = request.META.get("HTTP_USER_AGENT", "")[:255]
+
+    UserService.set_password(
+        user, data.new_password, data.current_password,
+        auth_method=auth_method, ip_address=ip, device_info=device,
+    )
+
+    # set_password revoked all sessions; issue a fresh pair for the current device
+    # so the user doesn't get bumped out of their own browser.
+    refresh_token, token_family = TokenService.create_refresh_token(
+        user, device_info=device, ip_address=ip, remember_me=True,
+    )
+    access_token = TokenService.create_access_token(
+        user, token_family=token_family, auth_method="password",
+    )
+
+    return SetPasswordResponse(
+        message="Password updated successfully",
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )
 
 
 @router.post("/logout-all", response=MessageResponse)
@@ -97,6 +125,15 @@ def logout_all(request: HttpRequest):
     user: User = request.auth
     count = TokenService.revoke_all_for_user(user)
     return {"message": f"Revoked {count} sessions"}
+
+
+@router.post("/logout-others", response=MessageResponse)
+def logout_others(request: HttpRequest):
+    """Revoke every refresh token except the family that issued the current access token."""
+    user: User = request.auth
+    current_family = getattr(request, "_token_family", None)
+    count = TokenService.revoke_all_for_user(user, except_family=current_family)
+    return {"message": f"Signed out {count} other device{'s' if count != 1 else ''}"}
 
 
 @router.get("/sessions", response=list[SessionResponse])

@@ -1,10 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { X, Check } from "lucide-react";
-import { UserProfile } from "@/types/settings";
+import { useAccountSettings } from "@/hooks/useAccountSettings";
 import PageHeader from "@/components/dashboard/PageHeader";
 import AccountSettingsSidebar, { AccountSettingsTab } from "./AccountSettingsSidebar";
 import GeneralSection from "@/components/settings/GeneralSection";
@@ -14,11 +12,8 @@ import SessionsSection from "@/components/settings/SessionsSection";
 import LoginMethodsSection from "@/components/settings/LoginMethodsSection";
 import TwoFactorSection from "@/components/settings/TwoFactorSection";
 import DangerZoneSection from "@/components/settings/DangerZoneSection";
-
-interface ToastState {
-  type: "success" | "error";
-  message: string;
-}
+import SectionError from "@/components/ui/SectionError";
+import ErrorBoundary from "@/components/ui/ErrorBoundary";
 
 interface AccountSettingsPageProps {
   initialTab?: AccountSettingsTab;
@@ -26,135 +21,43 @@ interface AccountSettingsPageProps {
 
 export default function AccountSettingsPage({ initialTab = "general" }: AccountSettingsPageProps) {
   const router = useRouter();
-  const { user, isLoading: isUserLoading, logout, refreshUser } = useAuth();
+  const { isLoading: isUserLoading, logout, refreshUser } = useAuth();
   const activeTab = initialTab;
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [isLoadingData, setIsLoadingData] = useState(true);
-  const [toast, setToast] = useState<ToastState | null>(null);
+  const {
+    profile,
+    isLoadingProfile,
+    profileError,
+    refreshProfile,
+    updateName,
+    updateTimezone,
+    uploadPicture,
+    removePicture,
+    setPassword,
+    logoutOthers,
+    deleteAccount,
+  } = useAccountSettings();
 
-  const showToast = useCallback((type: "success" | "error", message: string) => {
-    setToast({ type, message });
-    setTimeout(() => setToast(null), 5000);
-  }, []);
-
-  const fetchProfile = useCallback(async () => {
-    try {
-      const response = await fetch("/api/account/profile");
-      if (!response.ok) throw new Error("Failed to fetch profile");
-      const data = await response.json();
-      setProfile(data.profile);
-    } catch (error) {
-      console.error("Error fetching profile:", error);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isUserLoading && user) {
-      fetchProfile().finally(() => setIsLoadingData(false));
-    }
-  }, [isUserLoading, user, fetchProfile]);
+  // ── Section adapters ─────────────────────────────────────────────
+  // Sections still accept thin handler props; the hook owns the action logic.
 
   const handleUpdateName = async (name: string) => {
-    try {
-      const response = await fetch("/api/account/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to update profile");
-      }
-
-      const data = await response.json();
-      setProfile(data.profile);
-      await refreshUser();
-      showToast("success", "Profile updated successfully");
-    } catch (error) {
-      showToast("error", error instanceof Error ? error.message : "Failed to update profile");
-    }
+    const next = await updateName.run(name);
+    if (next) await refreshUser();
   };
 
   const handleUpdateTimezone = async (timezone: string) => {
-    try {
-      const response = await fetch("/api/account/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ timezone }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to update timezone");
-      }
-
-      const data = await response.json();
-      setProfile(data.profile);
-      await refreshUser();
-      showToast("success", "Timezone updated");
-    } catch (error) {
-      showToast("error", error instanceof Error ? error.message : "Failed to update timezone");
-    }
+    const next = await updateTimezone.run(timezone);
+    if (next) await refreshUser();
   };
 
   const handlePictureUpload = async (blob: Blob) => {
-    try {
-      const formData = new FormData();
-      formData.append("file", blob, "profile.jpg");
-
-      const response = await fetch("/api/account/profile/picture", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to upload picture");
-      }
-
-      await fetchProfile();
-      await refreshUser();
-      showToast("success", "Profile picture updated");
-    } catch (error) {
-      showToast("error", error instanceof Error ? error.message : "Failed to upload picture");
-    }
+    await uploadPicture.run(blob);
+    await refreshUser();
   };
 
   const handlePictureRemove = async () => {
-    try {
-      const response = await fetch("/api/account/profile/picture", {
-        method: "DELETE",
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to remove picture");
-      }
-
-      await fetchProfile();
-      await refreshUser();
-      showToast("success", "Profile picture removed");
-    } catch (error) {
-      showToast("error", error instanceof Error ? error.message : "Failed to remove picture");
-    }
-  };
-
-  const handleDeleteAccount = async () => {
-    try {
-      const response = await fetch("/api/account/profile", {
-        method: "DELETE",
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to delete account");
-      }
-
-      logout();
-    } catch (error) {
-      showToast("error", error instanceof Error ? error.message : "Failed to delete account");
-    }
+    await removePicture.run();
+    await refreshUser();
   };
 
   const handleSetPassword = async (data: {
@@ -162,39 +65,25 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
     confirm_password: string;
     current_password?: string;
   }) => {
-    const response = await fetch("/api/account/profile/password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-
-    if (!response.ok) {
-      const result = await response.json();
-      throw new Error(result.error || "Failed to set password");
-    }
-
-    await fetchProfile();
-    await refreshUser();
-    showToast("success", "Password updated successfully");
+    const result = await setPassword.run(data);
+    // setPassword resolves to undefined on failure (errors are toasted).
+    // Caller surface: re-throw so inline forms can keep their own error state.
+    if (setPassword.error) throw setPassword.error;
+    void result;
   };
 
-  const handleLogoutAll = async () => {
-    try {
-      const response = await fetch("/api/account/logout-all", {
-        method: "POST",
-      });
+  const handleLogoutOthers = async () => {
+    await logoutOthers.run();
+  };
 
-      if (!response.ok) {
-        throw new Error("Failed to logout all devices");
-      }
-
-      await logout();
-    } catch (error) {
-      showToast("error", error instanceof Error ? error.message : "Failed to logout all devices");
+  const handleDeleteAccount = async () => {
+    await deleteAccount.run();
+    if (!deleteAccount.error) {
+      logout();
     }
   };
 
-  if (isUserLoading || isLoadingData) {
+  if (isUserLoading || isLoadingProfile) {
     return (
       <div className="settings-page">
         <div className="settings-page-loading">
@@ -204,20 +93,29 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
     );
   }
 
+  // If the profile fetch failed outright (network, auth, etc.), surface a
+  // single retry-able error instead of letting every section error out.
+  if (profileError && !profile) {
+    return (
+      <div className="settings-page">
+        <PageHeader
+          title="Account Settings"
+          onBack={() => router.push("/projects")}
+          backLabel="Back to Projects"
+        />
+        <div style={{ padding: "32px 24px", maxWidth: "560px", margin: "0 auto" }}>
+          <SectionError
+            title="Couldn't load your account"
+            message={profileError.message || "Check your connection and try again."}
+            onRetry={refreshProfile}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="settings-page">
-      {toast && (
-        <div className={`settings-toast settings-toast-${toast.type}`}>
-          <div className="settings-toast-icon">
-            {toast.type === "success" ? <Check size={16} /> : <X size={16} />}
-          </div>
-          <span>{toast.message}</span>
-          <button className="settings-toast-close" onClick={() => setToast(null)}>
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
       <PageHeader
         title="Account Settings"
         onBack={() => router.push("/projects")}
@@ -228,32 +126,48 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
         <AccountSettingsSidebar activeTab={activeTab} />
 
         <div className="settings-page-content">
-          {activeTab === "general" && <GeneralSection />}
+          {activeTab === "general" && (
+            <ErrorBoundary>
+              <GeneralSection />
+            </ErrorBoundary>
+          )}
           {activeTab === "account" && (
             <div className="settings-section-content">
-              <ProfileSection
-                profile={profile}
-                onUpdateName={handleUpdateName}
-                onPictureUpload={handlePictureUpload}
-                onPictureRemove={handlePictureRemove}
-              />
-              <TimezoneSection
-                timezone={profile?.timezone || "UTC"}
-                onUpdateTimezone={handleUpdateTimezone}
-              />
-              <SessionsSection
-                onLogoutAll={handleLogoutAll}
-                timezone={profile?.timezone || "UTC"}
-                lastLoginAt={profile?.last_login_at || null}
-                memberSince={profile?.created_at || null}
-              />
-              <LoginMethodsSection
-                email={profile?.email}
-                hasPassword={profile?.has_password}
-                onSetPassword={handleSetPassword}
-              />
-              <TwoFactorSection />
-              <DangerZoneSection onDeleteAccount={handleDeleteAccount} />
+              <ErrorBoundary>
+                <ProfileSection
+                  profile={profile}
+                  onUpdateName={handleUpdateName}
+                  onPictureUpload={handlePictureUpload}
+                  onPictureRemove={handlePictureRemove}
+                />
+              </ErrorBoundary>
+              <ErrorBoundary>
+                <TimezoneSection
+                  timezone={profile?.timezone || "UTC"}
+                  onUpdateTimezone={handleUpdateTimezone}
+                />
+              </ErrorBoundary>
+              <ErrorBoundary>
+                <SessionsSection
+                  onLogoutOthers={handleLogoutOthers}
+                  timezone={profile?.timezone || "UTC"}
+                  lastLoginAt={profile?.last_login_at || null}
+                  memberSince={profile?.created_at || null}
+                />
+              </ErrorBoundary>
+              <ErrorBoundary>
+                <LoginMethodsSection
+                  email={profile?.email}
+                  hasPassword={profile?.has_password}
+                  onSetPassword={handleSetPassword}
+                />
+              </ErrorBoundary>
+              <ErrorBoundary>
+                <TwoFactorSection hasPassword={!!profile?.has_password} />
+              </ErrorBoundary>
+              <ErrorBoundary>
+                <DangerZoneSection onDeleteAccount={handleDeleteAccount} />
+              </ErrorBoundary>
             </div>
           )}
         </div>

@@ -286,36 +286,52 @@ async function fetchDjango<T>(
   }
 }
 
+// Single-flight guard: parallel requests that all see a 401 must share one
+// refresh call, otherwise the second one sends an already-revoked refresh
+// token and the family-reuse detector wipes every session.
+let refreshInflight: Promise<{ accessToken: string; refreshToken: string } | null> | null = null;
+
 async function refreshTokens(
   refreshToken: string,
 ): Promise<{ accessToken: string; refreshToken: string } | null> {
-  try {
-    const response = await fetch(`${DJANGO_API_URL}/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    });
+  if (refreshInflight) {
+    return refreshInflight;
+  }
 
-    if (!response.ok) return null;
+  refreshInflight = (async () => {
+    try {
+      const response = await fetch(`${DJANGO_API_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
 
-    const data = await response.json();
+      if (!response.ok) return null;
 
-    const session = await getSession();
-    if (session) {
-      await setSession({
-        ...session,
+      const data = await response.json();
+
+      const session = await getSession();
+      if (session) {
+        await setSession({
+          ...session,
+          accessToken: data.access_token,
+          refreshToken: data.refresh_token,
+        });
+      }
+
+      return {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
-      });
+      };
+    } catch {
+      return null;
+    } finally {
+      // Release the lock once the call settles, so the next 401 wave can refresh.
+      refreshInflight = null;
     }
+  })();
 
-    return {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-    };
-  } catch {
-    return null;
-  }
+  return refreshInflight;
 }
 
 export const apiClient = {
@@ -348,6 +364,43 @@ export const apiClient = {
     return fetchDjango<{ message: string }>("/users/logout-all", {
       method: "POST",
     });
+  },
+
+  async logoutOthers(): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>("/users/logout-others", {
+      method: "POST",
+    });
+  },
+
+  // ── Two-Factor Authentication ─────────────────────────────────────
+  // These go through fetchDjango so they automatically refresh the access
+  // token if it's expired (15-min lifetime). Otherwise a stale settings tab
+  // would throw 401 the first time the user touches a 2FA action.
+
+  async twoFactorStatus(): Promise<ApiResponse<{ enabled: boolean; backup_codes_remaining: number }>> {
+    return fetchDjango("/auth/2fa/status");
+  },
+
+  async twoFactorEnable(): Promise<ApiResponse<{ secret: string; qr_code_uri: string }>> {
+    return fetchDjango("/auth/2fa/enable", { method: "POST" });
+  },
+
+  async twoFactorVerify(payload: { code: string; password?: string }): Promise<ApiResponse<{ codes: string[] }>> {
+    return fetchDjango("/auth/2fa/verify", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async twoFactorDisable(payload: { password?: string; code?: string; backup_code?: string }): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango("/auth/2fa/disable", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async twoFactorRegenerateBackupCodes(): Promise<ApiResponse<{ codes: string[] }>> {
+    return fetchDjango("/auth/2fa/backup-codes/regenerate", { method: "POST" });
   },
 
   async getSessions(): Promise<ApiResponse<SessionInfo[]>> {
@@ -942,11 +995,11 @@ export const apiClient = {
     new_password: string;
     confirm_password: string;
     current_password?: string;
-  }): Promise<ApiResponse<{ message: string }>> {
-    return fetchDjango<{ message: string }>("/users/me/password", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+  }): Promise<ApiResponse<{ message: string; access_token: string; refresh_token: string }>> {
+    return fetchDjango<{ message: string; access_token: string; refresh_token: string }>(
+      "/users/me/password",
+      { method: "POST", body: JSON.stringify(data) },
+    );
   },
 
   async validateSession(refreshToken: string): Promise<ApiResponse<{ valid: boolean }>> {

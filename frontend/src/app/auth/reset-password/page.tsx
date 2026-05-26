@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import PasswordStrengthMeter from "@/components/settings/PasswordStrengthMeter";
 
 function BrandingPanel() {
   return (
@@ -236,6 +237,7 @@ function ResetPasswordContent() {
                     {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
+                <PasswordStrengthMeter password={newPassword} />
               </div>
 
               <div className="auth-input-group">

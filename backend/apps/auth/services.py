@@ -15,13 +15,14 @@ from apps.users.models import User
 from core.auth.jwt import create_access_token as _encode_jwt
 from core.exceptions.base import (
     AuthenticationError,
+    MagicLinkOnlyError,
     RateLimitError,
     TokenExpiredError,
     TokenInvalidError,
 )
 
 from core.utils.geoip import resolve_location
-from .models import ApiKey, MagicLinkToken, RefreshToken, PasswordResetToken, PasskeyCredential
+from .models import ApiKey, MagicLinkToken, RefreshToken, PasswordResetToken, PasskeyCredential, RecoveryRequest
 
 from webauthn import (
     generate_registration_options,
@@ -48,6 +49,17 @@ MAGIC_LINK_LIFETIME = timedelta(minutes=15)
 MAGIC_LINK_RATE_LIMIT = 3  # per minute per email
 PASSWORD_RESET_LIFETIME = timedelta(hours=1)
 PASSWORD_RESET_RATE_LIMIT = 3  # per minute per email
+PASSWORD_LOGIN_RATE_LIMIT = 10  # max attempts per 15-minute window per email
+PASSWORD_LOGIN_LOCKOUT_WINDOW = 60 * 15  # 15 minutes in seconds
+
+# Account-recovery cooldown — time between requesting recovery and being able
+# to actually disable 2FA. Long enough to give the legit account holder time
+# to receive the email and cancel if they didn't initiate.
+RECOVERY_COOLDOWN = timedelta(hours=48)
+# Grace window after the cooldown during which the recovery link still works.
+RECOVERY_GRACE = timedelta(days=7)
+# One request per user per day to prevent recovery spam to the user's email.
+RECOVERY_RATE_LIMIT_WINDOW = timedelta(days=1)
 
 
 def _hash_token(raw_token: str) -> str:
@@ -238,10 +250,11 @@ class TokenService:
         RefreshToken.objects.filter(token_hash=token_hash).update(is_revoked=True)
 
     @staticmethod
-    def revoke_all_for_user(user: User) -> int:
-        return RefreshToken.objects.filter(
-            user=user, is_revoked=False
-        ).update(is_revoked=True)
+    def revoke_all_for_user(user: User, except_family: str | None = None) -> int:
+        qs = RefreshToken.objects.filter(user=user, is_revoked=False)
+        if except_family:
+            qs = qs.exclude(token_family=except_family)
+        return qs.update(is_revoked=True)
 
     @staticmethod
     def revoke_session(user: User, session_id: str) -> bool:
@@ -290,9 +303,7 @@ class TokenService:
 class MagicLinkService:
     @staticmethod
     @transaction.atomic
-    def create_and_send(
-        email: str, ip_address: str | None = None, flow: str | None = None,
-    ) -> None:
+    def create_and_send(email: str, ip_address: str | None = None) -> None:
         email = email.lower().strip()
 
         # Rate limiting: max 3 per minute per email
@@ -314,8 +325,6 @@ class MagicLinkService:
 
         frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
         verify_url = f"{frontend_url}/auth/verify?token={raw_token}"
-        if flow:
-            verify_url += f"&flow={flow}"
 
         from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@apilens.ai")
         context = {"verify_url": verify_url}
@@ -431,9 +440,12 @@ class PasswordResetService:
     @staticmethod
     @transaction.atomic
     def reset_password(
-        raw_token: str, new_password: str, invalidate_sessions: bool = True
+        raw_token: str, new_password: str, invalidate_sessions: bool = True,
+        ip_address: str | None = None,
     ) -> User:
         """Reset user password using a valid token."""
+        from .email import SecurityEmailService
+
         token_hash = _hash_token(raw_token)
 
         try:
@@ -466,15 +478,18 @@ class PasswordResetService:
             logger.info(f"Revoked all sessions for user {user.email} after password reset")
 
         logger.info(f"Password reset successful for {user.email}")
+
+        SecurityEmailService.send(
+            user, "password_reset_success", ip_address=ip_address,
+        )
+
         return user
 
 
 class AuthService:
     @staticmethod
-    def request_magic_link(
-        email: str, ip_address: str | None = None, flow: str | None = None,
-    ) -> None:
-        MagicLinkService.create_and_send(email, ip_address, flow=flow)
+    def request_magic_link(email: str, ip_address: str | None = None) -> None:
+        MagicLinkService.create_and_send(email, ip_address)
 
     @staticmethod
     @transaction.atomic
@@ -519,16 +534,46 @@ class AuthService:
     def login_with_password(
         email: str, password: str, device_info: str = "",
         ip_address: str | None = None, remember_me: bool = True,
-    ) -> tuple[str, str, User]:
+    ) -> tuple[str | None, str | None, User, bool]:
+        """Verify password and either issue tokens or signal 2FA required.
+
+        Returns (access_token, refresh_token, user, twofa_required). When
+        twofa_required is True the tokens are None — caller must complete the
+        second factor via /auth/2fa/exchange to receive tokens.
+        """
+        from django.core.cache import cache
+        from .models import TOTPDevice
+
         email = email.lower().strip()
+        cache_key = f"login_attempts:{email}"
+        attempts = cache.get(cache_key, 0)
+        if attempts >= PASSWORD_LOGIN_RATE_LIMIT:
+            raise RateLimitError("Too many login attempts. Please wait 15 minutes before trying again.")
 
         try:
             user = User.objects.get(email=email, is_active=True)
         except User.DoesNotExist:
+            cache.set(cache_key, attempts + 1, PASSWORD_LOGIN_LOCKOUT_WINDOW)
             raise AuthenticationError("Invalid email or password")
 
-        if not user.has_usable_password() or not user.check_password(password):
+        if not user.has_usable_password():
+            cache.set(cache_key, attempts + 1, PASSWORD_LOGIN_LOCKOUT_WINDOW)
+            raise MagicLinkOnlyError(
+                "This account uses sign-in links. Use 'Email Link' instead."
+            )
+
+        if not user.check_password(password):
+            cache.set(cache_key, attempts + 1, PASSWORD_LOGIN_LOCKOUT_WINDOW)
             raise AuthenticationError("Invalid email or password")
+
+        # Successful password verify — clear the failed-attempt counter
+        cache.delete(cache_key)
+
+        # If 2FA is on, do not issue tokens yet — return signal so the caller
+        # can hand back a short-lived challenge token instead.
+        has_2fa = TOTPDevice.objects.filter(user=user, is_verified=True).exists()
+        if has_2fa:
+            return None, None, user, True
 
         user.last_login_at = timezone.now()
         user.save(update_fields=["last_login_at", "updated_at"])
@@ -540,7 +585,25 @@ class AuthService:
             user, token_family=token_family, auth_method="password",
         )
 
-        return access_token, refresh_token, user
+        return access_token, refresh_token, user, False
+
+    @staticmethod
+    @transaction.atomic
+    def complete_2fa_login(
+        user: User, device_info: str = "",
+        ip_address: str | None = None, remember_me: bool = True,
+    ) -> tuple[str, str]:
+        """Issue tokens after a successful 2FA challenge."""
+        user.last_login_at = timezone.now()
+        user.save(update_fields=["last_login_at", "updated_at"])
+
+        refresh_token, token_family = TokenService.create_refresh_token(
+            user, device_info, ip_address, remember_me,
+        )
+        access_token = TokenService.create_access_token(
+            user, token_family=token_family, auth_method="password_2fa",
+        )
+        return access_token, refresh_token
 
     @staticmethod
     def refresh_session(raw_refresh_token: str) -> tuple[str, str, User]:
@@ -818,10 +881,14 @@ class TwoFactorService:
         return secret, provisioning_uri
 
     @staticmethod
-    def verify_and_activate_2fa(user, code: str) -> bool:
+    def verify_and_activate_2fa(
+        user, code: str,
+        ip_address: str | None = None, device_info: str | None = None,
+    ) -> bool:
         """Verify TOTP code and activate 2FA."""
         import pyotp
         from .models import TOTPDevice
+        from .email import SecurityEmailService
 
         try:
             device = TOTPDevice.objects.get(user=user)
@@ -829,18 +896,23 @@ class TwoFactorService:
             return False
 
         totp = pyotp.TOTP(device.secret)
-        
+
         # Verify code with 1-step window (30s before/after)
         if totp.verify(code, valid_window=1):
             device.is_verified = True
             device.save()
+            SecurityEmailService.send(
+                user, "two_factor_enabled",
+                ip_address=ip_address, device_info=device_info,
+            )
             return True
-        
+
         return False
 
     @staticmethod
     def verify_totp_code(user, code: str) -> bool:
-        """Verify TOTP code during login."""
+        """Verify TOTP code during login, preventing replay within the same 30s window."""
+        import time
         import pyotp
         from django.utils import timezone
         from .models import TOTPDevice
@@ -851,25 +923,40 @@ class TwoFactorService:
             return False
 
         totp = pyotp.TOTP(device.secret)
-        
-        # Verify with 1-step window
-        if totp.verify(code, valid_window=1):
-            device.last_used_at = timezone.now()
-            device.save()
-            return True
-        
+        current_counter = int(time.time() // 30)
+
+        # Check each counter in the valid window to find which one the code matches
+        for delta in (-1, 0, 1):
+            counter = current_counter + delta
+            if totp.at(counter * 30) == code:
+                # Reject if this counter was already used (replay attack)
+                if device.last_used_counter is not None and counter <= device.last_used_counter:
+                    return False
+                device.last_used_counter = counter
+                device.last_used_at = timezone.now()
+                device.save(update_fields=["last_used_counter", "last_used_at"])
+                return True
+
         return False
 
     @staticmethod
-    def disable_2fa(user) -> bool:
+    def disable_2fa(
+        user,
+        ip_address: str | None = None, device_info: str | None = None,
+    ) -> bool:
         """Disable 2FA for a user."""
         from .models import TOTPDevice, BackupCode
-        
+        from .email import SecurityEmailService
+
         try:
             device = TOTPDevice.objects.get(user=user)
             device.delete()
             # Also delete all backup codes
             BackupCode.objects.filter(user=user).delete()
+            SecurityEmailService.send(
+                user, "two_factor_disabled",
+                ip_address=ip_address, device_info=device_info,
+            )
             return True
         except TOTPDevice.DoesNotExist:
             return False
@@ -905,11 +992,15 @@ class TwoFactorService:
         return codes
 
     @staticmethod
-    def verify_backup_code(user, code: str) -> bool:
+    def verify_backup_code(
+        user, code: str,
+        ip_address: str | None = None, device_info: str | None = None,
+    ) -> bool:
         """Verify and consume a backup code."""
         import hashlib
         from django.utils import timezone
         from .models import BackupCode
+        from .email import SecurityEmailService
 
         # Remove formatting (dashes, spaces)
         code = code.replace("-", "").replace(" ", "").upper()
@@ -924,6 +1015,13 @@ class TwoFactorService:
             backup_code.is_used = True
             backup_code.used_at = timezone.now()
             backup_code.save()
+
+            remaining = BackupCode.objects.filter(user=user, is_used=False).count()
+            SecurityEmailService.send(
+                user, "backup_code_used",
+                extra_context={"remaining_codes": remaining},
+                ip_address=ip_address, device_info=device_info,
+            )
             return True
         except BackupCode.DoesNotExist:
             return False
@@ -934,3 +1032,190 @@ class TwoFactorService:
         from .models import BackupCode
         
         return BackupCode.objects.filter(user=user, is_used=False).count()
+
+
+class RecoveryService:
+    """48-hour delayed account recovery for users locked out of 2FA.
+
+    Use case: user has 2FA enabled, lost both the authenticator AND their
+    backup codes. They request a recovery, receive an email with a confirm
+    link and a cancel link. The legitimate user has 48 hours to cancel if it
+    wasn't them. After the cooldown, clicking confirm disables 2FA, wipes
+    backup codes, and revokes all sessions.
+    """
+
+    @staticmethod
+    @transaction.atomic
+    def request(email: str, ip_address: str | None = None) -> None:
+        """Create a recovery request and email the link to the user.
+
+        Silently no-ops when the email isn't associated with an active 2FA
+        account — prevents enumeration of 2FA-enabled users.
+        """
+        from .models import TOTPDevice  # local import; avoids circular at module load
+
+        email = email.lower().strip()
+
+        try:
+            user = User.objects.get(email=email, is_active=True)
+        except User.DoesNotExist:
+            logger.info(f"Recovery request for non-existent email: {email}")
+            return
+
+        # Only relevant for users who actually have 2FA enabled. For everyone
+        # else, recovery doesn't apply — they can just sign in normally.
+        if not TOTPDevice.objects.filter(user=user, is_verified=True).exists():
+            logger.info(f"Recovery request for user without 2FA: {email}")
+            return
+
+        # Rate limit: at most 1 per RECOVERY_RATE_LIMIT_WINDOW per user.
+        since = timezone.now() - RECOVERY_RATE_LIMIT_WINDOW
+        recent = RecoveryRequest.objects.filter(user=user, requested_at__gte=since).count()
+        if recent >= 1:
+            raise RateLimitError("You can only request account recovery once per 24 hours.")
+
+        # Cancel any older pending request so the latest one is the only valid path.
+        RecoveryRequest.objects.filter(
+            user=user, status=RecoveryRequest.STATUS_PENDING,
+        ).update(status=RecoveryRequest.STATUS_CANCELLED)
+
+        raw_token = secrets.token_urlsafe(48)
+        now = timezone.now()
+        available_at = now + RECOVERY_COOLDOWN
+        expires_at = available_at + RECOVERY_GRACE
+
+        RecoveryRequest.objects.create(
+            user=user,
+            token_hash=_hash_token(raw_token),
+            available_at=available_at,
+            expires_at=expires_at,
+            ip_address=ip_address,
+        )
+
+        # Send the email with both confirm and cancel URLs.
+        frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
+        confirm_url = f"{frontend_url}/auth/recovery?token={raw_token}"
+        cancel_url = f"{frontend_url}/auth/recovery?token={raw_token}&action=cancel"
+
+        from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@apilens.ai")
+        context = {
+            "email": user.email,
+            "display_name": user.display_name or user.email,
+            "confirm_url": confirm_url,
+            "cancel_url": cancel_url,
+            "available_at": available_at,
+            "ip_address": ip_address or "Unknown",
+            "cooldown_hours": int(RECOVERY_COOLDOWN.total_seconds() // 3600),
+        }
+        try:
+            plain_text = render_to_string("auth/emails/recovery_requested.txt", context)
+            html_content = render_to_string("auth/emails/recovery_requested.html", context)
+            msg = EmailMultiAlternatives(
+                subject="Account recovery requested for API Lens",
+                body=plain_text,
+                from_email=from_email,
+                to=[email],
+            )
+            msg.attach_alternative(html_content, "text/html")
+            msg.send(fail_silently=False)
+            logger.info(f"Recovery email sent to {email}")
+        except Exception as exc:
+            # Don't roll back the RecoveryRequest — the user can ask again,
+            # but log loudly because they may need to.
+            logger.exception(f"Failed to send recovery email to {email}: {exc}")
+
+    @staticmethod
+    def get_status(raw_token: str) -> dict:
+        """Public status lookup by token. Returns minimal info — never throws
+        on bad tokens to avoid leaking which tokens exist."""
+        token_hash = _hash_token(raw_token)
+        try:
+            req = RecoveryRequest.objects.select_related("user").get(token_hash=token_hash)
+        except RecoveryRequest.DoesNotExist:
+            return {"status": "invalid"}
+
+        now = timezone.now()
+        if req.status == RecoveryRequest.STATUS_CONFIRMED:
+            return {"status": "confirmed", "email": req.user.email}
+        if req.status == RecoveryRequest.STATUS_CANCELLED:
+            return {"status": "cancelled", "email": req.user.email}
+        if req.expires_at <= now:
+            return {"status": "expired", "email": req.user.email}
+
+        return {
+            "status": "pending",
+            "email": req.user.email,
+            "requested_at": req.requested_at.isoformat(),
+            "available_at": req.available_at.isoformat(),
+            "expires_at": req.expires_at.isoformat(),
+            "is_ready": req.available_at <= now,
+        }
+
+    @staticmethod
+    @transaction.atomic
+    def confirm(raw_token: str, ip_address: str | None = None, device_info: str | None = None) -> User:
+        """After the cooldown has elapsed, disable 2FA + wipe codes + revoke sessions.
+
+        Raises TokenInvalidError / TokenExpiredError on bad input.
+        """
+        from .models import TOTPDevice, BackupCode
+
+        token_hash = _hash_token(raw_token)
+        try:
+            req = RecoveryRequest.objects.select_for_update().select_related("user").get(token_hash=token_hash)
+        except RecoveryRequest.DoesNotExist:
+            raise TokenInvalidError("Invalid recovery link")
+
+        if req.status != RecoveryRequest.STATUS_PENDING:
+            raise TokenInvalidError("This recovery link has already been used or cancelled")
+
+        now = timezone.now()
+        if req.expires_at <= now:
+            raise TokenExpiredError("This recovery link has expired. Request a new one.")
+        if req.available_at > now:
+            # Cooldown not done yet.
+            raise TokenInvalidError("The cooldown hasn't elapsed yet — check back later.")
+
+        # Disable 2FA on the user's account.
+        TOTPDevice.objects.filter(user=req.user).delete()
+        BackupCode.objects.filter(user=req.user).delete()
+
+        # Revoke every active session so any attacker holding stolen tokens
+        # loses them at the same moment 2FA is removed.
+        TokenService.revoke_all_for_user(req.user)
+
+        req.status = RecoveryRequest.STATUS_CONFIRMED
+        req.save(update_fields=["status"])
+
+        # Tell the user what happened — reuse the standard "2FA disabled"
+        # security email so they always get the same signal.
+        from .email import SecurityEmailService
+        SecurityEmailService.send(
+            req.user, "two_factor_disabled",
+            ip_address=ip_address, device_info=device_info,
+        )
+
+        logger.info(f"Recovery confirmed for {req.user.email}; 2FA disabled")
+        return req.user
+
+    @staticmethod
+    @transaction.atomic
+    def cancel(raw_token: str) -> None:
+        """One-click "this wasn't me" — invalidates the pending request immediately.
+
+        Idempotent and safe to call on a non-pending request (no-op).
+        """
+        token_hash = _hash_token(raw_token)
+        try:
+            req = RecoveryRequest.objects.select_for_update().get(token_hash=token_hash)
+        except RecoveryRequest.DoesNotExist:
+            raise TokenInvalidError("Invalid recovery link")
+
+        # If it's already confirmed, we can't un-do that.
+        if req.status == RecoveryRequest.STATUS_CONFIRMED:
+            raise TokenInvalidError("This recovery has already been completed and can't be cancelled.")
+
+        if req.status == RecoveryRequest.STATUS_PENDING:
+            req.status = RecoveryRequest.STATUS_CANCELLED
+            req.save(update_fields=["status"])
+            logger.info(f"Recovery cancelled for {req.user.email}")

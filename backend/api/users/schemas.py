@@ -61,6 +61,12 @@ class SetPasswordRequest(Schema):
     current_password: Optional[str] = None
 
 
+class SetPasswordResponse(Schema):
+    message: str
+    access_token: str
+    refresh_token: str
+
+
 class PictureResponse(Schema):
     picture: str
     message: str

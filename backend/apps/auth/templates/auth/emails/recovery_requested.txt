@@ -1,0 +1,20 @@
+Account recovery requested
+
+Hi {{ display_name }},
+
+Someone (hopefully you) requested to disable two-factor authentication on
+your API Lens account ({{ email }}). For your safety, this requires a
+{{ cooldown_hours }}-hour cooldown.
+
+Available after: {{ available_at|date:"M j, Y, g:i A T" }}
+{% if ip_address and ip_address != "Unknown" %}Requested from IP: {{ ip_address }}
+{% endif %}
+When the cooldown elapses, continue the recovery here:
+{{ confirm_url }}
+
+Didn't request this? Cancel immediately:
+{{ cancel_url }}
+
+If you ignore this email, nothing changes — the request expires after a few days.
+
+— API Lens

@@ -44,9 +44,21 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       return NextResponse.json(
-        { error: data.detail || "Invalid email or password" },
+        {
+          error: data.detail || data.message || "Invalid email or password",
+          code: data.error_code || null,
+        },
         { status: response.status },
       );
+    }
+
+    // 2FA required path — return the challenge token to the browser without
+    // writing any session cookie. Frontend will submit it to /2fa/exchange.
+    if (data.twofa_required) {
+      return NextResponse.json({
+        twofa_required: true,
+        challenge_token: data.challenge_token,
+      });
     }
 
     const payload = JSON.parse(

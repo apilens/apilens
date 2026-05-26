@@ -108,6 +108,7 @@ class UserService:
     def set_password(
         user: User, new_password: str, current_password: str | None = None,
         auth_method: str | None = None,
+        ip_address: str | None = None, device_info: str | None = None,
     ) -> User:
         # Require current password only if user already has one AND they didn't
         # authenticate via magic link (which serves as proof of email ownership).
@@ -124,6 +125,19 @@ class UserService:
 
         user.set_password(new_password)
         user.save(update_fields=["password", "updated_at"])
+
+        # Invalidate all existing sessions so a compromised session can't
+        # outlive the credential change. Caller issues fresh tokens for the
+        # current device.
+        from apps.auth.services import TokenService
+        from apps.auth.email import SecurityEmailService
+        TokenService.revoke_all_for_user(user)
+
+        SecurityEmailService.send(
+            user, "password_changed",
+            ip_address=ip_address, device_info=device_info,
+        )
+
         return user
 
     @staticmethod

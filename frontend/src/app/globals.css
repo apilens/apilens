@@ -1481,6 +1481,65 @@ body {
   }
 }
 
+/* ───────────────────────────────────────────────────────────────────
+   Cross-cutting utilities for the settings UX overhaul (Phase 6).
+   ─────────────────────────────────────────────────────────────────── */
+
+/* Single-line truncation + browser-native tooltip via title attribute.
+   Apply to device names, locations, API key names, etc. */
+.truncate-with-tooltip {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Visible focus rings for keyboard users — works alongside :hover styles
+   without affecting mouse interactions. */
+.settings-btn:focus-visible,
+.password-toggle:focus-visible,
+.dialog-close:focus-visible,
+.timezone-option:focus-visible,
+.timezone-trigger:focus-visible {
+  outline: 2px solid var(--accent, #0070f3);
+  outline-offset: 2px;
+}
+
+.settings-btn:focus-visible.settings-btn-danger {
+  outline-color: var(--danger, #ff4444);
+}
+
+/* Inputs already get a colored border on focus; reinforce for accessibility. */
+.dialog-input:focus-visible,
+.password-input:focus-visible,
+.apikeys-input:focus-visible,
+.profile-edit-input:focus-visible,
+.timezone-search-input:focus-visible,
+.auth-input:focus-visible {
+  outline: 2px solid var(--accent, #0070f3);
+  outline-offset: 1px;
+}
+
+/* Mobile-friendly modal sizing — keeps dialogs from overflowing on phones. */
+@media (max-width: 480px) {
+  .dialog-content {
+    max-width: calc(100vw - 24px);
+    margin: 12px;
+  }
+  .timezone-dropdown {
+    min-width: min(280px, calc(100vw - 32px));
+  }
+  /* 2FA OTP grid: 6 inputs at 52px don't fit on a 375px phone — shrink. */
+  .otp-grid-input {
+    width: 40px !important;
+    height: 48px !important;
+    font-size: 22px !important;
+  }
+  .otp-grid {
+    gap: 6px !important;
+  }
+}
+
 /* Connected Accounts Section */
 .connected-accounts-list {
   display: flex;

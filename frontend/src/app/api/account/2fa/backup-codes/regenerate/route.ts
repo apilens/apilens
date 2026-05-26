@@ -1,34 +1,22 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
+import { apiClient } from "@/lib/api-client";
 
-const DJANGO_API_URL = process.env.DJANGO_API_URL || "http://localhost:8000/api/v1";
-
-export async function POST(request: NextRequest) {
-  try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const response = await fetch(`${DJANGO_API_URL}/auth/2fa/backup-codes/regenerate`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.accessToken}`,
-      },
-    });
-
-    if (!response.ok) {
-      const data = await response.json();
-      return NextResponse.json(
-        { error: data.detail || "Failed to regenerate backup codes" },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error("Regenerate backup codes error:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+export async function POST() {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // Going through apiClient so an expired access token is refreshed
+  // transparently — avoids the "Failed to regenerate backup codes" surface
+  // when the user comes back to a stale tab.
+  const result = await apiClient.twoFactorRegenerateBackupCodes();
+  if (result.error || !result.data) {
+    return NextResponse.json(
+      { error: result.error || "Failed to regenerate backup codes" },
+      { status: result.status },
+    );
+  }
+  return NextResponse.json(result.data);
 }

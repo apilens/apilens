@@ -39,6 +39,14 @@ class TokenInvalidError(AuthenticationError):
         super().__init__(message)
 
 
+class MagicLinkOnlyError(AuthenticationError):
+    """Raised when a user with no usable password tries to sign in with one."""
+    error_code = "magic_link_only"
+
+    def __init__(self, message: str = "This account uses sign-in links instead of a password."):
+        super().__init__(message)
+
+
 class RateLimitError(AppError):
     status_code = 429
     error_code = "rate_limit_exceeded"

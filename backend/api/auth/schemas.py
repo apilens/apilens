@@ -7,7 +7,6 @@ from ninja import Schema
 
 class MagicLinkRequest(Schema):
     email: str
-    flow: Optional[str] = None
 
 
 class PasswordLoginRequest(Schema):
@@ -35,6 +34,42 @@ class TokenResponse(Schema):
     refresh_token: str
     token_type: str = "Bearer"
     expires_in: int = 900  # 15 minutes
+
+
+class PasswordLoginResponse(Schema):
+    # When 2FA is required: only twofa_required + challenge_token are set.
+    # Otherwise: access_token, refresh_token, etc. are set.
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    token_type: str = "Bearer"
+    expires_in: int = 900
+    twofa_required: bool = False
+    challenge_token: Optional[str] = None
+
+
+class TwoFactorExchangeRequest(Schema):
+    challenge_token: str
+    code: str
+    remember_me: bool = True
+    use_backup_code: bool = False
+
+
+# Account recovery for users locked out of 2FA
+class RecoveryRequestBody(Schema):
+    email: str
+
+
+class RecoveryTokenBody(Schema):
+    token: str
+
+
+class RecoveryStatusResponse(Schema):
+    status: str  # "pending" | "confirmed" | "cancelled" | "expired" | "invalid"
+    email: Optional[str] = None
+    requested_at: Optional[str] = None
+    available_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    is_ready: bool = False
 
 
 class ValidateRequest(Schema):
@@ -96,15 +131,19 @@ class PasskeyCredentialResponse(Schema):
     created_at: datetime
 
 
-class CheckUserRequest(Schema):
+class IdentifyRequest(Schema):
     email: str
 
 
-class CheckUserResponse(Schema):
-    exists: bool
-    has_password: bool
-    has_passkey: bool
-    has_2fa: bool = False
+class IdentifyResponse(Schema):
+    # The recommended primary path for this user.
+    method: str  # "passkey" | "password" | "magic_link_sent" | "no_account"
+    passkey_options: Optional[dict] = None   # set when method == "passkey"
+    twofa_required: bool = False              # set when method == "password"
+    # Other methods the user has available. The UI surfaces these as
+    # "or use X instead" links so a passkey user can still fall back to
+    # password (or vice versa) without leaving the sign-in screen.
+    fallbacks: list[str] = []  # subset of {"passkey", "password", "magic_link"}
 
 
 class PasskeyDeleteRequest(Schema):
@@ -119,6 +158,17 @@ class TwoFactorEnableResponse(Schema):
 
 class TwoFactorVerifyRequest(Schema):
     code: str
+    password: Optional[str] = None
+
+
+class TwoFactorDisableRequest(Schema):
+    # User must supply exactly one of these to prove identity:
+    #   password    — current password (if user has one)
+    #   code        — current 6-digit TOTP from authenticator
+    #   backup_code — single-use backup code (for users who lost the authenticator)
+    password: Optional[str] = None
+    code: Optional[str] = None
+    backup_code: Optional[str] = None
 
 
 class TwoFactorStatusResponse(Schema):

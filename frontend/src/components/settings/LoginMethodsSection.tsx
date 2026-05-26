@@ -2,8 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { Mail, Lock, Eye, EyeOff, Fingerprint, Trash2, Loader2 } from "lucide-react";
-import { isPasskeySupported, registerPasskey, credentialToJSON } from "@/lib/webauthn";
+import { isPasskeySupported, getBiometricLabel, detectDeviceName } from "@/lib/webauthn";
+import { useAddPasskey } from "@/hooks/useAddPasskey";
 import SettingsCard from "./SettingsCard";
+import ConfirmDialog from "./ConfirmDialog";
+import PasswordStrengthMeter from "./PasswordStrengthMeter";
+import Skeleton from "@/components/ui/Skeleton";
 
 interface PasskeyCredential {
   id: string;
@@ -56,10 +60,39 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
   const [passkeySupported, setPasskeySupported] = useState(false);
   const [passkeys, setPasskeys] = useState<PasskeyCredential[]>([]);
   const [isLoadingPasskeys, setIsLoadingPasskeys] = useState(false);
-  const [isAddingPasskey, setIsAddingPasskey] = useState(false);
   const [passkeyError, setPasskeyError] = useState("");
   const [deviceName, setDeviceName] = useState("");
   const [showAddPasskey, setShowAddPasskey] = useState(false);
+  const [confirmDeletePasskey, setConfirmDeletePasskey] = useState<PasskeyCredential | null>(null);
+  const [isDeletingPasskey, setIsDeletingPasskey] = useState(false);
+
+  const biometricLabel = getBiometricLabel();
+  const [passkeyInfo, setPasskeyInfo] = useState("");
+
+  const { addPasskey, isAdding: isAddingPasskey } = useAddPasskey({
+    onSuccess: async () => {
+      await fetchPasskeys();
+      setShowAddPasskey(false);
+      setDeviceName("");
+      setPasskeyError("");
+      setPasskeyInfo("");
+    },
+    onAlreadyRegistered: (msg) => {
+      // Device already has a passkey for this site (e.g. synced via iCloud
+      // Keychain). Not an error — show a friendly info note.
+      setPasskeyError("");
+      setPasskeyInfo(msg);
+    },
+    onCancelled: () => {
+      // User dismissed the OS prompt — quietly reset, no error noise.
+      setPasskeyError("");
+      setPasskeyInfo("");
+    },
+    onError: (msg) => {
+      setPasskeyInfo("");
+      setPasskeyError(msg);
+    },
+  });
 
   // Check passkey support on mount
   useEffect(() => {
@@ -88,104 +121,25 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
 
   const handleAddPasskey = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPasskeyError("");
-    setIsAddingPasskey(true);
-
-    try {
-      // Get registration options from server
-      console.log("Fetching passkey registration options...");
-      const optionsResponse = await fetch("/api/account/passkeys/register/options", {
-        method: "POST",
-      });
-
-      console.log("Options response status:", optionsResponse.status);
-      console.log("Options response headers:", Object.fromEntries(optionsResponse.headers.entries()));
-
-      if (!optionsResponse.ok) {
-        const responseText = await optionsResponse.text();
-        console.error("Failed response text:", responseText);
-
-        let data;
-        try {
-          data = JSON.parse(responseText);
-        } catch {
-          data = { error: responseText || "Failed to start passkey registration" };
-        }
-
-        console.error("Failed to get options:", data);
-        const errorMessage = typeof data.error === 'string' ? data.error : "Failed to start passkey registration";
-        throw new Error(errorMessage);
-      }
-
-      const options = await optionsResponse.json();
-      console.log("Got options:", options);
-      console.log("Challenge from server:", options.publicKey.challenge);
-
-      // Store the original challenge before registerPasskey
-      const originalChallenge = options.publicKey.challenge;
-
-      // Prompt user to create passkey
-      console.log("Calling registerPasskey...");
-      const credential = await registerPasskey(options);
-      console.log("Got credential:", credential);
-
-      const credentialJSON = credentialToJSON(credential);
-      console.log("Credential JSON:", credentialJSON);
-
-      // Verify and save the passkey
-      console.log("Sending challenge to verify:", originalChallenge);
-      const verifyResponse = await fetch("/api/account/passkeys/register/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          credential: credentialJSON,
-          challenge: originalChallenge,
-          device_name: deviceName || "My Device",
-        }),
-      });
-
-      if (!verifyResponse.ok) {
-        const data = await verifyResponse.json();
-        throw new Error(data.error || "Failed to verify passkey");
-      }
-
-      // Success - refresh the list
-      await fetchPasskeys();
-      setShowAddPasskey(false);
-      setDeviceName("");
-    } catch (err) {
-      console.error("Passkey registration error:", err);
-      let errorMessage = "Failed to add passkey";
-
-      if (err instanceof Error) {
-        errorMessage = err.message;
-      } else if (typeof err === "string") {
-        errorMessage = err;
-      } else if (err && typeof err === "object" && "message" in err) {
-        errorMessage = String((err as any).message);
-      }
-
-      setPasskeyError(errorMessage);
-    } finally {
-      setIsAddingPasskey(false);
-    }
+    await addPasskey(deviceName);
   };
 
-  const handleDeletePasskey = async (passkeyId: string) => {
-    if (!confirm("Are you sure you want to delete this passkey?")) return;
-
+  const doDeletePasskey = async () => {
+    if (!confirmDeletePasskey) return;
+    setIsDeletingPasskey(true);
     try {
-      const response = await fetch(`/api/account/passkeys/${passkeyId}`, {
+      const response = await fetch(`/api/account/passkeys/${confirmDeletePasskey.id}`, {
         method: "DELETE",
       });
-
       if (!response.ok) {
         throw new Error("Failed to delete passkey");
       }
-
       await fetchPasskeys();
+      setConfirmDeletePasskey(null);
     } catch (err) {
-      alert("Failed to delete passkey");
+      setPasskeyError("Failed to delete passkey");
+    } finally {
+      setIsDeletingPasskey(false);
     }
   };
 
@@ -253,10 +207,12 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
             <Mail size={16} />
           </div>
           <div className="login-method-info">
-            <p className="login-method-name">Email</p>
-            <p className="login-method-detail">{email || "Magic link sign in"}</p>
+            <p className="login-method-name">Email · Magic link</p>
+            <p className="login-method-detail">
+              {email || "—"} · We email you a one-tap link when you sign in.
+            </p>
           </div>
-          <span className="login-method-badge login-method-badge-active">Active</span>
+          <span className="login-method-badge login-method-badge-active">Always on</span>
         </div>
 
         <div className="login-method-item-wrapper">
@@ -267,7 +223,9 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
             <div className="login-method-info">
               <p className="login-method-name">Password</p>
               <p className="login-method-detail">
-                {hasPassword ? "Password sign in enabled" : "Set a password for your account"}
+                {hasPassword
+                  ? "Reliable fallback when you can't get to your passkey."
+                  : "Optional — useful as a backup if your passkey isn't available."}
               </p>
             </div>
             {!showForm && (
@@ -317,9 +275,20 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
                     type={showNewPassword ? "text" : "password"}
                     className="password-input"
                     value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
+                    onChange={(e) => {
+                      setNewPassword(e.target.value);
+                      if (error === "Passwords do not match") setError("");
+                    }}
                     placeholder="Enter new password"
                     autoComplete="new-password"
+                    aria-invalid={
+                      confirmPassword.length > 0 && newPassword !== confirmPassword
+                    }
+                    style={
+                      confirmPassword.length > 0 && newPassword !== confirmPassword
+                        ? { borderColor: "var(--danger, #dc2626)" }
+                        : undefined
+                    }
                   />
                   <button
                     type="button"
@@ -329,6 +298,7 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
                     {showNewPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
+                <PasswordStrengthMeter password={newPassword} />
               </div>
 
               <div className="password-field">
@@ -338,9 +308,20 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
                     type={showConfirmPassword ? "text" : "password"}
                     className="password-input"
                     value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      if (error === "Passwords do not match") setError("");
+                    }}
                     placeholder="Confirm new password"
                     autoComplete="new-password"
+                    aria-invalid={
+                      confirmPassword.length > 0 && newPassword !== confirmPassword
+                    }
+                    style={
+                      confirmPassword.length > 0 && newPassword !== confirmPassword
+                        ? { borderColor: "var(--danger, #dc2626)" }
+                        : undefined
+                    }
                   />
                   <button
                     type="button"
@@ -350,9 +331,19 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
                     {showConfirmPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
+                {confirmPassword.length > 0 && newPassword !== confirmPassword && (
+                  <p
+                    className="password-error"
+                    style={{ marginTop: "4px" }}
+                  >
+                    Passwords don't match yet.
+                  </p>
+                )}
               </div>
 
-              {error && <p className="password-error">{error}</p>}
+              {error && error !== "Passwords do not match" && (
+                <p className="password-error">{error}</p>
+              )}
 
               <div className="password-actions">
                 <button
@@ -385,8 +376,8 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
                 <p className="login-method-name">Passkeys</p>
                 <p className="login-method-detail">
                   {passkeys.length > 0
-                    ? `${passkeys.length} passkey${passkeys.length === 1 ? "" : "s"} registered`
-                    : "Use your fingerprint, face, or device PIN"}
+                    ? `${passkeys.length} registered · Fastest and most secure sign-in.`
+                    : `Sign in instantly with ${biometricLabel}. No password needed.`}
                 </p>
               </div>
               {!showAddPasskey && (
@@ -394,17 +385,13 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
                   className="settings-btn settings-btn-secondary settings-btn-sm"
                   onClick={() => setShowAddPasskey(true)}
                 >
-                  Add passkey
+                  Add {biometricLabel}
                 </button>
               )}
             </div>
 
             {showAddPasskey && (
               <form className="password-form" onSubmit={handleAddPasskey}>
-                <p className="password-label" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "8px" }}>
-                  💡 <strong>Tip:</strong> If you already have a passkey on this device, it will sync automatically via iCloud Keychain (iOS/macOS) or Google Password Manager (Android). Only register a new one if you want a device-specific passkey.
-                </p>
-
                 <div className="password-field">
                   <label className="password-label">Device name (optional)</label>
                   <input
@@ -412,11 +399,37 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
                     className="password-input"
                     value={deviceName}
                     onChange={(e) => setDeviceName(e.target.value)}
-                    placeholder="e.g., iPhone, MacBook, Work Laptop"
+                    placeholder={detectDeviceName()}
                   />
+                  <p
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--text-muted)",
+                      marginTop: "4px",
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    You'll be prompted for {biometricLabel} when you continue.
+                  </p>
                 </div>
 
                 {passkeyError && <p className="password-error">{passkeyError}</p>}
+                {passkeyInfo && (
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      background: "#eff6ff",
+                      border: "1px solid #bfdbfe",
+                      borderRadius: "8px",
+                      fontSize: "13px",
+                      color: "#1e3a8a",
+                      lineHeight: "1.5",
+                    }}
+                    role="status"
+                  >
+                    {passkeyInfo}
+                  </div>
+                )}
 
                 <div className="password-actions">
                   <button
@@ -426,27 +439,43 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
                       setShowAddPasskey(false);
                       setDeviceName("");
                       setPasskeyError("");
+                      setPasskeyInfo("");
                     }}
                     disabled={isAddingPasskey}
                   >
-                    Cancel
+                    {passkeyInfo ? "Close" : "Cancel"}
                   </button>
-                  <button
-                    type="submit"
-                    className="settings-btn settings-btn-primary settings-btn-sm"
-                    disabled={isAddingPasskey}
-                  >
-                    {isAddingPasskey ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" />
-                        Adding...
-                      </>
-                    ) : (
-                      "Add passkey"
-                    )}
-                  </button>
+                  {!passkeyInfo && (
+                    <button
+                      type="submit"
+                      className="settings-btn settings-btn-primary settings-btn-sm"
+                      disabled={isAddingPasskey}
+                    >
+                      {isAddingPasskey ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Adding...
+                        </>
+                      ) : (
+                        `Set up ${biometricLabel}`
+                      )}
+                    </button>
+                  )}
                 </div>
               </form>
+            )}
+
+            {isLoadingPasskeys && passkeys.length === 0 && (
+              <div className="passkeys-list" aria-busy="true">
+                {[0, 1].map((i) => (
+                  <div key={i} className="passkey-item" style={{ pointerEvents: "none" }}>
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "6px" }}>
+                      <Skeleton variant="line" width="50%" height={12} />
+                      <Skeleton variant="line" width="70%" height={10} />
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
 
             {passkeys.length > 0 && (
@@ -465,8 +494,9 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
                     </div>
                     <button
                       className="passkey-delete-btn"
-                      onClick={() => handleDeletePasskey(passkey.id)}
+                      onClick={() => setConfirmDeletePasskey(passkey)}
                       title="Delete passkey"
+                      aria-label={`Delete passkey ${passkey.device_name}`}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -499,6 +529,21 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
           <span className="login-method-badge login-method-badge-soon">Coming soon</span>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={!!confirmDeletePasskey}
+        onClose={() => setConfirmDeletePasskey(null)}
+        onConfirm={doDeletePasskey}
+        title="Delete passkey?"
+        description={
+          confirmDeletePasskey
+            ? `"${confirmDeletePasskey.device_name}" will be removed. You won't be able to sign in with this passkey anymore.`
+            : ""
+        }
+        confirmText="Delete passkey"
+        variant="danger"
+        isLoading={isDeletingPasskey}
+      />
     </SettingsCard>
   );
 }
