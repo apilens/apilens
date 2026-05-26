@@ -4,7 +4,6 @@
 resource "google_project_service" "apis" {
   for_each = toset([
     "run.googleapis.com",
-    "sqladmin.googleapis.com",
     "compute.googleapis.com",
     "secretmanager.googleapis.com",
     "artifactregistry.googleapis.com",

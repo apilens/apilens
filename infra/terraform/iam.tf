@@ -1,5 +1,7 @@
 # ────────────────────────────────────────────────────────────────────
-# Backend runtime: secret access, Cloud SQL, logs.
+# Backend runtime: secret access + logs.
+# (No cloudsql.client role — Postgres lives at Supabase and is reached
+# over the public internet with sslmode=require, not via Cloud SQL Auth Proxy.)
 # ────────────────────────────────────────────────────────────────────
 
 locals {
@@ -15,12 +17,6 @@ resource "google_secret_manager_secret_iam_member" "backend_secrets" {
   secret_id = each.value
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.backend_runtime.email}"
-}
-
-resource "google_project_iam_member" "backend_cloudsql" {
-  project = var.project_id
-  role    = "roles/cloudsql.client"
-  member  = "serviceAccount:${google_service_account.backend_runtime.email}"
 }
 
 resource "google_project_iam_member" "backend_logs" {

@@ -7,12 +7,20 @@ region         = "us-central1"
 environment    = "prod"
 github_repo    = "apilens/apilens"
 
-# Bump to e.g. "db-custom-1-3840" once you have real load.
-db_tier = "db-f1-micro"
-
 # Hosts the Django backend will accept. Add custom domains here.
 backend_allowed_hosts = ".run.app,.apilens.ai"
 
-# Set once the frontend has its custom domain; until then the deploy workflow
-# injects the live frontend Cloud Run URL into the backend at deploy time.
+# Canonical frontend origin used for email reset/verify links etc. Defaults to
+# empty; the deploy workflow injects the live frontend Cloud Run URL until you
+# wire a custom domain.
 frontend_url = ""
+
+# ─── Postgres ───────────────────────────────────────────────────────────────
+# This project does NOT provision Postgres — the DB is at Supabase.
+# After `terraform apply`, paste your Supabase pooler DSN into Secret Manager:
+#
+#   echo -n 'postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?sslmode=require' | \
+#     gcloud secrets versions add apilens-database-url --data-file=-
+#
+# Use port 6543 (PgBouncer transaction pooling), not 5432. sslmode=require is
+# mandatory on Supabase.

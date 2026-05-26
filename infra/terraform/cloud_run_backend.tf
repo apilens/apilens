@@ -13,15 +13,6 @@ resource "google_cloud_run_v2_service" "backend" {
       max_instance_count = 5
     }
 
-    # Mount the Cloud SQL Auth Proxy as a unix socket at /cloudsql/<connection>.
-    # Backend's DATABASE_URL points at this socket, so no public DB exposure.
-    volumes {
-      name = "cloudsql"
-      cloud_sql_instance {
-        instances = [google_sql_database_instance.postgres.connection_name]
-      }
-    }
-
     containers {
       image = local.placeholder_image
 
@@ -87,11 +78,6 @@ resource "google_cloud_run_v2_service" "backend" {
         }
       }
 
-      volume_mounts {
-        name       = "cloudsql"
-        mount_path = "/cloudsql"
-      }
-
       resources {
         limits = {
           cpu    = "1"
@@ -128,9 +114,7 @@ resource "google_cloud_run_v2_service" "backend" {
   }
 
   depends_on = [
-    google_project_iam_member.backend_cloudsql,
     google_secret_manager_secret_iam_member.backend_secrets,
-    google_secret_manager_secret_version.database_url,
   ]
 }
 

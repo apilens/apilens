@@ -7,7 +7,6 @@ Terraform that stands up the production cloud footprint for APILens on GCP.
 | Resource | Name pattern | Purpose |
 |----------|--------------|---------|
 | Artifact Registry | `apilens` (Docker repo) | Container images for backend + frontend |
-| Cloud SQL Postgres 16 | `apilens-<env>-pg` | Primary database |
 | Cloud Run service | `apilens-<env>-backend` | Django + Gunicorn |
 | Cloud Run service | `apilens-<env>-frontend` | Next.js standalone |
 | Secret Manager | 4 secrets | `django-secret-key`, `session-secret`, `apilens-database-url`, `apilens-clickhouse-url` |
@@ -18,9 +17,10 @@ The deploy workflows in `.github/workflows/` push images and roll Cloud Run revi
 
 ## What this does NOT provision
 
+- **Postgres** — managed externally at **Supabase**. After apply, paste the Supabase pooler DSN into the `apilens-database-url` Secret Manager entry. Backend reaches Supabase over the public internet with `sslmode=require`.
+- **ClickHouse** — managed externally at **ClickHouse Cloud**. Same pattern: Terraform creates the empty `apilens-clickhouse-url` secret; you fill it.
 - **Custom domains / managed certs** — follow-up. Use Cloud Run domain mapping.
-- **ClickHouse** — provisioned outside GCP via ClickHouse Cloud. Terraform creates an empty `apilens-clickhouse-url` Secret Manager entry; you fill in the value after creating the CH project.
-- **Email provider (SES/Mailgun/Postmark)** — also follow-up. Default Django console backend ships logs to stdout until you wire SMTP credentials through Secret Manager.
+- **Email provider (SES / Mailgun / Postmark)** — follow-up. Default Django console backend ships logs to stdout until SMTP credentials are wired through Secret Manager.
 
 ## First-time bootstrap
 
@@ -57,11 +57,11 @@ terraform plan
 terraform apply
 ```
 
-First apply takes ~5 minutes — Cloud SQL is the slow step.
+First apply takes about a minute — most resources are quick; nothing to wait on (no Cloud SQL).
 
 ### 4. Populate the secrets that Terraform doesn't own
 
-After apply, three Secret Manager entries still have no payload (`apilens-database-url` is the exception — Terraform writes its first version):
+All four Secret Manager entries are created empty. Fill them in:
 
 ```bash
 # Django app secret (used to sign JWTs, CSRF tokens, etc.)
@@ -72,8 +72,13 @@ openssl rand -base64 64 | tr -d '\n' | \
 openssl rand -hex 32 | tr -d '\n' | \
   gcloud secrets versions add session-secret --data-file=-
 
-# ClickHouse Cloud DSN — after creating the CH project, copy its URL here.
-# Until you do this, backend starts fine but ClickHouse queries no-op.
+# Supabase Postgres URL. Use the *Connection Pooling* (transaction mode, port
+# 6543) string from your Supabase project's "Database" → "Connection string"
+# page. Never the direct 5432 — Cloud Run is serverless and bursty.
+echo -n 'postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?sslmode=require' | \
+  gcloud secrets versions add apilens-database-url --data-file=-
+
+# ClickHouse Cloud DSN — once you've spun up your CH project.
 echo -n 'https://default:PWD@xxxx.region.clickhouse.cloud:8443/apilens' | \
   gcloud secrets versions add apilens-clickhouse-url --data-file=-
 ```
@@ -114,8 +119,8 @@ terraform apply -var environment=staging -var db_tier=db-f1-micro
 ## Routine operations
 
 - **Rotate the Django secret key:** `openssl rand -base64 64 | gcloud secrets versions add django-secret-key --data-file=-`. Cloud Run instances pick up the new version on next start.
-- **Roll Postgres password:** edit `random_password.db_password` to use `keepers`, `terraform apply`, the new password lands in the URL secret.
-- **Destroy everything (dev only!):** set `db_deletion_protection = false` in `terraform.tfvars`, `terraform apply`, then `terraform destroy`.
+- **Roll Postgres password:** rotate it in the Supabase dashboard, copy the new pooler DSN, then `gcloud secrets versions add apilens-database-url --data-file=-` with the new value.
+- **Destroy everything (dev only!):** `terraform destroy`. Supabase / ClickHouse Cloud are unaffected — manage those at their respective consoles.
 
 ## File map
 
@@ -126,8 +131,7 @@ infra/terraform/
 ├── locals.tf                 Naming + image-path conventions
 ├── apis.tf                   Enable required Google APIs
 ├── artifact_registry.tf      Docker repo + cleanup policies
-├── cloud_sql.tf              Postgres instance, db, user, password
-├── secrets.tf                Secret Manager entries
+├── secrets.tf                Secret Manager entries (Postgres + ClickHouse URLs filled manually)
 ├── service_accounts.tf       Runtime + deploy SAs
 ├── workload_identity.tf      WIF pool + provider, GitHub trust
 ├── iam.tf                    IAM bindings (secret access, actAs, run.admin)

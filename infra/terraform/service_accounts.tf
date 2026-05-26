@@ -1,5 +1,6 @@
 # Runtime SA assumed by the backend Cloud Run service. Only gets the minimum
-# permissions it needs at request time (secret-accessor + cloudsql.client + logs).
+# permissions it needs at request time (secret-accessor + logs). Postgres is
+# at Supabase, reached over the public internet — no cloudsql.client needed.
 resource "google_service_account" "backend_runtime" {
   account_id   = "${local.name_prefix}-backend-run"
   display_name = "APILens backend Cloud Run runtime"

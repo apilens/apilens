@@ -33,7 +33,6 @@ jobs:
       IMAGE_PATH: ${{ secrets.GCP_BACKEND_IMAGE_PATH }}
       SERVICE: ${{ secrets.GCP_BACKEND_SERVICE }}
       RUNTIME_SA: ${{ secrets.GCP_BACKEND_RUNTIME_SA }}
-      CLOUDSQL: ${{ secrets.GCP_CLOUDSQL_CONNECTION }}
       FRONTEND_SERVICE: ${{ secrets.GCP_FRONTEND_SERVICE }}
     steps:
       - name: Checkout
@@ -84,7 +83,6 @@ jobs:
             --image="${{ steps.build.outputs.image }}" \
             --region="$REGION" \
             --service-account="$RUNTIME_SA" \
-            --add-cloudsql-instances="$CLOUDSQL" \
             --port=8000 \
             --update-env-vars="^|^DJANGO_DEBUG=False|PORT=8000|GUNICORN_WORKERS=2|DJANGO_ALLOWED_HOSTS=.run.app,.apilens.ai|FRONTEND_URL=${{ steps.frontend_url.outputs.url }}" \
             --update-secrets="DJANGO_SECRET_KEY=django-secret-key:latest,APILENS_DATABASE_URL=apilens-database-url:latest,APILENS_CLICKHOUSE_URL=apilens-clickhouse-url:latest" \
@@ -117,5 +115,5 @@ jobs:
 #   GCP_BACKEND_RUNTIME_SA   (runtime SA for the Cloud Run service)
 #   GCP_BACKEND_IMAGE_PATH   (region-docker.pkg.dev/.../apilens/backend)
 #   GCP_BACKEND_SERVICE      (apilens-prod-backend)
-#   GCP_CLOUDSQL_CONNECTION  (project:region:instance)
 #   GCP_FRONTEND_SERVICE     (apilens-prod-frontend — used only to look up its URL)
+# Postgres lives at Supabase; the DSN is in Secret Manager (apilens-database-url).

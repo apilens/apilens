@@ -33,11 +33,6 @@ output "frontend_service_name" {
   value       = google_cloud_run_v2_service.frontend.name
 }
 
-output "cloud_sql_connection_name" {
-  description = "Cloud SQL connection name (project:region:instance)"
-  value       = google_sql_database_instance.postgres.connection_name
-}
-
 output "workload_identity_provider" {
   description = "Full WIF provider resource name — set as GitHub repo secret GCP_WIF_PROVIDER"
   value       = google_iam_workload_identity_pool_provider.github.name
@@ -67,7 +62,6 @@ output "github_secrets_to_set" {
     GCP_DEPLOY_SA_EMAIL     = google_service_account.github_deploy.email
     GCP_BACKEND_RUNTIME_SA  = google_service_account.backend_runtime.email
     GCP_FRONTEND_RUNTIME_SA = google_service_account.frontend_runtime.email
-    GCP_CLOUDSQL_CONNECTION = google_sql_database_instance.postgres.connection_name
     GCP_BACKEND_SERVICE     = google_cloud_run_v2_service.backend.name
     GCP_FRONTEND_SERVICE    = google_cloud_run_v2_service.frontend.name
     GCP_BACKEND_IMAGE_PATH  = local.backend_image_path

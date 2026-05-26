@@ -9,7 +9,7 @@ variable "project_number" {
 }
 
 variable "region" {
-  description = "Region for Cloud Run, Cloud SQL, and Artifact Registry"
+  description = "Region for Cloud Run, Artifact Registry, and Secret Manager"
   type        = string
   default     = "us-central1"
 }
@@ -23,18 +23,6 @@ variable "environment" {
 variable "github_repo" {
   description = "`owner/name` of the GitHub repo allowed to impersonate the deploy SA"
   type        = string
-}
-
-variable "db_tier" {
-  description = "Cloud SQL machine tier. db-f1-micro is the cheapest; bump for prod load."
-  type        = string
-  default     = "db-f1-micro"
-}
-
-variable "db_deletion_protection" {
-  description = "Cloud SQL deletion protection. Disable only when intentionally tearing down."
-  type        = bool
-  default     = true
 }
 
 variable "backend_allowed_hosts" {
