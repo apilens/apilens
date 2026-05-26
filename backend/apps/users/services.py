@@ -1,5 +1,4 @@
 import logging
-import os
 from io import BytesIO
 from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -171,11 +170,10 @@ class UserService:
         img.save(buffer, format="JPEG", quality=90)
         buffer.seek(0)
 
-        # Delete old file if exists
+        # Delete the previous file via Django's storage API so this works
+        # against any backend (local FS, GCS, S3, …).
         if user.picture:
-            old_path = user.picture.path
-            if os.path.exists(old_path):
-                os.remove(old_path)
+            user.picture.delete(save=False)
 
         user.picture.save(
             f"{user.id}.jpg",
@@ -189,12 +187,7 @@ class UserService:
     @transaction.atomic
     def remove_picture(user: User) -> User:
         if user.picture:
-            try:
-                old_path = user.picture.path
-                if os.path.exists(old_path):
-                    os.remove(old_path)
-            except Exception:
-                pass
+            user.picture.delete(save=False)
             user.picture = ""
             user.save(update_fields=["picture", "updated_at"])
         return user

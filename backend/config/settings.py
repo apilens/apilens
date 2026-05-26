@@ -268,10 +268,41 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+# Media (user uploads): GCS in production, local filesystem in dev.
+# Production sets `GS_BUCKET_NAME=<project>-media` on Cloud Run; locally the
+# env var is unset and uploads land in backend/media/ as before.
+GS_BUCKET_NAME = os.environ.get("GS_BUCKET_NAME", "").strip()
+
+if GS_BUCKET_NAME:
+    MEDIA_URL = f"https://storage.googleapis.com/{GS_BUCKET_NAME}/"
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.gcloud.GoogleCloudStorage",
+            "OPTIONS": {
+                "bucket_name": GS_BUCKET_NAME,
+                "default_acl": None,  # bucket has uniform IAM; per-object ACLs are off
+                "querystring_auth": False,  # public bucket — emit clean URLs
+                "object_parameters": {
+                    "cache_control": "public, max-age=31536000",
+                },
+            },
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+else:
+    MEDIA_URL = "/media/"
+    MEDIA_ROOT = BASE_DIR / "media"
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
 
 # Profile picture constraints
 PROFILE_PICTURE_MAX_SIZE = 5 * 1024 * 1024  # 5 MB

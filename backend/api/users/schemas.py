@@ -1,8 +1,7 @@
+import os
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
-
-import os
 
 from django.conf import settings
 from ninja import Schema
@@ -12,11 +11,22 @@ from apps.users.services import UserService
 
 
 def _build_picture_url(user: User) -> str:
+    """Return the public URL for the user's picture, or "".
+
+    On GCS (prod) `picture.url` is already absolute (`https://storage.googleapis.com/<bucket>/...`).
+    On the local filesystem backend it's path-relative (`/media/...`), so we prepend
+    DJANGO_BASE_URL — settable to e.g. `http://localhost:8000` for local dev.
+    """
     if not user.picture:
         return ""
-    base = os.environ.get("DJANGO_BASE_URL", "http://localhost:8000")
+    url = user.picture.url
+    if url.startswith(("http://", "https://")):
+        base_url = url
+    else:
+        base = os.environ.get("DJANGO_BASE_URL", "http://localhost:8000").rstrip("/")
+        base_url = f"{base}{url}"
     cache_bust = int(user.updated_at.timestamp()) if user.updated_at else ""
-    return f"{base}{settings.MEDIA_URL}{user.picture.name}?v={cache_bust}"
+    return f"{base_url}?v={cache_bust}" if cache_bust else base_url
 
 
 class UserProfileResponse(Schema):

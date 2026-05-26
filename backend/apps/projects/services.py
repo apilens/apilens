@@ -1,5 +1,4 @@
 import logging
-import os
 import threading
 import json
 from typing import Any
@@ -364,13 +363,10 @@ class AppService:
         img.save(buffer, format="JPEG", quality=90)
         buffer.seek(0)
 
+        # Delete the previous file via Django's storage API so this works
+        # against any backend (local FS, GCS, S3, …).
         if app.icon_image:
-            try:
-                old_path = app.icon_image.path
-                if os.path.exists(old_path):
-                    os.remove(old_path)
-            except Exception:
-                pass
+            app.icon_image.delete(save=False)
 
         app.icon_image.save(
             f"{app.id}.jpg",
@@ -384,12 +380,7 @@ class AppService:
     @transaction.atomic
     def remove_icon(app: App) -> App:
         if app.icon_image:
-            try:
-                old_path = app.icon_image.path
-                if os.path.exists(old_path):
-                    os.remove(old_path)
-            except Exception:
-                pass
+            app.icon_image.delete(save=False)
             app.icon_image = ""
             app.save(update_fields=["icon_image", "updated_at"])
         return app
