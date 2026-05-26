@@ -4,16 +4,18 @@
 # over the public internet with sslmode=require, not via Cloud SQL Auth Proxy.)
 # ────────────────────────────────────────────────────────────────────
 
+# Keys are static strings so for_each can plan before apply; values are the
+# secret resource IDs (known only after apply, which is fine for the values).
 locals {
-  backend_secret_ids = [
-    google_secret_manager_secret.django_secret_key.id,
-    google_secret_manager_secret.database_url.id,
-    google_secret_manager_secret.clickhouse_url.id,
-  ]
+  backend_secret_ids = {
+    django_secret_key = google_secret_manager_secret.django_secret_key.id
+    database_url      = google_secret_manager_secret.database_url.id
+    clickhouse_url    = google_secret_manager_secret.clickhouse_url.id
+  }
 }
 
 resource "google_secret_manager_secret_iam_member" "backend_secrets" {
-  for_each  = toset(local.backend_secret_ids)
+  for_each  = local.backend_secret_ids
   secret_id = each.value
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.backend_runtime.email}"

@@ -4,6 +4,8 @@ resource "google_cloud_run_v2_service" "frontend" {
 
   ingress = "INGRESS_TRAFFIC_ALL"
 
+  deletion_protection = false
+
   template {
     service_account = google_service_account.frontend_runtime.email
 
@@ -24,10 +26,8 @@ resource "google_cloud_run_v2_service" "frontend" {
         value = "production"
       }
 
-      env {
-        name  = "PORT"
-        value = "3000"
-      }
+      # PORT is set automatically by Cloud Run (matches container_port below).
+      # Next.js standalone server reads $PORT.
 
       # Backend API URL is injected by the deploy workflow once it's resolved
       # the live backend Cloud Run URL. Static placeholder keeps the manifest

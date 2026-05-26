@@ -5,6 +5,10 @@ resource "google_cloud_run_v2_service" "backend" {
   # Drop unauthenticated requests at the LB; we open it up explicitly below.
   ingress = "INGRESS_TRAFFIC_ALL"
 
+  # Keep destroy paths in Terraform's hands. Flip to true if you want a UI
+  # safety net against accidental `terraform destroy`.
+  deletion_protection = false
+
   template {
     service_account = google_service_account.backend_runtime.email
 
@@ -30,10 +34,8 @@ resource "google_cloud_run_v2_service" "backend" {
         value = var.backend_allowed_hosts
       }
 
-      env {
-        name  = "PORT"
-        value = "8000"
-      }
+      # PORT is set automatically by Cloud Run (matches container_port below).
+      # Gunicorn reads $PORT in scripts/start.sh.
 
       env {
         name  = "GUNICORN_WORKERS"

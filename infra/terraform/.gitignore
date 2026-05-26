@@ -9,5 +9,8 @@
 terraform.tfvars
 *.auto.tfvars
 
+# Plan files are local artifacts of `terraform plan -out`.
+*.tfplan
+
 # Editor noise
 *.swp
