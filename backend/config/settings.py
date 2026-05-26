@@ -203,6 +203,14 @@ else:
 # Frontend URL (for magic link emails)
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
+# WebAuthn / passkey config.
+# RPID is the domain the browser binds the credential to. It must equal the
+# origin's effective domain, OR a registrable parent (e.g. `apilens.ai` works
+# for `app.apilens.ai`, `docs.apilens.ai`, etc. — useful for cross-subdomain).
+# Locally we use `localhost` so dev passkeys work without HTTPS.
+WEBAUTHN_RP_ID = os.environ.get("WEBAUTHN_RP_ID", "localhost")
+WEBAUTHN_RP_NAME = os.environ.get("WEBAUTHN_RP_NAME", "API Lens")
+
 # Email Configuration
 EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
