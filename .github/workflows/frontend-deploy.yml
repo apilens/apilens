@@ -1,0 +1,109 @@
+name: Frontend Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '!frontend/**.md'
+      - '.github/workflows/frontend-deploy.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: frontend-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build, push, deploy
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      REGION: ${{ secrets.GCP_REGION }}
+      IMAGE_PATH: ${{ secrets.GCP_FRONTEND_IMAGE_PATH }}
+      SERVICE: ${{ secrets.GCP_FRONTEND_SERVICE }}
+      RUNTIME_SA: ${{ secrets.GCP_FRONTEND_RUNTIME_SA }}
+      BACKEND_SERVICE: ${{ secrets.GCP_BACKEND_SERVICE }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Build image
+        id: build
+        run: |
+          IMAGE="${IMAGE_PATH}:${GITHUB_SHA}"
+          docker build \
+            --tag "$IMAGE" \
+            --tag "${IMAGE_PATH}:latest" \
+            ./frontend
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Push image
+        run: |
+          docker push "${IMAGE_PATH}:${GITHUB_SHA}"
+          docker push "${IMAGE_PATH}:latest"
+
+      - name: Resolve live backend URL
+        id: backend_url
+        run: |
+          URL=$(gcloud run services describe "$BACKEND_SERVICE" \
+            --region "$REGION" \
+            --format='value(status.url)')
+          if [ -z "$URL" ]; then
+            echo "::error::Couldn't resolve backend URL — deploy aborted."
+            exit 1
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --image="${{ steps.build.outputs.image }}" \
+            --region="$REGION" \
+            --service-account="$RUNTIME_SA" \
+            --port=3000 \
+            --update-env-vars="NODE_ENV=production,PORT=3000,DJANGO_API_URL=${{ steps.backend_url.outputs.url }}/api/v1" \
+            --update-secrets="SESSION_SECRET=session-secret:latest" \
+            --allow-unauthenticated \
+            --quiet
+
+      - name: Smoke check
+        run: |
+          URL=$(gcloud run services describe "$SERVICE" --region="$REGION" --format='value(status.url)')
+          echo "Frontend URL: $URL"
+          for i in 1 2 3 4 5 6; do
+            STATUS=$(curl -fsS --max-time 10 -o /dev/null -w '%{http_code}' "$URL/auth/login" || echo "000")
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "307" ] || [ "$STATUS" = "302" ]; then
+              echo "Frontend responded $STATUS — OK"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Frontend smoke check failed — last status: $STATUS"
+          exit 1
+
+# ─── Required GitHub repo secrets ───────────────────────────────────────
+# Provisioned by `terraform output github_secrets_to_set`:
+#   GCP_PROJECT_ID
+#   GCP_REGION
+#   GCP_WIF_PROVIDER
+#   GCP_DEPLOY_SA_EMAIL
+#   GCP_FRONTEND_RUNTIME_SA
+#   GCP_FRONTEND_IMAGE_PATH
+#   GCP_FRONTEND_SERVICE
+#   GCP_BACKEND_SERVICE  (looked up to populate DJANGO_API_URL at deploy time)

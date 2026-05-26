@@ -1,0 +1,15 @@
+.git
+.gitignore
+node_modules/
+.next/
+.env
+.env.*
+!.env.example
+*.log
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+README.md

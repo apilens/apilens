@@ -1,0 +1,121 @@
+name: Backend Deploy
+
+# Every push to main that touches backend code ships to Cloud Run.
+# Markdown, tests, and the SDKs/docs trees are excluded so docs-only commits
+# don't trigger a deploy.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '!backend/**.md'
+      - '!backend/tests/**'
+      - '.github/workflows/backend-deploy.yml'
+
+permissions:
+  contents: read
+  # Required for Workload Identity Federation — lets google-github-actions/auth
+  # exchange GitHub's OIDC token for a GCP access token.
+  id-token: write
+
+# Serialize deploys to avoid two revisions racing into Cloud Run.
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build, push, deploy
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      REGION: ${{ secrets.GCP_REGION }}
+      IMAGE_PATH: ${{ secrets.GCP_BACKEND_IMAGE_PATH }}
+      SERVICE: ${{ secrets.GCP_BACKEND_SERVICE }}
+      RUNTIME_SA: ${{ secrets.GCP_BACKEND_RUNTIME_SA }}
+      CLOUDSQL: ${{ secrets.GCP_CLOUDSQL_CONNECTION }}
+      FRONTEND_SERVICE: ${{ secrets.GCP_FRONTEND_SERVICE }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Build image
+        id: build
+        run: |
+          IMAGE="${IMAGE_PATH}:${GITHUB_SHA}"
+          docker build \
+            --tag "$IMAGE" \
+            --tag "${IMAGE_PATH}:latest" \
+            ./backend
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Push image
+        run: |
+          docker push "${IMAGE_PATH}:${GITHUB_SHA}"
+          docker push "${IMAGE_PATH}:latest"
+
+      - name: Resolve live frontend URL
+        id: frontend_url
+        run: |
+          # Look up the frontend's current Cloud Run URL so we set FRONTEND_URL
+          # to whatever Cloud Run actually exposes — no hard-coded hostnames.
+          URL=$(gcloud run services describe "$FRONTEND_SERVICE" \
+            --region "$REGION" \
+            --format='value(status.url)' 2>/dev/null || true)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to Cloud Run
+        run: |
+          # Custom delimiter (^|^) lets us put commas inside DJANGO_ALLOWED_HOSTS
+          # without gcloud splitting it into multiple env vars.
+          gcloud run deploy "$SERVICE" \
+            --image="${{ steps.build.outputs.image }}" \
+            --region="$REGION" \
+            --service-account="$RUNTIME_SA" \
+            --add-cloudsql-instances="$CLOUDSQL" \
+            --port=8000 \
+            --update-env-vars="^|^DJANGO_DEBUG=False|PORT=8000|GUNICORN_WORKERS=2|DJANGO_ALLOWED_HOSTS=.run.app,.apilens.ai|FRONTEND_URL=${{ steps.frontend_url.outputs.url }}" \
+            --update-secrets="DJANGO_SECRET_KEY=django-secret-key:latest,APILENS_DATABASE_URL=apilens-database-url:latest,APILENS_CLICKHOUSE_URL=apilens-clickhouse-url:latest" \
+            --allow-unauthenticated \
+            --quiet
+
+      - name: Smoke check
+        run: |
+          URL=$(gcloud run services describe "$SERVICE" --region="$REGION" --format='value(status.url)')
+          echo "Backend URL: $URL"
+          # Try for ~60s — fresh revisions sometimes need a moment to warm.
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS --max-time 10 "$URL/api/v1/health" | tee /tmp/health.json; then
+              break
+            fi
+            sleep 10
+          done
+          grep -q '"status":\s*"healthy"' /tmp/health.json || {
+            echo "::error::Health check failed after retries"
+            cat /tmp/health.json || true
+            exit 1
+          }
+
+# ─── Required GitHub repo secrets ───────────────────────────────────────
+# All are emitted by `terraform output github_secrets_to_set` (see infra/terraform).
+#   GCP_PROJECT_ID
+#   GCP_REGION
+#   GCP_WIF_PROVIDER         (full resource name)
+#   GCP_DEPLOY_SA_EMAIL      (service account impersonated via WIF)
+#   GCP_BACKEND_RUNTIME_SA   (runtime SA for the Cloud Run service)
+#   GCP_BACKEND_IMAGE_PATH   (region-docker.pkg.dev/.../apilens/backend)
+#   GCP_BACKEND_SERVICE      (apilens-prod-backend)
+#   GCP_CLOUDSQL_CONNECTION  (project:region:instance)
+#   GCP_FRONTEND_SERVICE     (apilens-prod-frontend — used only to look up its URL)
