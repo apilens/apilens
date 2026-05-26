@@ -182,7 +182,8 @@ credentials.json
 *.tmp
 *.temp
 .cadence/
-sidecar-testing/
+# Sidecar testing apps are tracked, but their per-app virtualenvs, dotenvs,
+# and SQLite databases should not be.
 sidecar-testing/**/.env
 sidecar-testing/**/.venv/
 sidecar-testing/**/db.sqlite3
