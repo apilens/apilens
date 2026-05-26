@@ -1,0 +1,4 @@
+fastapi>=0.110.0
+uvicorn>=0.29.0
+python-dotenv>=1.0.1
+apilenss[fastapi]>=0.1.5
