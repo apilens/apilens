@@ -64,4 +64,7 @@ Documentation = "https://apilens.ai"
 Repository = "https://github.com/apilens/apilens"
 
 [tool.hatch.build.targets.wheel]
-packages = ["apilens", "apilenss"]
+# Wheel published as `apilenss` on PyPI (see `name` above); the actual code
+# lives in the `apilens` Python package. The empty `apilenss/` mirror was a
+# placeholder from the initial scaffold and got removed in the cleanup pass.
+packages = ["apilens"]

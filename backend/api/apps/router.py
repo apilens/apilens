@@ -8,7 +8,7 @@ from apps.auth.services import ApiKeyService
 from apps.projects.services import AppService, EnvironmentService
 from apps.users.models import User
 from apps.users.services import UserService
-from core.auth.authentication import jwt_auth
+from apps.auth.authentication import jwt_auth
 from core.exceptions.base import ValidationError
 
 from .schemas import (
