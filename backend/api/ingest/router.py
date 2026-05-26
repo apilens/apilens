@@ -7,7 +7,7 @@ from ninja import Router
 
 from apps.projects.models import App
 from apps.projects.services import IngestService
-from core.auth.authentication import api_key_auth
+from apps.auth.authentication import api_key_auth
 from core.exceptions.base import AuthenticationError, ValidationError
 
 from .schemas import IngestRequest, IngestResponse, IngestLogsRequest, IngestLogsResponse

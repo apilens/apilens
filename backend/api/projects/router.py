@@ -17,7 +17,7 @@ from apps.projects.models import App
 from apps.projects.services import ProjectService, AppService, AnalyticsService, DataQueryService
 from apps.users.models import User
 from apps.users.services import UserService
-from core.auth.authentication import jwt_auth
+from apps.auth.authentication import jwt_auth
 
 from .schemas import (
     CreateProjectRequest,

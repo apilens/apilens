@@ -5,17 +5,17 @@ from typing import Optional
 
 from django.http import HttpRequest
 from django.utils import timezone
-from ninja.security import HttpBearer, APIKeyHeader
+from ninja.security import APIKeyHeader, HttpBearer
 
+from apps.auth.models import ApiKey, RefreshToken
 from apps.users.models import User
+from core.auth.context import TenantContext
+from core.auth.jwt import verify_access_token
 from core.exceptions.base import TokenExpiredError, TokenInvalidError
-
-from .jwt import verify_access_token
-from .context import TenantContext
 
 logger = logging.getLogger(__name__)
 
-# Only update last_used_at if more than 60s have passed (avoids DB write on every request)
+# Skip last_used_at writes within this window to avoid a DB write per request.
 _LAST_USED_DEBOUNCE = timedelta(seconds=60)
 
 
@@ -24,9 +24,7 @@ class JWTBearer(HttpBearer):
         try:
             claims = verify_access_token(token)
 
-            user = User.objects.filter(
-                id=claims["sub"], is_active=True
-            ).first()
+            user = User.objects.filter(id=claims["sub"], is_active=True).first()
             if user is None:
                 return None
 
@@ -39,7 +37,6 @@ class JWTBearer(HttpBearer):
                 email=user.email,
             )
 
-            # Touch last_used_at on the session (debounced)
             if token_family:
                 self._touch_session(token_family)
 
@@ -54,7 +51,6 @@ class JWTBearer(HttpBearer):
     @staticmethod
     def _touch_session(token_family: str) -> None:
         try:
-            from apps.auth.models import RefreshToken
             now = timezone.now()
             threshold = now - _LAST_USED_DEBOUNCE
             RefreshToken.objects.filter(
@@ -81,8 +77,6 @@ class ApiKeyAuth(APIKeyHeader):
             return None
 
         try:
-            from apps.auth.models import ApiKey
-
             key_hash = hashlib.sha256(key.encode()).hexdigest()
             api_key = (
                 ApiKey.objects.active()
@@ -107,7 +101,6 @@ class ApiKeyAuth(APIKeyHeader):
             )
             request._auth_method = "api_key"
 
-            # Touch last_used_at (debounced)
             now = timezone.now()
             if (
                 api_key.last_used_at is None

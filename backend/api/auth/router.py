@@ -2,7 +2,7 @@ from django.http import HttpRequest
 from ninja import Router
 
 from apps.auth.services import AuthService, TokenService, PasswordResetService, PasskeyService
-from core.auth.authentication import JWTBearer
+from apps.auth.authentication import JWTBearer
 
 from .schemas import (
     MagicLinkRequest,

@@ -5,7 +5,7 @@ from ninja.files import UploadedFile
 from apps.auth.services import TokenService
 from apps.users.models import User
 from apps.users.services import UserService
-from core.auth.authentication import jwt_auth
+from apps.auth.authentication import jwt_auth
 from core.exceptions.base import NotFoundError, ValidationError
 
 from .schemas import (
