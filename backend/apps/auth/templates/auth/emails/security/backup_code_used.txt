@@ -1,0 +1,18 @@
+A backup code was just used
+
+Hi {{ display_name }},
+
+A backup code was used to sign in to your API Lens account ({{ email }})
+instead of an authenticator code.
+
+When: {{ timestamp|date:"M j, Y, g:i A T" }}
+{% if ip_address and ip_address != "Unknown" %}IP address: {{ ip_address }}{% if location %} ({{ location }}){% endif %}
+{% endif %}Backup codes remaining: {{ remaining_codes }}
+
+{% if remaining_codes <= 2 %}You're running low on backup codes. Generate new ones at:
+{{ settings_url }}
+{% endif %}
+Wasn't you? Reset your password and regenerate your backup codes immediately at:
+{{ settings_url }}
+
+— API Lens

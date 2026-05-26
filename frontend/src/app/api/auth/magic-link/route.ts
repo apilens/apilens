@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const response = await fetch(`${DJANGO_API_URL}/auth/magic-link`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: body.email, ...(body.flow ? { flow: body.flow } : {}) }),
+      body: JSON.stringify({ email: body.email }),
     });
 
     const data = await response.json();

@@ -1,0 +1,15 @@
+Two-factor authentication is on
+
+Hi {{ display_name }},
+
+Two-factor authentication was just enabled on your API Lens account ({{ email }}).
+You'll need a code from your authenticator app every time you sign in.
+
+When: {{ timestamp|date:"M j, Y, g:i A T" }}
+{% if ip_address and ip_address != "Unknown" %}IP address: {{ ip_address }}{% if location %} ({{ location }}){% endif %}
+{% endif %}
+Make sure you've saved your backup codes somewhere safe.
+
+Wasn't you? Sign in, disable 2FA at {{ settings_url }}, then change your password.
+
+— API Lens

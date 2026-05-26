@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
 
     const isSecure = process.env.NODE_ENV === "production" && !process.env.DJANGO_API_URL?.includes("localhost");
 
-    const res = NextResponse.json({ success: true, flow: body.flow || null });
+    const res = NextResponse.json({ success: true });
     res.cookies.set(COOKIE_NAME, encrypted, {
       httpOnly: true,
       secure: isSecure,

@@ -15,6 +15,12 @@ import {
 } from "lucide-react";
 import SettingsCard from "./SettingsCard";
 import ConfirmDialog from "./ConfirmDialog";
+import { useToast } from "@/hooks/useToast";
+import Skeleton from "@/components/ui/Skeleton";
+import Alert from "@/components/ui/Alert";
+
+const KEY_NAME_MAX = 100;
+const MAX_KEYS = 10;  // Matches MAX_API_KEYS_PER_PROJECT on the backend.
 
 interface ApiKey {
   id: string;
@@ -24,11 +30,14 @@ interface ApiKey {
   created_at: string;
 }
 
-interface ApiKeysSectionProps {
-  showToast: (type: "success" | "error", message: string) => void;
-}
+export default function ApiKeysSection() {
+  const toast = useToast();
+  // Adapter so the old (type, message) call sites keep working with the new toast API.
+  const showToast = (type: "success" | "error", message: string) => {
+    if (type === "success") toast.success(message);
+    else toast.error(message);
+  };
 
-export default function ApiKeysSection({ showToast }: ApiKeysSectionProps) {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -113,6 +122,7 @@ export default function ApiKeysSection({ showToast }: ApiKeysSectionProps) {
       setNewKeyName("");
       setShowCreateForm(false);
       await fetchKeys();
+      showToast("success", "API key created — copy it before closing.");
     } catch (err) {
       showToast(
         "error",
@@ -122,6 +132,8 @@ export default function ApiKeysSection({ showToast }: ApiKeysSectionProps) {
       setIsCreating(false);
     }
   };
+
+  const atKeysLimit = keys.length >= MAX_KEYS;
 
   const handleCopy = async (text: string) => {
     try {
@@ -173,7 +185,7 @@ export default function ApiKeysSection({ showToast }: ApiKeysSectionProps) {
   return (
     <>
       <SettingsCard
-        title="API Keys"
+        title={keys.length > 0 ? `API Keys · ${keys.length} of ${MAX_KEYS}` : "API Keys"}
         description="Authenticate programmatically via X-API-Key header."
         action={
           !showCreateForm &&
@@ -181,6 +193,8 @@ export default function ApiKeysSection({ showToast }: ApiKeysSectionProps) {
             <button
               className="settings-btn settings-btn-secondary settings-btn-sm"
               onClick={() => setShowCreateForm(true)}
+              disabled={atKeysLimit}
+              title={atKeysLimit ? `You've hit the ${MAX_KEYS}-key limit. Revoke an unused key to create another.` : undefined}
             >
               <Plus size={14} />
               Create key
@@ -188,6 +202,13 @@ export default function ApiKeysSection({ showToast }: ApiKeysSectionProps) {
           )
         }
       >
+        {atKeysLimit && !newRawKey && (
+          <div style={{ marginBottom: "16px" }}>
+            <Alert variant="warning" title={`You've reached the ${MAX_KEYS}-key limit`}>
+              Revoke an unused key to free up a slot.
+            </Alert>
+          </div>
+        )}
         {/* Secret key reveal — inline after creation */}
         {newRawKey && (
           <div className="apikeys-reveal">
@@ -257,9 +278,21 @@ export default function ApiKeysSection({ showToast }: ApiKeysSectionProps) {
                   if (e.key === "Escape") cancelCreate();
                 }}
                 placeholder="e.g. Production, CI/CD, Local dev"
-                maxLength={100}
+                maxLength={KEY_NAME_MAX}
                 autoFocus
               />
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  fontSize: "11px",
+                  color: newKeyName.length > KEY_NAME_MAX - 10 ? "var(--danger, #dc2626)" : "var(--text-muted)",
+                  marginTop: "2px",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {newKeyName.length} / {KEY_NAME_MAX}
+              </div>
             </div>
             <div className="apikeys-create-actions">
               <button
@@ -288,18 +321,30 @@ export default function ApiKeysSection({ showToast }: ApiKeysSectionProps) {
 
         {/* Keys list / Loading / Empty */}
         {isLoading ? (
-          <div className="sessions-loading">
-            <Loader2 size={18} className="animate-spin" />
-            <span>Loading API keys...</span>
+          <div className="apikeys-list" aria-busy="true">
+            {[0, 1].map((i) => (
+              <div key={i} className="apikeys-item" style={{ pointerEvents: "none" }}>
+                <Skeleton variant="avatar" width={36} height={36} />
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "8px", paddingLeft: "20px" }}>
+                  <Skeleton variant="line" width="35%" height={14} />
+                  <Skeleton variant="line" width="60%" height={12} />
+                </div>
+              </div>
+            ))}
           </div>
         ) : keys.length === 0 && !hasInlineContent ? (
           <div className="apikeys-empty">
             <div className="apikeys-empty-icon">
               <Shield size={20} />
             </div>
-            <p className="apikeys-empty-text">
-              No API keys yet. Create one to get started.
-            </p>
+            <div>
+              <p className="apikeys-empty-text" style={{ marginBottom: "4px" }}>
+                <strong>No API keys yet.</strong>
+              </p>
+              <p className="apikeys-empty-text" style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                Create a key to authenticate from the CLI, CI pipelines, or your own integrations.
+              </p>
+            </div>
           </div>
         ) : keys.length > 0 ? (
           <div
@@ -310,8 +355,10 @@ export default function ApiKeysSection({ showToast }: ApiKeysSectionProps) {
                 <div className="apikeys-item-icon">
                   <Key size={16} />
                 </div>
-                <div className="apikeys-item-info">
-                  <p className="apikeys-item-name">{k.name}</p>
+                <div className="apikeys-item-info" style={{ minWidth: 0 }}>
+                  <p className="apikeys-item-name truncate-with-tooltip" title={k.name}>
+                    {k.name}
+                  </p>
                   <p className="apikeys-item-meta">
                     <code className="apikeys-item-prefix">{k.prefix}...</code>
                     <span>Created {formatDate(k.created_at)}</span>
@@ -338,9 +385,13 @@ export default function ApiKeysSection({ showToast }: ApiKeysSectionProps) {
         isOpen={!!revokeTarget}
         onClose={() => setRevokeTarget(null)}
         onConfirm={handleRevoke}
-        title="Revoke API Key"
-        description={`Revoke "${revokeTarget?.name}"? This breaks integrations immediately.`}
-        confirmText="Revoke"
+        title="Revoke API key?"
+        description={
+          revokeTarget
+            ? `"${revokeTarget.name}" — last used ${formatRelativeTime(revokeTarget.last_used_at)}. Any integrations using this key will stop working immediately.`
+            : ""
+        }
+        confirmText="Revoke key"
         variant="danger"
         isLoading={isRevoking}
       />

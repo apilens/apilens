@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Plus, Loader2, FolderOpen } from "lucide-react";
 import { ProjectCard } from "@/components/projects";
+import PasskeyUpsellBanner from "@/components/auth/PasskeyUpsellBanner";
 
 interface ProjectListItem {
   id: string;
@@ -56,6 +57,7 @@ export default function ProjectsListContent() {
 
   return (
     <div className="apps-page">
+      <PasskeyUpsellBanner />
       <div className="apps-page-header">
         <h1 className="apps-page-title">Projects</h1>
         <Link href="/projects/new" className="settings-btn settings-btn-primary">

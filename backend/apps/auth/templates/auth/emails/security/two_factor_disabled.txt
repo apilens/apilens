@@ -1,0 +1,16 @@
+Two-factor authentication is off
+
+Hi {{ display_name }},
+
+Two-factor authentication was just disabled on your API Lens account ({{ email }}).
+Your account is now protected by your password alone.
+
+When: {{ timestamp|date:"M j, Y, g:i A T" }}
+{% if ip_address and ip_address != "Unknown" %}IP address: {{ ip_address }}{% if location %} ({{ location }}){% endif %}
+{% endif %}
+Wasn't you? Reset your password immediately at:
+{{ reset_password_url }}
+
+Then re-enable 2FA from {{ settings_url }}
+
+— API Lens
