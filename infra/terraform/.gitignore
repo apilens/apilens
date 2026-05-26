@@ -1,0 +1,13 @@
+# Local state shouldn't be committed — we use a GCS backend.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+
+# tfvars contains environment-specific config + sometimes secrets.
+terraform.tfvars
+*.auto.tfvars
+
+# Editor noise
+*.swp

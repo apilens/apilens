@@ -1,0 +1,18 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars itself is gitignored
+# (see .gitignore in this folder).
+
+project_id     = "apilens-prod"
+project_number = "123456789012"
+region         = "us-central1"
+environment    = "prod"
+github_repo    = "apilens/apilens"
+
+# Bump to e.g. "db-custom-1-3840" once you have real load.
+db_tier = "db-f1-micro"
+
+# Hosts the Django backend will accept. Add custom domains here.
+backend_allowed_hosts = ".run.app,.apilens.ai"
+
+# Set once the frontend has its custom domain; until then the deploy workflow
+# injects the live frontend Cloud Run URL into the backend at deploy time.
+frontend_url = ""
