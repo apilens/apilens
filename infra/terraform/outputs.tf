@@ -53,6 +53,11 @@ output "frontend_runtime_sa_email" {
   value       = google_service_account.frontend_runtime.email
 }
 
+output "load_balancer_ip" {
+  description = "Static IPv4 for the global HTTPS LB — point app.apilens.ai + api.apilens.ai A records at this."
+  value       = google_compute_global_address.lb_ip.address
+}
+
 output "github_secrets_to_set" {
   description = "Map you can paste into `gh secret set` after a first apply"
   value = {
