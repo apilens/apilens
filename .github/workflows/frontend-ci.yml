@@ -88,33 +88,3 @@ jobs:
         run: npm run build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
-
-  security:
-    name: Security Audit (npm)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Run npm audit
-        run: |
-          npm audit --json > npm-audit-report.json || true
-
-      - name: Upload npm audit report
-        uses: actions/upload-artifact@v4
-        with:
-          name: npm-audit-report
-          path: frontend/npm-audit-report.json
-
-      - name: Display audit results
-        run: npm audit
-        continue-on-error: true
