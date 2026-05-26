@@ -34,6 +34,7 @@ from webauthn import (
 from webauthn.helpers.structs import (
     PublicKeyCredentialDescriptor,
     AuthenticatorTransport,
+    AuthenticatorAttachment,
     UserVerificationRequirement,
     AuthenticatorSelectionCriteria,
     ResidentKeyRequirement,
@@ -692,6 +693,11 @@ class PasskeyService:
             user_display_name=user.email.split("@")[0],
             exclude_credentials=exclude_credentials,
             authenticator_selection=AuthenticatorSelectionCriteria(
+                # Bind the new passkey to the device's built-in biometric (Touch ID,
+                # Face ID, Windows Hello). Without this, browsers — especially mobile
+                # Safari — default to "use a passkey from another device" via QR,
+                # which is jarring when the user is on the device they want to enroll.
+                authenticator_attachment=AuthenticatorAttachment.PLATFORM,
                 resident_key=ResidentKeyRequirement.PREFERRED,
                 user_verification=UserVerificationRequirement.PREFERRED,
             ),
