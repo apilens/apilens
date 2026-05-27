@@ -80,10 +80,10 @@ def health_check(request: HttpRequest):
     return {"status": "healthy", "service": "apilens-api"}
 
 
-from api.auth.router import router as auth_router
-from api.users.router import router as users_router
-from api.projects.router import router as projects_router
-from api.ingest.router import router as ingest_router
+from routers.auth.router import router as auth_router
+from routers.users.router import router as users_router
+from routers.projects.router import router as projects_router
+from routers.ingest.router import router as ingest_router
 
 api.add_router("/auth", auth_router, tags=["Auth"])
 api.add_router("/users", users_router, tags=["Users"])
