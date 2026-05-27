@@ -8,7 +8,7 @@ from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path, include
 
-from api.router import api
+from routers.router import api
 
 
 def root(request):
