@@ -11,7 +11,7 @@ npm install apilens-js-sdk
 For local workspace testing:
 
 ```bash
-npm install ./sdks/js
+npm install ./packages/sdk-typescript
 ```
 
 ## Quick start

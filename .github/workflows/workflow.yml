@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: sdks/python
+        working-directory: packages/sdk-python
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: python-sdk-dist
-          path: sdks/python/dist/
+          path: packages/sdk-python/dist/
 
   publish:
     name: Publish to PyPI
