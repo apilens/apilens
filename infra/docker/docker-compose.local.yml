@@ -3,7 +3,7 @@
 # Production uses Supabase (Postgres) + ClickHouse Cloud + Cloud Run; this
 # file exists solely for offline / local-dev work.
 #
-# Run:        pnpm db:up      (or: docker compose -f infrastructure/docker/docker-compose.local.yml up -d)
+# Run:        pnpm db:up      (or: docker compose -f infra/docker/docker-compose.local.yml up -d)
 # Stop:       pnpm db:down
 # Tail logs:  pnpm db:logs
 #

@@ -50,7 +50,7 @@ bold "Starting local databases (docker compose)…"
 if ! command -v docker >/dev/null 2>&1; then
   warn "docker not found. Skip db step; install Docker Desktop or equivalent."
 else
-  docker compose -f infrastructure/docker/docker-compose.local.yml up -d
+  docker compose -f infra/docker/docker-compose.local.yml up -d
   ok "postgres + clickhouse + redis up on standard ports (5432 / 8123+9000 / 6379)"
 fi
 

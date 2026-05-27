@@ -13,11 +13,10 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "db:up": "docker compose -f infrastructure/docker/docker-compose.local.yml up -d",
-    "db:down": "docker compose -f infrastructure/docker/docker-compose.local.yml down",
-    "db:logs": "docker compose -f infrastructure/docker/docker-compose.local.yml logs -f",
-    "setup": "bash scripts/setup/setup-local.sh",
-    "sdks:generate": "bash scripts/release/gen-sdks.sh"
+    "db:up": "docker compose -f infra/docker/docker-compose.local.yml up -d",
+    "db:down": "docker compose -f infra/docker/docker-compose.local.yml down",
+    "db:logs": "docker compose -f infra/docker/docker-compose.local.yml logs -f",
+    "setup": "bash scripts/setup/setup-local.sh"
   },
   "devDependencies": {
     "turbo": "^2.3.0",

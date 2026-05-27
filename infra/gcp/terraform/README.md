@@ -44,7 +44,7 @@ gsutil versioning set on "gs://$PROJECT-tfstate"
 ### 2. Configure variables
 
 ```bash
-cd infrastructure/gcp/terraform
+cd infra/gcp/terraform
 cp terraform.tfvars.example terraform.tfvars
 $EDITOR terraform.tfvars   # fill in project_id, project_number, github_repo
 ```
@@ -120,7 +120,7 @@ terraform apply -var environment=staging -var db_tier=db-f1-micro
 ## File map
 
 ```
-infrastructure/gcp/terraform/
+infra/gcp/terraform/
 ├── providers.tf              Provider pins, remote state config
 ├── variables.tf              Inputs
 ├── locals.tf                 Naming + image-path conventions
