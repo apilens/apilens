@@ -142,16 +142,16 @@ npm run dev
 
 ## Documentation
 
-APILens documentation is maintained in the `docs/` folder (Mintlify) and is currently developer-centric.
+APILens documentation is maintained in the `apps/docs/` folder (Mintlify) and is currently developer-centric.
 
-- Docs config: `docs/docs.json`
-- Getting started: `docs/getting-started/introduction.mdx`
-- Auth flows: `docs/auth/authentication-flow.mdx`
-- Ingest API: `docs/ingest/ingest-api.mdx`
-- REST endpoints: `docs/api-reference/rest-api.mdx`
-- SDK guidance: `docs/sdk/building-an-sdk.mdx`
+- Docs config: `apps/docs/docs.json`
+- Getting started: `apps/docs/getting-started/introduction.mdx`
+- Auth flows: `apps/docs/auth/authentication-flow.mdx`
+- Ingest API: `apps/docs/ingest/ingest-api.mdx`
+- REST endpoints: `apps/docs/api-reference/rest-api.mdx`
+- SDK guidance: `apps/docs/sdk/building-an-sdk.mdx`
 - Python SDK package: `sdks/python`
-- Engineering blog: `docs/blog/`
+- Engineering blog: `apps/docs/blog/`
 
 Consumer/user-focused documentation is planned and will be published separately.
 
@@ -183,7 +183,7 @@ apilens/
 │       ├── app/              # App Router pages + API routes
 │       ├── components/       # React components
 │       └── lib/              # Utilities (session, API client)
-├── docs/                     # Mintlify documentation
+├── apps/docs/                     # Mintlify documentation
 └── scripts/                  # Utility scripts
 ```
 
