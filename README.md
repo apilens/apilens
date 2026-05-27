@@ -68,14 +68,14 @@ psql postgres -c "CREATE DATABASE apilens OWNER apilens;"
 <details>
 <summary><strong>Using an existing PostgreSQL instance</strong></summary>
 
-Just create a database and user, then update the credentials in `backend/.env` after step 3.
+Just create a database and user, then update the credentials in `apps/api/.env` after step 3.
 
 </details>
 
 ### 3. Backend setup
 
 ```bash
-cd backend
+cd apps/api
 
 # Create virtual environment
 uv venv
@@ -88,7 +88,7 @@ uv pip install -e .
 cp .env.example .env
 ```
 
-The defaults in `.env` match the PostgreSQL setup above (`apilens` / `apilens_password`). If you used different credentials, edit `backend/.env` now.
+The defaults in `.env` match the PostgreSQL setup above (`apilens` / `apilens_password`). If you used different credentials, edit `apps/api/.env` now.
 
 Run migrations and start the server:
 
@@ -105,7 +105,7 @@ python manage.py runserver
 Open a **new terminal**:
 
 ```bash
-cd frontend
+cd apps/web
 
 # Install dependencies
 npm install
@@ -166,7 +166,7 @@ npx mintlify dev
 
 ```
 apilens/
-├── backend/                  # Django API
+├── apps/api/                  # Django API
 │   ├── api/                  # API endpoints (thin routers + schemas)
 │   │   ├── auth/             # Auth endpoints (magic-link, verify, refresh)
 │   │   ├── users/            # User endpoints (profile, sessions)
@@ -178,7 +178,7 @@ apilens/
 │   │   └── projects/         # Apps, environments, endpoints, analytics
 │   ├── config/               # Django settings, URLs
 │   └── core/                 # Infrastructure (auth, db, cache, exceptions, utils)
-├── frontend/                 # Next.js app
+├── apps/web/                 # Next.js app
 │   └── src/
 │       ├── app/              # App Router pages + API routes
 │       ├── components/       # React components
@@ -195,10 +195,10 @@ You need two terminals:
 
 ```bash
 # Terminal 1 — Backend
-cd backend && source .venv/bin/activate && python manage.py runserver
+cd apps/api && source .venv/bin/activate && python manage.py runserver
 
 # Terminal 2 — Frontend
-cd frontend && npm run dev
+cd apps/web && npm run dev
 ```
 
 ### Magic link emails in development
@@ -210,7 +210,7 @@ By default, the backend uses Django's console email backend. When you request a 
 If you need to start fresh (e.g., after a schema change during development):
 
 ```bash
-cd backend && source .venv/bin/activate
+cd apps/api && source .venv/bin/activate
 
 # Drop and recreate the database
 sudo -u postgres psql -c "DROP DATABASE IF EXISTS apilens;"
@@ -225,11 +225,11 @@ python manage.py migrate
 | Problem | Solution |
 |---------|----------|
 | `ModuleNotFoundError: No module named 'django'` | Activate the venv: `source .venv/bin/activate` |
-| `uv pip install -e .` fails | Make sure you're in the `backend/` directory and using `uv` (not `pip`) |
-| `FATAL: password authentication failed` | Check `backend/.env` — make sure `POSTGRES_PASSWORD` matches what you used in `CREATE USER` |
+| `uv pip install -e .` fails | Make sure you're in the `apps/api/` directory and using `uv` (not `pip`) |
+| `FATAL: password authentication failed` | Check `apps/api/.env` — make sure `POSTGRES_PASSWORD` matches what you used in `CREATE USER` |
 | `FATAL: database "apilens" does not exist` | Run the PostgreSQL setup commands from step 2 |
 | `FATAL: role "apilens" does not exist` | Run `sudo -u postgres psql -c "CREATE USER apilens WITH PASSWORD 'apilens_password';"` |
-| Frontend shows blank page | Make sure `SESSION_SECRET` is set in `frontend/.env.local` (not empty) |
+| Frontend shows blank page | Make sure `SESSION_SECRET` is set in `apps/web/.env.local` (not empty) |
 | Magic link not working | Check the backend terminal output — the email with the link is printed there |
 
 ## Contributing
