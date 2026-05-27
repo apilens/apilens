@@ -1,16 +1,16 @@
-name: Backend CI
+name: API CI
 
 on:
   push:
     branches: [main, develop]
     paths:
-      - 'backend/**'
-      - '.github/workflows/backend-ci.yml'
+      - 'apps/api/**'
+      - '.github/workflows/api-ci.yml'
   pull_request:
     branches: [main, develop]
     paths:
-      - 'backend/**'
-      - '.github/workflows/backend-ci.yml'
+      - 'apps/api/**'
+      - '.github/workflows/api-ci.yml'
 
 jobs:
   lint:
@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: backend
+        working-directory: apps/api
 
     steps:
       - name: Checkout code
@@ -36,7 +36,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-${{ hashFiles('backend/pyproject.toml') }}
+          key: ${{ runner.os }}-uv-${{ hashFiles('apps/api/pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-uv-
 
@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: backend
+        working-directory: apps/api
 
     steps:
       - name: Checkout code
@@ -74,7 +74,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-${{ hashFiles('backend/pyproject.toml') }}
+          key: ${{ runner.os }}-uv-${{ hashFiles('apps/api/pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-uv-
 
@@ -112,8 +112,8 @@ jobs:
         with:
           name: coverage-reports
           path: |
-            backend/coverage.xml
-            backend/htmlcov/
+            apps/api/coverage.xml
+            apps/api/htmlcov/
 
       - name: Check coverage threshold
         run: |
