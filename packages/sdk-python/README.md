@@ -41,8 +41,8 @@ pip install 'apilenss[flask]'
 Local development install (from repo):
 
 ```bash
-pip install ./sdks/python
-pip install './sdks/python[all]'
+pip install ./packages/sdk-python
+pip install './packages/sdk-python[all]'
 ```
 
 ## Quick start (manual capture)
