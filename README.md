@@ -1,52 +1,90 @@
 # APILens
 
-API observability — track requests, see performance, get alerts.
+API observability — track requests, see performance, get alerts when things break.
 
 > Early-stage. APIs change, things break.
 
-## What's where
+## What's in the repo
 
 ```
-apps/api          Django backend     → api.apilens.ai
-apps/web          Next.js frontend   → app.apilens.ai
-apps/docs         Mintlify docs
-packages/         Shared TS packages + published SDKs
-infra/docker      Local databases (postgres, clickhouse, redis)
-infra/gcp         Production infra (Terraform)
+apps/
+  api          Django + Ninja backend
+  web          Next.js frontend
+  docs         Mintlify docs
+packages/
+  logger             @apilens/logger — shared TS logger (pino)
+  sdk-python         PyPI: apilenss
+  sdk-typescript     npm:  apilens-js-sdk
+infra/
+  docker       Local databases (postgres, clickhouse, redis)
+  gcp          Production infra (Terraform)
+scripts/       Setup + dev helpers
+sidecar-testing/   Local SDK integration tests across frameworks
 ```
 
-## Run locally
+## Tech
 
-You need: Node 20+, pnpm 9, Python 3.13, [`uv`](https://docs.astral.sh/uv/), Docker.
+- **Backend**: Python 3.13, Django 5, Django Ninja
+- **Frontend**: Next.js 16, React 19, TypeScript
+- **Databases**: Postgres + ClickHouse + Redis
+- **Monorepo**: pnpm workspaces + turborepo (JS/TS only — Python uses uv)
+
+## You'll need
+
+- Node 20+ and pnpm 9
+- Python 3.13 and [`uv`](https://docs.astral.sh/uv/)
+- Docker
+
+## Run it locally
 
 ```bash
-pnpm setup                                # one-shot: install + Python venv + start DBs
-pnpm dev                                  # web + any TS workspaces
-cd apps/api && source .venv/bin/activate && python manage.py runserver
+pnpm setup       # install JS deps, create Python venv, start databases
+pnpm dev         # web (Next.js) + any other JS workspaces
 ```
 
-Open http://localhost:3000. Magic links print to the api terminal (console email backend in dev) — copy the link to sign in.
-
-Stop the databases when you're done:
+In a second terminal, start the backend:
 
 ```bash
-pnpm db:down
+cd apps/api
+source .venv/bin/activate
+python manage.py runserver
 ```
+
+Open http://localhost:3000.
+
+Magic links print to the backend terminal (console email backend in dev) — copy the link from the logs to sign in.
+
+Stop the databases when you're done: `pnpm db:down`.
 
 ## Common commands
 
 ```bash
-pnpm db:up                                              # start postgres + clickhouse + redis
-pnpm db:logs                                            # tail their logs
-pnpm typecheck                                          # TS type-check all workspaces
-cd apps/api && python manage.py migrate                 # apply Django migrations
-cd apps/api && python manage.py clickhouse_migrate      # apply ClickHouse migrations
+pnpm dev                # run JS/TS dev servers
+pnpm build              # build everything (turbo, cached)
+pnpm typecheck          # TS type-check
+pnpm lint               # lint JS/TS workspaces
+
+pnpm db:up              # start postgres + clickhouse + redis
+pnpm db:down            # stop them
+pnpm db:logs            # tail their logs
 ```
 
-## Production
+Backend (`cd apps/api && source .venv/bin/activate` first):
 
-Cloud Run + Supabase + ClickHouse Cloud + GCS. Bootstrap walkthrough in [`infra/gcp/terraform/README.md`](./infra/gcp/terraform/README.md).
+```bash
+python manage.py runserver
+python manage.py migrate                # apply Django migrations
+python manage.py clickhouse_migrate     # apply ClickHouse migrations
+python manage.py createsuperuser        # add an admin
+```
+
+## Repo conventions
+
+- pnpm workspaces are everything under `apps/*` and `packages/*` with a `package.json`.
+- Python apps + Dart SDK are workspace-invisible to pnpm — `uv` and `pub` manage those.
+- CI runs only on the workspace you touched (path-filtered).
+- Each app has its own `.env` (start from `.env.example`).
 
 ## Contributing
 
-Branch off `main`, open a PR. CI only runs jobs for the workspace(s) you touched.
+Branch off `main`, open a PR. CI runs only on the workspaces you changed. The PR description should say what changed and why; a quick test plan helps.
