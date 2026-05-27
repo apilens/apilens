@@ -63,6 +63,9 @@ yarn-error.log*
 .pnpm-debug.log*
 .npm/
 
+# Turborepo
+.turbo/
+
 
 # =============================================================================
 # Environment Files

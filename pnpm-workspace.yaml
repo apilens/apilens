@@ -1,0 +1,16 @@
+# Workspaces visible to pnpm. We list only directories that contain a
+# package.json; Python and Dart packages live in this repo too but are
+# invisible to pnpm (uv/pip and pub manage them separately).
+#
+# As new TS/JS apps and packages land we'll uncomment / add their paths:
+#   - apps/web                 (Next.js)
+#   - apps/ingestion           (when it's TS)
+#   - apps/cli                 (when it's TS)
+#   - packages/logger          (pino)
+#   - packages/sdk-typescript  (generated)
+#
+# These appear in phase 3+ — keeping the file minimal for now so pnpm
+# install doesn't choke before the directories exist.
+packages:
+  - "apps/*"
+  - "packages/*"
