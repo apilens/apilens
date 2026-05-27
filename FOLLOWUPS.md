@@ -5,7 +5,7 @@ need their own design discussion or wider scope than a chore PR should carry.
 
 ## Backend
 
-### `backend/config/settings.py` — env-var fallback chains
+### `apps/api/config/settings.py` — env-var fallback chains
 
 `APILENS_DATABASE_URL` reads from 4 different env names (`APILENS_POSTGRES_URL`,
 `APILENS_DATABASE_URL_UNPOOLED`, `APILENS_POSTGRES_URL_NON_POOLING`, …), and
@@ -19,7 +19,7 @@ alias could silently break a deploy.
 
 ### Backend test coverage
 
-`backend/tests/` is empty. CI is currently soft-failing the pytest job
+`apps/api/tests/` is empty. CI is currently soft-failing the pytest job
 (`exit code 5: no tests collected`). When we have real tests, drop the
 soft-fail in `.github/workflows/backend-ci.yml`.
 

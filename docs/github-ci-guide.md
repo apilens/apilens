@@ -20,21 +20,21 @@ APILens uses **GitHub's native ecosystem** for CI/CD, security scanning, and dep
 **Triggers:**
 - Push to `main` or `develop` branches
 - Pull requests targeting `main` or `develop`
-- Changes to `backend/**` files
+- Changes to `apps/api/**` files
 
 **Jobs:**
 
 #### Lint (Ruff)
 - Runs `ruff check` and `ruff format --check`
 - Enforces Python code style and catches common errors
-- **How to fix:** Run `ruff check backend/` and `ruff format backend/` locally
+- **How to fix:** Run `ruff check apps/api/` and `ruff format apps/api/` locally
 
 #### Test & Coverage
 - Runs `pytest` with coverage tracking
-- Tests: `backend/tests/`
+- Tests: `apps/api/tests/`
 - Coverage threshold: 50% (informational)
 - Uploads coverage reports as artifacts
-- **How to fix:** Run `pytest backend/tests/` locally
+- **How to fix:** Run `pytest apps/api/tests/` locally
 
 #### Security (Bandit)
 - Scans for common security issues (SQL injection, hardcoded secrets, etc.)
@@ -44,7 +44,7 @@ APILens uses **GitHub's native ecosystem** for CI/CD, security scanning, and dep
 
 **Local testing:**
 ```bash
-cd backend
+cd apps/api
 uv pip install --system -e .
 uv pip install --system pytest pytest-cov ruff bandit
 
@@ -66,7 +66,7 @@ bandit -r api apps core config
 **Triggers:**
 - Push to `main` or `develop` branches
 - Pull requests targeting `main` or `develop`
-- Changes to `frontend/**` files
+- Changes to `apps/web/**` files
 
 **Jobs:**
 
@@ -93,7 +93,7 @@ bandit -r api apps core config
 
 **Local testing:**
 ```bash
-cd frontend
+cd apps/web
 npm ci
 
 # Run linting
@@ -229,7 +229,7 @@ Some workflows upload reports as artifacts:
 
 **Fix:**
 ```bash
-cd backend
+cd apps/api
 ruff check . --fix  # Auto-fix issues
 ruff format .       # Format code
 git add .
@@ -244,7 +244,7 @@ git push
 
 **Fix:**
 ```bash
-cd backend
+cd apps/api
 pytest tests/ -v  # Run tests with verbose output
 # Fix failing tests, then:
 git add .
@@ -259,7 +259,7 @@ git push
 
 **Fix:**
 ```bash
-cd frontend
+cd apps/web
 npx tsc --noEmit  # See type errors
 # Fix type issues in reported files, then:
 git add .
@@ -274,7 +274,7 @@ git push
 
 **Fix:**
 ```bash
-cd frontend
+cd apps/web
 npm run build  # Reproduce error locally
 # Fix build issues (usually missing env vars or type errors), then:
 git add .
@@ -294,7 +294,7 @@ git push
    - **npm:** `npm install <package>@<safe-version>`
 3. Commit updated lockfile:
    ```bash
-   git add backend/pyproject.toml  # or frontend/package-lock.json
+   git add apps/api/pyproject.toml  # or apps/web/package-lock.json
    git commit -m "fix: update vulnerable dependency"
    git push
    ```
@@ -317,11 +317,11 @@ git push
 
 ### Before Opening a PR
 1. **Run linters locally:**
-   - Backend: `ruff check backend/` and `ruff format backend/`
+   - Backend: `ruff check apps/api/` and `ruff format apps/api/`
    - Frontend: `npm run lint` (auto-fix with `npm run lint -- --fix`)
 
 2. **Run tests locally:**
-   - Backend: `pytest backend/tests/`
+   - Backend: `pytest apps/api/tests/`
    - Frontend: Currently no tests (coming soon)
 
 3. **Run type check (frontend):**
