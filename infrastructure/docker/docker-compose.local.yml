@@ -1,0 +1,68 @@
+# Local development databases for APILens.
+#
+# Production uses Supabase (Postgres) + ClickHouse Cloud + Cloud Run; this
+# file exists solely for offline / local-dev work.
+#
+# Run:        pnpm db:up      (or: docker compose -f infrastructure/docker/docker-compose.local.yml up -d)
+# Stop:       pnpm db:down
+# Tail logs:  pnpm db:logs
+#
+# Apps read DATABASE_URL / CLICKHOUSE_URL / REDIS_URL — they don't care
+# whether those point at this compose stack or at the cloud equivalents.
+
+name: apilens-local
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: apilens
+      POSTGRES_PASSWORD: apilens_dev
+      POSTGRES_DB: apilens
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apilens -d apilens"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: apilens
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse_dev
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "8123:8123"   # HTTP interface (Django uses this via clickhouse-driver)
+      - "9000:9000"   # Native protocol
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 10s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  redis_data:

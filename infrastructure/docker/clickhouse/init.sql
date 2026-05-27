@@ -1,0 +1,6 @@
+-- ClickHouse bootstrap for local dev.
+-- The `apilens` database is auto-created via CLICKHOUSE_DB env in compose;
+-- Django runs its own migrations on top via `apps/api` clickhouse_migrate command.
+--
+-- Leave this file empty for now — it's here so future schema bootstrapping
+-- (custom dictionaries, default settings) has somewhere obvious to land.
