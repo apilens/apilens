@@ -37,12 +37,38 @@ sidecar-testing/   Local SDK integration tests across frameworks
 
 ## Run it locally
 
+There are two commands you'll use. `setup` is one-time, `dev` is every day.
+
+### First time only
+
+After cloning the repo:
+
 ```bash
-pnpm setup       # install JS deps, create Python venv, start databases
-pnpm dev         # web (Next.js) + any other JS workspaces
+pnpm setup
 ```
 
-In a second terminal, start the backend:
+This does four things:
+
+1. `pnpm install` — installs JS/TS dependencies
+2. Creates the Python venv at `apps/api/.venv` and installs backend deps with `uv`
+3. Copies `.env.example` → `.env` in each app so you have a config to edit
+4. Starts the local databases (postgres + clickhouse + redis) via Docker
+
+You only re-run `setup` after pulling changes that touch dependencies, env templates, or Docker config.
+
+### Every day, while coding
+
+You need **two terminals** — one for the frontend, one for the backend. The frontend runs through pnpm; the backend is Python and lives outside the pnpm world.
+
+**Terminal 1 — frontend (Next.js):**
+
+```bash
+pnpm dev
+```
+
+This runs `turbo run dev`, which boots the Next.js dev server on http://localhost:3000. (It does *not* touch the databases or the Python backend.)
+
+**Terminal 2 — backend (Django):**
 
 ```bash
 cd apps/api
@@ -50,11 +76,15 @@ source .venv/bin/activate
 python manage.py runserver
 ```
 
-Open http://localhost:3000.
+Magic links print to this terminal (console email backend in dev) — copy the link from the logs to sign in.
 
-Magic links print to the backend terminal (console email backend in dev) — copy the link from the logs to sign in.
+### Once you're done
 
-Stop the databases when you're done: `pnpm db:down`.
+```bash
+pnpm db:down       # stop the local databases
+```
+
+If you closed the terminals and want them back next day: `pnpm db:up` brings the databases back, then run the two dev commands above.
 
 ## Common commands
 
