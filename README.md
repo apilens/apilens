@@ -18,12 +18,11 @@ apilens/
 │   ├── logger/               @apilens/logger — shared TS/JS logger (pino)
 │   ├── sdk-python/           PyPI: apilenss
 │   └── sdk-typescript/       npm:  apilens-js-sdk
-├── infrastructure/
+├── infra/
 │   ├── docker/               Local-dev docker-compose (postgres, clickhouse, redis)
 │   └── gcp/terraform/        Production infra (Cloud Run, GCS, LB, Secrets, IAM)
-├── schemas/openapi/          OpenAPI snapshot — source of truth for SDK gen
 ├── sidecar-testing/          Local SDK integration tests across frameworks
-└── scripts/                  Setup, dev, release helpers
+└── scripts/                  Setup + dev helpers
 ```
 
 ## Tech stack
@@ -65,7 +64,6 @@ Stop the databases: `pnpm db:down`.
 | `pnpm typecheck` | TS type-check |
 | `pnpm lint` | Lint all JS/TS workspaces |
 | `pnpm db:up` / `db:down` / `db:logs` | Local postgres + clickhouse + redis |
-| `pnpm sdks:generate` | Refresh `schemas/openapi/openapi.yaml` from a live API |
 | `cd apps/api && python manage.py runserver` | Django dev server |
 | `cd apps/api && python manage.py migrate` | Django migrations |
 | `cd apps/api && python manage.py clickhouse_migrate` | ClickHouse migrations |
@@ -77,9 +75,9 @@ Stop the databases: `pnpm db:down`.
 - **Databases** → Supabase Postgres + ClickHouse Cloud
 - **Storage** → GCS bucket `${project}-media` (public-read)
 - **Mail** → Resend SMTP
-- **Infra** → `infrastructure/gcp/terraform/`
+- **Infra** → `infra/gcp/terraform/`
 
-See [`infrastructure/gcp/terraform/README.md`](./infrastructure/gcp/terraform/README.md) for the bootstrap walkthrough.
+See [`infra/gcp/terraform/README.md`](./infra/gcp/terraform/README.md) for the bootstrap walkthrough.
 
 ## Repo conventions
 
@@ -87,14 +85,6 @@ See [`infrastructure/gcp/terraform/README.md`](./infrastructure/gcp/terraform/RE
 - Python apps and the Dart SDK are workspace-invisible to pnpm — `uv` / `pub` manage those independently.
 - CI uses GitHub Actions path filters; a docs change won't trigger backend CI.
 - **Production Cloud Run service names + Artifact Registry image paths are NOT renamed** even though source dirs are now `apps/api` / `apps/web`. The service name `apilens-prod-backend` and image path `apilens/backend` stay stable to avoid destroy+create downtime.
-
-## Outstanding follow-ups
-
-See [`FOLLOWUPS.md`](./FOLLOWUPS.md). Highlights:
-
-- Switch Supabase DSN to the transaction pooler (port 6543) instead of direct 5432.
-- Backend test coverage — pytest currently soft-fails because the test dir is empty.
-- `eslint-config-next` 16 + ESLint 9 flat-config compat issue.
 
 ## Contributing
 
