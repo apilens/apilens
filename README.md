@@ -4,245 +4,102 @@
 > Things will break, APIs will change, and features are incomplete.
 > If you'd like to contribute, you're warmly welcome — see [Contributing](#contributing) below.
 
-APILens is an observability platform for monitoring APIs. Track requests, analyze performance, and get alerts when things go wrong.
+APILens is an API observability platform — track requests, analyze performance, get alerts when things break.
 
-## Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| Backend | Python 3.13, Django 5, Django Ninja |
-| Frontend | Next.js 16, React 19, TypeScript |
-| Database | PostgreSQL |
-| Auth | Magic link email + JWT (custom, no third-party provider) |
-
-## Prerequisites
-
-- **Python 3.11+** (we use 3.13)
-- **Node.js 20+**
-- **PostgreSQL 15+**
-- **uv** (Python package manager) — [install guide](https://docs.astral.sh/uv/getting-started/installation/)
-
-## Quick Start
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/apilens/apilens.git
-cd apilens
-```
-
-### 2. Set up PostgreSQL
-
-You need a running PostgreSQL instance with a database and user for APILens.
-
-<details>
-<summary><strong>Ubuntu / Debian</strong></summary>
-
-```bash
-# Install PostgreSQL (skip if already installed)
-sudo apt update && sudo apt install -y postgresql postgresql-contrib
-sudo systemctl start postgresql
-sudo systemctl enable postgresql
-
-# Create user and database
-# (If these already exist, the commands will print a notice — that's fine.)
-sudo -u postgres psql -c "CREATE USER apilens WITH PASSWORD 'apilens_password';" 2>/dev/null || echo "User may already exist"
-sudo -u postgres psql -c "CREATE DATABASE apilens OWNER apilens;" 2>/dev/null || echo "Database may already exist"
-```
-
-</details>
-
-<details>
-<summary><strong>macOS (Homebrew)</strong></summary>
-
-```bash
-brew install postgresql@16
-brew services start postgresql@16
-
-psql postgres -c "CREATE USER apilens WITH PASSWORD 'apilens_password';"
-psql postgres -c "CREATE DATABASE apilens OWNER apilens;"
-```
-
-</details>
-
-<details>
-<summary><strong>Using an existing PostgreSQL instance</strong></summary>
-
-Just create a database and user, then update the credentials in `apps/api/.env` after step 3.
-
-</details>
-
-### 3. Backend setup
-
-```bash
-cd apps/api
-
-# Create virtual environment
-uv venv
-source .venv/bin/activate   # On Windows: .venv\Scripts\activate
-
-# Install all dependencies
-uv pip install -e .
-
-# Create environment file from template
-cp .env.example .env
-```
-
-The defaults in `.env` match the PostgreSQL setup above (`apilens` / `apilens_password`). If you used different credentials, edit `apps/api/.env` now.
-
-Run migrations and start the server:
-
-```bash
-python manage.py migrate
-python manage.py runserver
-```
-
-✅ Backend API → **http://localhost:8000/api/v1/**
-✅ Swagger docs → **http://localhost:8000/api/v1/docs**
-
-### 4. Frontend setup
-
-Open a **new terminal**:
-
-```bash
-cd apps/web
-
-# Install dependencies
-npm install
-
-# Create environment file and generate session secret
-cp .env.example .env.local
-```
-
-Generate a session encryption secret and add it to `.env.local`:
-
-```bash
-# Generate and write the secret in one command
-SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-sed -i "s/^SESSION_SECRET=.*$/SESSION_SECRET=$SECRET/" .env.local
-```
-
-Or manually: run `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`, copy the output, and paste it after `SESSION_SECRET=` in `.env.local`.
-
-Start the dev server:
-
-```bash
-npm run dev
-```
-
-✅ Frontend → **http://localhost:3000**
-
-### 5. Verify it's working
-
-1. Open **http://localhost:3000** — you should see the login page
-2. Enter your email and click "Send magic link"
-3. Check the **backend terminal** — the magic link email (with URL) is printed to the console
-4. Copy the URL from the terminal and open it in your browser
-5. You should be logged in and redirected to the dashboard
-
-## Documentation
-
-APILens documentation is maintained in the `apps/docs/` folder (Mintlify) and is currently developer-centric.
-
-- Docs config: `apps/docs/docs.json`
-- Getting started: `apps/docs/getting-started/introduction.mdx`
-- Auth flows: `apps/docs/auth/authentication-flow.mdx`
-- Ingest API: `apps/docs/ingest/ingest-api.mdx`
-- REST endpoints: `apps/docs/api-reference/rest-api.mdx`
-- SDK guidance: `apps/docs/sdk/building-an-sdk.mdx`
-- Python SDK package: `packages/sdk-python`
-- Engineering blog: `apps/docs/blog/`
-
-Consumer/user-focused documentation is planned and will be published separately.
-
-### Run docs locally
-
-```bash
-cd docs
-npx mintlify dev
-```
-
-## Project Structure
+## Layout
 
 ```
 apilens/
-├── apps/api/                  # Django API
-│   ├── api/                  # API endpoints (thin routers + schemas)
-│   │   ├── auth/             # Auth endpoints (magic-link, verify, refresh)
-│   │   ├── users/            # User endpoints (profile, sessions)
-│   │   ├── apps/             # App CRUD + app-scoped API keys
-│   │   └── ingest/           # Telemetry ingest endpoint
-│   ├── apps/                 # Django apps (business logic + models)
-│   │   ├── auth/             # Tokens, magic links, API keys
-│   │   ├── users/            # User model and services
-│   │   └── projects/         # Apps, environments, endpoints, analytics
-│   ├── config/               # Django settings, URLs
-│   └── core/                 # Infrastructure (auth, db, cache, exceptions, utils)
-├── apps/web/                 # Next.js app
-│   └── src/
-│       ├── app/              # App Router pages + API routes
-│       ├── components/       # React components
-│       └── lib/              # Utilities (session, API client)
-├── apps/docs/                     # Mintlify documentation
-└── scripts/                  # Utility scripts
+├── apps/
+│   ├── api/                  Django + Ninja backend       →  api.apilens.ai
+│   ├── web/                  Next.js frontend             →  app.apilens.ai
+│   └── docs/                 Mintlify documentation
+├── packages/
+│   ├── logger/               @apilens/logger — shared TS/JS logger (pino)
+│   ├── sdk-python/           PyPI: apilenss
+│   └── sdk-typescript/       npm:  apilens-js-sdk
+├── infrastructure/
+│   ├── docker/               Local-dev docker-compose (postgres, clickhouse, redis)
+│   └── gcp/terraform/        Production infra (Cloud Run, GCS, LB, Secrets, IAM)
+├── schemas/openapi/          OpenAPI snapshot — source of truth for SDK gen
+├── sidecar-testing/          Local SDK integration tests across frameworks
+└── scripts/                  Setup, dev, release helpers
 ```
 
-## Development
+## Tech stack
 
-### Running both servers
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.13, Django 5, Django Ninja |
+| Frontend | Next.js 16, React 19, TypeScript |
+| Database | PostgreSQL (Supabase in prod, docker locally) |
+| Analytics DB | ClickHouse (Cloud in prod, docker locally) |
+| Cache / queue | Redis |
+| Storage | GCS bucket (public-read for media) |
+| Mail | Resend (SMTP relay) |
+| Hosting | GCP Cloud Run + Global HTTPS LB |
+| Infra-as-code | Terraform |
+| Monorepo | pnpm workspaces + turborepo (JS/TS only) |
 
-You need two terminals:
+## Quickstart
+
+Prerequisites: Node 20 (`.nvmrc`), pnpm 9, Python 3.13, [`uv`](https://docs.astral.sh/uv/), Docker.
 
 ```bash
-# Terminal 1 — Backend
+pnpm setup                # installs deps, creates Python venv, starts databases
+pnpm dev                  # runs all JS/TS dev servers via turbo
+# In a second terminal:
 cd apps/api && source .venv/bin/activate && python manage.py runserver
-
-# Terminal 2 — Frontend
-cd apps/web && npm run dev
 ```
 
-### Magic link emails in development
+The Django dev server uses console email by default — magic links get printed to the api terminal (look for the link in the output and paste it into your browser).
 
-By default, the backend uses Django's console email backend. When you request a magic link, the email (with the login URL) will be printed in the backend terminal. Copy the link and open it in your browser.
+Stop the databases: `pnpm db:down`.
 
-### Resetting the database
+## Daily commands
 
-If you need to start fresh (e.g., after a schema change during development):
+| Command | What |
+|---|---|
+| `pnpm dev` | Turbo runs `dev` across JS/TS workspaces |
+| `pnpm build` | Turbo build (cached) |
+| `pnpm typecheck` | TS type-check |
+| `pnpm lint` | Lint all JS/TS workspaces |
+| `pnpm db:up` / `db:down` / `db:logs` | Local postgres + clickhouse + redis |
+| `pnpm sdks:generate` | Refresh `schemas/openapi/openapi.yaml` from a live API |
+| `cd apps/api && python manage.py runserver` | Django dev server |
+| `cd apps/api && python manage.py migrate` | Django migrations |
+| `cd apps/api && python manage.py clickhouse_migrate` | ClickHouse migrations |
 
-```bash
-cd apps/api && source .venv/bin/activate
+## Production
 
-# Drop and recreate the database
-sudo -u postgres psql -c "DROP DATABASE IF EXISTS apilens;"
-sudo -u postgres psql -c "CREATE DATABASE apilens OWNER apilens;"
+- **Frontend** → Cloud Run `apilens-prod-frontend` → `app.apilens.ai`
+- **Backend** → Cloud Run `apilens-prod-backend` → `api.apilens.ai`
+- **Databases** → Supabase Postgres + ClickHouse Cloud
+- **Storage** → GCS bucket `${project}-media` (public-read)
+- **Mail** → Resend SMTP
+- **Infra** → `infrastructure/gcp/terraform/`
 
-# Re-run migrations
-python manage.py migrate
-```
+See [`infrastructure/gcp/terraform/README.md`](./infrastructure/gcp/terraform/README.md) for the bootstrap walkthrough.
 
-## Troubleshooting
+## Repo conventions
 
-| Problem | Solution |
-|---------|----------|
-| `ModuleNotFoundError: No module named 'django'` | Activate the venv: `source .venv/bin/activate` |
-| `uv pip install -e .` fails | Make sure you're in the `apps/api/` directory and using `uv` (not `pip`) |
-| `FATAL: password authentication failed` | Check `apps/api/.env` — make sure `POSTGRES_PASSWORD` matches what you used in `CREATE USER` |
-| `FATAL: database "apilens" does not exist` | Run the PostgreSQL setup commands from step 2 |
-| `FATAL: role "apilens" does not exist` | Run `sudo -u postgres psql -c "CREATE USER apilens WITH PASSWORD 'apilens_password';"` |
-| Frontend shows blank page | Make sure `SESSION_SECRET` is set in `apps/web/.env.local` (not empty) |
-| Magic link not working | Check the backend terminal output — the email with the link is printed there |
+- pnpm workspace globs are `apps/*` and `packages/*`. Anything with a `package.json` becomes a workspace member.
+- Python apps and the Dart SDK are workspace-invisible to pnpm — `uv` / `pub` manage those independently.
+- CI uses GitHub Actions path filters; a docs change won't trigger backend CI.
+- **Production Cloud Run service names + Artifact Registry image paths are NOT renamed** even though source dirs are now `apps/api` / `apps/web`. The service name `apilens-prod-backend` and image path `apilens/backend` stay stable to avoid destroy+create downtime.
+
+## Outstanding follow-ups
+
+See [`FOLLOWUPS.md`](./FOLLOWUPS.md). Highlights:
+
+- Switch Supabase DSN to the transaction pooler (port 6543) instead of direct 5432.
+- Backend test coverage — pytest currently soft-fails because the test dir is empty.
+- `eslint-config-next` 16 + ESLint 9 flat-config compat issue.
 
 ## Contributing
 
-Contributions are welcome! This project is in its early stages, so there's plenty of room to help shape it.
-
-1. Fork the repo
-2. Create your branch (`git checkout -b feature/your-feature`)
-3. Make your changes
-4. Open a pull request
-
-Since there's no first release yet, expect breaking changes. If you're unsure about an approach, open an issue first to discuss.
+PR each change behind a feature branch off `main`. CI checks the affected workspace(s) only.
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT.
