@@ -211,20 +211,19 @@ gen_hex()        { openssl rand -hex 32; }
 gen_django_key() { openssl rand -hex 25; }
 
 # ── Banner ───────────────────────────────────────────────────────────────────
+# Modern, minimal — same style as bun/vite/astro CLIs.
+# Avoids block-letter ASCII art because box-drawing chars (█ ╗ ═) render at
+# inconsistent widths in many monospace fonts, breaking the letters.
 banner() {
   [[ -t 1 ]] && clear || printf '\n'
-  printf "${CY}${B}\n"
-  printf "    █████╗ ██████╗ ██╗██╗     ███████╗███╗   ██╗███████╗\n"
-  printf "   ██╔══██╗██╔══██╗██║██║     ██╔════╝████╗  ██║██╔════╝\n"
-  printf "   ███████║██████╔╝██║██║     █████╗  ██╔██╗ ██║███████╗\n"
-  printf "   ██╔══██║██╔═══╝ ██║██║     ██╔══╝  ██║╚██╗██║╚════██║\n"
-  printf "   ██║  ██║██║     ██║███████╗███████╗██║ ╚████║███████║\n"
-  printf "   ╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝╚═╝  ╚═══╝╚══════╝\n"
-  printf "${R}\n"
-  printf "   ${B}API Observability Platform${R} ${D}· Local Development Setup${R}\n\n"
-  printf "   ${D}We'll do 5 things — pre-flight check, JS deps, Python venv,${R}\n"
-  printf "   ${D}.env files, databases, and migrations. Takes 2–5 minutes.${R}\n"
-  printf "   ${D}─────────────────────────────────────────────────────────${R}\n\n"
+  printf "\n"
+  printf "   ${CY}${B}◆${R}  ${CY}${B}APILens${R}   ${D}v0.1${R}\n"
+  printf "   ${D}──────────────────────────────────────────────${R}\n\n"
+  printf "   ${B}API Observability Platform${R}\n"
+  printf "   ${D}Local Development Setup${R}\n\n"
+  printf "   ${D}5 steps · 2–5 minutes${R}\n"
+  printf "   ${D}Pre-flight · JS deps · Python venv · .env · databases · migrations${R}\n"
+  printf "\n"
 }
 
 # ── Pre-flight ───────────────────────────────────────────────────────────────
