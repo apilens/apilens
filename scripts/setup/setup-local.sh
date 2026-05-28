@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Interactive local-dev bootstrap for APILens.
-# Run: pnpm setup  (or: bash scripts/setup/setup-local.sh)
+# Run: pnpm bootstrap  (or: bash scripts/setup/setup-local.sh)
 
 set -euo pipefail
 

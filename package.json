@@ -16,7 +16,7 @@
     "db:up": "docker compose -f infra/docker/docker-compose.local.yml up -d",
     "db:down": "docker compose -f infra/docker/docker-compose.local.yml down",
     "db:logs": "docker compose -f infra/docker/docker-compose.local.yml logs -f",
-    "setup": "bash scripts/setup/setup-local.sh"
+    "bootstrap": "bash scripts/setup/setup-local.sh"
   },
   "devDependencies": {
     "turbo": "^2.3.0",
