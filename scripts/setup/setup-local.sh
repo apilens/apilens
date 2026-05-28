@@ -383,20 +383,16 @@ done_screen() {
 
   label "Start developing"
   printf "\n"
-  printf "  ${CY}pnpm dev${R}                        ${D}# Next.js  → http://localhost:3002${R}\n"
-  printf "  ${D}cd apps/api${R}\n"
-  printf "  ${D}.venv/bin/python manage.py runserver${R}  ${D}# Django   → http://localhost:8000${R}\n"
-  printf "\n"
-  label "Or both at once"
-  printf "\n"
-  printf "  ${CY}bash scripts/dev/dev-up.sh${R}      ${D}# frontend + backend in one terminal${R}\n"
+  printf "  ${CY}pnpm dev${R}                        ${D}# frontend + backend together (turbo TUI)${R}\n"
+  printf "                                  ${D}Next.js → http://localhost:3002${R}\n"
+  printf "                                  ${D}Django  → http://localhost:8000${R}\n"
   printf "\n"
   label "Handy commands"
   printf "\n"
   printf "  ${CY}pnpm db:down${R}                    ${D}# stop databases${R}\n"
   printf "  ${CY}pnpm db:logs${R}                    ${D}# tail database logs${R}\n"
   printf "\n"
-  printf "  ${D}Magic-link emails print to the Django terminal. Copy the link to sign in.${R}\n\n"
+  printf "  ${D}Magic-link emails print to the Django pane in turbo. Copy the link to sign in.${R}\n\n"
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
