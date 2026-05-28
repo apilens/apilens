@@ -7,62 +7,120 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+# ── Constants ────────────────────────────────────────────────────────────────
 TOTAL_STEPS=5
+SCRIPT_START=$(date +%s)
+CURRENT_STEP=0
+STEP_START_TIME=0
 
-# ── Colors ────────────────────────────────────────────────────────────────────
+# Indentation hierarchy
+I_STEP="   "          # 3 — step row (◆ title)
+I_CONTENT="      "    # 6 — action icons + description
+I_OUTPUT="         "  # 9 — streamed command output
+
+# ── Colors (strict semantics) ────────────────────────────────────────────────
+# CY brand/commands · GR success · YL warning · RD error · D secondary · B bold
 R='\033[0m'; B='\033[1m'; D='\033[2m'
 CY='\033[96m'; GR='\033[92m'; YL='\033[93m'; RD='\033[91m'; WH='\033[97m'
 
-# ── UI primitives ─────────────────────────────────────────────────────────────
-ok()    { printf "  ${GR}✓${R}  %s\n"          "$*"; }
-warn()  { printf "  ${YL}⚠${R}  %s\n"          "$*"; }
-err()   { printf "  ${RD}✗${R}  %s\n"          "$*" >&2; }
-info()  { printf "  ${D}   %s${R}\n"            "$*"; }
-skip()  { printf "  ${D}↷  skipped — %s${R}\n" "$*"; }
-label() { printf "  ${B}%s${R}\n"              "$*"; }
-
-STEP=0
-section() {
-  STEP=$((STEP+1))
-  printf "\n${CY}${B}  ── [%d/%d] %s${R}\n\n" "$STEP" "$TOTAL_STEPS" "$*"
+# ── Trap: always restore cursor; friendly Ctrl-C ─────────────────────────────
+_cleanup() { tput cnorm 2>/dev/null || true; }
+_on_interrupt() {
+  _cleanup
+  printf "\n\n  ${YL}↯  Interrupted.${R}  Resume any time with ${CY}${B}pnpm bootstrap${R}\n\n"
+  exit 130
 }
+trap _cleanup EXIT
+trap _on_interrupt INT
+
+# ── UI primitives ────────────────────────────────────────────────────────────
+ok()    { printf "%s${GR}✓${R}  %s\n" "$I_CONTENT" "$*"; }
+warn()  { printf "%s${YL}⚠${R}  %s\n" "$I_CONTENT" "$*"; }
+err()   { printf "%s${RD}✗${R}  %s\n" "$I_CONTENT" "$*" >&2; }
+note()  { printf "%s${D}%s${R}\n"     "$I_CONTENT" "$*"; }
 
 ask() {
   local default="${2:-y}"
   local hint; [[ "$default" == "y" ]] && hint="${B}Y${R}/n" || hint="y/${B}N${R}"
-  printf "  ${B}${WH}?${R}  %s [%b] " "$1" "$hint"
+  printf "%s${B}${WH}?${R}  %s [%b] " "$I_CONTENT" "$1" "$hint"
   local ans; read -r ans </dev/tty
   ans="${ans:-$default}"
   [[ "$ans" =~ ^[Yy] ]]
 }
 
-# ── Execution helpers ─────────────────────────────────────────────────────────
-#
-# run_live  — streams command output to terminal with indentation.
-#             Use for long operations where the user wants to see what's
-#             happening: pnpm install, uv pip install, docker compose, migrate.
-#
-# run_spin  — hides output and shows a spinner + elapsed-time counter.
-#             Use for quick silent ops: uv venv creation, docker restart.
+format_elapsed() {
+  local s=$1
+  (( s < 60 )) && printf "%ds" "$s" || printf "%dm %ds" $((s/60)) $((s%60))
+}
+
+# ── Section / step orchestration ─────────────────────────────────────────────
+divider() { printf "  ${D}━━━ %s ${R}${D}─────────────────────────────────────${R}\n" "$1"; }
+
+# step_start "Title" "One-line description"
+step_start() {
+  CURRENT_STEP=$((CURRENT_STEP+1))
+  STEP_START_TIME=$(date +%s)
+  printf "\n"
+  printf "  ${D}━━━${R} ${B}Step %d of %d${R} ${D}─────────────────────────────────────${R}\n" \
+    "$CURRENT_STEP" "$TOTAL_STEPS"
+  printf "%s${CY}◆${R}  ${B}%s${R}\n" "$I_STEP" "$1"
+  [[ -n "${2:-}" ]] && printf "%s${D}%s${R}\n" "$I_CONTENT" "$2"
+  printf "\n"
+}
+
+# phase_start "Action title" "Description"  (for pre-flight, not numbered)
+# Divider always says "Pre-flight" so the ◆ title can describe the action.
+phase_start() {
+  printf "\n"
+  printf "  ${D}━━━${R} ${B}Pre-flight${R} ${D}─────────────────────────────────────${R}\n"
+  printf "%s${CY}◆${R}  ${B}%s${R}\n" "$I_STEP" "$1"
+  [[ -n "${2:-}" ]] && printf "%s${D}%s${R}\n" "$I_CONTENT" "$2"
+  printf "\n"
+}
+
+step_done() {
+  local t=$(( $(date +%s) - STEP_START_TIME ))
+  printf "\n%s${GR}✓${R}  ${B}Done${R} ${D}· %s${R}\n" "$I_CONTENT" "$(format_elapsed "$t")"
+}
+
+# step_skip_reused "Reused existing X"  — neutral, user chose this
+step_skip_reused() {
+  local t=$(( $(date +%s) - STEP_START_TIME ))
+  printf "%s${D}↷  %s · %s${R}\n" "$I_CONTENT" "$1" "$(format_elapsed "$t")"
+}
+
+# step_skip_blocked "reason" — yellow, forced by upstream failure
+step_skip_blocked() {
+  printf "%s${YL}⊘${R}  ${YL}Blocked${R} ${D}— %s${R}\n" "$I_CONTENT" "$1"
+}
+
+# step_advise "fix1" "fix2" …  — "What to do next" block under a failure
+step_advise() {
+  printf "\n%s${CY}→${R}  ${B}What to do next${R}\n" "$I_CONTENT"
+  for line in "$@"; do
+    printf "%s${D}•${R} %s\n" "$I_OUTPUT" "$line"
+  done
+}
+
+# ── Execution helpers ────────────────────────────────────────────────────────
+# run_live  — streams output indented at I_OUTPUT level
+# run_spin  — spinner + elapsed counter for quick silent ops
 
 run_live() {
-  # run_live "what we're doing" cmd [args...]
   local msg="$1"; shift
-  printf "  ${D}→  %s${R}\n" "$msg"
+  printf "%s${CY}→${R}  ${B}%s${R}\n" "$I_CONTENT" "$msg"
   local rc=0
-  # Temporarily suspend errexit so the pipe exit code is catchable.
   set +e
-  "$@" 2>&1 | sed 's/^/    /'
+  "$@" 2>&1 | sed "s/^/${I_OUTPUT}/"
   rc=${PIPESTATUS[0]}
   set -e
   if [[ $rc -ne 0 ]]; then
-    err "Command failed (exit $rc)"
-    return $rc
+    printf "%s${RD}✗${R}  ${YL}Failed${R} ${D}· exit %s${R}\n" "$I_CONTENT" "$rc"
   fi
+  return $rc
 }
 
 run_spin() {
-  # run_spin "what we're doing" cmd [args...]
   local msg="$1"; shift
   local log; log="$(mktemp)"
   local start; start=$(date +%s)
@@ -72,21 +130,25 @@ run_spin() {
   tput civis 2>/dev/null || true
   while kill -0 "$pid" 2>/dev/null; do
     local t=$(( $(date +%s) - start ))
-    printf "\r  ${CY}%s${R}  ${B}%s${R}  ${D}[%ds elapsed]${R}%-10s" "${sp[$i]}" "$msg" "$t" ""
+    printf "\r%s${CY}%s${R}  ${B}%s${R}  ${D}[%ds]${R}%-15s" \
+      "$I_CONTENT" "${sp[$i]}" "$msg" "$t" ""
     i=$(( (i+1) % 10 )); sleep 0.12
   done
   tput cnorm 2>/dev/null || true
   printf "\r%-90s\r" ""
   local rc=0; wait "$pid" || rc=$?
-  if [[ $rc -ne 0 ]]; then
-    err "Command failed (exit $rc):"
-    tail -30 "$log" | sed 's/^/    /' >&2
+  if [[ $rc -eq 0 ]]; then
+    local t=$(( $(date +%s) - start ))
+    printf "%s${CY}→${R}  ${B}%s${R} ${D}· %ds${R}\n" "$I_CONTENT" "$msg" "$t"
+  else
+    printf "%s${RD}✗${R}  ${YL}%s failed${R} ${D}· exit %s${R}\n" "$I_CONTENT" "$msg" "$rc"
+    tail -20 "$log" | sed "s/^/${I_OUTPUT}/" >&2
   fi
   rm -f "$log"
   return $rc
 }
 
-# ── Port utilities ────────────────────────────────────────────────────────────
+# ── Port utilities ───────────────────────────────────────────────────────────
 port_in_use() { lsof -i ":$1" -sTCP:LISTEN -t >/dev/null 2>&1; }
 
 who_owns() {
@@ -102,14 +164,19 @@ find_free() {
   printf "%d" "$p"
 }
 
-# ── Step outcome tracking ─────────────────────────────────────────────────────
+# ── Failure tracking (for the done screen) ───────────────────────────────────
 STEP_JS_OK=false
 STEP_VENV_OK=false
 STEP_DB_OK=false
+STEP_MIGRATE_OK=false
 
-# ── Auto-installers ───────────────────────────────────────────────────────────
+# step_name | reason | fix  (pipe-delimited; appended to FAILURES)
+FAILURES=()
+record_failure() { FAILURES+=("$1|$2|$3"); }
+
+# ── Auto-installers ──────────────────────────────────────────────────────────
 _install_pnpm() {
-  warn "pnpm not found — attempting auto-install…"
+  warn "pnpm not found — attempting auto-install"
   if command -v npm >/dev/null 2>&1; then
     run_live "Installing pnpm@9 via npm" npm install -g pnpm@9 && ok "pnpm installed" && return 0
   fi
@@ -117,49 +184,52 @@ _install_pnpm() {
     run_live "Activating pnpm via corepack" bash -c 'corepack enable && corepack prepare pnpm@9 --activate' \
       && ok "pnpm activated" && return 0
   fi
-  err "Cannot auto-install pnpm — npm not found."
-  info "Install Node.js v20+ first: https://nodejs.org"
+  err "Cannot auto-install pnpm — npm not found"
+  step_advise "Install Node.js v20+ first: https://nodejs.org" \
+              "Then re-run: pnpm bootstrap"
   return 1
 }
 
 _install_uv() {
-  warn "uv not found — attempting auto-install…"
-  run_live "Downloading and installing uv" bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh' || {
-    err "uv installation failed."
-    info "Install manually: curl -LsSf https://astral.sh/uv/install.sh | sh"
+  warn "uv not found — attempting auto-install"
+  if ! run_live "Downloading and installing uv" bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'; then
+    step_advise "Install uv manually: curl -LsSf https://astral.sh/uv/install.sh | sh" \
+                "Then re-run: pnpm bootstrap"
     return 1
-  }
+  fi
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
   if command -v uv >/dev/null 2>&1; then
     ok "uv installed"; return 0
   fi
-  err "uv installed but not in PATH — restart your terminal, then re-run."
+  err "uv installed but not yet in PATH"
+  step_advise "Restart your terminal" "Then re-run: pnpm bootstrap"
   return 1
 }
 
-# ── Secret generators ─────────────────────────────────────────────────────────
+# ── Secret generators ────────────────────────────────────────────────────────
 gen_hex()        { openssl rand -hex 32; }
 gen_django_key() { openssl rand -hex 25; }
 
-# ── Banner ────────────────────────────────────────────────────────────────────
+# ── Banner ───────────────────────────────────────────────────────────────────
 banner() {
   [[ -t 1 ]] && clear || printf '\n'
   printf "${CY}${B}\n"
-  printf "   ╭─────────────────────────────────────────────────╮\n"
-  printf "   │                                                 │\n"
-  printf "   │   ◆  APILens                                    │\n"
-  printf "   │      API Observability Platform                 │\n"
-  printf "   │      Local Development Setup                    │\n"
-  printf "   │                                                 │\n"
-  printf "   ╰─────────────────────────────────────────────────╯\n"
+  printf "    █████╗ ██████╗ ██╗██╗     ███████╗███╗   ██╗███████╗\n"
+  printf "   ██╔══██╗██╔══██╗██║██║     ██╔════╝████╗  ██║██╔════╝\n"
+  printf "   ███████║██████╔╝██║██║     █████╗  ██╔██╗ ██║███████╗\n"
+  printf "   ██╔══██║██╔═══╝ ██║██║     ██╔══╝  ██║╚██╗██║╚════██║\n"
+  printf "   ██║  ██║██║     ██║███████╗███████╗██║ ╚████║███████║\n"
+  printf "   ╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝╚═╝  ╚═══╝╚══════╝\n"
   printf "${R}\n"
-  printf "   ${D}Track requests · See performance · Get alerts when things break${R}\n\n"
+  printf "   ${B}API Observability Platform${R} ${D}· Local Development Setup${R}\n\n"
+  printf "   ${D}We'll do 5 things — pre-flight check, JS deps, Python venv,${R}\n"
+  printf "   ${D}.env files, databases, and migrations. Takes 2–5 minutes.${R}\n"
+  printf "   ${D}─────────────────────────────────────────────────────────${R}\n\n"
 }
 
-# ── Pre-flight ────────────────────────────────────────────────────────────────
+# ── Pre-flight ───────────────────────────────────────────────────────────────
 preflight() {
-  label "Pre-flight checks"
-  printf "\n"
+  phase_start "Verifying required tools" "Auto-installs pnpm and uv if missing. node and python must be present."
 
   local has_node=false has_pnpm=false has_python=false has_uv=false has_docker=false
 
@@ -167,10 +237,10 @@ preflight() {
     local name="$1" cmd="$2"
     if command -v "$cmd" >/dev/null 2>&1; then
       local ver; ver="$("$cmd" --version 2>&1 | head -1)" || ver="installed"
-      printf "  ${GR}✓${R}  %-10s  ${D}%.55s${R}\n" "$name" "$ver"
+      printf "%s${GR}✓${R}  %-10s  ${D}%.55s${R}\n" "$I_CONTENT" "$name" "$ver"
       return 0
     fi
-    printf "  ${RD}✗${R}  %-10s  ${YL}not found${R}\n" "$name"
+    printf "%s${RD}✗${R}  %-10s  ${YL}not found${R}\n" "$I_CONTENT" "$name"
     return 1
   }
 
@@ -179,173 +249,202 @@ preflight() {
   _chk python python3 && has_python=true || true
   _chk uv     uv      && has_uv=true     || true
   _chk docker docker  && has_docker=true || true
-  printf "\n"
 
-  # node: hard stop — cannot auto-install
+  # node — cannot auto-install, hard exit
   if [[ "$has_node" == false ]]; then
-    err "Node.js v20+ is required and cannot be auto-installed."
-    info "macOS:  brew install node"
-    info "Other:  https://nodejs.org"
+    printf "\n"
+    err "Node.js v20+ is required and cannot be auto-installed"
+    step_advise "macOS:  brew install node" \
+                "Other:  https://nodejs.org" \
+                "Then re-run: pnpm bootstrap"
     exit 1
   fi
 
-  # pnpm: auto-install via npm or corepack
+  # pnpm — auto-install
   if [[ "$has_pnpm" == false ]]; then
-    _install_pnpm || exit 1
     printf "\n"
+    _install_pnpm || exit 1
   fi
 
-  # python: hard stop — cannot auto-install
+  # python — cannot auto-install, hard exit
   if [[ "$has_python" == false ]]; then
-    err "Python 3.13 is required and cannot be auto-installed."
-    info "macOS:  brew install python@3.13"
-    info "Other:  https://python.org"
+    printf "\n"
+    err "Python 3.13 is required and cannot be auto-installed"
+    step_advise "macOS:  brew install python@3.13" \
+                "Other:  https://python.org" \
+                "Then re-run: pnpm bootstrap"
     exit 1
   fi
 
-  # uv: auto-install via official curl installer
+  # uv — auto-install
   if [[ "$has_uv" == false ]]; then
-    _install_uv || exit 1
     printf "\n"
+    _install_uv || exit 1
   fi
 
-  # docker: warn only — only needed for step 4
+  # docker — warn only
   if [[ "$has_docker" == false ]]; then
-    warn "Docker not found — database step will be skipped."
-    info "Install Docker Desktop: https://docs.docker.com/get-docker"
     printf "\n"
+    warn "Docker not found — database step will be skipped"
+    note "Install Docker Desktop: https://docs.docker.com/get-docker"
   fi
+
+  printf "\n%s${GR}✓${R}  ${B}Environment ready${R}\n" "$I_CONTENT"
 }
 
-# ── Step 1: JS/TS deps ────────────────────────────────────────────────────────
+# ── Step 1: JS/TS dependencies ───────────────────────────────────────────────
 step_js_deps() {
-  section "JS/TS dependencies  (pnpm install)"
+  step_start "JS/TS dependencies" "Installs all Node packages across the monorepo."
 
   if [[ -d node_modules ]]; then
     if ! ask "node_modules already exists — reinstall?" "n"; then
-      skip "pnpm install"
+      step_skip_reused "Reused existing node_modules"
       STEP_JS_OK=true; return
     fi
   fi
 
   if run_live "Running pnpm install" pnpm install; then
-    ok "pnpm install done"
+    step_done
     STEP_JS_OK=true
   else
-    err "pnpm install failed — fix the errors above, then re-run pnpm bootstrap"
+    step_advise "Check your network connection" \
+                "Try clearing: rm -rf node_modules && pnpm store prune" \
+                "Then re-run: pnpm bootstrap"
+    record_failure "Step 1 · JS/TS dependencies" \
+                   "pnpm install failed" \
+                   "rm -rf node_modules && pnpm bootstrap"
   fi
 }
 
-# ── Step 2: Python venv ───────────────────────────────────────────────────────
+# ── Step 2: Python venv ──────────────────────────────────────────────────────
 step_python_venv() {
-  section "Python venv  (apps/api)"
+  step_start "Python venv" "Creates apps/api/.venv and installs Django + dependencies via uv."
 
   if [[ -d apps/api/.venv ]]; then
     if ! ask ".venv already exists — recreate?" "n"; then
-      skip "venv setup"
+      step_skip_reused "Reused existing .venv"
       STEP_VENV_OK=true; return
     fi
-    info "Removing existing .venv…"
+    note "Removing existing .venv…"
     rm -rf apps/api/.venv
   fi
 
   local rc=0
   (
     cd apps/api
-    run_spin "Creating .venv" uv venv .venv                 || exit 1
+    run_spin "Creating .venv" uv venv .venv                   || exit 1
     run_live "Installing Python packages" uv pip install -e . || exit 1
   ) || rc=$?
 
   if [[ $rc -ne 0 ]]; then
-    err "Python venv setup failed — Django migrations will be skipped."
+    step_advise "Verify Python 3.13: python3 --version" \
+                "Manually: cd apps/api && uv venv .venv && uv pip install -e ." \
+                "Then re-run: pnpm bootstrap"
+    record_failure "Step 2 · Python venv" \
+                   "uv venv or pip install failed" \
+                   "fix Python install, then re-run pnpm bootstrap"
     return
   fi
 
-  ok "venv ready at apps/api/.venv"
+  step_done
   STEP_VENV_OK=true
 }
 
-# ── Step 3: .env files ────────────────────────────────────────────────────────
+# ── Step 3: .env files ───────────────────────────────────────────────────────
 step_env() {
-  section "Environment files  (.env)"
-  _setup_api_env
-  _setup_web_env
+  step_start "Environment files" "Copies .env.example → .env for both apps with real secrets baked in."
+
+  _setup_env "apps/api/.env" \
+             "apps/api/.env.example" \
+             "DJANGO_SECRET_KEY" \
+             "$(gen_django_key)" \
+             "Django secret key"
+
+  _setup_env "apps/web/.env" \
+             "apps/web/.env.example" \
+             "SESSION_SECRET" \
+             "\"$(gen_hex)\"" \
+             "Session encryption key"
+
+  step_done
 }
 
-_setup_api_env() {
-  if [[ ! -f apps/api/.env.example ]]; then
-    warn "apps/api/.env.example not found — skipping"; return
+_setup_env() {
+  local target="$1" example="$2" key="$3" value="$4" label="$5"
+
+  if [[ ! -f "$example" ]]; then
+    warn "$example not found — skipping"
+    return
   fi
-  if [[ -f apps/api/.env ]]; then
-    if ! ask "apps/api/.env already exists — regenerate?" "n"; then
-      skip "apps/api/.env"; return
+
+  if [[ -f "$target" ]]; then
+    if ! ask "$target already exists — regenerate?" "n"; then
+      printf "%s${D}↷  Kept existing %s${R}\n" "$I_CONTENT" "$target"
+      return
     fi
   fi
-  cp apps/api/.env.example apps/api/.env
-  local key; key="$(gen_django_key)"
-  sed -i.bak "s|DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=${key}|" apps/api/.env
-  rm -f apps/api/.env.bak
-  ok "apps/api/.env created"
-  info "DJANGO_SECRET_KEY auto-generated ✓"
+
+  cp "$example" "$target"
+  sed -i.bak "s|${key}=.*|${key}=${value}|" "$target"
+  rm -f "${target}.bak"
+  printf "%s${GR}✓${R}  ${B}%s${R} ${D}· %s auto-generated${R}\n" \
+    "$I_CONTENT" "$target" "$label"
 }
 
-_setup_web_env() {
-  if [[ ! -f apps/web/.env.example ]]; then
-    warn "apps/web/.env.example not found — skipping"; return
-  fi
-  if [[ -f apps/web/.env ]]; then
-    if ! ask "apps/web/.env already exists — regenerate?" "n"; then
-      skip "apps/web/.env"; return
-    fi
-  fi
-  cp apps/web/.env.example apps/web/.env
-  local secret; secret="$(gen_hex)"
-  sed -i.bak "s|SESSION_SECRET=.*|SESSION_SECRET=\"${secret}\"|" apps/web/.env
-  rm -f apps/web/.env.bak
-  ok "apps/web/.env created"
-  info "SESSION_SECRET auto-generated ✓"
-}
-
-# ── Step 4: Databases ─────────────────────────────────────────────────────────
+# ── Step 4: Databases ────────────────────────────────────────────────────────
 DB_PG=5432
 DB_CH_HTTP=8123
 DB_CH_TCP=9000
 DB_REDIS=6379
 
 step_databases() {
-  section "Local databases  (docker compose)"
+  step_start "Local databases" "Starts postgres, clickhouse, and redis via docker compose."
 
   if ! command -v docker >/dev/null 2>&1; then
-    warn "Docker not found — skipping database setup."
-    info "Install Docker Desktop: https://docs.docker.com/get-docker"
+    step_skip_blocked "Docker not found"
+    step_advise "Install Docker Desktop: https://docs.docker.com/get-docker" \
+                "Then re-run: pnpm bootstrap"
+    record_failure "Step 4 · Local databases" \
+                   "Docker not installed" \
+                   "install Docker Desktop, then re-run pnpm bootstrap"
     return
   fi
   if ! docker info >/dev/null 2>&1; then
-    warn "Docker daemon is not running."
-    info "Start Docker Desktop, then re-run: pnpm bootstrap"
+    step_skip_blocked "Docker daemon is not running"
+    step_advise "Start Docker Desktop" \
+                "Then re-run: pnpm bootstrap"
+    record_failure "Step 4 · Local databases" \
+                   "Docker daemon not running" \
+                   "start Docker Desktop, then re-run pnpm bootstrap"
     return
   fi
 
-  # Skip port scan if containers are already up
   local running
   running=$(docker compose -f infra/docker/docker-compose.local.yml ps -q 2>/dev/null | wc -l | tr -d ' ')
 
   if [[ "$running" -gt 0 ]]; then
-    ok "Containers already running — skipping port scan"
+    printf "%s${GR}✓${R}  Containers already running ${D}· skipping port scan${R}\n" "$I_CONTENT"
     if ask "Restart containers?" "n"; then
-      run_live "Restarting containers" \
-        docker compose -f infra/docker/docker-compose.local.yml up -d \
-        && ok "Databases restarted" || { err "Restart failed"; return; }
+      if run_live "Restarting containers" \
+          docker compose -f infra/docker/docker-compose.local.yml up -d; then
+        ok "Databases restarted"
+      else
+        record_failure "Step 4 · Local databases" \
+                       "docker compose restart failed" \
+                       "run: docker compose -f infra/docker/docker-compose.local.yml up -d"
+        return
+      fi
     else
-      skip "docker compose up"
+      printf "%s${D}↷  Kept current containers${R}\n" "$I_CONTENT"
     fi
     STEP_DB_OK=true
-    _print_db_ports; return
+    _print_db_ports
+    step_done
+    return
   fi
 
-  # ── Port conflict scan ────────────────────────────────────────────────────
-  label "Scanning ports…"
-  printf "\n"
+  # ── Port scan ────────────────────────────────────────────────────────────
+  printf "%s${B}Scanning ports…${R}\n\n" "$I_CONTENT"
   local remapped=false
 
   _scan_port() {
@@ -353,13 +452,13 @@ step_databases() {
     if port_in_use "$port"; then
       local owner; owner="$(who_owns "$port")"
       local new; new="$(find_free "$((port+1))")"
-      printf "  ${YL}⚠${R}  :%-5d  %-20s  ${D}in use by %s${R}\n" "$port" "$lbl" "$owner"
-      if ask "    Remap $lbl → :$new?" "y"; then
+      printf "%s${YL}⚠${R}  :%-5d  %-20s  ${D}in use by %s${R}\n" "$I_CONTENT" "$port" "$lbl" "$owner"
+      if ask "  Remap $lbl → :$new?" "y"; then
         eval "$ref=$new"; remapped=true
-        printf "  ${GR}↪${R}  :%-5d  %-20s  ${D}remapped from :%d${R}\n" "$new" "$lbl" "$port"
+        printf "%s${GR}↪${R}  :%-5d  %-20s  ${D}remapped from :%d${R}\n" "$I_CONTENT" "$new" "$lbl" "$port"
       fi
     else
-      printf "  ${GR}✓${R}  :%-5d  %-20s  ${D}free${R}\n" "$port" "$lbl"
+      printf "%s${GR}✓${R}  :%-5d  %-20s  ${D}free${R}\n" "$I_CONTENT" "$port" "$lbl"
     fi
   }
 
@@ -388,43 +487,58 @@ YML
       sed -i.bak  "s|\(postgresql://[^@]*@localhost:\)[0-9]*|\1${DB_PG}|g"     apps/api/.env
       sed -i.bak2 "s|\(clickhouse://[^@]*@localhost:\)[0-9]*|\1${DB_CH_TCP}|g" apps/api/.env
       rm -f apps/api/.env.bak apps/api/.env.bak2
-      info "apps/api/.env updated with remapped ports"
+      note "apps/api/.env updated with remapped ports"
     fi
   fi
 
   if run_live "Starting postgres + clickhouse + redis" "${compose_cmd[@]}" up -d; then
-    ok "Databases up"
     STEP_DB_OK=true
+    _print_db_ports
+    step_done
   else
-    err "docker compose failed — database step incomplete."
-    return
+    step_advise "Check Docker Desktop is healthy" \
+                "Check ports aren't held by other processes" \
+                "Then re-run: pnpm bootstrap"
+    record_failure "Step 4 · Local databases" \
+                   "docker compose up failed" \
+                   "fix docker, then re-run pnpm bootstrap"
   fi
-
-  _print_db_ports
 }
 
 _print_db_ports() {
-  info "postgres   → localhost:${DB_PG}"
-  info "clickhouse → localhost:${DB_CH_HTTP} (HTTP) / ${DB_CH_TCP} (TCP)"
-  info "redis      → localhost:${DB_REDIS}"
+  printf "%s${D}postgres   → localhost:%d${R}\n"               "$I_CONTENT" "$DB_PG"
+  printf "%s${D}clickhouse → localhost:%d (HTTP) / %d (TCP)${R}\n" "$I_CONTENT" "$DB_CH_HTTP" "$DB_CH_TCP"
+  printf "%s${D}redis      → localhost:%d${R}\n"               "$I_CONTENT" "$DB_REDIS"
 }
 
-# ── Step 5: Django migrations ─────────────────────────────────────────────────
+# ── Step 5: Django migrations ────────────────────────────────────────────────
 step_migrate() {
-  section "Django migrations  (optional)"
+  step_start "Django migrations" "Creates database tables for users, sessions, projects, etc."
 
   if [[ "$STEP_VENV_OK" == false ]]; then
-    skip "Python venv did not complete — cannot run migrations"; return
+    step_skip_blocked "Step 2 (Python venv) did not complete"
+    note "Migrations need the venv. Fix Step 2 then re-run."
+    record_failure "Step 5 · Django migrations" \
+                   "blocked by Step 2" \
+                   "fix Step 2, then re-run pnpm bootstrap"
+    return
   fi
   if [[ "$STEP_DB_OK" == false ]]; then
-    skip "Database did not come up — cannot run migrations"; return
-  fi
-  if ! ask "Run Django migrations now?" "y"; then
-    skip "run later:  cd apps/api && .venv/bin/python manage.py migrate"; return
+    step_skip_blocked "Step 4 (Databases) did not come up"
+    note "Migrations need postgres. Fix Step 4 then re-run."
+    record_failure "Step 5 · Django migrations" \
+                   "blocked by Step 4" \
+                   "fix Step 4, then re-run pnpm bootstrap"
+    return
   fi
 
-  # Wait for postgres to accept connections (cold-start safety)
-  info "Waiting for postgres…"
+  if ! ask "Run Django migrations now?" "y"; then
+    step_skip_reused "Skipped — run later: cd apps/api && .venv/bin/python manage.py migrate"
+    STEP_MIGRATE_OK=true; return
+  fi
+
+  # Wait for postgres to actually accept connections
+  printf "%s${CY}→${R}  ${B}Waiting for postgres${R}\n" "$I_CONTENT"
   local ready=false
   for _ in $(seq 1 20); do
     if docker exec apilens-local-postgres-1 pg_isready -U apilens -d apilens -q 2>/dev/null; then
@@ -433,10 +547,15 @@ step_migrate() {
     sleep 1
   done
   if [[ "$ready" == false ]]; then
-    err "Postgres did not become ready within 20s."
-    info "Run migrations manually: cd apps/api && .venv/bin/python manage.py migrate"
+    err "Postgres did not become ready within 20s"
+    step_advise "Check docker compose logs: pnpm db:logs" \
+                "Then run: cd apps/api && .venv/bin/python manage.py migrate"
+    record_failure "Step 5 · Django migrations" \
+                   "postgres unhealthy after 20s" \
+                   "check pnpm db:logs, then run manage.py migrate manually"
     return
   fi
+  printf "%s${GR}✓${R}  postgres is ready\n" "$I_CONTENT"
 
   local rc=0
   (
@@ -445,65 +564,108 @@ step_migrate() {
   ) || rc=$?
 
   if [[ $rc -ne 0 ]]; then
-    err "Migrations failed."
-    info "Check that APILENS_POSTGRES_URL in apps/api/.env matches:"
-    info "  postgresql://apilens:apilens_dev@localhost:${DB_PG}/apilens"
+    step_advise "Check APILENS_POSTGRES_URL in apps/api/.env:" \
+                "    postgresql://apilens:apilens_dev@localhost:${DB_PG}/apilens" \
+                "Then re-run: cd apps/api && .venv/bin/python manage.py migrate"
+    record_failure "Step 5 · Django migrations" \
+                   "migrate command failed" \
+                   "check apps/api/.env DATABASE_URL, then re-run migrate"
     return
   fi
 
-  ok "Migrations applied"
+  step_done
+  STEP_MIGRATE_OK=true
 }
 
-# ── Done screen ───────────────────────────────────────────────────────────────
+# ── Done screen ──────────────────────────────────────────────────────────────
 done_screen() {
-  local django_port=8000 web_port=3002
+  local total_elapsed=$(( $(date +%s) - SCRIPT_START ))
+  local total_str; total_str="$(format_elapsed "$total_elapsed")"
+
+  printf "\n"
+
+  if [[ "${#FAILURES[@]}" -eq 0 ]]; then
+    _success_header "$total_str"
+  else
+    _failure_header "$total_str"
+    _failure_breakdown
+  fi
+
+  _dev_port_warnings
+  _next_steps
+  _footer
+}
+
+_success_header() {
+  local total="$1"
+  printf "  ${GR}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}\n\n"
+  printf "  ${GR}${B}  ✓  Setup complete${R}  ${D}· all %d steps finished in %s${R}\n\n" \
+    "$TOTAL_STEPS" "$total"
+  printf "  ${GR}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}\n"
+}
+
+_failure_header() {
+  local total="$1"
+  local ok_count=$((TOTAL_STEPS - ${#FAILURES[@]}))
+  printf "  ${YL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}\n\n"
+  printf "  ${YL}${B}  ⚠  Setup incomplete${R}  ${D}· %d of %d steps finished in %s${R}\n\n" \
+    "$ok_count" "$TOTAL_STEPS" "$total"
+  printf "  ${YL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${R}\n"
+}
+
+_failure_breakdown() {
+  printf "\n  ${CY}◆${R}  ${B}What failed${R}\n\n"
+  for entry in "${FAILURES[@]}"; do
+    IFS='|' read -r name reason fix <<< "$entry"
+    printf "%s${B}%s${R}\n"             "$I_CONTENT" "$name"
+    printf "%s${D}Reason:${R}  %s\n"    "$I_OUTPUT" "$reason"
+    printf "%s${D}Fix:${R}     %s\n\n"  "$I_OUTPUT" "$fix"
+  done
+  printf "  ${CY}◆${R}  ${B}Re-run${R}\n\n"
+  printf "%s${CY}${B}pnpm bootstrap${R}    ${D}retries all steps (skips ones already done)${R}\n" \
+    "$I_CONTENT"
+}
+
+_dev_port_warnings() {
   local django_alt="" web_alt=""
 
-  if port_in_use "$django_port"; then
-    local owner; owner="$(who_owns "$django_port")"
-    local alt;   alt="$(find_free "$((django_port+1))")"
-    django_alt="$(printf "  ${YL}⚠${R}  :8000 in use by ${D}%s${R} — start Django on :${B}%d${R}:\n  ${D}    cd apps/api && .venv/bin/python manage.py runserver %d${R}" "$owner" "$alt" "$alt")"
+  if port_in_use 8000; then
+    local owner; owner="$(who_owns 8000)"
+    local alt;   alt="$(find_free 8001)"
+    django_alt=":8000 is in use by ${owner} — start Django on :${alt}: cd apps/api && .venv/bin/python manage.py runserver ${alt}"
   fi
-  if port_in_use "$web_port"; then
-    local owner; owner="$(who_owns "$web_port")"
-    local alt;   alt="$(find_free "$((web_port+1))")"
-    web_alt="$(printf "  ${YL}⚠${R}  :3002 in use by ${D}%s${R} — change dev port in apps/web/package.json to ${B}%d${R}" "$owner" "$alt")"
-  fi
-
-  printf "\n"
-
-  local any_failed=false
-  [[ "$STEP_JS_OK"   == false ]] && { warn "Step 1 (JS/TS deps) did not complete.";  any_failed=true; }
-  [[ "$STEP_VENV_OK" == false ]] && { warn "Step 2 (Python venv) did not complete."; any_failed=true; }
-  [[ "$STEP_DB_OK"   == false ]] && { warn "Step 4 (Databases) did not complete.";   any_failed=true; }
-
-  if [[ "$any_failed" == true ]]; then
-    printf "\n"
-    warn "Fix the issues above then re-run:  ${CY}pnpm bootstrap${R}"
-    printf "\n"
-  else
-    printf "${GR}${B}  ╭──────────────────────────────────────────────╮${R}\n"
-    printf "${GR}${B}  │  ✓  Setup complete! You're ready to build.   │${R}\n"
-    printf "${GR}${B}  ╰──────────────────────────────────────────────╯${R}\n"
-    printf "\n"
+  if port_in_use 3002; then
+    local owner; owner="$(who_owns 3002)"
+    local alt;   alt="$(find_free 3003)"
+    web_alt=":3002 is in use by ${owner} — change dev port in apps/web/package.json to ${alt}"
   fi
 
-  [[ -n "$django_alt" ]] && printf "%b\n\n" "$django_alt"
-  [[ -n "$web_alt"    ]] && printf "%b\n\n" "$web_alt"
-
-  label "Start developing"
-  printf "\n"
-  printf "  ${CY}pnpm dev${R}        ${D}# starts Next.js (:3002) + Django (:8000) via turbo${R}\n"
-  printf "\n"
-  label "Handy commands"
-  printf "\n"
-  printf "  ${CY}pnpm db:down${R}    ${D}# stop databases${R}\n"
-  printf "  ${CY}pnpm db:logs${R}    ${D}# tail database logs${R}\n"
-  printf "\n"
-  printf "  ${D}Magic-link emails print in the Django pane. Copy the link to sign in.${R}\n\n"
+  if [[ -n "$django_alt" || -n "$web_alt" ]]; then
+    printf "\n  ${CY}◆${R}  ${B}Heads up${R}\n\n"
+    [[ -n "$django_alt" ]] && printf "%s${YL}⚠${R}  %s\n" "$I_CONTENT" "$django_alt"
+    [[ -n "$web_alt"    ]] && printf "%s${YL}⚠${R}  %s\n" "$I_CONTENT" "$web_alt"
+  fi
 }
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+_next_steps() {
+  printf "\n  ${CY}◆${R}  ${B}Start developing${R}\n\n"
+  printf "%s${CY}${B}pnpm dev${R}                ${D}Next.js (:3002) + Django (:8000) via turbo${R}\n" "$I_CONTENT"
+
+  printf "\n  ${CY}◆${R}  ${B}Handy commands${R}\n\n"
+  printf "%s${CY}pnpm db:down${R}            ${D}Stop databases${R}\n" "$I_CONTENT"
+  printf "%s${CY}pnpm db:logs${R}            ${D}Tail database logs${R}\n" "$I_CONTENT"
+  printf "%s${CY}pnpm db:up${R}              ${D}Start databases again${R}\n" "$I_CONTENT"
+}
+
+_footer() {
+  printf "\n  ${CY}◆${R}  ${B}Where to get help${R}\n\n"
+  printf "%s${D}GitHub${R}         https://github.com/apilens/apilens\n" "$I_CONTENT"
+  printf "%s${D}Docs${R}           apps/docs/\n"                          "$I_CONTENT"
+  printf "\n  ${D}Magic-link emails print in the Django pane in turbo.${R}\n"
+  printf "  ${D}Copy the link from there to sign in.${R}\n\n"
+}
+
+# ── Main ─────────────────────────────────────────────────────────────────────
 main() {
   banner
   preflight
