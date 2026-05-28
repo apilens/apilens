@@ -87,30 +87,13 @@ Re-run `pnpm bootstrap` after pulling changes that touch dependencies, env templ
 
 ### Every day, while coding
 
-**Option A — one terminal (simplest):**
-
-```bash
-bash scripts/dev/dev-up.sh
-```
-
-This starts the databases, boots the Next.js dev server in the background, and runs Django in the foreground. Ctrl-C stops everything.
-
-**Option B — two terminals (cleaner logs):**
-
-Terminal 1 — frontend (Next.js on http://localhost:3002):
-
 ```bash
 pnpm dev
 ```
 
-Terminal 2 — backend (Django on http://localhost:8000):
+That's it. Turborepo starts both the Next.js frontend (http://localhost:3002) and the Django backend (http://localhost:8000) together in one terminal via the turbo TUI.
 
-```bash
-cd apps/api
-.venv/bin/python manage.py runserver
-```
-
-Magic links print to the Django terminal in dev — copy the link from the logs to sign in.
+Magic links print to the Django pane in the TUI — copy the link from the logs to sign in.
 
 ### Once you're done
 
