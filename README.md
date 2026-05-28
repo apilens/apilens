@@ -69,7 +69,7 @@ There are two commands you'll use. `setup` is one-time, `dev` is every day.
 After cloning the repo:
 
 ```bash
-pnpm setup
+pnpm bootstrap
 ```
 
 This is interactive — it checks your environment, asks before overwriting anything, and walks you through each step:
@@ -81,7 +81,9 @@ This is interactive — it checks your environment, asks before overwriting anyt
 5. **Databases** — starts postgres + clickhouse + redis via Docker, detects port conflicts and offers to remap them
 6. **Migrations** — optionally runs Django migrations to get the DB schema ready
 
-Re-run `pnpm setup` after pulling changes that touch dependencies, env templates, or Docker config. It skips steps that are already done.
+Re-run `pnpm bootstrap` after pulling changes that touch dependencies, env templates, or Docker config. It skips steps that are already done.
+
+> **Why `bootstrap` and not `setup`?** `pnpm setup` is a built-in pnpm command (it adds pnpm to your PATH). Running it would silently do nothing instead of running our script.
 
 ### Every day, while coding
 
