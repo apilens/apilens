@@ -80,8 +80,8 @@ find_free() {
 }
 
 # ── Secret generators ─────────────────────────────────────────────────────────
-gen_hex()        { openssl rand -hex 32 2>/dev/null || LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 64; }
-gen_django_key() { LC_ALL=C tr -dc 'abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*(-_=+)' </dev/urandom | head -c 50; }
+gen_hex()        { openssl rand -hex 32; }
+gen_django_key() { openssl rand -hex 25; }
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 banner() {
