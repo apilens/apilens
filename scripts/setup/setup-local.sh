@@ -36,45 +36,51 @@ ask() {
   [[ "$ans" =~ ^[Yy] ]]
 }
 
-# ── Spinner with live output tail ─────────────────────────────────────────────
+# ── Execution helpers ─────────────────────────────────────────────────────────
 #
-# Shows the last line of the command's own output next to the spinner so you
-# can see what is happening instead of staring at a blank cursor.
+# run_live  — streams command output to terminal with indentation.
+#             Use for long operations where the user wants to see what's
+#             happening: pnpm install, uv pip install, docker compose, migrate.
 #
-_spin() {
-  local pid=$1 msg="$2" log="$3" i=0
-  local sp=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+# run_spin  — hides output and shows a spinner + elapsed-time counter.
+#             Use for quick silent ops: uv venv creation, docker restart.
+
+run_live() {
+  # run_live "what we're doing" cmd [args...]
+  local msg="$1"; shift
+  printf "  ${D}→  %s${R}\n" "$msg"
+  local rc=0
+  # Temporarily suspend errexit so the pipe exit code is catchable.
+  set +e
+  "$@" 2>&1 | sed 's/^/    /'
+  rc=${PIPESTATUS[0]}
+  set -e
+  if [[ $rc -ne 0 ]]; then
+    err "Command failed (exit $rc)"
+    return $rc
+  fi
+}
+
+run_spin() {
+  # run_spin "what we're doing" cmd [args...]
+  local msg="$1"; shift
+  local log; log="$(mktemp)"
+  local start; start=$(date +%s)
+  "$@" >"$log" 2>&1 &
+  local pid=$!
+  local sp=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏') i=0
   tput civis 2>/dev/null || true
   while kill -0 "$pid" 2>/dev/null; do
-    local detail=""
-    if [[ -s "$log" ]]; then
-      # Strip ANSI codes and control chars, grab last non-empty line
-      detail=$(grep -v '^[[:space:]]*$' "$log" 2>/dev/null | tail -1 \
-        | sed 's/\x1b\[[0-9;]*[mGKHF]//g' | tr -d '\r' | xargs 2>/dev/null | cut -c1-50)
-    fi
-    if [[ -n "$detail" ]]; then
-      printf "\r  ${CY}%s${R}  ${B}%s${R}  ${D}%s${R}%-15s" "${sp[$i]}" "$msg" "$detail" ""
-    else
-      printf "\r  ${CY}%s${R}  ${B}%s${R}%-65s"              "${sp[$i]}" "$msg" ""
-    fi
+    local t=$(( $(date +%s) - start ))
+    printf "\r  ${CY}%s${R}  ${B}%s${R}  ${D}[%ds elapsed]${R}%-10s" "${sp[$i]}" "$msg" "$t" ""
     i=$(( (i+1) % 10 )); sleep 0.12
   done
   tput cnorm 2>/dev/null || true
   printf "\r%-90s\r" ""
-}
-
-run_spin() {
-  # run_spin "message" cmd [args...]  — returns cmd exit code; caller handles failure
-  local msg="$1"; shift
-  local log; log="$(mktemp)"
-  "$@" >"$log" 2>&1 &
-  local pid=$!
-  _spin "$pid" "$msg" "$log"
   local rc=0; wait "$pid" || rc=$?
   if [[ $rc -ne 0 ]]; then
     err "Command failed (exit $rc):"
-    # Show last 20 lines — enough for the real error without flooding the terminal
-    tail -20 "$log" | sed 's/^/    /' >&2
+    tail -30 "$log" | sed 's/^/    /' >&2
   fi
   rm -f "$log"
   return $rc
@@ -97,8 +103,6 @@ find_free() {
 }
 
 # ── Step outcome tracking ─────────────────────────────────────────────────────
-# Each step sets its own flag. Dependent steps check these before running
-# so a failure in step 2 doesn't cascade into a confusing error in step 5.
 STEP_JS_OK=false
 STEP_VENV_OK=false
 STEP_DB_OK=false
@@ -107,10 +111,10 @@ STEP_DB_OK=false
 _install_pnpm() {
   warn "pnpm not found — attempting auto-install…"
   if command -v npm >/dev/null 2>&1; then
-    run_spin "Installing pnpm@9 via npm…" npm install -g pnpm@9 && ok "pnpm installed" && return 0
+    run_live "Installing pnpm@9 via npm" npm install -g pnpm@9 && ok "pnpm installed" && return 0
   fi
   if command -v corepack >/dev/null 2>&1; then
-    run_spin "Activating pnpm via corepack…" bash -c 'corepack enable && corepack prepare pnpm@9 --activate' \
+    run_live "Activating pnpm via corepack" bash -c 'corepack enable && corepack prepare pnpm@9 --activate' \
       && ok "pnpm activated" && return 0
   fi
   err "Cannot auto-install pnpm — npm not found."
@@ -120,18 +124,16 @@ _install_pnpm() {
 
 _install_uv() {
   warn "uv not found — attempting auto-install…"
-  run_spin "Downloading and installing uv…" bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh' || {
+  run_live "Downloading and installing uv" bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh' || {
     err "uv installation failed."
     info "Install manually: curl -LsSf https://astral.sh/uv/install.sh | sh"
     return 1
   }
-  # The installer puts uv in ~/.local/bin or ~/.cargo/bin — add both for this session
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
   if command -v uv >/dev/null 2>&1; then
-    ok "uv installed"
-    return 0
+    ok "uv installed"; return 0
   fi
-  err "uv installed but not found in PATH — restart your terminal then re-run."
+  err "uv installed but not in PATH — restart your terminal, then re-run."
   return 1
 }
 
@@ -179,35 +181,35 @@ preflight() {
   _chk docker docker  && has_docker=true || true
   printf "\n"
 
-  # ── node: hard requirement, cannot auto-install ───────────────────────────
+  # node: hard stop — cannot auto-install
   if [[ "$has_node" == false ]]; then
-    err "Node.js v20+ is required."
+    err "Node.js v20+ is required and cannot be auto-installed."
     info "macOS:  brew install node"
     info "Other:  https://nodejs.org"
     exit 1
   fi
 
-  # ── pnpm: auto-install via npm / corepack ────────────────────────────────
+  # pnpm: auto-install via npm or corepack
   if [[ "$has_pnpm" == false ]]; then
     _install_pnpm || exit 1
     printf "\n"
   fi
 
-  # ── python: hard requirement, cannot auto-install ────────────────────────
+  # python: hard stop — cannot auto-install
   if [[ "$has_python" == false ]]; then
-    err "Python 3.13 is required."
+    err "Python 3.13 is required and cannot be auto-installed."
     info "macOS:  brew install python@3.13"
     info "Other:  https://python.org"
     exit 1
   fi
 
-  # ── uv: auto-install via official curl installer ─────────────────────────
+  # uv: auto-install via official curl installer
   if [[ "$has_uv" == false ]]; then
     _install_uv || exit 1
     printf "\n"
   fi
 
-  # ── docker: warn only — only needed for step 4 ───────────────────────────
+  # docker: warn only — only needed for step 4
   if [[ "$has_docker" == false ]]; then
     warn "Docker not found — database step will be skipped."
     info "Install Docker Desktop: https://docs.docker.com/get-docker"
@@ -226,7 +228,7 @@ step_js_deps() {
     fi
   fi
 
-  if run_spin "Installing packages…" pnpm install; then
+  if run_live "Running pnpm install" pnpm install; then
     ok "pnpm install done"
     STEP_JS_OK=true
   else
@@ -250,8 +252,8 @@ step_python_venv() {
   local rc=0
   (
     cd apps/api
-    run_spin "Creating .venv…" uv venv .venv                   || exit 1
-    run_spin "Installing packages…" uv pip install -e .        || exit 1
+    run_spin "Creating .venv" uv venv .venv                 || exit 1
+    run_live "Installing Python packages" uv pip install -e . || exit 1
   ) || rc=$?
 
   if [[ $rc -ne 0 ]]; then
@@ -318,21 +320,20 @@ step_databases() {
     info "Install Docker Desktop: https://docs.docker.com/get-docker"
     return
   fi
-
   if ! docker info >/dev/null 2>&1; then
     warn "Docker daemon is not running."
     info "Start Docker Desktop, then re-run: pnpm bootstrap"
     return
   fi
 
-  # If containers are already up, skip the port scan
+  # Skip port scan if containers are already up
   local running
   running=$(docker compose -f infra/docker/docker-compose.local.yml ps -q 2>/dev/null | wc -l | tr -d ' ')
 
   if [[ "$running" -gt 0 ]]; then
     ok "Containers already running — skipping port scan"
     if ask "Restart containers?" "n"; then
-      run_spin "Restarting containers…" \
+      run_live "Restarting containers" \
         docker compose -f infra/docker/docker-compose.local.yml up -d \
         && ok "Databases restarted" || { err "Restart failed"; return; }
     else
@@ -384,14 +385,14 @@ services:
 YML
     compose_cmd+=("-f" "$override")
     if [[ -f apps/api/.env ]]; then
-      sed -i.bak  "s|\(postgresql://[^@]*@localhost:\)[0-9]*|\1${DB_PG}|g"    apps/api/.env
+      sed -i.bak  "s|\(postgresql://[^@]*@localhost:\)[0-9]*|\1${DB_PG}|g"     apps/api/.env
       sed -i.bak2 "s|\(clickhouse://[^@]*@localhost:\)[0-9]*|\1${DB_CH_TCP}|g" apps/api/.env
       rm -f apps/api/.env.bak apps/api/.env.bak2
       info "apps/api/.env updated with remapped ports"
     fi
   fi
 
-  if run_spin "Starting postgres + clickhouse + redis…" "${compose_cmd[@]}" up -d; then
+  if run_live "Starting postgres + clickhouse + redis" "${compose_cmd[@]}" up -d; then
     ok "Databases up"
     STEP_DB_OK=true
   else
@@ -412,23 +413,18 @@ _print_db_ports() {
 step_migrate() {
   section "Django migrations  (optional)"
 
-  # Dependency checks — tell user exactly WHY we're skipping
   if [[ "$STEP_VENV_OK" == false ]]; then
-    skip "Python venv did not complete — cannot run migrations"
-    return
+    skip "Python venv did not complete — cannot run migrations"; return
   fi
   if [[ "$STEP_DB_OK" == false ]]; then
-    skip "Database did not come up — cannot run migrations"
-    return
+    skip "Database did not come up — cannot run migrations"; return
   fi
-
   if ! ask "Run Django migrations now?" "y"; then
-    skip "run later:  cd apps/api && .venv/bin/python manage.py migrate"
-    return
+    skip "run later:  cd apps/api && .venv/bin/python manage.py migrate"; return
   fi
 
-  # Wait for postgres to actually accept connections before firing manage.py
-  info "Waiting for postgres to be ready…"
+  # Wait for postgres to accept connections (cold-start safety)
+  info "Waiting for postgres…"
   local ready=false
   for _ in $(seq 1 20); do
     if docker exec apilens-local-postgres-1 pg_isready -U apilens -d apilens -q 2>/dev/null; then
@@ -436,18 +432,16 @@ step_migrate() {
     fi
     sleep 1
   done
-
   if [[ "$ready" == false ]]; then
-    err "Postgres did not become ready within 20 s."
-    info "Run migrations manually once it's up:"
-    info "  cd apps/api && .venv/bin/python manage.py migrate"
+    err "Postgres did not become ready within 20s."
+    info "Run migrations manually: cd apps/api && .venv/bin/python manage.py migrate"
     return
   fi
 
   local rc=0
   (
     cd apps/api
-    run_spin "Applying migrations…" .venv/bin/python manage.py migrate --noinput || exit 1
+    run_live "Applying migrations" .venv/bin/python manage.py migrate --noinput || exit 1
   ) || rc=$?
 
   if [[ $rc -ne 0 ]]; then
@@ -462,7 +456,6 @@ step_migrate() {
 
 # ── Done screen ───────────────────────────────────────────────────────────────
 done_screen() {
-  # Dev-port warnings
   local django_port=8000 web_port=3002
   local django_alt="" web_alt=""
 
@@ -474,12 +467,11 @@ done_screen() {
   if port_in_use "$web_port"; then
     local owner; owner="$(who_owns "$web_port")"
     local alt;   alt="$(find_free "$((web_port+1))")"
-    web_alt="$(printf "  ${YL}⚠${R}  :3002 in use by ${D}%s${R} — change the dev port in apps/web/package.json to ${B}%d${R}" "$owner" "$alt")"
+    web_alt="$(printf "  ${YL}⚠${R}  :3002 in use by ${D}%s${R} — change dev port in apps/web/package.json to ${B}%d${R}" "$owner" "$alt")"
   fi
 
   printf "\n"
 
-  # Step outcome summary — surface failures clearly
   local any_failed=false
   [[ "$STEP_JS_OK"   == false ]] && { warn "Step 1 (JS/TS deps) did not complete.";  any_failed=true; }
   [[ "$STEP_VENV_OK" == false ]] && { warn "Step 2 (Python venv) did not complete."; any_failed=true; }
