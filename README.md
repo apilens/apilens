@@ -31,9 +31,34 @@ sidecar-testing/   Local SDK integration tests across frameworks
 
 ## You'll need
 
-- Node 20+ and pnpm 9
-- Python 3.13 and [`uv`](https://docs.astral.sh/uv/)
-- Docker
+- **Node 20+** — [nodejs.org](https://nodejs.org)
+- **pnpm 9** — see install instructions below
+- **Python 3.13** — [python.org](https://python.org)
+- **uv** — [astral.sh/uv](https://docs.astral.sh/uv/)
+- **Docker** — [docs.docker.com/get-docker](https://docs.docker.com/get-docker)
+
+### Installing pnpm
+
+pnpm is the package manager for all JS/TS workspaces. The recommended way is via Node's built-in corepack:
+
+```bash
+corepack enable
+corepack prepare pnpm@9 --activate
+```
+
+Or install it globally with npm:
+
+```bash
+npm install -g pnpm@9
+```
+
+Verify it worked:
+
+```bash
+pnpm --version   # should print 9.x.x
+```
+
+> If you're using [nvm](https://github.com/nvm-sh/nvm) or [fnm](https://github.com/Schniz/fnm), run `corepack enable` after switching Node versions — corepack shims are per Node install.
 
 ## Run it locally
 
@@ -47,36 +72,43 @@ After cloning the repo:
 pnpm setup
 ```
 
-This does four things:
+This is interactive — it checks your environment, asks before overwriting anything, and walks you through each step:
 
-1. `pnpm install` — installs JS/TS dependencies
-2. Creates the Python venv at `apps/api/.venv` and installs backend deps with `uv`
-3. Copies `.env.example` → `.env` in each app so you have a config to edit
-4. Starts the local databases (postgres + clickhouse + redis) via Docker
+1. **Pre-flight** — verifies node, pnpm, python, uv, and docker are installed
+2. **JS/TS deps** — runs `pnpm install` across all workspaces
+3. **Python venv** — creates `apps/api/.venv` and installs backend deps with `uv`
+4. **Environment files** — copies `.env.example` → `.env` with real secrets auto-generated (no copy-paste placeholders)
+5. **Databases** — starts postgres + clickhouse + redis via Docker, detects port conflicts and offers to remap them
+6. **Migrations** — optionally runs Django migrations to get the DB schema ready
 
-You only re-run `setup` after pulling changes that touch dependencies, env templates, or Docker config.
+Re-run `pnpm setup` after pulling changes that touch dependencies, env templates, or Docker config. It skips steps that are already done.
 
 ### Every day, while coding
 
-You need **two terminals** — one for the frontend, one for the backend. The frontend runs through pnpm; the backend is Python and lives outside the pnpm world.
+**Option A — one terminal (simplest):**
 
-**Terminal 1 — frontend (Next.js):**
+```bash
+bash scripts/dev/dev-up.sh
+```
+
+This starts the databases, boots the Next.js dev server in the background, and runs Django in the foreground. Ctrl-C stops everything.
+
+**Option B — two terminals (cleaner logs):**
+
+Terminal 1 — frontend (Next.js on http://localhost:3002):
 
 ```bash
 pnpm dev
 ```
 
-This runs `turbo run dev`, which boots the Next.js dev server on http://localhost:3000. (It does *not* touch the databases or the Python backend.)
-
-**Terminal 2 — backend (Django):**
+Terminal 2 — backend (Django on http://localhost:8000):
 
 ```bash
 cd apps/api
-source .venv/bin/activate
-python manage.py runserver
+.venv/bin/python manage.py runserver
 ```
 
-Magic links print to this terminal (console email backend in dev) — copy the link from the logs to sign in.
+Magic links print to the Django terminal in dev — copy the link from the logs to sign in.
 
 ### Once you're done
 
@@ -84,7 +116,7 @@ Magic links print to this terminal (console email backend in dev) — copy the l
 pnpm db:down       # stop the local databases
 ```
 
-If you closed the terminals and want them back next day: `pnpm db:up` brings the databases back, then run the two dev commands above.
+To resume the next day: `pnpm db:up` brings the databases back, then run either dev option above.
 
 ## Common commands
 
@@ -99,13 +131,13 @@ pnpm db:down            # stop them
 pnpm db:logs            # tail their logs
 ```
 
-Backend (`cd apps/api && source .venv/bin/activate` first):
+Backend (from `apps/api/`):
 
 ```bash
-python manage.py runserver
-python manage.py migrate                # apply Django migrations
-python manage.py clickhouse_migrate     # apply ClickHouse migrations
-python manage.py createsuperuser        # add an admin
+.venv/bin/python manage.py runserver
+.venv/bin/python manage.py migrate                # apply Django migrations
+.venv/bin/python manage.py clickhouse_migrate     # apply ClickHouse migrations
+.venv/bin/python manage.py createsuperuser        # add an admin
 ```
 
 ## Repo conventions
