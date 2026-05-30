@@ -49,3 +49,14 @@ resource "google_secret_manager_secret_version" "clickhouse_password" {
   secret      = google_secret_manager_secret.clickhouse_password.id
   secret_data = random_password.clickhouse.result
 }
+
+# Resend API key for transactional email (magic links, verification). Set
+# manually post-apply (it's a third-party credential, not generated here):
+#   printf %s 're_xxx' | gcloud secrets versions add apilens-resend-api-key --data-file=-
+resource "google_secret_manager_secret" "resend_api_key" {
+  secret_id = "apilens-resend-api-key"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.apis]
+}

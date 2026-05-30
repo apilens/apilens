@@ -56,6 +56,8 @@ resource "google_compute_instance" "app" {
     "apilens-session-secret-id" = google_secret_manager_secret.session_secret.secret_id
     "apilens-pg-secret-id"      = google_secret_manager_secret.postgres_password.secret_id
     "apilens-ch-secret-id"      = google_secret_manager_secret.clickhouse_password.secret_id
+    "apilens-resend-secret-id"  = google_secret_manager_secret.resend_api_key.secret_id
+    "apilens-from-email"        = var.default_from_email
     "apilens-compose"           = file("${path.module}/../vm/docker-compose.prod.yml")
     "apilens-caddy"             = file("${path.module}/../vm/Caddyfile")
     "apilens-deploy"            = file("${path.module}/../vm/deploy.sh")

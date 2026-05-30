@@ -34,6 +34,8 @@ DJANGO_SECRET_ID="$(attr apilens-django-secret-id)"
 SESSION_SECRET_ID="$(attr apilens-session-secret-id)"
 PG_SECRET_ID="$(attr apilens-pg-secret-id)"
 CH_SECRET_ID="$(attr apilens-ch-secret-id)"
+RESEND_SECRET_ID="$(attr apilens-resend-secret-id)"
+FROM_EMAIL="$(attr apilens-from-email)"
 
 EXTERNAL_IP="$(meta 'instance/network-interfaces/0/access-configs/0/external-ip')"
 
@@ -123,6 +125,9 @@ DJANGO_SECRET_KEY="$(access_secret "${DJANGO_SECRET_ID}")"
 SESSION_SECRET="$(access_secret "${SESSION_SECRET_ID}")"
 POSTGRES_PASSWORD="$(access_secret "${PG_SECRET_ID}")"
 CLICKHOUSE_PASSWORD="$(access_secret "${CH_SECRET_ID}")"
+# Resend key may have no version yet on a fresh project; tolerate that so the
+# stack still boots (email just no-ops until the secret is populated).
+RESEND_API_KEY="$(access_secret "${RESEND_SECRET_ID}" || true)"
 
 # ----------------------------------------------------------------------------
 # App directory + config files (from metadata)
@@ -184,6 +189,8 @@ DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
 SESSION_SECRET=${SESSION_SECRET}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+EMAIL_HOST_PASSWORD=${RESEND_API_KEY}
+DEFAULT_FROM_EMAIL=${FROM_EMAIL}
 ENV
 )
 

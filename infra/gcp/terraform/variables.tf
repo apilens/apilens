@@ -105,3 +105,13 @@ variable "backend_allowed_hosts" {
   type        = string
   default     = "*"
 }
+
+variable "default_from_email" {
+  description = <<-EOT
+    From address for transactional email (must be on a Resend-verified domain).
+    e.g. "APILens <noreply@apilens.ai>". The Resend API key itself is stored in
+    the apilens-resend-api-key secret (set manually post-apply).
+  EOT
+  type        = string
+  default     = "APILens <noreply@apilens.ai>"
+}

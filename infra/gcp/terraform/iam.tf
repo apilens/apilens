@@ -6,6 +6,7 @@ locals {
     session_secret      = google_secret_manager_secret.session_secret.secret_id
     postgres_password   = google_secret_manager_secret.postgres_password.secret_id
     clickhouse_password = google_secret_manager_secret.clickhouse_password.secret_id
+    resend_api_key      = google_secret_manager_secret.resend_api_key.secret_id
   }
 }
 

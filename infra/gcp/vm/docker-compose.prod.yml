@@ -83,6 +83,17 @@ services:
       GUNICORN_WORKERS: "4"
       GS_BUCKET_NAME: ${MEDIA_BUCKET}
       GS_PROJECT_ID: ${GS_PROJECT_ID:-}
+      # Transactional email (magic links / verification) via Resend over SMTP.
+      # Django's standard SMTP backend (apps/auth/email.py uses EmailMessage);
+      # username is the literal "resend", password is the Resend API key
+      # (EMAIL_HOST_PASSWORD, sourced from Secret Manager by startup.sh).
+      EMAIL_BACKEND: django.core.mail.backends.smtp.EmailBackend
+      EMAIL_HOST: smtp.resend.com
+      EMAIL_PORT: "587"
+      EMAIL_USE_TLS: "True"
+      EMAIL_HOST_USER: resend
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-APILens <noreply@apilens.ai>}
     depends_on:
       migrate:
         condition: service_completed_successfully
