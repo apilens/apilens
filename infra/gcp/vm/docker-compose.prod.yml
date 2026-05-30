@@ -68,9 +68,15 @@ services:
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
       FRONTEND_URL: ${FRONTEND_URL}
+      # TLS is terminated at Caddy, which already redirects http->https at the
+      # edge. Django must NOT also force the redirect: the web container calls
+      # the API over plain http://api:8000 on the internal network, and a
+      # Django 301->https would make Next's fetch hang on a TLS handshake
+      # against the plaintext port (ConnectTimeout -> 500 on every UI action).
+      DJANGO_SECURE_SSL_REDIRECT: "False"
       # HTTPS origins trusted for CSRF (admin/login POSTs) + browser CORS.
-      # Caddy terminates TLS and forwards X-Forwarded-Proto, so Django knows
-      # the request is https (SECURE_PROXY_SSL_HEADER in settings).
+      # Caddy forwards X-Forwarded-Proto so Django still treats edge requests
+      # as https (SECURE_PROXY_SSL_HEADER in settings).
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       PORT: "8000"
