@@ -115,3 +115,19 @@ variable "default_from_email" {
   type        = string
   default     = "APILens <noreply@apilens.ai>"
 }
+
+variable "webauthn_rp_id" {
+  description = <<-EOT
+    WebAuthn Relying Party ID for passkeys. Leave empty to auto-derive the
+    registrable parent of app_domain (app.apilens.ai -> apilens.ai), which lets
+    one passkey work across subdomains. Override only for unusual setups.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "webauthn_rp_name" {
+  description = "Human-readable Relying Party name shown in the passkey prompt."
+  type        = string
+  default     = "APILens"
+}

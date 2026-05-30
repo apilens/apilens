@@ -36,6 +36,8 @@ PG_SECRET_ID="$(attr apilens-pg-secret-id)"
 CH_SECRET_ID="$(attr apilens-ch-secret-id)"
 RESEND_SECRET_ID="$(attr apilens-resend-secret-id)"
 FROM_EMAIL="$(attr apilens-from-email)"
+WEBAUTHN_RP_ID="$(attr apilens-webauthn-rp-id)"
+WEBAUTHN_RP_NAME="$(attr apilens-webauthn-rp-name)"
 
 EXTERNAL_IP="$(meta 'instance/network-interfaces/0/access-configs/0/external-ip')"
 
@@ -191,6 +193,8 @@ POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
 EMAIL_HOST_PASSWORD=${RESEND_API_KEY}
 DEFAULT_FROM_EMAIL=${FROM_EMAIL}
+WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID}
+WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME}
 ENV
 )
 

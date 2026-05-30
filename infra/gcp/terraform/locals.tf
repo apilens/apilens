@@ -23,4 +23,17 @@ locals {
     var.app_domain != "" ? "https://${var.app_domain}" : "",
     var.api_domain != "" ? "https://${var.api_domain}" : "",
   ]))
+
+  # WebAuthn / passkey Relying Party ID. The RP ID must equal the page's domain
+  # OR a registrable parent of it. We use the registrable parent of app_domain
+  # (e.g. app.apilens.ai -> apilens.ai) so one passkey works across the app,
+  # api and docs subdomains. For a 2-label domain (example.com) or an explicit
+  # override, use it as-is. Empty app_domain falls back to "localhost" for dev.
+  _app_labels = var.app_domain != "" ? split(".", var.app_domain) : []
+  webauthn_rp_id = (
+    var.webauthn_rp_id != "" ? var.webauthn_rp_id :
+    var.app_domain == "" ? "localhost" :
+    length(local._app_labels) > 2 ? join(".", slice(local._app_labels, 1, length(local._app_labels))) :
+    var.app_domain
+  )
 }
