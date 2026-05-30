@@ -1,18 +1,28 @@
 # Copy to terraform.tfvars and fill in. terraform.tfvars itself is gitignored
 # (see .gitignore in this folder).
 
-project_id     = "apilens-prod"
-project_number = "123456789012"
+project_id     = "your-gcp-project-id"
+project_number = "000000000000"
 region         = "us-central1"
+zone           = "us-central1-a"
 environment    = "prod"
-github_repo    = "apilens/apilens"
+github_repo    = "owner/name"
 
-# Bump to e.g. "db-custom-1-3840" once you have real load.
-db_tier = "db-f1-micro"
+# All-in-one VM sizing
+machine_type   = "e2-standard-8"
+boot_disk_size = 40
+data_disk_size = 100
 
-# Hosts the Django backend will accept. Add custom domains here.
-backend_allowed_hosts = ".run.app,.apilens.ai"
+# Public hostnames. app_domain serves the frontend (with /api/* proxied to the
+# backend); api_domain (optional) serves the backend on its own host. Caddy
+# auto-issues Let's Encrypt certs once these names resolve to the `instance_ip`
+# output, so create the DNS A records FIRST, then apply. Leave both empty to
+# serve plain HTTP on the raw IP.
+app_domain = "app.example.com"
+api_domain = "api.example.com"
 
-# Set once the frontend has its custom domain; until then the deploy workflow
-# injects the live frontend Cloud Run URL into the backend at deploy time.
-frontend_url = ""
+ssh_source_ranges = ["0.0.0.0/0"]
+
+# Extra DJANGO_ALLOWED_HOSTS beyond app_domain/api_domain (which are added
+# automatically along with internal service names). Usually leave empty.
+backend_allowed_hosts = ""

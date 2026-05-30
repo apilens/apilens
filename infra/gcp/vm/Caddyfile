@@ -1,0 +1,30 @@
+# Reverse proxy for the all-in-one VM. Caddy terminates TLS (auto Let's Encrypt
+# when a real domain is set) and routes by path to the web + api containers.
+#
+# APP_SITE is injected by startup.sh: the app hostname (e.g. "app.apilens.ai")
+# or ":80" before a domain exists. On the app host:
+#   /api/v1/*, /admin/*, /static/*, /media/*  -> Django backend
+#   everything else (incl. the Next.js /api/* route handlers)  -> Next.js
+#
+# IMPORTANT: only /api/v1/* goes to Django. The Next.js app has its OWN server
+# route handlers under /api/* (e.g. /api/auth/magic-link, /api/projects) that
+# proxy to Django server-side via DJANGO_API_URL. Routing all of /api/* to
+# Django would 404 every one of those — which breaks the whole UI.
+#
+# When a dedicated API hostname (API_SITE, e.g. "api.apilens.ai") is configured,
+# startup.sh APPENDS a second site block below that proxies everything to the
+# backend. It's appended (not kept here) so an empty API_SITE doesn't leave an
+# invalid empty site label.
+
+{$APP_SITE} {
+	encode gzip zstd
+
+	@backend path /api/v1/* /admin/* /static/* /media/*
+	handle @backend {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

@@ -11,3 +11,7 @@ terraform.tfvars
 
 # Editor noise
 *.swp
+
+# saved plans
+tf.plan
+*.tfplan
