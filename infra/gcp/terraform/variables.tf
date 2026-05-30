@@ -73,8 +73,23 @@ variable "ssh_source_ranges" {
   default     = ["0.0.0.0/0"]
 }
 
-variable "domain" {
-  description = "Public domain for auto-HTTPS via Caddy. Empty = serve plain HTTP on the IP."
+variable "app_domain" {
+  description = <<-EOT
+    Public hostname for the app (frontend + /api/* proxied to the backend),
+    e.g. "app.apilens.ai". When set, Caddy auto-provisions a Let's Encrypt cert.
+    Point this name's DNS A record at the `instance_ip` output FIRST. Empty =
+    serve plain HTTP on the raw IP.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "api_domain" {
+  description = <<-EOT
+    Optional dedicated hostname for the backend API, e.g. "api.apilens.ai".
+    Everything on this host is proxied to Django. Leave empty to serve the API
+    only under <app_domain>/api. Requires app_domain to be set.
+  EOT
   type        = string
   default     = ""
 }

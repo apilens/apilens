@@ -26,8 +26,10 @@ PROJECT_ID="$(attr apilens-project-id)"
 REGISTRY_HOST="$(attr apilens-registry-host)"
 REGISTRY_BASE="$(attr apilens-registry-base)"
 IMAGE_TAG="$(attr apilens-image-tag)"
-SITE_ADDRESS="$(attr apilens-site-address)"
+APP_SITE="$(attr apilens-app-site)"
+API_SITE="$(attr apilens-api-site)"
 ALLOWED_HOSTS="$(attr apilens-allowed-hosts)"
+CSRF_ORIGINS="$(attr apilens-csrf-origins)"
 DJANGO_SECRET_ID="$(attr apilens-django-secret-id)"
 SESSION_SECRET_ID="$(attr apilens-session-secret-id)"
 PG_SECRET_ID="$(attr apilens-pg-secret-id)"
@@ -35,12 +37,16 @@ CH_SECRET_ID="$(attr apilens-ch-secret-id)"
 
 EXTERNAL_IP="$(meta 'instance/network-interfaces/0/access-configs/0/external-ip')"
 
-# Frontend URL: HTTPS if a domain is set, else HTTP on the external IP.
-if [[ "${SITE_ADDRESS}" == :* ]]; then
+# Public origin (used for FRONTEND_URL + browser CORS): the app domain over
+# HTTPS if one is configured, else plain HTTP on the external IP.
+if [[ "${APP_SITE}" == :* || -z "${APP_SITE}" ]]; then
   FRONTEND_URL="http://${EXTERNAL_IP}"
 else
-  FRONTEND_URL="https://${SITE_ADDRESS}"
+  FRONTEND_URL="https://${APP_SITE}"
 fi
+
+# Browser CORS origins: the app origin plus localhost for dev tooling.
+CORS_ORIGINS="${FRONTEND_URL},http://localhost:3000,http://127.0.0.1:3000"
 
 # GCS media bucket name matches the terraform resource: "<project>-media".
 # The Django app reads it from GS_BUCKET_NAME (apps/api config/settings.py).
@@ -128,6 +134,19 @@ attr apilens-caddy   > /opt/apilens/Caddyfile
 attr apilens-deploy  > /opt/apilens/deploy.sh
 chmod +x /opt/apilens/deploy.sh
 
+# Append a dedicated api.<domain> site block only when one is configured — an
+# empty site label would make Caddy refuse to start. The hostname is written
+# literally (not via env) so we never emit an empty "{ ... }" block.
+if [[ -n "${API_SITE}" ]]; then
+  cat >> /opt/apilens/Caddyfile <<CADDY
+
+${API_SITE} {
+	encode gzip zstd
+	reverse_proxy api:8000
+}
+CADDY
+fi
+
 # ClickHouse drop-in: bind IPv4. The image defaults to listening only on [::]
 # (IPv6), which fails on this host because IPv6 is disabled, leaving ClickHouse
 # bound to nothing. Forcing 0.0.0.0 makes 8123 (HTTP) + 9000 (native) reachable.
@@ -153,8 +172,11 @@ SQL
   cat > /opt/apilens/.env <<ENV
 REGISTRY_BASE=${REGISTRY_BASE}
 IMAGE_TAG=${IMAGE_TAG}
-SITE_ADDRESS=${SITE_ADDRESS}
-DJANGO_ALLOWED_HOSTS=${ALLOWED_HOSTS}
+APP_SITE=${APP_SITE}
+API_SITE=${API_SITE}
+DJANGO_ALLOWED_HOSTS=${ALLOWED_HOSTS},api,web,localhost,127.0.0.1
+CSRF_TRUSTED_ORIGINS=${CSRF_ORIGINS}
+CORS_ALLOWED_ORIGINS=${CORS_ORIGINS}
 FRONTEND_URL=${FRONTEND_URL}
 MEDIA_BUCKET=${MEDIA_BUCKET}
 GS_PROJECT_ID=${PROJECT_ID}

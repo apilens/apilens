@@ -48,8 +48,10 @@ resource "google_compute_instance" "app" {
     "apilens-registry-host"     = local.artifact_registry_host
     "apilens-registry-base"     = local.artifact_registry_base
     "apilens-image-tag"         = var.image_tag
-    "apilens-site-address"      = local.site_address
-    "apilens-allowed-hosts"     = var.backend_allowed_hosts
+    "apilens-app-site"          = local.app_site
+    "apilens-api-site"          = local.api_site
+    "apilens-allowed-hosts"     = local.allowed_hosts
+    "apilens-csrf-origins"      = local.csrf_trusted_origins
     "apilens-django-secret-id"  = google_secret_manager_secret.django_secret_key.secret_id
     "apilens-session-secret-id" = google_secret_manager_secret.session_secret.secret_id
     "apilens-pg-secret-id"      = google_secret_manager_secret.postgres_password.secret_id

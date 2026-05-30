@@ -12,7 +12,15 @@ output "instance_ip" {
 }
 output "app_url" {
   description = "Where the app is reachable once it's up"
-  value       = var.domain != "" ? "https://${var.domain}" : "http://${google_compute_address.app.address}"
+  value       = var.app_domain != "" ? "https://${var.app_domain}" : "http://${google_compute_address.app.address}"
+}
+output "api_url" {
+  description = "Base URL of the backend API"
+  value = (
+    var.api_domain != "" ? "https://${var.api_domain}/api/v1" :
+    var.app_domain != "" ? "https://${var.app_domain}/api/v1" :
+    "http://${google_compute_address.app.address}/api/v1"
+  )
 }
 output "ssh_command" {
   description = "SSH onto the VM (via IAP)"

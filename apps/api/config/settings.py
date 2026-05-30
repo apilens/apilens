@@ -84,6 +84,15 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 
+# Origins trusted for unsafe (POST/PUT/...) requests — required for the Django
+# admin + form logins when served behind an HTTPS reverse proxy on a real
+# domain. Comma-separated, scheme-qualified, e.g. "https://app.apilens.ai".
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = [
     origin.strip()

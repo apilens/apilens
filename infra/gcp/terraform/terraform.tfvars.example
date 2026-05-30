@@ -1,3 +1,6 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars itself is gitignored
+# (see .gitignore in this folder).
+
 project_id     = "your-gcp-project-id"
 project_number = "000000000000"
 region         = "us-central1"
@@ -10,7 +13,16 @@ machine_type   = "e2-standard-8"
 boot_disk_size = 40
 data_disk_size = 100
 
-# Public exposure
-domain                = ""
-ssh_source_ranges     = ["0.0.0.0/0"]
-backend_allowed_hosts = "*"
+# Public hostnames. app_domain serves the frontend (with /api/* proxied to the
+# backend); api_domain (optional) serves the backend on its own host. Caddy
+# auto-issues Let's Encrypt certs once these names resolve to the `instance_ip`
+# output, so create the DNS A records FIRST, then apply. Leave both empty to
+# serve plain HTTP on the raw IP.
+app_domain = "app.example.com"
+api_domain = "api.example.com"
+
+ssh_source_ranges = ["0.0.0.0/0"]
+
+# Extra DJANGO_ALLOWED_HOSTS beyond app_domain/api_domain (which are added
+# automatically along with internal service names). Usually leave empty.
+backend_allowed_hosts = ""
