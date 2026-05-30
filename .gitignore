@@ -63,10 +63,9 @@ yarn-error.log*
 .pnpm-debug.log*
 .npm/
 
-# pnpm lockfile — intentionally untracked per repo owner's decision.
-# Note: this means CI/local/prod won't share resolved versions; expect
-# transitive dependency drift over time. Standard advice is to commit.
-pnpm-lock.yaml
+# pnpm lockfile IS committed (single source of truth so local/CI/prod Docker
+# share resolved versions). Do not re-ignore it — CI + the web image build with
+# `pnpm install --frozen-lockfile`, which requires it to be present.
 
 # Turborepo
 .turbo/
