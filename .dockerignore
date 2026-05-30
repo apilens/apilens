@@ -1,0 +1,39 @@
+# Used when the Docker build context is the repo root (the frontend image —
+# apps/web/Dockerfile — builds from root so pnpm can see the workspace lockfile).
+# Keep the context small: never ship local installs, build outputs, or secrets.
+
+# VCS / editor noise
+.git
+.gitignore
+.idea
+.vscode
+*.swp
+*~
+.DS_Store
+
+# Node installs + build outputs (reinstalled/rebuilt inside the image)
+**/node_modules
+**/.next
+**/.turbo
+**/dist
+**/out
+
+# Python (backend has its own image/context; never needed in the web build)
+**/.venv
+**/__pycache__
+**/*.pyc
+
+# Local env / secrets — NEVER bake these into an image
+**/.env
+**/.env.*
+!**/.env.example
+
+# Infra / terraform state + the other app
+infra/gcp/terraform/.terraform
+**/*.tfstate
+**/*.tfstate.*
+
+# Logs + misc
+**/*.log
+**/coverage
+**/htmlcov

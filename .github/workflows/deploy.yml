@@ -15,6 +15,7 @@ on:
     paths:
       - "apps/api/**"
       - "apps/web/**"
+      - "pnpm-lock.yaml"
       - "infra/gcp/vm/**"
   workflow_dispatch:
 
@@ -58,13 +59,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # The frontend Dockerfile uses `COPY . .`, so its build context is
-      # apps/web. NEXT_PUBLIC_API_URL is a BUILD-TIME arg baked into the
-      # client bundle (apps/web/Dockerfile declares `ARG NEXT_PUBLIC_API_URL`).
+      # The frontend image builds with pnpm from the workspace lockfile, so its
+      # context is the REPO ROOT (apps/web/Dockerfile copies the root
+      # pnpm-lock.yaml + workspace manifest). NEXT_PUBLIC_API_URL is a
+      # BUILD-TIME arg baked into the client bundle.
       - name: Build & push frontend image
         uses: docker/build-push-action@v6
         with:
-          context: apps/web
+          context: .
           file: apps/web/Dockerfile
           push: true
           build-args: |
