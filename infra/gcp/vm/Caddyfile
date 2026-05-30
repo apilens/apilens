@@ -1,0 +1,12 @@
+{$SITE_ADDRESS} {
+	encode gzip zstd
+
+	@api path /api/* /admin/* /static/* /media/*
+	handle @api {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

@@ -1,0 +1,158 @@
+# ============================================================================
+# APILens single-VM production stack
+# ----------------------------------------------------------------------------
+# Runs the ENTIRE stack on one Compute Engine VM via docker compose:
+#   caddy (reverse proxy + auto-HTTPS) -> web (Next.js) + api (Django/gunicorn)
+#   api -> postgres + clickhouse + redis
+#
+# All values come from /opt/apilens/.env, which startup.sh builds on boot by
+# reading VM metadata + Secret Manager. Do not commit real secrets here.
+#
+# The databases (postgres, clickhouse, redis) are NEVER published to host
+# ports — they are reachable only over the internal compose network. Only
+# caddy binds host ports 80/443.
+# ============================================================================
+
+name: apilens
+
+# NOTE on env var names (confirmed against apps/api/config/settings.py +
+# apps/api/.env.example):
+#   - Postgres   -> APILENS_POSTGRES_URL   (postgresql://...)
+#   - ClickHouse -> APILENS_CLICKHOUSE_URL (native protocol on port 9000)
+#   - Media GCS  -> GS_BUCKET_NAME
+x-db-env: &db-env
+  APILENS_POSTGRES_URL: "postgresql://apilens:${POSTGRES_PASSWORD}@postgres:5432/apilens"
+  APILENS_CLICKHOUSE_URL: "clickhouse://default:${CLICKHOUSE_PASSWORD}@clickhouse:9000/apilens"
+  APILENS_REDIS_URL: "redis://redis:6379/0"
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - /opt/apilens/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /mnt/data/caddy/data:/data
+      - /mnt/data/caddy/config:/config
+    depends_on:
+      - web
+      - api
+
+  web:
+    image: "${REGISTRY_BASE}/frontend:${IMAGE_TAG:-latest}"
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DJANGO_API_URL: http://api:8000/api/v1
+      SESSION_SECRET: ${SESSION_SECRET}
+      # NOTE: NEXT_PUBLIC_API_URL is baked into the frontend image at BUILD
+      # time (apps/web/Dockerfile + the deploy workflow). It is not set here.
+    depends_on:
+      - api
+
+  api:
+    image: "${REGISTRY_BASE}/backend:${IMAGE_TAG:-latest}"
+    restart: unless-stopped
+    environment:
+      <<: *db-env
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      FRONTEND_URL: ${FRONTEND_URL}
+      PORT: "8000"
+      GUNICORN_WORKERS: "4"
+      GS_BUCKET_NAME: ${MEDIA_BUCKET}
+      GS_PROJECT_ID: ${GS_PROJECT_ID:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # One-shot: apply Postgres migrations, then create/upgrade the ClickHouse
+  # schema, then exit. The api service waits for this to complete successfully.
+  # (`clickhouse_migrate` is a real management command in the codebase:
+  # apps/api/core/database/clickhouse/management/commands/clickhouse_migrate.py)
+  migrate:
+    image: "${REGISTRY_BASE}/backend:${IMAGE_TAG:-latest}"
+    restart: "no"
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py clickhouse_migrate"
+    environment:
+      <<: *db-env
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: apilens
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: apilens
+    volumes:
+      - /mnt/data/postgres:/var/lib/postgresql/data
+      - /opt/apilens/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apilens -d apilens"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    restart: unless-stopped
+    # Without SYS_NICE the server spins forever on the get_mempolicy() NUMA
+    # syscall ("Operation not permitted") and never reaches "Ready for
+    # connections" — granting it lets ClickHouse actually start.
+    cap_add:
+      - SYS_NICE
+    environment:
+      CLICKHOUSE_DB: apilens
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - /mnt/data/clickhouse:/var/lib/clickhouse
+      # Force IPv4 listening: the default config binds only [::] (IPv6), which
+      # fails on this host (IPv6 disabled) so ClickHouse binds nothing. This
+      # drop-in makes it listen on 0.0.0.0 (8123 HTTP + 9000 native).
+      - /opt/apilens/clickhouse-config/listen.xml:/etc/clickhouse-server/config.d/listen.xml:ro
+    healthcheck:
+      # Use 127.0.0.1, NOT localhost: localhost resolves to ::1 (IPv6) first,
+      # which isn't bound (IPv6 disabled on this host) → false "unhealthy".
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - /mnt/data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10

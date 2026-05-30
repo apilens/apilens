@@ -6,6 +6,9 @@
 #
 # Uniform bucket-level access means we control public access via IAM (the
 # `allUsers` -> `storage.objectViewer` binding below), not per-object ACLs.
+#
+# Write access is granted to the VM runtime SA via
+# google_storage_bucket_iam_member.vm_media_admin in iam.tf.
 
 resource "google_storage_bucket" "media" {
   name     = "${var.project_id}-media"
@@ -41,11 +44,4 @@ resource "google_storage_bucket_iam_member" "media_public_read" {
   bucket = google_storage_bucket.media.name
   role   = "roles/storage.objectViewer"
   member = "allUsers"
-}
-
-# Backend runtime SA writes + deletes objects (upload, replace, remove).
-resource "google_storage_bucket_iam_member" "backend_media_admin" {
-  bucket = google_storage_bucket.media.name
-  role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${google_service_account.backend_runtime.email}"
 }

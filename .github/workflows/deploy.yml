@@ -1,0 +1,99 @@
+# ============================================================================
+# Build + push container images, then deploy to the single-VM stack.
+#
+# Auth uses Workload Identity Federation (no long-lived JSON keys).
+# Required repo secrets (printed by `terraform output github_secrets_to_set`):
+#   GCP_WIF_PROVIDER, GCP_DEPLOY_SA_EMAIL, GCP_PROJECT_ID, GCP_REGION,
+#   GCP_ZONE, GCP_VM_NAME, GCP_BACKEND_IMAGE_PATH, GCP_FRONTEND_IMAGE_PATH
+# Optional: NEXT_PUBLIC_API_URL (repo var/secret) — baked into the web image.
+# ============================================================================
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "apps/web/**"
+      - "infra/gcp/vm/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure docker auth for Artifact Registry
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # The backend Dockerfile uses `COPY pyproject.toml ./` + `COPY . .`, so
+      # its build context is apps/api (NOT the repo root).
+      - name: Build & push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/api
+          file: apps/api/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.GCP_BACKEND_IMAGE_PATH }}:${{ github.sha }}
+            ${{ secrets.GCP_BACKEND_IMAGE_PATH }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The frontend Dockerfile uses `COPY . .`, so its build context is
+      # apps/web. NEXT_PUBLIC_API_URL is a BUILD-TIME arg baked into the
+      # client bundle (apps/web/Dockerfile declares `ARG NEXT_PUBLIC_API_URL`).
+      - name: Build & push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/web
+          file: apps/web/Dockerfile
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || secrets.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1' }}
+          tags: |
+            ${{ secrets.GCP_FRONTEND_IMAGE_PATH }}:${{ github.sha }}
+            ${{ secrets.GCP_FRONTEND_IMAGE_PATH }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to GCP (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA_EMAIL }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      # Roll the stack on the VM. deploy.sh pins IMAGE_TAG=<sha> in .env,
+      # pulls, and recreates containers.
+      - name: Deploy to VM over IAP SSH
+        run: |
+          gcloud compute ssh ${{ secrets.GCP_VM_NAME }} \
+            --zone ${{ secrets.GCP_ZONE }} \
+            --project ${{ secrets.GCP_PROJECT_ID }} \
+            --tunnel-through-iap \
+            --command "sudo /opt/apilens/deploy.sh ${{ github.sha }}"
