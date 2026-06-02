@@ -60,24 +60,3 @@ resource "google_secret_manager_secret" "resend_api_key" {
   }
   depends_on = [google_project_service.apis]
 }
-
-# Grafana admin password. Grafana is bound to the VM's loopback (127.0.0.1:3001)
-# and reached only over an SSH tunnel, so this is low-risk — but generating it
-# here (like postgres/clickhouse) keeps it out of git and out of metadata.
-resource "random_password" "grafana_admin" {
-  length  = 32
-  special = false
-}
-
-resource "google_secret_manager_secret" "grafana_admin_password" {
-  secret_id = "apilens-grafana-admin-password"
-  replication {
-    auto {}
-  }
-  depends_on = [google_project_service.apis]
-}
-
-resource "google_secret_manager_secret_version" "grafana_admin_password" {
-  secret      = google_secret_manager_secret.grafana_admin_password.id
-  secret_data = random_password.grafana_admin.result
-}

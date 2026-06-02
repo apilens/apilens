@@ -50,7 +50,6 @@ resource "google_compute_instance" "app" {
     "apilens-image-tag"         = var.image_tag
     "apilens-app-site"          = local.app_site
     "apilens-api-site"          = local.api_site
-    "apilens-grafana-site"      = local.grafana_site
     "apilens-allowed-hosts"     = local.allowed_hosts
     "apilens-csrf-origins"      = local.csrf_trusted_origins
     "apilens-django-secret-id"  = google_secret_manager_secret.django_secret_key.secret_id
@@ -58,7 +57,6 @@ resource "google_compute_instance" "app" {
     "apilens-pg-secret-id"      = google_secret_manager_secret.postgres_password.secret_id
     "apilens-ch-secret-id"      = google_secret_manager_secret.clickhouse_password.secret_id
     "apilens-resend-secret-id"  = google_secret_manager_secret.resend_api_key.secret_id
-    "apilens-grafana-secret-id" = google_secret_manager_secret.grafana_admin_password.secret_id
     "apilens-from-email"        = var.default_from_email
     "apilens-webauthn-rp-id"    = local.webauthn_rp_id
     "apilens-webauthn-rp-name"  = var.webauthn_rp_name
@@ -73,6 +71,5 @@ resource "google_compute_instance" "app" {
     google_project_iam_member.vm_artifact_reader,
     google_secret_manager_secret_version.postgres_password,
     google_secret_manager_secret_version.clickhouse_password,
-    google_secret_manager_secret_version.grafana_admin_password,
   ]
 }
