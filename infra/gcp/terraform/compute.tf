@@ -50,6 +50,7 @@ resource "google_compute_instance" "app" {
     "apilens-image-tag"         = var.image_tag
     "apilens-app-site"          = local.app_site
     "apilens-api-site"          = local.api_site
+    "apilens-grafana-site"      = local.grafana_site
     "apilens-allowed-hosts"     = local.allowed_hosts
     "apilens-csrf-origins"      = local.csrf_trusted_origins
     "apilens-django-secret-id"  = google_secret_manager_secret.django_secret_key.secret_id
