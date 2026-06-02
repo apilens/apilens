@@ -35,6 +35,7 @@ SESSION_SECRET_ID="$(attr apilens-session-secret-id)"
 PG_SECRET_ID="$(attr apilens-pg-secret-id)"
 CH_SECRET_ID="$(attr apilens-ch-secret-id)"
 RESEND_SECRET_ID="$(attr apilens-resend-secret-id)"
+SENTRY_SECRET_ID="$(attr apilens-sentry-secret-id)"
 FROM_EMAIL="$(attr apilens-from-email)"
 WEBAUTHN_RP_ID="$(attr apilens-webauthn-rp-id)"
 WEBAUTHN_RP_NAME="$(attr apilens-webauthn-rp-name)"
@@ -130,6 +131,9 @@ CLICKHOUSE_PASSWORD="$(access_secret "${CH_SECRET_ID}")"
 # Resend key may have no version yet on a fresh project; tolerate that so the
 # stack still boots (email just no-ops until the secret is populated).
 RESEND_API_KEY="$(access_secret "${RESEND_SECRET_ID}" || true)"
+# Sentry DSN may have no version yet (set manually post-apply); tolerate that so
+# the stack still boots — Sentry just stays disabled until the secret exists.
+SENTRY_DSN="$(access_secret "${SENTRY_SECRET_ID}" || true)"
 
 # ----------------------------------------------------------------------------
 # App directory + config files (from metadata)
@@ -195,6 +199,7 @@ EMAIL_HOST_PASSWORD=${RESEND_API_KEY}
 DEFAULT_FROM_EMAIL=${FROM_EMAIL}
 WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID}
 WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME}
+SENTRY_DSN=${SENTRY_DSN}
 ENV
 )
 

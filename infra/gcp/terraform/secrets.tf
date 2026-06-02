@@ -60,3 +60,16 @@ resource "google_secret_manager_secret" "resend_api_key" {
   }
   depends_on = [google_project_service.apis]
 }
+
+# Sentry DSN for backend error + performance monitoring. Third-party credential
+# (from the sentry.io project), so it lives ONLY here — never committed to git or
+# wired into GitHub Actions. Set manually post-apply:
+#   printf %s 'https://...@oXXX.ingest.sentry.io/XXX' | \
+#     gcloud secrets versions add apilens-sentry-dsn --data-file=-
+resource "google_secret_manager_secret" "sentry_dsn" {
+  secret_id = "apilens-sentry-dsn"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.apis]
+}
