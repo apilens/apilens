@@ -25,10 +25,22 @@ x-db-env: &db-env
   APILENS_CLICKHOUSE_URL: "clickhouse://default:${CLICKHOUSE_PASSWORD}@clickhouse:9000/apilens"
   APILENS_REDIS_URL: "redis://redis:6379/0"
 
+# Cap per-container log files. Docker's default json-file driver is UNBOUNDED, so
+# without this the container logs grow until they fill /var/lib/docker on the boot
+# disk (and are lost on `down -v`). 10MB x 5 files = 50MB max per container. Promtail
+# tails these same json files to ship them to Loki, so rotation is safe — shipped
+# lines are already in Loki before the file rotates out.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
@@ -49,6 +61,7 @@ services:
   web:
     image: "${REGISTRY_BASE}/frontend:${IMAGE_TAG:-latest}"
     restart: unless-stopped
+    logging: *default-logging
     environment:
       NODE_ENV: production
       PORT: "3000"
@@ -62,6 +75,7 @@ services:
   api:
     image: "${REGISTRY_BASE}/backend:${IMAGE_TAG:-latest}"
     restart: unless-stopped
+    logging: *default-logging
     environment:
       <<: *db-env
       DJANGO_DEBUG: "False"
@@ -115,6 +129,7 @@ services:
   migrate:
     image: "${REGISTRY_BASE}/backend:${IMAGE_TAG:-latest}"
     restart: "no"
+    logging: *default-logging
     command: >
       sh -c "python manage.py migrate --noinput &&
              python manage.py clickhouse_migrate"
@@ -132,6 +147,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: apilens
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -148,6 +164,7 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
     restart: unless-stopped
+    logging: *default-logging
     # Without SYS_NICE the server spins forever on the get_mempolicy() NUMA
     # syscall ("Operation not permitted") and never reaches "Ready for
     # connections" — granting it lets ClickHouse actually start.
@@ -179,6 +196,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
     command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
     volumes:
       - /mnt/data/redis:/data
@@ -187,3 +205,127 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  # ==========================================================================
+  # Observability stack (logs + metrics) — see infra/gcp/vm/startup.sh for the
+  # config files these mount. Everything here is INTERNAL-ONLY on the compose
+  # network except grafana, which binds to 127.0.0.1:3001 (loopback) so it is
+  # reachable solely via an SSH tunnel — never published to the public IP.
+  # ==========================================================================
+
+  # Log store. Promtail pushes here; Grafana queries it. Single-binary mode with
+  # a filesystem-backed store on the persistent disk.
+  loki:
+    image: grafana/loki:3.3.2
+    restart: unless-stopped
+    logging: *default-logging
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    volumes:
+      - /opt/apilens/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - /mnt/data/loki:/loki
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/ready | grep -q ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # Tails every container's json-file logs (discovered via the docker socket so
+  # each stream is labelled with its container name) and ships them to Loki.
+  promtail:
+    image: grafana/promtail:3.3.2
+    restart: unless-stopped
+    logging: *default-logging
+    command: ["-config.file=/etc/promtail/promtail-config.yaml"]
+    volumes:
+      - /opt/apilens/promtail/promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
+      # Read-only access to the container log files + the docker socket for
+      # service discovery (container names, labels).
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /mnt/data/promtail:/tmp/promtail
+    depends_on:
+      - loki
+
+  # Metrics store. Scrapes cadvisor + node-exporter (+ itself); Grafana queries it.
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - /opt/apilens/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /mnt/data/prometheus:/prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/ready | grep -q Ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    depends_on:
+      - cadvisor
+      - node-exporter
+
+  # Per-container resource metrics (CPU, memory, network, fs).
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    restart: unless-stopped
+    logging: *default-logging
+    # cAdvisor needs broad read access to the host to introspect cgroups +
+    # containers; privileged + the device below are the documented requirements.
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Host-level metrics (CPU, memory, disk, filesystem) for the VM itself.
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - "--path.rootfs=/host"
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+
+  # The only service that binds a host port: 127.0.0.1:3001 (loopback only).
+  # Datasources (Loki + Prometheus) are provisioned from a file on boot; admin
+  # password comes from Secret Manager via .env.
+  grafana:
+    image: grafana/grafana-oss:11.4.0
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # Served behind an SSH tunnel at localhost:3001.
+      GF_SERVER_ROOT_URL: "http://localhost:3001"
+    volumes:
+      - /mnt/data/grafana:/var/lib/grafana
+      - /opt/apilens/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - loki
+      - prometheus

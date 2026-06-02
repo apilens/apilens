@@ -35,6 +35,7 @@ SESSION_SECRET_ID="$(attr apilens-session-secret-id)"
 PG_SECRET_ID="$(attr apilens-pg-secret-id)"
 CH_SECRET_ID="$(attr apilens-ch-secret-id)"
 RESEND_SECRET_ID="$(attr apilens-resend-secret-id)"
+GRAFANA_SECRET_ID="$(attr apilens-grafana-secret-id)"
 FROM_EMAIL="$(attr apilens-from-email)"
 WEBAUTHN_RP_ID="$(attr apilens-webauthn-rp-id)"
 WEBAUTHN_RP_NAME="$(attr apilens-webauthn-rp-name)"
@@ -88,11 +89,18 @@ else
 fi
 
 mkdir -p /mnt/data/postgres /mnt/data/clickhouse /mnt/data/redis \
-         /mnt/data/caddy/data /mnt/data/caddy/config
+         /mnt/data/caddy/data /mnt/data/caddy/config \
+         /mnt/data/grafana /mnt/data/loki /mnt/data/prometheus /mnt/data/promtail
 # The alpine ClickHouse image runs as uid 101 and refuses to start if its data
 # dir is owned by another user (e.g. root, from an earlier boot). Keep it owned
 # by 101 every boot so a VM/disk recreate can't wedge ClickHouse.
 chown -R 101:101 /mnt/data/clickhouse 2>/dev/null || true
+# Same fix-ownership-every-boot trick for the observability stores: each image
+# drops to a non-root uid and refuses to write a root-owned data dir.
+#   grafana -> 472, loki -> 10001, prometheus (nobody) -> 65534
+chown -R 472:472 /mnt/data/grafana 2>/dev/null || true
+chown -R 10001:10001 /mnt/data/loki 2>/dev/null || true
+chown -R 65534:65534 /mnt/data/prometheus 2>/dev/null || true
 
 # ----------------------------------------------------------------------------
 # Docker
@@ -130,6 +138,9 @@ CLICKHOUSE_PASSWORD="$(access_secret "${CH_SECRET_ID}")"
 # Resend key may have no version yet on a fresh project; tolerate that so the
 # stack still boots (email just no-ops until the secret is populated).
 RESEND_API_KEY="$(access_secret "${RESEND_SECRET_ID}" || true)"
+# Grafana admin password (terraform generates it; localhost-only UI). Tolerate a
+# missing version so the stack still boots — compose falls back to "admin".
+GRAFANA_ADMIN_PASSWORD="$(access_secret "${GRAFANA_SECRET_ID}" || true)"
 
 # ----------------------------------------------------------------------------
 # App directory + config files (from metadata)
@@ -172,6 +183,130 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 SQL
 
 # ----------------------------------------------------------------------------
+# Observability stack config (Loki + Promtail + Prometheus + Grafana)
+# Written inline (same pattern as listen.xml / init.sql above). The compose file
+# bind-mounts each of these into its container.
+# ----------------------------------------------------------------------------
+mkdir -p /opt/apilens/loki /opt/apilens/promtail /opt/apilens/prometheus \
+         /opt/apilens/grafana/provisioning/datasources
+
+# Loki — single-binary, filesystem-backed store on the persistent disk. No auth
+# (it's only reachable on the internal compose network). Retention handled by the
+# compactor; ~14 days.
+cat > /opt/apilens/loki/loki-config.yaml <<'YAML'
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 336h
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  ingestion_rate_mb: 16
+  ingestion_burst_size_mb: 32
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+analytics:
+  reporting_enabled: false
+YAML
+
+# Promtail — discover containers via the docker socket and ship their json-file
+# logs to Loki, labelled by container name + compose service.
+cat > /opt/apilens/promtail/promtail-config.yaml <<'YAML'
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: /tmp/promtail/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+    relabel_configs:
+      # Strip the leading "/" docker puts on container names.
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: container_name
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: compose_service
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: stream
+YAML
+
+# Prometheus — scrape the two exporters plus itself.
+cat > /opt/apilens/prometheus/prometheus.yml <<'YAML'
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+  - job_name: node-exporter
+    static_configs:
+      - targets: ['node-exporter:9100']
+YAML
+
+# Grafana — provision the Loki + Prometheus datasources so the UI works on first
+# login with zero clicks. Prometheus is the default datasource.
+cat > /opt/apilens/grafana/provisioning/datasources/datasources.yaml <<'YAML'
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+YAML
+
+# ----------------------------------------------------------------------------
 # .env (locked down)
 # ----------------------------------------------------------------------------
 (
@@ -195,6 +330,7 @@ EMAIL_HOST_PASSWORD=${RESEND_API_KEY}
 DEFAULT_FROM_EMAIL=${FROM_EMAIL}
 WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID}
 WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME}
+GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
 ENV
 )
 
