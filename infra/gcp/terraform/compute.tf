@@ -57,6 +57,7 @@ resource "google_compute_instance" "app" {
     "apilens-pg-secret-id"      = google_secret_manager_secret.postgres_password.secret_id
     "apilens-ch-secret-id"      = google_secret_manager_secret.clickhouse_password.secret_id
     "apilens-resend-secret-id"  = google_secret_manager_secret.resend_api_key.secret_id
+    "apilens-sentry-secret-id"  = google_secret_manager_secret.sentry_dsn.secret_id
     "apilens-from-email"        = var.default_from_email
     "apilens-webauthn-rp-id"    = local.webauthn_rp_id
     "apilens-webauthn-rp-name"  = var.webauthn_rp_name

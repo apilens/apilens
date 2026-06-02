@@ -113,6 +113,11 @@ services:
       # suffix" error in prod.
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-APILens}
+      # Sentry error + performance monitoring. DSN comes from GCP Secret Manager
+      # via startup.sh -> .env (never committed); empty = Sentry disabled (no-op).
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
     depends_on:
       migrate:
         condition: service_completed_successfully

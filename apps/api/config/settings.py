@@ -347,3 +347,27 @@ LOGGING = {
         },
     },
 }
+
+# ---------------------------------------------------------------------------
+# Sentry — error + performance monitoring (https://sentry.io)
+# ---------------------------------------------------------------------------
+# Active ONLY when SENTRY_DSN is set. In prod the DSN is injected from GCP Secret
+# Manager into the container env (startup.sh -> .env); it is intentionally NOT
+# committed to this repo. With no DSN (local/dev/CI) this whole block is a no-op,
+# so nothing breaks and nothing is sent.
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip()
+if SENTRY_DSN:
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        # The Django integration auto-enables; left implicit. Captures unhandled
+        # exceptions, request context, and (with tracing) per-request spans.
+        environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+        release=os.environ.get("SENTRY_RELEASE") or None,
+        # Performance tracing: fraction of requests sampled (0.0–1.0).
+        traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+        # Attach user/email to events. Set SENTRY_SEND_PII=False to scrub PII.
+        send_default_pii=os.environ.get("SENTRY_SEND_PII", "True").lower()
+        in ("true", "1", "yes"),
+    )
