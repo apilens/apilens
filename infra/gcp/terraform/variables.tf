@@ -94,6 +94,17 @@ variable "api_domain" {
   default     = ""
 }
 
+variable "grafana_domain" {
+  description = <<-EOT
+    Optional dedicated hostname for the Grafana observability UI, e.g.
+    "grafana.apilens.ai". When set, Caddy proxies this host to the grafana
+    container with auto-HTTPS (Grafana's own login still gates access). Leave
+    empty to keep Grafana reachable only over the SSH tunnel (127.0.0.1:3001).
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "image_tag" {
   description = "Container image tag the VM should run for the api + web images."
   type        = string

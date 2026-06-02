@@ -21,6 +21,11 @@ data_disk_size = 100
 app_domain = "app.example.com"
 api_domain = "api.example.com"
 
+# Optional dedicated host for the Grafana observability UI. When set, Caddy
+# proxies it (auto-HTTPS) to the grafana container; Grafana's own login gates
+# access. Leave empty to keep Grafana on the SSH tunnel only (127.0.0.1:3001).
+grafana_domain = "grafana.example.com"
+
 ssh_source_ranges = ["0.0.0.0/0"]
 
 # Extra DJANGO_ALLOWED_HOSTS beyond app_domain/api_domain (which are added

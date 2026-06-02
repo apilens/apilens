@@ -28,6 +28,7 @@ REGISTRY_BASE="$(attr apilens-registry-base)"
 IMAGE_TAG="$(attr apilens-image-tag)"
 APP_SITE="$(attr apilens-app-site)"
 API_SITE="$(attr apilens-api-site)"
+GRAFANA_SITE="$(attr apilens-grafana-site)"
 ALLOWED_HOSTS="$(attr apilens-allowed-hosts)"
 CSRF_ORIGINS="$(attr apilens-csrf-origins)"
 DJANGO_SECRET_ID="$(attr apilens-django-secret-id)"
@@ -52,6 +53,15 @@ fi
 
 # Browser CORS origins: the app origin plus localhost for dev tooling.
 CORS_ORIGINS="${FRONTEND_URL},http://localhost:3000,http://127.0.0.1:3000"
+
+# Grafana's external root URL: the dedicated HTTPS host when one is configured,
+# else the loopback address used by the SSH tunnel. Grafana needs this correct so
+# its redirects + asset/cookie URLs match how the browser actually reaches it.
+if [[ -n "${GRAFANA_SITE}" ]]; then
+  GRAFANA_ROOT_URL="https://${GRAFANA_SITE}"
+else
+  GRAFANA_ROOT_URL="http://localhost:3001"
+fi
 
 # GCS media bucket name matches the terraform resource: "<project>-media".
 # The Django app reads it from GS_BUCKET_NAME (apps/api config/settings.py).
@@ -161,6 +171,19 @@ if [[ -n "${API_SITE}" ]]; then
 ${API_SITE} {
 	encode gzip zstd
 	reverse_proxy api:8000
+}
+CADDY
+fi
+
+# Dedicated Grafana host (auto-HTTPS). Appended only when configured so an empty
+# site label can't make Caddy refuse to start. Grafana's own login still gates
+# access; the upstream is the in-network container port (grafana:3000).
+if [[ -n "${GRAFANA_SITE}" ]]; then
+  cat >> /opt/apilens/Caddyfile <<CADDY
+
+${GRAFANA_SITE} {
+	encode gzip zstd
+	reverse_proxy grafana:3000
 }
 CADDY
 fi
@@ -331,6 +354,7 @@ DEFAULT_FROM_EMAIL=${FROM_EMAIL}
 WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID}
 WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME}
 GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+GRAFANA_ROOT_URL=${GRAFANA_ROOT_URL}
 ENV
 )
 
