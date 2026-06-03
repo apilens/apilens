@@ -44,8 +44,9 @@ class ApiLensClient:
     def __init__(self, config: ApiLensConfig, *, start_worker: bool = True) -> None:
         if not config.api_key:
             raise ValueError("api_key is required")
-        if not config.project_slug:
-            raise ValueError("project_slug is required")
+        # project_slug / app_id are optional: app-scoped API keys let the server
+        # derive both from the key alone. Provide them only for legacy
+        # project-scoped keys.
 
         if config.batch_size <= 0:
             raise ValueError("batch_size must be > 0")

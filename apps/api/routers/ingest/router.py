@@ -80,67 +80,79 @@ def resolve_app_identifiers(project_id: str, app_identifiers: set[str]) -> dict[
     return identifier_to_uuid
 
 
+def group_records_by_app(request: HttpRequest, records: list) -> dict[str, list]:
+    """Map each record to its target app UUID, grouped for batch insert.
+
+    - App-scoped API key: every record goes to the key's app (the SDK can omit
+      app_id/project_slug entirely). Any explicit id provided must still match.
+    - Legacy project-scoped key: each record must carry an app_id (UUID or slug)
+      resolved within the key's project, and project_slug must match.
+    """
+    ctx = request.tenant_context
+    if not ctx.project_id:
+        raise AuthenticationError("API key must be scoped to a project")
+
+    grouped: dict[str, list] = defaultdict(list)
+
+    if ctx.app_id:
+        for record in records:
+            rec_app = (record.app_id or "").strip()
+            if rec_app and rec_app not in (ctx.app_id, ctx.app_slug):
+                raise ValidationError(
+                    f"app_id must match the API key's app '{ctx.app_slug}'"
+                )
+            rec_project = (record.project_slug or "").strip()
+            if rec_project and rec_project != ctx.project_slug:
+                raise ValidationError(
+                    f"project_slug must match the API key project '{ctx.project_slug}'"
+                )
+            grouped[ctx.app_id].append(record)
+        return grouped
+
+    # Legacy project-scoped key: the app must be identified per record.
+    validate_project_slug(ctx.project_slug, {r.project_slug for r in records})
+    app_identifiers = {(r.app_id or "").strip() for r in records}
+    if "" in app_identifiers:
+        raise ValidationError("app_id is required for every record with a project-scoped key")
+    identifier_to_uuid = resolve_app_identifiers(ctx.project_id, app_identifiers)
+    for record in records:
+        grouped[identifier_to_uuid[record.app_id]].append(record)
+    return grouped
+
+
 @router.post("/requests", response=IngestResponse)
 def ingest_requests(request: HttpRequest, data: IngestRequest):
-    """
-    Ingest API request records.
-    API key provides project_id, payload provides app_id (UUID or slug) for each record.
+    """Ingest API request records.
+
+    App-scoped keys derive project + app from the key; project-scoped keys
+    identify the app per-record via app_id.
     """
     if len(data.requests) > MAX_BATCH_SIZE:
         raise ValidationError(f"Batch size exceeds maximum of {MAX_BATCH_SIZE}")
 
-    project_id = request.tenant_context.project_id
-    project_slug = request.tenant_context.project_slug
-    if not project_id:
-        raise AuthenticationError("API key must be scoped to a project")
-    validate_project_slug(project_slug, {record.project_slug for record in data.requests})
-
-    # Resolve app identifiers (UUID or slug) to UUIDs
-    app_identifiers = {record.app_id for record in data.requests}
-    identifier_to_uuid = resolve_app_identifiers(project_id, app_identifiers)
-
-    # Group records by resolved app UUID for batch processing
-    records_by_app = defaultdict(list)
-    for record in data.requests:
-        app_uuid = identifier_to_uuid[record.app_id]
-        records_by_app[app_uuid].append(record)
+    records_by_app = group_records_by_app(request, data.requests)
 
     total_accepted = 0
     for app_uuid, records in records_by_app.items():
-        accepted = IngestService.ingest(app_uuid, records)
-        total_accepted += accepted
+        total_accepted += IngestService.ingest(app_uuid, records)
 
     return IngestResponse(accepted=total_accepted)
 
 
 @router.post("/logs", response=IngestLogsResponse)
 def ingest_logs(request: HttpRequest, data: IngestLogsRequest):
-    """
-    Ingest application log records.
-    API key provides project_id, payload provides app_id (UUID or slug) for each log.
+    """Ingest application log records.
+
+    App-scoped keys derive project + app from the key; project-scoped keys
+    identify the app per-record via app_id.
     """
     if len(data.logs) > MAX_BATCH_SIZE:
         raise ValidationError(f"Batch size exceeds maximum of {MAX_BATCH_SIZE}")
 
-    project_id = request.tenant_context.project_id
-    project_slug = request.tenant_context.project_slug
-    if not project_id:
-        raise AuthenticationError("API key must be scoped to a project")
-    validate_project_slug(project_slug, {log.project_slug for log in data.logs})
-
-    # Resolve app identifiers (UUID or slug) to UUIDs
-    app_identifiers = {log.app_id for log in data.logs}
-    identifier_to_uuid = resolve_app_identifiers(project_id, app_identifiers)
-
-    # Group logs by resolved app UUID for batch processing
-    logs_by_app = defaultdict(list)
-    for log in data.logs:
-        app_uuid = identifier_to_uuid[log.app_id]
-        logs_by_app[app_uuid].append(log)
+    logs_by_app = group_records_by_app(request, data.logs)
 
     total_accepted = 0
     for app_uuid, logs in logs_by_app.items():
-        accepted = IngestService.ingest_logs(app_uuid, logs)
-        total_accepted += accepted
+        total_accepted += IngestService.ingest_logs(app_uuid, logs)
 
     return IngestLogsResponse(accepted=total_accepted)

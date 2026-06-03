@@ -10,7 +10,13 @@ from ._constants import API_KEY_PREFIX, MAX_API_KEYS_PER_PROJECT, hash_token
 
 class ApiKeyService:
     @staticmethod
-    def create_key(project, name: str) -> tuple[str, ApiKey]:
+    def create_key(project, name: str, app=None) -> tuple[str, ApiKey]:
+        """Create an API key.
+
+        Pass ``app`` to mint an app-scoped key: the server then derives both
+        project and app from the key alone, so SDKs only need the key. Omit it
+        for a legacy project-scoped key (app identified per-record via app_id).
+        """
         active_count = ApiKey.objects.for_project(project).count()
         if active_count >= MAX_API_KEYS_PER_PROJECT:
             raise RateLimitError(
@@ -23,11 +29,16 @@ class ApiKeyService:
 
         api_key = ApiKey.objects.create(
             project=project,
+            app=app,
             key_hash=hash_token(raw_key),
             prefix=prefix,
             name=name[:100],
         )
         return raw_key, api_key
+
+    @staticmethod
+    def list_keys_for_app(app) -> list[ApiKey]:
+        return list(ApiKey.objects.active().filter(app=app).order_by("-created_at"))
 
     @staticmethod
     def list_keys(project) -> list[ApiKey]:

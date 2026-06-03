@@ -16,6 +16,8 @@ npm install ./packages/sdk-typescript
 
 ## Quick start
 
+> With an **app-scoped API key** the only required option is `apiKey` — the server derives the project and app from the key. `projectSlug` / `appId` are optional (legacy project-scoped keys only); `baseUrl` defaults to `https://ingest.apilens.ai/v1`.
+
 ```js
 import express from "express";
 import { useApiLens, setConsumer } from "apilens-js-sdk/express";

@@ -80,7 +80,7 @@ class ApiKeyAuth(APIKeyHeader):
             key_hash = hashlib.sha256(key.encode()).hexdigest()
             api_key = (
                 ApiKey.objects.active()
-                .select_related("project", "project__owner")
+                .select_related("project", "project__owner", "app")
                 .filter(
                     key_hash=key_hash,
                     project__is_active=True,
@@ -92,12 +92,16 @@ class ApiKeyAuth(APIKeyHeader):
                 return None
 
             user = api_key.project.owner
+            # App-scoped keys carry their app so ingestion needs only the key.
+            app_is_active = api_key.app is not None and api_key.app.is_active
             request.tenant_context = TenantContext(
                 tenant_id=str(user.id),
                 user_id=str(user.id),
                 email=user.email,
                 project_id=str(api_key.project_id),
                 project_slug=api_key.project.slug,
+                app_id=str(api_key.app_id) if app_is_active else "",
+                app_slug=api_key.app.slug if app_is_active else "",
             )
             request._auth_method = "api_key"
 

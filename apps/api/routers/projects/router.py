@@ -31,6 +31,7 @@ from .schemas import (
     CreateApiKeyRequest,
     CreateApiKeyResponse,
     ApiKeyResponse,
+    AppApiKeysListResponse,
     MessageResponse,
     LogsQueryResponse,
     RequestsQueryResponse,
@@ -159,6 +160,49 @@ def create_api_key(request: HttpRequest, project_slug: str, data: CreateApiKeyRe
         prefix=api_key.prefix,
         created_at=api_key.created_at,
     )
+
+
+@router.post("/{project_slug}/apps/{app_slug}/api-keys", response={201: CreateApiKeyResponse})
+def create_app_api_key(request: HttpRequest, project_slug: str, app_slug: str, data: CreateApiKeyRequest):
+    """Create an app-scoped API key.
+
+    The key derives both project and app server-side, so SDKs only need the key
+    (no project_slug / app_id required).
+    """
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    app = AppService.get_app_by_slug(project, app_slug)
+    raw_key, api_key = ApiKeyService.create_key(project, data.name.strip(), app=app)
+    return 201, CreateApiKeyResponse(
+        key=raw_key,
+        id=api_key.id,
+        name=api_key.name,
+        prefix=api_key.prefix,
+        created_at=api_key.created_at,
+    )
+
+
+@router.get("/{project_slug}/apps/{app_slug}/api-keys", response=AppApiKeysListResponse)
+def list_app_api_keys(request: HttpRequest, project_slug: str, app_slug: str):
+    """List the app-scoped API keys for an app."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    app = AppService.get_app_by_slug(project, app_slug)
+    keys = ApiKeyService.list_keys_for_app(app)
+    return AppApiKeysListResponse(keys=[ApiKeyResponse.from_orm(k) for k in keys])
+
+
+@router.delete("/{project_slug}/apps/{app_slug}/api-keys/{key_id}", response=MessageResponse)
+def revoke_app_api_key(request: HttpRequest, project_slug: str, app_slug: str, key_id: str):
+    """Revoke an app-scoped API key."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    # Confirm the app belongs to the user's project before revoking.
+    AppService.get_app_by_slug(project, app_slug)
+    success = ApiKeyService.revoke_key(project, key_id)
+    if not success:
+        return MessageResponse(message="API key not found or already revoked")
+    return MessageResponse(message="API key revoked successfully")
 
 
 @router.get("/{project_slug}/api-keys", response=list[ApiKeyResponse])

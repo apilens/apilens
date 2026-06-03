@@ -137,6 +137,16 @@ class ApiKey(models.Model):
         on_delete=models.CASCADE,
         related_name="api_keys",
     )
+    # App-scoped keys bind directly to one app, so SDKs need only the key
+    # (project + app are derived server-side). Null = legacy project-scoped key
+    # that identifies the app per-record via app_id.
+    app = models.ForeignKey(
+        "projects.App",
+        on_delete=models.CASCADE,
+        related_name="api_keys",
+        null=True,
+        blank=True,
+    )
     key_hash = models.CharField(max_length=64, unique=True, db_index=True)
     prefix = models.CharField(max_length=16)
     name = models.CharField(max_length=100)

@@ -17,7 +17,11 @@ class TenantContext:
     email: str
     project_id: str = ""
     project_slug: str = ""
-    app_id: str = ""  # Deprecated: kept for backwards compatibility
+    # Set only for app-scoped API keys, so ingestion can derive the app from
+    # the key alone (no per-record app_id needed). Empty for JWT / legacy
+    # project-scoped keys.
+    app_id: str = ""
+    app_slug: str = ""
     role: str = "member"
     permissions: list[str] = field(default_factory=list)
 

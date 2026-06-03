@@ -5,8 +5,10 @@ from ninja import Schema
 
 
 class RequestRecord(Schema):
-    project_slug: str  # Explicit project identifier (slug, required)
-    app_id: str  # Explicit app identifier (required)
+    # Optional: app-scoped API keys supply project + app server-side. Legacy
+    # project-scoped keys must still send app_id (and project_slug must match).
+    project_slug: str = ""
+    app_id: str = ""
     timestamp: datetime
     environment: str
     method: str
@@ -33,8 +35,10 @@ class IngestResponse(Schema):
 
 
 class LogRecord(Schema):
-    project_slug: str  # Explicit project identifier (slug, required)
-    app_id: str  # Explicit app identifier (required)
+    # Optional: app-scoped API keys supply project + app server-side. Legacy
+    # project-scoped keys must still send app_id (and project_slug must match).
+    project_slug: str = ""
+    app_id: str = ""
     timestamp: datetime
     environment: str
     level: str

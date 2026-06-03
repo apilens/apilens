@@ -134,12 +134,8 @@ class ApiLensClient {
     if (!isNonEmptyString(this.config.apiKey)) {
       throw new Error("apiKey is required");
     }
-    if (!isNonEmptyString(this.config.projectSlug)) {
-      throw new Error("projectSlug is required");
-    }
-    if (!isNonEmptyString(this.config.appId)) {
-      throw new Error("appId is required");
-    }
+    // projectSlug / appId are optional: app-scoped API keys let the server
+    // derive both from the key alone. Set them only for legacy project-scoped keys.
 
     this.queue = [];
     this.droppedCount = 0;

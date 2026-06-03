@@ -23,9 +23,8 @@ def _get_client_from_settings() -> ApiLensClient:
     api_key = getattr(settings, "APILENS_API_KEY", "")
     if not api_key:
         raise RuntimeError("APILENS_API_KEY is required in Django settings")
+    # Optional: app-scoped keys derive project + app server-side.
     project_slug = getattr(settings, "APILENS_PROJECT_SLUG", "")
-    if not project_slug:
-        raise RuntimeError("APILENS_PROJECT_SLUG is required in Django settings")
 
     cfg = ApiLensConfig(
         api_key=api_key,
@@ -47,10 +46,9 @@ class ApiLensDjangoMiddleware:
 
         self.get_response = get_response
         self.client = _get_client_from_settings()
+        # Optional: app-scoped keys derive project + app server-side.
         self.project_slug = getattr(settings, "APILENS_PROJECT_SLUG", "")
         self.app_id = getattr(settings, "APILENS_APP_ID", "")
-        if not self.app_id:
-            raise RuntimeError("APILENS_APP_ID is required in Django settings")
         self.max_payload_bytes = 8192
 
     def __call__(self, request):

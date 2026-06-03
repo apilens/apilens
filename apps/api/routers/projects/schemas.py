@@ -157,6 +157,10 @@ class ApiKeyResponse(Schema):
         )
 
 
+class AppApiKeysListResponse(Schema):
+    keys: list[ApiKeyResponse]
+
+
 # ── Data Query Schemas ──────────────────────────────────────────────
 
 class LogItemResponse(Schema):

@@ -2,7 +2,17 @@
 
 Production-ready Python ingest client for API Lens with OpenTelemetry integration.
 
-> **⚠️ Breaking Change in v0.1.6:** Both `project_slug` and `app_id` are now required for all ingest paths. Make sure both match the same project in your dashboard.
+> **Minimal setup:** with an **app-scoped API key** (create one from the app's page in the dashboard), the only value you need is the key — the server derives the project and app from it:
+>
+> ```python
+> from fastapi import FastAPI
+> from apilens.fastapi import ApiLensMiddleware
+>
+> app = FastAPI()
+> app.add_middleware(ApiLensMiddleware, api_key="apilens_xxx")
+> ```
+>
+> `project_slug` / `app_id` are **optional** — provide them only with a legacy project-scoped key (one not bound to a single app). `base_url` defaults to `https://ingest.apilens.ai/v1`; set `APILENS_BASE_URL` to override for local dev.
 
 ## Framework support matrix
 
