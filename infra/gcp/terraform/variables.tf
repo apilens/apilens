@@ -87,8 +87,22 @@ variable "app_domain" {
 variable "api_domain" {
   description = <<-EOT
     Optional dedicated hostname for the backend API, e.g. "api.apilens.ai".
-    Everything on this host is proxied to Django. Leave empty to serve the API
-    only under <app_domain>/api. Requires app_domain to be set.
+    Everything on this host is proxied to Django EXCEPT the ingestion path,
+    which is served only on ingest_domain. Leave empty to serve the API only
+    under <app_domain>/api. Requires app_domain to be set.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "ingest_domain" {
+  description = <<-EOT
+    Optional dedicated hostname for the telemetry ingestion API, e.g.
+    "ingest.apilens.ai". Kept separate from the dashboard API (api_domain) so
+    high-volume SDK traffic never hits the control-plane host. Caddy rewrites
+    this host's public /v1/* path onto Django's /ingest/v1/* mount and
+    auto-provisions a Let's Encrypt cert. Point this name's DNS A record at the
+    `instance_ip` output. Requires app_domain to be set.
   EOT
   type        = string
   default     = ""

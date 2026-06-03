@@ -279,7 +279,7 @@ STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Media (user uploads): GCS in production, local filesystem in dev.
-# Production sets `GS_BUCKET_NAME=<project>-media` on Cloud Run; locally the
+# Production sets `GS_BUCKET_NAME=<project>-media` on the VM; locally the
 # env var is unset and uploads land in backend/media/ as before.
 GS_BUCKET_NAME = os.environ.get("GS_BUCKET_NAME", "").strip()
 

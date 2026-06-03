@@ -17,6 +17,8 @@ describe("Express E2E", () => {
 
     useApiLens(app, {
       apiKey: "test-api-key",
+      projectSlug: "test-project",
+      appId: "test-app",
       environment: "test",
       batchSize: 100,
       fetchImpl: async (_url, options) => {
@@ -64,6 +66,8 @@ describe("Express E2E", () => {
 
     useApiLens(app, {
       apiKey: "test-api-key",
+      projectSlug: "test-project",
+      appId: "test-app",
       batchSize: 100,
       fetchImpl: async (_url, options) => {
         ingestCalls.push(String(options?.body || ""));

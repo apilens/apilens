@@ -28,6 +28,7 @@ REGISTRY_BASE="$(attr apilens-registry-base)"
 IMAGE_TAG="$(attr apilens-image-tag)"
 APP_SITE="$(attr apilens-app-site)"
 API_SITE="$(attr apilens-api-site)"
+INGEST_SITE="$(attr apilens-ingest-site)"
 ALLOWED_HOSTS="$(attr apilens-allowed-hosts)"
 CSRF_ORIGINS="$(attr apilens-csrf-origins)"
 DJANGO_SECRET_ID="$(attr apilens-django-secret-id)"
@@ -148,11 +149,30 @@ chmod +x /opt/apilens/deploy.sh
 # Append a dedicated api.<domain> site block only when one is configured — an
 # empty site label would make Caddy refuse to start. The hostname is written
 # literally (not via env) so we never emit an empty "{ ... }" block.
+#
+# The ingestion path is deliberately 404'd here: it's served ONLY on the
+# dedicated ingest host below, so SDK traffic never lands on the dashboard API.
 if [[ -n "${API_SITE}" ]]; then
   cat >> /opt/apilens/Caddyfile <<CADDY
 
 ${API_SITE} {
 	encode gzip zstd
+	@ingest path /ingest/*
+	respond @ingest 404
+	reverse_proxy api:8000
+}
+CADDY
+fi
+
+# Append the dedicated ingest.<domain> site block when configured. SDKs POST to
+# https://<ingest_site>/v1/* ; Caddy prepends /ingest so it hits Django's
+# /ingest/v1/* mount (the separate ingestion NinjaAPI instance).
+if [[ -n "${INGEST_SITE}" ]]; then
+  cat >> /opt/apilens/Caddyfile <<CADDY
+
+${INGEST_SITE} {
+	encode gzip zstd
+	rewrite * /ingest{uri}
 	reverse_proxy api:8000
 }
 CADDY
@@ -185,6 +205,7 @@ REGISTRY_BASE=${REGISTRY_BASE}
 IMAGE_TAG=${IMAGE_TAG}
 APP_SITE=${APP_SITE}
 API_SITE=${API_SITE}
+INGEST_SITE=${INGEST_SITE}
 DJANGO_ALLOWED_HOSTS=${ALLOWED_HOSTS},api,web,localhost,127.0.0.1
 CSRF_TRUSTED_ORIGINS=${CSRF_ORIGINS}
 CORS_ALLOWED_ORIGINS=${CORS_ORIGINS}

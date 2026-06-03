@@ -99,7 +99,7 @@ class ApiLensSpanExporter(SpanExporter):
             path = _normalize_path(_pick_attr(attrs, _HTTP_PATH_KEYS, "/"))
             status_code = _coerce_int(_pick_attr(attrs, _HTTP_STATUS_KEYS, 0), 0)
 
-            if path.endswith("/ingest/requests"):
+            if path.endswith("/v1/requests"):
                 # Avoid ingest loop if transport is instrumented.
                 continue
 

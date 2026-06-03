@@ -14,7 +14,7 @@ client = ApiLensClient(
     ApiLensConfig(
         api_key=os.getenv("APILENS_API_KEY", ""),
         project_slug=os.getenv("APILENS_PROJECT_SLUG", ""),
-        base_url=os.getenv("APILENS_BASE_URL", "https://api.apilens.ai/api/v1"),
+        base_url=os.getenv("APILENS_BASE_URL", "https://ingest.apilens.ai/v1"),
         environment=os.getenv("APILENS_ENVIRONMENT", "development"),
     )
 )

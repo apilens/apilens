@@ -54,7 +54,7 @@ client = ApiLensClient(
     ApiLensConfig(
         api_key="your_app_api_key",
         project_slug="your-project-slug",
-        base_url="https://api.apilens.ai/api/v1",
+        base_url="https://ingest.apilens.ai/v1",
         environment="production",
     )
 )
@@ -98,7 +98,7 @@ app.add_middleware(
     api_key="your_app_api_key",      # Required: Your API key
     project_slug="your-project-slug",  # Required: Project slug from dashboard
     app_id="my-api-service",           # Required: App slug inside that project
-    base_url="https://api.apilens.ai/api/v1",
+    base_url="https://ingest.apilens.ai/v1",
     env="production",
     enable_request_logging=True,
     log_request_body=True,
@@ -129,7 +129,7 @@ app.add_middleware(
     api_key=os.getenv("APILENS_API_KEY"),
     project_slug=os.getenv("APILENS_PROJECT_SLUG"),
     app_id=os.getenv("APILENS_APP_ID"),
-    base_url=os.getenv("APILENS_BASE_URL", "https://api.apilens.ai/api/v1"),
+    base_url=os.getenv("APILENS_BASE_URL", "https://ingest.apilens.ai/v1"),
     env=os.getenv("APILENS_ENVIRONMENT", "production"),
     enable_request_logging=True,
     log_request_body=True,
@@ -150,7 +150,7 @@ client = ApiLensClient(
     ApiLensConfig(
         api_key="your_app_api_key",
         project_slug="your-project-slug",
-        base_url="https://api.apilens.ai/api/v1",
+        base_url="https://ingest.apilens.ai/v1",
         environment="production",
     )
 )
@@ -176,7 +176,7 @@ client = ApiLensClient(
     ApiLensConfig(
         api_key="your_app_api_key",
         project_slug="your-project-slug",
-        base_url="https://api.apilens.ai/api/v1",
+        base_url="https://ingest.apilens.ai/v1",
         environment="production",
     )
 )
@@ -207,7 +207,7 @@ MIDDLEWARE = [
 APILENS_API_KEY = "your_app_api_key"
 APILENS_PROJECT_SLUG = "your-project-slug"
 APILENS_APP_ID = "your_app_id"
-APILENS_BASE_URL = "https://api.apilens.ai/api/v1"
+APILENS_BASE_URL = "https://ingest.apilens.ai/v1"
 APILENS_ENVIRONMENT = "production"
 ```
 
@@ -221,7 +221,7 @@ from apilens.litestar import ApiLensPlugin
 client = ApiLensClient(
     ApiLensConfig(
         api_key="your_app_api_key",
-        base_url="https://api.apilens.ai/api/v1",
+        base_url="https://ingest.apilens.ai/v1",
         environment="production",
     )
 )
@@ -247,7 +247,7 @@ app = Application()
 client = ApiLensClient(
     ApiLensConfig(
         api_key="your_app_api_key",
-        base_url="https://api.apilens.ai/api/v1",
+        base_url="https://ingest.apilens.ai/v1",
         environment="production",
     )
 )
@@ -266,7 +266,7 @@ instrument_app(
 | `api_key` | Yes | - | Your API key from API Lens dashboard |
 | `project_slug` | Yes | - | Your project slug from API Lens dashboard |
 | `app_id` | Yes | - | Your app slug inside that project |
-| `base_url` | No | `https://api.apilens.ai/api/v1` | API Lens ingest endpoint |
+| `base_url` | No | `https://ingest.apilens.ai/v1` | API Lens ingest endpoint |
 | `environment` | No | `production` | Environment name (e.g., production, staging, dev) |
 | `enable_request_logging` | No | `True` | Enable request/response logging |
 | `log_request_body` | No | `False` | Log request body (up to max size) |
