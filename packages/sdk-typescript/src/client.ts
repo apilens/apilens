@@ -134,9 +134,8 @@ class ApiLensClient {
     if (!isNonEmptyString(this.config.apiKey)) {
       throw new Error("apiKey is required");
     }
-    if (!isNonEmptyString(this.config.projectSlug)) {
-      throw new Error("projectSlug is required");
-    }
+    // projectSlug is optional: the API key is project-level, so the server
+    // derives the project from the key. appId selects which app in the project.
     if (!isNonEmptyString(this.config.appId)) {
       throw new Error("appId is required");
     }

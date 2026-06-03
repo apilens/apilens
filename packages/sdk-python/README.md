@@ -2,7 +2,19 @@
 
 Production-ready Python ingest client for API Lens with OpenTelemetry integration.
 
-> **⚠️ Breaking Change in v0.1.6:** Both `project_slug` and `app_id` are now required for all ingest paths. Make sure both match the same project in your dashboard.
+> **Easy setup:** your API key is **project-level**. You only need two values —
+> the project's `api_key` and the `app_id` of the app you're instrumenting.
+> (`project_slug` is no longer required — the server derives the project from the key.)
+>
+> ```python
+> from fastapi import FastAPI
+> from apilens.fastapi import ApiLensMiddleware
+>
+> app = FastAPI()
+> app.add_middleware(ApiLensMiddleware, api_key="apilens_xxx", app_id="orders-api")
+> ```
+>
+> `base_url` defaults to `https://ingest.apilens.ai/v1` (override with `APILENS_BASE_URL` for local dev).
 
 ## Framework support matrix
 
@@ -45,22 +57,27 @@ pip install ./packages/sdk-python
 pip install './packages/sdk-python[all]'
 ```
 
+## The two values you need
+
+- **`api_key`** — created on a project in the dashboard. It is **project-level**:
+  one key works for every app in that project.
+- **`app_id`** — the slug of the specific app you're instrumenting, so the SDK
+  knows which app the traffic belongs to.
+
+Find both in the [API Lens Dashboard](https://app.apilens.ai): the API key on the
+project's API-keys page, the app slug on the app's page.
+
 ## Quick start (manual capture)
 
 ```python
 from apilens import ApiLensClient, ApiLensConfig
 
 client = ApiLensClient(
-    ApiLensConfig(
-        api_key="your_app_api_key",
-        project_slug="your-project-slug",
-        base_url="https://ingest.apilens.ai/v1",
-        environment="production",
-    )
+    ApiLensConfig(api_key="apilens_xxx")  # project-level key
 )
 
 client.capture(
-    app_id="my-api-service",  # Required: App slug inside that project
+    app_id="orders-api",  # which app in the project
     method="GET",
     path="/health",
     status_code=200,
@@ -70,52 +87,24 @@ client.capture(
 client.shutdown(flush=True)
 ```
 
-### Getting your Project Slug and App ID
-
-You now need both:
-
-```python
-project_slug = "astra"
-app_id = "sidecar"
-```
-
-Use the project slug from the project page, and the app slug from the app page in that same project.
-
 ## FastAPI
 
 No OpenTelemetry instrumentation is required for endpoint + payload monitoring.
 
 ```python
 from fastapi import FastAPI
-from typing import Annotated
-from fastapi import Depends, Request
 from apilens.fastapi import ApiLensMiddleware, set_consumer
 
 app = FastAPI()
 
 app.add_middleware(
     ApiLensMiddleware,
-    api_key="your_app_api_key",      # Required: Your API key
-    project_slug="your-project-slug",  # Required: Project slug from dashboard
-    app_id="my-api-service",           # Required: App slug inside that project
-    base_url="https://ingest.apilens.ai/v1",
-    env="production",
-    enable_request_logging=True,
-    log_request_body=True,
-    log_response_body=True,
+    api_key="apilens_xxx",   # project-level key
+    app_id="orders-api",     # which app
 )
-
-def identify_consumer(request: Request, user_id: Annotated[str, Depends(lambda: "user_123")]):
-    set_consumer(request, identifier=user_id, name="Demo User", group="starter")
-
-app.router.dependencies.append(Depends(identify_consumer))
-
-@app.get("/v1/orders")
-def list_orders():
-    return {"ok": True}
 ```
 
-**Environment Variables (Recommended):**
+**Environment variables (recommended):**
 
 ```python
 import os
@@ -127,15 +116,11 @@ app = FastAPI()
 app.add_middleware(
     ApiLensMiddleware,
     api_key=os.getenv("APILENS_API_KEY"),
-    project_slug=os.getenv("APILENS_PROJECT_SLUG"),
     app_id=os.getenv("APILENS_APP_ID"),
-    base_url=os.getenv("APILENS_BASE_URL", "https://ingest.apilens.ai/v1"),
-    env=os.getenv("APILENS_ENVIRONMENT", "production"),
-    enable_request_logging=True,
-    log_request_body=True,
-    log_response_body=True,
 )
 ```
+
+Capture the calling consumer per request with `set_consumer(request, identifier=..., name=..., group=...)`.
 
 ## Starlette
 
@@ -145,22 +130,8 @@ from apilens import ApiLensClient, ApiLensConfig
 from apilens.starlette import instrument_app
 
 app = Starlette()
-
-client = ApiLensClient(
-    ApiLensConfig(
-        api_key="your_app_api_key",
-        project_slug="your-project-slug",
-        base_url="https://ingest.apilens.ai/v1",
-        environment="production",
-    )
-)
-
-instrument_app(
-    app,
-    client,
-    project_slug="your-project-slug",
-    app_id="your_app_id"
-)
+client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
+instrument_app(app, client, app_id="orders-api")
 ```
 
 ## Flask
@@ -171,31 +142,13 @@ from apilens import ApiLensClient, ApiLensConfig
 from apilens.flask import instrument_app
 
 app = Flask(__name__)
-
-client = ApiLensClient(
-    ApiLensConfig(
-        api_key="your_app_api_key",
-        project_slug="your-project-slug",
-        base_url="https://ingest.apilens.ai/v1",
-        environment="production",
-    )
-)
-
-instrument_app(
-    app,
-    client,
-    project_slug="your-project-slug",
-    app_id="your_app_id"
-)
-
-@app.get("/v1/invoices")
-def invoices():
-    return {"ok": True}
+client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
+instrument_app(app, client, app_id="orders-api")
 ```
 
 ## Django (DRF + Django Ninja)
 
-Add middleware in Django settings:
+Add the middleware and two settings:
 
 ```python
 MIDDLEWARE = [
@@ -203,12 +156,8 @@ MIDDLEWARE = [
     "apilens.django.ApiLensDjangoMiddleware",
 ]
 
-# Required configuration
-APILENS_API_KEY = "your_app_api_key"
-APILENS_PROJECT_SLUG = "your-project-slug"
-APILENS_APP_ID = "your_app_id"
-APILENS_BASE_URL = "https://ingest.apilens.ai/v1"
-APILENS_ENVIRONMENT = "production"
+APILENS_API_KEY = "apilens_xxx"   # project-level key
+APILENS_APP_ID = "orders-api"     # which app
 ```
 
 ## Litestar
@@ -218,21 +167,8 @@ from litestar import Litestar
 from apilens import ApiLensClient, ApiLensConfig
 from apilens.litestar import ApiLensPlugin
 
-client = ApiLensClient(
-    ApiLensConfig(
-        api_key="your_app_api_key",
-        base_url="https://ingest.apilens.ai/v1",
-        environment="production",
-    )
-)
-
-app = Litestar(
-    route_handlers=[],
-    plugins=[ApiLensPlugin(
-        client=client,
-        app_id="your_app_id"  # Required: Your app ID from dashboard
-    )]
-)
+client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
+app = Litestar(route_handlers=[], plugins=[ApiLensPlugin(client=client, app_id="orders-api")])
 ```
 
 ## BlackSheep
@@ -243,29 +179,17 @@ from apilens import ApiLensClient, ApiLensConfig
 from apilens.blacksheep import instrument_app
 
 app = Application()
-
-client = ApiLensClient(
-    ApiLensConfig(
-        api_key="your_app_api_key",
-        base_url="https://ingest.apilens.ai/v1",
-        environment="production",
-    )
-)
-
-instrument_app(
-    app,
-    client,
-    app_id="your_app_id"  # Required: Your app ID from dashboard
-)
+client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
+instrument_app(app, client, app_id="orders-api")
 ```
 
 ## Configuration Options
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `api_key` | Yes | - | Your API key from API Lens dashboard |
-| `project_slug` | Yes | - | Your project slug from API Lens dashboard |
-| `app_id` | Yes | - | Your app slug inside that project |
+| `api_key` | Yes | - | Project-level API key from the dashboard |
+| `app_id` | Yes | - | Slug of the app being instrumented |
+| `project_slug` | No | derived from key | Only needed for clarity/validation; the key already identifies the project |
 | `base_url` | No | `https://ingest.apilens.ai/v1` | API Lens ingest endpoint |
 | `environment` | No | `production` | Environment name (e.g., production, staging, dev) |
 | `enable_request_logging` | No | `True` | Enable request/response logging |
@@ -281,66 +205,18 @@ instrument_app(
 
 ## Troubleshooting
 
-### 422 Unprocessable Entity Error
+### Data not appearing in the dashboard
 
-If you're getting 422 errors, make sure you've included both `project_slug` and `app_id`:
+1. Verify `api_key` is valid (and belongs to the right project).
+2. Verify `app_id` matches an app in that project.
+3. Ensure `base_url` points to the correct endpoint.
+4. Check application logs for SDK errors.
+5. Wait up to ~30s for data to appear (batching delay).
 
-```python
-# ❌ Old way (will fail)
-app.add_middleware(
-    ApiLensMiddleware,
-    api_key="your_key",
-)
+### 422 Unprocessable Entity
 
-# ✅ New way (required since v0.1.6)
-app.add_middleware(
-    ApiLensMiddleware,
-    api_key="your_key",
-    project_slug="your-project-slug",
-    app_id="your_app_id",
-)
-```
-
-### Finding Your Project Slug and App ID
-
-1. Log in to [API Lens Dashboard](https://app.apilens.ai)
-2. Open your project and copy the project slug
-3. Open the app inside that project and copy the app slug
-
-### Data Not Appearing in Dashboard
-
-1. Verify `project_slug` is correct
-2. Verify `app_id` is correct for that project
-3. Check that `api_key` is valid
-4. Ensure `base_url` points to the correct endpoint
-5. Check application logs for SDK errors
-6. Wait up to 30 seconds for data to appear (batching delay)
-
-## Migration from v0.1.5 to v0.1.6
-
-**Breaking change:** `project_slug` is now required alongside `app_id`.
-
-Update all middleware/client configurations to include `project_slug` and `app_id`:
-
-```python
-# Before (v0.1.5)
-client = ApiLensClient(ApiLensConfig(
-    api_key="...",
-))
-
-# After (v0.1.6)
-client = ApiLensClient(ApiLensConfig(
-    api_key="...",
-    project_slug="your-project-slug",
-))
-
-client.capture(
-    app_id="your_app_id",
-    method="GET",
-    path="/health",
-    # ...
-)
-```
+A 422 from the ingest endpoint usually means `app_id` is missing or doesn't match
+an app in your key's project. Set `app_id` to the app's slug from the dashboard.
 
 ## Support
 
