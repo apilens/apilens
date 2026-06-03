@@ -349,25 +349,54 @@ LOGGING = {
 }
 
 # ---------------------------------------------------------------------------
-# Sentry — error + performance monitoring (https://sentry.io)
+# Sentry — full observability: errors + tracing + profiling + logs
 # ---------------------------------------------------------------------------
 # Active ONLY when SENTRY_DSN is set. In prod the DSN is injected from GCP Secret
 # Manager into the container env (startup.sh -> .env); it is intentionally NOT
-# committed to this repo. With no DSN (local/dev/CI) this whole block is a no-op,
-# so nothing breaks and nothing is sent.
+# committed to this repo. With no DSN (CI, or local without a DSN) this whole
+# block is a no-op. Set SENTRY_DSN in apps/api/.env to enable it locally too —
+# the environment is auto-tagged "development" when DEBUG is on.
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip()
 if SENTRY_DSN:
+    import logging as _logging
+
     import sentry_sdk
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
+
+    def _sentry_bool(name, default):
+        return os.environ.get(name, default).lower() in ("true", "1", "yes")
+
+    def _sentry_level(name, default):
+        return getattr(_logging, os.environ.get(name, default).upper(), _logging.INFO)
 
     sentry_sdk.init(
         dsn=SENTRY_DSN,
-        # The Django integration auto-enables; left implicit. Captures unhandled
-        # exceptions, request context, and (with tracing) per-request spans.
-        environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+        # The Django integration auto-enables (unhandled exceptions, request
+        # context, DB/cache/template spans). environment defaults to
+        # "development" in DEBUG, else "production"; override with SENTRY_ENVIRONMENT.
+        environment=os.environ.get("SENTRY_ENVIRONMENT")
+        or ("development" if DEBUG else "production"),
         release=os.environ.get("SENTRY_RELEASE") or None,
-        # Performance tracing: fraction of requests sampled (0.0–1.0).
-        traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
-        # Attach user/email to events. Set SENTRY_SEND_PII=False to scrub PII.
-        send_default_pii=os.environ.get("SENTRY_SEND_PII", "True").lower()
-        in ("true", "1", "yes"),
+        # --- Performance tracing --- fraction of requests traced (0.0–1.0).
+        # Default 1.0 = trace everything; lower it (e.g. 0.2) to save quota.
+        traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "1.0")),
+        # --- Profiling --- fraction of traced transactions profiled (CPU/line).
+        profiles_sample_rate=float(
+            os.environ.get("SENTRY_PROFILES_SAMPLE_RATE", "1.0")
+        ),
+        # --- Structured logs (Sentry "Logs") --- forward Python logging to Sentry.
+        enable_logs=_sentry_bool("SENTRY_ENABLE_LOGS", "True"),
+        integrations=[
+            LoggingIntegration(
+                # >= this level recorded as breadcrumbs on events
+                level=_sentry_level("SENTRY_BREADCRUMB_LEVEL", "INFO"),
+                # >= this level also captured as standalone Sentry issues
+                event_level=_sentry_level("SENTRY_EVENT_LEVEL", "ERROR"),
+                # >= this level forwarded to the Sentry Logs product
+                sentry_logs_level=_sentry_level("SENTRY_LOGS_LEVEL", "INFO"),
+            ),
+        ],
+        # Attach user/email/request data. Set SENTRY_SEND_PII=False to scrub PII.
+        send_default_pii=_sentry_bool("SENTRY_SEND_PII", "True"),
     )
