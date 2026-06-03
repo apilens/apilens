@@ -14,12 +14,15 @@ boot_disk_size = 40
 data_disk_size = 100
 
 # Public hostnames. app_domain serves the frontend (with /api/* proxied to the
-# backend); api_domain (optional) serves the backend on its own host. Caddy
-# auto-issues Let's Encrypt certs once these names resolve to the `instance_ip`
-# output, so create the DNS A records FIRST, then apply. Leave both empty to
-# serve plain HTTP on the raw IP.
-app_domain = "app.example.com"
-api_domain = "api.example.com"
+# backend); api_domain (optional) serves the backend on its own host;
+# ingest_domain (optional) serves the SDK telemetry ingestion API on its own
+# host, kept off api_domain so high-volume traffic never hits the dashboard.
+# Caddy auto-issues Let's Encrypt certs once these names resolve to the
+# `instance_ip` output, so create the DNS A records FIRST, then apply. Leave
+# empty to serve plain HTTP on the raw IP.
+app_domain    = "app.example.com"
+api_domain    = "api.example.com"
+ingest_domain = "ingest.example.com"
 
 ssh_source_ranges = ["0.0.0.0/0"]
 

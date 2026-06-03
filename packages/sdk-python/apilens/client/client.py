@@ -21,9 +21,9 @@ logger = logging.getLogger("apilens")
 class ApiLensConfig:
     api_key: str
     project_slug: str = ""
-    base_url: str = "https://api.apilens.ai/api/v1"
+    base_url: str = "https://ingest.apilens.ai/v1"
     environment: str = "production"
-    ingest_path: str = "/ingest/requests"
+    ingest_path: str = "/requests"
 
     batch_size: int = 200
     flush_interval: float = 3.0

@@ -25,7 +25,7 @@ app.use(express.json());
 
 useApiLens(app, {
   apiKey: process.env.APILENS_API_KEY,
-  baseUrl: "https://api.apilens.ai/api/v1",
+  baseUrl: "https://ingest.apilens.ai/v1",
   environment: "production",
   requestLogging: {
     maxPayloadBytes: 8192,
@@ -50,7 +50,7 @@ import { ApiLensClient } from "apilens-js-sdk";
 
 const client = new ApiLensClient({
   apiKey: "your_app_api_key",
-  baseUrl: "https://api.apilens.ai/api/v1",
+  baseUrl: "https://ingest.apilens.ai/v1",
   environment: "production",
 });
 

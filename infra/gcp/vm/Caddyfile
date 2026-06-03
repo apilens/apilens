@@ -13,8 +13,14 @@
 #
 # When a dedicated API hostname (API_SITE, e.g. "api.apilens.ai") is configured,
 # startup.sh APPENDS a second site block below that proxies everything to the
-# backend. It's appended (not kept here) so an empty API_SITE doesn't leave an
-# invalid empty site label.
+# backend EXCEPT /ingest/* (404'd — ingestion lives on its own host). It's
+# appended (not kept here) so an empty API_SITE doesn't leave an invalid empty
+# site label.
+#
+# When a dedicated ingestion hostname (INGEST_SITE, e.g. "ingest.apilens.ai") is
+# configured, startup.sh APPENDS a third site block that rewrites the public
+# /v1/* path onto Django's /ingest/v1/* mount and proxies to the backend. This
+# keeps high-volume SDK traffic off the dashboard API host.
 
 {$APP_SITE} {
 	encode gzip zstd

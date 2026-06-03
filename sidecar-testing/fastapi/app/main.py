@@ -16,7 +16,7 @@ app.add_middleware(
     api_key=os.getenv("APILENS_API_KEY"),
     project_slug=os.getenv("APILENS_PROJECT_SLUG"),
     app_id=os.getenv("APILENS_APP_ID"),
-    base_url=os.getenv("APILENS_BASE_URL", "http://localhost:8000/api/v1"),
+    base_url=os.getenv("APILENS_BASE_URL", "http://localhost:8000/ingest/v1"),
     env=os.getenv("APILENS_ENVIRONMENT", "production"),
     enable_request_logging=True,
     log_request_body=True,

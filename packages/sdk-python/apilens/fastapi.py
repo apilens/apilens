@@ -15,7 +15,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
             api_key="your_app_api_key",
             project_slug="your-project-slug",
             app_id="your_app_id",
-            base_url="https://api.apilens.ai/api/v1",
+            base_url="https://ingest.apilens.ai/v1",
             env="production",
         )
     """
@@ -28,7 +28,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         client_id: str | None = None,
         project_slug: str = "",
         app_id: str = "",
-        base_url: str = "https://api.apilens.ai/api/v1",
+        base_url: str = "https://ingest.apilens.ai/v1",
         env: str = "production",
         verify_tls: bool = True,
         ca_bundle_path: str = "",

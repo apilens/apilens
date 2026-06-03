@@ -8,14 +8,16 @@ locals {
 
   # Caddy site addresses. With no app_domain we serve plain HTTP on the IP
   # (":80"); with one, Caddy auto-issues a Let's Encrypt cert for that host.
-  app_site = var.app_domain != "" ? var.app_domain : ":80"
-  api_site = var.api_domain
+  app_site    = var.app_domain != "" ? var.app_domain : ":80"
+  api_site    = var.api_domain
+  ingest_site = var.ingest_domain
 
   # Django ALLOWED_HOSTS + CSRF/CORS origins derived from the domains. Internal
   # service names (api/web) and loopback are appended in startup.sh.
   allowed_hosts = join(",", compact([
     var.app_domain,
     var.api_domain,
+    var.ingest_domain,
     var.backend_allowed_hosts,
   ]))
 

@@ -30,7 +30,7 @@ def _get_client_from_settings() -> ApiLensClient:
     cfg = ApiLensConfig(
         api_key=api_key,
         project_slug=project_slug,
-        base_url=getattr(settings, "APILENS_BASE_URL", "https://api.apilens.ai/api/v1"),
+        base_url=getattr(settings, "APILENS_BASE_URL", "https://ingest.apilens.ai/v1"),
         environment=getattr(settings, "APILENS_ENVIRONMENT", "production"),
         batch_size=int(getattr(settings, "APILENS_BATCH_SIZE", 200)),
         flush_interval=float(getattr(settings, "APILENS_FLUSH_INTERVAL", 3.0)),

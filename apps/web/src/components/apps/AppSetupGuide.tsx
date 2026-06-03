@@ -20,10 +20,12 @@ const FRAMEWORK_OPTIONS: Record<
 const PYTHON_KEYWORDS = new Set(["from", "import", "app", "True", "False", "None"]);
 
 function getDefaultBaseUrl(): string {
+  // Telemetry ingestion is served on its own host, separate from the dashboard
+  // API (api.apilens.ai). SDKs POST to <ingest host>/v1/requests.
   if (typeof window !== "undefined" && window.location.hostname === "localhost") {
-    return "http://localhost:8000/api/v1";
+    return "http://localhost:8000/ingest/v1";
   }
-  return "https://api.apilens.ai/api/v1";
+  return "https://ingest.apilens.ai/v1";
 }
 
 function buildFrameworkSnippet(

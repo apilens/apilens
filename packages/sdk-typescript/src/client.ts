@@ -108,9 +108,9 @@ class ApiLensClient {
       projectSlug: String(config.projectSlug || config.project_slug || "").trim(),
       appId: String(config.appId || config.app_id || "").trim(),
       baseUrl: String(
-        config.baseUrl || config.base_url || "https://api.apilens.ai/api/v1",
+        config.baseUrl || config.base_url || "https://ingest.apilens.ai/v1",
       ),
-      ingestPath: String(config.ingestPath || config.ingest_path || "ingest/requests"),
+      ingestPath: String(config.ingestPath || config.ingest_path || "requests"),
       environment: String(config.environment || "production"),
       batchSize: Math.max(toNonNegativeInt(config.batchSize, 200), 1),
       flushIntervalMs: Math.max(toNonNegativeInt(config.flushIntervalMs, 3000), 50),
@@ -287,7 +287,7 @@ class ApiLensClient {
   }
 
   private async sendBatch(batch: ApiLensRecord[]): Promise<void> {
-    const rawIngestPath = String(this.config.ingestPath || "ingest/requests").trim();
+    const rawIngestPath = String(this.config.ingestPath || "requests").trim();
     const baseUrl = this.config.baseUrl.replace(/\/$/, "");
 
     let endpoint: string;
@@ -298,7 +298,7 @@ class ApiLensClient {
       const origin = new URL(`${baseUrl}/`).origin;
       endpoint = new URL(rawIngestPath, origin).toString();
     } else {
-      // Relative path appends to base path (e.g. /api/v1 + ingest/requests).
+      // Relative path appends to base path (e.g. /v1 + requests).
       endpoint = new URL(rawIngestPath, `${baseUrl}/`).toString();
     }
 
