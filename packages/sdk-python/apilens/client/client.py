@@ -37,7 +37,7 @@ class ApiLensConfig:
     retry_backoff_max: float = 5.0
 
     enabled: bool = True
-    user_agent: str = "apilens-python-sdk/0.1.3"
+    user_agent: str = "apilens-python-sdk/0.1.7"
 
 
 class ApiLensClient:
