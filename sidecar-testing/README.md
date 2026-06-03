@@ -20,4 +20,4 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Set `APILENS_API_KEY`, `APILENS_PROJECT_SLUG`, and `APILENS_APP_ID` in `.env`, then run the app.
+Set `APILENS_API_KEY` (project-level) and `APILENS_APP_ID` in `.env`, then run the app.

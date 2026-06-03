@@ -37,15 +37,15 @@ class ApiLensConfig:
     retry_backoff_max: float = 5.0
 
     enabled: bool = True
-    user_agent: str = "apilens-python-sdk/0.1.7"
+    user_agent: str = "apilens-python-sdk/0.1.8"
 
 
 class ApiLensClient:
     def __init__(self, config: ApiLensConfig, *, start_worker: bool = True) -> None:
         if not config.api_key:
             raise ValueError("api_key is required")
-        if not config.project_slug:
-            raise ValueError("project_slug is required")
+        # project_slug is optional: the API key is project-level, so the server
+        # derives the project from the key. You still pass app_id (which app).
 
         if config.batch_size <= 0:
             raise ValueError("batch_size must be > 0")

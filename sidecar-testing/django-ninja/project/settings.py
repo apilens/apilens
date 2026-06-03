@@ -48,8 +48,7 @@ USE_TZ = True
 STATIC_URL = "/static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# The API key is project-level, so you only need the key + which app it's for.
 APILENS_API_KEY = os.getenv("APILENS_API_KEY", "")
-APILENS_PROJECT_SLUG = os.getenv("APILENS_PROJECT_SLUG", "")
 APILENS_APP_ID = os.getenv("APILENS_APP_ID", "")
 APILENS_BASE_URL = os.getenv("APILENS_BASE_URL", "https://ingest.apilens.ai/v1")
-APILENS_ENVIRONMENT = os.getenv("APILENS_ENVIRONMENT", "development")

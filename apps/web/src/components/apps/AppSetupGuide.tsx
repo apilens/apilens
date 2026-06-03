@@ -19,136 +19,62 @@ const FRAMEWORK_OPTIONS: Record<
 
 const PYTHON_KEYWORDS = new Set(["from", "import", "app", "True", "False", "None"]);
 
-function getDefaultBaseUrl(): string {
-  // Telemetry ingestion is served on its own host, separate from the dashboard
-  // API (api.apilens.ai). SDKs POST to <ingest host>/v1/requests.
-  if (typeof window !== "undefined" && window.location.hostname === "localhost") {
-    return "http://localhost:8000/ingest/v1";
-  }
-  return "https://ingest.apilens.ai/v1";
-}
-
 function buildFrameworkSnippet(
   framework: FrameworkId,
   apiKey: string,
   appSlug: string,
-  projectSlug?: string,
-  projectLabel?: string,
 ): string {
-  const baseUrl = getDefaultBaseUrl();
-  const projectSlugValue = projectSlug?.trim() || "your-project-slug";
-  const projectComment = projectLabel?.trim()
-    ? framework === "express"
-      ? `// Project: ${projectLabel}\n// This API key must come from the same project.\n`
-      : `# Project: ${projectLabel}\n# This API key must come from the same project.\n`
-    : "";
-
+  // The API key is project-level, so setup needs just the key + which app it's
+  // for (app_id). base_url defaults to https://ingest.apilens.ai/v1.
   if (framework === "express") {
-    return `${projectComment}import express from "express";
+    return `import express from "express";
 import { useApiLens } from "apilens-js-sdk/express";
 
 const app = express();
 app.use(express.json());
 
 useApiLens(app, {
-  // Project-scoped key for ${projectLabel || "this app's project"}
-  apiKey: "${apiKey}",
-  // Project slug from the dashboard
-  projectSlug: "${projectSlugValue}",
-  // App slug inside that project
-  appId: "${appSlug}",
-  baseUrl: "${baseUrl}",
-  environment: "production",
-  requestLogging: {
-    logRequestBody: true,
-    logResponseBody: true,
-    maxPayloadBytes: 8192,
-  },
+  apiKey: "${apiKey}",   // project-level key
+  appId: "${appSlug}",   // which app
 });`;
   }
   if (framework === "fastapi") {
-    return `${projectComment}from fastapi import FastAPI
+    return `from fastapi import FastAPI
 from apilens.fastapi import ApiLensMiddleware
 
 app = FastAPI()
-
 app.add_middleware(
     ApiLensMiddleware,
-    # Project-scoped key for ${projectLabel || "this app's project"}
-    api_key="${apiKey}",
-    # Project slug from the dashboard
-    project_slug="${projectSlugValue}",
-    # App slug inside that project
-    app_id="${appSlug}",
-    base_url="${baseUrl}",
-    env="production",
-    enable_request_logging=True,
-    log_request_body=True,
-    log_response_body=True,
+    api_key="${apiKey}",   # project-level key
+    app_id="${appSlug}",   # which app
 )`;
   }
   if (framework === "flask") {
-    return `${projectComment}from flask import Flask
+    return `from flask import Flask
 from apilens import ApiLensClient, ApiLensConfig
 from apilens.flask import instrument_app
 
 app = Flask(__name__)
-
-client = ApiLensClient(
-    ApiLensConfig(
-        # Project-scoped key for ${projectLabel || "this app's project"}
-        api_key="${apiKey}",
-        project_slug="${projectSlugValue}",
-        base_url="${baseUrl}",
-        environment="production",
-    )
-)
-
-instrument_app(
-    app,
-    client,
-    project_slug="${projectSlugValue}",
-    app_id="${appSlug}",
-)`;
+client = ApiLensClient(ApiLensConfig(api_key="${apiKey}"))
+instrument_app(app, client, app_id="${appSlug}")`;
   }
   if (framework === "starlette") {
-    return `${projectComment}from starlette.applications import Starlette
+    return `from starlette.applications import Starlette
 from apilens import ApiLensClient, ApiLensConfig
 from apilens.starlette import instrument_app
 
 app = Starlette()
-
-client = ApiLensClient(
-    ApiLensConfig(
-        # Project-scoped key for ${projectLabel || "this app's project"}
-        api_key="${apiKey}",
-        project_slug="${projectSlugValue}",
-        base_url="${baseUrl}",
-        environment="production",
-    )
-)
-
-instrument_app(
-    app,
-    client,
-    project_slug="${projectSlugValue}",
-    app_id="${appSlug}",
-)`;
+client = ApiLensClient(ApiLensConfig(api_key="${apiKey}"))
+instrument_app(app, client, app_id="${appSlug}")`;
   }
-  return `${projectComment}# settings.py
+  return `# settings.py
 MIDDLEWARE = [
     # ...
     "apilens.django.ApiLensDjangoMiddleware",
 ]
 
-# Project-scoped key for ${projectLabel || "this app's project"}
-APILENS_API_KEY = "${apiKey}"
-# Project slug from the dashboard
-APILENS_PROJECT_SLUG = "${projectSlugValue}"
-# App slug inside that project
-APILENS_APP_ID = "${appSlug}"
-APILENS_BASE_URL = "${baseUrl}"
-APILENS_ENVIRONMENT = "production"`;
+APILENS_API_KEY = "${apiKey}"   # project-level key
+APILENS_APP_ID = "${appSlug}"   # which app`;
 }
 
 function buildInstallCommand(framework: FrameworkId): string {
@@ -286,7 +212,7 @@ export default function AppSetupGuide({
   const installCmd = buildInstallCommand(framework);
   const projectLabel = projectName?.trim() || projectSlug;
   const projectSlugValue = projectSlug?.trim() || "your-project-slug";
-  const snippet = buildFrameworkSnippet(framework, apiKey, appSlug, projectSlug, projectLabel);
+  const snippet = buildFrameworkSnippet(framework, apiKey, appSlug);
   const snippetLanguage = frameworkOption.packageLanguage === "python" ? "python" : "javascript";
 
   const copyText = async (text: string, item: "install" | "snippet" | "project-slug" | "app-id") => {

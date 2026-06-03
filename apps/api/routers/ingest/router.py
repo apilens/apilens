@@ -18,12 +18,12 @@ MAX_BATCH_SIZE = 1000
 
 
 def validate_project_slug(authenticated_project_slug: str, payload_project_slugs: set[str]) -> None:
-    normalized = {slug.strip() for slug in payload_project_slugs}
     if not authenticated_project_slug:
         raise AuthenticationError("API key must be scoped to a project")
-    if not normalized or "" in normalized:
-        raise ValidationError("project_slug is required for every record")
-    if normalized != {authenticated_project_slug}:
+    # The API key is project-level, so project_slug is optional — the key
+    # already identifies the project. If any record does send one, it must match.
+    provided = {slug.strip() for slug in payload_project_slugs if slug and slug.strip()}
+    if provided and provided != {authenticated_project_slug}:
         raise ValidationError(
             f"project_slug must match the API key project '{authenticated_project_slug}'"
         )
@@ -35,6 +35,9 @@ def resolve_app_identifiers(project_id: str, app_identifiers: set[str]) -> dict[
     Returns a mapping of {identifier: uuid_string}.
     Raises ValidationError if any identifiers are invalid.
     """
+    if any(not (i or "").strip() for i in app_identifiers):
+        raise ValidationError("app_id is required for every record")
+
     # Separate UUIDs from slugs
     uuids = set()
     slugs = set()

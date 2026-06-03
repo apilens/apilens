@@ -5,8 +5,10 @@ from ninja import Schema
 
 
 class RequestRecord(Schema):
-    project_slug: str  # Explicit project identifier (slug, required)
-    app_id: str  # Explicit app identifier (required)
+    # The API key is project-level, so project_slug is optional (derived from
+    # the key; validated only if sent). app_id selects which app in the project.
+    project_slug: str = ""
+    app_id: str
     timestamp: datetime
     environment: str
     method: str
@@ -33,8 +35,10 @@ class IngestResponse(Schema):
 
 
 class LogRecord(Schema):
-    project_slug: str  # Explicit project identifier (slug, required)
-    app_id: str  # Explicit app identifier (required)
+    # The API key is project-level, so project_slug is optional (derived from
+    # the key; validated only if sent). app_id selects which app in the project.
+    project_slug: str = ""
+    app_id: str
     timestamp: datetime
     environment: str
     level: str

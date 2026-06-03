@@ -43,8 +43,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         if client is None:
             if not resolved_key:
                 raise ValueError("api_key (or client_id) is required")
-            if not resolved_project_slug:
-                raise ValueError("project_slug is required")
+            # project_slug is optional: the project-level key identifies it.
             client = ApiLensClient(
                 ApiLensConfig(
                     api_key=resolved_key,
