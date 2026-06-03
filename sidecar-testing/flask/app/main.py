@@ -10,21 +10,16 @@ load_dotenv()
 
 app = Flask(__name__)
 
+# Minimal setup: an app-scoped API key is all you need — the server derives the
+# project and app from the key.
 client = ApiLensClient(
     ApiLensConfig(
         api_key=os.getenv("APILENS_API_KEY", ""),
-        project_slug=os.getenv("APILENS_PROJECT_SLUG", ""),
         base_url=os.getenv("APILENS_BASE_URL", "https://ingest.apilens.ai/v1"),
-        environment=os.getenv("APILENS_ENVIRONMENT", "development"),
     )
 )
 
-instrument_app(
-    app,
-    client,
-    project_slug=os.getenv("APILENS_PROJECT_SLUG", ""),
-    app_id=os.getenv("APILENS_APP_ID", ""),
-)
+instrument_app(app, client)
 
 
 @app.get("/health")

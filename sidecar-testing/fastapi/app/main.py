@@ -11,16 +11,13 @@ load_dotenv(dotenv_path=env_path)
 
 app = FastAPI()
 
+# Minimal setup: an app-scoped API key is all you need — the server derives the
+# project and app from the key. (base_url just points this example at a local
+# backend; it defaults to https://ingest.apilens.ai/v1 in production.)
 app.add_middleware(
     ApiLensMiddleware,
     api_key=os.getenv("APILENS_API_KEY"),
-    project_slug=os.getenv("APILENS_PROJECT_SLUG"),
-    app_id=os.getenv("APILENS_APP_ID"),
     base_url=os.getenv("APILENS_BASE_URL", "http://localhost:8000/ingest/v1"),
-    env=os.getenv("APILENS_ENVIRONMENT", "production"),
-    enable_request_logging=True,
-    log_request_body=True,
-    log_response_body=True,
 )
 
 @app.get("/v1/orders")
