@@ -11,6 +11,8 @@ describe("ApiLensClient", () => {
     const calls: Array<{ body?: string }> = [];
     const client = new ApiLensClient({
       apiKey: "test",
+      projectSlug: "test",
+      appId: "test",
       enabled: true,
       batchSize: 10,
       fetchImpl: async (_url, options) => {
@@ -40,6 +42,8 @@ describe("ApiLensClient", () => {
   it("drops oldest records when queue is full", () => {
     const client = new ApiLensClient({
       apiKey: "test",
+      projectSlug: "test",
+      appId: "test",
       enabled: true,
       batchSize: 10,
       maxQueueSize: 2,
@@ -62,6 +66,8 @@ describe("ApiLensClient", () => {
 
     const client = new ApiLensClient({
       apiKey: "test",
+      projectSlug: "test",
+      appId: "test",
       enabled: true,
       batchSize: 10,
       maxRetries: 2,
@@ -88,6 +94,8 @@ describe("ApiLensClient", () => {
     const urls: string[] = [];
     const client = new ApiLensClient({
       apiKey: "test",
+      projectSlug: "test",
+      appId: "test",
       baseUrl: "http://localhost:8000/api/v1",
       ingestPath: "ingest/requests",
       enabled: true,
@@ -108,6 +116,8 @@ describe("ApiLensClient", () => {
     const urls: string[] = [];
     const client = new ApiLensClient({
       apiKey: "test",
+      projectSlug: "test",
+      appId: "test",
       baseUrl: "http://localhost:8000/api/v1",
       ingestPath: "/ingest/requests",
       enabled: true,
@@ -128,6 +138,8 @@ describe("ApiLensClient", () => {
     const urls: string[] = [];
     const client = new ApiLensClient({
       apiKey: "test",
+      projectSlug: "test",
+      appId: "test",
       baseUrl: "http://localhost:8000/api/v1",
       ingestPath: "https://ingest.example.com/v2/requests",
       enabled: true,

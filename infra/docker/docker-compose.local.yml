@@ -1,7 +1,7 @@
 # Local development databases for APILens.
 #
-# Production uses Supabase (Postgres) + ClickHouse Cloud + Cloud Run; this
-# file exists solely for offline / local-dev work.
+# Production runs the same Postgres + ClickHouse + Redis on a single GCP VM via
+# docker-compose; this file exists solely for offline / local-dev work.
 #
 # Run:        pnpm db:up      (or: docker compose -f infra/docker/docker-compose.local.yml up -d)
 # Stop:       pnpm db:down
