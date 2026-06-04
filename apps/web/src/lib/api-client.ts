@@ -3,6 +3,14 @@ import type { FrameworkId } from "@/types/app";
 
 const DJANGO_API_URL = process.env.DJANGO_API_URL || "http://localhost:8000/api/v1";
 
+// Identity (IAM) service base for token issuance/validation. In production
+// AUTH_API_URL points at the dedicated identity service (internal
+// http://identity:8000/v1); when unset it falls back to the core API's /auth
+// path so local dev is unchanged. (Authenticated settings calls — 2FA, etc. —
+// keep flowing through fetchDjango / the back-compat alias.)
+const AUTH_API_URL =
+  process.env.AUTH_API_URL || `${DJANGO_API_URL}/auth`;
+
 export interface ApiResponse<T> {
   data?: T;
   error?: string;
@@ -300,7 +308,7 @@ async function refreshTokens(
 
   refreshInflight = (async () => {
     try {
-      const response = await fetch(`${DJANGO_API_URL}/auth/refresh`, {
+      const response = await fetch(`${AUTH_API_URL}/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh_token: refreshToken }),
@@ -1004,7 +1012,7 @@ export const apiClient = {
 
   async validateSession(refreshToken: string): Promise<ApiResponse<{ valid: boolean }>> {
     try {
-      const response = await fetch(`${DJANGO_API_URL}/auth/validate`, {
+      const response = await fetch(`${AUTH_API_URL}/validate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh_token: refreshToken }),

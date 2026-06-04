@@ -14,6 +14,7 @@ on:
     branches: [main]
     paths:
       - "apps/api/**"
+      - "apps/identity/**"
       - "apps/web/**"
       - "apps/ingest/**"
       - "pnpm-lock.yaml"
@@ -57,6 +58,30 @@ jobs:
           tags: |
             ${{ secrets.GCP_BACKEND_IMAGE_PATH }}:${{ github.sha }}
             ${{ secrets.GCP_BACKEND_IMAGE_PATH }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Identity (IAM) service (apps/identity). It is the backend image with the
+      # auth-only urlconf baked in, so it builds FROM the backend image we just
+      # pushed (BACKEND_IMAGE build-arg) — one source of truth, zero drift. Its
+      # image path is the same Artifact Registry repo with /identity instead of
+      # /backend. compose pulls ${REGISTRY_BASE}/identity.
+      - name: Derive identity image path
+        run: echo "IDENTITY_IMAGE_PATH=${GCP_BACKEND_IMAGE_PATH%/backend}/identity" >> "$GITHUB_ENV"
+        env:
+          GCP_BACKEND_IMAGE_PATH: ${{ secrets.GCP_BACKEND_IMAGE_PATH }}
+
+      - name: Build & push identity image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/identity
+          file: apps/identity/Dockerfile
+          push: true
+          build-args: |
+            BACKEND_IMAGE=${{ secrets.GCP_BACKEND_IMAGE_PATH }}:${{ github.sha }}
+          tags: |
+            ${{ env.IDENTITY_IMAGE_PATH }}:${{ github.sha }}
+            ${{ env.IDENTITY_IMAGE_PATH }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

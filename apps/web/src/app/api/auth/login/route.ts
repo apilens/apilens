@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createCipheriv, randomBytes, createHash } from "crypto";
 
-const DJANGO_API_URL = process.env.DJANGO_API_URL || "http://localhost:8000/api/v1";
+// Identity (IAM) service base. In production AUTH_API_URL points at the
+// dedicated identity service (internal http://identity:8000/v1); when unset
+// it falls back to the core API's /auth path so local dev is unchanged.
+const AUTH_API_URL =
+  process.env.AUTH_API_URL ||
+  `${process.env.DJANGO_API_URL || "http://localhost:8000/api/v1"}/auth`;
 const COOKIE_NAME = "apilens_session";
 
 function encryptSession(data: object): string {
@@ -26,7 +31,7 @@ export async function POST(request: NextRequest) {
       || request.headers.get("x-real-ip")
       || "unknown";
 
-    const response = await fetch(`${DJANGO_API_URL}/auth/login`, {
+    const response = await fetch(`${AUTH_API_URL}/login`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
