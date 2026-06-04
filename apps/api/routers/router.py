@@ -3,7 +3,7 @@ import logging
 from ninja import NinjaAPI
 from ninja.errors import AuthenticationError, ValidationError
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.db import IntegrityError, DatabaseError
 
 from core.exceptions.base import AppError
@@ -11,63 +11,59 @@ from core.exceptions.base import AppError
 logger = logging.getLogger(__name__)
 
 
+def _problem(request: HttpRequest, *, status: int, title: str, detail, type_: str = "about:blank") -> JsonResponse:
+    """RFC 9457 ``application/problem+json`` error body.
+
+    Includes a legacy ``error`` alias (= ``title``) so existing clients that read
+    ``{error, detail}`` keep working unchanged; ``detail`` carries the same value
+    it always did. We just add the standard ``type``/``status``/``instance``
+    members and the ``application/problem+json`` content type.
+    """
+    body = {
+        "type": type_,
+        "title": title,
+        "status": status,
+        "detail": detail,
+        "instance": request.path,
+        "error": title,
+    }
+    return JsonResponse(body, status=status, content_type="application/problem+json")
+
+
 def _register_exception_handlers(api: NinjaAPI) -> None:
     """Attach the shared domain -> HTTP exception handlers to a NinjaAPI instance.
 
-    Each NinjaAPI instance keeps its own handler registry, so the control-plane
-    and ingestion APIs both call this to get identical error semantics.
+    Every NinjaAPI instance keeps its own handler registry, so the control-plane
+    AND identity APIs both call this to get identical, RFC 9457-compliant error
+    semantics (``application/problem+json``).
     """
 
     @api.exception_handler(AppError)
     def app_error_handler(request: HttpRequest, exc: AppError) -> HttpResponse:
-        return api.create_response(
-            request,
-            {"error": exc.error_code, "detail": exc.message},
-            status=exc.status_code,
-        )
+        return _problem(request, status=exc.status_code, title=exc.error_code, detail=exc.message)
 
     @api.exception_handler(AuthenticationError)
     def authentication_error_handler(request: HttpRequest, exc: AuthenticationError) -> HttpResponse:
-        return api.create_response(
-            request,
-            {"error": "authentication_error", "detail": "Authentication required"},
-            status=401,
-        )
+        return _problem(request, status=401, title="authentication_error", detail="Authentication required")
 
     @api.exception_handler(ValidationError)
     def validation_error_handler(request: HttpRequest, exc: ValidationError) -> HttpResponse:
-        return api.create_response(
-            request,
-            {"error": "validation_error", "detail": exc.errors},
-            status=422,
-        )
+        return _problem(request, status=422, title="validation_error", detail=exc.errors)
 
     @api.exception_handler(IntegrityError)
     def integrity_error_handler(request: HttpRequest, exc: IntegrityError) -> HttpResponse:
         logger.warning("IntegrityError: %s", exc, exc_info=True)
-        return api.create_response(
-            request,
-            {"error": "conflict", "detail": "Resource conflict"},
-            status=409,
-        )
+        return _problem(request, status=409, title="conflict", detail="Resource conflict")
 
     @api.exception_handler(DatabaseError)
     def database_error_handler(request: HttpRequest, exc: DatabaseError) -> HttpResponse:
         logger.exception("DatabaseError: %s", exc)
-        return api.create_response(
-            request,
-            {"error": "internal_error", "detail": "Something went wrong"},
-            status=500,
-        )
+        return _problem(request, status=500, title="internal_error", detail="Something went wrong")
 
     @api.exception_handler(Exception)
     def generic_error_handler(request: HttpRequest, exc: Exception) -> HttpResponse:
         logger.exception("Unhandled exception: %s", exc)
-        return api.create_response(
-            request,
-            {"error": "internal_error", "detail": "Something went wrong"},
-            status=500,
-        )
+        return _problem(request, status=500, title="internal_error", detail="Something went wrong")
 
 
 # ---------------------------------------------------------------------------
@@ -108,21 +104,10 @@ api.add_router("/projects", projects_router, tags=["Projects"])
 
 # ---------------------------------------------------------------------------
 # Identity (IAM) API — the bounded auth-only surface served by the identity
-# service on auth.apilens.ai (config.urls_identity). Its own OpenAPI; errors as
-# RFC 9457 application/problem+json. Mounts ONLY the auth router.
+# service on auth.apilens.ai (config.urls_identity). Its own OpenAPI; shares the
+# same RFC 9457 application/problem+json handlers as the control plane via
+# _register_exception_handlers. Mounts ONLY the auth router.
 # ---------------------------------------------------------------------------
-def _problem(request: HttpRequest, *, status: int, title: str, detail, type_: str = "about:blank"):
-    """RFC 9457 problem+json. Includes a legacy `error` alias (= title) as an
-    extension member so existing clients that read {error, detail} keep working
-    during the cutover."""
-    from django.http import JsonResponse
-    body = {
-        "type": type_, "title": title, "status": status,
-        "detail": detail, "instance": request.path, "error": title,
-    }
-    return JsonResponse(body, status=status, content_type="application/problem+json")
-
-
 identity_api = NinjaAPI(
     title="APILens Identity API",
     version="1.0.0",
@@ -131,27 +116,7 @@ identity_api = NinjaAPI(
     docs_url="/docs",
     openapi_url="/openapi.json",
 )
-
-
-@identity_api.exception_handler(AppError)
-def _identity_app_error(request, exc):
-    return _problem(request, status=exc.status_code, title=exc.error_code, detail=exc.message)
-
-
-@identity_api.exception_handler(AuthenticationError)
-def _identity_auth_error(request, exc):
-    return _problem(request, status=401, title="authentication_error", detail="Authentication required")
-
-
-@identity_api.exception_handler(ValidationError)
-def _identity_validation_error(request, exc):
-    return _problem(request, status=422, title="validation_error", detail=exc.errors)
-
-
-@identity_api.exception_handler(Exception)
-def _identity_unhandled(request, exc):
-    logger.exception("Unhandled identity error: %s", exc)
-    return _problem(request, status=500, title="internal_error", detail="Something went wrong")
+_register_exception_handlers(identity_api)
 
 
 @identity_api.get("/.well-known/openid-configuration", tags=["Discovery"])
