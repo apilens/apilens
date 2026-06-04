@@ -238,10 +238,13 @@ IMAGE_TAG=${IMAGE_TAG}
 APP_SITE=${APP_SITE}
 API_SITE=${API_SITE}
 INGEST_SITE=${INGEST_SITE}
-DJANGO_ALLOWED_HOSTS=${ALLOWED_HOSTS},api,web,localhost,127.0.0.1
+DJANGO_ALLOWED_HOSTS=${ALLOWED_HOSTS},api,identity,ingest,web,localhost,127.0.0.1
 CSRF_TRUSTED_ORIGINS=${CSRF_ORIGINS}
 CORS_ALLOWED_ORIGINS=${CORS_ORIGINS}
 FRONTEND_URL=${FRONTEND_URL}
+# IdP issuer = the app's public origin now that identity is served under
+# app.apilens.ai (/.well-known/* + /auth/v1/*) instead of a separate auth.* host.
+JWT_ISSUER=${FRONTEND_URL}
 MEDIA_BUCKET=${MEDIA_BUCKET}
 GS_PROJECT_ID=${PROJECT_ID}
 DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
