@@ -245,7 +245,12 @@ async function fetchDjango<T>(
     return { error: "Not authenticated", status: 401 };
   }
 
-  const url = `${DJANGO_API_URL}${endpoint}`;
+  // Auth/identity endpoints (2FA, etc.) live on the identity service, not the
+  // core API. Route "/auth/*" to AUTH_API_URL (dropping the "/auth" segment,
+  // since AUTH_API_URL is already the auth base); everything else -> core.
+  const url = endpoint.startsWith("/auth/")
+    ? `${AUTH_API_URL}${endpoint.slice("/auth".length)}`
+    : `${DJANGO_API_URL}${endpoint}`;
 
   try {
     let response = await fetch(url, {
