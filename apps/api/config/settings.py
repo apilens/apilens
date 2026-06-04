@@ -40,6 +40,15 @@ ALLOWED_HOSTS = [
 if DEBUG:
     ALLOWED_HOSTS += [".ngrok-free.app", ".ngrok.io"]
 
+# Internal docker-network hostnames used for container-to-container traffic
+# (the web BFF -> api/identity/ingest) and container healthchecks (localhost).
+# These are never publicly routable, so always allow them — otherwise Django
+# rejects internal requests with 400 DisallowedHost even when
+# DJANGO_ALLOWED_HOSTS lists only the public domains, which silently breaks the
+# BFF->service calls and the healthchecks.
+ALLOWED_HOSTS += ["localhost", "127.0.0.1", "api", "identity", "ingest"]
+ALLOWED_HOSTS = list(dict.fromkeys(ALLOWED_HOSTS))  # de-dupe, keep order
+
 if not DEBUG and SECRET_KEY == "django-insecure-change-me-in-production":
     raise RuntimeError("DJANGO_SECRET_KEY must be set to a strong value in production")
 
