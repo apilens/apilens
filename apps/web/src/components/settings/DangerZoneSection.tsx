@@ -9,31 +9,29 @@ interface DangerZoneSectionProps {
 }
 
 interface AccountFootprint {
-  apiKeys: number;
   passkeys: number;
   sessions: number;
 }
 
 /**
  * Fetches a quick snapshot of what'll be erased when the user deletes their
- * account so the confirm modal can show concrete numbers ("4 API keys, 2
- * passkeys, 3 sessions") instead of vague copy. Small parallel requests, only
- * fired when the user opens the modal.
+ * account so the confirm modal can show concrete numbers ("2 passkeys, 3
+ * sessions") instead of vague copy. Small parallel requests, only fired when
+ * the user opens the modal. (API keys are project-level — managed per project —
+ * so they're not part of the account footprint.)
  */
 async function fetchFootprint(): Promise<AccountFootprint> {
   const get = async (url: string): Promise<unknown[]> => {
     const res = await fetch(url);
     if (!res.ok) return [];
     const data = await res.json().catch(() => ({}));
-    return data.keys || data.passkeys || data.sessions || [];
+    return data.passkeys || data.sessions || [];
   };
-  const [apiKeys, passkeys, sessions] = await Promise.all([
-    get("/api/account/api-keys"),
+  const [passkeys, sessions] = await Promise.all([
     get("/api/account/passkeys"),
     get("/api/account/sessions"),
   ]);
   return {
-    apiKeys: apiKeys.length,
     passkeys: passkeys.length,
     sessions: sessions.length,
   };
@@ -53,7 +51,7 @@ export default function DangerZoneSection({ onDeleteAccount }: DangerZoneSection
     setIsLoadingFootprint(true);
     fetchFootprint()
       .then(setFootprint)
-      .catch(() => setFootprint({ apiKeys: 0, passkeys: 0, sessions: 0 }))
+      .catch(() => setFootprint({ passkeys: 0, sessions: 0 }))
       .finally(() => setIsLoadingFootprint(false));
   }, [showConfirm]);
 
@@ -85,11 +83,6 @@ export default function DangerZoneSection({ onDeleteAccount }: DangerZoneSection
     if (!footprint) return null;
     const lines: string[] = [];
     lines.push("Your profile and email");
-    if (footprint.apiKeys > 0) {
-      lines.push(`${footprint.apiKeys} API key${footprint.apiKeys === 1 ? "" : "s"} (any integrations using them will break immediately)`);
-    } else {
-      lines.push("Any API keys you create later");
-    }
     if (footprint.passkeys > 0) {
       lines.push(`${footprint.passkeys} passkey${footprint.passkeys === 1 ? "" : "s"}`);
     }
