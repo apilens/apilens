@@ -73,3 +73,34 @@ resource "google_secret_manager_secret" "sentry_dsn" {
   }
   depends_on = [google_project_service.apis]
 }
+
+# RS256 JWT signing private key (base64 PEM). Created empty; populate the version
+# manually post-apply (the keypair is generated out-of-band). No version => the
+# backend falls back to HS256 (safe).
+resource "google_secret_manager_secret" "jwt_private_key" {
+  secret_id = "apilens-jwt-private-key"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.apis]
+}
+
+# Shared secret guarding the identity introspection endpoint (ingest -> identity).
+# Auto-generated so it's always populated.
+resource "random_password" "introspect_secret" {
+  length  = 48
+  special = false
+}
+
+resource "google_secret_manager_secret" "introspect_secret" {
+  secret_id = "apilens-introspect-secret"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_version" "introspect_secret" {
+  secret      = google_secret_manager_secret.introspect_secret.id
+  secret_data = random_password.introspect_secret.result
+}

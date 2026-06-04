@@ -15,6 +15,11 @@ SECRET_KEY = os.environ.get(
     "django-insecure-change-me-in-production"
 )
 
+# RSA private key (PEM, or base64-encoded PEM) for signing access tokens with
+# RS256 + a JWKS endpoint. When empty, JWT signing falls back to HS256 with
+# SECRET_KEY (see core/auth/keys.py + core/auth/jwt.py).
+JWT_PRIVATE_KEY = os.environ.get("JWT_PRIVATE_KEY", "")
+
 DEBUG = os.environ.get("DJANGO_DEBUG", "False").lower() in ("true", "1", "yes")
 
 ALLOWED_HOSTS = [

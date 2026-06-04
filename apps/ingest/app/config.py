@@ -85,4 +85,21 @@ def load_clickhouse() -> ClickHouseConfig:
     )
 
 
+@dataclass(frozen=True)
+class IntrospectConfig:
+    url: str
+    secret: str
+
+
+def load_introspect() -> IntrospectConfig:
+    # Defaults target the identity container on the internal docker network.
+    return IntrospectConfig(
+        url=_first(
+            "APILENS_INTROSPECT_URL",
+            default="http://identity:8000/api/v1/auth/introspect",
+        ),
+        secret=_first("INTERNAL_INTROSPECT_SECRET", default=""),
+    )
+
+
 MAX_BATCH_SIZE = 1000

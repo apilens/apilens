@@ -8,6 +8,8 @@ locals {
     clickhouse_password = google_secret_manager_secret.clickhouse_password.secret_id
     resend_api_key      = google_secret_manager_secret.resend_api_key.secret_id
     sentry_dsn          = google_secret_manager_secret.sentry_dsn.secret_id
+    jwt_private_key     = google_secret_manager_secret.jwt_private_key.secret_id
+    introspect_secret   = google_secret_manager_secret.introspect_secret.secret_id
   }
 }
 

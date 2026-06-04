@@ -1,54 +1,58 @@
-"""API-key authentication — ports apps/api ApiKeyAuth.
+"""API-key authentication via the identity service's introspection endpoint.
 
-The key is project-level: hash → look up an active key whose project + owner are
-active, and return that project. (Mirrors auth_api_keys / projects / users joins.)
+Instead of re-implementing the key lookup, the ingest service calls the
+identity service (`POST {INTROSPECT_URL}` with a shared internal secret) and
+caches the result briefly. This keeps auth logic in one place (the IAM service)
+per the CNCF pattern; the short TTL cache bounds latency and tolerates brief
+identity blips for already-seen keys.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
+import threading
+import time
+import urllib.error
+import urllib.request
 
-from .db import pg_conn
+from .config import load_introspect
 
-# Update last_used_at at most this often, matching the backend's debounce.
-_LAST_USED_DEBOUNCE_SECONDS = 60
+_TTL_SECONDS = 60.0
+_cache: dict[str, tuple[float, tuple[str, str] | None]] = {}
+_lock = threading.Lock()
+
+
+def _introspect(api_key: str) -> tuple[str, str] | None:
+    cfg = load_introspect()
+    body = json.dumps({"api_key": api_key}).encode()
+    req = urllib.request.Request(
+        cfg.url,
+        method="POST",
+        data=body,
+        headers={"Content-Type": "application/json", "X-Internal-Secret": cfg.secret},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return None
+    if not data.get("active"):
+        return None
+    return str(data["project_id"]), str(data["project_slug"])
 
 
 def authenticate(api_key: str) -> tuple[str, str] | None:
-    """Return (project_id, project_slug) for a valid key, else None."""
+    """Return (project_id, project_slug) for a valid key, else None (cached)."""
     if not api_key:
         return None
-    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
-    with pg_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT k.id, k.project_id, p.slug
-                FROM auth_api_keys k
-                JOIN projects p ON p.id = k.project_id
-                JOIN users u ON u.id = p.owner_id
-                WHERE k.key_hash = %s
-                  AND k.is_revoked = false
-                  AND (k.expires_at IS NULL OR k.expires_at > now())
-                  AND p.is_active = true
-                  AND u.is_active = true
-                LIMIT 1
-                """,
-                (key_hash,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                return None
-            key_id, project_id, project_slug = row
-            # Debounced last_used_at bump (avoids a write on every request).
-            cur.execute(
-                """
-                UPDATE auth_api_keys
-                SET last_used_at = now()
-                WHERE id = %s
-                  AND (last_used_at IS NULL
-                       OR last_used_at < now() - interval '%s seconds')
-                """,
-                (key_id, _LAST_USED_DEBOUNCE_SECONDS),
-            )
-    return str(project_id), project_slug
+    cache_key = hashlib.sha256(api_key.encode()).hexdigest()
+    now = time.monotonic()
+    with _lock:
+        entry = _cache.get(cache_key)
+        if entry and entry[0] > now:
+            return entry[1]
+    result = _introspect(api_key)
+    with _lock:
+        _cache[cache_key] = (now + _TTL_SECONDS, result)
+    return result

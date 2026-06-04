@@ -467,3 +467,51 @@ def regenerate_backup_codes(request: HttpRequest):
 
 # /2fa/verify-login removed — replaced by /auth/login + /auth/2fa/exchange flow
 # (challenge-token avoids resubmitting the password for the second factor).
+
+
+# ── Service endpoints: JWKS + API-key introspection ──────────────────────────
+# Served by the identity service (Caddy routes /api/v1/auth/* there).
+
+from ninja import Schema
+
+
+@router.get("/.well-known/jwks.json")
+def jwks(request: HttpRequest):
+    """Public RS256 verification keys (empty list when running on legacy HS256)."""
+    from core.auth import keys
+    return keys.jwks()
+
+
+class IntrospectRequest(Schema):
+    api_key: str
+
+
+@router.post("/introspect")
+def introspect(request: HttpRequest, data: IntrospectRequest):
+    """Validate an API key → its project context. Used by the ingest service so
+    it doesn't re-implement the key lookup. Guarded by an internal shared secret
+    (the auth host is publicly routed)."""
+    import hashlib
+    import os
+    from apps.auth.models import ApiKey
+    from core.exceptions.base import AuthenticationError
+
+    expected = os.environ.get("INTERNAL_INTROSPECT_SECRET", "")
+    if not expected or request.headers.get("X-Internal-Secret", "") != expected:
+        raise AuthenticationError("introspection requires a valid internal secret")
+
+    key_hash = hashlib.sha256(data.api_key.encode()).hexdigest()
+    api_key = (
+        ApiKey.objects.active()
+        .select_related("project", "project__owner")
+        .filter(key_hash=key_hash, project__is_active=True, project__owner__is_active=True)
+        .first()
+    )
+    if api_key is None:
+        return {"active": False}
+    return {
+        "active": True,
+        "project_id": str(api_key.project_id),
+        "project_slug": api_key.project.slug,
+        "owner_id": str(api_key.project.owner_id),
+    }
