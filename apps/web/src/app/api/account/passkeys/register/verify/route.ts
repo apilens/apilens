@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 
-const DJANGO_API_URL = process.env.DJANGO_API_URL || "http://localhost:8000/api/v1";
+// Auth/identity calls go to the identity service (AUTH_API_URL); default
+// falls back to the core API's /auth path so local dev is unchanged.
+const AUTH_API_URL =
+  process.env.AUTH_API_URL ||
+  `${process.env.DJANGO_API_URL || "http://localhost:8000/api/v1"}/auth`;
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,7 +18,7 @@ export async function POST(request: NextRequest) {
     console.log("Verify request - challenge received:", body.challenge);
     console.log("Verify request - credential ID:", body.credential?.id);
 
-    const response = await fetch(`${DJANGO_API_URL}/auth/passkey/register/verify`, {
+    const response = await fetch(`${AUTH_API_URL}/passkey/register/verify`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

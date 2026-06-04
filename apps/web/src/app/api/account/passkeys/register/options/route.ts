@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession, setSession, clearSession } from "@/lib/session";
 
-const DJANGO_API_URL = process.env.DJANGO_API_URL || "http://localhost:8000/api/v1";
+// Auth/identity calls go to the identity service (AUTH_API_URL); default
+// falls back to the core API's /auth path so local dev is unchanged.
+const AUTH_API_URL =
+  process.env.AUTH_API_URL ||
+  `${process.env.DJANGO_API_URL || "http://localhost:8000/api/v1"}/auth`;
 
 async function refreshAccessToken(refreshToken: string): Promise<{ access_token: string; refresh_token: string } | null> {
   try {
-    const response = await fetch(`${DJANGO_API_URL}/auth/refresh`, {
+    const response = await fetch(`${AUTH_API_URL}/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: refreshToken }),
@@ -25,7 +29,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let response = await fetch(`${DJANGO_API_URL}/auth/passkey/register/options`, {
+    let response = await fetch(`${AUTH_API_URL}/passkey/register/options`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -46,7 +50,7 @@ export async function POST(request: NextRequest) {
 
       console.log("Token refreshed successfully, retrying request...");
       // Retry with new token
-      response = await fetch(`${DJANGO_API_URL}/auth/passkey/register/options`, {
+      response = await fetch(`${AUTH_API_URL}/passkey/register/options`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
