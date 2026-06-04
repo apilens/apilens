@@ -23,6 +23,7 @@ data_disk_size = 100
 app_domain    = "app.example.com"
 api_domain    = "api.example.com"
 ingest_domain = "ingest.example.com"
+auth_domain   = "auth.example.com"
 
 ssh_source_ranges = ["0.0.0.0/0"]
 

@@ -29,6 +29,7 @@ IMAGE_TAG="$(attr apilens-image-tag)"
 APP_SITE="$(attr apilens-app-site)"
 API_SITE="$(attr apilens-api-site)"
 INGEST_SITE="$(attr apilens-ingest-site)"
+AUTH_SITE="$(attr apilens-auth-site)"
 ALLOWED_HOSTS="$(attr apilens-allowed-hosts)"
 CSRF_ORIGINS="$(attr apilens-csrf-origins)"
 DJANGO_SECRET_ID="$(attr apilens-django-secret-id)"
@@ -169,8 +170,11 @@ ${API_SITE} {
 	handle /ingest/* {
 		respond 404
 	}
-	# Auth surface (login, JWT issuance + JWKS, introspection) -> identity service.
+	# Legacy auth path -> identity service (rewritten onto its canonical /v1/*).
+	# The identity service's own host is auth.apilens.ai; this alias keeps
+	# existing clients working during the cutover.
 	handle /api/v1/auth/* {
+		uri replace /api/v1/auth /v1
 		reverse_proxy identity:8000
 	}
 	# Everything else (dashboard control plane) -> core api.
@@ -190,6 +194,18 @@ if [[ -n "${INGEST_SITE}" ]]; then
 ${INGEST_SITE} {
 	encode gzip zstd
 	reverse_proxy ingest:8000
+}
+CADDY
+fi
+
+# Append the dedicated auth.<domain> site block — the identity (IAM) service.
+# Serves the OIDC discovery + JWKS at the root and the API under /v1/*.
+if [[ -n "${AUTH_SITE}" ]]; then
+  cat >> /opt/apilens/Caddyfile <<CADDY
+
+${AUTH_SITE} {
+	encode gzip zstd
+	reverse_proxy identity:8000
 }
 CADDY
 fi

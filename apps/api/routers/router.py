@@ -2,6 +2,7 @@ import logging
 
 from ninja import NinjaAPI
 from ninja.errors import AuthenticationError, ValidationError
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.db import IntegrityError, DatabaseError
 
@@ -94,7 +95,6 @@ from routers.auth.router import router as auth_router
 from routers.users.router import router as users_router
 from routers.projects.router import router as projects_router
 
-api.add_router("/auth", auth_router, tags=["Auth"])
 api.add_router("/users", users_router, tags=["Users"])
 api.add_router("/projects", projects_router, tags=["Projects"])
 
@@ -102,3 +102,77 @@ api.add_router("/projects", projects_router, tags=["Projects"])
 
 # Telemetry ingestion is NOT served here anymore — it's a separate service
 # (apps/ingest, served on ingest.apilens.ai). See infra/gcp/vm/startup.sh.
+# Authentication is NOT served here anymore either — it's the identity service
+# (apps auth surface, served on auth.apilens.ai). See identity_api below.
+
+
+# ---------------------------------------------------------------------------
+# Identity (IAM) API — the bounded auth-only surface served by the identity
+# service on auth.apilens.ai (config.urls_identity). Its own OpenAPI; errors as
+# RFC 9457 application/problem+json. Mounts ONLY the auth router.
+# ---------------------------------------------------------------------------
+def _problem(request: HttpRequest, *, status: int, title: str, detail, type_: str = "about:blank"):
+    """RFC 9457 problem+json. Includes a legacy `error` alias (= title) as an
+    extension member so existing clients that read {error, detail} keep working
+    during the cutover."""
+    from django.http import JsonResponse
+    body = {
+        "type": type_, "title": title, "status": status,
+        "detail": detail, "instance": request.path, "error": title,
+    }
+    return JsonResponse(body, status=status, content_type="application/problem+json")
+
+
+identity_api = NinjaAPI(
+    title="APILens Identity API",
+    version="1.0.0",
+    description="Authentication & identity (magic-link, passkey, 2FA, tokens, JWKS).",
+    urls_namespace="identity",
+    docs_url="/docs",
+    openapi_url="/openapi.json",
+)
+
+
+@identity_api.exception_handler(AppError)
+def _identity_app_error(request, exc):
+    return _problem(request, status=exc.status_code, title=exc.error_code, detail=exc.message)
+
+
+@identity_api.exception_handler(AuthenticationError)
+def _identity_auth_error(request, exc):
+    return _problem(request, status=401, title="authentication_error", detail="Authentication required")
+
+
+@identity_api.exception_handler(ValidationError)
+def _identity_validation_error(request, exc):
+    return _problem(request, status=422, title="validation_error", detail=exc.errors)
+
+
+@identity_api.exception_handler(Exception)
+def _identity_unhandled(request, exc):
+    logger.exception("Unhandled identity error: %s", exc)
+    return _problem(request, status=500, title="internal_error", detail="Something went wrong")
+
+
+@identity_api.get("/.well-known/openid-configuration", tags=["Discovery"])
+def openid_configuration(request: HttpRequest):
+    from core.auth import keys
+    return keys.openid_configuration(getattr(settings, "JWT_ISSUER", "https://auth.apilens.ai"))
+
+
+@identity_api.get("/livez", tags=["System"])
+def livez(request: HttpRequest):
+    return {"status": "ok"}
+
+
+@identity_api.get("/readyz", tags=["System"])
+def readyz(request: HttpRequest):
+    from django.db import connections
+    try:
+        connections["default"].cursor().execute("SELECT 1")
+    except Exception:
+        return identity_api.create_response(request, {"status": "not-ready"}, status=503)
+    return {"status": "ready"}
+
+
+identity_api.add_router("", auth_router, tags=["Auth"])
