@@ -165,15 +165,14 @@ CADDY
 fi
 
 # Append the dedicated ingest.<domain> site block when configured. SDKs POST to
-# https://<ingest_site>/v1/* ; Caddy prepends /ingest so it hits Django's
-# /ingest/v1/* mount (the separate ingestion NinjaAPI instance).
+# https://<ingest_site>/v1/* which is served by the standalone ingestion
+# service (apps/ingest, FastAPI) — a separate container from the dashboard API.
 if [[ -n "${INGEST_SITE}" ]]; then
   cat >> /opt/apilens/Caddyfile <<CADDY
 
 ${INGEST_SITE} {
 	encode gzip zstd
-	rewrite * /ingest{uri}
-	reverse_proxy api:8000
+	reverse_proxy ingest:8000
 }
 CADDY
 fi

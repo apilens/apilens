@@ -1,12 +1,17 @@
+"""Wire schemas — mirror apps/api/routers/ingest/schemas.py exactly so the
+existing SDKs (apilenss / apilens-js-sdk) post the same payloads unchanged.
+"""
+
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Any, Optional
 
-from ninja import Schema
+from pydantic import BaseModel, Field
 
 
-class RequestRecord(Schema):
-    # The API key is project-level, so project_slug is optional (derived from
-    # the key; validated only if sent). app_id selects which app in the project.
+class RequestRecord(BaseModel):
+    # project_slug is optional (the project-level API key identifies the project);
+    # app_id selects which app in that project.
     project_slug: str = ""
     app_id: str
     timestamp: datetime
@@ -26,17 +31,15 @@ class RequestRecord(Schema):
     response_payload: str = ""
 
 
-class IngestRequest(Schema):
+class IngestRequest(BaseModel):
     requests: list[RequestRecord]
 
 
-class IngestResponse(Schema):
+class IngestResponse(BaseModel):
     accepted: int
 
 
-class LogRecord(Schema):
-    # The API key is project-level, so project_slug is optional (derived from
-    # the key; validated only if sent). app_id selects which app in the project.
+class LogRecord(BaseModel):
     project_slug: str = ""
     app_id: str
     timestamp: datetime
@@ -53,12 +56,12 @@ class LogRecord(Schema):
     trace_id: str = ""
     span_id: str = ""
     payload: str = ""
-    attributes: dict[str, Any] = {}
+    attributes: dict = Field(default_factory=dict)
 
 
-class IngestLogsRequest(Schema):
+class IngestLogsRequest(BaseModel):
     logs: list[LogRecord]
 
 
-class IngestLogsResponse(Schema):
+class IngestLogsResponse(BaseModel):
     accepted: int

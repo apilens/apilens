@@ -15,6 +15,7 @@ on:
     paths:
       - "apps/api/**"
       - "apps/web/**"
+      - "apps/ingest/**"
       - "pnpm-lock.yaml"
       - "infra/gcp/vm/**"
   workflow_dispatch:
@@ -56,6 +57,26 @@ jobs:
           tags: |
             ${{ secrets.GCP_BACKEND_IMAGE_PATH }}:${{ github.sha }}
             ${{ secrets.GCP_BACKEND_IMAGE_PATH }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Ingestion service (apps/ingest, FastAPI). Its image path is the same
+      # Artifact Registry repo as the backend, with /ingest instead of /backend
+      # (so no extra secret is needed). compose pulls ${REGISTRY_BASE}/ingest.
+      - name: Derive ingest image path
+        run: echo "INGEST_IMAGE_PATH=${GCP_BACKEND_IMAGE_PATH%/backend}/ingest" >> "$GITHUB_ENV"
+        env:
+          GCP_BACKEND_IMAGE_PATH: ${{ secrets.GCP_BACKEND_IMAGE_PATH }}
+
+      - name: Build & push ingest image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/ingest
+          file: apps/ingest/Dockerfile
+          push: true
+          tags: |
+            ${{ env.INGEST_IMAGE_PATH }}:${{ github.sha }}
+            ${{ env.INGEST_IMAGE_PATH }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

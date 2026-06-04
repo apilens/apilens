@@ -100,33 +100,5 @@ api.add_router("/projects", projects_router, tags=["Projects"])
 
 # Legacy /apps routes removed - use /projects instead
 
-
-# ---------------------------------------------------------------------------
-# Ingestion API (the data plane, served on its own host: ingest.apilens.ai).
-#
-# A separate NinjaAPI instance => isolated URL namespace and its own OpenAPI
-# schema. Kept public (docs enabled) so SDK authors can reference it, mirroring
-# how Apitally exposes its hub spec but hides the dashboard backend's.
-#
-# Mounted under /ingest/v1/ internally; Caddy on the ingest host rewrites the
-# public /v1/* path onto /ingest/v1/* (see infra/gcp/vm/startup.sh).
-# ---------------------------------------------------------------------------
-ingest_api = NinjaAPI(
-    title="APILens Ingest API",
-    version="1.0.0",
-    description="APILens telemetry ingestion endpoint",
-    urls_namespace="ingest",
-    docs_url="/docs",
-    openapi_url="/openapi.json",
-)
-_register_exception_handlers(ingest_api)
-
-
-@ingest_api.get("/health", tags=["System"])
-def ingest_health_check(request: HttpRequest):
-    return {"status": "healthy", "service": "apilens-ingest"}
-
-
-from routers.ingest.router import router as ingest_router
-
-ingest_api.add_router("", ingest_router, tags=["Ingest"])
+# Telemetry ingestion is NOT served here anymore — it's a separate service
+# (apps/ingest, served on ingest.apilens.ai). See infra/gcp/vm/startup.sh.

@@ -1,0 +1,23 @@
+[project]
+name = "apilens-ingest"
+version = "0.1.0"
+description = "APILens standalone telemetry ingestion service (FastAPI)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "gunicorn>=22.0",
+    "psycopg2-binary>=2.9",
+    "clickhouse-driver>=0.2.8",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Empty: `pip install .` installs only the dependencies above. The app source
+# runs from the copied working dir via PYTHONPATH=/app (see Dockerfile), so we
+# don't package it — this also lets `uv pip install .` run with just
+# pyproject.toml present (before the source is COPYed).
+packages = []

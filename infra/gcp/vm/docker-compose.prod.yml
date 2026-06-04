@@ -129,6 +129,26 @@ services:
       redis:
         condition: service_healthy
 
+  # Standalone telemetry ingestion service (apps/ingest, FastAPI). Serves
+  # ingest.apilens.ai — separate from the dashboard API. Reuses the same
+  # Postgres (api keys, apps, endpoint discovery) + ClickHouse (api_requests /
+  # api_logs) via *db-env. Waits for migrate so the base ClickHouse schema exists.
+  ingest:
+    image: "${REGISTRY_BASE}/ingest:${IMAGE_TAG:-latest}"
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      <<: *db-env
+      PORT: "8000"
+      GUNICORN_WORKERS: "4"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
   # One-shot: apply Postgres migrations, then create/upgrade the ClickHouse
   # schema, then exit. The api service waits for this to complete successfully.
   # (`clickhouse_migrate` is a real management command in the codebase:
