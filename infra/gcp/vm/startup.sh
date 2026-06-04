@@ -146,11 +146,12 @@ INTERNAL_INTROSPECT_SECRET="$(access_secret "${INTROSPECT_SECRET_ID}" || true)"
 # ----------------------------------------------------------------------------
 # App directory + config files (from metadata)
 # ----------------------------------------------------------------------------
-mkdir -p /opt/apilens /opt/apilens/postgres-init /opt/apilens/clickhouse-config
+mkdir -p /opt/apilens /opt/apilens/postgres-init /opt/apilens/clickhouse-config /opt/apilens/opa
 
-attr apilens-compose > /opt/apilens/docker-compose.prod.yml
-attr apilens-caddy   > /opt/apilens/Caddyfile
-attr apilens-deploy  > /opt/apilens/deploy.sh
+attr apilens-compose    > /opt/apilens/docker-compose.prod.yml
+attr apilens-caddy      > /opt/apilens/Caddyfile
+attr apilens-deploy     > /opt/apilens/deploy.sh
+attr apilens-opa-policy > /opt/apilens/opa/authz.rego
 chmod +x /opt/apilens/deploy.sh
 
 # Append a dedicated api.<domain> site block only when one is configured — an

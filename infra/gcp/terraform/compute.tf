@@ -67,6 +67,7 @@ resource "google_compute_instance" "app" {
     "apilens-compose"              = file("${path.module}/../vm/docker-compose.prod.yml")
     "apilens-caddy"                = file("${path.module}/../vm/Caddyfile")
     "apilens-deploy"               = file("${path.module}/../vm/deploy.sh")
+    "apilens-opa-policy"           = file("${path.module}/../../opa/policies/authz.rego")
     startup-script                 = file("${path.module}/../vm/startup.sh")
   }
 

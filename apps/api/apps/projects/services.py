@@ -153,11 +153,27 @@ class ProjectService:
 
     @staticmethod
     def get_project_by_slug(user, slug: str) -> Project:
-        """Get a project by slug for a specific user."""
+        """Get a project by slug for a specific user.
+
+        The DB filter (owner=user) is defense-in-depth; the authorization
+        decision is delegated to the OPA policy engine (and logged there). If
+        OPA is unreachable, fall back to the DB guard rather than 500 the UI.
+        """
         try:
-            return Project.objects.get(owner=user, slug=slug, is_active=True)
+            project = Project.objects.get(owner=user, slug=slug, is_active=True)
         except Project.DoesNotExist:
             raise NotFoundError(f"Project '{slug}' not found")
+
+        from core.authz import opa
+
+        if opa.check(
+            user_id=str(user.id),
+            action="read",
+            resource_type="project",
+            owner_id=str(project.owner_id),
+        ) is False:
+            raise NotFoundError(f"Project '{slug}' not found")
+        return project
 
     @staticmethod
     @transaction.atomic
