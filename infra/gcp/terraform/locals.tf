@@ -11,6 +11,7 @@ locals {
   app_site    = var.app_domain != "" ? var.app_domain : ":80"
   api_site    = var.api_domain
   ingest_site = var.ingest_domain
+  auth_site   = var.auth_domain
 
   # Django ALLOWED_HOSTS + CSRF/CORS origins derived from the domains. Internal
   # service names (api/web) and loopback are appended in startup.sh.
@@ -18,12 +19,14 @@ locals {
     var.app_domain,
     var.api_domain,
     var.ingest_domain,
+    var.auth_domain,
     var.backend_allowed_hosts,
   ]))
 
   csrf_trusted_origins = join(",", compact([
     var.app_domain != "" ? "https://${var.app_domain}" : "",
     var.api_domain != "" ? "https://${var.api_domain}" : "",
+    var.auth_domain != "" ? "https://${var.auth_domain}" : "",
   ]))
 
   # WebAuthn / passkey Relying Party ID. The RP ID must equal the page's domain

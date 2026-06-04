@@ -80,3 +80,21 @@ def jwks() -> dict:
     """JWKS document for the public verification key (empty when RS256 is off)."""
     data = _load()
     return {"keys": [data["jwk"]]} if data else {"keys": []}
+
+
+def openid_configuration(issuer: str) -> dict:
+    """OIDC-style discovery document so resource servers can auto-locate the
+    JWKS + signing alg for token validation. We issue our own session/JWTs (not
+    third-party OAuth2), so only the verification-relevant fields are populated.
+    """
+    issuer = issuer.rstrip("/")
+    return {
+        "issuer": issuer,
+        "jwks_uri": f"{issuer}/.well-known/jwks.json",
+        "id_token_signing_alg_values_supported": ["RS256"],
+        "token_endpoint_auth_signing_alg_values_supported": ["RS256"],
+        "response_types_supported": ["token"],
+        "subject_types_supported": ["public"],
+        "scopes_supported": ["openid", "email"],
+        "claims_supported": ["sub", "email", "iss", "aud", "exp", "iat", "type"],
+    }

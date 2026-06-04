@@ -108,6 +108,19 @@ variable "ingest_domain" {
   default     = ""
 }
 
+variable "auth_domain" {
+  description = <<-EOT
+    Optional dedicated hostname for the identity (IAM) service, e.g.
+    "auth.apilens.ai". Serves the bounded auth surface (login, magic-link,
+    passkey, 2FA, JWT issuance, JWKS, OIDC discovery) from the identity
+    container. Caddy reverse-proxies it to identity:8000 and auto-provisions a
+    Let's Encrypt cert. Point this name's DNS A record at the `instance_ip`.
+    Requires app_domain to be set.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "image_tag" {
   description = "Container image tag the VM should run for the api + web images."
   type        = string

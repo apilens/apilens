@@ -143,7 +143,17 @@ services:
     image: "${REGISTRY_BASE}/backend:${IMAGE_TAG:-latest}"
     restart: unless-stopped
     logging: *default-logging
-    environment: *api-env
+    environment:
+      # Bounded identity surface (auth + JWKS + discovery only) via the
+      # auth-only urlconf; everything else (DB, JWT key, email for magic-link,
+      # WebAuthn, introspect secret) comes from the shared api env.
+      <<: *api-env
+      ROOT_URLCONF: config.urls_identity
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/v1/livez',timeout=4).status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -166,7 +176,7 @@ services:
       GUNICORN_WORKERS: "4"
       # Auth via the identity service's introspection endpoint (internal network)
       # instead of a direct key lookup. Same shared secret as identity.
-      APILENS_INTROSPECT_URL: "http://identity:8000/api/v1/auth/introspect"
+      APILENS_INTROSPECT_URL: "http://identity:8000/v1/introspect"
       INTERNAL_INTROSPECT_SECRET: ${INTERNAL_INTROSPECT_SECRET:-}
     depends_on:
       migrate:

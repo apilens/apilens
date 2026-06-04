@@ -51,6 +51,7 @@ resource "google_compute_instance" "app" {
     "apilens-app-site"             = local.app_site
     "apilens-api-site"             = local.api_site
     "apilens-ingest-site"          = local.ingest_site
+    "apilens-auth-site"            = local.auth_site
     "apilens-allowed-hosts"        = local.allowed_hosts
     "apilens-csrf-origins"         = local.csrf_trusted_origins
     "apilens-django-secret-id"     = google_secret_manager_secret.django_secret_key.secret_id

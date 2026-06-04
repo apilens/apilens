@@ -20,6 +20,15 @@ SECRET_KEY = os.environ.get(
 # SECRET_KEY (see core/auth/keys.py + core/auth/jwt.py).
 JWT_PRIVATE_KEY = os.environ.get("JWT_PRIVATE_KEY", "")
 
+# OIDC issuer/audience for access tokens (the identity service is the issuer).
+JWT_ISSUER = os.environ.get("JWT_ISSUER", "https://auth.apilens.ai")
+JWT_AUDIENCE = os.environ.get("JWT_AUDIENCE", "apilens-api")
+
+# Which Django URLconf this process serves: the default full app, or the
+# bounded identity (auth-only) surface. The identity container sets
+# ROOT_URLCONF=config.urls_identity.
+ROOT_URLCONF = os.environ.get("ROOT_URLCONF", "config.urls")
+
 DEBUG = os.environ.get("DJANGO_DEBUG", "False").lower() in ("true", "1", "yes")
 
 ALLOWED_HOSTS = [
@@ -120,7 +129,8 @@ CORS_ALLOW_HEADERS = [
     "x-requested-with",
 ]
 
-ROOT_URLCONF = "config.urls"
+# ROOT_URLCONF is set above (env-driven: config.urls for the full app, or
+# config.urls_identity for the bounded identity service).
 
 TEMPLATES = [
     {
