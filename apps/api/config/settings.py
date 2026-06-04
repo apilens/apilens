@@ -21,7 +21,7 @@ SECRET_KEY = os.environ.get(
 JWT_PRIVATE_KEY = os.environ.get("JWT_PRIVATE_KEY", "")
 
 # OIDC issuer/audience for access tokens (the identity service is the issuer).
-JWT_ISSUER = os.environ.get("JWT_ISSUER", "https://auth.apilens.ai")
+JWT_ISSUER = os.environ.get("JWT_ISSUER") or "https://app.apilens.ai"
 JWT_AUDIENCE = os.environ.get("JWT_AUDIENCE", "apilens-api")
 
 # Which Django URLconf this process serves: the default full app, or the

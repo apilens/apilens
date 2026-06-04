@@ -89,6 +89,10 @@ services:
       # from Secret Manager via startup.sh -> .env; empty falls back to HS256.
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
       INTERNAL_INTROSPECT_SECRET: ${INTERNAL_INTROSPECT_SECRET:-}
+      # IdP issuer (token `iss` + OIDC discovery). Defaults to the app origin
+      # now that identity is served under app.apilens.ai; falls back in-app to
+      # https://auth.apilens.ai if unset.
+      JWT_ISSUER: ${JWT_ISSUER:-}
       # Authorization decisions delegated to the OPA policy engine (sidecar).
       OPA_URL: ${OPA_URL:-http://opa:8181/v1/data/apilens/authz/allow}
       FRONTEND_URL: ${FRONTEND_URL}
