@@ -65,11 +65,15 @@ services:
       NODE_ENV: production
       PORT: "3000"
       DJANGO_API_URL: http://api:8000/api/v1
+      # Auth/token calls go straight to the identity service over the internal
+      # network (not back out through the public auth host). Bounded to /v1.
+      AUTH_API_URL: http://identity:8000/v1
       SESSION_SECRET: ${SESSION_SECRET}
       # NOTE: NEXT_PUBLIC_API_URL is baked into the frontend image at BUILD
       # time (apps/web/Dockerfile + the deploy workflow). It is not set here.
     depends_on:
       - api
+      - identity
 
   api:
     image: "${REGISTRY_BASE}/backend:${IMAGE_TAG:-latest}"
@@ -140,15 +144,17 @@ services:
   # /api/v1/auth/* here (login, magic-link, passkey, JWT issuance + JWKS, API-key
   # introspection). A separate container isolates auth and lets it scale apart.
   identity:
-    image: "${REGISTRY_BASE}/backend:${IMAGE_TAG:-latest}"
+    # Dedicated identity (IAM) image, built from apps/identity (the backend
+    # image with ROOT_URLCONF=config.urls_identity baked in) — so the bounded
+    # auth-only surface is a property of the image, not a compose override.
+    image: "${REGISTRY_BASE}/identity:${IMAGE_TAG:-latest}"
     restart: unless-stopped
     logging: *default-logging
     environment:
-      # Bounded identity surface (auth + JWKS + discovery only) via the
-      # auth-only urlconf; everything else (DB, JWT key, email for magic-link,
-      # WebAuthn, introspect secret) comes from the shared api env.
+      # Everything the auth flows need (DB, JWT key, email for magic-link,
+      # WebAuthn, introspect secret) comes from the shared api env. The bounded
+      # surface itself is baked into the identity image (ROOT_URLCONF).
       <<: *api-env
-      ROOT_URLCONF: config.urls_identity
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/v1/livez',timeout=4).status==200 else 1)\""]
       interval: 15s
