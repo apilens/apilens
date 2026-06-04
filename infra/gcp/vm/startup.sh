@@ -54,6 +54,15 @@ else
   FRONTEND_URL="https://${APP_SITE}"
 fi
 
+# IdP issuer = the identity service's public namespace on the API host
+# (https://api.apilens.ai/auth). Discovery + JWKS resolve under /auth/.well-known/*
+# there. Falls back to the app origin if no dedicated API host is configured.
+if [[ -n "${API_SITE}" && "${API_SITE}" != :* ]]; then
+  JWT_ISSUER="https://${API_SITE}/auth"
+else
+  JWT_ISSUER="${FRONTEND_URL}/auth"
+fi
+
 # Browser CORS origins: the app origin plus localhost for dev tooling.
 CORS_ORIGINS="${FRONTEND_URL},http://localhost:3000,http://127.0.0.1:3000"
 
@@ -166,20 +175,38 @@ if [[ -n "${API_SITE}" ]]; then
 
 ${API_SITE} {
 	encode gzip zstd
-	# Ingestion is served only on the dedicated ingest host.
+
+	# API gateway: one backend host, services namespaced by path (/<service>/v1).
+	# Ingestion is NOT here — it has its own host (SDK-only traffic).
 	handle /ingest/* {
 		respond 404
 	}
-	# Legacy auth path -> identity service (rewritten onto its canonical /v1/*).
-	# The identity service's own host is auth.apilens.ai; this alias keeps
-	# existing clients working during the cutover.
-	handle /api/v1/auth/* {
-		uri replace /api/v1/auth /v1
+
+	# Identity (IAM) under /auth/* — covers /auth/v1/* (the auth API) AND
+	# /auth/.well-known/* (OIDC discovery + JWKS). Strip the /auth prefix so it
+	# maps onto the service's own /v1/* and /.well-known/* routes. The JWT issuer
+	# is https://${API_SITE}/auth, so discovery + jwks_uri resolve here.
+	handle /auth/* {
+		uri strip_prefix /auth
 		reverse_proxy identity:8000
 	}
-	# Everything else (dashboard control plane) -> core api.
-	handle {
+
+	# Core control plane under /core/v1/* -> the service's canonical /api/v1/*.
+	handle /core/v1/* {
+		uri replace /core/v1 /api/v1
 		reverse_proxy api:8000
+	}
+
+	# Django admin + its static/media (kept at the root so admin's absolute URLs
+	# resolve). The dashboard API itself is only under /core/v1/*.
+	@coreroot path /admin/* /static/* /media/*
+	handle @coreroot {
+		reverse_proxy api:8000
+	}
+
+	# Nothing else is exposed on the API host.
+	handle {
+		respond 404
 	}
 }
 CADDY
@@ -242,9 +269,9 @@ DJANGO_ALLOWED_HOSTS=${ALLOWED_HOSTS},api,identity,ingest,web,localhost,127.0.0.
 CSRF_TRUSTED_ORIGINS=${CSRF_ORIGINS}
 CORS_ALLOWED_ORIGINS=${CORS_ORIGINS}
 FRONTEND_URL=${FRONTEND_URL}
-# IdP issuer = the app's public origin now that identity is served under
-# app.apilens.ai (/.well-known/* + /auth/v1/*) instead of a separate auth.* host.
-JWT_ISSUER=${FRONTEND_URL}
+# IdP issuer = https://<api_site>/auth (computed above), now that identity is
+# served under the API gateway at api.apilens.ai/auth/*.
+JWT_ISSUER=${JWT_ISSUER}
 MEDIA_BUCKET=${MEDIA_BUCKET}
 GS_PROJECT_ID=${PROJECT_ID}
 DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}

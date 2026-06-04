@@ -25,30 +25,16 @@
 {$APP_SITE} {
 	encode gzip zstd
 
-	# Identity (IAM) service — served under app.apilens.ai instead of a separate
-	# auth.* host. OIDC discovery + JWKS live at the well-known root (so the
-	# issuer = https://app.apilens.ai), and the auth API is under /auth/v1/*
-	# (rewritten onto the service's canonical /v1/*).
-	handle /.well-known/openid-configuration {
-		reverse_proxy identity:8000
-	}
-	handle /.well-known/jwks.json {
-		reverse_proxy identity:8000
-	}
-	handle /auth/v1/* {
-		uri replace /auth/v1 /v1
-		reverse_proxy identity:8000
-	}
-
-	# Core control-plane API + Django admin/static/media.
-	@core path /api/v1/* /admin/* /static/* /media/*
-	handle @core {
+	# The app host serves the Next.js UI + its own BFF route handlers under
+	# /api/* (which proxy to the services server-side over the internal network).
+	# The public, canonical backend lives on the API host (api.apilens.ai) — see
+	# the API_SITE gateway block appended by startup.sh. We still send the legacy
+	# /api/v1, admin, static and media paths to core here for backward-compat.
+	@backend path /api/v1/* /admin/* /static/* /media/*
+	handle @backend {
 		reverse_proxy api:8000
 	}
 
-	# Everything else: the Next.js app + its OWN server route handlers under
-	# /api/* (e.g. /api/auth/magic-link, /api/account/*, /api/projects) which
-	# proxy to the services server-side. Routing those to Django would 404 them.
 	handle {
 		reverse_proxy web:3000
 	}
