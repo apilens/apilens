@@ -75,11 +75,16 @@ services:
     image: "${REGISTRY_BASE}/backend:${IMAGE_TAG:-latest}"
     restart: unless-stopped
     logging: *default-logging
-    environment:
+    environment: &api-env
       <<: *db-env
       DJANGO_DEBUG: "False"
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      # RS256 access-token signing (identity issues, core verifies) + the shared
+      # secret guarding the introspection endpoint (ingest -> identity). Both come
+      # from Secret Manager via startup.sh -> .env; empty falls back to HS256.
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
+      INTERNAL_INTROSPECT_SECRET: ${INTERNAL_INTROSPECT_SECRET:-}
       FRONTEND_URL: ${FRONTEND_URL}
       # TLS is terminated at Caddy, which already redirects http->https at the
       # edge. Django must NOT also force the redirect: the web container calls
@@ -129,6 +134,22 @@ services:
       redis:
         condition: service_healthy
 
+  # Identity (IAM) service — same backend image, full app, but Caddy routes only
+  # /api/v1/auth/* here (login, magic-link, passkey, JWT issuance + JWKS, API-key
+  # introspection). A separate container isolates auth and lets it scale apart.
+  identity:
+    image: "${REGISTRY_BASE}/backend:${IMAGE_TAG:-latest}"
+    restart: unless-stopped
+    logging: *default-logging
+    environment: *api-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   # Standalone telemetry ingestion service (apps/ingest, FastAPI). Serves
   # ingest.apilens.ai — separate from the dashboard API. Reuses the same
   # Postgres (api keys, apps, endpoint discovery) + ClickHouse (api_requests /
@@ -141,6 +162,10 @@ services:
       <<: *db-env
       PORT: "8000"
       GUNICORN_WORKERS: "4"
+      # Auth via the identity service's introspection endpoint (internal network)
+      # instead of a direct key lookup. Same shared secret as identity.
+      APILENS_INTROSPECT_URL: "http://identity:8000/api/v1/auth/introspect"
+      INTERNAL_INTROSPECT_SECRET: ${INTERNAL_INTROSPECT_SECRET:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -148,6 +173,8 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+      identity:
+        condition: service_started
 
   # One-shot: apply Postgres migrations, then create/upgrade the ClickHouse
   # schema, then exit. The api service waits for this to complete successfully.

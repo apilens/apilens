@@ -37,6 +37,8 @@ PG_SECRET_ID="$(attr apilens-pg-secret-id)"
 CH_SECRET_ID="$(attr apilens-ch-secret-id)"
 RESEND_SECRET_ID="$(attr apilens-resend-secret-id)"
 SENTRY_SECRET_ID="$(attr apilens-sentry-secret-id)"
+JWT_KEY_SECRET_ID="$(attr apilens-jwt-key-secret-id)"
+INTROSPECT_SECRET_ID="$(attr apilens-introspect-secret-id)"
 FROM_EMAIL="$(attr apilens-from-email)"
 WEBAUTHN_RP_ID="$(attr apilens-webauthn-rp-id)"
 WEBAUTHN_RP_NAME="$(attr apilens-webauthn-rp-name)"
@@ -135,6 +137,11 @@ RESEND_API_KEY="$(access_secret "${RESEND_SECRET_ID}" || true)"
 # Sentry DSN may have no version yet (set manually post-apply); tolerate that so
 # the stack still boots — Sentry just stays disabled until the secret exists.
 SENTRY_DSN="$(access_secret "${SENTRY_SECRET_ID}" || true)"
+# JWT RS256 private key (base64 PEM) + internal introspection secret. May have no
+# version yet — tolerate so the stack boots (JWT falls back to HS256; ingest
+# introspection just fails closed until the secret is populated).
+JWT_PRIVATE_KEY="$(access_secret "${JWT_KEY_SECRET_ID}" || true)"
+INTERNAL_INTROSPECT_SECRET="$(access_secret "${INTROSPECT_SECRET_ID}" || true)"
 
 # ----------------------------------------------------------------------------
 # App directory + config files (from metadata)
@@ -157,9 +164,18 @@ if [[ -n "${API_SITE}" ]]; then
 
 ${API_SITE} {
 	encode gzip zstd
-	@ingest path /ingest/*
-	respond @ingest 404
-	reverse_proxy api:8000
+	# Ingestion is served only on the dedicated ingest host.
+	handle /ingest/* {
+		respond 404
+	}
+	# Auth surface (login, JWT issuance + JWKS, introspection) -> identity service.
+	handle /api/v1/auth/* {
+		reverse_proxy identity:8000
+	}
+	# Everything else (dashboard control plane) -> core api.
+	handle {
+		reverse_proxy api:8000
+	}
 }
 CADDY
 fi
@@ -220,6 +236,8 @@ DEFAULT_FROM_EMAIL=${FROM_EMAIL}
 WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID}
 WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME}
 SENTRY_DSN=${SENTRY_DSN}
+JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY}
+INTERNAL_INTROSPECT_SECRET=${INTERNAL_INTROSPECT_SECRET}
 ENV
 )
 
