@@ -117,6 +117,7 @@ jobs:
           push: true
           build-args: |
             NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || secrets.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1' }}
+            AUTH_API_URL=${{ vars.AUTH_API_URL || 'http://identity:8000/v1' }}
           tags: |
             ${{ secrets.GCP_FRONTEND_IMAGE_PATH }}:${{ github.sha }}
             ${{ secrets.GCP_FRONTEND_IMAGE_PATH }}:latest

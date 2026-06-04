@@ -38,6 +38,14 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
+# Server-side base URL for the identity (IAM) service. The BFF auth routes +
+# token refresh/validate call this directly over the internal docker network.
+# Baked here as a RUNTIME env for the Next server so prod works via the normal
+# image roll (no compose/metadata change needed); a compose-level AUTH_API_URL
+# still overrides it. Empty default keeps local image builds on the dev fallback.
+ARG AUTH_API_URL=
+ENV AUTH_API_URL=$AUTH_API_URL
+
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
