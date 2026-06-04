@@ -5,7 +5,17 @@ from datetime import datetime, timedelta, timezone
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.projects.models import App
-from apps.projects.services import IngestService
+
+# NOTE: this is a DEV-ONLY seeder. Production ingestion lives entirely in the
+# standalone apps/ingest service (the sole owner of the write path). The seeder
+# does its own minimal direct ClickHouse insert so apps/api carries no ingest
+# write logic to keep in sync.
+API_REQUESTS_COLUMNS = [
+    "timestamp", "app_id", "project_id", "endpoint_id", "environment", "method",
+    "path", "status_code", "response_time_ms", "request_size", "response_size",
+    "ip_address", "user_agent", "consumer_id", "consumer_name", "consumer_group",
+    "request_payload", "response_payload",
+]
 
 
 @dataclass
@@ -132,7 +142,7 @@ class Command(BaseCommand):
         parser.add_argument("--count", type=int, default=6000, help="Number of request rows to generate")
         parser.add_argument("--days", type=int, default=14, help="Time window in past days")
         parser.add_argument(
-            "--batch-size", type=int, default=1000, help="Batch size per IngestService call (max 1000 recommended)"
+            "--batch-size", type=int, default=1000, help="Batch size per ClickHouse insert (max 1000 recommended)"
         )
         parser.add_argument("--seed", type=int, default=42, help="Random seed for deterministic output")
 
@@ -172,9 +182,39 @@ class Command(BaseCommand):
                 )
             )
 
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        client = get_clickhouse_client()
+        project_id = str(app.project_id)
+        app_id = str(app.id)
+
         accepted_total = 0
         for i in range(0, len(rows), batch_size):
-            accepted_total += IngestService.ingest(str(app.id), rows[i : i + batch_size])
+            batch = rows[i : i + batch_size]
+            ch_rows = [
+                {
+                    "timestamp": r.timestamp,
+                    "app_id": app_id,
+                    "project_id": project_id,
+                    "endpoint_id": "",
+                    "environment": r.environment,
+                    "method": r.method,
+                    "path": r.path,
+                    "status_code": r.status_code,
+                    "response_time_ms": r.response_time_ms,
+                    "request_size": r.request_size,
+                    "response_size": r.response_size,
+                    "ip_address": r.ip_address,
+                    "user_agent": r.user_agent,
+                    "consumer_id": "",
+                    "consumer_name": "",
+                    "consumer_group": "",
+                    "request_payload": "",
+                    "response_payload": "",
+                }
+                for r in batch
+            ]
+            accepted_total += client.insert("api_requests", ch_rows, columns=API_REQUESTS_COLUMNS)
 
         self.stdout.write(
             self.style.SUCCESS(
