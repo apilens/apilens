@@ -1,0 +1,53 @@
+# Local dev stack for APILens — one tab per service.
+#
+#   pnpm dev      (alias: pnpm stack)
+#
+# Left pane lists every process; arrow keys / mouse switch between them, each
+# with its own live log output.
+#
+# Focus & controls:
+#   <C-a>  toggle focus between the process list and the output pane
+#   q      quit  (must be focused on the process list)
+#   Q      force quit
+#   r      restart selected proc · x stop · s start
+#
+# Lifecycle note: the datastore tabs (postgres/clickhouse/redis/authz) START
+# their containers detached, then just *tail* the logs — so quitting mprocs is
+# instant and leaves the databases running (the same model as `pnpm db:up`).
+# Stop the containers with `pnpm db:down` when you're done for the day.
+# Only api/ingest/web are torn down on quit.
+#
+# SDK sidecar services (fastapi/:8011, flask/:8012, django-ninja/:8013) are
+# listed but NOT auto-started. Select one and press `s` to start it when you
+# need to test SDK integration. Requires: cd sidecar-testing/<name> && pip install -r requirements.txt
+# and a populated .env (APILENS_API_KEY + APILENS_APP_ID).
+procs:
+  postgres:
+    shell: "docker compose -f infra/docker/docker-compose.local.yml up -d postgres && docker compose -f infra/docker/docker-compose.local.yml logs -f --no-log-prefix postgres"
+  clickhouse:
+    shell: "docker compose -f infra/docker/docker-compose.local.yml up -d clickhouse && docker compose -f infra/docker/docker-compose.local.yml logs -f --no-log-prefix clickhouse"
+  redis:
+    shell: "docker compose -f infra/docker/docker-compose.local.yml up -d redis && docker compose -f infra/docker/docker-compose.local.yml logs -f --no-log-prefix redis"
+  authz:
+    shell: "docker compose -f infra/docker/docker-compose.local.yml up -d opa && docker compose -f infra/docker/docker-compose.local.yml logs -f --no-log-prefix opa"
+  api:
+    # Django control plane (core API). Waits briefly so Postgres is accepting
+    # connections before the first request. Loads apps/api/.env via dotenv.
+    shell: "sleep 4 && cd apps/api && .venv/bin/python manage.py runserver 0.0.0.0:8000"
+  ingest:
+    # Standalone FastAPI ingestion service on :8001. --env-file loads the
+    # datastore + introspection settings from apps/ingest/.env.
+    shell: "sleep 5 && cd apps/ingest && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001 --env-file .env"
+  web:
+    # Next.js dashboard on :3002.
+    shell: "pnpm --filter frontend dev"
+  # ── SDK integration sidecars (off by default — press `s` to start) ──────────
+  sidecar-fastapi:
+    autostart: false
+    shell: "cd sidecar-testing/fastapi && ([ -d .venv ] || python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt) && . .venv/bin/activate && PYTHONUNBUFFERED=1 uvicorn app.main:app --host 0.0.0.0 --port 8011 --reload"
+  sidecar-flask:
+    autostart: false
+    shell: "cd sidecar-testing/flask && ([ -d .venv ] || python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt) && . .venv/bin/activate && PYTHONUNBUFFERED=1 python app/main.py"
+  sidecar-django:
+    autostart: false
+    shell: "cd sidecar-testing/django-ninja && ([ -d .venv ] || python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt) && . .venv/bin/activate && PYTHONUNBUFFERED=1 python manage.py runserver 0.0.0.0:8013"

@@ -78,7 +78,7 @@ This is interactive — it checks your environment, asks before overwriting anyt
 2. **JS/TS deps** — runs `pnpm install` across all workspaces
 3. **Python venv** — creates `apps/api/.venv` and installs backend deps with `uv`
 4. **Environment files** — copies `.env.example` → `.env` with real secrets auto-generated (no copy-paste placeholders)
-5. **Databases** — starts postgres + clickhouse + redis via Docker, detects port conflicts and offers to remap them
+5. **Databases** — starts postgres + clickhouse + redis + the OPA authz engine via Docker, detects port conflicts and offers to remap them
 6. **Migrations** — optionally runs Django migrations to get the DB schema ready
 
 Re-run `pnpm bootstrap` after pulling changes that touch dependencies, env templates, or Docker config. It skips steps that are already done.
@@ -91,27 +91,33 @@ Re-run `pnpm bootstrap` after pulling changes that touch dependencies, env templ
 pnpm dev
 ```
 
-That's it. Turborepo starts both the Next.js frontend (http://localhost:3002) and the Django backend (http://localhost:8000) together in one terminal via the turbo TUI.
+That's it. This starts the **whole local stack** in one terminal via `mprocs` — one tab per service: postgres, clickhouse, redis, authz (OPA), api (http://localhost:8000), ingest (http://localhost:8001), and web (http://localhost:3002). Each tab has its own live logs.
 
-Magic links print to the Django pane in the TUI — copy the link from the logs to sign in.
+Navigation: **`Ctrl+a`** toggles focus between the process list and the output pane; `q` quits (must be focused on the process list), `Q` force-quits, `r` restarts the selected proc.
+
+Magic links print to the `api` tab — copy the link from the logs to sign in.
+
+> Want just the app servers (frontend + Django) the old way, with the databases already up via `pnpm db:up`? Use `pnpm dev:apps` (turbo).
 
 ### Once you're done
 
-```bash
-pnpm db:down       # stop the local databases
-```
+Quitting `pnpm dev` (`q`) stops the **app servers** (api/ingest/web) instantly. The datastore containers keep running in the background — the same model as `pnpm db:up` — so the next `pnpm dev` starts fast. Stop them when you're fully done:
 
-To resume the next day: `pnpm db:up` brings the databases back, then run either dev option above.
+```bash
+pnpm db:down       # stop postgres + clickhouse + redis + opa
+```
 
 ## Common commands
 
 ```bash
-pnpm dev                # run JS/TS dev servers
+pnpm dev                # run the full local stack (mprocs: db + authz + api + ingest + web)
+pnpm dev:apps           # run just the app servers (frontend + Django) via turbo
+pnpm stack              # alias of `pnpm dev`
 pnpm build              # build everything (turbo, cached)
 pnpm typecheck          # TS type-check
 pnpm lint               # lint JS/TS workspaces
 
-pnpm db:up              # start postgres + clickhouse + redis
+pnpm db:up              # start postgres + clickhouse + redis + opa (detached)
 pnpm db:down            # stop them
 pnpm db:logs            # tail their logs
 ```

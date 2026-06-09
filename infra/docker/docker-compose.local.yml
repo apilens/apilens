@@ -34,6 +34,12 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
     restart: unless-stopped
+    # Docker's default seccomp profile blocks the NUMA syscalls (get_mempolicy,
+    # set_mempolicy, ...) unless CAP_SYS_NICE is present, which makes ClickHouse
+    # log a harmless "get_mempolicy: Operation not permitted" at startup.
+    # Granting this one capability lets those syscalls through and silences it.
+    cap_add:
+      - SYS_NICE
     environment:
       CLICKHOUSE_DB: apilens
       CLICKHOUSE_USER: default
@@ -61,6 +67,26 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       retries: 5
+
+  # Policy Decision Point — mirrors the prod OPA sidecar so local authz behaves
+  # like production instead of always falling back to the DB guard. Loads the
+  # same rego the VM ships via instance metadata (infra/opa/policies).
+  # The host-run core API reaches it at http://localhost:8181 (set OPA_URL in
+  # apps/api/.env).
+  opa:
+    image: openpolicyagent/opa:1.17.0
+    restart: unless-stopped
+    command:
+      - "run"
+      - "--server"
+      - "--addr=0.0.0.0:8181"
+      - "--log-level=info"
+      - "--set=decision_logs.console=true"
+      - "/policies"
+    ports:
+      - "8181:8181"
+    volumes:
+      - ../opa/policies:/policies:ro
 
 volumes:
   postgres_data:

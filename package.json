@@ -9,16 +9,19 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "mprocs",
+    "dev:apps": "turbo run dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "db:up": "docker compose -f infra/docker/docker-compose.local.yml up -d",
     "db:down": "docker compose -f infra/docker/docker-compose.local.yml down",
     "db:logs": "docker compose -f infra/docker/docker-compose.local.yml logs -f",
+    "stack": "mprocs",
     "bootstrap": "bash scripts/setup/setup-local.sh"
   },
   "devDependencies": {
+    "mprocs": "^0.9.5",
     "turbo": "^2.3.0",
     "typescript": "^5.7.0"
   }
