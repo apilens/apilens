@@ -64,6 +64,11 @@ class ApiLensDjangoMiddleware:
         else:
             ip_address = (request.META.get("HTTP_X_REAL_IP") or "").strip() or (request.META.get("REMOTE_ADDR") or "")
 
+        try:
+            base_url = f"{request.scheme}://{request.get_host()}"
+        except Exception:
+            base_url = ""
+
         ctx = CaptureContext(
             method=(request.method or "GET").upper(),
             path=_normalize_path(getattr(request, "path", "/") or "/"),
@@ -72,6 +77,7 @@ class ApiLensDjangoMiddleware:
             request_size=_to_int(request.META.get("CONTENT_LENGTH"), 0),
             ip_address=ip_address,
             user_agent=(request.META.get("HTTP_USER_AGENT") or "").strip(),
+            base_url=base_url,
         )
         try:
             body = request.body[: self.max_payload_bytes]

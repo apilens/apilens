@@ -111,6 +111,7 @@ class ApiLensClient:
         request_payload: str = "",
         response_payload: str = "",
         environment: str | None = None,
+        base_url: str = "",
     ) -> None:
         record = RequestRecord(
             timestamp=timestamp or datetime.now(tz=timezone.utc),
@@ -130,6 +131,7 @@ class ApiLensClient:
             consumer_group=consumer_group,
             request_payload=request_payload,
             response_payload=response_payload,
+            base_url=base_url,
         )
         self.capture_record(record)
 

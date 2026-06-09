@@ -23,6 +23,7 @@ class RequestRecord:
     consumer_group: str = ""
     request_payload: str = ""
     response_payload: str = ""
+    base_url: str = ""
 
     def to_wire(self) -> dict[str, object]:
         ts = self.timestamp
@@ -54,4 +55,5 @@ class RequestRecord:
             "consumer_group": self.consumer_group or "",
             "request_payload": self.request_payload or "",
             "response_payload": self.response_payload or "",
+            "base_url": self.base_url or "",
         }

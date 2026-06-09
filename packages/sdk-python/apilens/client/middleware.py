@@ -7,6 +7,8 @@ from typing import Any
 
 from ._capture import (
     CaptureContext,
+    _detect_base_url_from_environ,
+    _detect_base_url_from_headers,
     _extract_ip,
     _extract_user_agent,
     _headers_to_dict,
@@ -103,6 +105,7 @@ class ApiLensASGIMiddleware:
             request_size=_to_int(headers.get("content-length"), 0),
             ip_address=_extract_ip(headers, fallback=(scope.get("client") or ("", 0))[0] or ""),
             user_agent=_extract_user_agent(headers),
+            base_url=_detect_base_url_from_headers(headers, default_scheme=scope.get("scheme", "https")),
         )
 
         started_at = time.perf_counter()
@@ -237,6 +240,7 @@ class ApiLensWSGIMiddleware:
             ip_address=ip_address,
             user_agent=(environ.get("HTTP_USER_AGENT") or "").strip(),
             request_payload=request_payload,
+            base_url=_detect_base_url_from_environ(environ),
         )
 
         status_code = 500

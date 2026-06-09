@@ -20,6 +20,7 @@ class CaptureContext:
     consumer_name: str = ""
     consumer_group: str = ""
     request_payload: str = ""
+    base_url: str = ""
 
 
 
@@ -54,6 +55,30 @@ def _to_int(raw: str | None, default: int = 0) -> int:
     except (TypeError, ValueError):
         return default
 
+
+
+def _detect_base_url_from_headers(headers: dict[str, str], default_scheme: str = "https") -> str:
+    """Build scheme://host from request headers, respecting reverse-proxy headers."""
+    scheme = headers.get("x-forwarded-proto", "").split(",")[0].strip() or default_scheme
+    host = headers.get("x-forwarded-host", "").split(",")[0].strip() or headers.get("host", "").strip()
+    if not host:
+        return ""
+    return f"{scheme}://{host}"
+
+
+def _detect_base_url_from_environ(environ: dict) -> str:
+    """Build scheme://host from a WSGI environ dict."""
+    scheme = environ.get("HTTP_X_FORWARDED_PROTO", "").split(",")[0].strip() or environ.get("wsgi.url_scheme", "http")
+    host = (environ.get("HTTP_X_FORWARDED_HOST", "").split(",")[0].strip()
+            or environ.get("HTTP_HOST", "").strip())
+    if not host:
+        server_name = environ.get("SERVER_NAME", "")
+        server_port = environ.get("SERVER_PORT", "")
+        if server_name:
+            host = f"{server_name}:{server_port}" if server_port not in ("80", "443", "") else server_name
+    if not host:
+        return ""
+    return f"{scheme}://{host}"
 
 
 def _extract_ip(headers: dict[str, str], fallback: str = "") -> str:
@@ -97,4 +122,5 @@ def capture_response(
         request_payload=ctx.request_payload,
         response_payload=response_payload,
         environment=environment,
+        base_url=ctx.base_url,
     )
