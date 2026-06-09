@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Layers, Search, SlidersHorizontal, X } from "lucide-react";
+import EndpointDetailPanel, { type EndpointDetailTarget } from "@/components/endpoints/EndpointDetailPanel";
 
 interface ProjectEndpointsContentProps {
   projectSlug: string;
@@ -98,6 +99,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
 
   const customPopoverRef = useRef<HTMLDivElement | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [selectedEndpoint, setSelectedEndpoint] = useState<EndpointDetailTarget | null>(null);
 
   // Fetch project info
   useEffect(() => {
@@ -988,7 +990,19 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
                 const errorClass = errorRate < 1 ? "low" : errorRate < 5 ? "medium" : "high";
                 const hasTraffic = row.total_requests > 0;
                 return (
-                  <tr key={`${row.method}-${row.path}-${index}`}>
+                  <tr
+                    key={`${row.method}-${row.path}-${index}`}
+                    className="endpoints-row-clickable"
+                    onClick={() => setSelectedEndpoint({ method: row.method, path: row.path })}
+                    tabIndex={0}
+                    role="button"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedEndpoint({ method: row.method, path: row.path });
+                      }
+                    }}
+                  >
                     <td>
                       <span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span>
                       <span className="endpoint-path">{row.path}</span>
@@ -1042,6 +1056,19 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
             </button>
           </div>
         </div>
+      )}
+
+      {selectedEndpoint && (
+        <EndpointDetailPanel
+          projectSlug={projectSlug}
+          endpoint={selectedEndpoint}
+          appSlugs={selectedAppSlugs}
+          environment={selectedEnv}
+          since={timeParams.since}
+          until={timeParams.until}
+          rangeLabel={activeRangeLabel}
+          onClose={() => setSelectedEndpoint(null)}
+        />
       )}
     </div>
   );

@@ -1004,14 +1004,20 @@ export const apiClient = {
     return fetchDjango<EndpointMeta>(`/apps/${slug}/endpoint-meta?${qs.toString()}`);
   },
 
-  async setPassword(data: {
-    new_password: string;
-    confirm_password: string;
-    current_password?: string;
-  }): Promise<ApiResponse<{ message: string; access_token: string; refresh_token: string }>> {
-    return fetchDjango<{ message: string; access_token: string; refresh_token: string }>(
-      "/users/me/password",
-      { method: "POST", body: JSON.stringify(data) },
+  async getEndpointStatusCodes(
+    slug: string,
+    params: { method: string; path: string; environment?: string; since?: string; until?: string; limit?: number },
+  ): Promise<ApiResponse<EndpointStatusCode[]>> {
+    const searchParams = new URLSearchParams();
+    searchParams.set("method", params.method);
+    searchParams.set("path", params.path);
+    if (params.environment) searchParams.set("environment", params.environment);
+    if (params.since) searchParams.set("since", params.since);
+    if (params.until) searchParams.set("until", params.until);
+    if (params.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    return fetchDjango<EndpointStatusCode[]>(
+      `/apps/${slug}/analytics/endpoint-status-codes${qs ? `?${qs}` : ""}`,
     );
   },
 

@@ -91,6 +91,10 @@ function LoginPageContent() {
   // Cached passkey options so the user can retry the passkey prompt without
   // making another identify round-trip.
   const [passkeyOptions, setPasskeyOptions] = useState<any>(null);
+  // Pre-fetched identify result keyed by email. Lets us skip the fetch inside
+  // the button click handler so navigator.credentials.get() fires within the
+  // original user gesture — required by Safari to trigger Touch ID.
+  const [prefetchedIdentify, setPrefetchedIdentify] = useState<{ email: string; data: any } | null>(null);
 
   // Abort controller for the passive conditional-UI passkey listener.
   // We abort it before doing anything that needs WebAuthn explicitly.
@@ -157,6 +161,27 @@ function LoginPageContent() {
     window.location.href = "/";
   };
 
+  // Pre-fetch the identify result when the user leaves the email field.
+  // This lets handleIdentify skip the fetch entirely when the user clicks
+  // "Continue", so navigator.credentials.get() fires without any prior await
+  // — Safari requires this to honour the user gesture and show Touch ID.
+  const handleEmailBlur = async () => {
+    const trimmed = email.trim();
+    if (!trimmed || prefetchedIdentify?.email === trimmed) return;
+    try {
+      const res = await fetch("/api/auth/identify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: trimmed }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setPrefetchedIdentify({ email: trimmed, data });
+    } catch {
+      // Silently ignore — handleIdentify will fall back to a fresh fetch.
+    }
+  };
+
   const handleIdentify = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -169,6 +194,22 @@ function LoginPageContent() {
     abortConditionalAuth();
     setIsSubmitting(true);
 
+    // Fast path: use the pre-fetched result so navigator.credentials.get() is
+    // called immediately within the user gesture (required by Safari for Touch ID).
+    const prefetched = prefetchedIdentify?.email === email ? prefetchedIdentify.data : null;
+    if (prefetched?.method === "passkey" && prefetched.passkey_options) {
+      const incomingFallbacks: Method[] = Array.isArray(prefetched.fallbacks) ? prefetched.fallbacks : [];
+      setFallbacks(incomingFallbacks);
+      setPasskeyOptions(prefetched.passkey_options);
+      try {
+        await runPasskeyFlow(prefetched.passkey_options, incomingFallbacks);
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // Slow path: fetch then handle (non-passkey methods, or prefetch missed).
     try {
       const response = await fetch("/api/auth/identify", {
         method: "POST",
@@ -835,7 +876,9 @@ function LoginPageContent() {
                   onChange={(e) => {
                     setEmail(e.target.value);
                     setError("");
+                    setPrefetchedIdentify(null);
                   }}
+                  onBlur={handleEmailBlur}
                   placeholder="you@company.com"
                   className="auth-input"
                   required

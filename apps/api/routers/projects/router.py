@@ -362,6 +362,188 @@ def get_environments(
     return {"environments": environments}
 
 
+# ── Project-level Endpoint Detail ────────────────────────────────────
+
+def _resolve_endpoint_app_ids(project, app_slugs: str | None) -> list[str] | None:
+    """Resolve a comma-separated list of app slugs to app ids within a project."""
+    if not app_slugs:
+        return None
+    slugs = [s.strip() for s in app_slugs.split(",") if s.strip()]
+    if not slugs:
+        return None
+    apps = AppService.get_apps_by_slugs(project, slugs)
+    return [str(app.id) for app in apps]
+
+
+@router.get("/{project_slug}/analytics/endpoint-detail", response=dict)
+def get_project_endpoint_detail(
+    request: HttpRequest,
+    project_slug: str,
+    method: str,
+    path: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    threshold_ms: float = 500.0,
+):
+    """Get an aggregated summary for a single endpoint across a project."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return AnalyticsService.get_project_endpoint_detail(
+        project_id=str(project.id),
+        method=method,
+        path=path,
+        app_ids=_resolve_endpoint_app_ids(project, app_slugs),
+        environment=environment,
+        since=since,
+        until=until,
+        threshold_ms=threshold_ms,
+    )
+
+
+@router.get("/{project_slug}/analytics/endpoint-timeseries", response=list[dict])
+def get_project_endpoint_timeseries(
+    request: HttpRequest,
+    project_slug: str,
+    method: str,
+    path: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    timezone: str = None,
+):
+    """Get hourly time-series for a single endpoint across a project."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    bucket_timezone = (
+        UserService.normalize_timezone(timezone)
+        if timezone
+        else UserService.get_timezone(user)
+    )
+    return AnalyticsService.get_project_endpoint_timeseries(
+        project_id=str(project.id),
+        method=method,
+        path=path,
+        app_ids=_resolve_endpoint_app_ids(project, app_slugs),
+        environment=environment,
+        since=since,
+        until=until,
+        timezone_name=bucket_timezone,
+    )
+
+
+@router.get("/{project_slug}/analytics/endpoint-consumers", response=list[dict])
+def get_project_endpoint_consumers(
+    request: HttpRequest,
+    project_slug: str,
+    method: str,
+    path: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    limit: int = 10,
+):
+    """Get the top consumers for a single endpoint across a project."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return AnalyticsService.get_project_endpoint_consumers(
+        project_id=str(project.id),
+        method=method,
+        path=path,
+        app_ids=_resolve_endpoint_app_ids(project, app_slugs),
+        environment=environment,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+
+
+@router.get("/{project_slug}/analytics/endpoint-status-codes", response=list[dict])
+def get_project_endpoint_status_codes(
+    request: HttpRequest,
+    project_slug: str,
+    method: str,
+    path: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    limit: int = 20,
+):
+    """Get the status-code breakdown for a single endpoint across a project."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return AnalyticsService.get_project_endpoint_status_codes(
+        project_id=str(project.id),
+        method=method,
+        path=path,
+        app_ids=_resolve_endpoint_app_ids(project, app_slugs),
+        environment=environment,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+
+
+@router.get("/{project_slug}/analytics/endpoint-requests", response=list[dict])
+def get_project_endpoint_requests(
+    request: HttpRequest,
+    project_slug: str,
+    method: str,
+    path: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    limit: int = 20,
+    errors_only: bool = False,
+):
+    """Get the most recent requests for a single endpoint across a project."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return AnalyticsService.get_project_endpoint_requests(
+        project_id=str(project.id),
+        method=method,
+        path=path,
+        app_ids=_resolve_endpoint_app_ids(project, app_slugs),
+        environment=environment,
+        since=since,
+        until=until,
+        limit=limit,
+        errors_only=errors_only,
+    )
+
+
+@router.get("/{project_slug}/analytics/endpoint-histograms", response=dict)
+def get_project_endpoint_histograms(
+    request: HttpRequest,
+    project_slug: str,
+    method: str,
+    path: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    bins: int = 30,
+):
+    """Get response-time and response-size histograms for a single endpoint."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return AnalyticsService.get_project_endpoint_histograms(
+        project_id=str(project.id),
+        method=method,
+        path=path,
+        app_ids=_resolve_endpoint_app_ids(project, app_slugs),
+        environment=environment,
+        since=since,
+        until=until,
+        bins=bins,
+    )
+
+
 # ── Project-level Data Query (raw telemetry access) ──────────────────
 
 @router.get("/{project_slug}/data/logs", response=LogsQueryResponse)

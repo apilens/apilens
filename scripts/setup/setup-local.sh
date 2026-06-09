@@ -365,6 +365,12 @@ step_env() {
              "\"$(gen_hex)\"" \
              "Session encryption key"
 
+  _setup_env "apps/ingest/.env" \
+             "apps/ingest/.env.example" \
+             "INTERNAL_INTROSPECT_SECRET" \
+             "dev-secret" \
+             "Ingest introspection secret"
+
   step_done
 }
 
@@ -397,7 +403,7 @@ DB_CH_TCP=9000
 DB_REDIS=6379
 
 step_databases() {
-  step_start "Local databases" "Starts postgres, clickhouse, and redis via docker compose."
+  step_start "Local databases" "Starts postgres, clickhouse, redis, and the OPA authz engine via docker compose."
 
   if ! command -v docker >/dev/null 2>&1; then
     step_skip_blocked "Docker not found"
@@ -490,7 +496,7 @@ YML
     fi
   fi
 
-  if run_live "Starting postgres + clickhouse + redis" "${compose_cmd[@]}" up -d; then
+  if run_live "Starting postgres + clickhouse + redis + opa" "${compose_cmd[@]}" up -d; then
     STEP_DB_OK=true
     _print_db_ports
     step_done
@@ -648,7 +654,8 @@ _dev_port_warnings() {
 
 _next_steps() {
   printf "\n  ${CY}◆${R}  ${B}Start developing${R}\n\n"
-  printf "%s${CY}${B}pnpm dev${R}                ${D}Next.js (:3002) + Django (:8000) via turbo${R}\n" "$I_CONTENT"
+  printf "%s${CY}${B}pnpm dev${R}                ${D}Full stack in tabs (db + authz + api:8000 + ingest:8001 + web:3002)${R}\n" "$I_CONTENT"
+  printf "%s${CY}pnpm dev:apps${R}           ${D}Just frontend + Django via turbo (DBs must be up)${R}\n" "$I_CONTENT"
 
   printf "\n  ${CY}◆${R}  ${B}Handy commands${R}\n\n"
   printf "%s${CY}pnpm db:down${R}            ${D}Stop databases${R}\n" "$I_CONTENT"
@@ -660,7 +667,7 @@ _footer() {
   printf "\n  ${CY}◆${R}  ${B}Where to get help${R}\n\n"
   printf "%s${D}GitHub${R}         https://github.com/apilens/apilens\n" "$I_CONTENT"
   printf "%s${D}Docs${R}           apps/docs/\n"                          "$I_CONTENT"
-  printf "\n  ${D}Magic-link emails print in the Django pane in turbo.${R}\n"
+  printf "\n  ${D}Magic-link emails print in the api tab when you run pnpm dev.${R}\n"
   printf "  ${D}Copy the link from there to sign in.${R}\n\n"
 }
 

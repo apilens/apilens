@@ -2968,10 +2968,432 @@ class AnalyticsService:
 
         try:
             rows = client.execute(query, params)
-            return [row[0] for row in rows if row[0]]
+            return [row["environment"] for row in rows if row.get("environment")]
         except Exception as exc:
             logger.warning("ClickHouse query failed for project environments; returning empty list: %s", exc)
             return []
+
+    # ── Project-Level Endpoint Detail Methods ─────────────────────────────
+    # These mirror the per-app endpoint detail methods but aggregate a single
+    # (method, path) endpoint across every app in a project (optionally a
+    # filtered subset of apps), so they can back the endpoint detail panel on
+    # the project endpoints page.
+
+    @staticmethod
+    def _project_endpoint_filters(
+        project_id: str,
+        method: str,
+        path: str,
+        app_ids: list[str] | None,
+        environment: str | None,
+        since_dt,
+        until_dt,
+    ) -> tuple[list[str], dict]:
+        params = {
+            "project_id": project_id,
+            "method": method.upper(),
+            "path": path,
+            "since": since_dt,
+            "until": until_dt,
+        }
+        filters = [
+            "WHERE project_id = %(project_id)s",
+            "AND method = %(method)s",
+            "AND path = %(path)s",
+            "AND timestamp >= %(since)s",
+            "AND timestamp <= %(until)s",
+        ]
+        if app_ids:
+            filters.append("AND app_id IN %(app_ids)s")
+            params["app_ids"] = app_ids
+        if environment:
+            filters.append("AND environment = %(environment)s")
+            params["environment"] = environment
+        return filters, params
+
+    @staticmethod
+    def get_project_endpoint_detail(
+        project_id: str,
+        method: str,
+        path: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        threshold_ms: float = 500.0,
+    ) -> dict:
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        window_minutes = max(1.0, (until_dt - since_dt).total_seconds() / 60.0)
+
+        # Description comes from the registered endpoint records (PostgreSQL).
+        description = ""
+        try:
+            from apps.projects.models import Endpoint
+            ep_qs = Endpoint.objects.filter(
+                app__project_id=project_id,
+                method=method.upper(),
+                path=path,
+            )
+            if app_ids:
+                ep_qs = ep_qs.filter(app_id__in=app_ids)
+            ep = ep_qs.exclude(description="").first() or ep_qs.first()
+            if ep:
+                description = ep.description or ""
+        except Exception as exc:
+            logger.warning("Failed to load endpoint description: %s", exc)
+
+        empty = {
+            "method": method.upper(),
+            "path": path,
+            "description": description,
+            "total_requests": 0,
+            "successful_requests": 0,
+            "client_errors": 0,
+            "server_errors": 0,
+            "error_count": 0,
+            "error_rate": 0.0,
+            "requests_per_minute": 0.0,
+            "avg_response_time_ms": 0.0,
+            "p50_response_time_ms": 0.0,
+            "p75_response_time_ms": 0.0,
+            "p95_response_time_ms": 0.0,
+            "slow_requests": 0,
+            "apdex": 0.0,
+            "threshold_ms": threshold_ms,
+            "total_request_bytes": 0,
+            "total_response_bytes": 0,
+            "total_data_transferred": 0,
+            "avg_response_size": 0.0,
+            "last_seen_at": None,
+        }
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty endpoint detail: %s", exc)
+            return empty
+
+        filters, params = AnalyticsService._project_endpoint_filters(
+            project_id, method, path, app_ids, environment, since_dt, until_dt
+        )
+        params["threshold"] = threshold_ms
+        params["threshold4"] = threshold_ms * 4
+
+        query = f"""
+            SELECT
+                count() AS total_requests,
+                countIf(status_code < 400) AS successful_requests,
+                countIf(status_code >= 400 AND status_code < 500) AS client_errors,
+                countIf(status_code >= 500) AS server_errors,
+                countIf(status_code >= 400) AS error_count,
+                if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                avg(response_time_ms) AS avg_response_time_ms,
+                quantile(0.50)(response_time_ms) AS p50_response_time_ms,
+                quantile(0.75)(response_time_ms) AS p75_response_time_ms,
+                quantile(0.95)(response_time_ms) AS p95_response_time_ms,
+                countIf(response_time_ms > %(threshold)s) AS slow_requests,
+                if(
+                    count() > 0,
+                    (countIf(response_time_ms <= %(threshold)s)
+                        + countIf(response_time_ms > %(threshold)s AND response_time_ms <= %(threshold4)s) / 2)
+                    / count(),
+                    0
+                ) AS apdex,
+                sum(request_size) AS total_request_bytes,
+                sum(response_size) AS total_response_bytes,
+                avg(response_size) AS avg_response_size,
+                max(timestamp) AS last_seen_at
+            FROM api_requests
+            {' '.join(filters)}
+        """
+        try:
+            rows = client.execute(query, params)
+            if rows and rows[0].get("total_requests"):
+                row = AnalyticsService._clean_nan_values(rows[0])
+                row["method"] = method.upper()
+                row["path"] = path
+                row["description"] = description
+                row["threshold_ms"] = threshold_ms
+                row["requests_per_minute"] = (row.get("total_requests") or 0) / window_minutes
+                row["total_data_transferred"] = (row.get("total_request_bytes") or 0) + (row.get("total_response_bytes") or 0)
+                row["last_seen_at"] = _as_utc(row.get("last_seen_at"))
+                return row
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project endpoint detail; returning empty detail: %s", exc)
+
+        return empty
+
+    @staticmethod
+    def get_project_endpoint_timeseries(
+        project_id: str,
+        method: str,
+        path: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        timezone_name: str | None = None,
+    ) -> list[dict]:
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty endpoint timeseries: %s", exc)
+            return []
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        filters, params = AnalyticsService._project_endpoint_filters(
+            project_id, method, path, app_ids, environment, since_dt, until_dt
+        )
+        params["timezone"] = _resolve_bucket_timezone(timezone_name)
+
+        query = f"""
+            SELECT
+                toTimeZone(toStartOfHour(toTimeZone(timestamp, %(timezone)s)), 'UTC') AS bucket,
+                count() AS total_requests,
+                countIf(status_code >= 400) AS error_count,
+                countIf(status_code >= 400 AND status_code < 500) AS client_errors,
+                countIf(status_code >= 500) AS server_errors,
+                avg(response_time_ms) AS avg_response_time_ms,
+                sum(request_size) AS total_request_bytes,
+                sum(response_size) AS total_response_bytes
+            FROM api_requests
+            {' '.join(filters)}
+            GROUP BY bucket
+            ORDER BY bucket ASC
+        """
+        try:
+            rows = []
+            for r in client.execute(query, params):
+                row = AnalyticsService._clean_nan_values(r)
+                row["bucket"] = _as_utc(row.get("bucket"))
+                rows.append(row)
+            return rows
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project endpoint timeseries; returning empty list: %s", exc)
+            return []
+
+    @staticmethod
+    def get_project_endpoint_consumers(
+        project_id: str,
+        method: str,
+        path: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty endpoint consumers: %s", exc)
+            return []
+        IngestService.ensure_consumer_columns(client)
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        filters, params = AnalyticsService._project_endpoint_filters(
+            project_id, method, path, app_ids, environment, since_dt, until_dt
+        )
+        params["limit"] = max(1, min(limit, 50))
+
+        query = f"""
+            SELECT
+                if(
+                    consumer_name != '',
+                    consumer_name,
+                    if(
+                        consumer_id != '',
+                        consumer_id,
+                        if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                    )
+                ) AS consumer,
+                count() AS total_requests,
+                countIf(status_code >= 400) AS error_count,
+                if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                avg(response_time_ms) AS avg_response_time_ms
+            FROM api_requests
+            {' '.join(filters)}
+            GROUP BY consumer
+            ORDER BY total_requests DESC
+            LIMIT %(limit)s
+        """
+        try:
+            return [AnalyticsService._clean_nan_values(r) for r in client.execute(query, params)]
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project endpoint consumers; returning empty list: %s", exc)
+            return []
+
+    @staticmethod
+    def get_project_endpoint_status_codes(
+        project_id: str,
+        method: str,
+        path: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty endpoint status-code stats: %s", exc)
+            return []
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        filters, params = AnalyticsService._project_endpoint_filters(
+            project_id, method, path, app_ids, environment, since_dt, until_dt
+        )
+        params["limit"] = max(1, min(limit, 50))
+
+        query = f"""
+            SELECT
+                status_code,
+                count() AS total_requests
+            FROM api_requests
+            {' '.join(filters)}
+            GROUP BY status_code
+            ORDER BY total_requests DESC
+            LIMIT %(limit)s
+        """
+        try:
+            return client.execute(query, params)
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project endpoint status-code stats; returning empty list: %s", exc)
+            return []
+
+    @staticmethod
+    def get_project_endpoint_requests(
+        project_id: str,
+        method: str,
+        path: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 20,
+        errors_only: bool = False,
+    ) -> list[dict]:
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty endpoint requests: %s", exc)
+            return []
+        IngestService.ensure_consumer_columns(client)
+        IngestService.ensure_payload_columns(client)
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        filters, params = AnalyticsService._project_endpoint_filters(
+            project_id, method, path, app_ids, environment, since_dt, until_dt
+        )
+        if errors_only:
+            filters.append("AND status_code >= 400")
+        params["limit"] = max(1, min(limit, 100))
+
+        query = f"""
+            SELECT
+                timestamp,
+                method,
+                path,
+                status_code,
+                response_time_ms,
+                environment,
+                ip_address,
+                user_agent,
+                consumer_id,
+                consumer_name,
+                request_payload,
+                response_payload,
+                if(
+                    consumer_name != '',
+                    consumer_name,
+                    if(
+                        consumer_id != '',
+                        consumer_id,
+                        if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                    )
+                ) AS consumer
+            FROM api_requests
+            {' '.join(filters)}
+            ORDER BY timestamp DESC
+            LIMIT %(limit)s
+        """
+        try:
+            rows = client.execute(query, params)
+            for row in rows:
+                row["timestamp"] = _as_utc(row.get("timestamp"))
+            return rows
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project endpoint requests; returning empty list: %s", exc)
+            return []
+
+    @staticmethod
+    def get_project_endpoint_histograms(
+        project_id: str,
+        method: str,
+        path: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        bins: int = 30,
+    ) -> dict:
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        result = {"response_time": [], "response_size": []}
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty endpoint histograms: %s", exc)
+            return result
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        filters, params = AnalyticsService._project_endpoint_filters(
+            project_id, method, path, app_ids, environment, since_dt, until_dt
+        )
+        bins = max(5, min(bins, 60))
+
+        query = f"""
+            SELECT
+                histogram({bins})(response_time_ms) AS response_time_hist,
+                histogram({bins})(response_size) AS response_size_hist
+            FROM api_requests
+            {' '.join(filters)}
+        """
+
+        def _to_buckets(raw) -> list[dict]:
+            buckets = []
+            for item in raw or []:
+                try:
+                    lower, upper, height = item[0], item[1], item[2]
+                except (TypeError, IndexError, KeyError):
+                    continue
+                buckets.append({
+                    "lower": float(lower),
+                    "upper": float(upper),
+                    "count": float(height),
+                })
+            return buckets
+
+        try:
+            rows = client.execute(query, params)
+            if rows:
+                result["response_time"] = _to_buckets(rows[0].get("response_time_hist"))
+                result["response_size"] = _to_buckets(rows[0].get("response_size_hist"))
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project endpoint histograms; returning empty histograms: %s", exc)
+
+        return result
 
     @staticmethod
     def get_project_logs(
