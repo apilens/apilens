@@ -1,4 +1,5 @@
 import logging
+import math
 import threading
 import json
 from typing import Any
@@ -561,6 +562,8 @@ class IngestService:
     _payload_columns_lock = threading.Lock()
     _consumer_columns_ready = False
     _consumer_columns_lock = threading.Lock()
+    _base_url_column_ready = False
+    _base_url_column_lock = threading.Lock()
     _api_logs_table_ready = False
     _api_logs_table_lock = threading.Lock()
 
@@ -582,6 +585,22 @@ class IngestService:
                 logger.warning("Unable to ensure payload columns on api_requests: %s", exc)
                 return
             IngestService._payload_columns_ready = True
+
+    @staticmethod
+    def ensure_base_url_column(client) -> None:
+        if IngestService._base_url_column_ready:
+            return
+        with IngestService._base_url_column_lock:
+            if IngestService._base_url_column_ready:
+                return
+            try:
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS base_url String DEFAULT '' CODEC(ZSTD(1))"
+                )
+            except Exception as exc:
+                logger.warning("Unable to ensure base_url column on api_requests: %s", exc)
+                return
+            IngestService._base_url_column_ready = True
 
     @staticmethod
     def ensure_consumer_columns(client) -> None:
@@ -3067,6 +3086,7 @@ class AnalyticsService:
             "total_data_transferred": 0,
             "avg_response_size": 0.0,
             "last_seen_at": None,
+            "base_url": "",
         }
 
         try:
@@ -3075,6 +3095,7 @@ class AnalyticsService:
             logger.warning("ClickHouse client initialization failed; returning empty endpoint detail: %s", exc)
             return empty
 
+        IngestService.ensure_base_url_column(client)
         filters, params = AnalyticsService._project_endpoint_filters(
             project_id, method, path, app_ids, environment, since_dt, until_dt
         )
@@ -3104,7 +3125,8 @@ class AnalyticsService:
                 sum(request_size) AS total_request_bytes,
                 sum(response_size) AS total_response_bytes,
                 avg(response_size) AS avg_response_size,
-                max(timestamp) AS last_seen_at
+                max(timestamp) AS last_seen_at,
+                anyIf(base_url, base_url != '') AS base_url
             FROM api_requests
             {' '.join(filters)}
         """
@@ -3366,7 +3388,7 @@ class AnalyticsService:
         query = f"""
             SELECT
                 histogram({bins})(response_time_ms) AS response_time_hist,
-                histogram({bins})(response_size) AS response_size_hist
+                histogram({bins})(toFloat64(response_size)) AS response_size_hist
             FROM api_requests
             {' '.join(filters)}
         """
@@ -3375,14 +3397,14 @@ class AnalyticsService:
             buckets = []
             for item in raw or []:
                 try:
-                    lower, upper, height = item[0], item[1], item[2]
-                except (TypeError, IndexError, KeyError):
+                    lower, upper, height = float(item[0]), float(item[1]), float(item[2])
+                except (TypeError, IndexError, KeyError, ValueError):
                     continue
-                buckets.append({
-                    "lower": float(lower),
-                    "upper": float(upper),
-                    "count": float(height),
-                })
+                if not (math.isfinite(lower) and math.isfinite(upper) and math.isfinite(height)):
+                    continue
+                if height <= 0:
+                    continue
+                buckets.append({"lower": lower, "upper": upper, "count": height})
             return buckets
 
         try:

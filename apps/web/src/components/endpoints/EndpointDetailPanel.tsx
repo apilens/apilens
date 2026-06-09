@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronRight, Copy, GripVertical, Maximize2, Minimize2, X } from "lucide-react";
+import { Check, ChevronRight, Copy, GripVertical, Maximize2, Minimize2, Terminal, X } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -63,6 +63,7 @@ interface EndpointDetail {
   total_data_transferred: number;
   avg_response_size: number;
   last_seen_at: string | null;
+  base_url?: string;
 }
 
 interface TimeseriesPoint {
@@ -453,10 +454,11 @@ export default function EndpointDetailPanel({
               timeseries={timeseries}
               consumers={consumers}
               requests={recentRequests}
+              baseUrl={detail?.base_url || ""}
             />
           )}
           {activeTab === "errors" && (
-            <ErrorsTab timeseries={timeseries} statusCodes={statusCodes} errorRequests={errorRequests} />
+            <ErrorsTab timeseries={timeseries} statusCodes={statusCodes} errorRequests={errorRequests} baseUrl={detail?.base_url || ""} />
           )}
           {activeTab === "response-times" && (
             <ResponseTimesTab detail={detail} timeseries={timeseries} histograms={histograms} />
@@ -553,11 +555,13 @@ function RequestsTab({
   timeseries,
   consumers,
   requests,
+  baseUrl,
 }: {
   detail: EndpointDetail | null;
   timeseries: TimeseriesPoint[] | null;
   consumers: ConsumerRow[] | null;
   requests: RequestRow[] | null;
+  baseUrl: string;
 }) {
   const chartData = (timeseries || []).map((p) => ({
     label: formatBucketTime(p.bucket),
@@ -617,13 +621,13 @@ function RequestsTab({
       </Section>
 
       <Section title="Most recent requests">
-        <RequestsTable rows={requests} emptyMessage="No logged requests." />
+        <RequestsTable rows={requests} baseUrl={baseUrl} emptyMessage="No logged requests." />
       </Section>
     </>
   );
 }
 
-function RequestsTable({ rows, emptyMessage }: { rows: RequestRow[] | null; emptyMessage: string }) {
+function RequestsTable({ rows, baseUrl, emptyMessage }: { rows: RequestRow[] | null; baseUrl: string; emptyMessage: string }) {
   const [selected, setSelected] = useState<RequestRow | null>(null);
 
   if (!rows) return <Skeleton height={140} />;
@@ -669,9 +673,22 @@ function RequestsTable({ rows, emptyMessage }: { rows: RequestRow[] | null; empt
           </tbody>
         </table>
       </div>
-      {selected && <RequestPayloadModal row={selected} onClose={() => setSelected(null)} />}
+      {selected && <RequestPayloadModal row={selected} baseUrl={baseUrl} onClose={() => setSelected(null)} />}
     </>
   );
+}
+
+const CURL_BASE_URL_KEY = "apilens:curl-base-url";
+
+function buildCurl(row: RequestRow, baseUrl: string): string {
+  const base = (baseUrl || "").replace(/\/$/, "") || "YOUR_BASE_URL";
+  const body = formatPayload(row.request_payload);
+  const lines: string[] = [`curl -X ${row.method} "${base}${row.path}"`];
+  if (body) {
+    lines.push(`  -H "Content-Type: application/json"`);
+    lines.push(`  -d '${body.replace(/'/g, "'\\''")}'`);
+  }
+  return lines.join(" \\\n");
 }
 
 function formatPayload(raw: string | undefined): string {
@@ -739,7 +756,41 @@ function PayloadBlock({ title, body }: { title: string; body: string }) {
   );
 }
 
-function RequestPayloadModal({ row, onClose }: { row: RequestRow; onClose: () => void }) {
+function RequestPayloadModal({ row, baseUrl: detectedBaseUrl, onClose }: { row: RequestRow; baseUrl: string; onClose: () => void }) {
+  const [copiedCurl, setCopiedCurl] = useState(false);
+  // Seed from the SDK-detected URL; let user override and persist the override.
+  const [baseUrl, setBaseUrl] = useState(() => {
+    if (typeof window === "undefined") return detectedBaseUrl;
+    return localStorage.getItem(CURL_BASE_URL_KEY) || detectedBaseUrl;
+  });
+
+  // If a fresh detection arrives (different panel open) and user has no override, adopt it.
+  useEffect(() => {
+    if (detectedBaseUrl && !localStorage.getItem(CURL_BASE_URL_KEY)) {
+      setBaseUrl(detectedBaseUrl);
+    }
+  }, [detectedBaseUrl]);
+
+  const handleBaseUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setBaseUrl(val);
+    if (val) {
+      localStorage.setItem(CURL_BASE_URL_KEY, val);
+    } else {
+      localStorage.removeItem(CURL_BASE_URL_KEY);
+    }
+  };
+
+  const copyCurl = async () => {
+    try {
+      await navigator.clipboard.writeText(buildCurl(row, baseUrl));
+      setCopiedCurl(true);
+      setTimeout(() => setCopiedCurl(false), 1500);
+    } catch {
+      // Clipboard unavailable — silently ignore.
+    }
+  };
+
   // Close on Escape; capture-phase + stopPropagation so it closes this popup
   // only (not the underlying drawer, which also listens for Escape).
   useEffect(() => {
@@ -762,9 +813,21 @@ function RequestPayloadModal({ row, onClose }: { row: RequestRow; onClose: () =>
             <span className="request-payload-path">{row.path}</span>
             <span className={`endpoint-status-pill ${statusTone(row.status_code)}`}>{row.status_code}</span>
           </div>
-          <button type="button" className="endpoint-detail-close" onClick={onClose} aria-label="Close">
-            <X size={18} />
-          </button>
+          <div className="request-payload-header-actions">
+            <button
+              type="button"
+              className="request-payload-copy"
+              onClick={copyCurl}
+              title="Copy as cURL"
+              aria-label="Copy as cURL"
+            >
+              {copiedCurl ? <Check size={13} /> : <Terminal size={13} />}
+              {copiedCurl ? "Copied!" : "Copy cURL"}
+            </button>
+            <button type="button" className="endpoint-detail-close" onClick={onClose} aria-label="Close">
+              <X size={18} />
+            </button>
+          </div>
         </header>
         <div className="request-payload-meta">
           <span>{formatDateTime(row.timestamp)}</span>
@@ -801,10 +864,12 @@ function ErrorsTab({
   timeseries,
   statusCodes,
   errorRequests,
+  baseUrl,
 }: {
   timeseries: TimeseriesPoint[] | null;
   statusCodes: StatusCodeRow[] | null;
   errorRequests: RequestRow[] | null;
+  baseUrl: string;
 }) {
   const errorCodes = (statusCodes || []).filter((s) => s.status_code >= 400);
   const totalErrors = errorCodes.reduce((acc, s) => acc + s.total_requests, 0);
@@ -863,7 +928,7 @@ function ErrorsTab({
       </Section>
 
       <Section title="Most recent client & server errors">
-        <RequestsTable rows={errorRequests} emptyMessage="No logged requests." />
+        <RequestsTable rows={errorRequests} baseUrl={baseUrl} emptyMessage="No logged requests." />
       </Section>
     </>
   );

@@ -29,6 +29,7 @@ class RequestRecord(BaseModel):
     consumer_group: str = ""
     request_payload: str = ""
     response_payload: str = ""
+    base_url: str = ""
 
 
 class IngestRequest(BaseModel):

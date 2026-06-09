@@ -30,7 +30,7 @@ REQUEST_COLUMNS = [
     "timestamp", "app_id", "project_id", "endpoint_id", "environment", "method",
     "path", "status_code", "response_time_ms", "request_size", "response_size",
     "ip_address", "user_agent", "consumer_id", "consumer_name", "consumer_group",
-    "request_payload", "response_payload",
+    "request_payload", "response_payload", "base_url",
 ]
 LOG_COLUMNS = [
     "timestamp", "app_id", "project_id", "environment", "level", "message",
@@ -111,6 +111,7 @@ def ensure_clickhouse_schema(client) -> None:
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_id String CODEC(ZSTD(3))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_name String CODEC(ZSTD(3))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_group String CODEC(ZSTD(3))",
+            "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS base_url String DEFAULT '' CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS project_id String CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS attributes_json String CODEC(ZSTD(3))",
         ]
@@ -231,6 +232,7 @@ def handle_requests(project_id: str, project_slug: str, records) -> int:
                 (r.consumer_id or "")[:256], (r.consumer_name or "")[:256],
                 (r.consumer_group or "")[:256],
                 _safe_payload(r.request_payload), _safe_payload(r.response_payload),
+                (r.base_url or "")[:512],
             ))
         client.execute(
             f"INSERT INTO api_requests ({', '.join(REQUEST_COLUMNS)}) VALUES",

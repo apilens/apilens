@@ -10923,6 +10923,13 @@ a.settings-btn {
   gap: 8px;
   min-width: 0;
 }
+.request-payload-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .request-payload-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 14px;
