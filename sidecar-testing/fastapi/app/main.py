@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
-from fastapi import FastAPI
-from apilens.fastapi import ApiLensMiddleware
+from fastapi import Depends, FastAPI, Request
+from apilens.fastapi import ApiLensMiddleware, set_consumer
 from dotenv import load_dotenv
 import uvicorn
 
@@ -16,14 +16,31 @@ app = FastAPI()
 # https://ingest.apilens.ai/v1 in production.)
 app.add_middleware(
     ApiLensMiddleware,
-    api_key=os.getenv("APILENS_API_KEY"),
-    app_id=os.getenv("APILENS_APP_ID"),
-    base_url=os.getenv("APILENS_BASE_URL", "http://localhost:8000/ingest/v1"),
+    base_url="http://localhost:8001/v1",
+    project_slug="observeops",
+    api_key="apilens_UheLV-Pql8vnYUh2P5v10T0mZBnwdgooKu9Ppx4dlyL600NdOz45-g",
+    app_id="order-service",
 )
 
-@app.get("/v1/orders")
-def list_orders():
 
+# --- Consumer identification ---
+# Inject as a FastAPI Dependency so it runs on every route that uses it.
+# Test with: curl -H "X-User-Email: alice@example.com" http://localhost:4321/v1/orders
+async def consumer_dep(request: Request):
+    user_email = request.headers.get("X-User-Email")
+    user_name = request.headers.get("X-User-Name")
+    user_role = request.headers.get("X-User-Role")
+    if user_email:
+        set_consumer(
+            request,                   # pass the Request object for ASGI state
+            identifier=user_email,     # required: stable id
+            name=user_name or None,    # optional: display name
+            group=user_role or None,   # optional: team / role / tier
+        )
+
+
+@app.get("/v1/orders")
+async def list_orders(_: None = Depends(consumer_dep)):
     return {"ok": True}
 
 

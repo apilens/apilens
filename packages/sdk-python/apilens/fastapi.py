@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, Callable
+
 from .client import ApiLensClient, ApiLensConfig
 from .client.middleware import ApiLensASGIMiddleware
 from .frameworks.fastapi import instrument_fastapi, set_consumer, track_consumer
@@ -37,6 +39,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         log_request_body: bool = True,
         log_response_body: bool = True,
         max_payload_bytes: int = 8192,
+        get_consumer: Callable[..., Any] | None = None,
     ) -> None:
         resolved_key = (api_key or client_id or "").strip()
         resolved_project_slug = project_slug.strip()
@@ -67,6 +70,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
             log_request_body=log_request_body,
             log_response_body=log_response_body,
             max_payload_bytes=max_payload_bytes,
+            get_consumer=get_consumer,
         )
 
 

@@ -5,8 +5,33 @@ from typing import Any
 
 from .client._capture import CaptureContext, _normalize_path, _to_int, capture_response
 from .client import ApiLensClient, ApiLensConfig
+from .client.middleware import (
+    _apply_consumer,
+    _consumer_ctx,
+    _read_consumer,
+    normalize_consumer,
+    set_consumer,
+    track_consumer,
+)
 
 _client_singleton: ApiLensClient | None = None
+
+
+def _resolve_get_consumer(settings: Any):
+    """Read APILENS_GET_CONSUMER from settings; accept a callable or dotted path."""
+    target = getattr(settings, "APILENS_GET_CONSUMER", None)
+    if target is None:
+        return None
+    if callable(target):
+        return target
+    if isinstance(target, str):
+        try:
+            from django.utils.module_loading import import_string
+
+            return import_string(target)
+        except Exception:
+            return None
+    return None
 
 
 
@@ -39,7 +64,51 @@ def _get_client_from_settings() -> ApiLensClient:
 
 
 class ApiLensDjangoMiddleware:
-    """Django middleware for DRF + Django Ninja."""
+    """Django middleware for DRF + Django Ninja.
+
+    **Setup** — add to ``MIDDLEWARE`` and two required settings::
+
+        # settings.py
+        MIDDLEWARE = [
+            # ... other middleware ...
+            "apilens.django.ApiLensDjangoMiddleware",
+        ]
+        APILENS_API_KEY = "apilens_xxx"   # project-level key from the dashboard
+        APILENS_APP_ID  = "my-django-app" # slug of the app being instrumented
+
+    **Identifying consumers** — two options:
+
+    Option A — ``APILENS_GET_CONSUMER`` setting (runs centrally on every
+    request; accepts a callable or its dotted import path)::
+
+        # settings.py
+        def get_consumer(request):
+            if request.user.is_authenticated:
+                return {
+                    "identifier": request.user.email,       # required: stable id
+                    "name": request.user.get_full_name(),    # optional
+                    "group": getattr(request.user, "role", ""),  # optional
+                }
+            return None
+
+        APILENS_GET_CONSUMER = get_consumer
+        # or use the dotted path:
+        # APILENS_GET_CONSUMER = "myapp.consumers.get_consumer"
+
+    Option B — call :func:`set_consumer` directly from a view or DRF
+    serializer (an explicit call always wins over the setting)::
+
+        from apilens.django import set_consumer
+
+        def my_view(request):
+            if request.user.is_authenticated:
+                set_consumer(
+                    request,
+                    identifier=request.user.email,
+                    name=request.user.get_full_name(),
+                )
+            ...
+    """
 
     def __init__(self, get_response):
         from django.conf import settings
@@ -51,12 +120,16 @@ class ApiLensDjangoMiddleware:
         if not self.app_id:
             raise RuntimeError("APILENS_APP_ID is required in Django settings")
         self.max_payload_bytes = 8192
+        # Optional resolver, e.g. APILENS_GET_CONSUMER = lambda request: request.user.username
+        # Nothing is inferred automatically; it only runs the resolver you provide.
+        self.get_consumer = _resolve_get_consumer(settings)
 
     def __call__(self, request):
         started_at = time.perf_counter()
         response = None
         status_code = 500
         response_size = 0
+        consumer_token = _consumer_ctx.set(None)
 
         xff = (request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
         if xff:
@@ -93,6 +166,16 @@ class ApiLensDjangoMiddleware:
             response_payload = (content[: self.max_payload_bytes]).decode("utf-8", errors="replace")
             return response
         finally:
+            consumer = dict(_read_consumer(request))
+            if self.get_consumer is not None and not consumer.get("consumer_id"):
+                try:
+                    resolved = self.get_consumer(request)
+                except Exception:
+                    resolved = None
+                if resolved is not None:
+                    consumer = normalize_consumer(resolved)
+            _apply_consumer(ctx, consumer)
+            _consumer_ctx.reset(consumer_token)
             capture_response(
                 self.client,
                 ctx,
@@ -111,3 +194,11 @@ def instrument_app(app: Any, client: ApiLensClient | None = None, *, environment
     # Programmatic install is intentionally lightweight; framework users should
     # configure middleware in settings for deterministic ordering.
     return app
+
+
+__all__ = [
+    "ApiLensDjangoMiddleware",
+    "instrument_app",
+    "track_consumer",
+    "set_consumer",
+]

@@ -23,6 +23,92 @@ _consumer_ctx: contextvars.ContextVar[dict[str, str] | None] = contextvars.Conte
     default=None,
 )
 
+# Attribute used to stash the consumer on a framework request object
+# (Starlette `request.state`, Django/Flask `request`).
+_CONSUMER_ATTR = "_apilens_consumer"
+
+_EMPTY_CONSUMER = {"consumer_id": "", "consumer_name": "", "consumer_group": ""}
+
+
+def normalize_consumer(value: Any) -> dict[str, str]:
+    """
+    Coerce a user-supplied consumer into the standard 3-key dict.
+
+    Accepts:
+        - a plain string  -> treated as consumer_id
+        - a mapping       -> keys id/identifier/consumer_id, name/consumer_name,
+                             group/consumer_group
+        - an object       -> attributes id/identifier, name, group / username
+        - None            -> empty consumer
+
+    Nothing is inferred automatically; this only reshapes what the caller passes.
+    """
+    if value is None:
+        return dict(_EMPTY_CONSUMER)
+    if isinstance(value, str):
+        return {"consumer_id": value.strip(), "consumer_name": "", "consumer_group": ""}
+    if isinstance(value, dict):
+        get = value.get
+        cid = get("id") or get("identifier") or get("consumer_id") or ""
+        cname = get("name") or get("username") or get("consumer_name") or ""
+        cgroup = get("group") or get("consumer_group") or ""
+    else:
+        cid = (
+            getattr(value, "id", None)
+            or getattr(value, "identifier", None)
+            or getattr(value, "consumer_id", None)
+            or ""
+        )
+        cname = (
+            getattr(value, "name", None)
+            or getattr(value, "username", None)
+            or getattr(value, "consumer_name", None)
+            or ""
+        )
+        cgroup = getattr(value, "group", None) or getattr(value, "consumer_group", None) or ""
+    return {
+        "consumer_id": str(cid or "").strip(),
+        "consumer_name": str(cname or "").strip(),
+        "consumer_group": str(cgroup or "").strip(),
+    }
+
+
+def _store_consumer(request: Any | None, payload: dict[str, str]) -> None:
+    """Stash the consumer on the contextvar and (best-effort) on the request."""
+    _consumer_ctx.set(payload)
+    if request is None:
+        return
+    state = getattr(request, "state", None)
+    if state is not None:
+        try:
+            setattr(state, _CONSUMER_ATTR, payload)
+        except Exception:
+            pass
+    # Django HttpRequest / Flask request have no `.state`; stash on the object.
+    try:
+        setattr(request, _CONSUMER_ATTR, payload)
+    except Exception:
+        pass
+
+
+def _read_consumer(request: Any | None = None) -> dict[str, str]:
+    """Resolve the consumer from the request object, then the contextvar."""
+    if request is not None:
+        state = getattr(request, "state", None)
+        stored = getattr(state, _CONSUMER_ATTR, None) if state is not None else None
+        if not isinstance(stored, dict):
+            stored = getattr(request, _CONSUMER_ATTR, None)
+        if isinstance(stored, dict):
+            return stored
+    ctx_value = _consumer_ctx.get()
+    return ctx_value if isinstance(ctx_value, dict) else dict(_EMPTY_CONSUMER)
+
+
+def _apply_consumer(ctx: Any, consumer: dict[str, str]) -> None:
+    ctx.consumer_id = str(consumer.get("consumer_id") or "")
+    ctx.consumer_name = str(consumer.get("consumer_name") or "")
+    ctx.consumer_group = str(consumer.get("consumer_group") or "")
+
 
 def track_consumer(
     request: Any | None = None,
@@ -32,19 +118,56 @@ def track_consumer(
     group: str | None = None,
 ) -> None:
     """
-    Attach consumer identity to the current request.
+    Attach a consumer identity to the current request.
 
-    Works with FastAPI/Starlette when called from dependencies or handlers.
+    Call this from your own code once you have resolved who the caller is
+    (e.g. after auth). APILens never infers the consumer automatically —
+    whatever you pass here is exactly what is reported.
+
+    ``request`` is optional. Omit it (or pass ``None``) when calling from a
+    hook that runs before the framework request object is available, such as
+    Flask's ``@app.before_request``. The identity is stored on a contextvar
+    and picked up by the middleware at response time::
+
+        # Flask — called without request arg from before_request
+        from flask import g
+        from apilens.flask import set_consumer
+
+        @app.before_request
+        def identify_consumer():
+            if g.current_user:
+                set_consumer(
+                    identifier=g.current_user["email"],
+                    name=g.current_user.get("name"),
+                    group=g.current_user.get("role"),
+                )
+
+        # FastAPI — pass the Request object from a dependency
+        from fastapi import Depends, Request
+        from apilens.fastapi import set_consumer
+
+        async def consumer_dep(request: Request):
+            user = getattr(request.state, "user", None)
+            if user:
+                set_consumer(request, identifier=user.id, name=user.username)
+
+        @app.get("/orders")
+        async def list_orders(_=Depends(consumer_dep)):
+            ...
+
+        # Django — call from a view or set APILENS_GET_CONSUMER in settings
+        from apilens.django import set_consumer
+
+        def my_view(request):
+            if request.user.is_authenticated:
+                set_consumer(request, identifier=request.user.email)
     """
     payload = {
         "consumer_id": str(identifier or "").strip(),
         "consumer_name": str(name or "").strip(),
         "consumer_group": str(group or "").strip(),
     }
-    _consumer_ctx.set(payload)
-    state = getattr(request, "state", None)
-    if state is not None:
-        setattr(state, "_apilens_consumer", payload)
+    _store_consumer(request, payload)
 
 
 def set_consumer(
@@ -54,7 +177,32 @@ def set_consumer(
     name: str | None = None,
     group: str | None = None,
 ) -> None:
-    """Backward-compatible alias for track_consumer."""
+    """
+    Attach a consumer identity to the current request.
+
+    Alias for :func:`track_consumer`. Preferred name when following the
+    ``before_request`` / dependency-injection pattern used in Flask, FastAPI,
+    Django, and Starlette.
+
+    ``request`` is optional — omit it when calling from a hook where the
+    framework request object is not yet available (e.g. Flask's
+    ``@app.before_request``). The value is stored on a contextvar and picked
+    up by the middleware at response time.
+
+    Example (Flask)::
+
+        from flask import g
+        from apilens.flask import set_consumer
+
+        @app.before_request
+        def identify_consumer():
+            if g.current_user:
+                set_consumer(
+                    identifier=g.current_user["email"],
+                    name=g.current_user.get("name"),
+                    group=g.current_user.get("role"),
+                )
+    """
     track_consumer(request, identifier=identifier, name=name, group=group)
 
 
@@ -74,6 +222,7 @@ class ApiLensASGIMiddleware:
         log_response_body: bool = True,
         capture_payloads: bool = True,
         max_payload_bytes: int = 8192,
+        get_consumer: Callable[..., Any] | None = None,
     ) -> None:
         self.app = app
         self.client = client
@@ -85,6 +234,11 @@ class ApiLensASGIMiddleware:
         self.log_response_body = log_response_body
         self.capture_payloads = capture_payloads and enable_request_logging
         self.max_payload_bytes = max(0, int(max_payload_bytes))
+        # Optional callback to centralize consumer extraction, e.g.
+        #   get_consumer=lambda scope, headers: headers.get("x-user")
+        # Return a str, dict, object or None. Never invoked automatically
+        # against auth state — it only runs the resolver you provide.
+        self.get_consumer = get_consumer
 
     async def __call__(self, scope, receive, send) -> None:
         if scope.get("type") != "http":
@@ -150,18 +304,23 @@ class ApiLensASGIMiddleware:
         try:
             await self.app(scope, wrapped_receive, wrapped_send)
         finally:
-            consumer = _consumer_ctx.get() or {}
+            consumer = dict(_read_consumer())
             scope_state = scope.get("state")
             if isinstance(scope_state, dict):
-                state_consumer = scope_state.get("_apilens_consumer")
+                state_consumer = scope_state.get(_CONSUMER_ATTR)
                 if isinstance(state_consumer, dict):
                     consumer = {**consumer, **state_consumer}
+            if self.get_consumer is not None and not consumer.get("consumer_id"):
+                try:
+                    resolved = self.get_consumer(scope, headers)
+                except Exception:
+                    resolved = None
+                if resolved is not None:
+                    consumer = normalize_consumer(resolved)
             request_payload = b"".join(request_payload_chunks).decode("utf-8", errors="replace")
             response_payload = b"".join(response_payload_chunks).decode("utf-8", errors="replace")
             ctx.request_payload = request_payload
-            ctx.consumer_id = str(consumer.get("consumer_id") or "")
-            ctx.consumer_name = str(consumer.get("consumer_name") or "")
-            ctx.consumer_group = str(consumer.get("consumer_group") or "")
+            _apply_consumer(ctx, consumer)
             capture_response(
                 self.client,
                 ctx,
@@ -190,6 +349,7 @@ class ApiLensWSGIMiddleware:
         log_response_body: bool = True,
         capture_payloads: bool = True,
         max_payload_bytes: int = 8192,
+        get_consumer: Callable[..., Any] | None = None,
     ) -> None:
         self.app = app
         self.client = client
@@ -201,9 +361,15 @@ class ApiLensWSGIMiddleware:
         self.log_response_body = log_response_body
         self.capture_payloads = capture_payloads and enable_request_logging
         self.max_payload_bytes = max(0, int(max_payload_bytes))
+        # Optional callback to centralize consumer extraction, e.g.
+        #   get_consumer=lambda environ: environ.get("HTTP_X_USER")
+        # Return a str, dict, object or None. Prefer calling track_consumer()
+        # inside your view when you have the framework request object.
+        self.get_consumer = get_consumer
 
     def __call__(self, environ: dict[str, Any], start_response: Callable) -> Any:
         started_at = time.perf_counter()
+        consumer_token = _consumer_ctx.set(None)
 
         path = _normalize_path(environ.get("PATH_INFO") or "/")
         query = environ.get("QUERY_STRING")
@@ -269,6 +435,16 @@ class ApiLensWSGIMiddleware:
             close = getattr(result, "close", None)
             if callable(close):
                 close()
+            consumer = dict(_read_consumer())
+            if self.get_consumer is not None and not consumer.get("consumer_id"):
+                try:
+                    resolved = self.get_consumer(environ)
+                except Exception:
+                    resolved = None
+                if resolved is not None:
+                    consumer = normalize_consumer(resolved)
+            _apply_consumer(ctx, consumer)
+            _consumer_ctx.reset(consumer_token)
             response_payload = b"".join(response_payload_chunks).decode("utf-8", errors="replace")
             capture_response(
                 self.client,

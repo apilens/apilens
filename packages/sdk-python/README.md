@@ -120,7 +120,144 @@ app.add_middleware(
 )
 ```
 
-Capture the calling consumer per request with `set_consumer(request, identifier=..., name=..., group=...)`.
+## Identifying consumers
+
+APILens **never** infers who the caller is — it does not read your auth
+headers, JWTs or session. You attach the identity explicitly after your
+own auth resolves. This keeps you in control of what identity (if any)
+leaves your process.
+
+Use `set_consumer(...)` (alias: `track_consumer`). The `request` argument is
+**optional** — omit it when calling from a lifecycle hook that runs before
+the framework request object is in scope.
+
+---
+
+### Flask — `@app.before_request`
+
+```python
+from flask import Flask, g
+from apilens import ApiLensClient, ApiLensConfig
+from apilens.flask import instrument_flask, set_consumer
+
+app = Flask(__name__)
+client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
+instrument_flask(app, client, app_id="my-flask-app")
+
+@app.before_request
+def identify_consumer():
+    if g.current_user:                        # however YOUR app sets g.current_user
+        set_consumer(                         # no request arg — uses a contextvar
+            identifier=g.current_user["email"],   # required: stable id
+            name=g.current_user.get("name"),      # optional: display name
+            group=g.current_user.get("role"),     # optional: team / tier / org
+        )
+```
+
+---
+
+### FastAPI — Dependency injection
+
+```python
+from fastapi import Depends, FastAPI, Request
+from apilens.fastapi import ApiLensMiddleware, set_consumer
+
+app = FastAPI()
+app.add_middleware(ApiLensMiddleware, api_key="apilens_xxx", app_id="my-fastapi-app")
+
+async def consumer_dep(request: Request):
+    user = getattr(request.state, "user", None)   # set by your auth middleware
+    if user:
+        set_consumer(
+            request,                               # pass Request for ASGI state
+            identifier=user.id,                    # required
+            name=getattr(user, "username", None),  # optional
+            group=getattr(user, "org_slug", None), # optional
+        )
+
+@app.get("/orders")
+async def list_orders(_: None = Depends(consumer_dep)):
+    ...
+```
+
+---
+
+### Django — settings or view
+
+**Option A** — centralized via `APILENS_GET_CONSUMER` in `settings.py` (runs
+on every request automatically):
+
+```python
+# settings.py
+MIDDLEWARE = [
+    # ...
+    "apilens.django.ApiLensDjangoMiddleware",
+]
+APILENS_API_KEY = "apilens_xxx"
+APILENS_APP_ID  = "my-django-app"
+
+def get_consumer(request):
+    if request.user.is_authenticated:
+        return {
+            "identifier": request.user.email,
+            "name": request.user.get_full_name(),
+            "group": getattr(request.user, "role", ""),
+        }
+    return None
+
+APILENS_GET_CONSUMER = get_consumer
+# or as a dotted import path:
+# APILENS_GET_CONSUMER = "myapp.consumers.get_consumer"
+```
+
+**Option B** — inline from a view (explicit call wins over the setting):
+
+```python
+from apilens.django import set_consumer
+
+def my_view(request):
+    if request.user.is_authenticated:
+        set_consumer(request, identifier=request.user.email)
+    ...
+```
+
+---
+
+### Starlette
+
+```python
+from starlette.applications import Starlette
+from starlette.requests import Request
+from apilens import ApiLensClient, ApiLensConfig
+from apilens.starlette import instrument_app, set_consumer
+
+app = Starlette()
+client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
+instrument_app(app, client, app_id="my-starlette-app")
+
+@app.route("/orders")
+async def list_orders(request: Request):
+    user = request.state.user   # set by your auth middleware
+    if user:
+        set_consumer(request, identifier=user["id"], name=user.get("name"))
+    ...
+```
+
+---
+
+### What `set_consumer` accepts
+
+| Arg | Type | Notes |
+|-----|------|-------|
+| `identifier` | `str` | **Required.** Stable id — email, user id, API key prefix… |
+| `name` | `str \| None` | Human-readable label shown in the dashboard |
+| `group` | `str \| None` | Team, plan tier, org, role — use for grouping |
+
+The function also accepts a plain string via `normalize_consumer(value)` or a
+dict / object with `id`/`identifier`/`name`/`group` attributes, so you can
+pass your user model directly to the centralized callbacks.
+
+An explicit `set_consumer(...)` call always wins over a `get_consumer` callback.
 
 ## Starlette
 
