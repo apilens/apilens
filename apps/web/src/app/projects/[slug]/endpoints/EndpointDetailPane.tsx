@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronRight, Copy, Search, Terminal } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, Copy, Search, Terminal } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -19,12 +19,8 @@ import {
 import {
   Button,
   Inspector,
-  Panel,
-  StatStrip,
   StatusPill,
-  Tabs,
   statusCodeTone,
-  type Stat,
 } from "@/components/aperture";
 
 /* ── Types ───────────────────────────────────────────────────────────── */
@@ -106,11 +102,7 @@ interface Histograms {
 }
 
 type TabKey = "overview" | "requests";
-
-const TABS: Array<{ key: TabKey; label: string }> = [
-  { key: "overview", label: "Overview" },
-  { key: "requests", label: "Requests" },
-];
+type StatTone = "good" | "warn" | "bad";
 
 const STATUS_FILTERS = ["all", "2xx", "3xx", "4xx", "5xx"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
@@ -151,7 +143,16 @@ const EMPTY_DETAIL: EndpointDetail = {
 };
 const EMPTY_HISTOGRAMS: Histograms = { response_time: [], response_size: [] };
 
-/* ── Formatters ──────────────────────────────────────────────────────── */
+/* ── Helpers ─────────────────────────────────────────────────────────── */
+
+function methodColor(m: string): string {
+  const k = m.toUpperCase();
+  if (k === "GET") return "ep-method-get";
+  if (k === "POST") return "ep-method-post";
+  if (k === "PUT" || k === "PATCH") return "ep-method-put";
+  if (k === "DELETE") return "ep-method-delete";
+  return "ep-method-other";
+}
 
 function formatNumber(n: number): string {
   return Math.round(n || 0).toLocaleString();
@@ -212,6 +213,7 @@ interface EndpointDetailPaneProps {
   until?: string;
   environment?: string;
   appSlugs?: string[];
+  onBack?: () => void;
 }
 
 /* ── Component ───────────────────────────────────────────────────────── */
@@ -224,6 +226,7 @@ export default function EndpointDetailPane({
   until,
   environment,
   appSlugs = [],
+  onBack,
 }: EndpointDetailPaneProps) {
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
 
@@ -305,28 +308,84 @@ export default function EndpointDetailPane({
     }
   }, [method, path, activeTab, detail, timeseries, consumers, statusCodes, recentRequests, histograms, fetchResource]);
 
+  /* ── Derived stat tones ── */
+  const errRate = detail?.error_rate || 0;
+  const p95 = detail?.p95_response_time_ms || 0;
+  const threshold = detail?.threshold_ms || 0;
+  const apdex = detail?.apdex || 0;
+  const loadingDetail = detail === null;
+
+  const errTone: StatTone | undefined = loadingDetail ? undefined : errRate >= 5 ? "bad" : errRate >= 1 ? "warn" : "good";
+  const p95Tone: StatTone | undefined =
+    loadingDetail || !threshold ? undefined : p95 > threshold ? "bad" : p95 > threshold * 0.75 ? "warn" : "good";
+  const apdexTone: StatTone | undefined = loadingDetail ? undefined : apdex >= 0.94 ? "good" : apdex >= 0.85 ? "warn" : "bad";
+
   return (
-    <div className="endpoint-detail-pane-wrap">
-      {/* Identity header */}
-      <header className="endpoint-detail-pane-identity">
-        <span className={`method-badge method-badge-${method.toLowerCase()}`}>{method}</span>
-        <span className="endpoint-detail-pane-path">{path}</span>
-        {detail?.base_url ? <span className="endpoint-detail-baseurl">{detail.base_url}</span> : null}
-        {detail?.description ? <span className="endpoint-detail-pane-desc">{detail.description}</span> : null}
-      </header>
+    <div className="ep-detail-content">
+      {/* Identity bar */}
+      <div className="ep-identity">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back to endpoints"
+            style={{ display: "flex", alignItems: "center", background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 0 }}
+          >
+            <ArrowLeft size={16} />
+          </button>
+        )}
+        <span className={`ep-identity-method ${methodColor(method)}`}>{method}</span>
+        <span className="ep-identity-path">{path}</span>
+        {detail?.base_url ? <span className="ep-identity-base">{detail.base_url}</span> : null}
+        <div className="ep-identity-tabs">
+          <button
+            type="button"
+            className={`ep-identity-tab${activeTab === "overview" ? " active" : ""}`}
+            onClick={() => setActiveTab("overview")}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            className={`ep-identity-tab${activeTab === "requests" ? " active" : ""}`}
+            onClick={() => setActiveTab("requests")}
+          >
+            Requests
+          </button>
+        </div>
+      </div>
 
-      <HealthStrip detail={detail} />
+      {/* Inline stats */}
+      <div className="ep-stats-row">
+        <StatCell
+          label="Traffic"
+          value={loadingDetail ? "—" : formatNumber(detail!.total_requests)}
+          sub={`${(detail?.requests_per_minute || 0).toFixed(2)}/min`}
+        />
+        <StatCell
+          label="Error rate"
+          value={loadingDetail ? "—" : `${errRate.toFixed(2)}%`}
+          sub={`${formatNumber(detail?.error_count || 0)} errors`}
+          tone={errTone}
+        />
+        <StatCell
+          label="p95 latency"
+          value={loadingDetail ? "—" : formatMs(p95)}
+          sub={`p50 ${formatMs(detail?.p50_response_time_ms || 0)}`}
+          tone={p95Tone}
+        />
+        <StatCell
+          label="Apdex"
+          value={loadingDetail ? "—" : apdex.toFixed(3)}
+          sub={`${formatNumber(detail?.slow_requests || 0)} slow`}
+          tone={apdexTone}
+        />
+      </div>
 
-      <Tabs
-        className="endpoint-page-tabs"
-        tabs={TABS}
-        active={activeTab}
-        onChange={(k) => setActiveTab(k as TabKey)}
-      />
-
-      <div className="endpoint-page-body">
+      {/* Body */}
+      <div className="ep-detail-body">
         {activeTab === "overview" ? (
-          <OverviewGrid
+          <OverviewContent
             detail={detail}
             timeseries={timeseries}
             consumers={consumers}
@@ -334,43 +393,36 @@ export default function EndpointDetailPane({
             histograms={histograms}
           />
         ) : (
-          <RequestsTab requests={recentRequests} baseUrl={detail?.base_url || ""} />
+          <RequestsContent requests={recentRequests} baseUrl={detail?.base_url || ""} />
         )}
       </div>
     </div>
   );
 }
 
-/* ── Health strip ────────────────────────────────────────────────────── */
+/* ── Stat cell ───────────────────────────────────────────────────────── */
 
-function HealthStrip({ detail }: { detail: EndpointDetail | null }) {
-  const loading = detail === null;
-  const errRate = detail?.error_rate || 0;
-  const p95 = detail?.p95_response_time_ms || 0;
-  const threshold = detail?.threshold_ms || 0;
-  const apdex = detail?.apdex || 0;
-
-  const errTone: Stat["tone"] = loading ? undefined : errRate >= 5 ? "bad" : errRate >= 1 ? "warn" : "good";
-  const p95Tone: Stat["tone"] = loading || !threshold ? undefined : p95 > threshold ? "bad" : p95 > threshold * 0.75 ? "warn" : "good";
-  const apdexTone: Stat["tone"] = loading ? undefined : apdex >= 0.94 ? "good" : apdex >= 0.85 ? "warn" : "bad";
-
-  const stats: Stat[] = [
-    { label: "Traffic", value: loading ? "—" : formatNumber(detail!.total_requests), sub: loading ? "" : `${(detail!.requests_per_minute || 0).toFixed(2)}/min` },
-    { label: "Error rate", value: loading ? "—" : `${errRate.toFixed(2)}%`, sub: loading ? "" : `${formatNumber(detail!.error_count)} errors`, tone: errTone },
-    { label: "p95 latency", value: loading ? "—" : formatMs(p95), sub: loading ? "" : `p50 ${formatMs(detail!.p50_response_time_ms)}`, tone: p95Tone },
-    { label: "Apdex", value: loading ? "—" : apdex.toFixed(3), sub: loading ? "" : `${formatNumber(detail!.slow_requests)} slow`, tone: apdexTone },
-  ];
-
-  return <StatStrip stats={stats} className="endpoint-page-health" />;
+function StatCell({ label, value, sub, tone }: { label: string; value: string; sub: string; tone?: StatTone }) {
+  return (
+    <div className="ep-stat">
+      <div className="ep-stat-label">{label}</div>
+      <div className={`ep-stat-value${tone ? ` tone-${tone}` : ""}`}>{value || "—"}</div>
+      <div className="ep-stat-sub">{sub}</div>
+    </div>
+  );
 }
 
 /* ── Shared building blocks ──────────────────────────────────────────── */
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function SectionBlock({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <Panel className="endpoint-card" title={title} hint={hint}>
+    <div className="ep-section">
+      <div className="ep-section-label">
+        {label}
+        {hint ? <span className="ep-section-hint">{hint}</span> : null}
+      </div>
       {children}
-    </Panel>
+    </div>
   );
 }
 
@@ -409,7 +461,7 @@ function ChartTooltip({ active, payload, label, valueFormatter }: any) {
 
 /* ── Overview ────────────────────────────────────────────────────────── */
 
-function OverviewGrid({
+function OverviewContent({
   detail,
   timeseries,
   consumers,
@@ -423,20 +475,20 @@ function OverviewGrid({
   histograms: Histograms | null;
 }) {
   return (
-    <div className="endpoint-overview">
+    <>
       <TrafficSection timeseries={timeseries} />
       <LatencySection detail={detail} timeseries={timeseries} />
-      <div className="endpoint-overview-cols">
-        <div className="endpoint-overview-col">
+      <div className="ep-overview-cols">
+        <div className="ep-overview-col">
           <StatusCodesBlock statusCodes={statusCodes} />
           <ConsumersSection consumers={consumers} />
         </div>
-        <div className="endpoint-overview-col">
+        <div className="ep-overview-col">
           <LatencyHistogramBlock histograms={histograms} />
-          <DataTransferredSection detail={detail} timeseries={timeseries} histograms={histograms} />
+          <DataTransferredSection detail={detail} timeseries={timeseries} />
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -450,13 +502,13 @@ function TrafficSection({ timeseries }: { timeseries: TimeseriesPoint[] | null }
   }));
   const hasData = chartData.some((d) => d.success > 0 || d.client > 0 || d.server > 0);
   return (
-    <Section title="Traffic over time" hint="Stacked by status class">
+    <SectionBlock label="Traffic over time" hint="stacked by status class">
       {timeseries === null ? (
-        <Skeleton height={240} />
+        <Skeleton height={200} />
       ) : !hasData ? (
         <EmptyBlock message="No requests in the selected period." />
       ) : (
-        <ChartBox height={240}>
+        <ChartBox height={200}>
           <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
             <CartesianGrid stroke={GRID} vertical={false} />
             <XAxis dataKey="label" tick={AXIS_TICK} minTickGap={40} tickLine={false} axisLine={{ stroke: GRID }} />
@@ -468,7 +520,7 @@ function TrafficSection({ timeseries }: { timeseries: TimeseriesPoint[] | null }
           </BarChart>
         </ChartBox>
       )}
-    </Section>
+    </SectionBlock>
   );
 }
 
@@ -482,13 +534,13 @@ function LatencySection({ detail, timeseries }: { detail: EndpointDetail | null;
   }));
   const threshold = detail?.threshold_ms || 0;
   return (
-    <Section title="Latency over time" hint="Percentiles · p50 / p95 / p99">
+    <SectionBlock label="Latency over time" hint="p50 / p95 / p99">
       {timeseries === null ? (
-        <Skeleton height={240} />
+        <Skeleton height={200} />
       ) : chartData.length === 0 ? (
         <EmptyBlock message="No requests in the selected period." />
       ) : (
-        <ChartBox height={240}>
+        <ChartBox height={200}>
           <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
             <CartesianGrid stroke={GRID} vertical={false} />
             <XAxis dataKey="label" tick={AXIS_TICK} minTickGap={40} tickLine={false} axisLine={{ stroke: GRID }} />
@@ -508,7 +560,7 @@ function LatencySection({ detail, timeseries }: { detail: EndpointDetail | null;
           </LineChart>
         </ChartBox>
       )}
-    </Section>
+    </SectionBlock>
   );
 }
 
@@ -516,7 +568,7 @@ function StatusCodesBlock({ statusCodes }: { statusCodes: StatusCodeRow[] | null
   const codes = (statusCodes || []).slice().sort((a, b) => b.total_requests - a.total_requests);
   const total = codes.reduce((acc, s) => acc + s.total_requests, 0);
   return (
-    <Section title="Status codes">
+    <SectionBlock label="Status codes">
       {statusCodes === null ? (
         <Skeleton height={160} />
       ) : codes.length === 0 ? (
@@ -537,7 +589,7 @@ function StatusCodesBlock({ statusCodes }: { statusCodes: StatusCodeRow[] | null
           })}
         </div>
       )}
-    </Section>
+    </SectionBlock>
   );
 }
 
@@ -548,7 +600,7 @@ function LatencyHistogramBlock({ histograms }: { histograms: Histograms | null }
     count: b.count,
   }));
   return (
-    <Section title="Latency distribution" hint="Requests by response time">
+    <SectionBlock label="Latency distribution" hint="requests by response time">
       {histograms === null ? (
         <Skeleton height={160} />
       ) : histData.length === 0 ? (
@@ -564,7 +616,7 @@ function LatencyHistogramBlock({ histograms }: { histograms: Histograms | null }
           </BarChart>
         </ChartBox>
       )}
-    </Section>
+    </SectionBlock>
   );
 }
 
@@ -574,7 +626,7 @@ function ConsumersSection({ consumers }: { consumers: ConsumerRow[] | null }) {
     requests: c.total_requests,
   }));
   return (
-    <Section title="Top consumers">
+    <SectionBlock label="Top consumers">
       {consumers === null ? (
         <Skeleton height={180} />
       ) : consumerData.length === 0 ? (
@@ -590,18 +642,16 @@ function ConsumersSection({ consumers }: { consumers: ConsumerRow[] | null }) {
           </BarChart>
         </ChartBox>
       )}
-    </Section>
+    </SectionBlock>
   );
 }
 
 function DataTransferredSection({
   detail,
   timeseries,
-  histograms,
 }: {
   detail: EndpointDetail | null;
   timeseries: TimeseriesPoint[] | null;
-  histograms: Histograms | null;
 }) {
   const chartData = (timeseries || []).map((p) => ({
     label: formatBucketTime(p.bucket),
@@ -610,9 +660,9 @@ function DataTransferredSection({
   }));
   const hasData = chartData.some((d) => d.bytes > 0);
   return (
-    <Section
-      title="Data transferred"
-      hint={detail ? `Total ${formatBytes(detail.total_data_transferred)} · avg ${formatBytes(detail.avg_response_size)}` : undefined}
+    <SectionBlock
+      label="Data transferred"
+      hint={detail ? `total ${formatBytes(detail.total_data_transferred)} · avg ${formatBytes(detail.avg_response_size)}` : undefined}
     >
       {timeseries === null ? (
         <Skeleton height={200} />
@@ -635,13 +685,13 @@ function DataTransferredSection({
           </AreaChart>
         </ChartBox>
       )}
-    </Section>
+    </SectionBlock>
   );
 }
 
 /* ── Requests tab ────────────────────────────────────────────────────── */
 
-function RequestsTab({ requests, baseUrl }: { requests: RequestRow[] | null; baseUrl: string }) {
+function RequestsContent({ requests, baseUrl }: { requests: RequestRow[] | null; baseUrl: string }) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
 
@@ -659,7 +709,7 @@ function RequestsTab({ requests, baseUrl }: { requests: RequestRow[] | null; bas
   }, [requests, statusFilter, search]);
 
   return (
-    <Panel className="endpoint-card">
+    <div className="ep-requests">
       <div className="endpoint-requests-toolbar">
         <div className="endpoint-status-filter">
           {STATUS_FILTERS.map((c) => (
@@ -689,14 +739,14 @@ function RequestsTab({ requests, baseUrl }: { requests: RequestRow[] | null; bas
         baseUrl={baseUrl}
         emptyMessage={requests && requests.length ? "No requests match the filter." : "No logged requests."}
       />
-    </Panel>
+    </div>
   );
 }
 
 function RequestsTable({ rows, baseUrl, emptyMessage }: { rows: RequestRow[] | null; baseUrl: string; emptyMessage: string }) {
   const [selected, setSelected] = useState<RequestRow | null>(null);
-  if (!rows) return <Skeleton height={240} />;
-  if (rows.length === 0) return <EmptyBlock message={emptyMessage} />;
+  if (!rows) return <div className="ep-section"><Skeleton height={240} /></div>;
+  if (rows.length === 0) return <div className="ep-section"><EmptyBlock message={emptyMessage} /></div>;
   return (
     <>
       <div className="endpoint-detail-table-wrapper">
