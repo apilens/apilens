@@ -104,13 +104,13 @@ export default function Sidebar() {
           {collapsed ? (
             <Image
               src="/logo.svg"
-              alt="ApiLens"
+              alt="APILens"
               width={28}
               height={28}
               className="logo-icon-collapsed"
             />
           ) : (
-            <span className="logo-text">API Lens</span>
+            <span className="logo-text">APILens</span>
           )}
         </Link>
       </div>

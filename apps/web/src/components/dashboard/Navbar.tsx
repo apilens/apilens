@@ -1,9 +1,10 @@
 "use client";
 
 import { useAuth } from "@/components/providers/AuthProvider";
+import { useSpotlight } from "@/components/providers/SpotlightProvider";
 import UserAvatar from "@/components/shared/UserAvatar";
 import Breadcrumbs from "./Breadcrumbs";
-import { Bell, LogOut, Settings } from "lucide-react";
+import { Bell, LogOut, Search, Settings } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 
 export interface NavbarProps {
@@ -12,6 +13,7 @@ export interface NavbarProps {
 
 export default function Navbar({ projectSlug }: NavbarProps) {
   const { user, isLoading, logout } = useAuth();
+  const { openSpotlight } = useSpotlight();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -35,6 +37,12 @@ export default function Navbar({ projectSlug }: NavbarProps) {
       </div>
 
       <div className="navbar-right">
+        <button type="button" className="ap-navbar-search" onClick={openSpotlight} aria-label="Open Spotlight search">
+          <Search size={15} />
+          <span className="ap-navbar-search-label">Search…</span>
+          <span className="ap-kbd">⌘K</span>
+        </button>
+
         <button className="navbar-icon-btn">
           <Bell size={18} />
           <span className="notification-dot" />

@@ -65,10 +65,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setThemeState((prev) => (prev === "dark" ? "light" : "dark"));
   };
 
-  if (!mounted) {
-    return <>{children}</>;
-  }
-
+  // Always provide context (even before mount) so consumers rendered high in
+  // the tree — e.g. the global Spotlight — can call useTheme during SSR/first
+  // paint. The theme attribute itself is still applied via the effect above.
   return (
     <ThemeContext.Provider value={{ theme, resolvedTheme, setTheme, toggleTheme }}>
       {children}

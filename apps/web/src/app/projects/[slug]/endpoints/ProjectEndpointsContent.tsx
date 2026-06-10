@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Layers, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import EndpointDetailPane from "./EndpointDetailPane";
 
 interface ProjectEndpointsContentProps {
@@ -22,10 +22,16 @@ type EndpointStat = {
   path: string;
   total_requests: number;
   error_count: number;
-  error_rate?: number;
+  error_rate: number;
   avg_response_time_ms: number;
   p95_response_time_ms: number;
 };
+
+function healthClass(errRate: number): string {
+  if (errRate >= 5) return "ep-health-bad";
+  if (errRate >= 1) return "ep-health-warn";
+  return "ep-health-ok";
+}
 
 type SelectedEndpoint = { method: string; path: string };
 type AppOption = { id: string; name: string; slug: string };
@@ -34,7 +40,8 @@ function methodColor(m: string): string {
   const k = m.toUpperCase();
   if (k === "GET") return "ep-method-get";
   if (k === "POST") return "ep-method-post";
-  if (k === "PUT" || k === "PATCH") return "ep-method-put";
+  if (k === "PUT") return "ep-method-put";
+  if (k === "PATCH") return "ep-method-patch";
   if (k === "DELETE") return "ep-method-delete";
   return "ep-method-other";
 }
@@ -66,6 +73,10 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
   const [selectedRange, setSelectedRange] = useState(24);
   const [search, setSearch] = useState("");
   const [selectedEndpoint, setSelectedEndpoint] = useState<SelectedEndpoint | null>(null);
+
+  // Which pane the keyboard drives: the endpoint list or the calls pane.
+  const [focusZone, setFocusZone] = useState<"list" | "calls">("list");
+  const listBodyRef = useRef<HTMLDivElement>(null);
 
   const [isInitialized, setIsInitialized] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -216,6 +227,55 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     );
   }, [stats, search]);
 
+  // Auto-select first endpoint when list loads and nothing is selected
+  useEffect(() => {
+    if (!selectedEndpoint && filteredStats.length > 0) {
+      setSelectedEndpoint({ method: filteredStats[0].method, path: filteredStats[0].path });
+    }
+  }, [filteredStats, selectedEndpoint]);
+
+  const selectedIndex = useMemo(() => {
+    if (!selectedEndpoint) return -1;
+    return filteredStats.findIndex(
+      (r) => r.method === selectedEndpoint.method && r.path === selectedEndpoint.path
+    );
+  }, [filteredStats, selectedEndpoint]);
+
+  // ── Keyboard navigation for the endpoint list ──
+  // ↑/↓ move the selection; Enter or → hand the cursor to the calls pane.
+  useEffect(() => {
+    if (focusZone !== "list") return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) {
+        return;
+      }
+      if (!filteredStats.length) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        const next = selectedIndex < 0 ? 0 : Math.min(selectedIndex + 1, filteredStats.length - 1);
+        const row = filteredStats[next];
+        setSelectedEndpoint({ method: row.method, path: row.path });
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        const prev = selectedIndex < 0 ? 0 : Math.max(selectedIndex - 1, 0);
+        const row = filteredStats[prev];
+        setSelectedEndpoint({ method: row.method, path: row.path });
+      } else if ((e.key === "Enter" || e.key === "ArrowRight") && selectedEndpoint) {
+        e.preventDefault();
+        setFocusZone("calls");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focusZone, filteredStats, selectedIndex, selectedEndpoint]);
+
+  // Keep the keyboard-selected endpoint scrolled into view.
+  useEffect(() => {
+    if (focusZone !== "list") return;
+    listBodyRef.current?.querySelector(".ep-row.selected")?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex, focusZone]);
+
   const totalRequests = useMemo(
     () => stats.reduce((acc, row) => acc + row.total_requests, 0),
     [stats]
@@ -232,6 +292,24 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter endpoints…"
+            onKeyDown={(e) => {
+              if (!filteredStats.length) return;
+              // ↓ from the filter box drops the cursor onto the matching endpoint.
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                const next = selectedIndex < 0 ? 0 : Math.min(selectedIndex + 1, filteredStats.length - 1);
+                setSelectedEndpoint({ method: filteredStats[next].method, path: filteredStats[next].path });
+                setFocusZone("list");
+                e.currentTarget.blur();
+              } else if (e.key === "Enter") {
+                // Enter commits the top match and jumps straight into its calls.
+                e.preventDefault();
+                const idx = selectedIndex < 0 ? 0 : selectedIndex;
+                setSelectedEndpoint({ method: filteredStats[idx].method, path: filteredStats[idx].path });
+                setFocusZone("calls");
+                e.currentTarget.blur();
+              }
+            }}
           />
           {search && (
             <button
@@ -297,16 +375,14 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       {/* ── Two-pane body ── */}
       <div className="ep-body">
         <aside className={`ep-list${selectedEndpoint && isMobile ? " mobile-hidden" : ""}`}>
-          <div className="ep-list-switcher">
-            <button type="button" className="ep-pane-tab active">
-              Endpoints
-            </button>
-            <button type="button" className="ep-pane-tab soon" disabled>
-              Synthetic <span className="ep-soon-badge">soon</span>
-            </button>
+          <div className="ep-list-header">
+            <span className="ep-list-label">ENDPOINTS</span>
+            {!loading && stats.length > 0 && (
+              <span className="ep-list-count">{filteredStats.length}</span>
+            )}
           </div>
 
-          <div className="ep-list-body">
+          <div className="ep-list-body" ref={listBodyRef}>
             {loading ? (
               <div className="ep-list-message">Loading…</div>
             ) : filteredStats.length === 0 ? (
@@ -322,12 +398,16 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
                     key={`${row.method}-${row.path}`}
                     type="button"
                     className={`ep-row${sel ? " selected" : ""}`}
-                    onClick={() => setSelectedEndpoint({ method: row.method, path: row.path })}
+                    onClick={() => {
+                      setSelectedEndpoint({ method: row.method, path: row.path });
+                      setFocusZone("list");
+                    }}
                   >
                     <span className={`ep-method ${methodColor(row.method)}`}>
                       {row.method.slice(0, 4)}
                     </span>
                     <span className="ep-path">{row.path}</span>
+                    <span className={`ep-row-health ${healthClass(row.error_rate || 0)}`} />
                     <span className="ep-row-count">{fmtCount(row.total_requests)}</span>
                   </button>
                 );
@@ -347,13 +427,10 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
               environment={selectedEnv}
               appSlugs={selectedAppSlugs}
               onBack={isMobile ? () => setSelectedEndpoint(null) : undefined}
+              focusZone={focusZone}
+              onFocusZoneChange={setFocusZone}
             />
-          ) : (
-            <div className="ep-detail-empty">
-              <Layers size={32} strokeWidth={1.5} />
-              <p>Select an endpoint to view details</p>
-            </div>
-          )}
+          ) : null}
         </main>
       </div>
 

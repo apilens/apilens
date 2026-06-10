@@ -3180,6 +3180,9 @@ class AnalyticsService:
                 countIf(status_code >= 400 AND status_code < 500) AS client_errors,
                 countIf(status_code >= 500) AS server_errors,
                 avg(response_time_ms) AS avg_response_time_ms,
+                quantile(0.50)(response_time_ms) AS p50_response_time_ms,
+                quantile(0.95)(response_time_ms) AS p95_response_time_ms,
+                quantile(0.99)(response_time_ms) AS p99_response_time_ms,
                 sum(request_size) AS total_request_bytes,
                 sum(response_size) AS total_response_bytes
             FROM api_requests

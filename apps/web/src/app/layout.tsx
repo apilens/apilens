@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import { SpotlightProvider } from "@/components/providers/SpotlightProvider";
 import { ToastProvider } from "@/hooks/useToast";
 import { ConfirmProvider } from "@/hooks/useConfirm";
 import "./globals.css";
@@ -22,7 +23,9 @@ export default function RootLayout({
           <ThemeProvider>
             <ToastProvider>
               <ConfirmProvider>
-                {children}
+                <SpotlightProvider>
+                  {children}
+                </SpotlightProvider>
               </ConfirmProvider>
             </ToastProvider>
           </ThemeProvider>

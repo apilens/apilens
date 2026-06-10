@@ -131,6 +131,95 @@ Backend (from `apps/api/`):
 .venv/bin/python manage.py createsuperuser        # add an admin
 ```
 
+## Python SDK (`packages/sdk-python`)
+
+Published to PyPI as **`apilenss`**. Install it in any app you want to observe:
+
+```bash
+pip install 'apilenss[fastapi]'   # or [flask], [django], [starlette], [all]
+```
+
+### Quick setup
+
+```python
+# FastAPI
+from apilens.fastapi import ApiLensMiddleware
+app.add_middleware(ApiLensMiddleware, api_key="apilens_xxx", app_id="my-app")
+
+# Flask
+from apilens import ApiLensClient, ApiLensConfig
+from apilens.flask import instrument_flask
+instrument_flask(app, ApiLensClient(ApiLensConfig(api_key="apilens_xxx")), app_id="my-app")
+
+# Django — add to MIDDLEWARE + two settings
+MIDDLEWARE = [..., "apilens.django.ApiLensDjangoMiddleware"]
+APILENS_API_KEY = "apilens_xxx"
+APILENS_APP_ID  = "my-django-app"
+```
+
+### Consumer tracking
+
+Identify who made each request so you can see per-user traffic in the dashboard.
+APILens never infers the consumer automatically — you attach it in your own code:
+
+```python
+# Flask — call from @app.before_request (no request arg needed)
+from apilens.flask import set_consumer
+
+@app.before_request
+def identify_consumer():
+    if g.current_user:
+        set_consumer(
+            identifier=g.current_user["email"],   # required: stable id
+            name=g.current_user.get("name"),       # optional: display name
+            group=g.current_user.get("role"),      # optional: team / tier / org
+        )
+
+# FastAPI — inject via Depends
+from apilens.fastapi import set_consumer
+
+async def consumer_dep(request: Request):
+    user = getattr(request.state, "user", None)
+    if user:
+        set_consumer(request, identifier=user.id, name=user.username)
+
+@app.get("/orders")
+async def list_orders(_: None = Depends(consumer_dep)):
+    ...
+
+# Django — APILENS_GET_CONSUMER setting
+APILENS_GET_CONSUMER = lambda req: (
+    {"identifier": req.user.email, "name": req.user.get_full_name()}
+    if req.user.is_authenticated else None
+)
+```
+
+Full framework examples (Starlette, Litestar, etc.) in [`packages/sdk-python/README.md`](packages/sdk-python/README.md).
+
+### Publishing a new SDK version
+
+1. Bump `version` in `packages/sdk-python/pyproject.toml` and `__version__` in `apilens/__init__.py`
+2. Commit and push
+3. `git tag apilens-sdk-vX.Y.Z && git push origin apilens-sdk-vX.Y.Z`
+
+CI builds and publishes to PyPI on the `apilens-sdk-v*` tag pattern.
+
+### Local SDK dev
+
+```bash
+# Install the local copy into any sidecar venv
+pip install -e ./packages/sdk-python
+
+# Run the sidecar test apps (each has its own .env + .venv)
+cd sidecar-testing/flask   && .venv/bin/flask run
+cd sidecar-testing/fastapi && .venv/bin/uvicorn app.main:app --reload
+```
+
+Test consumer tracking:
+```bash
+curl -H "X-User-Email: alice@example.com" -H "X-User-Name: Alice" http://localhost:8012/v1/invoices/42
+```
+
 ## Repo conventions
 
 - pnpm workspaces are everything under `apps/*` and `packages/*` with a `package.json`.
