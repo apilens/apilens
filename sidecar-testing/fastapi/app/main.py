@@ -44,6 +44,7 @@ async def list_orders(_: None = Depends(consumer_dep)):
     return {"ok": True}
 
 
+
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",

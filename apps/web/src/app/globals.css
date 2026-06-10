@@ -231,33 +231,33 @@ body {
   top: 0;
   width: var(--sidebar-width);
   height: 100vh;
-  background-color: var(--bg-secondary);
-  border-right: 1px solid var(--border-color);
+  background-color: var(--surface-raised);
+  border-right: 1px solid var(--hairline);
   display: flex;
   flex-direction: column;
-  z-index: 50;
+  z-index: var(--z-rail);
 }
 
 .sidebar-header {
   height: var(--navbar-height);
-  padding: 0 16px;
-  border-bottom: 1px solid var(--border-color);
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--hairline);
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .logo {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: var(--space-2);
   text-decoration: none;
 }
 
 .logo-mark {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .logo-icon {
@@ -267,11 +267,23 @@ body {
 }
 
 .logo-text {
-  font-size: 20px;
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: var(--tracking-tight);
   -webkit-font-smoothing: antialiased;
+}
+/* Aperture mark — a small teal lens ring before the wordmark. */
+.logo-text::before {
+  content: "";
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2.5px solid var(--accent);
+  flex-shrink: 0;
 }
 
 .logo-icon-collapsed {
@@ -290,21 +302,23 @@ body {
 .app-switcher-trigger {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   width: 100%;
   height: 40px;
-  padding: 0 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  background-color: var(--bg-primary);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-canvas);
   color: var(--text-primary);
   font-family: var(--font-family);
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: border-color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard);
 }
 
 .app-switcher-trigger:hover {
-  border-color: var(--border-hover, #333);
+  border-color: var(--hairline-strong);
+  background: var(--bg-hover);
 }
 
 .app-switcher-avatar {
@@ -314,11 +328,11 @@ body {
   width: 22px;
   height: 22px;
   min-width: 22px;
-  border-radius: 6px;
-  background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%);
-  color: #fff;
+  border-radius: var(--radius-sm);
+  background: var(--accent-subtle);
+  color: var(--accent);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 .app-switcher-avatar-image {
@@ -351,15 +365,15 @@ body {
 
 .app-switcher-dropdown {
   position: absolute;
-  top: calc(100% + 2px);
-  left: 12px;
-  right: 12px;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-  z-index: 200;
-  animation: dropdown-in 0.15s ease;
+  top: calc(100% + var(--space-1));
+  left: var(--space-3);
+  right: var(--space-3);
+  background-color: var(--surface-overlay);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-3);
+  z-index: var(--z-popover);
+  animation: dropdown-in var(--dur-fast) var(--ease-standard);
 }
 
 .app-switcher-section-label {
@@ -390,10 +404,10 @@ body {
   border-radius: 8px;
   background-color: transparent;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--text-base);
   font-family: var(--font-family);
   cursor: pointer;
-  transition: background-color 0.1s;
+  transition: background var(--dur-fast) var(--ease-standard);
   text-align: left;
 }
 
@@ -402,7 +416,8 @@ body {
 }
 
 .app-switcher-option-active {
-  background-color: var(--bg-hover);
+  background-color: var(--accent-subtle);
+  color: var(--text-primary);
 }
 
 .app-switcher-option-avatar {
@@ -412,11 +427,11 @@ body {
   width: 20px;
   height: 20px;
   min-width: 20px;
-  border-radius: 5px;
-  background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%);
-  color: #fff;
+  border-radius: var(--radius-sm);
+  background: var(--accent-subtle);
+  color: var(--accent);
   font-size: 9px;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 .app-switcher-option-avatar-image {
@@ -456,10 +471,11 @@ body {
   border-radius: 8px;
   background-color: transparent;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--text-base);
   font-family: var(--font-family);
   text-decoration: none;
-  transition: background-color 0.1s, color 0.1s;
+  transition: background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
 }
 
 .app-switcher-action:hover {
@@ -488,12 +504,12 @@ body {
 
 .sidebar-nav {
   flex: 1;
-  padding: 16px 12px;
+  padding: var(--space-4) var(--space-3);
   overflow-y: auto;
 }
 
 .nav-section {
-  margin-bottom: 28px;
+  margin-bottom: var(--space-6);
 }
 
 .nav-section-title {
@@ -517,14 +533,15 @@ body {
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 8px;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   text-decoration: none;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.15s ease;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  transition: background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
 }
 
 .nav-item:hover {
@@ -567,11 +584,11 @@ body {
 }
 
 .sidebar-footer {
-  padding: 12px;
-  border-top: 1px solid var(--border-color);
+  padding: var(--space-3);
+  border-top: 1px solid var(--hairline);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .sidebar-actions {
@@ -583,17 +600,18 @@ body {
 .sidebar-action-btn {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
 }
 
 .sidebar-action-btn:hover {
@@ -995,6 +1013,7 @@ body {
 
 .sidebar-collapsed .sidebar-header {
   padding: 0 12px;
+  justify-content: center;
 }
 
 .sidebar-collapsed .sidebar-nav {
@@ -11397,6 +11416,22 @@ a.settings-btn {
   overflow: auto;
   flex: 1;
 }
+/* Empty payload — quiet placeholder, same footprint as a code block */
+.request-payload-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 84px;
+  padding: var(--space-5);
+  border: 1px dashed var(--hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.request-payload-empty svg { opacity: 0.55; }
 /* JSON syntax highlight tokens */
 .json-key    { color: #60a5fa; }
 .json-string { color: #86efac; }
@@ -11425,12 +11460,284 @@ a.settings-btn {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 16px;
+  padding: 0 var(--space-5);
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 .ep-toolbar-spacer { flex: 1; }
+
+/* ── View toggle (Table | Inspect) ── */
+.ep-viewtoggle {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+}
+.ep-viewtoggle-btn {
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.12s, color 0.12s;
+}
+.ep-viewtoggle-btn:hover {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+.ep-viewtoggle-btn.active {
+  color: var(--text-primary);
+  font-weight: 600;
+  background: var(--surface-raised);
+}
+
+/* ── Summary stats bar (above the table) ── */
+.ep-stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 38px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.ep-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 0 18px;
+  white-space: nowrap;
+}
+.ep-stat + .ep-stat {
+  border-left: 1px solid var(--border-color);
+}
+.ep-stat:first-child { padding-left: 0; }
+.ep-stat-n {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.ep-stat-l {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ep-stat.tone-warn .ep-stat-n { color: #f59e0b; }
+.ep-stat.tone-bad  .ep-stat-n { color: #f87171; }
+.ep-stat-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-color);
+  margin: 0 6px;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* ── Table view: compare all endpoints ── */
+.ep-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-primary);
+}
+.ep-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ep-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 9px 14px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.ep-th-left { text-align: left; }
+.ep-th-right { text-align: right; }
+.ep-table thead th:hover { color: var(--text-secondary); }
+.ep-table thead th.active { color: var(--text-primary); }
+.ep-th-arrow { display: inline-block; width: 12px; text-align: center; color: #14b8a6; }
+
+.ep-trow {
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-color);
+  transition: background 80ms;
+}
+.ep-trow:hover { background: var(--bg-hover); }
+.ep-trow:focus-visible { outline: 2px solid var(--accent, #14b8a6); outline-offset: -2px; }
+.ep-table td {
+  padding: 7px 14px;
+  white-space: nowrap;
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+.ep-td-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ep-td-app { color: var(--text-secondary); font-size: 12px; }
+.ep-td-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+.ep-td-muted { color: var(--text-muted); }
+.ep-td-num.ep-health-warn { color: #f59e0b; }
+.ep-td-num.ep-health-bad { color: #f87171; }
+/* Requests cell: magnitude bar behind the number */
+.ep-td-bar-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 96px;
+  height: 18px;
+}
+.ep-td-bar {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 14px;
+  background: rgba(20, 184, 166, 0.18);
+  border-radius: 3px;
+  min-width: 2px;
+  max-width: 100%;
+}
+.ep-td-barval {
+  position: relative;
+  z-index: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  padding-right: 5px;
+}
+
+/* ── Analytics view: KPI deltas + charts ── */
+.ep-an-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-primary);
+}
+/* Constrained, centred column → generous left/right margins on wide screens. */
+.ep-an {
+  padding: var(--space-4) 0 var(--space-6);
+}
+.ep-an-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.ep-an-title { font-size: var(--text-lg); font-weight: var(--weight-semibold); color: var(--text-primary); }
+.ep-an-sub { font-size: var(--text-sm); color: var(--text-muted); }
+
+/* KPI row: plain stats (no boxes), separated by a single hairline. */
+.ep-an-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--space-3) var(--space-5);
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--hairline);
+}
+.ep-an-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.ep-an-kpi-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.ep-an-kpi-value {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ep-an-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+.ep-an-delta-good { color: var(--status-healthy); }
+.ep-an-delta-bad { color: var(--status-critical); }
+.ep-an-delta-flat { color: var(--text-muted); }
+.ep-an-delta-ctx { color: var(--text-muted); font-weight: 400; }
+
+/* Charts: borderless, airy — title + chart, separated by whitespace only. */
+.ep-an-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+.ep-an-span2 { grid-column: 1 / -1; }
+@media (max-width: 760px) { .ep-an-grid { grid-template-columns: 1fr; } }
+.ep-an-card { min-width: 0; }
+.ep-an-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.ep-an-card-title { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--text-secondary); }
+.ep-an-card-hint { font-size: var(--text-xs); color: var(--text-muted); }
+.ep-an-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: var(--text-base);
+  border: 1px dashed var(--hairline);
+  border-radius: var(--radius-md);
+}
+.ep-an-skeleton {
+  width: 100%;
+  border-radius: var(--radius-md);
+  background: linear-gradient(90deg, var(--bg-secondary) 25%, rgba(148, 163, 184, 0.12) 37%, var(--bg-secondary) 63%);
+  background-size: 400% 100%;
+  animation: endpoint-skeleton-shimmer 1.4s ease infinite;
+}
+.ep-an-tip {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 11px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.ep-an-tip-label { color: var(--text-secondary); margin: 0 0 4px; }
+.ep-an-tip p { margin: 2px 0; }
 
 /* Toolbar search */
 .ep-search {
@@ -11525,7 +11832,7 @@ a.settings-btn {
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
-  height: 34px;
+  height: 50px;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
@@ -11547,6 +11854,67 @@ a.settings-btn {
   overflow-x: hidden;
   padding: 4px 0;
 }
+
+/* App/service grouping — sticky, collapsible section headers */
+.ep-group {
+  display: flex;
+  flex-direction: column;
+}
+.ep-group-header {
+  /* explicit resets so the button never inherits a larger control size */
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+  font-family: inherit;
+  line-height: 1;
+  box-sizing: border-box;
+
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding: 0 12px 0 8px;
+  border: 0;
+  border-bottom: 1px solid var(--border-color);
+  /* sit a touch above the list surface so the bar reads as a divider */
+  background: color-mix(in srgb, var(--bg-hover) 55%, var(--bg-secondary));
+  cursor: pointer;
+  text-align: left;
+}
+.ep-group-header:hover { background: var(--bg-hover); }
+.ep-group-chevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+.ep-group-header.collapsed .ep-group-chevron { transform: rotate(-90deg); }
+.ep-group-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ep-group-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Endpoints sit indented under their app header */
+.ep-row--nested { padding-left: 18px; }
+
 .ep-list-message {
   padding: 16px;
   font-size: 12.5px;
@@ -11571,6 +11939,15 @@ a.settings-btn {
   background: rgba(20, 184, 166, 0.09);
   border-left-color: #14b8a6;
 }
+/* Active keyboard cursor — solid filled selection (Finder-style), not an outline */
+.ep-row.is-cursor {
+  background: var(--accent);
+  border-left-color: var(--accent);
+  box-shadow: none;
+}
+.ep-row.is-cursor .ep-path,
+.ep-row.is-cursor .ep-method,
+.ep-row.is-cursor .ep-row-count { color: #fff; }
 .ep-method {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 10px;
@@ -11619,7 +11996,7 @@ a.settings-btn {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 16px;
+  padding: 0 var(--space-5);
   border-top: 1px solid var(--border-color);
   flex-shrink: 0;
   font-size: 11px;
@@ -11658,12 +12035,32 @@ a.settings-btn {
 .ep-api-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 20px;
-  height: 50px;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 8px 20px;
+  min-height: 50px;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
+}
+/* Left side: method pill + path (+ host/age). Truncates so the right-side
+   metrics always keep their place. */
+.ep-api-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
+}
+/* Metrics now live on the right of the header. Drop the standalone-bar
+   chrome (border / block padding) and right-align; still wraps, never scrolls. */
+.ep-api-header .ep-metrics-bar {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  border-bottom: none;
+  padding: 0;
+  min-height: 0;
+  column-gap: 16px;
 }
 .ep-api-back {
   display: flex;
@@ -11704,7 +12101,7 @@ a.settings-btn {
 
 .ep-api-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
   overflow: hidden;
@@ -11775,6 +12172,16 @@ a.settings-btn {
   overflow: hidden;
   min-width: 0;
 }
+/* When a call is selected, split into list (left) + call detail (right) */
+.ep-calls-pane.has-detail { flex-direction: row; }
+.ep-calls-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 
 /* Filter bar */
 .ep-calls-filter {
@@ -11821,57 +12228,381 @@ a.settings-btn {
 }
 .ep-calls-search input::placeholder { color: var(--text-muted); }
 
-/* Inline call detail (drill-down within the calls pane — no overlay) */
+/* Inline call detail — third pane, side-by-side with the call list (no overlay) */
 .ep-call-detail {
-  flex: 1;
+  flex: 0 0 46%;
+  max-width: 680px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
   min-height: 0;
+  border-left: 1px solid var(--border-color);
+  background: var(--bg-primary);
 }
+/* Narrow third pane: stack request/response payloads vertically */
+.ep-call-detail .request-payload-body { grid-template-columns: 1fr; }
+/* On tighter widths the three columns don't fit — stack the call detail below the list */
+@media (max-width: 1200px) {
+  .ep-calls-pane.has-detail { flex-direction: column; }
+  .ep-calls-pane.has-detail .ep-call-detail {
+    flex: 1 1 50%;
+    max-width: none;
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+  }
+}
+/* ── Postman-style call detail: request bar → request pane → response pane ── */
+/* Shared horizontal inset so the URL, facts, section titles and body all line
+   up on the same left edge. */
+.ep-pm-reqbar,
+.ep-pm-facts,
+.ep-pm-pane-head,
+.ep-pm-pane .request-payload-pre {
+  padding-left: var(--space-5);
+  padding-right: var(--space-5);
+}
+.ep-pm-reqbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-5);
+  padding-bottom: var(--space-4);
+  flex-shrink: 0;
+}
+.ep-pm-url {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  /* Wrap to at most 2 lines so long URLs remain legible instead of truncating silently.
+     word-break ensures paths without spaces can still wrap at any character. */
+  word-break: break-all;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.ep-pm-when {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Copy cURL action in the request bar */
+.ep-pm-curl {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard);
+}
+.ep-pm-curl:hover {
+  color: var(--text-primary);
+  border-color: var(--hairline-strong);
+  background: var(--bg-hover);
+}
+.ep-fact-when { color: var(--text-muted); }
+.ep-pm-facts {
+  padding-top: 0;
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--hairline);
+  column-gap: var(--space-4);
+  row-gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+.ep-pm-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.ep-pm-pane { display: flex; flex-direction: column; }
+.ep-pm-pane + .ep-pm-pane { border-top: 1px solid var(--hairline); }
+.ep-pm-pane-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding-top: var(--space-3);
+  padding-bottom: var(--space-3);
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--hairline);
+}
+.ep-pm-pane-title {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+.ep-pm-pane-meta {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ep-pm-resp-head { justify-content: space-between; }
+.ep-pm-respbar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: var(--text-base);
+  font-variant-numeric: tabular-nums;
+}
+/* status text + dot inherit the 2xx/3xx/4xx/5xx colour via the ep-status-dot-* class */
+.ep-pm-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--weight-semibold);
+}
+.ep-pm-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.ep-pm-resp-meta { color: var(--text-muted); }
+/* Body fills the pane (no nested scroll/box) and sits on the canvas so the
+   raised section header reads as a header above it. */
+.ep-pm-pane .request-payload-pre {
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding-top: var(--space-4);
+  padding-bottom: var(--space-5);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
 .ep-call-detail-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  min-height: 44px;
-  border-bottom: 1px solid var(--border-color);
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-4);
+  /* Match the calls filter bar height so the two header borders align */
+  height: 40px;
+  border-bottom: 1px solid var(--hairline);
   flex-shrink: 0;
 }
-.ep-call-detail-back {
-  display: flex;
+.ep-call-detail-spacer { flex: 1; }
+
+/* Ghost "cURL" button — quiet until hovered */
+.ep-call-detail-curl {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 26px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
+}
+.ep-call-detail-curl:hover { color: var(--accent); border-color: var(--accent); }
+
+/* Close (X) — right side, borderless */
+.ep-call-detail-close {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   flex-shrink: 0;
+  transition: color var(--dur-fast) var(--ease-standard), background var(--dur-fast) var(--ease-standard);
 }
-.ep-call-detail-back:hover { color: var(--text-primary); background: var(--bg-hover); }
-.ep-call-detail-path {
+.ep-call-detail-close:hover { color: var(--text-primary); background: var(--surface-sunken); }
+
+/* Timestamp acts as the title — path/method live in the list & endpoint header */
+.ep-call-detail-title {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Meta as a quiet key/value row */
+/* Request line + context strip — the URL the way a developer greps for it. */
+.ep-call-req {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface-raised);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.ep-call-req-url {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  background: var(--surface-canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+}
+.ep-call-req-url-text {
+  flex: 1;
+  min-width: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 13px;
+  font-size: var(--text-base);
   color: var(--text-primary);
+  word-break: break-all;
+}
+.ep-call-req-copy {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+.ep-call-req-copy:hover { background: var(--bg-hover); color: var(--text-primary); }
+.ep-call-req-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.ep-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.ep-fact-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+/* Consumer = the middleware-set user identity — emphasise it over network context. */
+.ep-fact-consumer {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
 }
-.ep-call-detail-spacer { flex: 1; }
+.ep-fact-consumer .ep-meta-icon { color: var(--accent); }
+/* Subtle dot separator between context facts (Edge · Localhost · 127.0.0.1). */
+.ep-call-req-facts .ep-fact:not(:first-child)::before {
+  content: "";
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  opacity: 0.5;
+  margin-right: 6px;
+}
+.ep-meta-icon { color: var(--text-muted); flex-shrink: 0; }
+.ep-call-detail-flag { font-size: 14px; line-height: 1; }
+
+/* Body: stacked payload sections, generous spacing, minimal chrome */
+.ep-call-detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.ep-call-detail .request-payload-section-head { margin-bottom: var(--space-2); }
+.ep-call-detail .request-payload-section-head h4 {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.ep-call-detail .request-payload-copy {
+  background: transparent;
+  border-color: transparent;
+  padding: 2px 6px;
+}
+.ep-call-detail .request-payload-copy:hover { color: var(--accent); border-color: var(--hairline); }
+.ep-call-detail .request-payload-pre {
+  background: var(--surface-sunken);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  max-height: none;
+  font-size: var(--text-sm);
+}
 
 /* Scrollable call list */
 .ep-calls-list {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   overflow-x: hidden;
 }
 .ep-calls-empty {
   padding: 20px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+/* Rich empty state when an endpoint has no traffic in the selected window */
+.ep-no-calls {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 48px 24px;
+  text-align: center;
+}
+.ep-no-calls-icon {
+  color: var(--text-muted);
+  opacity: 0.4;
+  margin-bottom: 4px;
+}
+.ep-no-calls-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.ep-no-calls-sub {
   font-size: 12px;
   color: var(--text-muted);
 }
@@ -11895,12 +12626,28 @@ a.settings-btn {
 }
 .ep-call-row:last-child { border-bottom: none; }
 .ep-call-row:hover { background: var(--bg-hover); }
-/* Keyboard cursor while the calls pane has focus */
+/* Active keyboard cursor — solid filled selection (Finder-style), not an outline */
 .ep-call-row.is-cursor {
-  background: rgba(20, 184, 166, 0.10);
-  box-shadow: inset 2px 0 0 #14b8a6;
+  background: var(--accent);
+  box-shadow: none;
 }
-.ep-call-row.is-cursor .ep-call-arrow { color: #14b8a6; }
+.ep-call-row.is-cursor,
+.ep-call-row.is-cursor .ep-call-time,
+.ep-call-row.is-cursor .ep-call-dur,
+.ep-call-row.is-cursor .ep-call-status,
+.ep-call-row.is-cursor .ep-call-consumer,
+.ep-call-row.is-cursor .ep-call-consumer.is-empty,
+.ep-call-row.is-cursor .ep-call-arrow { color: #fff; }
+.ep-call-row.is-cursor .ep-call-env {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+/* Dull active — the row whose detail is open while focus is elsewhere
+   (e.g. still in the endpoints list). Upgrades to .is-cursor once you enter. */
+.ep-call-row.is-active {
+  background: var(--accent-subtle);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 
 .ep-call-time {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -11957,6 +12704,30 @@ a.settings-btn {
   opacity: 0.85;
 }
 .ep-browser-icon svg { display: block; border-radius: 50%; }
+
+/* Auto-detected call source (brand icon + name) */
+.ep-call-source-cell {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.ep-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.ep-source svg { display: block; flex-shrink: 0; }
+.ep-source-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .request-payload-meta-browser {
   display: inline-flex;
   align-items: center;

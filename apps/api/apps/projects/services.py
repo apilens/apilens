@@ -3316,6 +3316,7 @@ class AnalyticsService:
             return []
         IngestService.ensure_consumer_columns(client)
         IngestService.ensure_payload_columns(client)
+        IngestService.ensure_base_url_column(client)
 
         since_dt, until_dt = _resolve_time_range(since, until)
         filters, params = AnalyticsService._project_endpoint_filters(
@@ -3339,6 +3340,7 @@ class AnalyticsService:
                 consumer_name,
                 request_payload,
                 response_payload,
+                base_url,
                 if(
                     consumer_name != '',
                     consumer_name,
@@ -3354,9 +3356,14 @@ class AnalyticsService:
             LIMIT %(limit)s
         """
         try:
+            from core.geo import resolve_country
+
             rows = client.execute(query, params)
             for row in rows:
                 row["timestamp"] = _as_utc(row.get("timestamp"))
+                country_name, country_code = resolve_country(row.get("ip_address") or "")
+                row["country"] = country_name
+                row["country_code"] = country_code
             return rows
         except Exception as exc:
             logger.warning("ClickHouse query failed for project endpoint requests; returning empty list: %s", exc)

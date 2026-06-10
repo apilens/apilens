@@ -1,12 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Check, ChevronRight, Copy, Search, Terminal } from "lucide-react";
+import { Activity, ArrowLeft, Check, ChevronRight, Clock, FileX2, Globe, MonitorSmartphone, Search, Terminal, User } from "lucide-react";
+import type { IconType } from "react-icons";
 import {
-  Button,
-  StatusPill,
-  statusCodeTone,
-} from "@/components/aperture";
+  SiAxios,
+  SiBrave,
+  SiCurl,
+  SiFirefoxbrowser,
+  SiGo,
+  SiGooglechrome,
+  SiHttpie,
+  SiInsomnia,
+  SiNodedotjs,
+  SiOpera,
+  SiPostman,
+  SiPython,
+  SiSafari,
+} from "react-icons/si";
 
 /* ── Types ───────────────────────────────────────────────────────────── */
 
@@ -48,13 +59,15 @@ interface RequestRow {
   consumer_name?: string;
   user_agent?: string;
   ip_address?: string;
+  country?: string;
+  country_code?: string;
   request_payload?: string;
   response_payload?: string;
+  base_url?: string;
 }
 
 type StatTone = "good" | "warn" | "bad";
 type FilterTab = "all" | "2xx" | "4xx" | "5xx";
-type BrowserType = "chrome" | "firefox" | "safari" | "edge" | "postman" | "curl" | "other";
 
 const EMPTY_DETAIL: EndpointDetail = {
   method: "",
@@ -109,6 +122,24 @@ function fmtBytes(bytes: number): string {
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
+function byteLen(s?: string): number {
+  if (!s) return 0;
+  try {
+    return new TextEncoder().encode(s).length;
+  } catch {
+    return s.length;
+  }
+}
+const STATUS_TEXT: Record<number, string> = {
+  200: "OK", 201: "Created", 202: "Accepted", 204: "No Content", 206: "Partial Content",
+  301: "Moved Permanently", 302: "Found", 304: "Not Modified", 307: "Temporary Redirect", 308: "Permanent Redirect",
+  400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed",
+  409: "Conflict", 410: "Gone", 422: "Unprocessable Entity", 429: "Too Many Requests",
+  500: "Internal Server Error", 501: "Not Implemented", 502: "Bad Gateway", 503: "Service Unavailable", 504: "Gateway Timeout",
+};
+function statusText(code: number): string {
+  return STATUS_TEXT[code] || "";
+}
 function fmtDateTime(ts: string): string {
   const d = new Date(ts);
   if (isNaN(d.getTime())) return ts;
@@ -136,92 +167,98 @@ function timeAgo(ts: string | null): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function detectBrowser(ua: string): { type: BrowserType; name: string } {
-  if (!ua) return { type: "other", name: "Unknown" };
-  if (/Postman/.test(ua)) return { type: "postman", name: "Postman" };
-  if (/curl\//.test(ua)) return { type: "curl", name: "curl" };
-  if (/Edg\//.test(ua)) return { type: "edge", name: "Edge" };
-  if (/Chrome\//.test(ua)) return { type: "chrome", name: "Chrome" };
-  if (/Firefox\//.test(ua)) return { type: "firefox", name: "Firefox" };
-  if (/Safari\//.test(ua)) return { type: "safari", name: "Safari" };
-  return { type: "other", name: "Browser" };
+/* ── API source detection ─────────────────────────────────────────────
+   The call's origin, auto-detected from the user-agent (a browser, an API
+   client like Postman/Insomnia, or an SDK). This is NOT the "consumer" (a
+   user identity set by middleware) — it's how the request was actually made.
+   Returns null when the user-agent is missing or unrecognised, so the caller
+   renders nothing rather than a placeholder. */
+
+/** ISO-3166 alpha-2 → flag emoji (regional indicator symbols). */
+function flagEmoji(code?: string): string {
+  if (!code || code.length !== 2 || !/^[a-zA-Z]{2}$/.test(code)) return "";
+  const base = 0x1f1e6;
+  return String.fromCodePoint(
+    ...[...code.toUpperCase()].map((c) => base + c.charCodeAt(0) - 65),
+  );
 }
 
-function BrowserIcon({ ua, size = 14 }: { ua?: string; size?: number }) {
+type LocationKind = "country" | "local" | "private" | "unknown";
+
+/** Human-readable origin for a request. Geo lookups can't place loopback /
+ *  private IPs (e.g. 127.0.0.1 in local dev), so fall back to a sensible label
+ *  instead of showing nothing. */
+function describeLocation(
+  ip?: string,
+  country?: string,
+  code?: string,
+): { label: string; flag: string; kind: LocationKind } | null {
+  if (country) return { label: country, flag: flagEmoji(code), kind: "country" };
+  const addr = (ip || "").replace(/^::ffff:/i, "");
+  if (!addr) return null;
+  if (addr === "127.0.0.1" || addr === "::1" || addr === "localhost") {
+    return { label: "Localhost", flag: "", kind: "local" };
+  }
+  if (/^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|f[cd])/i.test(addr)) {
+    return { label: "Private network", flag: "", kind: "private" };
+  }
+  return { label: "Unknown", flag: "", kind: "unknown" };
+}
+
+interface SourceInfo {
+  name: string;
+  Icon: IconType | null; // null = recognised but no brand mark → generic globe
+  color: string;
+}
+
+function detectSource(ua: string | undefined): SourceInfo | null {
   if (!ua) return null;
-  const { type, name } = detectBrowser(ua);
-  const s = size;
+  // API clients / SDKs first — their UAs often also carry browser-ish tokens.
+  if (/PostmanRuntime|Postman/i.test(ua)) return { name: "Postman", Icon: SiPostman, color: "#FF6C37" };
+  if (/insomnia/i.test(ua)) return { name: "Insomnia", Icon: SiInsomnia, color: "#7263E6" };
+  if (/HTTPie/i.test(ua)) return { name: "HTTPie", Icon: SiHttpie, color: "#7ED99A" };
+  if (/\bcurl\//i.test(ua)) return { name: "curl", Icon: SiCurl, color: "#8aa0b6" };
+  if (/axios/i.test(ua)) return { name: "axios", Icon: SiAxios, color: "#9277F0" };
+  if (/python-requests|aiohttp|httpx|Python\//i.test(ua)) return { name: "Python", Icon: SiPython, color: "#5A9FD4" };
+  if (/Go-http-client/i.test(ua)) return { name: "Go", Icon: SiGo, color: "#00ADD8" };
+  if (/node|undici|node-fetch/i.test(ua)) return { name: "Node", Icon: SiNodedotjs, color: "#5FA04E" };
+  // Browsers — order matters (Edge/Opera/Brave masquerade as Chrome).
+  if (/Edg\//.test(ua)) return { name: "Edge", Icon: null, color: "#3DA7E0" };
+  if (/OPR\/|Opera/i.test(ua)) return { name: "Opera", Icon: SiOpera, color: "#FF1B2D" };
+  if (/Brave/i.test(ua)) return { name: "Brave", Icon: SiBrave, color: "#FB702E" };
+  if (/Firefox\//.test(ua)) return { name: "Firefox", Icon: SiFirefoxbrowser, color: "#FF7139" };
+  if (/Chrome\//.test(ua)) return { name: "Chrome", Icon: SiGooglechrome, color: "#5A9CF8" };
+  if (/Safari\//.test(ua)) return { name: "Safari", Icon: SiSafari, color: "#22B5F0" };
+  return null; // unrecognised — render nothing
+}
 
-  const icon = (() => {
-    switch (type) {
-      case "chrome":
-        return (
-          <svg width={s} height={s} viewBox="0 0 16 16">
-            <circle cx="8" cy="8" r="7.5" fill="#EA4335" />
-            <path d="M8 8 L8 .5 A7.5 7.5 0 0 1 15.5 8 Z" fill="#FBBC05" />
-            <path d="M8 8 L15.5 8 A7.5 7.5 0 0 1 4.25 14.5 Z" fill="#34A853" />
-            <circle cx="8" cy="8" r="3.8" fill="white" />
-            <circle cx="8" cy="8" r="2.8" fill="#4285F4" />
-          </svg>
-        );
-      case "firefox":
-        return (
-          <svg width={s} height={s} viewBox="0 0 16 16">
-            <circle cx="8" cy="8" r="7.5" fill="#FF6611" />
-            <circle cx="8" cy="8" r="4.5" fill="#FF9500" />
-            <circle cx="8" cy="8" r="2.2" fill="#FF3750" />
-          </svg>
-        );
-      case "safari":
-        return (
-          <svg width={s} height={s} viewBox="0 0 16 16">
-            <circle cx="8" cy="8" r="7.5" fill="#006CFF" />
-            <circle cx="8" cy="8" r="6" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="0.8" />
-            <line x1="8" y1="2.5" x2="8" y2="13.5" stroke="rgba(255,255,255,0.2)" strokeWidth="0.6" />
-            <line x1="2.5" y1="8" x2="13.5" y2="8" stroke="rgba(255,255,255,0.2)" strokeWidth="0.6" />
-            <polygon points="8,3 9.3,8 8,7.1" fill="#FF3B30" />
-            <polygon points="8,13 6.7,8 8,8.9" fill="white" />
-          </svg>
-        );
-      case "edge":
-        return (
-          <svg width={s} height={s} viewBox="0 0 16 16">
-            <circle cx="8" cy="8" r="7.5" fill="#0078D4" />
-            <path d="M5.5 5.5 C5.5 3.5 7 2.5 8.5 2.5 C11 2.5 13 4.5 13 7 C13 9 11.5 10.5 9.5 11 C8.8 11.2 7.5 11.3 7 11" stroke="white" strokeWidth="1.3" fill="none" strokeLinecap="round" />
-            <path d="M4.5 11.5 C4.5 13 6.5 14 8.5 14 C10 14 11.5 13.3 12 12.5" stroke="white" strokeWidth="1.3" fill="none" strokeLinecap="round" />
-            <path d="M4.5 11.5 C6.5 12.2 11 11.8 12 10.8" stroke="white" strokeWidth="1.3" fill="none" strokeLinecap="round" />
-          </svg>
-        );
-      case "postman":
-        return (
-          <svg width={s} height={s} viewBox="0 0 16 16">
-            <circle cx="8" cy="8" r="7.5" fill="#FF6C37" />
-            <text x="8" y="11.5" textAnchor="middle" fill="white" fontSize="8" fontWeight="700" fontFamily="sans-serif">P</text>
-          </svg>
-        );
-      case "curl":
-        return (
-          <svg width={s} height={s} viewBox="0 0 16 16">
-            <circle cx="8" cy="8" r="7.5" fill="#374151" />
-            <text x="8.5" y="11" textAnchor="middle" fill="#9CA3AF" fontSize="6.5" fontFamily="monospace" fontWeight="600">&gt;_</text>
-          </svg>
-        );
-      default:
-        return (
-          <svg width={s} height={s} viewBox="0 0 16 16">
-            <circle cx="8" cy="8" r="7.5" fill="#4B5563" />
-            <circle cx="8" cy="8" r="4.5" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="1" />
-            <line x1="8" y1="3" x2="8" y2="13" stroke="rgba(255,255,255,0.55)" strokeWidth="0.8" />
-            <path d="M3.8 5.8 Q8 4.2 12.2 5.8" stroke="rgba(255,255,255,0.55)" strokeWidth="0.8" fill="none" />
-            <path d="M3.8 10.2 Q8 11.8 12.2 10.2" stroke="rgba(255,255,255,0.55)" strokeWidth="0.8" fill="none" />
-          </svg>
-        );
-    }
-  })();
-
+/** Microsoft Edge — no open-licensed brand mark in the icon set, so we draw the
+ *  Edge swirl inline rather than falling back to a generic globe. */
+function EdgeIcon({ size = 13, color = "#3DA7E0" }: { size?: number; color?: string }) {
   return (
-    <span className="ep-browser-icon" title={`${name}: ${ua}`} aria-label={name}>
-      {icon}
+    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="7.5" fill={color} />
+      <path d="M3.6 7.3C4.2 4.9 6.3 3.3 8.9 3.3c2 0 3.5 1.1 3.5 2.7 0 1.3-1 2.1-2.5 2.1H6.4"
+        fill="none" stroke="#fff" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M3.8 8.6c-.1 2.3 1.9 4.1 4.6 4.1 1.6 0 3-.6 3.9-1.6"
+        fill="none" stroke="#fff" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Renders the detected call source (brand icon + name). Renders nothing when
+ *  the source can't be determined. */
+function Source({ ua, size = 13, showName = true }: { ua?: string; size?: number; showName?: boolean }) {
+  const src = detectSource(ua);
+  if (!src) return null;
+  return (
+    <span className="ep-source" title={src.name}>
+      {src.name === "Edge"
+        ? <EdgeIcon size={size} color={src.color} />
+        : src.Icon
+          ? <src.Icon size={size} color={src.color} />
+          : <Globe size={size} color={src.color} />}
+      {showName && <span className="ep-source-name">{src.name}</span>}
     </span>
   );
 }
@@ -330,29 +367,30 @@ export default function EndpointDetailPane({
   return (
     <div className="ep-detail-content">
 
-      {/* ── Header: method pill + path ─────────────────────────────── */}
+      {/* ── Header: endpoint identity on the left, metrics on the right ── */}
       <div className="ep-api-header">
-        {onBack && (
-          <button type="button" onClick={onBack} className="ep-api-back" aria-label="Back">
-            <ArrowLeft size={15} />
-          </button>
-        )}
-        <span className={`ep-method-pill ${methodPillClass(method)}`}>{method}</span>
-        <span className="ep-api-path">{path}</span>
-        {detail?.base_url && <span className="ep-api-host">{detail.base_url}</span>}
-        {detail?.last_seen_at && <span className="ep-api-age">{timeAgo(detail.last_seen_at)}</span>}
-      </div>
+        <div className="ep-api-id">
+          {onBack && (
+            <button type="button" onClick={onBack} className="ep-api-back" aria-label="Back">
+              <ArrowLeft size={15} />
+            </button>
+          )}
+          <span className={`ep-method-pill ${methodPillClass(method)}`}>{method}</span>
+          <span className="ep-api-path">{path}</span>
+          {detail?.last_seen_at && <span className="ep-api-age">{timeAgo(detail.last_seen_at)}</span>}
+        </div>
 
-      {/* ── Metrics: golden signals first, then throughput. Wraps; no scroll. */}
-      <div className="ep-metrics-bar">
-        <Metric label="req" value={loading ? "—" : fmtNum(detail!.total_requests)} title="Total requests" />
-        <Metric label="rpm" value={loading ? "—" : `${(detail!.requests_per_minute || 0).toFixed(1)}`} title="Requests per minute" />
-        <Metric label="errors" tone={errTone} value={loading ? "—" : `${errRate.toFixed(2)}%`} title="Error rate" />
-        <Metric label="p50" value={loading ? "—" : fmtMs(detail!.p50_response_time_ms)} title="Median response time" />
-        <Metric label="p95" tone={p95Tone} value={loading ? "—" : fmtMs(p95)} title="95th-percentile response time" />
-        <Metric label="Apdex" tone={apdexTone} value={loading ? "—" : apdex.toFixed(3)} title="Apdex score" />
-        <Metric label="data" value={loading ? "—" : fmtBytes(detail!.total_data_transferred)} title="Total data transferred (request + response)" />
-        <Metric label="avg" value={loading ? "—" : fmtBytes(detail!.avg_response_size)} title="Average response size" />
+        {/* Golden signals + throughput, right-aligned. Wraps; no scroll. */}
+        <div className="ep-metrics-bar">
+          <Metric label="req" value={loading ? "—" : fmtNum(detail!.total_requests)} title="Total requests" />
+          <Metric label="rpm" value={loading ? "—" : `${(detail!.requests_per_minute || 0).toFixed(1)}`} title="Requests per minute" />
+          <Metric label="errors" tone={errTone} value={loading ? "—" : `${errRate.toFixed(2)}%`} title="Error rate" />
+          <Metric label="p50" value={loading ? "—" : fmtMs(detail!.p50_response_time_ms)} title="Median response time" />
+          <Metric label="p95" tone={p95Tone} value={loading ? "—" : fmtMs(p95)} title="95th-percentile response time" />
+          <Metric label="Apdex" tone={apdexTone} value={loading ? "—" : apdex.toFixed(3)} title="Apdex score" />
+          <Metric label="data" value={loading ? "—" : fmtBytes(detail!.total_data_transferred)} title="Total data transferred (request + response)" />
+          <Metric label="avg" value={loading ? "—" : fmtBytes(detail!.avg_response_size)} title="Average response size" />
+        </div>
       </div>
 
       {/* ── Individual calls — the primary content ─────────────────── */}
@@ -361,6 +399,8 @@ export default function EndpointDetailPane({
         baseUrl={detail?.base_url || ""}
         focusZone={focusZone}
         onFocusZoneChange={onFocusZoneChange}
+        lastSeenAt={detail?.last_seen_at ?? null}
+        totalRequests={detail?.total_requests ?? 0}
       />
     </div>
   );
@@ -387,11 +427,15 @@ function CallsPane({
   baseUrl,
   focusZone = "list",
   onFocusZoneChange,
+  lastSeenAt = null,
+  totalRequests = 0,
 }: {
   requests: RequestRow[] | null;
   baseUrl: string;
   focusZone?: FocusZone;
   onFocusZoneChange?: (zone: FocusZone) => void;
+  lastSeenAt?: string | null;
+  totalRequests?: number;
 }) {
   const [selected, setSelected] = useState<RequestRow | null>(null);
   const [tab, setTab] = useState<FilterTab>("all");
@@ -409,7 +453,8 @@ function CallsPane({
         (tab === "5xx" && r.status_code >= 500);
       if (!passTab) return false;
       if (!query) return true;
-      return (r.consumer || "").toLowerCase().includes(query.toLowerCase());
+      const source = detectSource(r.user_agent)?.name || "";
+      return source.toLowerCase().includes(query.toLowerCase());
     });
   }, [requests, tab, query]);
 
@@ -418,9 +463,26 @@ function CallsPane({
     setCursor(0);
   }, [requests, tab, query]);
 
+  // The detail pane follows the cursor: it auto-opens the first call when the
+  // list loads and always shows the highlighted call as you move. There's no
+  // open/close state — the third pane stays populated while calls exist.
+  useEffect(() => {
+    setSelected(filtered && filtered.length ? filtered[Math.min(cursor, filtered.length - 1)] : null);
+  }, [filtered, cursor]);
+
+  // Don't sit in an empty zone: if this endpoint has no calls at all, hand focus
+  // back to the endpoints list (there's nothing to navigate here). Guard on the
+  // raw request list — not the filtered one — so an empty search result while
+  // you're typing doesn't bounce you out.
+  useEffect(() => {
+    if (focusZone === "calls" && requests !== null && requests.length === 0) {
+      onFocusZoneChange?.("list");
+    }
+  }, [focusZone, requests, onFocusZoneChange]);
+
   // ── Keyboard navigation for the calls pane ──
-  // List mode:   ↑/↓ move the cursor, Enter opens the inline detail, ←/Esc return to endpoints.
-  // Detail open: ↑/↓ step through adjacent calls, ←/Esc close the detail (back to the list).
+  // ↑/↓ move through calls (the detail follows the cursor); ←/Esc return to the
+  // endpoints list. No open/close — the detail stays shown while calls exist.
   useEffect(() => {
     if (focusZone !== "calls") return;
     const onKey = (e: KeyboardEvent) => {
@@ -428,29 +490,12 @@ function CallsPane({
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) {
         return;
       }
-      const list = filtered;
-
-      if (selected) {
-        if (e.key === "Escape" || e.key === "ArrowLeft") {
-          e.preventDefault();
-          setSelected(null);
-        } else if (list && list.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-          e.preventDefault();
-          const n =
-            e.key === "ArrowDown"
-              ? Math.min(cursor + 1, list.length - 1)
-              : Math.max(cursor - 1, 0);
-          setCursor(n);
-          setSelected(list[n]);
-        }
-        return;
-      }
-
       if (e.key === "ArrowLeft" || e.key === "Escape") {
         e.preventDefault();
         onFocusZoneChange?.("list");
         return;
       }
+      const list = filtered;
       if (!list || !list.length) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -458,15 +503,11 @@ function CallsPane({
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setCursor((c) => Math.max(c - 1, 0));
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        const row = list[Math.min(cursor, list.length - 1)];
-        if (row) setSelected(row);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focusZone, selected, filtered, cursor, onFocusZoneChange]);
+  }, [focusZone, filtered, onFocusZoneChange]);
 
   // Keep the keyboard cursor scrolled into view.
   useEffect(() => {
@@ -474,21 +515,9 @@ function CallsPane({
     listRef.current?.querySelector(".ep-call-row.is-cursor")?.scrollIntoView({ block: "nearest" });
   }, [cursor, focusZone, filtered]);
 
-  if (selected) {
-    return (
-      <div className="ep-calls-pane">
-        <CallDetailInline
-          key={`${selected.timestamp}-${selected.status_code}`}
-          row={selected}
-          baseUrl={baseUrl}
-          onClose={() => setSelected(null)}
-        />
-      </div>
-    );
-  }
-
   return (
-    <div className="ep-calls-pane">
+    <div className={`ep-calls-pane${selected ? " has-detail" : ""}`}>
+      <div className="ep-calls-main">
       {/* Filter bar */}
       <div className="ep-calls-filter">
         <div className="ep-calls-tabs">
@@ -506,7 +535,7 @@ function CallsPane({
         <div className="ep-calls-search">
           <Search size={12} />
           <input
-            placeholder="consumer…"
+            placeholder="source…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -533,13 +562,37 @@ function CallsPane({
         {filtered === null ? (
           <div className="ep-calls-empty">Loading calls…</div>
         ) : filtered.length === 0 ? (
-          <div className="ep-calls-empty">No requests match.</div>
+          requests !== null && requests.length === 0 ? (
+            /* Endpoint truly has no traffic in this window */
+            <div className="ep-no-calls">
+              {totalRequests === 0 && !lastSeenAt ? (
+                <Activity size={28} className="ep-no-calls-icon" />
+              ) : (
+                <Clock size={28} className="ep-no-calls-icon" />
+              )}
+              <p className="ep-no-calls-title">
+                {totalRequests === 0 && !lastSeenAt
+                  ? "No requests tracked yet"
+                  : "No requests in this period"}
+              </p>
+              {lastSeenAt ? (
+                <span className="ep-no-calls-sub">Last active {timeAgo(lastSeenAt)}</span>
+              ) : totalRequests > 0 ? (
+                <span className="ep-no-calls-sub">Try expanding the time range</span>
+              ) : (
+                <span className="ep-no-calls-sub">Requests will appear here once your API receives traffic</span>
+              )}
+            </div>
+          ) : (
+            /* Has requests but the current tab/search filter shows nothing */
+            <div className="ep-calls-empty">No requests match this filter.</div>
+          )
         ) : (
           filtered.map((r, i) => (
             <button
               key={`${r.timestamp}-${i}`}
               type="button"
-              className={`ep-call-row${focusZone === "calls" && i === cursor ? " is-cursor" : ""}`}
+              className={`ep-call-row${i === cursor ? (focusZone === "calls" ? " is-cursor" : " is-active") : ""}`}
               onClick={() => {
                 setCursor(i);
                 setSelected(r);
@@ -551,11 +604,8 @@ function CallsPane({
                 {r.status_code}
               </span>
               <span className="ep-call-dur">{fmtMs(r.response_time_ms)}</span>
-              <span className="ep-call-consumer-cell">
-                <BrowserIcon ua={r.user_agent} size={13} />
-                <span className={`ep-call-consumer${(r.consumer_name || r.consumer_id) ? "" : " is-empty"}`}>
-                  {r.consumer_name || r.consumer_id || "—"}
-                </span>
+              <span className={`ep-call-consumer${(r.consumer_name || r.consumer_id) ? "" : " is-empty"}`}>
+                {r.consumer_name || r.consumer_id || "—"}
               </span>
               {r.environment && (
                 <span className="ep-call-env">{r.environment}</span>
@@ -567,12 +617,23 @@ function CallsPane({
           ))
         )}
       </div>
+      </div>
+
+      {/* Third pane — individual call analysis, follows the cursor (always shown) */}
+      {selected && (
+        <CallDetailInline
+          key={`${selected.timestamp}-${selected.status_code}`}
+          row={selected}
+          baseUrl={baseUrl}
+        />
+      )}
     </div>
   );
 }
 
-/* ── Request payload modal ───────────────────────────────────────────── */
+/* ── Call payload rendering ───────────────────────────────────────────── */
 
+// Saved base-URL fallback (key kept for back-compat with the old cURL override).
 const CURL_BASE_URL_KEY = "apilens:curl-base-url";
 
 function buildCurl(row: RequestRow, baseUrl: string): string {
@@ -609,39 +670,23 @@ function highlightJson(json: string): string {
   );
 }
 
-function PayloadBlock({ title, body }: { title: string; body: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(body);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch { /* clipboard unavailable */ }
-  };
-  const isJson = !!body && (() => {
+/** Read-only payload body (Postman-style) — JSON syntax-highlighted, no chrome. */
+function PayloadBody({ body }: { body: string }) {
+  if (!body) {
+    return (
+      <div className="request-payload-empty">
+        <FileX2 size={16} strokeWidth={1.5} />
+        <span>No body</span>
+      </div>
+    );
+  }
+  const isJson = (() => {
     try { JSON.parse(body); return true; } catch { return false; }
   })();
-  return (
-    <section className="request-payload-section">
-      <div className="request-payload-section-head">
-        <h4>{title}</h4>
-        {body && (
-          <button type="button" className="request-payload-copy" onClick={copy}>
-            {copied ? <Check size={13} /> : <Copy size={13} />}
-            {copied ? "Copied" : "Copy"}
-          </button>
-        )}
-      </div>
-      {body ? (
-        isJson ? (
-          <pre className="request-payload-pre" dangerouslySetInnerHTML={{ __html: highlightJson(body) }} />
-        ) : (
-          <pre className="request-payload-pre">{body}</pre>
-        )
-      ) : (
-        <div className="ep-calls-empty">No payload captured.</div>
-      )}
-    </section>
+  return isJson ? (
+    <pre className="request-payload-pre" dangerouslySetInnerHTML={{ __html: highlightJson(body) }} />
+  ) : (
+    <pre className="request-payload-pre">{body}</pre>
   );
 }
 
@@ -650,11 +695,9 @@ function PayloadBlock({ title, body }: { title: string; body: string }) {
 function CallDetailInline({
   row,
   baseUrl: detectedBaseUrl,
-  onClose,
 }: {
   row: RequestRow;
   baseUrl: string;
-  onClose: () => void;
 }) {
   const [copiedCurl, setCopiedCurl] = useState(false);
   const [baseUrl, setBaseUrl] = useState(() => {
@@ -668,50 +711,95 @@ function CallDetailInline({
     }
   }, [detectedBaseUrl]);
 
+  // Prefer the base_url the SDK captured for THIS call (dev/prod/staging can
+  // differ per request); fall back to the endpoint-level / saved override.
+  const callBaseUrl = row.base_url || baseUrl;
+  const fullUrl = `${(callBaseUrl || "").replace(/\/$/, "")}${row.path}`;
+
   const copyCurl = async () => {
     try {
-      await navigator.clipboard.writeText(buildCurl(row, baseUrl));
+      await navigator.clipboard.writeText(buildCurl(row, callBaseUrl));
       setCopiedCurl(true);
       setTimeout(() => setCopiedCurl(false), 1500);
     } catch { /* clipboard unavailable */ }
   };
 
+  const source = detectSource(row.user_agent);
+  const loc = describeLocation(row.ip_address, row.country, row.country_code);
+  const consumerLabel = row.consumer_name || row.consumer_id || "";
+  const hasFacts = !!(consumerLabel || source || loc || row.ip_address);
+  const reqBody = formatPayload(row.request_payload);
+  const respBody = formatPayload(row.response_payload);
+  const stext = statusText(row.status_code);
+
   return (
     <div className="ep-call-detail">
-      <div className="ep-call-detail-head">
-        <button type="button" className="ep-call-detail-back" onClick={onClose} aria-label="Back to calls" title="Back (Esc)">
-          <ArrowLeft size={15} />
-        </button>
-        <span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span>
-        <span className="ep-call-detail-path">{row.path}</span>
-        <StatusPill tone={statusCodeTone(row.status_code)}>{row.status_code}</StatusPill>
-        <div className="ep-call-detail-spacer" />
-        <Button variant="secondary" size="sm" onClick={copyCurl} title="Copy as cURL" aria-label="Copy as cURL">
+      {/* Postman-style request bar: method + full URL + Copy cURL action */}
+      <div className="ep-pm-reqbar">
+        <span className={`ep-method-pill ${methodPillClass(row.method)}`}>{row.method}</span>
+        <span className="ep-pm-url" title={fullUrl}>{fullUrl}</span>
+        <button
+          type="button"
+          className="ep-pm-curl"
+          onClick={copyCurl}
+          title="Copy as cURL"
+          aria-label="Copy as cURL"
+        >
           {copiedCurl ? <Check size={13} /> : <Terminal size={13} />}
-          {copiedCurl ? "Copied!" : "Copy cURL"}
-        </Button>
+          <span>{copiedCurl ? "Copied" : "cURL"}</span>
+        </button>
       </div>
-      <div className="request-payload-meta">
-        <span>{fmtDateTime(row.timestamp)}</span>
-        <span>·</span>
-        <span>{fmtMs(row.response_time_ms)}</span>
-        {row.user_agent && (
-          <>
-            <span>·</span>
-            <span className="request-payload-meta-browser">
-              <BrowserIcon ua={row.user_agent} size={13} />
-              <span>{detectBrowser(row.user_agent).name}</span>
+
+      {(hasFacts || row.timestamp) && (
+        <div className="ep-call-req-facts ep-pm-facts">
+          <span className="ep-fact ep-fact-mono ep-fact-when">{fmtDateTime(row.timestamp)}</span>
+          {consumerLabel && (
+            <span className="ep-fact ep-fact-consumer" title="Consumer — the user identity set by your middleware">
+              <User size={12} className="ep-meta-icon" />{consumerLabel}
             </span>
-          </>
-        )}
-        {(row.consumer_name || row.consumer_id) && (
-          <><span>·</span><span className="request-payload-meta-consumer">{row.consumer_name || row.consumer_id}</span></>
-        )}
-        {row.environment && <><span>·</span><span>{row.environment}</span></>}
-      </div>
-      <div className="ep-call-detail-body request-payload-body">
-        <PayloadBlock title="Request payload" body={formatPayload(row.request_payload)} />
-        <PayloadBlock title="Response payload" body={formatPayload(row.response_payload)} />
+          )}
+          {source && <span className="ep-fact"><Source ua={row.user_agent} size={13} /></span>}
+          {loc && (
+            <span className="ep-fact">
+              {loc.flag ? (
+                <span className="ep-call-detail-flag">{loc.flag}</span>
+              ) : loc.kind === "local" ? (
+                <MonitorSmartphone size={12} className="ep-meta-icon" />
+              ) : (
+                <Globe size={12} className="ep-meta-icon" />
+              )}
+              {loc.label}
+            </span>
+          )}
+          {row.ip_address && <span className="ep-fact ep-fact-mono">{row.ip_address}</span>}
+        </div>
+      )}
+
+      <div className="ep-pm-body">
+        {/* Request body */}
+        <section className="ep-pm-pane">
+          <div className="ep-pm-pane-head">
+            <span className="ep-pm-pane-title">Request</span>
+            <span className="ep-pm-pane-meta">{fmtBytes(byteLen(row.request_payload))}</span>
+          </div>
+          <PayloadBody body={reqBody} />
+        </section>
+
+        {/* Response — status / time / size in the upper bar, Postman-style */}
+        <section className="ep-pm-pane">
+          <div className="ep-pm-pane-head ep-pm-resp-head">
+            <span className="ep-pm-pane-title">Response</span>
+            <span className="ep-pm-respbar">
+              <span className={`ep-pm-status ${statusDotClass(row.status_code)}`}>
+                <span className="ep-pm-status-dot" />
+                {row.status_code}{stext ? ` ${stext}` : ""}
+              </span>
+              <span className="ep-pm-resp-meta">{fmtMs(row.response_time_ms)}</span>
+              <span className="ep-pm-resp-meta">{fmtBytes(byteLen(row.response_payload))}</span>
+            </span>
+          </div>
+          <PayloadBody body={respBody} />
+        </section>
       </div>
     </div>
   );

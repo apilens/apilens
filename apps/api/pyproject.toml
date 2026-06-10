@@ -27,6 +27,7 @@ dependencies = [
     "pyotp>=2.9,<3.0",
     "django-storages[google]>=1.14,<2.0",
     "sentry-sdk[django]>=2.0,<3.0",
+    "geoip2fast>=1.2,<2.0",
 ]
 
 [build-system]

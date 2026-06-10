@@ -49,6 +49,7 @@ dependencies = [
     { name = "django-ninja" },
     { name = "django-storages", extra = ["google"] },
     { name = "fastapi", extra = ["standard"] },
+    { name = "geoip2fast" },
     { name = "gunicorn" },
     { name = "httpx" },
     { name = "pillow" },
@@ -70,6 +71,7 @@ requires-dist = [
     { name = "django-ninja", specifier = ">=1.0,<2.0" },
     { name = "django-storages", extras = ["google"], specifier = ">=1.14,<2.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.129.0" },
+    { name = "geoip2fast", specifier = ">=1.2,<2.0" },
     { name = "gunicorn", specifier = ">=21.0,<23.0" },
     { name = "httpx", specifier = ">=0.25,<1.0" },
     { name = "pillow", specifier = ">=10.0,<12.0" },
@@ -751,6 +753,12 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ed/d3/5b7df222a30eac2822ffd00f82fd4c2ce84fba4b369d1e1a03732fd177fc/fastar-0.11.0-pp311-pypy311_pp73-musllinux_1_2_i686.whl", hash = "sha256:587cbd060a2699c5f66281081395bb4657b2b1e0eef5c206b1aabf740019d670", size = 1080210, upload-time = "2026-04-13T17:10:58.462Z" },
     { url = "https://files.pythonhosted.org/packages/ec/6d/56ef943ea524784598c035ccbd42e564e937da0438ae3f55f0e76cb95571/fastar-0.11.0-pp311-pypy311_pp73-musllinux_1_2_x86_64.whl", hash = "sha256:6a1c56957ac82408be37a3f63594bc83e0919e8760492a4475e542f9f1828778", size = 1034886, upload-time = "2026-04-13T17:11:15.617Z" },
 ]
+
+[[package]]
+name = "geoip2fast"
+version = "1.2.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/07/2a346a6a3294e1a1f6c1852f17ae555160d6f41d8636ea00c2ae0a89a8ec/geoip2fast-1.2.2.tar.gz", hash = "sha256:38815700cedfeb197d51b4b8733b0d4f7965b36de15147c125527124f8b45d6b", size = 9655302, upload-time = "2024-06-21T04:59:04.978Z" }
 
 [[package]]
 name = "google-api-core"
