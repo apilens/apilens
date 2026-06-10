@@ -11402,18 +11402,6 @@ a.settings-btn {
   .request-payload-body { grid-template-columns: 1fr; }
   .request-payload-pre { max-height: 260px; }
 }
-  --accent: #0070f3;
-  --accent-hover: #0060df;
-  --success: #00c853;
-  --warning: #ff9500;
-  --danger: #ff4444;
-  background-color: var(--bg-active);
-.nav-item-active .nav-icon {
-  color: var(--text-primary);
-  outline: 2px solid var(--accent, #0070f3);
-  outline: 2px solid var(--accent, #0070f3);
-  word-break: break-all;
-  margin: 0 0 10px;
 
 /* ── Endpoints workspace (two-pane layout) ── */
 .endpoints-workspace {
