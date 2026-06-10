@@ -1,16 +1,16 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
+@import "../styles/aperture.tokens.css";
+@import "../styles/aperture.components.css";
 
 :root {
   --font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --sidebar-width: 240px;
   --sidebar-width-collapsed: 64px;
   --navbar-height: 56px;
-  --accent: #0070f3;
-  --accent-hover: #0060df;
-  --success: #00c853;
-  --warning: #ff9500;
-  --danger: #ff4444;
+  /* Brand accent + status now come from aperture.tokens.css (teal #14b8a6).
+     These re-declares are intentionally omitted so the token layer is the
+     single source of truth. */
 }
 
 /* Dark Mode (default) */
@@ -525,12 +525,26 @@ body {
 }
 
 .nav-item-active {
-  background-color: var(--bg-active);
+  position: relative;
+  background-color: var(--accent-subtle);
   color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.nav-item-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  background: var(--accent);
 }
 
 .nav-item-active .nav-icon {
-  color: var(--text-primary);
+  color: var(--accent);
   opacity: 1;
 }
 
@@ -1501,7 +1515,7 @@ body {
 .dialog-close:focus-visible,
 .timezone-option:focus-visible,
 .timezone-trigger:focus-visible {
-  outline: 2px solid var(--accent, #0070f3);
+  outline: 2px solid var(--accent, #14b8a6);
   outline-offset: 2px;
 }
 
@@ -1516,7 +1530,7 @@ body {
 .profile-edit-input:focus-visible,
 .timezone-search-input:focus-visible,
 .auth-input:focus-visible {
-  outline: 2px solid var(--accent, #0070f3);
+  outline: 2px solid var(--accent, #14b8a6);
   outline-offset: 1px;
 }
 
@@ -10607,10 +10621,93 @@ a.settings-btn {
 }
 .endpoint-detail-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
   word-break: break-all;
+}
+
+/* Title now lives inside the flex header — drop its own padding and let the
+   path flex/truncate so the action buttons stay pinned right. */
+.endpoint-detail-header .endpoint-detail-title {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  flex-wrap: wrap;
+}
+.endpoint-detail-baseurl {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.endpoint-detail-description {
+  margin: 0;
+  padding: 2px 20px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ── Golden-signal health strip (always visible above the tabs) ── */
+.endpoint-health-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 12px 20px 4px;
+}
+.endpoint-health-card {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  min-width: 0;
+}
+.endpoint-health-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin: 0 0 4px;
+}
+.endpoint-health-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.endpoint-health-value.tone-good { color: #22c55e; }
+.endpoint-health-value.tone-warn { color: #f59e0b; }
+.endpoint-health-value.tone-bad { color: #ef4444; }
+.endpoint-health-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin: 2px 0 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 640px) {
+  .endpoint-health-strip { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── In-panel time-range + environment controls ── */
+.endpoint-detail-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 20px 12px;
+}
+.endpoint-detail-range {
+  flex-wrap: wrap;
+}
+.endpoint-detail-env {
+  margin-left: auto;
 }
 
 .endpoint-detail-tabs {
@@ -10662,11 +10759,282 @@ a.settings-btn {
 .endpoint-detail-section {
   margin-bottom: 24px;
 }
+.endpoint-detail-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 10px;
+}
 .endpoint-detail-section-title {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
-  margin: 0 0 10px;
+  margin: 0;
+}
+.endpoint-detail-section-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Two-up distributions row (status codes + latency histogram); stacks narrow. */
+.endpoint-detail-dist-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.endpoint-detail-dist-grid .endpoint-detail-section {
+  margin-bottom: 24px;
+  min-width: 0;
+}
+@media (max-width: 620px) {
+  .endpoint-detail-dist-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Requests tab toolbar: status-class chips + search ── */
+.endpoint-requests-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.endpoint-status-filter {
+  display: inline-flex;
+  gap: 4px;
+}
+.endpoint-status-chip {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.endpoint-status-chip:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+.endpoint-status-chip.active {
+  color: #fff;
+  background: #14b8a6;
+  border-color: #14b8a6;
+}
+.endpoint-requests-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 160px;
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+.endpoint-requests-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.endpoint-requests-search input::placeholder {
+  color: var(--text-muted);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Dedicated endpoint detail PAGE (shareable URL) — full-width layout
+   ════════════════════════════════════════════════════════════════════ */
+.endpoint-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px 24px 48px;
+}
+.endpoint-page-loading {
+  padding: 48px 24px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.endpoint-page-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.endpoint-page-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.endpoint-page-back:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+.endpoint-page-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.endpoint-page-copy:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+.endpoint-page-header {
+  margin-bottom: 16px;
+}
+.endpoint-page-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.endpoint-page-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+.endpoint-page-description {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  max-width: 720px;
+}
+
+/* Golden-signal strip on the page: responsive card grid, no drawer padding. */
+.endpoint-page-health {
+  padding: 0;
+  margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.endpoint-page-health .endpoint-health-card {
+  padding: 14px 16px;
+}
+.endpoint-page-health .endpoint-health-value {
+  font-size: 22px;
+}
+
+/* Filter bar: time range + env + active-filter summary chips. */
+.endpoint-page-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-color);
+  margin-bottom: 0;
+}
+/* Distinct, clearly-labelled row summarising the filters in effect. */
+.endpoint-active-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 0 12px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 20px;
+}
+.endpoint-active-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.endpoint-active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+.endpoint-active-key {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
+.endpoint-page-tabs {
+  margin-bottom: 20px;
+}
+.endpoint-page-body {
+  min-height: 200px;
+}
+
+/* Overview: full-width time-series stacked on top, then two independent
+   columns. Each column packs its cards tightly (flex), so side-by-side widgets
+   stay top-aligned without a grid's row-height coupling. */
+.endpoint-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.endpoint-overview-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.endpoint-overview-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.endpoint-overview .endpoint-card {
+  margin-bottom: 0;
+}
+.endpoint-page-body .endpoint-card {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  padding: 16px;
+}
+/* Status-code list fills its card and centres vertically so the bars read as a
+   tidy block aligned with the chart beside it. */
+.endpoint-page-body .endpoint-card .endpoint-status-breakdown {
+  justify-content: center;
+  gap: 10px;
+}
+@media (max-width: 760px) {
+  .endpoint-overview-cols { grid-template-columns: 1fr; }
+  .endpoint-page { padding: 16px; }
 }
 
 .endpoint-detail-summary-box {
@@ -10817,6 +11185,10 @@ a.settings-btn {
 }
 .endpoint-status-bar.is-client { background: #f59e0b; }
 .endpoint-status-bar.is-server { background: #ef4444; }
+.endpoint-status-bar.is-2xx { background: #22c55e; }
+.endpoint-status-bar.is-3xx { background: #60a5fa; }
+.endpoint-status-bar.is-4xx { background: #f59e0b; }
+.endpoint-status-bar.is-5xx { background: #ef4444; }
 .endpoint-status-count {
   font-size: 12px;
   color: var(--text-secondary);
@@ -11029,4 +11401,254 @@ a.settings-btn {
   .endpoint-detail-resizer { display: none; }
   .request-payload-body { grid-template-columns: 1fr; }
   .request-payload-pre { max-height: 260px; }
+}
+  --accent: #0070f3;
+  --accent-hover: #0060df;
+  --success: #00c853;
+  --warning: #ff9500;
+  --danger: #ff4444;
+  background-color: var(--bg-active);
+.nav-item-active .nav-icon {
+  color: var(--text-primary);
+  outline: 2px solid var(--accent, #0070f3);
+  outline: 2px solid var(--accent, #0070f3);
+  word-break: break-all;
+  margin: 0 0 10px;
+
+/* ── Endpoints workspace (two-pane layout) ── */
+.endpoints-workspace {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--navbar-height, 56px));
+  overflow: hidden;
+}
+.endpoints-workspace-toolbar {
+  flex-shrink: 0;
+  padding: 12px 20px 0;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-primary);
+}
+.endpoints-workspace-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Left pane */
+.endpoints-list-pane {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+.endpoints-list-header {
+  flex-shrink: 0;
+  padding: 12px 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.endpoints-list-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  padding: 0 10px;
+  height: 32px;
+  color: var(--text-muted);
+}
+.endpoints-list-search input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.endpoints-pane-switcher {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-secondary);
+  border-radius: 7px;
+  padding: 3px;
+  margin-bottom: 4px;
+}
+.pane-tab {
+  flex: 1;
+  height: 26px;
+  border-radius: 5px;
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.pane-tab.active {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+.pane-tab.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pane-tab-badge {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  background: #14b8a633;
+  color: #14b8a6;
+  padding: 1px 4px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+.endpoints-list-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px 8px;
+}
+.endpoint-list-row {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 9px 10px;
+  cursor: pointer;
+  transition: background 0.1s;
+  margin-bottom: 2px;
+  display: block;
+}
+.endpoint-list-row:hover {
+  background: var(--bg-hover, rgba(148,163,184,0.08));
+}
+.endpoint-list-row.selected {
+  background: rgba(20,184,166,0.1);
+  outline: 1px solid rgba(20,184,166,0.3);
+}
+.endpoint-list-row-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.endpoint-list-path {
+  font-size: 12.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.endpoint-list-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding-left: 2px;
+}
+.endpoint-list-row-meta .meta-err {
+  color: #f87171;
+}
+
+/* Right detail pane */
+.endpoints-detail-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+.endpoints-detail-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted);
+}
+.endpoints-detail-empty p {
+  font-size: 14px;
+}
+
+/* EndpointDetailPane (embedded in right pane) */
+.endpoint-detail-pane-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 16px 20px 32px;
+  min-height: 0;
+}
+.endpoint-detail-pane-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.endpoint-detail-pane-path {
+  font-size: 16px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text-primary);
+}
+.endpoint-detail-pane-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.endpoint-detail-pane-back {
+  display: none; /* shown only on mobile */
+}
+
+/* Toolbar in workspace (reuse existing time-range styles but in a toolbar row) */
+.endpoints-workspace-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+}
+
+/* Mobile: stack panes */
+@media (max-width: 900px) {
+  .endpoints-workspace-body {
+    flex-direction: column;
+  }
+  .endpoints-list-pane {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    max-height: 50vh;
+  }
+  .endpoints-list-pane.hidden-mobile {
+    display: none;
+  }
+  .endpoint-detail-pane-back {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+    font-size: 13px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0 0 12px;
+  }
 }

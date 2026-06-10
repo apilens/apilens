@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Layers, Search, SlidersHorizontal, X } from "lucide-react";
-import EndpointDetailPanel, { type EndpointDetailTarget } from "@/components/endpoints/EndpointDetailPanel";
+import { ArrowLeft, Layers, Search, SlidersHorizontal, X } from "lucide-react";
+import EndpointDetailPane from "./EndpointDetailPane";
 
 interface ProjectEndpointsContentProps {
   projectSlug: string;
@@ -24,7 +24,7 @@ const STATUS_CODE_BY_CLASS: Record<(typeof STATUS_CLASS_OPTIONS)[number], number
   "4xx": [400, 401, 403, 404, 409, 422, 429],
   "5xx": [500, 502, 503, 504],
 };
-const DEFAULT_PAGE_SIZE = 25;
+const DEFAULT_PAGE_SIZE = 200; // Load all in the list pane (scrollable, no pagination)
 const AVAILABLE_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
 type SortKey = "endpoint" | "total_requests" | "error_rate" | "avg_response_time_ms" | "p95_response_time_ms";
@@ -40,16 +40,15 @@ type EndpointStat = {
   p95_response_time_ms: number;
 };
 
+type SelectedEndpoint = { method: string; path: string };
+
 function formatNumber(n: number): string {
   return n.toLocaleString();
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+function formatMs(n: number): string {
+  if (!n) return "0 ms";
+  return `${Math.round(n)} ms`;
 }
 
 function formatLocalDate(dt: Date): string {
@@ -57,16 +56,10 @@ function formatLocalDate(dt: Date): string {
   return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
 }
 
-function formatLocalTime(dt: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
-}
-
 export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpointsContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [projectName, setProjectName] = useState("");
   const [apps, setApps] = useState<Array<{ id: string; name: string; slug: string }>>([]);
   const [selectedAppSlugs, setSelectedAppSlugs] = useState<string[]>([]);
   const [environments, setEnvironments] = useState<string[]>([]);
@@ -79,13 +72,13 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
   const [selectedRange, setSelectedRange] = useState(24);
   const [customPanelOpen, setCustomPanelOpen] = useState(false);
   const [customActive, setCustomActive] = useState(false);
-  const [customSinceDraft, setCustomSinceDraft] = useState(""); // ISO string for draft
-  const [customUntilDraft, setCustomUntilDraft] = useState(""); // ISO string for draft
-  const [customSince, setCustomSince] = useState(""); // ISO string for API
-  const [customUntil, setCustomUntil] = useState(""); // ISO string for API
+  const [customSinceDraft, setCustomSinceDraft] = useState("");
+  const [customUntilDraft, setCustomUntilDraft] = useState("");
+  const [customSince, setCustomSince] = useState("");
+  const [customUntil, setCustomUntil] = useState("");
   const [customRangeError, setCustomRangeError] = useState("");
 
-  // Filters
+  // Global search + advanced filters (for the API call)
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -95,27 +88,15 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
   const [statusCodeDraft, setStatusCodeDraft] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("total_requests");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [currentPage, setCurrentPage] = useState(1);
+
+  // Left-pane list search (client-side filter on already-loaded stats)
+  const [listSearch, setListSearch] = useState("");
+
+  // Selected endpoint (drives right detail pane)
+  const [selectedEndpoint, setSelectedEndpoint] = useState<SelectedEndpoint | null>(null);
 
   const customPopoverRef = useRef<HTMLDivElement | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [selectedEndpoint, setSelectedEndpoint] = useState<EndpointDetailTarget | null>(null);
-
-  // Fetch project info
-  useEffect(() => {
-    async function fetchProject() {
-      try {
-        const res = await fetch(`/api/projects/${projectSlug}`);
-        if (res.ok) {
-          const data = await res.json();
-          setProjectName(data.name || projectSlug);
-        }
-      } catch {
-        setProjectName(projectSlug);
-      }
-    }
-    fetchProject();
-  }, [projectSlug]);
 
   // Initialize from URL parameters
   useEffect(() => {
@@ -124,23 +105,23 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     const range = searchParams.get("range");
     const env = searchParams.get("env");
     const app = searchParams.get("app");
-    const apps = searchParams.get("apps");
+    const appsParam = searchParams.get("apps");
     const methods = searchParams.get("methods");
     const statusClasses = searchParams.get("status_classes");
     const statusCodes = searchParams.get("status_codes");
     const search = searchParams.get("q");
-    const page = searchParams.get("page");
-    const customSince = searchParams.get("custom_since");
-    const customUntil = searchParams.get("custom_until");
+    const customSinceParam = searchParams.get("custom_since");
+    const customUntilParam = searchParams.get("custom_until");
     const sort = searchParams.get("sort");
     const order = searchParams.get("order");
+    const method = searchParams.get("method");
+    const path = searchParams.get("path");
 
     if (range) setSelectedRange(parseInt(range, 10));
     if (env) setSelectedEnv(env);
 
-    // Handle both old single app and new multiple apps format
-    if (apps) {
-      setSelectedAppSlugs(apps.split(",").filter(Boolean));
+    if (appsParam) {
+      setSelectedAppSlugs(appsParam.split(",").filter(Boolean));
     } else if (app) {
       setSelectedAppSlugs([app]);
     }
@@ -149,20 +130,18 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     if (statusClasses) setStatusClassFilters(statusClasses.split(",").filter(Boolean) as any);
     if (statusCodes) setStatusCodeFilters(statusCodes.split(",").map(Number).filter(n => !isNaN(n)));
     if (search) setSearchTerm(search);
-    if (page) setCurrentPage(parseInt(page, 10));
 
-    // Custom time range
-    if (customSince) {
+    if (customSinceParam) {
       try {
-        const sinceDate = new Date(customSince);
+        const sinceDate = new Date(customSinceParam);
         if (!isNaN(sinceDate.getTime())) {
-          setCustomSince(customSince);
-          setCustomSinceDraft(customSince);
-          if (customUntil) {
-            const untilDate = new Date(customUntil);
+          setCustomSince(customSinceParam);
+          setCustomSinceDraft(customSinceParam);
+          if (customUntilParam) {
+            const untilDate = new Date(customUntilParam);
             if (!isNaN(untilDate.getTime())) {
-              setCustomUntil(customUntil);
-              setCustomUntilDraft(customUntil);
+              setCustomUntil(customUntilParam);
+              setCustomUntilDraft(customUntilParam);
             }
           }
           setCustomActive(true);
@@ -172,7 +151,6 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       }
     }
 
-    // Sort state
     if (sort && ["endpoint", "total_requests", "error_rate", "avg_response_time_ms", "p95_response_time_ms"].includes(sort)) {
       setSortKey(sort as SortKey);
     }
@@ -180,16 +158,20 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       setSortDir(order as SortDir);
     }
 
+    // Restore selected endpoint from URL (e.g. direct link or back-navigation)
+    if (method && path) {
+      setSelectedEndpoint({ method, path });
+    }
+
     setIsInitialized(true);
   }, [searchParams, isInitialized]);
 
-  // Update URL when filters change
+  // Update URL when state changes — keep it shallow so the list doesn't re-fetch
   useEffect(() => {
     if (!isInitialized) return;
 
     const params = new URLSearchParams();
 
-    // Time range - custom takes precedence
     if (customActive && customSince) {
       params.set("custom_since", customSince);
       if (customUntil) params.set("custom_until", customUntil);
@@ -197,10 +179,8 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       params.set("range", String(selectedRange));
     }
 
-    // Filters
     if (selectedEnv) params.set("env", selectedEnv);
 
-    // Apps - only persist if not all apps are selected
     if (selectedAppSlugs.length > 0 && selectedAppSlugs.length < apps.length) {
       params.set("apps", selectedAppSlugs.join(","));
     }
@@ -209,17 +189,38 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     if (statusClassFilters.length > 0) params.set("status_classes", statusClassFilters.join(","));
     if (statusCodeFilters.length > 0) params.set("status_codes", statusCodeFilters.join(","));
     if (searchTerm) params.set("q", searchTerm);
-    if (currentPage > 1) params.set("page", String(currentPage));
 
-    // Sort state - only persist if not default
     if (sortKey !== "total_requests" || sortDir !== "desc") {
       params.set("sort", sortKey);
       params.set("order", sortDir);
     }
 
+    // Persist selected endpoint for shareability
+    if (selectedEndpoint) {
+      params.set("method", selectedEndpoint.method);
+      params.set("path", selectedEndpoint.path);
+    }
+
     const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
     router.replace(newUrl, { scroll: false });
-  }, [isInitialized, selectedRange, selectedEnv, selectedAppSlugs, methodFilters, statusClassFilters, statusCodeFilters, searchTerm, currentPage, customActive, customSince, customUntil, sortKey, sortDir, apps.length, router]);
+  }, [
+    isInitialized,
+    selectedRange,
+    selectedEnv,
+    selectedAppSlugs,
+    methodFilters,
+    statusClassFilters,
+    statusCodeFilters,
+    searchTerm,
+    customActive,
+    customSince,
+    customUntil,
+    sortKey,
+    sortDir,
+    apps.length,
+    selectedEndpoint,
+    router,
+  ]);
 
   // Debounce search
   useEffect(() => {
@@ -237,6 +238,18 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [filtersOpen]);
 
+  // Close custom panel on outside click
+  useEffect(() => {
+    if (!customPanelOpen) return undefined;
+    const onClick = (e: MouseEvent) => {
+      if (customPopoverRef.current && !customPopoverRef.current.contains(e.target as Node)) {
+        setCustomPanelOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onClick);
+    return () => window.removeEventListener("mousedown", onClick);
+  }, [customPanelOpen]);
+
   // Fetch apps and environments
   useEffect(() => {
     async function fetchApps() {
@@ -247,11 +260,9 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
           const list = (data.apps || []).map((a: any) => ({ id: a.id, name: a.name, slug: a.slug }));
           setApps(list);
 
-          // Only set default (all apps) if not already initialized from URL
           if (!isInitialized && selectedAppSlugs.length === 0) {
             setSelectedAppSlugs(list.map((a: { slug: string }) => a.slug));
           } else if (isInitialized && selectedAppSlugs.length > 0) {
-            // Validate URL app slugs against loaded apps, filter out invalid ones
             const validSlugs = selectedAppSlugs.filter(slug =>
               list.some((a: { slug: string }) => a.slug === slug)
             );
@@ -289,7 +300,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     return { since, until: undefined };
   }, [customActive, customSince, customUntil, selectedRange]);
 
-  // Fetch endpoints
+  // Fetch endpoint list
   useEffect(() => {
     async function fetchEndpoints() {
       setLoading(true);
@@ -305,7 +316,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
         if (debouncedSearchTerm) params.set("q", debouncedSearchTerm);
         params.set("sort_by", sortKey);
         params.set("sort_dir", sortDir);
-        params.set("page", String(currentPage));
+        params.set("page", "1");
         params.set("page_size", String(DEFAULT_PAGE_SIZE));
 
         const res = await fetch(`/api/projects/${projectSlug}/analytics/endpoints?${params.toString()}`);
@@ -318,7 +329,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       }
     }
     fetchEndpoints();
-  }, [projectSlug, selectedAppSlugs, timeParams, selectedEnv, statusClassFilters, statusCodeFilters, methodFilters, debouncedSearchTerm, sortKey, sortDir, currentPage]);
+  }, [projectSlug, selectedAppSlugs, timeParams, selectedEnv, statusClassFilters, statusCodeFilters, methodFilters, debouncedSearchTerm, sortKey, sortDir]);
 
   const updateDraftPart = useCallback(
     (field: "since" | "until", part: "date" | "time", value: string) => {
@@ -338,34 +349,26 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
 
   const toggleApp = (slug: string) => {
     setSelectedAppSlugs((prev) => {
-      const next = prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug];
-      setCurrentPage(1);
-      return next;
+      return prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug];
     });
   };
 
   const toggleMethodFilter = (method: string) => {
-    setMethodFilters((prev) => {
-      const next = prev.includes(method) ? prev.filter((m) => m !== method) : [...prev, method];
-      setCurrentPage(1);
-      return next;
-    });
+    setMethodFilters((prev) =>
+      prev.includes(method) ? prev.filter((m) => m !== method) : [...prev, method]
+    );
   };
 
   const toggleStatusClassFilter = (cls: (typeof STATUS_CLASS_OPTIONS)[number]) => {
-    setStatusClassFilters((prev) => {
-      const next = prev.includes(cls) ? prev.filter((c) => c !== cls) : [...prev, cls];
-      setCurrentPage(1);
-      return next;
-    });
+    setStatusClassFilters((prev) =>
+      prev.includes(cls) ? prev.filter((c) => c !== cls) : [...prev, cls]
+    );
   };
 
   const toggleStatusCodeFilter = (code: number) => {
-    setStatusCodeFilters((prev) => {
-      const next = prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code];
-      setCurrentPage(1);
-      return next;
-    });
+    setStatusCodeFilters((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
   };
 
   const addStatusCode = () => {
@@ -373,23 +376,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     if (code >= 100 && code <= 599 && !statusCodeFilters.includes(code)) {
       setStatusCodeFilters((prev) => [...prev, code]);
       setStatusCodeDraft("");
-      setCurrentPage(1);
     }
-  };
-
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
-    setCurrentPage(1);
-  };
-
-  const sortIndicator = (key: SortKey) => {
-    if (sortKey !== key) return null;
-    return sortDir === "asc" ? " ↑" : " ↓";
   };
 
   const applyCustomRange = () => {
@@ -416,7 +403,6 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     setCustomActive(true);
     setCustomPanelOpen(false);
     setCustomRangeError("");
-    setCurrentPage(1);
   };
 
   const resetToPresets = () => {
@@ -426,14 +412,12 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     setCustomSinceDraft("");
     setCustomUntilDraft("");
     setCustomRangeError("");
-    setCurrentPage(1);
   };
 
   const clearAdvancedFilters = () => {
     setMethodFilters([]);
     setStatusClassFilters([]);
     setStatusCodeFilters([]);
-    setCurrentPage(1);
   };
 
   const advancedFilterCount = methodFilters.length + statusClassFilters.length + statusCodeFilters.length;
@@ -443,80 +427,41 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       : `Since ${new Date(customSince).toLocaleString()}`
     : TIME_RANGES.find((r) => r.value === selectedRange)?.label || `${selectedRange}h`;
 
-  const safePage = Math.max(1, Math.min(currentPage, Math.ceil(totalCount / DEFAULT_PAGE_SIZE) || 1));
-  const totalPages = Math.ceil(totalCount / DEFAULT_PAGE_SIZE) || 1;
+  // Client-side filter for the list pane (doesn't re-fetch)
+  const filteredStats = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) return stats;
+    return stats.filter(
+      (row) =>
+        row.path.toLowerCase().includes(q) ||
+        row.method.toLowerCase().includes(q)
+    );
+  }, [stats, listSearch]);
 
-  const goToPage = (page: number) => {
-    const clampedPage = Math.max(1, Math.min(page, totalPages));
-    setCurrentPage(clampedPage);
-    // Scroll to top of page when changing pages
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  const handleSelectEndpoint = (row: EndpointStat) => {
+    setSelectedEndpoint({ method: row.method, path: row.path });
   };
 
-  const activeWindowMinutes = useMemo(() => {
-    if (customActive && customSince && customUntil) {
-      const sinceMs = new Date(customSince).getTime();
-      const untilMs = new Date(customUntil).getTime();
-      if (!Number.isNaN(sinceMs) && !Number.isNaN(untilMs) && untilMs > sinceMs) {
-        return Math.max(1, Math.round((untilMs - sinceMs) / (1000 * 60)));
-      }
-    }
-    return Math.max(1, selectedRange * 60);
-  }, [customActive, customSince, customUntil, selectedRange]);
+  const handleClearEndpoint = () => {
+    setSelectedEndpoint(null);
+  };
 
-  const summary = useMemo(() => {
-    const totalRequests = stats.reduce((acc, row) => acc + row.total_requests, 0);
-    const totalErrors = stats.reduce((acc, row) => acc + row.error_count, 0);
-    const weightedAvgLatency = totalRequests > 0
-      ? stats.reduce((acc, row) => acc + row.avg_response_time_ms * row.total_requests, 0) / totalRequests
-      : 0;
-    const weightedP95 = totalRequests > 0
-      ? stats.reduce((acc, row) => acc + row.p95_response_time_ms * row.total_requests, 0) / totalRequests
-      : 0;
-    const errorRate = totalRequests > 0 ? (totalErrors / totalRequests) * 100 : 0;
-    const requestsPerMinute = totalRequests / activeWindowMinutes;
-    return { totalRequests, totalErrors, weightedAvgLatency, weightedP95, errorRate, requestsPerMinute };
-  }, [activeWindowMinutes, stats]);
-  const pageStart = (safePage - 1) * DEFAULT_PAGE_SIZE + 1;
-  const pageEnd = Math.min(safePage * DEFAULT_PAGE_SIZE, totalCount);
+  const hasActiveFilters =
+    customActive ||
+    selectedRange !== 24 ||
+    selectedEnv ||
+    selectedAppSlugs.length < apps.length ||
+    methodFilters.length > 0 ||
+    statusClassFilters.length > 0 ||
+    statusCodeFilters.length > 0 ||
+    searchTerm;
 
   return (
-    <div className="endpoints-page">
-      <div className="endpoints-toolbar">
-        <div className="endpoints-toolbar-left">
-          <div className="endpoints-search">
-            <Search size={14} />
-            <input
-              type="text"
-              placeholder="Search endpoints..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            {searchTerm && (
-              <button type="button" onClick={() => setSearchTerm("")} style={{ background: "none", border: 0, cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center" }}>
-                <X size={14} />
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="endpoints-toolbar-right">
-          {environments.length > 0 && (
-            <select
-              className="environment-dropdown"
-              value={selectedEnv}
-              onChange={(e) => {
-                setSelectedEnv(e.target.value);
-                setCurrentPage(1);
-              }}
-            >
-              <option value="">All environments</option>
-              {environments.map((env) => (
-                <option key={env} value={env}>{env}</option>
-              ))}
-            </select>
-          )}
-
+    <div className="endpoints-workspace">
+      {/* ── Full-width toolbar ── */}
+      <div className="endpoints-workspace-toolbar">
+        <div className="endpoints-workspace-toolbar-row">
+          {/* Time range */}
           <div className="time-range-selector">
             {TIME_RANGES.map(({ label, value }) => (
               <button
@@ -597,6 +542,41 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
             </div>
           </div>
 
+          {/* Environment dropdown */}
+          {environments.length > 0 && (
+            <select
+              className="environment-dropdown"
+              value={selectedEnv}
+              onChange={(e) => setSelectedEnv(e.target.value)}
+            >
+              <option value="">All environments</option>
+              {environments.map((env) => (
+                <option key={env} value={env}>{env}</option>
+              ))}
+            </select>
+          )}
+
+          {/* Global search */}
+          <div className="endpoints-search" style={{ flex: 1, maxWidth: 260 }}>
+            <Search size={14} />
+            <input
+              type="text"
+              placeholder="Search endpoints..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm("")}
+                style={{ background: "none", border: 0, cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center" }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Filters button */}
           <button
             type="button"
             className={`endpoints-filter-btn${advancedFilterCount > 0 ? " active" : ""}`}
@@ -607,183 +587,205 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
             {advancedFilterCount > 0 && <span className="filter-count">{advancedFilterCount}</span>}
           </button>
         </div>
-      </div>
 
-      <div className="active-filters-row">
-        {/* Time range chip */}
-        {customActive ? (
-          <span className="active-filter-chip active-filter-chip-removable">
-            Time: {activeRangeLabel}
-            <button
-              type="button"
-              className="active-filter-chip-remove"
-              onClick={resetToPresets}
-              aria-label="Clear custom time range"
-            >
-              <X size={12} />
-            </button>
-          </span>
-        ) : selectedRange !== 24 && (
-          <span className="active-filter-chip active-filter-chip-removable">
-            Time: {activeRangeLabel}
-            <button
-              type="button"
-              className="active-filter-chip-remove"
-              onClick={() => {
-                setSelectedRange(24);
-                setCurrentPage(1);
-              }}
-              aria-label="Clear time range"
-            >
-              <X size={12} />
-            </button>
-          </span>
-        )}
-
-        {/* Environment chip */}
-        {selectedEnv && (
-          <span className="active-filter-chip active-filter-chip-removable">
-            Env: {selectedEnv}
-            <button
-              type="button"
-              className="active-filter-chip-remove"
-              onClick={() => {
-                setSelectedEnv("");
-                setCurrentPage(1);
-              }}
-              aria-label="Clear environment filter"
-            >
-              <X size={12} />
-            </button>
-          </span>
-        )}
-
-        {/* Apps chips - show individual app chips when filtered */}
-        {apps.length > 0 && selectedAppSlugs.length > 0 && selectedAppSlugs.length < apps.length && (
-          selectedAppSlugs.map(slug => {
-            const app = apps.find(a => a.slug === slug);
-            if (!app) return null;
-            return (
-              <span key={slug} className="active-filter-chip active-filter-chip-removable">
-                App: {app.name}
-                <button
-                  type="button"
-                  className="active-filter-chip-remove"
-                  onClick={() => toggleApp(slug)}
-                  aria-label={`Remove ${app.name} filter`}
-                >
+        {/* Active filter chips row */}
+        {hasActiveFilters && (
+          <div className="active-filters-row" style={{ paddingBottom: 8 }}>
+            {customActive ? (
+              <span className="active-filter-chip active-filter-chip-removable">
+                Time: {activeRangeLabel}
+                <button type="button" className="active-filter-chip-remove" onClick={resetToPresets} aria-label="Clear custom time range">
                   <X size={12} />
                 </button>
               </span>
-            );
-          })
-        )}
+            ) : selectedRange !== 24 && (
+              <span className="active-filter-chip active-filter-chip-removable">
+                Time: {activeRangeLabel}
+                <button type="button" className="active-filter-chip-remove" onClick={() => setSelectedRange(24)} aria-label="Clear time range">
+                  <X size={12} />
+                </button>
+              </span>
+            )}
 
-        {/* Method chips - individual for each method */}
-        {methodFilters.map(method => (
-          <span key={method} className="active-filter-chip active-filter-chip-removable">
-            {method}
+            {selectedEnv && (
+              <span className="active-filter-chip active-filter-chip-removable">
+                Env: {selectedEnv}
+                <button type="button" className="active-filter-chip-remove" onClick={() => setSelectedEnv("")} aria-label="Clear environment filter">
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+
+            {apps.length > 0 && selectedAppSlugs.length > 0 && selectedAppSlugs.length < apps.length &&
+              selectedAppSlugs.map(slug => {
+                const app = apps.find(a => a.slug === slug);
+                if (!app) return null;
+                return (
+                  <span key={slug} className="active-filter-chip active-filter-chip-removable">
+                    App: {app.name}
+                    <button type="button" className="active-filter-chip-remove" onClick={() => toggleApp(slug)} aria-label={`Remove ${app.name} filter`}>
+                      <X size={12} />
+                    </button>
+                  </span>
+                );
+              })
+            }
+
+            {methodFilters.map(method => (
+              <span key={method} className="active-filter-chip active-filter-chip-removable">
+                {method}
+                <button type="button" className="active-filter-chip-remove" onClick={() => toggleMethodFilter(method)} aria-label={`Remove ${method} filter`}>
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+
+            {statusClassFilters.map(statusClass => (
+              <span key={statusClass} className="active-filter-chip active-filter-chip-removable">
+                {statusClass}
+                <button type="button" className="active-filter-chip-remove" onClick={() => toggleStatusClassFilter(statusClass)} aria-label={`Remove ${statusClass} filter`}>
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+
+            {statusCodeFilters.map(code => (
+              <span key={code} className="active-filter-chip active-filter-chip-removable">
+                {code}
+                <button type="button" className="active-filter-chip-remove" onClick={() => toggleStatusCodeFilter(code)} aria-label={`Remove ${code} filter`}>
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+
+            {searchTerm && (
+              <span className="active-filter-chip active-filter-chip-removable">
+                Search: &ldquo;{searchTerm}&rdquo;
+                <button type="button" className="active-filter-chip-remove" onClick={() => setSearchTerm("")} aria-label="Clear search">
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+
             <button
               type="button"
-              className="active-filter-chip-remove"
-              onClick={() => toggleMethodFilter(method)}
-              aria-label={`Remove ${method} filter`}
-            >
-              <X size={12} />
-            </button>
-          </span>
-        ))}
-
-        {/* Status class chips - individual for each class */}
-        {statusClassFilters.map(statusClass => (
-          <span key={statusClass} className="active-filter-chip active-filter-chip-removable">
-            {statusClass}
-            <button
-              type="button"
-              className="active-filter-chip-remove"
-              onClick={() => toggleStatusClassFilter(statusClass)}
-              aria-label={`Remove ${statusClass} filter`}
-            >
-              <X size={12} />
-            </button>
-          </span>
-        ))}
-
-        {/* Status code chips - individual for each code */}
-        {statusCodeFilters.map(code => (
-          <span key={code} className="active-filter-chip active-filter-chip-removable">
-            {code}
-            <button
-              type="button"
-              className="active-filter-chip-remove"
-              onClick={() => toggleStatusCodeFilter(code)}
-              aria-label={`Remove ${code} filter`}
-            >
-              <X size={12} />
-            </button>
-          </span>
-        ))}
-
-        {/* Search query chip */}
-        {searchTerm && (
-          <span className="active-filter-chip active-filter-chip-removable">
-            Search: "{searchTerm}"
-            <button
-              type="button"
-              className="active-filter-chip-remove"
+              className="active-filter-clear"
               onClick={() => {
+                resetToPresets();
+                setSelectedEnv("");
+                if (apps.length > 0) setSelectedAppSlugs(apps.map(a => a.slug));
+                clearAdvancedFilters();
                 setSearchTerm("");
-                setCurrentPage(1);
+                setSelectedRange(24);
               }}
-              aria-label="Clear search"
             >
-              <X size={12} />
+              Clear all filters
             </button>
-          </span>
-        )}
-
-        {/* Sort chip - only show if non-default */}
-        {(sortKey !== "total_requests" || sortDir !== "desc") && (
-          <span className="active-filter-chip active-filter-chip-removable">
-            Sort: {sortKey.replace(/_/g, " ")} ({sortDir})
-            <button
-              type="button"
-              className="active-filter-chip-remove"
-              onClick={() => {
-                setSortKey("total_requests");
-                setSortDir("desc");
-                setCurrentPage(1);
-              }}
-              aria-label="Clear sort"
-            >
-              <X size={12} />
-            </button>
-          </span>
-        )}
-
-        {/* Clear all button - only show if any filters are active */}
-        {(customActive || selectedRange !== 24 || selectedEnv || selectedAppSlugs.length < apps.length ||
-          methodFilters.length > 0 || statusClassFilters.length > 0 || statusCodeFilters.length > 0 ||
-          searchTerm || sortKey !== "total_requests" || sortDir !== "desc") && (
-          <button
-            type="button"
-            className="active-filter-clear"
-            onClick={() => {
-              resetToPresets();
-              setSelectedEnv("");
-              if (apps.length > 0) setSelectedAppSlugs(apps.map(a => a.slug));
-              clearAdvancedFilters();
-              setSearchTerm("");
-              setSortKey("total_requests");
-              setSortDir("desc");
-              setSelectedRange(24);
-            }}
-          >
-            Clear all filters
-          </button>
+          </div>
         )}
       </div>
 
+      {/* ── Two-pane body ── */}
+      <div className="endpoints-workspace-body">
+        {/* Left pane — hidden on mobile when an endpoint is selected */}
+        <aside className={`endpoints-list-pane${selectedEndpoint ? " hidden-mobile" : ""}`}>
+          <div className="endpoints-list-header">
+            {/* Inline search for filtering the loaded list */}
+            <div className="endpoints-list-search">
+              <Search size={13} />
+              <input
+                type="text"
+                value={listSearch}
+                onChange={(e) => setListSearch(e.target.value)}
+                placeholder="Filter endpoints..."
+              />
+              {listSearch && (
+                <button
+                  type="button"
+                  onClick={() => setListSearch("")}
+                  style={{ background: "none", border: 0, cursor: "pointer", color: "var(--text-muted)", display: "flex", alignItems: "center", padding: 0 }}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            {/* Pane type switcher */}
+            <div className="endpoints-pane-switcher">
+              <button className="pane-tab active" type="button">Endpoints</button>
+              <button className="pane-tab disabled" type="button" title="Coming soon" disabled>
+                Synthetic <span className="pane-tab-badge">Soon</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="endpoints-list-body">
+            {loading ? (
+              <div style={{ padding: "16px", color: "var(--text-muted)", fontSize: 13 }}>Loading...</div>
+            ) : filteredStats.length === 0 ? (
+              <div style={{ padding: "16px", color: "var(--text-muted)", fontSize: 13 }}>
+                {stats.length === 0 ? "No endpoint activity yet." : "No endpoints match this filter."}
+              </div>
+            ) : (
+              filteredStats.map((row) => {
+                const isSelected = selectedEndpoint?.method === row.method && selectedEndpoint?.path === row.path;
+                const errorRate = row.error_rate || (row.total_requests > 0 ? (row.error_count / row.total_requests) * 100 : 0);
+                return (
+                  <button
+                    key={`${row.method}-${row.path}`}
+                    type="button"
+                    className={`endpoint-list-row${isSelected ? " selected" : ""}`}
+                    onClick={() => handleSelectEndpoint(row)}
+                  >
+                    <div className="endpoint-list-row-top">
+                      <span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span>
+                      <span className="endpoint-list-path">{row.path}</span>
+                    </div>
+                    <div className="endpoint-list-row-meta">
+                      <span>{formatNumber(row.total_requests)} req</span>
+                      <span className={errorRate > 5 ? "meta-err" : ""}>{errorRate.toFixed(1)}% err</span>
+                      <span>{formatMs(row.p95_response_time_ms)} p95</span>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </aside>
+
+        {/* Right detail pane */}
+        <main className="endpoints-detail-pane">
+          {selectedEndpoint ? (
+            <>
+              {/* Mobile back button */}
+              <button
+                type="button"
+                className="endpoint-detail-pane-back"
+                onClick={handleClearEndpoint}
+              >
+                <ArrowLeft size={14} />
+                Endpoints
+              </button>
+              <EndpointDetailPane
+                key={`${selectedEndpoint.method}-${selectedEndpoint.path}-${timeParams.since}`}
+                projectSlug={projectSlug}
+                method={selectedEndpoint.method}
+                path={selectedEndpoint.path}
+                since={timeParams.since}
+                until={timeParams.until}
+                environment={selectedEnv}
+                appSlugs={selectedAppSlugs}
+              />
+            </>
+          ) : (
+            <div className="endpoints-detail-empty">
+              <Layers size={40} />
+              <p>Select an endpoint to view details</p>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* ── Advanced filters drawer ── */}
       {filtersOpen && (
         <div className="filters-drawer-overlay" onClick={() => setFiltersOpen(false)}>
           <aside className="filters-drawer" onClick={(e) => e.stopPropagation()}>
@@ -867,9 +869,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
                     max="599"
                     value={statusCodeDraft}
                     onChange={(e) => setStatusCodeDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") addStatusCode();
-                    }}
+                    onKeyDown={(e) => { if (e.key === "Enter") addStatusCode(); }}
                     placeholder="Custom code (e.g. 418)"
                     className="status-code-input"
                   />
@@ -890,185 +890,6 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
             </div>
           </aside>
         </div>
-      )}
-
-      <div className="endpoints-summary-grid">
-        <div className="summary-card">
-          <p className="summary-label">Total requests</p>
-          <p className="summary-value">{formatNumber(summary.totalRequests)}</p>
-        </div>
-        <div className="summary-card">
-          <p className="summary-label">Requests / min</p>
-          <p className="summary-value">{summary.requestsPerMinute.toFixed(2)}</p>
-        </div>
-        <div className="summary-card">
-          <p className="summary-label">Error rate</p>
-          <p className={`summary-value ${summary.errorRate >= 5 ? "tone-bad" : summary.errorRate >= 1 ? "tone-warn" : "tone-good"}`}>
-            {summary.errorRate.toFixed(1)}%
-          </p>
-        </div>
-        <div className="summary-card">
-          <p className="summary-label">Avg latency</p>
-          <p className="summary-value">{summary.weightedAvgLatency.toFixed(0)} ms</p>
-        </div>
-        <div className="summary-card">
-          <p className="summary-label">P95 latency</p>
-          <p className="summary-value">{summary.weightedP95.toFixed(0)} ms</p>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="endpoints-loading">Loading endpoint data...</div>
-      ) : stats.length === 0 ? (
-        <div className="endpoints-empty">
-          <div className="endpoints-empty-icon">
-            <Layers size={22} />
-          </div>
-          <div className="endpoints-empty-copy">
-            <h3>{searchTerm ? "No endpoints match this query" : "No endpoint activity yet"}</h3>
-            <p>
-              {searchTerm
-                ? "Try a broader search or remove some filters."
-                : "Once traffic reaches your apps, endpoint analytics will appear here automatically."}
-            </p>
-          </div>
-          <div className="endpoints-empty-actions">
-            {(advancedFilterCount > 0 || searchTerm) && (
-              <button
-                type="button"
-                className="endpoints-empty-btn endpoints-empty-btn-primary"
-                onClick={() => {
-                  setSearchTerm("");
-                  clearAdvancedFilters();
-                }}
-              >
-                Clear filters
-              </button>
-            )}
-            {customActive && (
-              <button type="button" className="endpoints-empty-btn" onClick={resetToPresets}>
-                Reset time range
-              </button>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="endpoints-table-wrapper">
-          <table className="endpoints-table">
-            <thead>
-              <tr>
-                <th>
-                  <button type="button" className={`column-sort-btn${sortKey === "endpoint" ? " active" : ""}`} onClick={() => toggleSort("endpoint")}>
-                    Endpoint {sortIndicator("endpoint")}
-                  </button>
-                </th>
-                <th>
-                  <button type="button" className={`column-sort-btn${sortKey === "total_requests" ? " active" : ""}`} onClick={() => toggleSort("total_requests")}>
-                    Requests {sortIndicator("total_requests")}
-                  </button>
-                </th>
-                <th>
-                  <button type="button" className={`column-sort-btn${sortKey === "error_rate" ? " active" : ""}`} onClick={() => toggleSort("error_rate")}>
-                    Error Rate {sortIndicator("error_rate")}
-                  </button>
-                </th>
-                <th>
-                  <button type="button" className={`column-sort-btn${sortKey === "avg_response_time_ms" ? " active" : ""}`} onClick={() => toggleSort("avg_response_time_ms")}>
-                    Avg Response {sortIndicator("avg_response_time_ms")}
-                  </button>
-                </th>
-                <th>
-                  <button type="button" className={`column-sort-btn${sortKey === "p95_response_time_ms" ? " active" : ""}`} onClick={() => toggleSort("p95_response_time_ms")}>
-                    P95 Response {sortIndicator("p95_response_time_ms")}
-                  </button>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.map((row, index) => {
-                const errorRate = row.error_rate || (row.total_requests > 0 ? (row.error_count / row.total_requests) * 100 : 0);
-                const errorClass = errorRate < 1 ? "low" : errorRate < 5 ? "medium" : "high";
-                const hasTraffic = row.total_requests > 0;
-                return (
-                  <tr
-                    key={`${row.method}-${row.path}-${index}`}
-                    className="endpoints-row-clickable"
-                    onClick={() => setSelectedEndpoint({ method: row.method, path: row.path })}
-                    tabIndex={0}
-                    role="button"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setSelectedEndpoint({ method: row.method, path: row.path });
-                      }
-                    }}
-                  >
-                    <td>
-                      <span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span>
-                      <span className="endpoint-path">{row.path}</span>
-                    </td>
-                    <td className="stat-value">{formatNumber(row.total_requests)}</td>
-                    <td>
-                      {hasTraffic ? (
-                        <span className={`error-rate error-rate-${errorClass}`}>{errorRate.toFixed(1)}%</span>
-                      ) : (
-                        <span className="stat-dash">--</span>
-                      )}
-                    </td>
-                    <td className="stat-value">
-                      {hasTraffic ? `${row.avg_response_time_ms.toFixed(0)} ms` : <span className="stat-dash">--</span>}
-                    </td>
-                    <td className="stat-value">
-                      {hasTraffic ? `${row.p95_response_time_ms.toFixed(0)} ms` : <span className="stat-dash">--</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {!loading && totalCount > 0 && (
-        <div className="endpoints-pagination">
-          <p className="endpoints-pagination-meta">
-            Showing {pageStart}-{pageEnd} of {totalCount}
-          </p>
-          <div className="endpoints-pagination-controls">
-            <button
-              type="button"
-              className="endpoints-page-btn"
-              onClick={() => goToPage(currentPage - 1)}
-              disabled={currentPage <= 1}
-            >
-              Previous
-            </button>
-            <span className="endpoints-page-indicator">
-              Page {currentPage} / {totalPages}
-            </span>
-            <button
-              type="button"
-              className="endpoints-page-btn"
-              onClick={() => goToPage(currentPage + 1)}
-              disabled={currentPage >= totalPages}
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
-
-      {selectedEndpoint && (
-        <EndpointDetailPanel
-          projectSlug={projectSlug}
-          endpoint={selectedEndpoint}
-          appSlugs={selectedAppSlugs}
-          environment={selectedEnv}
-          since={timeParams.since}
-          until={timeParams.until}
-          rangeLabel={activeRangeLabel}
-          onClose={() => setSelectedEndpoint(null)}
-        />
       )}
     </div>
   );
