@@ -3,22 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, ChevronRight, Copy, Search, Terminal } from "lucide-react";
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
   Button,
-  Inspector,
   StatusPill,
   statusCodeTone,
 } from "@/components/aperture";
@@ -51,33 +36,6 @@ interface EndpointDetail {
   base_url?: string;
 }
 
-interface TimeseriesPoint {
-  bucket: string;
-  total_requests: number;
-  error_count: number;
-  client_errors: number;
-  server_errors: number;
-  avg_response_time_ms: number;
-  p50_response_time_ms: number;
-  p95_response_time_ms: number;
-  p99_response_time_ms: number;
-  total_request_bytes: number;
-  total_response_bytes: number;
-}
-
-interface ConsumerRow {
-  consumer: string;
-  total_requests: number;
-  error_count: number;
-  error_rate: number;
-  avg_response_time_ms: number;
-}
-
-interface StatusCodeRow {
-  status_code: number;
-  total_requests: number;
-}
-
 interface RequestRow {
   timestamp: string;
   method: string;
@@ -86,36 +44,17 @@ interface RequestRow {
   response_time_ms: number;
   environment: string;
   consumer: string;
+  consumer_id?: string;
+  consumer_name?: string;
+  user_agent?: string;
+  ip_address?: string;
   request_payload?: string;
   response_payload?: string;
 }
 
-interface HistogramBucket {
-  lower: number;
-  upper: number;
-  count: number;
-}
-
-interface Histograms {
-  response_time: HistogramBucket[];
-  response_size: HistogramBucket[];
-}
-
-type TabKey = "overview" | "requests";
 type StatTone = "good" | "warn" | "bad";
-
-const STATUS_FILTERS = ["all", "2xx", "3xx", "4xx", "5xx"] as const;
-type StatusFilter = (typeof STATUS_FILTERS)[number];
-
-const ACCENT = "#14b8a6";
-const CLIENT_ERR = "#f59e0b";
-const SERVER_ERR = "#f87171";
-const P50 = "#38bdf8";
-const P95 = "#fbbf24";
-const P99 = "#f87171";
-const THRESHOLD = "#94a3b8";
-const GRID = "rgba(148, 163, 184, 0.12)";
-const AXIS_TICK = { fontSize: 10, fill: "var(--text-muted)" } as const;
+type FilterTab = "all" | "2xx" | "4xx" | "5xx";
+type BrowserType = "chrome" | "firefox" | "safari" | "edge" | "postman" | "curl" | "other";
 
 const EMPTY_DETAIL: EndpointDetail = {
   method: "",
@@ -141,69 +80,155 @@ const EMPTY_DETAIL: EndpointDetail = {
   avg_response_size: 0,
   last_seen_at: null,
 };
-const EMPTY_HISTOGRAMS: Histograms = { response_time: [], response_size: [] };
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
 
-function methodColor(m: string): string {
+function methodPillClass(m: string): string {
   const k = m.toUpperCase();
-  if (k === "GET") return "ep-method-get";
-  if (k === "POST") return "ep-method-post";
-  if (k === "PUT" || k === "PATCH") return "ep-method-put";
-  if (k === "DELETE") return "ep-method-delete";
-  return "ep-method-other";
+  if (k === "GET") return "ep-pill-get";
+  if (k === "POST") return "ep-pill-post";
+  if (k === "PUT") return "ep-pill-put";
+  if (k === "PATCH") return "ep-pill-patch";
+  if (k === "DELETE") return "ep-pill-delete";
+  if (k === "HEAD") return "ep-pill-head";
+  if (k === "OPTIONS") return "ep-pill-options";
+  return "ep-pill-other";
 }
 
-function formatNumber(n: number): string {
+function fmtNum(n: number): string {
   return Math.round(n || 0).toLocaleString();
 }
-function formatMs(n: number): string {
+function fmtMs(n: number): string {
   if (!n) return "0 ms";
   return `${Math.round(n)} ms`;
 }
-function formatLatencyBucket(ms: number): string {
-  if (ms >= 100) return `${Math.round(ms)} ms`;
-  if (ms >= 10) return `${ms.toFixed(0)} ms`;
-  if (ms >= 1) return `${ms.toFixed(1)} ms`;
-  if (ms > 0) return `${ms.toFixed(2)} ms`;
-  return "0 ms";
-}
-function formatBytes(bytes: number): string {
+function fmtBytes(bytes: number): string {
   if (!bytes) return "0 B";
   if (bytes < 1024) return `${Math.round(bytes)} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
-function formatBucketTime(bucket: string): string {
-  const d = new Date(bucket);
-  if (isNaN(d.getTime())) return bucket;
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-function formatBucketFull(bucket: string): string {
-  const d = new Date(bucket);
-  if (isNaN(d.getTime())) return bucket;
-  return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-function formatDateTime(ts: string): string {
+function fmtDateTime(ts: string): string {
   const d = new Date(ts);
   if (isNaN(d.getTime())) return ts;
   return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
-function statusTone(status: number): string {
-  if (status >= 500) return "endpoint-status-5xx";
-  if (status >= 400) return "endpoint-status-4xx";
-  if (status >= 300) return "endpoint-status-3xx";
-  return "endpoint-status-2xx";
+function fmtTimeShort(ts: string): string {
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return ts;
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
-function statusBarClass(status: number): string {
-  if (status >= 500) return "is-5xx";
-  if (status >= 400) return "is-4xx";
-  if (status >= 300) return "is-3xx";
-  return "is-2xx";
+function statusDotClass(status: number): string {
+  if (status >= 500) return "ep-status-dot-5xx";
+  if (status >= 400) return "ep-status-dot-4xx";
+  if (status >= 300) return "ep-status-dot-3xx";
+  return "ep-status-dot-2xx";
+}
+function timeAgo(ts: string | null): string {
+  if (!ts) return "";
+  const diff = Date.now() - new Date(ts).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function detectBrowser(ua: string): { type: BrowserType; name: string } {
+  if (!ua) return { type: "other", name: "Unknown" };
+  if (/Postman/.test(ua)) return { type: "postman", name: "Postman" };
+  if (/curl\//.test(ua)) return { type: "curl", name: "curl" };
+  if (/Edg\//.test(ua)) return { type: "edge", name: "Edge" };
+  if (/Chrome\//.test(ua)) return { type: "chrome", name: "Chrome" };
+  if (/Firefox\//.test(ua)) return { type: "firefox", name: "Firefox" };
+  if (/Safari\//.test(ua)) return { type: "safari", name: "Safari" };
+  return { type: "other", name: "Browser" };
+}
+
+function BrowserIcon({ ua, size = 14 }: { ua?: string; size?: number }) {
+  if (!ua) return null;
+  const { type, name } = detectBrowser(ua);
+  const s = size;
+
+  const icon = (() => {
+    switch (type) {
+      case "chrome":
+        return (
+          <svg width={s} height={s} viewBox="0 0 16 16">
+            <circle cx="8" cy="8" r="7.5" fill="#EA4335" />
+            <path d="M8 8 L8 .5 A7.5 7.5 0 0 1 15.5 8 Z" fill="#FBBC05" />
+            <path d="M8 8 L15.5 8 A7.5 7.5 0 0 1 4.25 14.5 Z" fill="#34A853" />
+            <circle cx="8" cy="8" r="3.8" fill="white" />
+            <circle cx="8" cy="8" r="2.8" fill="#4285F4" />
+          </svg>
+        );
+      case "firefox":
+        return (
+          <svg width={s} height={s} viewBox="0 0 16 16">
+            <circle cx="8" cy="8" r="7.5" fill="#FF6611" />
+            <circle cx="8" cy="8" r="4.5" fill="#FF9500" />
+            <circle cx="8" cy="8" r="2.2" fill="#FF3750" />
+          </svg>
+        );
+      case "safari":
+        return (
+          <svg width={s} height={s} viewBox="0 0 16 16">
+            <circle cx="8" cy="8" r="7.5" fill="#006CFF" />
+            <circle cx="8" cy="8" r="6" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="0.8" />
+            <line x1="8" y1="2.5" x2="8" y2="13.5" stroke="rgba(255,255,255,0.2)" strokeWidth="0.6" />
+            <line x1="2.5" y1="8" x2="13.5" y2="8" stroke="rgba(255,255,255,0.2)" strokeWidth="0.6" />
+            <polygon points="8,3 9.3,8 8,7.1" fill="#FF3B30" />
+            <polygon points="8,13 6.7,8 8,8.9" fill="white" />
+          </svg>
+        );
+      case "edge":
+        return (
+          <svg width={s} height={s} viewBox="0 0 16 16">
+            <circle cx="8" cy="8" r="7.5" fill="#0078D4" />
+            <path d="M5.5 5.5 C5.5 3.5 7 2.5 8.5 2.5 C11 2.5 13 4.5 13 7 C13 9 11.5 10.5 9.5 11 C8.8 11.2 7.5 11.3 7 11" stroke="white" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+            <path d="M4.5 11.5 C4.5 13 6.5 14 8.5 14 C10 14 11.5 13.3 12 12.5" stroke="white" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+            <path d="M4.5 11.5 C6.5 12.2 11 11.8 12 10.8" stroke="white" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+          </svg>
+        );
+      case "postman":
+        return (
+          <svg width={s} height={s} viewBox="0 0 16 16">
+            <circle cx="8" cy="8" r="7.5" fill="#FF6C37" />
+            <text x="8" y="11.5" textAnchor="middle" fill="white" fontSize="8" fontWeight="700" fontFamily="sans-serif">P</text>
+          </svg>
+        );
+      case "curl":
+        return (
+          <svg width={s} height={s} viewBox="0 0 16 16">
+            <circle cx="8" cy="8" r="7.5" fill="#374151" />
+            <text x="8.5" y="11" textAnchor="middle" fill="#9CA3AF" fontSize="6.5" fontFamily="monospace" fontWeight="600">&gt;_</text>
+          </svg>
+        );
+      default:
+        return (
+          <svg width={s} height={s} viewBox="0 0 16 16">
+            <circle cx="8" cy="8" r="7.5" fill="#4B5563" />
+            <circle cx="8" cy="8" r="4.5" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="1" />
+            <line x1="8" y1="3" x2="8" y2="13" stroke="rgba(255,255,255,0.55)" strokeWidth="0.8" />
+            <path d="M3.8 5.8 Q8 4.2 12.2 5.8" stroke="rgba(255,255,255,0.55)" strokeWidth="0.8" fill="none" />
+            <path d="M3.8 10.2 Q8 11.8 12.2 10.2" stroke="rgba(255,255,255,0.55)" strokeWidth="0.8" fill="none" />
+          </svg>
+        );
+    }
+  })();
+
+  return (
+    <span className="ep-browser-icon" title={`${name}: ${ua}`} aria-label={name}>
+      {icon}
+    </span>
+  );
 }
 
 /* ── Props ───────────────────────────────────────────────────────────── */
+
+type FocusZone = "list" | "calls";
 
 interface EndpointDetailPaneProps {
   projectSlug: string;
@@ -214,6 +239,8 @@ interface EndpointDetailPaneProps {
   environment?: string;
   appSlugs?: string[];
   onBack?: () => void;
+  focusZone?: FocusZone;
+  onFocusZoneChange?: (zone: FocusZone) => void;
 }
 
 /* ── Component ───────────────────────────────────────────────────────── */
@@ -227,16 +254,11 @@ export default function EndpointDetailPane({
   environment,
   appSlugs = [],
   onBack,
+  focusZone = "list",
+  onFocusZoneChange,
 }: EndpointDetailPaneProps) {
-  const [activeTab, setActiveTab] = useState<TabKey>("overview");
-
-  /* ── Data state ── */
   const [detail, setDetail] = useState<EndpointDetail | null>(null);
-  const [timeseries, setTimeseries] = useState<TimeseriesPoint[] | null>(null);
-  const [consumers, setConsumers] = useState<ConsumerRow[] | null>(null);
-  const [statusCodes, setStatusCodes] = useState<StatusCodeRow[] | null>(null);
   const [recentRequests, setRecentRequests] = useState<RequestRow[] | null>(null);
-  const [histograms, setHistograms] = useState<Histograms | null>(null);
 
   const loadingRef = useRef<Set<string>>(new Set());
   const reqIdRef = useRef(0);
@@ -253,17 +275,10 @@ export default function EndpointDetailPane({
     return params;
   }, [method, path, appSlugs, since, until, environment]);
 
-  // Reset all data when baseParams change (endpoint or time window changed).
-  // The parent should also key this component with `${method}-${path}-${since}`
-  // to force a full remount when the selection changes.
   useEffect(() => {
     reqIdRef.current += 1;
     setDetail(null);
-    setTimeseries(null);
-    setConsumers(null);
-    setStatusCodes(null);
     setRecentRequests(null);
-    setHistograms(null);
     loadingRef.current = new Set();
   }, [baseParams]);
 
@@ -298,496 +313,261 @@ export default function EndpointDetailPane({
   useEffect(() => {
     if (!method || !path) return;
     if (detail === null) fetchResource<EndpointDetail>("detail", "endpoint-detail", setDetail, EMPTY_DETAIL);
-    if (activeTab === "overview") {
-      if (timeseries === null) fetchResource<TimeseriesPoint[]>("timeseries", "endpoint-timeseries", setTimeseries, []);
-      if (consumers === null) fetchResource<ConsumerRow[]>("consumers", "endpoint-consumers", setConsumers, [], { limit: "8" });
-      if (statusCodes === null) fetchResource<StatusCodeRow[]>("status-codes", "endpoint-status-codes", setStatusCodes, []);
-      if (histograms === null) fetchResource<Histograms>("histograms", "endpoint-histograms", setHistograms, EMPTY_HISTOGRAMS);
-    } else if (activeTab === "requests") {
-      if (recentRequests === null) fetchResource<RequestRow[]>("requests", "endpoint-requests", setRecentRequests, [], { limit: "50" });
-    }
-  }, [method, path, activeTab, detail, timeseries, consumers, statusCodes, recentRequests, histograms, fetchResource]);
+    if (recentRequests === null) fetchResource<RequestRow[]>("requests", "endpoint-requests", setRecentRequests, [], { limit: "100" });
+  }, [method, path, detail, recentRequests, fetchResource]);
 
-  /* ── Derived stat tones ── */
   const errRate = detail?.error_rate || 0;
   const p95 = detail?.p95_response_time_ms || 0;
   const threshold = detail?.threshold_ms || 0;
   const apdex = detail?.apdex || 0;
-  const loadingDetail = detail === null;
+  const loading = detail === null;
 
-  const errTone: StatTone | undefined = loadingDetail ? undefined : errRate >= 5 ? "bad" : errRate >= 1 ? "warn" : "good";
+  const errTone: StatTone | undefined = loading ? undefined : errRate >= 5 ? "bad" : errRate >= 1 ? "warn" : "good";
+  const apdexTone: StatTone | undefined = loading ? undefined : apdex >= 0.94 ? "good" : apdex >= 0.85 ? "warn" : "bad";
   const p95Tone: StatTone | undefined =
-    loadingDetail || !threshold ? undefined : p95 > threshold ? "bad" : p95 > threshold * 0.75 ? "warn" : "good";
-  const apdexTone: StatTone | undefined = loadingDetail ? undefined : apdex >= 0.94 ? "good" : apdex >= 0.85 ? "warn" : "bad";
+    loading || !threshold ? undefined : p95 > threshold ? "bad" : p95 > threshold * 0.75 ? "warn" : "good";
 
   return (
     <div className="ep-detail-content">
-      {/* Identity bar */}
-      <div className="ep-identity">
+
+      {/* ── Header: method pill + path ─────────────────────────────── */}
+      <div className="ep-api-header">
         {onBack && (
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label="Back to endpoints"
-            style={{ display: "flex", alignItems: "center", background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 0 }}
-          >
-            <ArrowLeft size={16} />
+          <button type="button" onClick={onBack} className="ep-api-back" aria-label="Back">
+            <ArrowLeft size={15} />
           </button>
         )}
-        <span className={`ep-identity-method ${methodColor(method)}`}>{method}</span>
-        <span className="ep-identity-path">{path}</span>
-        {detail?.base_url ? <span className="ep-identity-base">{detail.base_url}</span> : null}
-        <div className="ep-identity-tabs">
-          <button
-            type="button"
-            className={`ep-identity-tab${activeTab === "overview" ? " active" : ""}`}
-            onClick={() => setActiveTab("overview")}
-          >
-            Overview
-          </button>
-          <button
-            type="button"
-            className={`ep-identity-tab${activeTab === "requests" ? " active" : ""}`}
-            onClick={() => setActiveTab("requests")}
-          >
-            Requests
-          </button>
-        </div>
+        <span className={`ep-method-pill ${methodPillClass(method)}`}>{method}</span>
+        <span className="ep-api-path">{path}</span>
+        {detail?.base_url && <span className="ep-api-host">{detail.base_url}</span>}
+        {detail?.last_seen_at && <span className="ep-api-age">{timeAgo(detail.last_seen_at)}</span>}
       </div>
 
-      {/* Inline stats */}
-      <div className="ep-stats-row">
-        <StatCell
-          label="Traffic"
-          value={loadingDetail ? "—" : formatNumber(detail!.total_requests)}
-          sub={`${(detail?.requests_per_minute || 0).toFixed(2)}/min`}
-        />
-        <StatCell
-          label="Error rate"
-          value={loadingDetail ? "—" : `${errRate.toFixed(2)}%`}
-          sub={`${formatNumber(detail?.error_count || 0)} errors`}
-          tone={errTone}
-        />
-        <StatCell
-          label="p95 latency"
-          value={loadingDetail ? "—" : formatMs(p95)}
-          sub={`p50 ${formatMs(detail?.p50_response_time_ms || 0)}`}
-          tone={p95Tone}
-        />
-        <StatCell
-          label="Apdex"
-          value={loadingDetail ? "—" : apdex.toFixed(3)}
-          sub={`${formatNumber(detail?.slow_requests || 0)} slow`}
-          tone={apdexTone}
-        />
+      {/* ── Metrics: golden signals first, then throughput. Wraps; no scroll. */}
+      <div className="ep-metrics-bar">
+        <Metric label="req" value={loading ? "—" : fmtNum(detail!.total_requests)} title="Total requests" />
+        <Metric label="rpm" value={loading ? "—" : `${(detail!.requests_per_minute || 0).toFixed(1)}`} title="Requests per minute" />
+        <Metric label="errors" tone={errTone} value={loading ? "—" : `${errRate.toFixed(2)}%`} title="Error rate" />
+        <Metric label="p50" value={loading ? "—" : fmtMs(detail!.p50_response_time_ms)} title="Median response time" />
+        <Metric label="p95" tone={p95Tone} value={loading ? "—" : fmtMs(p95)} title="95th-percentile response time" />
+        <Metric label="Apdex" tone={apdexTone} value={loading ? "—" : apdex.toFixed(3)} title="Apdex score" />
+        <Metric label="data" value={loading ? "—" : fmtBytes(detail!.total_data_transferred)} title="Total data transferred (request + response)" />
+        <Metric label="avg" value={loading ? "—" : fmtBytes(detail!.avg_response_size)} title="Average response size" />
       </div>
 
-      {/* Body */}
-      <div className="ep-detail-body">
-        {activeTab === "overview" ? (
-          <OverviewContent
-            detail={detail}
-            timeseries={timeseries}
-            consumers={consumers}
-            statusCodes={statusCodes}
-            histograms={histograms}
-          />
-        ) : (
-          <RequestsContent requests={recentRequests} baseUrl={detail?.base_url || ""} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ── Stat cell ───────────────────────────────────────────────────────── */
-
-function StatCell({ label, value, sub, tone }: { label: string; value: string; sub: string; tone?: StatTone }) {
-  return (
-    <div className="ep-stat">
-      <div className="ep-stat-label">{label}</div>
-      <div className={`ep-stat-value${tone ? ` tone-${tone}` : ""}`}>{value || "—"}</div>
-      <div className="ep-stat-sub">{sub}</div>
-    </div>
-  );
-}
-
-/* ── Shared building blocks ──────────────────────────────────────────── */
-
-function SectionBlock({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="ep-section">
-      <div className="ep-section-label">
-        {label}
-        {hint ? <span className="ep-section-hint">{hint}</span> : null}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function EmptyBlock({ message }: { message: string }) {
-  return <div className="endpoint-detail-empty">{message}</div>;
-}
-
-function ChartBox({ height = 240, children }: { height?: number; children: React.ReactElement }) {
-  return (
-    <div className="endpoint-chart-frame" style={{ height }}>
-      <ResponsiveContainer width="100%" height="100%">
-        {children}
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-function Skeleton({ height = 120 }: { height?: number }) {
-  return <div className="endpoint-skeleton" style={{ height }} aria-hidden="true" />;
-}
-
-function ChartTooltip({ active, payload, label, valueFormatter }: any) {
-  if (!active || !payload || !payload.length) return null;
-  const full = payload[0]?.payload?.full;
-  return (
-    <div className="endpoint-chart-tooltip">
-      <p className="endpoint-chart-tooltip-label">{full || label}</p>
-      {payload.map((entry: any) => (
-        <p key={entry.dataKey} style={{ color: entry.color }}>
-          {entry.name}: {valueFormatter ? valueFormatter(entry.value) : formatNumber(entry.value)}
-        </p>
-      ))}
-    </div>
-  );
-}
-
-/* ── Overview ────────────────────────────────────────────────────────── */
-
-function OverviewContent({
-  detail,
-  timeseries,
-  consumers,
-  statusCodes,
-  histograms,
-}: {
-  detail: EndpointDetail | null;
-  timeseries: TimeseriesPoint[] | null;
-  consumers: ConsumerRow[] | null;
-  statusCodes: StatusCodeRow[] | null;
-  histograms: Histograms | null;
-}) {
-  return (
-    <>
-      <TrafficSection timeseries={timeseries} />
-      <LatencySection detail={detail} timeseries={timeseries} />
-      <div className="ep-overview-cols">
-        <div className="ep-overview-col">
-          <StatusCodesBlock statusCodes={statusCodes} />
-          <ConsumersSection consumers={consumers} />
-        </div>
-        <div className="ep-overview-col">
-          <LatencyHistogramBlock histograms={histograms} />
-          <DataTransferredSection detail={detail} timeseries={timeseries} />
-        </div>
-      </div>
-    </>
-  );
-}
-
-function TrafficSection({ timeseries }: { timeseries: TimeseriesPoint[] | null }) {
-  const chartData = (timeseries || []).map((p) => ({
-    label: formatBucketTime(p.bucket),
-    full: formatBucketFull(p.bucket),
-    success: Math.max(0, p.total_requests - p.error_count),
-    client: p.client_errors,
-    server: p.server_errors,
-  }));
-  const hasData = chartData.some((d) => d.success > 0 || d.client > 0 || d.server > 0);
-  return (
-    <SectionBlock label="Traffic over time" hint="stacked by status class">
-      {timeseries === null ? (
-        <Skeleton height={200} />
-      ) : !hasData ? (
-        <EmptyBlock message="No requests in the selected period." />
-      ) : (
-        <ChartBox height={200}>
-          <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
-            <CartesianGrid stroke={GRID} vertical={false} />
-            <XAxis dataKey="label" tick={AXIS_TICK} minTickGap={40} tickLine={false} axisLine={{ stroke: GRID }} />
-            <YAxis tick={AXIS_TICK} allowDecimals={false} tickLine={false} axisLine={false} width={36} />
-            <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(20,184,166,0.08)" }} />
-            <Bar dataKey="success" name="Success (2xx/3xx)" stackId="t" fill={ACCENT} maxBarSize={44} />
-            <Bar dataKey="client" name="Client (4xx)" stackId="t" fill={CLIENT_ERR} maxBarSize={44} />
-            <Bar dataKey="server" name="Server (5xx)" stackId="t" fill={SERVER_ERR} radius={[3, 3, 0, 0]} maxBarSize={44} />
-          </BarChart>
-        </ChartBox>
-      )}
-    </SectionBlock>
-  );
-}
-
-function LatencySection({ detail, timeseries }: { detail: EndpointDetail | null; timeseries: TimeseriesPoint[] | null }) {
-  const chartData = (timeseries || []).map((p) => ({
-    label: formatBucketTime(p.bucket),
-    full: formatBucketFull(p.bucket),
-    p50: Math.round(p.p50_response_time_ms || 0),
-    p95: Math.round(p.p95_response_time_ms || 0),
-    p99: Math.round(p.p99_response_time_ms || 0),
-  }));
-  const threshold = detail?.threshold_ms || 0;
-  return (
-    <SectionBlock label="Latency over time" hint="p50 / p95 / p99">
-      {timeseries === null ? (
-        <Skeleton height={200} />
-      ) : chartData.length === 0 ? (
-        <EmptyBlock message="No requests in the selected period." />
-      ) : (
-        <ChartBox height={200}>
-          <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
-            <CartesianGrid stroke={GRID} vertical={false} />
-            <XAxis dataKey="label" tick={AXIS_TICK} minTickGap={40} tickLine={false} axisLine={{ stroke: GRID }} />
-            <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} width={44} tickFormatter={(v) => `${v}ms`} />
-            <Tooltip content={<ChartTooltip valueFormatter={formatMs} />} cursor={{ stroke: ACCENT, strokeDasharray: "3 3" }} />
-            {threshold > 0 ? (
-              <ReferenceLine
-                y={threshold}
-                stroke={THRESHOLD}
-                strokeDasharray="4 4"
-                label={{ value: `threshold ${formatMs(threshold)}`, position: "insideTopRight", fill: "var(--text-muted)", fontSize: 10 }}
-              />
-            ) : null}
-            <Line type="monotone" dataKey="p50" name="p50" stroke={P50} strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="p95" name="p95" stroke={P95} strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="p99" name="p99" stroke={P99} strokeWidth={2} dot={false} />
-          </LineChart>
-        </ChartBox>
-      )}
-    </SectionBlock>
-  );
-}
-
-function StatusCodesBlock({ statusCodes }: { statusCodes: StatusCodeRow[] | null }) {
-  const codes = (statusCodes || []).slice().sort((a, b) => b.total_requests - a.total_requests);
-  const total = codes.reduce((acc, s) => acc + s.total_requests, 0);
-  return (
-    <SectionBlock label="Status codes">
-      {statusCodes === null ? (
-        <Skeleton height={160} />
-      ) : codes.length === 0 ? (
-        <EmptyBlock message="No requests in the selected period." />
-      ) : (
-        <div className="endpoint-status-breakdown">
-          {codes.map((s) => {
-            const pct = total > 0 ? (s.total_requests / total) * 100 : 0;
-            return (
-              <div key={s.status_code} className="endpoint-status-row">
-                <span className={`endpoint-status-pill ${statusTone(s.status_code)}`}>{s.status_code}</span>
-                <div className="endpoint-status-bar-track">
-                  <div className={`endpoint-status-bar ${statusBarClass(s.status_code)}`} style={{ width: `${Math.max(2, pct)}%` }} />
-                </div>
-                <span className="endpoint-status-count">{formatNumber(s.total_requests)}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </SectionBlock>
-  );
-}
-
-function LatencyHistogramBlock({ histograms }: { histograms: Histograms | null }) {
-  const histData = (histograms?.response_time || []).map((b) => ({
-    label: formatLatencyBucket(b.lower),
-    full: `${formatLatencyBucket(b.lower)} – ${formatLatencyBucket(b.upper)}`,
-    count: b.count,
-  }));
-  return (
-    <SectionBlock label="Latency distribution" hint="requests by response time">
-      {histograms === null ? (
-        <Skeleton height={160} />
-      ) : histData.length === 0 ? (
-        <EmptyBlock message="No requests in the selected period." />
-      ) : (
-        <ChartBox height={200}>
-          <BarChart data={histData} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
-            <CartesianGrid stroke={GRID} vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 9, fill: "var(--text-muted)" }} interval="preserveStartEnd" minTickGap={16} tickLine={false} axisLine={{ stroke: GRID }} />
-            <YAxis tick={AXIS_TICK} allowDecimals={false} tickLine={false} axisLine={false} width={32} />
-            <Tooltip content={<ChartTooltip valueFormatter={(v: number) => formatNumber(v)} />} cursor={{ fill: "rgba(20,184,166,0.08)" }} />
-            <Bar dataKey="count" name="Requests" fill={ACCENT} radius={[2, 2, 0, 0]} />
-          </BarChart>
-        </ChartBox>
-      )}
-    </SectionBlock>
-  );
-}
-
-function ConsumersSection({ consumers }: { consumers: ConsumerRow[] | null }) {
-  const consumerData = (consumers || []).map((c) => ({
-    label: c.consumer.length > 28 ? `${c.consumer.slice(0, 28)}…` : c.consumer,
-    requests: c.total_requests,
-  }));
-  return (
-    <SectionBlock label="Top consumers">
-      {consumers === null ? (
-        <Skeleton height={180} />
-      ) : consumerData.length === 0 ? (
-        <EmptyBlock message="No consumer data in the selected period." />
-      ) : (
-        <ChartBox height={Math.max(180, consumerData.length * 36)}>
-          <BarChart data={consumerData} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
-            <CartesianGrid stroke={GRID} horizontal={false} />
-            <XAxis type="number" tick={AXIS_TICK} allowDecimals={false} tickLine={false} axisLine={false} />
-            <YAxis type="category" dataKey="label" width={170} tick={{ fontSize: 11, fill: "var(--text-secondary)" }} tickLine={false} axisLine={false} />
-            <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(20,184,166,0.08)" }} />
-            <Bar dataKey="requests" name="Requests" fill={ACCENT} radius={[0, 3, 3, 0]} maxBarSize={22} />
-          </BarChart>
-        </ChartBox>
-      )}
-    </SectionBlock>
-  );
-}
-
-function DataTransferredSection({
-  detail,
-  timeseries,
-}: {
-  detail: EndpointDetail | null;
-  timeseries: TimeseriesPoint[] | null;
-}) {
-  const chartData = (timeseries || []).map((p) => ({
-    label: formatBucketTime(p.bucket),
-    full: formatBucketFull(p.bucket),
-    bytes: (p.total_request_bytes || 0) + (p.total_response_bytes || 0),
-  }));
-  const hasData = chartData.some((d) => d.bytes > 0);
-  return (
-    <SectionBlock
-      label="Data transferred"
-      hint={detail ? `total ${formatBytes(detail.total_data_transferred)} · avg ${formatBytes(detail.avg_response_size)}` : undefined}
-    >
-      {timeseries === null ? (
-        <Skeleton height={200} />
-      ) : !hasData ? (
-        <EmptyBlock message="No data transferred in the selected period." />
-      ) : (
-        <ChartBox height={200}>
-          <AreaChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -4 }}>
-            <defs>
-              <linearGradient id="dtGradientPane" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={ACCENT} stopOpacity={0.3} />
-                <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid stroke={GRID} vertical={false} />
-            <XAxis dataKey="label" tick={AXIS_TICK} minTickGap={40} tickLine={false} axisLine={{ stroke: GRID }} />
-            <YAxis tick={AXIS_TICK} tickFormatter={(v) => formatBytes(v)} width={56} tickLine={false} axisLine={false} />
-            <Tooltip content={<ChartTooltip valueFormatter={formatBytes} />} cursor={{ stroke: ACCENT, strokeDasharray: "3 3" }} />
-            <Area type="monotone" dataKey="bytes" name="Transferred" stroke={ACCENT} strokeWidth={2} fill="url(#dtGradientPane)" />
-          </AreaChart>
-        </ChartBox>
-      )}
-    </SectionBlock>
-  );
-}
-
-/* ── Requests tab ────────────────────────────────────────────────────── */
-
-function RequestsContent({ requests, baseUrl }: { requests: RequestRow[] | null; baseUrl: string }) {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [search, setSearch] = useState("");
-
-  const filtered = useMemo(() => {
-    let rows = requests || [];
-    if (statusFilter !== "all") {
-      const lo = parseInt(statusFilter[0], 10) * 100;
-      rows = rows.filter((r) => r.status_code >= lo && r.status_code < lo + 100);
-    }
-    const q = search.trim().toLowerCase();
-    if (q) {
-      rows = rows.filter((r) => (r.consumer || "").toLowerCase().includes(q) || String(r.status_code).includes(q));
-    }
-    return rows;
-  }, [requests, statusFilter, search]);
-
-  return (
-    <div className="ep-requests">
-      <div className="endpoint-requests-toolbar">
-        <div className="endpoint-status-filter">
-          {STATUS_FILTERS.map((c) => (
-            <StatusPill
-              key={c}
-              interactive
-              active={statusFilter === c}
-              tone={statusFilter === c ? "accent" : "neutral"}
-              onClick={() => setStatusFilter(c)}
-            >
-              {c === "all" ? "All" : c}
-            </StatusPill>
-          ))}
-        </div>
-        <div className="endpoint-requests-search">
-          <Search size={13} />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter by consumer or status…"
-          />
-        </div>
-      </div>
-      <RequestsTable
-        rows={requests === null ? null : filtered}
-        baseUrl={baseUrl}
-        emptyMessage={requests && requests.length ? "No requests match the filter." : "No logged requests."}
+      {/* ── Individual calls — the primary content ─────────────────── */}
+      <CallsPane
+        requests={recentRequests}
+        baseUrl={detail?.base_url || ""}
+        focusZone={focusZone}
+        onFocusZoneChange={onFocusZoneChange}
       />
     </div>
   );
 }
 
-function RequestsTable({ rows, baseUrl, emptyMessage }: { rows: RequestRow[] | null; baseUrl: string; emptyMessage: string }) {
-  const [selected, setSelected] = useState<RequestRow | null>(null);
-  if (!rows) return <div className="ep-section"><Skeleton height={240} /></div>;
-  if (rows.length === 0) return <div className="ep-section"><EmptyBlock message={emptyMessage} /></div>;
+/* ── Flat metric (number + spaced label) ─────────────────────────────── */
+
+function Metric({ label, value, tone, title }: { label: string; value: string; tone?: StatTone; title?: string }) {
   return (
-    <>
-      <div className="endpoint-detail-table-wrapper">
-        <table className="endpoint-detail-table">
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Status</th>
-              <th>Consumer</th>
-              <th>Response</th>
-              <th aria-hidden="true" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr
-                key={`${r.timestamp}-${i}`}
-                className="request-row-clickable"
-                onClick={() => setSelected(r)}
-                tabIndex={0}
-                role="button"
-                aria-label="View request and response payload"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setSelected(r);
-                  }
-                }}
-              >
-                <td className="endpoint-detail-time">{formatDateTime(r.timestamp)}</td>
-                <td><span className={`endpoint-status-pill ${statusTone(r.status_code)}`}>{r.status_code}</span></td>
-                <td className="endpoint-detail-consumer">{r.consumer || "—"}</td>
-                <td className="endpoint-detail-time">{formatMs(r.response_time_ms)}</td>
-                <td className="request-row-chevron"><ChevronRight size={14} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <span
+      className={`ep-metrics-item${tone === "bad" ? " tone-bad" : tone === "warn" ? " tone-warn" : ""}`}
+      title={title}
+    >
+      <span className="ep-metrics-n">{value}</span>
+      <span className="ep-metrics-l">{label}</span>
+    </span>
+  );
+}
+
+/* ── Calls pane ──────────────────────────────────────────────────────── */
+
+function CallsPane({
+  requests,
+  baseUrl,
+  focusZone = "list",
+  onFocusZoneChange,
+}: {
+  requests: RequestRow[] | null;
+  baseUrl: string;
+  focusZone?: FocusZone;
+  onFocusZoneChange?: (zone: FocusZone) => void;
+}) {
+  const [selected, setSelected] = useState<RequestRow | null>(null);
+  const [tab, setTab] = useState<FilterTab>("all");
+  const [query, setQuery] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const filtered = useMemo(() => {
+    if (!requests) return null;
+    return requests.filter((r) => {
+      const passTab =
+        tab === "all" ||
+        (tab === "2xx" && r.status_code >= 200 && r.status_code < 300) ||
+        (tab === "4xx" && r.status_code >= 400 && r.status_code < 500) ||
+        (tab === "5xx" && r.status_code >= 500);
+      if (!passTab) return false;
+      if (!query) return true;
+      return (r.consumer || "").toLowerCase().includes(query.toLowerCase());
+    });
+  }, [requests, tab, query]);
+
+  // Restart at the top whenever the underlying list changes.
+  useEffect(() => {
+    setCursor(0);
+  }, [requests, tab, query]);
+
+  // ── Keyboard navigation for the calls pane ──
+  // List mode:   ↑/↓ move the cursor, Enter opens the inline detail, ←/Esc return to endpoints.
+  // Detail open: ↑/↓ step through adjacent calls, ←/Esc close the detail (back to the list).
+  useEffect(() => {
+    if (focusZone !== "calls") return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) {
+        return;
+      }
+      const list = filtered;
+
+      if (selected) {
+        if (e.key === "Escape" || e.key === "ArrowLeft") {
+          e.preventDefault();
+          setSelected(null);
+        } else if (list && list.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+          e.preventDefault();
+          const n =
+            e.key === "ArrowDown"
+              ? Math.min(cursor + 1, list.length - 1)
+              : Math.max(cursor - 1, 0);
+          setCursor(n);
+          setSelected(list[n]);
+        }
+        return;
+      }
+
+      if (e.key === "ArrowLeft" || e.key === "Escape") {
+        e.preventDefault();
+        onFocusZoneChange?.("list");
+        return;
+      }
+      if (!list || !list.length) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setCursor((c) => Math.min(c + 1, list.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setCursor((c) => Math.max(c - 1, 0));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const row = list[Math.min(cursor, list.length - 1)];
+        if (row) setSelected(row);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focusZone, selected, filtered, cursor, onFocusZoneChange]);
+
+  // Keep the keyboard cursor scrolled into view.
+  useEffect(() => {
+    if (focusZone !== "calls") return;
+    listRef.current?.querySelector(".ep-call-row.is-cursor")?.scrollIntoView({ block: "nearest" });
+  }, [cursor, focusZone, filtered]);
+
+  if (selected) {
+    return (
+      <div className="ep-calls-pane">
+        <CallDetailInline
+          key={`${selected.timestamp}-${selected.status_code}`}
+          row={selected}
+          baseUrl={baseUrl}
+          onClose={() => setSelected(null)}
+        />
       </div>
-      {selected && <RequestPayloadModal row={selected} baseUrl={baseUrl} onClose={() => setSelected(null)} />}
-    </>
+    );
+  }
+
+  return (
+    <div className="ep-calls-pane">
+      {/* Filter bar */}
+      <div className="ep-calls-filter">
+        <div className="ep-calls-tabs">
+          {(["all", "2xx", "4xx", "5xx"] as FilterTab[]).map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={`ep-calls-tab${tab === t ? " active" : ""}`}
+              onClick={() => setTab(t)}
+            >
+              {t === "all" ? "All" : t}
+            </button>
+          ))}
+        </div>
+        <div className="ep-calls-search">
+          <Search size={12} />
+          <input
+            placeholder="consumer…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              // ↓ from the search box drops the cursor into the call list.
+              if (e.key === "ArrowDown" && filtered && filtered.length) {
+                e.preventDefault();
+                setCursor(0);
+                onFocusZoneChange?.("calls");
+                e.currentTarget.blur();
+              } else if (e.key === "Enter" && filtered && filtered.length) {
+                e.preventDefault();
+                setCursor(0);
+                setSelected(filtered[0]);
+                onFocusZoneChange?.("calls");
+                e.currentTarget.blur();
+              }
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Call list */}
+      <div className="ep-calls-list" ref={listRef}>
+        {filtered === null ? (
+          <div className="ep-calls-empty">Loading calls…</div>
+        ) : filtered.length === 0 ? (
+          <div className="ep-calls-empty">No requests match.</div>
+        ) : (
+          filtered.map((r, i) => (
+            <button
+              key={`${r.timestamp}-${i}`}
+              type="button"
+              className={`ep-call-row${focusZone === "calls" && i === cursor ? " is-cursor" : ""}`}
+              onClick={() => {
+                setCursor(i);
+                setSelected(r);
+                onFocusZoneChange?.("calls");
+              }}
+            >
+              <span className="ep-call-time">{fmtTimeShort(r.timestamp)}</span>
+              <span className={`ep-call-status ${statusDotClass(r.status_code)}`}>
+                {r.status_code}
+              </span>
+              <span className="ep-call-dur">{fmtMs(r.response_time_ms)}</span>
+              <span className="ep-call-consumer-cell">
+                <BrowserIcon ua={r.user_agent} size={13} />
+                <span className={`ep-call-consumer${(r.consumer_name || r.consumer_id) ? "" : " is-empty"}`}>
+                  {r.consumer_name || r.consumer_id || "—"}
+                </span>
+              </span>
+              {r.environment && (
+                <span className="ep-call-env">{r.environment}</span>
+              )}
+              <span className="ep-call-arrow">
+                <ChevronRight size={13} />
+              </span>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -836,28 +616,21 @@ function PayloadBlock({ title, body }: { title: string; body: string }) {
       await navigator.clipboard.writeText(body);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard unavailable */
-    }
+    } catch { /* clipboard unavailable */ }
   };
   const isJson = !!body && (() => {
-    try {
-      JSON.parse(body);
-      return true;
-    } catch {
-      return false;
-    }
+    try { JSON.parse(body); return true; } catch { return false; }
   })();
   return (
     <section className="request-payload-section">
       <div className="request-payload-section-head">
         <h4>{title}</h4>
-        {body ? (
+        {body && (
           <button type="button" className="request-payload-copy" onClick={copy}>
             {copied ? <Check size={13} /> : <Copy size={13} />}
             {copied ? "Copied" : "Copy"}
           </button>
-        ) : null}
+        )}
       </div>
       {body ? (
         isJson ? (
@@ -866,13 +639,15 @@ function PayloadBlock({ title, body }: { title: string; body: string }) {
           <pre className="request-payload-pre">{body}</pre>
         )
       ) : (
-        <div className="endpoint-detail-empty">No payload captured.</div>
+        <div className="ep-calls-empty">No payload captured.</div>
       )}
     </section>
   );
 }
 
-function RequestPayloadModal({
+/* ── Inline call detail (no overlay — lives on the page) ──────────────── */
+
+function CallDetailInline({
   row,
   baseUrl: detectedBaseUrl,
   onClose,
@@ -898,50 +673,46 @@ function RequestPayloadModal({
       await navigator.clipboard.writeText(buildCurl(row, baseUrl));
       setCopiedCurl(true);
       setTimeout(() => setCopiedCurl(false), 1500);
-    } catch {
-      /* clipboard unavailable */
-    }
+    } catch { /* clipboard unavailable */ }
   };
 
   return (
-    <Inspector
-      width={620}
-      onClose={onClose}
-      title={
-        <>
-          <span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span>
-          <span className="request-payload-path">{row.path}</span>
-          <StatusPill tone={statusCodeTone(row.status_code)}>{row.status_code}</StatusPill>
-        </>
-      }
-      actions={
+    <div className="ep-call-detail">
+      <div className="ep-call-detail-head">
+        <button type="button" className="ep-call-detail-back" onClick={onClose} aria-label="Back to calls" title="Back (Esc)">
+          <ArrowLeft size={15} />
+        </button>
+        <span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span>
+        <span className="ep-call-detail-path">{row.path}</span>
+        <StatusPill tone={statusCodeTone(row.status_code)}>{row.status_code}</StatusPill>
+        <div className="ep-call-detail-spacer" />
         <Button variant="secondary" size="sm" onClick={copyCurl} title="Copy as cURL" aria-label="Copy as cURL">
           {copiedCurl ? <Check size={13} /> : <Terminal size={13} />}
           {copiedCurl ? "Copied!" : "Copy cURL"}
         </Button>
-      }
-    >
-      <div className="request-payload-meta">
-        <span>{formatDateTime(row.timestamp)}</span>
-        <span>·</span>
-        <span>{formatMs(row.response_time_ms)}</span>
-        {row.consumer ? (
-          <>
-            <span>·</span>
-            <span className="request-payload-meta-consumer">{row.consumer}</span>
-          </>
-        ) : null}
-        {row.environment ? (
-          <>
-            <span>·</span>
-            <span>{row.environment}</span>
-          </>
-        ) : null}
       </div>
-      <div className="request-payload-body">
+      <div className="request-payload-meta">
+        <span>{fmtDateTime(row.timestamp)}</span>
+        <span>·</span>
+        <span>{fmtMs(row.response_time_ms)}</span>
+        {row.user_agent && (
+          <>
+            <span>·</span>
+            <span className="request-payload-meta-browser">
+              <BrowserIcon ua={row.user_agent} size={13} />
+              <span>{detectBrowser(row.user_agent).name}</span>
+            </span>
+          </>
+        )}
+        {(row.consumer_name || row.consumer_id) && (
+          <><span>·</span><span className="request-payload-meta-consumer">{row.consumer_name || row.consumer_id}</span></>
+        )}
+        {row.environment && <><span>·</span><span>{row.environment}</span></>}
+      </div>
+      <div className="ep-call-detail-body request-payload-body">
         <PayloadBlock title="Request payload" body={formatPayload(row.request_payload)} />
         <PayloadBlock title="Response payload" body={formatPayload(row.response_payload)} />
       </div>
-    </Inspector>
+    </div>
   );
 }
