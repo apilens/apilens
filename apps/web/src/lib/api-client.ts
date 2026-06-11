@@ -416,6 +416,17 @@ export const apiClient = {
     return fetchDjango("/auth/2fa/backup-codes/regenerate", { method: "POST" });
   },
 
+  async setPassword(payload: {
+    new_password: string;
+    confirm_password: string;
+    current_password?: string;
+  }): Promise<ApiResponse<{ message: string; access_token: string; refresh_token: string }>> {
+    return fetchDjango("/users/me/password", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
   async getSessions(): Promise<ApiResponse<SessionInfo[]>> {
     return fetchDjango<SessionInfo[]>("/users/sessions");
   },
