@@ -143,6 +143,15 @@ variable "default_from_email" {
   default     = "APILens <noreply@apilens.ai>"
 }
 
+variable "apitally_client_id" {
+  description = <<-EOT
+    Apitally client_id for API monitoring (TEMPORARY). Not committed — set via
+    TF_VAR_apitally_client_id or a gitignored tfvars file. Empty disables it.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "webauthn_rp_id" {
   description = <<-EOT
     WebAuthn Relying Party ID for passkeys. Leave empty to auto-derive the

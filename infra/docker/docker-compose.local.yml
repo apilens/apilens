@@ -52,7 +52,10 @@ services:
       - clickhouse_data:/var/lib/clickhouse
       - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      # Use 127.0.0.1, not localhost: inside the container wget resolves
+      # localhost to IPv6 [::1], which ClickHouse doesn't bind, so the check
+      # fails forever and the container is wrongly flagged unhealthy.
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8123/ping"]
       interval: 10s
       retries: 5
 

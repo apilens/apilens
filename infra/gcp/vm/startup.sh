@@ -37,10 +37,12 @@ SESSION_SECRET_ID="$(attr apilens-session-secret-id)"
 PG_SECRET_ID="$(attr apilens-pg-secret-id)"
 CH_SECRET_ID="$(attr apilens-ch-secret-id)"
 RESEND_SECRET_ID="$(attr apilens-resend-secret-id)"
-SENTRY_SECRET_ID="$(attr apilens-sentry-secret-id)"
 JWT_KEY_SECRET_ID="$(attr apilens-jwt-key-secret-id)"
 INTROSPECT_SECRET_ID="$(attr apilens-introspect-secret-id)"
 FROM_EMAIL="$(attr apilens-from-email)"
+# Apitally client_id (TEMPORARY). Metadata attr may be absent/empty — tolerate
+# it so the stack boots; empty just leaves Apitally disabled.
+APITALLY_CLIENT_ID="$(attr apilens-apitally-client-id || true)"
 WEBAUTHN_RP_ID="$(attr apilens-webauthn-rp-id)"
 WEBAUTHN_RP_NAME="$(attr apilens-webauthn-rp-name)"
 
@@ -144,9 +146,6 @@ CLICKHOUSE_PASSWORD="$(access_secret "${CH_SECRET_ID}")"
 # Resend key may have no version yet on a fresh project; tolerate that so the
 # stack still boots (email just no-ops until the secret is populated).
 RESEND_API_KEY="$(access_secret "${RESEND_SECRET_ID}" || true)"
-# Sentry DSN may have no version yet (set manually post-apply); tolerate that so
-# the stack still boots — Sentry just stays disabled until the secret exists.
-SENTRY_DSN="$(access_secret "${SENTRY_SECRET_ID}" || true)"
 # JWT RS256 private key (base64 PEM) + internal introspection secret. May have no
 # version yet — tolerate so the stack boots (JWT falls back to HS256; ingest
 # introspection just fails closed until the secret is populated).
@@ -280,9 +279,9 @@ POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
 EMAIL_HOST_PASSWORD=${RESEND_API_KEY}
 DEFAULT_FROM_EMAIL=${FROM_EMAIL}
+APITALLY_CLIENT_ID=${APITALLY_CLIENT_ID}
 WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID}
 WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME}
-SENTRY_DSN=${SENTRY_DSN}
 JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY}
 INTERNAL_INTROSPECT_SECRET=${INTERNAL_INTROSPECT_SECRET}
 ENV
