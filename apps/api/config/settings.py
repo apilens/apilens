@@ -84,30 +84,6 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-# ===========================================================================
-# Apitally (API monitoring) — TEMPORARY.
-# To remove entirely: delete this whole block, drop "apitally[django-ninja]"
-# from pyproject.toml (uv remove apitally), and drop the APITALLY_* env vars.
-# Gated on APITALLY_CLIENT_ID: unset/empty disables it (no code changes). The
-# ID is NOT committed (this repo is open source) — set it via env / .env.
-# env is auto-selected ("dev" locally, "prod" in production) but APITALLY_ENV
-# overrides it.
-# ===========================================================================
-APITALLY_CLIENT_ID = os.environ.get("APITALLY_CLIENT_ID", "").strip()
-if APITALLY_CLIENT_ID:
-    # Apitally must run as the outermost middleware (first in the list).
-    MIDDLEWARE.insert(0, "apitally.django.ApitallyMiddleware")
-    APITALLY_MIDDLEWARE = {
-        "client_id": APITALLY_CLIENT_ID,
-        "env": os.environ.get("APITALLY_ENV") or ("dev" if DEBUG else "prod"),
-        "include_django_views": False,
-        "enable_request_logging": True,
-        "log_request_headers": True,
-        "log_request_body": True,
-        "log_response_body": True,
-        "capture_logs": True,
-    }
-
 # Security hardening (safe defaults for production)
 if not DEBUG:
     SECURE_SSL_REDIRECT = os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "True").lower() in ("true", "1", "yes")

@@ -128,9 +128,6 @@ services:
       # suffix" error in prod.
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-APILens}
-      # Apitally (API monitoring) — TEMPORARY. Empty disables it; env auto-
-      # resolves to "prod" here since DEBUG is off.
-      APITALLY_CLIENT_ID: ${APITALLY_CLIENT_ID:-}
     depends_on:
       migrate:
         condition: service_completed_successfully

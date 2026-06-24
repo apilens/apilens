@@ -40,9 +40,6 @@ RESEND_SECRET_ID="$(attr apilens-resend-secret-id)"
 JWT_KEY_SECRET_ID="$(attr apilens-jwt-key-secret-id)"
 INTROSPECT_SECRET_ID="$(attr apilens-introspect-secret-id)"
 FROM_EMAIL="$(attr apilens-from-email)"
-# Apitally client_id (TEMPORARY). Metadata attr may be absent/empty — tolerate
-# it so the stack boots; empty just leaves Apitally disabled.
-APITALLY_CLIENT_ID="$(attr apilens-apitally-client-id || true)"
 WEBAUTHN_RP_ID="$(attr apilens-webauthn-rp-id)"
 WEBAUTHN_RP_NAME="$(attr apilens-webauthn-rp-name)"
 
@@ -279,7 +276,6 @@ POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
 EMAIL_HOST_PASSWORD=${RESEND_API_KEY}
 DEFAULT_FROM_EMAIL=${FROM_EMAIL}
-APITALLY_CLIENT_ID=${APITALLY_CLIENT_ID}
 WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID}
 WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME}
 JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY}
