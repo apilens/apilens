@@ -15,20 +15,19 @@ import {
   Timer,
   X,
 } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import {
-  ACCENT,
-  AXIS_TICK,
-  ChartTooltip,
-  GRID,
-  SERVER_ERR,
   formatBytes,
-  formatBucketFull,
-  formatBucketTime,
   formatMs,
   statusTone,
 } from "./detail/sections";
 import RequestLogDetailModal, { type RequestItem } from "./RequestLogDetailModal";
+import {
+  type RangeValue,
+  DEFAULT_PRESET_ID,
+  parseRange,
+  resolveRange,
+  TimeRangePicker,
+} from "../_shared/timeRange";
 
 interface ProjectEndpointsContentProps {
   projectSlug: string;
@@ -36,27 +35,12 @@ interface ProjectEndpointsContentProps {
 
 type AppOption = { id: string; name: string; slug: string };
 
-interface TSPoint {
-  bucket: string;
-  total_requests: number;
-  error_count: number;
-}
-
 interface RequestsResponse {
   items: RequestItem[];
   total_count: number;
   page: number;
   page_size: number;
 }
-
-const TIME_RANGES = [
-  { label: "1h", value: 1 },
-  { label: "6h", value: 6 },
-  { label: "24h", value: 24 },
-  { label: "7d", value: 168 },
-  { label: "30d", value: 720 },
-] as const;
-const RANGE_VALUES = [1, 6, 24, 168, 720];
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 const PAGE_SIZE = 50;
@@ -88,43 +72,6 @@ function dayLabel(ts: string): string {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-/* ── Volume header chart (self-measured to avoid recharts width(-1)) ───── */
-
-function VolumeChart({ series }: { series: TSPoint[] | null }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver((e) => {
-      const w = e[0]?.contentRect.width ?? 0;
-      if (w > 0) setWidth(w);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const data = (series || []).map((p) => ({
-    label: formatBucketTime(p.bucket),
-    full: formatBucketFull(p.bucket),
-    success: Math.max(0, p.total_requests - (p.error_count || 0)),
-    errors: p.error_count || 0,
-  }));
-  return (
-    <div ref={ref} className="ep-rl-volume" style={{ height: 96, width: "100%", minWidth: 0 }}>
-      {width > 0 && data.length > 0 ? (
-        <BarChart width={width} height={96} data={data} margin={{ top: 4, right: 4, bottom: 0, left: -28 }}>
-          <CartesianGrid stroke={GRID} vertical={false} />
-          <XAxis dataKey="label" tick={AXIS_TICK} minTickGap={48} tickLine={false} axisLine={{ stroke: GRID }} />
-          <YAxis tick={AXIS_TICK} width={36} tickLine={false} axisLine={false} allowDecimals={false} />
-          <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(20,184,166,0.08)" }} />
-          <Bar dataKey="success" name="Success" stackId="v" fill={ACCENT} maxBarSize={18} />
-          <Bar dataKey="errors" name="Errors" stackId="v" fill={SERVER_ERR} radius={[2, 2, 0, 0]} maxBarSize={18} />
-        </BarChart>
-      ) : null}
-    </div>
-  );
-}
-
 /* ── Component ───────────────────────────────────────────────────────── */
 
 export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpointsContentProps) {
@@ -135,7 +82,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
   const [environments, setEnvironments] = useState<string[]>([]);
   const [selectedEnv, setSelectedEnv] = useState("");
   const [selectedConsumer, setSelectedConsumer] = useState("");
-  const [selectedRange, setSelectedRange] = useState(24);
+  const [rangeValue, setRangeValue] = useState<RangeValue>(() => parseRange({}));
 
   // Filters
   const [pathSearch, setPathSearch] = useState("");
@@ -145,7 +92,6 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
   const filterRef = useRef<HTMLDivElement>(null);
 
   // Data
-  const [series, setSeries] = useState<TSPoint[] | null>(null);
   const [items, setItems] = useState<RequestItem[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -163,6 +109,8 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
   useEffect(() => {
     if (isInitialized) return;
     const range = searchParams.get("range");
+    const sinceParam = searchParams.get("since");
+    const untilParam = searchParams.get("until");
     const env = searchParams.get("env");
     const appsParam = searchParams.get("apps");
     const app = searchParams.get("app");
@@ -174,10 +122,11 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     const pageParam = searchParams.get("page");
     const req = searchParams.get("req");
 
-    if (range) {
-      const parsed = parseInt(range, 10);
-      if (RANGE_VALUES.includes(parsed)) setSelectedRange(parsed);
-    }
+    setRangeValue(parseRange({
+      range: range || undefined,
+      since: sinceParam || undefined,
+      until: untilParam || undefined,
+    }));
     if (env) setSelectedEnv(env);
     if (appsParam) setSelectedAppSlugs(appsParam.split(",").filter(Boolean));
     else if (app) setSelectedAppSlugs([app]);
@@ -203,7 +152,12 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
   useEffect(() => {
     if (!isInitialized) return;
     const p = new URLSearchParams();
-    if (selectedRange !== 24) p.set("range", String(selectedRange));
+    if (rangeValue.type === "custom") {
+      p.set("since", rangeValue.since);
+      p.set("until", rangeValue.until);
+    } else if (rangeValue.id !== DEFAULT_PRESET_ID) {
+      p.set("range", rangeValue.id);
+    }
     if (selectedEnv) p.set("env", selectedEnv);
     if (apps.length && selectedAppSlugs.length && selectedAppSlugs.length < apps.length) {
       p.set("apps", selectedAppSlugs.join(","));
@@ -215,7 +169,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     if (openRow) p.set("req", openRow.timestamp);
     const qs = p.toString();
     window.history.replaceState(null, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
-  }, [isInitialized, selectedRange, selectedEnv, apps.length, selectedAppSlugs, methodsFilter, pathSearch, pathExact, selectedConsumer, page, openRow]);
+  }, [isInitialized, rangeValue, selectedEnv, apps.length, selectedAppSlugs, methodsFilter, pathSearch, pathExact, selectedConsumer, page, openRow]);
 
   // Apps + environments
   useEffect(() => {
@@ -240,10 +194,8 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     })();
   }, [projectSlug]);
 
-  const since = useMemo(
-    () => new Date(Date.now() - selectedRange * 60 * 60 * 1000).toISOString(),
-    [selectedRange, refreshKey],
-  );
+  const resolved = useMemo(() => resolveRange(rangeValue), [rangeValue, refreshKey]);
+  const { since, until } = resolved;
 
   const appScope = useCallback(
     (p: URLSearchParams) => {
@@ -254,31 +206,10 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     [selectedAppSlugs, apps.length],
   );
 
-  // Volume timeseries (project-wide).
-  useEffect(() => {
-    if (!isInitialized) return;
-    let cancelled = false;
-    (async () => {
-      const p = new URLSearchParams();
-      p.set("since", since);
-      if (selectedEnv) p.set("environment", selectedEnv);
-      if (selectedConsumer) p.set("consumer", selectedConsumer);
-      appScope(p);
-      try {
-        const res = await fetch(`/api/projects/${projectSlug}/analytics/timeseries?${p.toString()}`);
-        const data = res.ok ? await res.json() : [];
-        if (!cancelled) setSeries(Array.isArray(data) ? data : data.items || []);
-      } catch {
-        if (!cancelled) setSeries([]);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [projectSlug, isInitialized, since, selectedEnv, selectedConsumer, appScope]);
-
   // Reset to page 1 when filters change.
   useEffect(() => {
     setPage(1);
-  }, [since, selectedEnv, selectedConsumer, selectedAppSlugs, pathSearch, pathExact, methodsFilter]);
+  }, [since, until, selectedEnv, selectedConsumer, selectedAppSlugs, pathSearch, pathExact, methodsFilter]);
 
   // Request list.
   useEffect(() => {
@@ -288,6 +219,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       setLoading(true);
       const p = new URLSearchParams();
       p.set("since", since);
+      if (until) p.set("until", until);
       if (selectedEnv) p.set("environment", selectedEnv);
       appScope(p);
       if (methodsFilter.size) p.set("methods", [...methodsFilter].join(","));
@@ -313,7 +245,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       }
     })();
     return () => { cancelled = true; };
-  }, [projectSlug, isInitialized, since, selectedEnv, selectedConsumer, selectedAppSlugs, methodsFilter, pathSearch, pathExact, page, appScope, refreshKey]);
+  }, [projectSlug, isInitialized, since, until, selectedEnv, selectedConsumer, selectedAppSlugs, methodsFilter, pathSearch, pathExact, page, appScope, refreshKey]);
 
   // Auto-open the deep-linked request once it shows up in the list.
   useEffect(() => {
@@ -438,18 +370,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
           </select>
         )}
 
-        <div className="ep-timerange">
-          {TIME_RANGES.map(({ label, value }) => (
-            <button
-              key={value}
-              type="button"
-              className={`ep-time-btn${selectedRange === value ? " active" : ""}`}
-              onClick={() => setSelectedRange(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <TimeRangePicker value={rangeValue} resolved={resolved} onChange={setRangeValue} />
 
         <button type="button" className="tf-refresh" onClick={() => setRefreshKey((k) => k + 1)} title="Refresh" aria-label="Refresh">
           <RefreshCw size={14} className={loading ? "tf-spin" : ""} />
@@ -473,12 +394,6 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
           )}
         </div>
       )}
-
-      {/* ── Volume header ── */}
-      <section className="ep-rl-card ep-rl-volcard">
-        <span className="ep-rl-vol-title">Request volume</span>
-        <VolumeChart series={series} />
-      </section>
 
       {/* ── Request list ── */}
       <section className="ep-rl-card">

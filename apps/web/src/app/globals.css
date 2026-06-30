@@ -14128,9 +14128,6 @@ a.settings-btn {
 .ep-rl-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; display: inline-flex; align-items: center; gap: 5px; }
 
 .ep-rl-card { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; }
-.ep-rl-volcard { padding: 14px 16px 10px; }
-.ep-rl-vol-title { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 6px; }
-.ep-rl-volume { }
 .ep-rl-message { padding: 40px 16px; text-align: center; color: var(--text-muted); font-size: 13px; }
 
 .ep-rl-pager {
