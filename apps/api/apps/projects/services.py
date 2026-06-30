@@ -2045,12 +2045,10 @@ class DataQueryService:
             filters.append("path LIKE %(path_filter)s")
             params["path_filter"] = path_filter.replace("*", "%")
 
-        # Consumer filter (matches the resolved consumer identity)
+        # Consumer filter — match on the stable identifier, not the display name
+        # (names aren't unique and can change; consumer_id is the stable key).
         if consumer:
-            filters.append(
-                "if(consumer_name != '', consumer_name, "
-                "if(consumer_id != '', consumer_id, 'unknown')) = %(consumer)s"
-            )
+            filters.append("consumer_id = %(consumer)s")
             params["consumer"] = consumer
 
         where_clause = ""
@@ -2692,10 +2690,8 @@ class AnalyticsService:
             params["environment"] = environment
 
         if consumer:
-            filters.append(
-                "AND if(consumer_name != '', consumer_name, "
-                "if(consumer_id != '', consumer_id, 'unknown')) = %(consumer)s"
-            )
+            # Filter on the stable identifier, not the display name.
+            filters.append("AND consumer_id = %(consumer)s")
             params["consumer"] = consumer
 
         query = f"""
@@ -2794,10 +2790,8 @@ class AnalyticsService:
             params["environment"] = environment
 
         if consumer:
-            filters.append(
-                "AND if(consumer_name != '', consumer_name, "
-                "if(consumer_id != '', consumer_id, 'unknown')) = %(consumer)s"
-            )
+            # Filter on the stable identifier, not the display name.
+            filters.append("AND consumer_id = %(consumer)s")
             params["consumer"] = consumer
 
         # Pick a bucket granularity that fits the window: hourly for short
@@ -2908,10 +2902,8 @@ class AnalyticsService:
             params["search_pattern"] = f"%{search_query.lower()}%"
 
         if consumer:
-            filters.append(
-                "AND if(consumer_name != '', consumer_name, "
-                "if(consumer_id != '', consumer_id, 'unknown')) = %(consumer)s"
-            )
+            # Filter on the stable identifier, not the display name.
+            filters.append("AND consumer_id = %(consumer)s")
             params["consumer"] = consumer
 
         # Map sort_by to valid column names

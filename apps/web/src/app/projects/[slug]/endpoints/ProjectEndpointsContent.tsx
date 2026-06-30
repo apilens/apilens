@@ -443,7 +443,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
                             type="button"
                             className="ep-recent-fact ep-recent-consumer"
                             title={`Filter by consumer ${r.consumer_name || r.consumer_id}`}
-                            onClick={(e) => { e.stopPropagation(); setSelectedConsumer(r.consumer_name || r.consumer_id); }}
+                            onClick={(e) => { e.stopPropagation(); setSelectedConsumer(r.consumer_id || r.consumer_name); }}
                           >
                             <Fingerprint size={12} />{r.consumer_name || r.consumer_id}
                           </button>

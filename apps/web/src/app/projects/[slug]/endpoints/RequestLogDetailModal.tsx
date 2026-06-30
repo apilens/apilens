@@ -443,6 +443,8 @@ export default function RequestLogDetailModal({
   }, [projectSlug, row, appSlugs, environment, since, until]);
 
   const consumer = row.consumer_name || row.consumer_id || "";
+  // Filter on the stable identifier, not the display name.
+  const consumerFilter = row.consumer_id || row.consumer_name || "";
   const stext = StatusText(row.status_code);
   const loadingPayload = payload === "loading";
   const pr = payload && payload !== "loading" ? payload : null;
@@ -524,7 +526,7 @@ export default function RequestLogDetailModal({
                           type="button"
                           className="ep-rl-mono ep-rl-consumer-link"
                           title={`Show all requests from ${consumer}`}
-                          onClick={() => onFilterConsumer(consumer)}
+                          onClick={() => onFilterConsumer(consumerFilter)}
                         >
                           <Fingerprint size={12} /> {consumer}{row.consumer_group ? ` · ${row.consumer_group}` : ""}
                         </button>

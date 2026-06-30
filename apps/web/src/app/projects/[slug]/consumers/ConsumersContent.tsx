@@ -125,7 +125,8 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
   // app/env/time filters carried across.
   const openConsumer = (c: ConsumerStat) => {
     const p = new URLSearchParams();
-    p.set("consumer", c.consumer);
+    // Filter by the stable identifier, not the display name.
+    p.set("consumer", c.consumer_identifier || c.consumer);
     if (selectedRange !== 24) p.set("range", String(selectedRange));
     if (selectedEnv) p.set("env", selectedEnv);
     if (apps.length && selectedAppSlugs.length && selectedAppSlugs.length < apps.length) {
