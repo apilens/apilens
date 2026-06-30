@@ -264,8 +264,6 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
   const [appsLoaded, setAppsLoaded] = useState(false);
   const [environments, setEnvironments] = useState<string[]>([]);
   const [selectedEnv, setSelectedEnv] = useState(initialFilters?.env || "");
-  const [consumers, setConsumers] = useState<{ consumer: string; total_requests: number }[]>([]);
-  const [selectedConsumer, setSelectedConsumer] = useState(initialFilters?.consumer || "");
 
   const [rangeValue, setRangeValue] = useState<RangeValue>(() => parseInitialRange(initialFilters));
   const [sortKey, setSortKey] = useState<SortKey>(() =>
@@ -327,12 +325,11 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
       else if (selectedAppSlugs.length < apps.length) p.set("apps", selectedAppSlugs.join(","));
     }
     if (selectedEnv) p.set("env", selectedEnv);
-    if (selectedConsumer) p.set("consumer", selectedConsumer);
     if (activeMetric !== "requests") p.set("metric", activeMetric);
     if (sortKey !== "total_requests") p.set("sort", sortKey);
     const qs = p.toString();
     window.history.replaceState(null, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
-  }, [appsLoaded, rangeValue, apps.length, selectedAppSlugs, selectedEnv, selectedConsumer, activeMetric, sortKey]);
+  }, [appsLoaded, rangeValue, apps.length, selectedAppSlugs, selectedEnv, activeMetric, sortKey]);
 
   // Fetch apps + environments
   useEffect(() => {
@@ -392,38 +389,12 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
       p.set("since", since);
       p.set("until", until);
       if (selectedEnv) p.set("environment", selectedEnv);
-      if (selectedConsumer) p.set("consumer", selectedConsumer);
       for (const [k, v] of Object.entries(extra || {})) p.set(k, v);
       return p.toString();
     },
-    [selectedAppSlugs, apps.length, since, until, selectedEnv, selectedConsumer]
+    [selectedAppSlugs, apps.length, since, until, selectedEnv]
   );
 
-  // Known consumers for the filter dropdown (scoped to apps / env / range,
-  // but not to the selected consumer itself).
-  useEffect(() => {
-    if (!appsLoaded) return;
-    let cancelled = false;
-    (async () => {
-      const p = new URLSearchParams();
-      if (selectedAppSlugs.length && selectedAppSlugs.length < apps.length) {
-        p.set("app_slugs", selectedAppSlugs.join(","));
-      } else if (selectedAppSlugs.length && apps.length === 0) {
-        p.set("app_slugs", selectedAppSlugs.join(","));
-      }
-      p.set("since", since);
-      p.set("until", until);
-      if (selectedEnv) p.set("environment", selectedEnv);
-      try {
-        const res = await fetch(`/api/projects/${projectSlug}/analytics/consumers?${p.toString()}`);
-        const data = res.ok ? await res.json() : [];
-        if (!cancelled) setConsumers(Array.isArray(data) ? data : []);
-      } catch {
-        if (!cancelled) setConsumers([]);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [projectSlug, appsLoaded, selectedAppSlugs, apps.length, since, until, selectedEnv]);
 
   // Fetch summary + timeseries + endpoints whenever filters change.
   useEffect(() => {
@@ -589,23 +560,6 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
             <option value="">All envs</option>
             {environments.map((env) => (
               <option key={env} value={env}>{env}</option>
-            ))}
-          </select>
-        )}
-
-        {(consumers.length > 0 || selectedConsumer) && (
-          <select
-            className="tf-select"
-            value={selectedConsumer}
-            onChange={(e) => setSelectedConsumer(e.target.value)}
-            aria-label="Consumer"
-          >
-            <option value="">All consumers</option>
-            {selectedConsumer && !consumers.some((c) => c.consumer === selectedConsumer) && (
-              <option value={selectedConsumer}>{selectedConsumer}</option>
-            )}
-            {consumers.map((c) => (
-              <option key={c.consumer} value={c.consumer}>{c.consumer}</option>
             ))}
           </select>
         )}

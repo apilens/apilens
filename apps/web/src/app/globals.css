@@ -14042,6 +14042,21 @@ a.settings-btn {
 .ep-consumers-table .ep-td-num.tone-warn { color: #f59e0b; }
 .ep-consumers-table .ep-td-num.tone-bad { color: #f87171; }
 .ep-consumer-name { color: var(--text-primary); }
+.ep-consumer-cell { display: flex; flex-direction: column; gap: 1px; }
+.ep-consumer-primary { color: var(--text-primary); font-weight: 500; }
+.ep-consumer-id { font-size: 11px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.ep-consumer-group-cell { white-space: nowrap; }
+.ep-consumer-group {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.ep-consumer-muted { color: var(--text-muted); }
 .ep-cbar-wrap { position: relative; display: inline-flex; align-items: center; justify-content: flex-end; min-width: 110px; height: 18px; }
 .ep-cbar { position: absolute; left: 0; top: 50%; transform: translateY(-50%); height: 14px; background: rgba(20, 184, 166, 0.18); border-radius: 3px; min-width: 2px; }
 .ep-cbar-val { position: relative; z-index: 1; color: var(--text-primary); padding-right: 2px; }

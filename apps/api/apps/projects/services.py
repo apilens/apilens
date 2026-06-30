@@ -3467,6 +3467,82 @@ class AnalyticsService:
             return []
 
     @staticmethod
+    def get_project_consumer_stats(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        search: str | None = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        """
+        Rich per-consumer stats across a project (optionally scoped to apps /
+        environment / time range, filtered by a name/id search). Powers the
+        dedicated Consumers page. Excludes the synthetic 'unknown' bucket.
+        """
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty project consumer stats: %s", exc)
+            return []
+        IngestService.ensure_consumer_columns(client)
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params = {
+            "project_id": project_id,
+            "since": since_dt,
+            "until": until_dt,
+            "limit": max(1, min(int(limit), 1000)),
+        }
+
+        filters = [
+            "WHERE project_id = %(project_id)s",
+            "AND timestamp >= %(since)s",
+            "AND timestamp <= %(until)s",
+        ]
+        if app_ids:
+            filters.append("AND app_id IN %(app_ids)s")
+            params["app_ids"] = app_ids
+        if environment:
+            filters.append("AND environment = %(environment)s")
+            params["environment"] = environment
+
+        having = ["consumer != 'unknown'"]
+        if search and search.strip():
+            having.append("positionCaseInsensitive(consumer, %(search)s) > 0")
+            params["search"] = search.strip()
+
+        query = f"""
+            SELECT
+                if(
+                    consumer_name != '',
+                    consumer_name,
+                    if(consumer_id != '', consumer_id, 'unknown')
+                ) AS consumer,
+                any(if(consumer_id != '', consumer_id, '')) AS consumer_identifier,
+                any(if(consumer_group != '', consumer_group, '')) AS consumer_group,
+                count() AS total_requests,
+                countIf(status_code >= 400) AS error_count,
+                if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
+                avg(response_time_ms) AS avg_response_time_ms,
+                max(timestamp) AS last_seen_at
+            FROM api_requests
+            {' '.join(filters)}
+            GROUP BY consumer
+            HAVING {' AND '.join(having)}
+            ORDER BY total_requests DESC
+            LIMIT %(limit)s
+        """
+        try:
+            return [AnalyticsService._clean_nan_values(r) for r in client.execute(query, params)]
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project consumer stats; returning empty list: %s", exc)
+            return []
+
+    @staticmethod
     def get_project_endpoint_status_codes(
         project_id: str,
         method: str,

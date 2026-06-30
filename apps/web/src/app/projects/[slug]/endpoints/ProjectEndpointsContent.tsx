@@ -134,7 +134,6 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
   const [selectedAppSlugs, setSelectedAppSlugs] = useState<string[]>([]);
   const [environments, setEnvironments] = useState<string[]>([]);
   const [selectedEnv, setSelectedEnv] = useState("");
-  const [consumers, setConsumers] = useState<{ consumer: string; total_requests: number }[]>([]);
   const [selectedConsumer, setSelectedConsumer] = useState("");
   const [selectedRange, setSelectedRange] = useState(24);
 
@@ -254,26 +253,6 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     },
     [selectedAppSlugs, apps.length],
   );
-
-  // Known consumers for the filter dropdown (scoped to the current view).
-  useEffect(() => {
-    if (!isInitialized) return;
-    let cancelled = false;
-    (async () => {
-      const p = new URLSearchParams();
-      p.set("since", since);
-      if (selectedEnv) p.set("environment", selectedEnv);
-      appScope(p);
-      try {
-        const res = await fetch(`/api/projects/${projectSlug}/analytics/consumers?${p.toString()}`);
-        const data = res.ok ? await res.json() : [];
-        if (!cancelled) setConsumers(Array.isArray(data) ? data : []);
-      } catch {
-        if (!cancelled) setConsumers([]);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [projectSlug, isInitialized, since, selectedEnv, appScope]);
 
   // Volume timeseries (project-wide).
   useEffect(() => {
@@ -456,23 +435,6 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
           <select className="ep-env-select" value={selectedEnv} onChange={(e) => setSelectedEnv(e.target.value)}>
             <option value="">All envs</option>
             {environments.map((env) => <option key={env} value={env}>{env}</option>)}
-          </select>
-        )}
-
-        {(consumers.length > 0 || selectedConsumer) && (
-          <select
-            className="ep-env-select"
-            value={selectedConsumer}
-            onChange={(e) => setSelectedConsumer(e.target.value)}
-            title="Filter by consumer"
-          >
-            <option value="">All consumers</option>
-            {selectedConsumer && !consumers.some((c) => c.consumer === selectedConsumer) && (
-              <option value={selectedConsumer}>{selectedConsumer}</option>
-            )}
-            {consumers.map((c) => (
-              <option key={c.consumer} value={c.consumer}>{c.consumer}</option>
-            ))}
           </select>
         )}
 

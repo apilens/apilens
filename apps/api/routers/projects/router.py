@@ -513,6 +513,43 @@ def get_project_consumers(
     )
 
 
+@router.get("/{project_slug}/analytics/consumer-stats", response=list[dict])
+def get_project_consumer_stats(
+    request: HttpRequest,
+    project_slug: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    search: str = None,
+    limit: int = 200,
+):
+    """
+    Rich per-consumer stats across a project (requests, error rate, avg
+    response, last seen), filterable by app/env/time and a name/id search.
+    Powers the dedicated Consumers page.
+    """
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+
+    app_ids: list[str] | None = None
+    if app_slugs:
+        slugs = [s.strip() for s in app_slugs.split(",") if s.strip()]
+        if slugs:
+            apps = AppService.get_apps_by_slugs(project, slugs)
+            app_ids = [str(app.id) for app in apps]
+
+    return AnalyticsService.get_project_consumer_stats(
+        project_id=str(project.id),
+        app_ids=app_ids,
+        environment=environment,
+        since=since,
+        until=until,
+        search=search,
+        limit=limit,
+    )
+
+
 # ── Project-level Endpoint Detail ────────────────────────────────────
 
 def _resolve_endpoint_app_ids(project, app_slugs: str | None) -> list[str] | None:

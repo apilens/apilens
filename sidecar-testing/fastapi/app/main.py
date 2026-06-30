@@ -9,6 +9,10 @@ from typing import List
 
 from fastapi import Depends, FastAPI, Request
 from pydantic import BaseModel
+
+import random
+from fastapi import Request
+
 # Load .env file from parent directory
 env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
@@ -26,9 +30,6 @@ app.add_middleware(
     app_id="order-service",
 )
 
-
-import random
-from fastapi import Request
 
 USERS = [
     {"name": "Neel Bhatt", "email": "neel.bhatt@example.com"},
