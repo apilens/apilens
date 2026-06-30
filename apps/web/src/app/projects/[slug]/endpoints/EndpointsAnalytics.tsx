@@ -82,7 +82,9 @@ function fmtCompact(n: number): string {
   return `${Math.round(n)}`;
 }
 function fmtMs(n: number): string {
-  return n ? `${Math.round(n)} ms` : "0 ms";
+  if (!n || n <= 0) return "0 ms";
+  if (n < 1) return `${n.toFixed(2)} ms`;
+  return `${Math.round(n)} ms`;
 }
 function fmtBytes(b: number): string {
   if (!b) return "0 B";

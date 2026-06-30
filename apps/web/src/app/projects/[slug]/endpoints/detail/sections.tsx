@@ -152,7 +152,10 @@ export function formatNumber(n: number): string {
   return Math.round(n || 0).toLocaleString();
 }
 export function formatMs(n: number): string {
-  if (!n) return "0 ms";
+  if (!n || n <= 0) return "0 ms";
+  // Sub-millisecond latencies are real — rounding them to a whole number prints
+  // a misleading "0 ms". Keep two decimals below 1 ms so the actual value shows.
+  if (n < 1) return `${n.toFixed(2)} ms`;
   return `${Math.round(n)} ms`;
 }
 // Histogram-bucket latencies are often sub-millisecond, so rounding to whole ms

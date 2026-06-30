@@ -114,7 +114,8 @@ function fmtNum(n: number): string {
   return Math.round(n || 0).toLocaleString();
 }
 function fmtMs(n: number): string {
-  if (!n) return "0 ms";
+  if (!n || n <= 0) return "0 ms";
+  if (n < 1) return `${n.toFixed(2)} ms`;
   return `${Math.round(n)} ms`;
 }
 function fmtBytes(bytes: number): string {
