@@ -16,7 +16,7 @@ def instrument_fastapi(
     enable_request_logging: bool = True,
     log_request_body: bool = True,
     log_response_body: bool = True,
-    max_payload_bytes: int = 8192,
+    max_payload_bytes: int = 65536,
     get_consumer: Callable[..., Any] | None = None,
 ):
     """FastAPI integration via ASGI middleware.

@@ -3,13 +3,14 @@ import { getSession } from "@/lib/session";
 import ProjectSettingsContent from "../ProjectSettingsContent";
 import type { ProjectSettingsTab } from "@/components/projects/ProjectSettingsSidebar";
 
-const validTabs: ProjectSettingsTab[] = ["general", "api-keys"];
+const validTabs: ProjectSettingsTab[] = ["general", "api-keys", "members"];
 
 export async function generateMetadata({ params }: { params: Promise<{ tab: string }> }) {
   const { tab } = await params;
   const tabTitles: Record<string, string> = {
     general: "General",
     "api-keys": "API Keys",
+    members: "Members",
   };
 
   return {

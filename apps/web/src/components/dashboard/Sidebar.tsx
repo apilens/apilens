@@ -8,6 +8,7 @@ import {
   Layers,
   ScrollText,
   TrendingUp,
+  Activity,
   Settings,
   Bell,
   CircleHelpIcon,
@@ -79,7 +80,8 @@ export default function Sidebar() {
   const navigation = inProject
     ? [
       { name: "Apps", href: `/projects/${projectSlug}/apps`, icon: ScrollText },
-      { name: "Endpoints", href: `/projects/${projectSlug}/endpoints`, icon: TrendingUp },
+      { name: "Traffic", href: `/projects/${projectSlug}/traffic`, icon: Activity },
+      { name: "Request logs", href: `/projects/${projectSlug}/endpoints`, icon: TrendingUp },
       { name: "Settings", href: `/projects/${projectSlug}/settings`, icon: Settings },
     ]
     : [

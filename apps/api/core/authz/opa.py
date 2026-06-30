@@ -25,11 +25,16 @@ _OPA_URL = os.environ.get("OPA_URL", "http://opa:8181/v1/data/apilens/authz/allo
 _TIMEOUT = float(os.environ.get("OPA_TIMEOUT_SECONDS", "3"))
 
 
-def check(*, user_id: str, action: str, resource_type: str, owner_id: str) -> bool | None:
+def check(
+    *, user_id: str, action: str, resource_type: str, owner_id: str, role: str = ""
+) -> bool | None:
     payload = {
         "input": {
             "user_id": str(user_id or ""),
             "action": action,
+            # The subject's effective role on the resource, resolved by the
+            # control plane (PIP). OPA maps role -> permitted actions (RBAC).
+            "subject": {"role": str(role or "")},
             "resource": {"type": resource_type, "owner_id": str(owner_id or "")},
         }
     }

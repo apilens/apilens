@@ -23,6 +23,8 @@ class RequestRecord:
     consumer_group: str = ""
     request_payload: str = ""
     response_payload: str = ""
+    request_headers: str = ""
+    response_headers: str = ""
     base_url: str = ""
 
     def to_wire(self) -> dict[str, object]:
@@ -55,5 +57,7 @@ class RequestRecord:
             "consumer_group": self.consumer_group or "",
             "request_payload": self.request_payload or "",
             "response_payload": self.response_payload or "",
+            "request_headers": self.request_headers or "",
+            "response_headers": self.response_headers or "",
             "base_url": self.base_url or "",
         }

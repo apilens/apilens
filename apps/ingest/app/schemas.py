@@ -29,6 +29,8 @@ class RequestRecord(BaseModel):
     consumer_group: str = ""
     request_payload: str = ""
     response_payload: str = ""
+    request_headers: str = ""
+    response_headers: str = ""
     base_url: str = ""
 
 

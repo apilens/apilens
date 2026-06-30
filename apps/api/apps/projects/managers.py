@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 
 
 class ProjectManager(models.Manager):
@@ -6,7 +7,8 @@ class ProjectManager(models.Manager):
         return self.filter(is_active=True)
 
     def for_user(self, user):
-        return self.active().filter(owner=user)
+        # Projects the user owns OR is a member of (RBAC collaboration).
+        return self.active().filter(Q(owner=user) | Q(members__user=user)).distinct()
 
 
 class AppManager(models.Manager):

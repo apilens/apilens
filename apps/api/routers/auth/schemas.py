@@ -186,3 +186,16 @@ class TwoFactorLoginVerifyRequest(Schema):
     code: str
     remember_me: bool = True
     use_backup_code: bool = False
+
+
+class InviteInfoRequest(Schema):
+    token: str
+
+
+class InviteInfoResponse(Schema):
+    valid: bool
+    email: str = ""
+    role: str = ""
+    project_name: str = ""
+    project_slug: str = ""
+    inviter: str = ""

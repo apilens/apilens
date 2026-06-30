@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Loader2, X, Check, Copy } from "lucide-react";
+import { Trash2, Loader2, X, Check, Copy, Lock, SearchX } from "lucide-react";
 import SettingsCard from "@/components/settings/SettingsCard";
 import ProjectApiKeysSection from "@/components/projects/ProjectApiKeysSection";
+import ProjectMembersSection from "@/components/projects/ProjectMembersSection";
 import ProjectSettingsSidebar, { ProjectSettingsTab } from "@/components/projects/ProjectSettingsSidebar";
 
 interface ProjectSettingsContentProps {
@@ -33,6 +34,7 @@ export default function ProjectSettingsContent({
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ProjectSettingsTab>(initialTab);
   const [project, setProject] = useState<ProjectInfo | null>(null);
+  const [accessError, setAccessError] = useState<"notfound" | "forbidden" | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -70,6 +72,17 @@ export default function ProjectSettingsContent({
       try {
         const res = await fetch(`/api/projects/${projectSlug}`);
         if (!res.ok) {
+          // 403 = the project exists but the caller isn't a member (e.g. they
+          // were just removed). 404 = no such project. Show the matching
+          // friendly state instead of a console error.
+          if (res.status === 403) {
+            setAccessError("forbidden");
+            return;
+          }
+          if (res.status === 404) {
+            setAccessError("notfound");
+            return;
+          }
           throw new Error("Failed to fetch project");
         }
         const data: ProjectInfo = await res.json();
@@ -152,6 +165,33 @@ export default function ProjectSettingsContent({
       <div className="settings-page">
         <div className="settings-page-loading">
           <div className="loading-spinner" />
+        </div>
+      </div>
+    );
+  }
+
+  if (accessError) {
+    const isForbidden = accessError === "forbidden";
+    return (
+      <div className="settings-page">
+        <div className="settings-noaccess">
+          <div className="settings-noaccess-icon">
+            {isForbidden ? <Lock size={26} strokeWidth={1.5} /> : <SearchX size={26} strokeWidth={1.5} />}
+          </div>
+          <h2 className="settings-noaccess-title">
+            {isForbidden ? "You don't have access" : "Project not found"}
+          </h2>
+          <p className="settings-noaccess-text">
+            {isForbidden
+              ? "You're not a member of this project. If you think this is a mistake, ask the project owner to invite you."
+              : "This project doesn't exist, or it may have been deleted."}
+          </p>
+          <button
+            className="settings-btn settings-btn-primary"
+            onClick={() => router.push("/projects")}
+          >
+            Back to Projects
+          </button>
         </div>
       </div>
     );
@@ -274,6 +314,12 @@ export default function ProjectSettingsContent({
                   )}
                 </button>
               </SettingsCard>
+            </div>
+          )}
+
+          {activeTab === "members" && (
+            <div className="settings-section-content">
+              <ProjectMembersSection projectSlug={projectSlug} showToast={showToast} />
             </div>
           )}
 

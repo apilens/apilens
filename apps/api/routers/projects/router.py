@@ -15,6 +15,7 @@ from ninja import Router
 from apps.auth.services import ApiKeyService
 from apps.projects.models import App
 from apps.projects.services import ProjectService, AppService, AnalyticsService, DataQueryService
+from apps.projects.membership import MembershipService
 from apps.users.models import User
 from apps.users.services import UserService
 from apps.auth.authentication import jwt_auth
@@ -35,6 +36,13 @@ from .schemas import (
     LogsQueryResponse,
     RequestsQueryResponse,
     AnalyticsTimeseriesPointResponse,
+    MembersListResponse,
+    InvitationResponse,
+    InviteMemberRequest,
+    UpdateMemberRoleRequest,
+    AcceptInvitationRequest,
+    PendingInvitationResponse,
+    AcceptResultResponse,
 )
 
 router = Router(auth=[jwt_auth])
@@ -102,7 +110,7 @@ def delete_project(request: HttpRequest, project_slug: str):
 def create_app(request: HttpRequest, project_slug: str, data: CreateAppRequest):
     """Create a new app within a project."""
     user: User = request.auth
-    project = ProjectService.get_project_by_slug(user, project_slug)
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
     app = AppService.create_app(project, data.name, data.description, data.framework, data.slug)
     return 201, AppResponse.from_orm(app)
 
@@ -129,7 +137,7 @@ def get_app(request: HttpRequest, project_slug: str, app_slug: str):
 def update_app(request: HttpRequest, project_slug: str, app_slug: str, data: UpdateAppRequest):
     """Update an app's details."""
     user: User = request.auth
-    project = ProjectService.get_project_by_slug(user, project_slug)
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
     app = AppService.update_app(project, app_slug, data.name, data.description, data.framework)
     return AppResponse.from_orm(app)
 
@@ -138,7 +146,7 @@ def update_app(request: HttpRequest, project_slug: str, app_slug: str, data: Upd
 def delete_app(request: HttpRequest, project_slug: str, app_slug: str):
     """Soft delete an app within a project."""
     user: User = request.auth
-    project = ProjectService.get_project_by_slug(user, project_slug)
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
     AppService.delete_app(project, app_slug)
     return MessageResponse(message="App deleted successfully")
 
@@ -150,7 +158,7 @@ def delete_app(request: HttpRequest, project_slug: str, app_slug: str):
 def create_api_key(request: HttpRequest, project_slug: str, data: CreateApiKeyRequest):
     """Create a new API key for a project (works across all apps in project)."""
     user: User = request.auth
-    project = ProjectService.get_project_by_slug(user, project_slug)
+    project = ProjectService.get_project_by_slug(user, project_slug, action="admin")
     raw_key, api_key = ApiKeyService.create_key(project, data.name.strip())
     return 201, CreateApiKeyResponse(
         key=raw_key,
@@ -165,7 +173,7 @@ def create_api_key(request: HttpRequest, project_slug: str, data: CreateApiKeyRe
 def list_api_keys(request: HttpRequest, project_slug: str):
     """List all API keys for a project."""
     user: User = request.auth
-    project = ProjectService.get_project_by_slug(user, project_slug)
+    project = ProjectService.get_project_by_slug(user, project_slug, action="admin")
     keys = ApiKeyService.list_keys(project)
     return [ApiKeyResponse.from_orm(k) for k in keys]
 
@@ -174,11 +182,114 @@ def list_api_keys(request: HttpRequest, project_slug: str):
 def revoke_api_key(request: HttpRequest, project_slug: str, key_id: str):
     """Revoke a specific API key."""
     user: User = request.auth
-    project = ProjectService.get_project_by_slug(user, project_slug)
+    project = ProjectService.get_project_by_slug(user, project_slug, action="admin")
     success = ApiKeyService.revoke_key(project, key_id)
     if not success:
         return MessageResponse(message="API key not found or already revoked")
     return MessageResponse(message="API key revoked successfully")
+
+
+# ── Team members & invitations ───────────────────────────────────────
+
+
+@router.get("/{project_slug}/members", response=MembersListResponse)
+def list_members(request: HttpRequest, project_slug: str):
+    """List project members + (for owner/admin) pending invitations."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return MembershipService.list_members(user, project)
+
+
+@router.post("/{project_slug}/members/invite", response={201: InvitationResponse})
+def invite_member(request: HttpRequest, project_slug: str, data: InviteMemberRequest):
+    """Invite someone to the project by email (owner/admin only)."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="admin")
+    inv = MembershipService.invite_member(user, project, data.email, data.role)
+    return 201, InvitationResponse(
+        id=str(inv.id),
+        email=inv.email,
+        role=inv.role,
+        expires_at=inv.expires_at,
+        created_at=inv.created_at,
+    )
+
+
+@router.patch("/{project_slug}/members/{member_id}", response=MessageResponse)
+def update_member(request: HttpRequest, project_slug: str, member_id: str, data: UpdateMemberRoleRequest):
+    """Change a member's role (owner/admin only)."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="admin")
+    MembershipService.update_member_role(user, project, member_id, data.role)
+    return MessageResponse(message="Member role updated")
+
+
+@router.delete("/{project_slug}/members/{member_id}", response=MessageResponse)
+def remove_member(request: HttpRequest, project_slug: str, member_id: str):
+    """Remove a member (owner/admin), or leave the project (self)."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    MembershipService.remove_member(user, project, member_id)
+    return MessageResponse(message="Member removed")
+
+
+@router.delete("/{project_slug}/invitations/{invite_id}", response=MessageResponse)
+def revoke_invitation(request: HttpRequest, project_slug: str, invite_id: str):
+    """Revoke a pending invitation (owner/admin only)."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="admin")
+    MembershipService.revoke_invitation(user, project, invite_id)
+    return MessageResponse(message="Invitation revoked")
+
+
+# ── Invitee inbox (notification bell + invite link) ──────────────────
+
+
+@router.get("/invitations/pending", response=list[PendingInvitationResponse])
+def list_pending_invitations(request: HttpRequest):
+    """Pending invitations addressed to the logged-in user (powers the bell)."""
+    user: User = request.auth
+    return MembershipService.list_pending_for_user(user)
+
+
+@router.post("/invitations/{invite_id}/accept", response=AcceptResultResponse)
+def accept_invitation_by_id(request: HttpRequest, invite_id: str):
+    """Accept a pending invitation by id (from the notification bell)."""
+    user: User = request.auth
+    project = MembershipService.accept_by_id(user, invite_id)
+    return AcceptResultResponse(
+        message=f"You've joined {project.name}",
+        project_slug=project.slug,
+        project_name=project.name,
+    )
+
+
+@router.post("/invitations/{invite_id}/decline", response=MessageResponse)
+def decline_invitation_by_id(request: HttpRequest, invite_id: str):
+    """Decline a pending invitation by id (from the notification bell)."""
+    user: User = request.auth
+    MembershipService.decline_by_id(user, invite_id)
+    return MessageResponse(message="Invitation declined")
+
+
+@router.post("/invitations/accept", response=AcceptResultResponse)
+def accept_invitation(request: HttpRequest, data: AcceptInvitationRequest):
+    """Accept an invitation by token (from the email invite link)."""
+    user: User = request.auth
+    project = MembershipService.accept_by_token(user, data.token)
+    return AcceptResultResponse(
+        message=f"You've joined {project.name}",
+        project_slug=project.slug,
+        project_name=project.name,
+    )
+
+
+@router.post("/invitations/decline", response=MessageResponse)
+def decline_invitation(request: HttpRequest, data: AcceptInvitationRequest):
+    """Decline an invitation by token (from the email invite link)."""
+    user: User = request.auth
+    MembershipService.decline_by_token(user, data.token)
+    return MessageResponse(message="Invitation declined")
 
 
 # ── Project-level Analytics (aggregated) ─────────────────────────────
@@ -192,6 +303,7 @@ def get_analytics_summary(
     environment: str = None,
     since: str = None,
     until: str = None,
+    consumer: str = None,
 ):
     """
     Get aggregated analytics summary for a project.
@@ -213,6 +325,7 @@ def get_analytics_summary(
         environment=environment,
         since=since,
         until=until,
+        consumer=consumer,
     )
 
 
@@ -225,6 +338,7 @@ def get_analytics_timeseries(
     since: str = None,
     until: str = None,
     timezone: str = None,
+    consumer: str = None,
 ):
     """
     Get time-series analytics for a project.
@@ -253,6 +367,7 @@ def get_analytics_timeseries(
         since=since,
         until=until,
         timezone_name=bucket_timezone,
+        consumer=consumer,
     )
 
 
@@ -268,6 +383,7 @@ def get_endpoint_stats(
     status_classes: str = None,
     status_codes: str = None,
     q: str = None,
+    consumer: str = None,
     sort_by: str = "total_requests",
     sort_dir: str = "desc",
     page: int = 1,
@@ -328,6 +444,7 @@ def get_endpoint_stats(
         status_classes=status_class_list,
         status_codes=status_code_list,
         search_query=q,
+        consumer=consumer,
         sort_by=sort_by,
         sort_dir=sort_dir,
         page=page,
@@ -360,6 +477,40 @@ def get_environments(
     )
 
     return {"environments": environments}
+
+
+@router.get("/{project_slug}/analytics/consumers", response=list[dict])
+def get_project_consumers(
+    request: HttpRequest,
+    project_slug: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    limit: int = 200,
+):
+    """
+    List the consumers seen across a project, ranked by request volume.
+    Powers the consumer filter dropdown on the Request logs / Traffic pages.
+    """
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+
+    app_ids: list[str] | None = None
+    if app_slugs:
+        slugs = [s.strip() for s in app_slugs.split(",") if s.strip()]
+        if slugs:
+            apps = AppService.get_apps_by_slugs(project, slugs)
+            app_ids = [str(app.id) for app in apps]
+
+    return AnalyticsService.get_project_consumers(
+        project_id=str(project.id),
+        app_ids=app_ids,
+        environment=environment,
+        since=since,
+        until=until,
+        limit=limit,
+    )
 
 
 # ── Project-level Endpoint Detail ────────────────────────────────────
@@ -619,6 +770,7 @@ def query_project_requests(
     min_response_time: float = None,
     max_response_time: float = None,
     path_filter: str = None,
+    consumer: str = None,
     page: int = 1,
     page_size: int = 50,
 ):
@@ -664,6 +816,7 @@ def query_project_requests(
         min_response_time=min_response_time,
         max_response_time=max_response_time,
         path_filter=path_filter,
+        consumer=consumer,
         page=page,
         page_size=page_size,
     )

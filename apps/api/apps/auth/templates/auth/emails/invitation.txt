@@ -1,0 +1,12 @@
+{{ inviter_name }} invited you to collaborate on "{{ project_name }}" on API Lens as a {{ role }}.
+
+Accept the invitation:
+{{ invite_url }}
+
+This invitation expires on {{ expires_at|date:"M j, Y" }}.
+
+If you don't have an API Lens account yet, accepting will create one for {{ email }}.
+
+If you weren't expecting this, you can safely ignore this email.
+
+— The API Lens team

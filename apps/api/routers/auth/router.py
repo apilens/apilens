@@ -35,6 +35,8 @@ from .schemas import (
     RecoveryRequestBody,
     RecoveryTokenBody,
     RecoveryStatusResponse,
+    InviteInfoRequest,
+    InviteInfoResponse,
 )
 
 router = Router()
@@ -52,6 +54,14 @@ def request_magic_link(request: HttpRequest, data: MagicLinkRequest):
     ip = _get_client_ip(request)
     AuthService.request_magic_link(data.email, ip_address=ip)
     return {"message": "If that email is valid, a magic link has been sent."}
+
+
+@router.post("/invite-info", response={200: InviteInfoResponse})
+def invite_info(request: HttpRequest, data: InviteInfoRequest):
+    """Public: resolve a project invitation token for the accept landing page."""
+    from apps.projects.membership import MembershipService
+
+    return MembershipService.get_invitation_info(data.token)
 
 
 @router.post("/identify", response={200: IdentifyResponse})

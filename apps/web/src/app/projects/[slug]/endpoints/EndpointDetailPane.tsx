@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity, ArrowLeft, Check, ChevronRight, Clock, FileX2, Globe, MonitorSmartphone, Search, Terminal, User } from "lucide-react";
+import { Activity, ArrowLeft, Check, ChevronRight, Clock, Copy, FileX2, Globe, Maximize2, MonitorSmartphone, Search, Terminal, User, X } from "lucide-react";
 import type { IconType } from "react-icons";
 import {
   SiAxios,
@@ -63,6 +63,8 @@ interface RequestRow {
   country_code?: string;
   request_payload?: string;
   response_payload?: string;
+  request_headers?: string;
+  response_headers?: string;
   base_url?: string;
 }
 
@@ -278,6 +280,9 @@ interface EndpointDetailPaneProps {
   onBack?: () => void;
   focusZone?: FocusZone;
   onFocusZoneChange?: (zone: FocusZone) => void;
+  // ISO timestamp of a call to preselect when the list loads (set when arriving
+  // from the Traffic detail modal). Applied once.
+  initialRequestTs?: string;
 }
 
 /* ── Component ───────────────────────────────────────────────────────── */
@@ -293,6 +298,7 @@ export default function EndpointDetailPane({
   onBack,
   focusZone = "list",
   onFocusZoneChange,
+  initialRequestTs,
 }: EndpointDetailPaneProps) {
   const [detail, setDetail] = useState<EndpointDetail | null>(null);
   const [recentRequests, setRecentRequests] = useState<RequestRow[] | null>(null);
@@ -401,6 +407,7 @@ export default function EndpointDetailPane({
         onFocusZoneChange={onFocusZoneChange}
         lastSeenAt={detail?.last_seen_at ?? null}
         totalRequests={detail?.total_requests ?? 0}
+        initialRequestTs={initialRequestTs}
       />
     </div>
   );
@@ -429,6 +436,7 @@ function CallsPane({
   onFocusZoneChange,
   lastSeenAt = null,
   totalRequests = 0,
+  initialRequestTs,
 }: {
   requests: RequestRow[] | null;
   baseUrl: string;
@@ -436,12 +444,15 @@ function CallsPane({
   onFocusZoneChange?: (zone: FocusZone) => void;
   lastSeenAt?: string | null;
   totalRequests?: number;
+  initialRequestTs?: string;
 }) {
   const [selected, setSelected] = useState<RequestRow | null>(null);
   const [tab, setTab] = useState<FilterTab>("all");
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  // Apply the deep-linked request (?req=…) exactly once, after the list loads.
+  const appliedInitialRef = useRef(false);
 
   const filtered = useMemo(() => {
     if (!requests) return null;
@@ -458,10 +469,21 @@ function CallsPane({
     });
   }, [requests, tab, query]);
 
-  // Restart at the top whenever the underlying list changes.
+  // Restart at the top whenever the underlying list changes — but if we arrived
+  // with a deep-linked request (?req=…), land the cursor on it the first time
+  // the matching list loads and hand focus to the calls pane.
   useEffect(() => {
+    if (initialRequestTs && !appliedInitialRef.current && filtered && filtered.length) {
+      const idx = filtered.findIndex((r) => r.timestamp === initialRequestTs);
+      if (idx >= 0) {
+        appliedInitialRef.current = true;
+        setCursor(idx);
+        onFocusZoneChange?.("calls");
+        return;
+      }
+    }
     setCursor(0);
-  }, [requests, tab, query]);
+  }, [requests, tab, query, filtered, initialRequestTs, onFocusZoneChange]);
 
   // The detail pane follows the cursor: it auto-opens the first call when the
   // list loads and always shows the highlighted call as you move. There's no
@@ -670,6 +692,10 @@ function highlightJson(json: string): string {
   );
 }
 
+// Above this size we skip syntax highlighting (regex on a huge string is slow)
+// and just render raw text — the full body is still available in the modal.
+const HIGHLIGHT_LIMIT = 40_000;
+
 /** Read-only payload body (Postman-style) — JSON syntax-highlighted, no chrome. */
 function PayloadBody({ body }: { body: string }) {
   if (!body) {
@@ -680,13 +706,118 @@ function PayloadBody({ body }: { body: string }) {
       </div>
     );
   }
-  const isJson = (() => {
+  const tooBig = body.length > HIGHLIGHT_LIMIT;
+  const isJson = !tooBig && (() => {
     try { JSON.parse(body); return true; } catch { return false; }
   })();
   return isJson ? (
     <pre className="request-payload-pre" dangerouslySetInnerHTML={{ __html: highlightJson(body) }} />
   ) : (
     <pre className="request-payload-pre">{body}</pre>
+  );
+}
+
+/** Parse the SDK's JSON header blob into sorted [name, value] pairs. */
+function parseHeaders(raw: string | undefined): [string, string][] {
+  if (!raw || !raw.trim()) return [];
+  try {
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== "object") return [];
+    return Object.entries(obj as Record<string, unknown>)
+      .map(([k, v]) => [k, String(v)] as [string, string])
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  } catch {
+    return [];
+  }
+}
+
+/** Collapsible request/response headers list. */
+function HeadersBlock({ raw }: { raw: string | undefined }) {
+  const [open, setOpen] = useState(false);
+  const headers = parseHeaders(raw);
+  if (headers.length === 0) return null;
+  return (
+    <div className="ep-headers">
+      <button className="ep-headers-toggle" onClick={() => setOpen((v) => !v)}>
+        <ChevronRight size={12} className={`ep-headers-chev${open ? " is-open" : ""}`} />
+        Headers
+        <span className="ep-headers-count">{headers.length}</span>
+      </button>
+      {open && (
+        <div className="ep-headers-list">
+          {headers.map(([k, v]) => (
+            <div key={k} className="ep-header-row">
+              <span className="ep-header-key">{k}</span>
+              <span className="ep-header-val">{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Full-screen payload viewer with copy + raw/pretty toggle. */
+function PayloadModal({
+  title,
+  body,
+  onClose,
+}: {
+  title: string;
+  body: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [raw, setRaw] = useState(false);
+  const isJson = (() => {
+    try { JSON.parse(body); return true; } catch { return false; }
+  })();
+  const pretty = isJson && !raw && body.length <= 500_000;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(body);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  };
+
+  return (
+    <div className="ep-payload-modal-overlay" onClick={onClose}>
+      <div className="ep-payload-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="ep-payload-modal-head">
+          <span className="ep-payload-modal-title">{title}</span>
+          <span className="ep-payload-modal-meta">{fmtBytes(byteLen(body))}</span>
+          <div className="ep-payload-modal-actions">
+            {isJson && (
+              <button className="ep-pm-iconbtn" onClick={() => setRaw((v) => !v)}>
+                {raw ? "Pretty" : "Raw"}
+              </button>
+            )}
+            <button className="ep-pm-iconbtn" onClick={copy}>
+              {copied ? <Check size={13} /> : <Copy size={13} />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+            <button className="ep-pm-iconbtn" onClick={onClose} aria-label="Close">
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+        <div className="ep-payload-modal-body">
+          {pretty ? (
+            <pre className="request-payload-pre" dangerouslySetInnerHTML={{ __html: highlightJson(body) }} />
+          ) : (
+            <pre className="request-payload-pre">{body}</pre>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -700,6 +831,7 @@ function CallDetailInline({
   baseUrl: string;
 }) {
   const [copiedCurl, setCopiedCurl] = useState(false);
+  const [modal, setModal] = useState<{ title: string; body: string } | null>(null);
   const [baseUrl, setBaseUrl] = useState(() => {
     if (typeof window === "undefined") return detectedBaseUrl;
     return localStorage.getItem(CURL_BASE_URL_KEY) || detectedBaseUrl;
@@ -781,7 +913,18 @@ function CallDetailInline({
           <div className="ep-pm-pane-head">
             <span className="ep-pm-pane-title">Request</span>
             <span className="ep-pm-pane-meta">{fmtBytes(byteLen(row.request_payload))}</span>
+            {reqBody && (
+              <button
+                className="ep-pm-expand"
+                onClick={() => setModal({ title: "Request body", body: reqBody })}
+                title="Expand"
+                aria-label="Expand request body"
+              >
+                <Maximize2 size={12} />
+              </button>
+            )}
           </div>
+          <HeadersBlock raw={row.request_headers} />
           <PayloadBody body={reqBody} />
         </section>
 
@@ -796,11 +939,26 @@ function CallDetailInline({
               </span>
               <span className="ep-pm-resp-meta">{fmtMs(row.response_time_ms)}</span>
               <span className="ep-pm-resp-meta">{fmtBytes(byteLen(row.response_payload))}</span>
+              {respBody && (
+                <button
+                  className="ep-pm-expand"
+                  onClick={() => setModal({ title: "Response body", body: respBody })}
+                  title="Expand"
+                  aria-label="Expand response body"
+                >
+                  <Maximize2 size={12} />
+                </button>
+              )}
             </span>
           </div>
+          <HeadersBlock raw={row.response_headers} />
           <PayloadBody body={respBody} />
         </section>
       </div>
+
+      {modal && (
+        <PayloadModal title={modal.title} body={modal.body} onClose={() => setModal(null)} />
+      )}
     </div>
   );
 }

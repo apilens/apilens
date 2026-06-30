@@ -47,6 +47,20 @@ class MagicLinkOnlyError(AuthenticationError):
         super().__init__(message)
 
 
+class AuthorizationError(AppError):
+    """The caller is authenticated but not permitted to access this resource.
+
+    Distinct from NotFoundError: the resource exists, the caller just lacks
+    access (e.g. they are not a member of the project).
+    """
+
+    status_code = 403
+    error_code = "forbidden"
+
+    def __init__(self, message: str = "You don't have access to this resource"):
+        super().__init__(message)
+
+
 class RateLimitError(AppError):
     status_code = 429
     error_code = "rate_limit_exceeded"

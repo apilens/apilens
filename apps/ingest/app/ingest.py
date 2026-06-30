@@ -19,7 +19,9 @@ from .db import clickhouse, pg_conn
 
 ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 
-MAX_PAYLOAD_CHARS = 16_384
+# Keep in sync with the SDK's max_payload_bytes default (65536) so the server
+# doesn't re-truncate a payload the SDK already capped.
+MAX_PAYLOAD_CHARS = 65_536
 MAX_LOG_MESSAGE_CHARS = 8_192
 MAX_LOG_PAYLOAD_CHARS = 16_384
 MAX_LOG_ATTRIBUTE_KEY_CHARS = 64
@@ -30,7 +32,8 @@ REQUEST_COLUMNS = [
     "timestamp", "app_id", "project_id", "endpoint_id", "environment", "method",
     "path", "status_code", "response_time_ms", "request_size", "response_size",
     "ip_address", "user_agent", "consumer_id", "consumer_name", "consumer_group",
-    "request_payload", "response_payload", "base_url",
+    "request_payload", "response_payload", "request_headers", "response_headers",
+    "base_url",
 ]
 LOG_COLUMNS = [
     "timestamp", "app_id", "project_id", "environment", "level", "message",
@@ -108,6 +111,8 @@ def ensure_clickhouse_schema(client) -> None:
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS project_id String CODEC(ZSTD(1))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS request_payload String CODEC(ZSTD(3))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS response_payload String CODEC(ZSTD(3))",
+            "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS request_headers String CODEC(ZSTD(3))",
+            "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS response_headers String CODEC(ZSTD(3))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_id String CODEC(ZSTD(3))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_name String CODEC(ZSTD(3))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_group String CODEC(ZSTD(3))",
@@ -232,6 +237,7 @@ def handle_requests(project_id: str, project_slug: str, records) -> int:
                 (r.consumer_id or "")[:256], (r.consumer_name or "")[:256],
                 (r.consumer_group or "")[:256],
                 _safe_payload(r.request_payload), _safe_payload(r.response_payload),
+                _safe_payload(r.request_headers), _safe_payload(r.response_headers),
                 (r.base_url or "")[:512],
             ))
         client.execute(

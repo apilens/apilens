@@ -16,6 +16,7 @@ from ._capture import (
     _to_int,
     capture_response,
 )
+from ._sanitize import decode_utf8_safe, serialize_headers
 from .client import ApiLensClient
 
 _consumer_ctx: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar(
@@ -28,6 +29,21 @@ _consumer_ctx: contextvars.ContextVar[dict[str, str] | None] = contextvars.Conte
 _CONSUMER_ATTR = "_apilens_consumer"
 
 _EMPTY_CONSUMER = {"consumer_id": "", "consumer_name": "", "consumer_group": ""}
+
+
+def _wsgi_request_headers(environ: dict[str, Any]) -> dict[str, str]:
+    """Reconstruct request headers from a WSGI environ (HTTP_* + CONTENT_*)."""
+    out: dict[str, str] = {}
+    for key, value in environ.items():
+        if key.startswith("HTTP_"):
+            name = key[5:].replace("_", "-").lower()
+        elif key in ("CONTENT_TYPE", "CONTENT_LENGTH"):
+            name = key.replace("_", "-").lower()
+        else:
+            continue
+        if value is not None:
+            out[name] = str(value)
+    return out
 
 
 def normalize_consumer(value: Any) -> dict[str, str]:
@@ -221,7 +237,8 @@ class ApiLensASGIMiddleware:
         log_request_body: bool = True,
         log_response_body: bool = True,
         capture_payloads: bool = True,
-        max_payload_bytes: int = 8192,
+        capture_headers: bool = True,
+        max_payload_bytes: int = 65536,
         get_consumer: Callable[..., Any] | None = None,
     ) -> None:
         self.app = app
@@ -233,6 +250,7 @@ class ApiLensASGIMiddleware:
         self.log_request_body = log_request_body
         self.log_response_body = log_response_body
         self.capture_payloads = capture_payloads and enable_request_logging
+        self.capture_headers = capture_headers and enable_request_logging
         self.max_payload_bytes = max(0, int(max_payload_bytes))
         # Optional callback to centralize consumer extraction, e.g.
         #   get_consumer=lambda scope, headers: headers.get("x-user")
@@ -260,6 +278,7 @@ class ApiLensASGIMiddleware:
             ip_address=_extract_ip(headers, fallback=(scope.get("client") or ("", 0))[0] or ""),
             user_agent=_extract_user_agent(headers),
             base_url=_detect_base_url_from_headers(headers, default_scheme=scope.get("scheme", "https")),
+            request_headers=serialize_headers(headers) if self.capture_headers else "",
         )
 
         started_at = time.perf_counter()
@@ -267,6 +286,7 @@ class ApiLensASGIMiddleware:
         response_size = 0
         response_payload_chunks: list[bytes] = []
         response_payload_len = 0
+        response_headers_json = ""
         token = _consumer_ctx.set(None)
 
         async def wrapped_receive():
@@ -287,10 +307,14 @@ class ApiLensASGIMiddleware:
             return message
 
         async def wrapped_send(message: dict[str, Any]) -> None:
-            nonlocal status_code, response_size, response_payload_len
+            nonlocal status_code, response_size, response_payload_len, response_headers_json
             msg_type = message.get("type")
             if msg_type == "http.response.start":
                 status_code = int(message.get("status") or 500)
+                if self.capture_headers:
+                    response_headers_json = serialize_headers(
+                        _headers_to_dict(message.get("headers") or [])
+                    )
             elif msg_type == "http.response.body":
                 body = message.get("body") or b""
                 response_size += len(body)
@@ -317,8 +341,8 @@ class ApiLensASGIMiddleware:
                     resolved = None
                 if resolved is not None:
                     consumer = normalize_consumer(resolved)
-            request_payload = b"".join(request_payload_chunks).decode("utf-8", errors="replace")
-            response_payload = b"".join(response_payload_chunks).decode("utf-8", errors="replace")
+            request_payload = decode_utf8_safe(b"".join(request_payload_chunks))
+            response_payload = decode_utf8_safe(b"".join(response_payload_chunks))
             ctx.request_payload = request_payload
             _apply_consumer(ctx, consumer)
             capture_response(
@@ -329,6 +353,7 @@ class ApiLensASGIMiddleware:
                 started_at=started_at,
                 environment=self.environment,
                 response_payload=response_payload,
+                response_headers=response_headers_json,
             )
             _consumer_ctx.reset(token)
 
@@ -348,7 +373,8 @@ class ApiLensWSGIMiddleware:
         log_request_body: bool = True,
         log_response_body: bool = True,
         capture_payloads: bool = True,
-        max_payload_bytes: int = 8192,
+        capture_headers: bool = True,
+        max_payload_bytes: int = 65536,
         get_consumer: Callable[..., Any] | None = None,
     ) -> None:
         self.app = app
@@ -360,6 +386,7 @@ class ApiLensWSGIMiddleware:
         self.log_request_body = log_request_body
         self.log_response_body = log_response_body
         self.capture_payloads = capture_payloads and enable_request_logging
+        self.capture_headers = capture_headers and enable_request_logging
         self.max_payload_bytes = max(0, int(max_payload_bytes))
         # Optional callback to centralize consumer extraction, e.g.
         #   get_consumer=lambda environ: environ.get("HTTP_X_USER")
@@ -388,7 +415,7 @@ class ApiLensWSGIMiddleware:
             if stream is not None and hasattr(stream, "read"):
                 body = stream.read(self.max_payload_bytes)
                 if body:
-                    request_payload = body.decode("utf-8", errors="replace")
+                    request_payload = decode_utf8_safe(body)
                 # Reset stream so app can consume the same bytes.
                 try:
                     import io
@@ -396,6 +423,10 @@ class ApiLensWSGIMiddleware:
                     environ["wsgi.input"] = io.BytesIO(body + stream.read())
                 except Exception:
                     pass
+
+        request_headers_json = (
+            serialize_headers(_wsgi_request_headers(environ)) if self.capture_headers else ""
+        )
 
         ctx = CaptureContext(
             method=(environ.get("REQUEST_METHOD") or "GET").upper(),
@@ -406,6 +437,7 @@ class ApiLensWSGIMiddleware:
             ip_address=ip_address,
             user_agent=(environ.get("HTTP_USER_AGENT") or "").strip(),
             request_payload=request_payload,
+            request_headers=request_headers_json,
             base_url=_detect_base_url_from_environ(environ),
         )
 
@@ -413,10 +445,15 @@ class ApiLensWSGIMiddleware:
         response_size = 0
         response_payload_chunks: list[bytes] = []
         response_payload_len = 0
+        response_headers_json = ""
 
         def wrapped_start_response(status: str, headers: list[tuple[str, str]], exc_info=None):
-            nonlocal status_code
+            nonlocal status_code, response_headers_json
             status_code = _to_int(status.split(" ", 1)[0], 500)
+            if self.capture_headers:
+                response_headers_json = serialize_headers(
+                    {str(k): str(v) for k, v in (headers or [])}
+                )
             return start_response(status, headers, exc_info)
 
         result = self.app(environ, wrapped_start_response)
@@ -445,7 +482,7 @@ class ApiLensWSGIMiddleware:
                     consumer = normalize_consumer(resolved)
             _apply_consumer(ctx, consumer)
             _consumer_ctx.reset(consumer_token)
-            response_payload = b"".join(response_payload_chunks).decode("utf-8", errors="replace")
+            response_payload = decode_utf8_safe(b"".join(response_payload_chunks))
             capture_response(
                 self.client,
                 ctx,
@@ -454,4 +491,5 @@ class ApiLensWSGIMiddleware:
                 started_at=started_at,
                 environment=self.environment,
                 response_payload=response_payload,
+                response_headers=response_headers_json,
             )

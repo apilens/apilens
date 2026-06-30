@@ -38,7 +38,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         enable_request_logging: bool = True,
         log_request_body: bool = True,
         log_response_body: bool = True,
-        max_payload_bytes: int = 8192,
+        max_payload_bytes: int = 65536,
         get_consumer: Callable[..., Any] | None = None,
     ) -> None:
         resolved_key = (api_key or client_id or "").strip()
@@ -88,7 +88,7 @@ def instrument_app(
     enable_request_logging: bool = True,
     log_request_body: bool = True,
     log_response_body: bool = True,
-    max_payload_bytes: int = 8192,
+    max_payload_bytes: int = 65536,
 ):
     """Compatibility wrapper: prefer apilens.frameworks.fastapi.instrument_fastapi."""
     return instrument_fastapi(

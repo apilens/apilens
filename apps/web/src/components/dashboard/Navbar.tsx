@@ -4,7 +4,8 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { useSpotlight } from "@/components/providers/SpotlightProvider";
 import UserAvatar from "@/components/shared/UserAvatar";
 import Breadcrumbs from "./Breadcrumbs";
-import { Bell, LogOut, Search, Settings } from "lucide-react";
+import NotificationsBell from "./NotificationsBell";
+import { LogOut, Search, Settings } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 
 export interface NavbarProps {
@@ -43,10 +44,7 @@ export default function Navbar({ projectSlug }: NavbarProps) {
           <span className="ap-kbd">⌘K</span>
         </button>
 
-        <button className="navbar-icon-btn">
-          <Bell size={18} />
-          <span className="notification-dot" />
-        </button>
+        <NotificationsBell />
 
         <div className="user-menu" ref={dropdownRef}>
           <button

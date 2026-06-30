@@ -209,6 +209,65 @@ class AnalyticsTimeseriesPointResponse(Schema):
     total_response_bytes: int
 
 
+# ── Membership Schemas ───────────────────────────────────────────────
+
+class MemberResponse(Schema):
+    id: str | None
+    user_id: str
+    email: str
+    name: str
+    role: str
+    is_owner: bool
+    is_you: bool
+
+class InvitationResponse(Schema):
+    id: str
+    email: str
+    role: str
+    expires_at: datetime
+    created_at: datetime
+
+class MembersListResponse(Schema):
+    members: list[MemberResponse]
+    invitations: list[InvitationResponse]
+    your_role: str
+
+class InviteMemberRequest(Schema):
+    email: str
+    role: str = "member"
+
+class UpdateMemberRoleRequest(Schema):
+    role: str
+
+class AcceptInvitationRequest(Schema):
+    token: str
+
+class PendingInvitationResponse(Schema):
+    id: str
+    project_name: str
+    project_slug: str
+    role: str
+    inviter: str
+    created_at: datetime
+    expires_at: datetime
+
+class AcceptResultResponse(Schema):
+    message: str
+    project_slug: str
+    project_name: str
+
+class InviteInfoRequest(Schema):
+    token: str
+
+class InviteInfoResponse(Schema):
+    valid: bool
+    email: str = ""
+    role: str = ""
+    project_name: str = ""
+    project_slug: str = ""
+    inviter: str = ""
+
+
 # ── Generic Response Schemas ──────────────────────────────────────────
 
 class MessageResponse(Schema):

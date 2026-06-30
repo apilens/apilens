@@ -110,6 +110,8 @@ class ApiLensClient:
         consumer_group: str = "",
         request_payload: str = "",
         response_payload: str = "",
+        request_headers: str = "",
+        response_headers: str = "",
         environment: str | None = None,
         base_url: str = "",
     ) -> None:
@@ -131,6 +133,8 @@ class ApiLensClient:
             consumer_group=consumer_group,
             request_payload=request_payload,
             response_payload=response_payload,
+            request_headers=request_headers,
+            response_headers=response_headers,
             base_url=base_url,
         )
         self.capture_record(record)

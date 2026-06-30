@@ -223,3 +223,9 @@ next-env.d.ts
 # ==============================
 **/migrations/
 **/migrations/**
+
+# ==============================
+# Local agent / tooling artifacts
+# ==============================
+.claude/
+.playwright-mcp/

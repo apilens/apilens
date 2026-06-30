@@ -15,9 +15,15 @@ from django.utils import timezone
 from django.utils.text import slugify
 from PIL import Image
 
-from core.exceptions.base import NotFoundError, RateLimitError, ValidationError, ConflictError
+from core.exceptions.base import (
+    NotFoundError,
+    AuthorizationError,
+    RateLimitError,
+    ValidationError,
+    ConflictError,
+)
 
-from .models import Project, App, Endpoint, Environment
+from .models import Project, App, Endpoint, Environment, ProjectMember
 from .validators import (
     validate_project_slug,
     validate_app_slug,
@@ -60,8 +66,13 @@ def _resolve_bucket_timezone(timezone_name: str | None) -> str:
     return timezone_name
 
 
-def _unique_project_slug(user, name: str, exclude_id=None) -> str:
-    """Generate a unique slug for a project within a user's projects."""
+def _unique_project_slug(name: str, exclude_id=None) -> str:
+    """Generate a GLOBALLY unique slug for a project.
+
+    Project names are unique across all users, so the slug is checked against
+    every active project (not just the caller's). Only active projects reserve a
+    slug — a soft-deleted project frees its name for reuse.
+    """
     base = slugify(name)[:100]
     if not base:
         base = "project"
@@ -73,8 +84,8 @@ def _unique_project_slug(user, name: str, exclude_id=None) -> str:
     counter = 1
 
     while True:
-        # Slug is protected by a DB unique constraint on (owner, slug)
-        qs = Project.objects.filter(owner=user, slug=candidate)
+        # Slug is protected by a global DB unique constraint on active projects.
+        qs = Project.objects.filter(slug=candidate, is_active=True)
         if exclude_id:
             qs = qs.exclude(id=exclude_id)
         if not qs.exists():
@@ -126,9 +137,16 @@ class ProjectService:
         if Project.objects.for_user(user).count() >= MAX_PROJECTS_PER_USER:
             raise RateLimitError(f"Maximum of {MAX_PROJECTS_PER_USER} projects allowed")
 
+        # Project names are globally unique across ALL users — once a name is
+        # taken it's unavailable to everyone else.
+        if Project.objects.filter(name__iexact=name, is_active=True).exists():
+            raise ConflictError(
+                f"A project named '{name}' is already taken. Please choose a different name."
+            )
+
         # Retry for rare concurrent create collisions
         for attempt in range(5):
-            slug = _unique_project_slug(user, name)
+            slug = _unique_project_slug(name)
             try:
                 with transaction.atomic():
                     project = Project.objects.create(
@@ -139,7 +157,7 @@ class ProjectService:
                     )
                     return project
             except IntegrityError as exc:
-                if "unique_project_slug" in str(exc):
+                if "project_slug" in str(exc):
                     if attempt == 4:
                         raise ConflictError("Project name already exists. Try a different name.")
                     continue
@@ -153,27 +171,69 @@ class ProjectService:
         return list(Project.objects.for_user(user).order_by("-created_at"))
 
     @staticmethod
-    def get_project_by_slug(user, slug: str) -> Project:
-        """Get a project by slug for a specific user.
+    def get_role(user, project: Project) -> str | None:
+        """The user's effective role on a project (RBAC subject role).
 
-        The DB filter (owner=user) is defense-in-depth; the authorization
-        decision is delegated to the OPA policy engine (and logged there). If
-        OPA is unreachable, fall back to the DB guard rather than 500 the UI.
+        Prefers the authoritative owner FK, then a ProjectMember row. Returns
+        None when the user has no relationship to the project.
         """
-        try:
-            project = Project.objects.get(owner=user, slug=slug, is_active=True)
-        except Project.DoesNotExist:
-            raise NotFoundError(f"Project '{slug}' not found")
+        if project.owner_id == user.id:
+            return ProjectMember.Role.OWNER
+        member = ProjectMember.objects.filter(project=project, user=user).only("role").first()
+        return member.role if member else None
+
+    @staticmethod
+    def authorize(user, project: Project, action: str) -> str:
+        """Authorize an action on a project via OPA (role -> action RBAC).
+
+        The role is resolved here (PIP) and passed to OPA (PDP). On deny we raise
+        AuthorizationError (403) — the project exists, the caller just lacks
+        access — distinguishing "no access" (not a member) from "insufficient
+        permission" (a member whose role can't do this action). OPA's None (OPA
+        unreachable) falls back to "has any role" so the dashboard degrades
+        rather than 500s. Returns the resolved role.
+        """
+        role = ProjectService.get_role(user, project)
+
+        # The project owner is authoritative and has every permission by
+        # definition. Short-circuit before OPA so a stale or unreachable policy
+        # can never lock an owner out of their own project.
+        if role == ProjectMember.Role.OWNER:
+            return role
 
         from core.authz import opa
 
-        if opa.check(
+        decision = opa.check(
             user_id=str(user.id),
-            action="read",
+            action=action,
             resource_type="project",
             owner_id=str(project.owner_id),
-        ) is False:
+            role=role or "",
+        )
+        if decision is True:
+            return role
+        # Not a member of the project at all.
+        if role is None:
+            raise AuthorizationError("You don't have access to this project")
+        # A member, but their role isn't permitted to perform this action.
+        if decision is False:
+            raise AuthorizationError("You don't have permission to perform this action")
+        # OPA unavailable but the user has a role: degrade gracefully (allow).
+        return role
+
+    @staticmethod
+    def get_project_by_slug(user, slug: str, action: str = "read") -> Project:
+        """Get a project, enforcing `action` via OPA RBAC.
+
+        Existence and access are reported distinctly: an unknown slug raises
+        NotFoundError (404), while a real project the caller can't access raises
+        AuthorizationError (403, via `authorize`).
+        """
+        project = Project.objects.filter(slug=slug, is_active=True).first()
+        if project is None:
             raise NotFoundError(f"Project '{slug}' not found")
+
+        ProjectService.authorize(user, project, action)
         return project
 
     @staticmethod
@@ -184,15 +244,26 @@ class ProjectService:
         name: str | None = None,
         description: str | None = None,
     ) -> Project:
-        """Update a project's details."""
-        project = ProjectService.get_project_by_slug(user, slug)
+        """Update a project's details. Requires the `admin` role."""
+        project = ProjectService.get_project_by_slug(user, slug, action="admin")
 
         if name is not None:
             name = name.strip()
             if not name:
                 raise ValidationError("Project name is required")
+            # Project names are globally unique — block names already taken by
+            # any other active project.
+            if (
+                Project.objects.filter(name__iexact=name, is_active=True)
+                .exclude(id=project.id)
+                .exists()
+            ):
+                raise ConflictError(
+                    f"A project named '{name}' is already taken. Please choose a different name."
+                )
             project.name = name
-            project.slug = _unique_project_slug(user, name, exclude_id=project.id)
+            # Slug is globally unique across all users.
+            project.slug = _unique_project_slug(name, exclude_id=project.id)
 
         if description is not None:
             project.description = description.strip()
@@ -206,8 +277,9 @@ class ProjectService:
         """
         Soft delete a project.
         Also soft-deletes all apps in the project and revokes all API keys.
+        Requires the `delete` role (owner only).
         """
-        project = ProjectService.get_project_by_slug(user, slug)
+        project = ProjectService.get_project_by_slug(user, slug, action="delete")
 
         # Soft delete all apps in this project
         from apps.projects.models import App
@@ -560,6 +632,8 @@ class IngestService:
     MAX_LOG_ATTRIBUTES = 64
     _payload_columns_ready = False
     _payload_columns_lock = threading.Lock()
+    _header_columns_ready = False
+    _header_columns_lock = threading.Lock()
     _consumer_columns_ready = False
     _consumer_columns_lock = threading.Lock()
     _base_url_column_ready = False
@@ -585,6 +659,25 @@ class IngestService:
                 logger.warning("Unable to ensure payload columns on api_requests: %s", exc)
                 return
             IngestService._payload_columns_ready = True
+
+    @staticmethod
+    def ensure_header_columns(client) -> None:
+        if IngestService._header_columns_ready:
+            return
+        with IngestService._header_columns_lock:
+            if IngestService._header_columns_ready:
+                return
+            try:
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS request_headers String CODEC(ZSTD(3))"
+                )
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS response_headers String CODEC(ZSTD(3))"
+                )
+            except Exception as exc:
+                logger.warning("Unable to ensure header columns on api_requests: %s", exc)
+                return
+            IngestService._header_columns_ready = True
 
     @staticmethod
     def ensure_base_url_column(client) -> None:
@@ -1108,7 +1201,7 @@ class ConsumerStatsService:
                     if(
                         consumer_id != '',
                         consumer_id,
-                        if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                        'unknown'
                     )
                 ) AS consumer,
                 if(consumer_id != '', consumer_id, '') AS consumer_identifier,
@@ -1225,7 +1318,7 @@ class ConsumerStatsService:
                     if(
                         consumer_id != '',
                         consumer_id,
-                        if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                        'unknown'
                     )
                   ) = %(consumer)s
             ORDER BY timestamp DESC
@@ -1286,7 +1379,7 @@ class ConsumerStatsService:
                     if(
                         consumer_id != '',
                         consumer_id,
-                        if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                        'unknown'
                     )
                   ) = %(consumer)s
             GROUP BY method, path
@@ -1870,6 +1963,7 @@ class DataQueryService:
         min_response_time: float | None = None,
         max_response_time: float | None = None,
         path_filter: str | None = None,
+        consumer: str | None = None,
         page: int = 1,
         page_size: int = 50,
     ) -> dict:
@@ -1950,6 +2044,14 @@ class DataQueryService:
         if path_filter:
             filters.append("path LIKE %(path_filter)s")
             params["path_filter"] = path_filter.replace("*", "%")
+
+        # Consumer filter (matches the resolved consumer identity)
+        if consumer:
+            filters.append(
+                "if(consumer_name != '', consumer_name, "
+                "if(consumer_id != '', consumer_id, 'unknown')) = %(consumer)s"
+            )
+            params["consumer"] = consumer
 
         where_clause = ""
         if filters:
@@ -2074,7 +2176,7 @@ class AnalyticsService:
                         if(
                             consumer_id != '',
                             consumer_id,
-                            if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                            'unknown'
                         )
                     )
                 ) AS unique_consumers
@@ -2398,7 +2500,7 @@ class AnalyticsService:
                     if(
                         consumer_id != '',
                         consumer_id,
-                        if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                        'unknown'
                     )
                 ) AS consumer,
                 count() AS total_requests,
@@ -2549,6 +2651,7 @@ class AnalyticsService:
         environment: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        consumer: str | None = None,
     ) -> dict:
         """
         Get aggregated analytics summary for a project.
@@ -2588,6 +2691,13 @@ class AnalyticsService:
             filters.append("AND environment = %(environment)s")
             params["environment"] = environment
 
+        if consumer:
+            filters.append(
+                "AND if(consumer_name != '', consumer_name, "
+                "if(consumer_id != '', consumer_id, 'unknown')) = %(consumer)s"
+            )
+            params["consumer"] = consumer
+
         query = f"""
             SELECT
                 count() AS total_requests,
@@ -2605,7 +2715,7 @@ class AnalyticsService:
                         if(
                             consumer_id != '',
                             consumer_id,
-                            if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                            'unknown'
                         )
                     )
                 ) AS unique_consumers
@@ -2649,6 +2759,7 @@ class AnalyticsService:
         since: str | None = None,
         until: str | None = None,
         timezone_name: str | None = None,
+        consumer: str | None = None,
     ) -> list[dict]:
         """
         Get time-series analytics for a project.
@@ -2682,9 +2793,27 @@ class AnalyticsService:
             filters.append("AND environment = %(environment)s")
             params["environment"] = environment
 
+        if consumer:
+            filters.append(
+                "AND if(consumer_name != '', consumer_name, "
+                "if(consumer_id != '', consumer_id, 'unknown')) = %(consumer)s"
+            )
+            params["consumer"] = consumer
+
+        # Pick a bucket granularity that fits the window: hourly for short
+        # ranges (≤48h), daily beyond that — so a 30-day view shows ~30 daily
+        # bars instead of hundreds of sparse hourly ones. WITH FILL backfills
+        # empty buckets across the whole range so the timeline is continuous and
+        # gaps (days with no traffic) stay visible instead of being collapsed.
+        span_hours = (until_dt - since_dt).total_seconds() / 3600.0
+        bucket_fn, step_unit = ("toStartOfHour", "HOUR") if span_hours <= 48 else ("toStartOfDay", "DAY")
+        bucket_expr = f"toTimeZone({bucket_fn}(toTimeZone(timestamp, %(timezone)s)), 'UTC')"
+        fill_from = f"toTimeZone({bucket_fn}(toTimeZone(toDateTime(%(since)s), %(timezone)s)), 'UTC')"
+        fill_to = f"toTimeZone({bucket_fn}(toTimeZone(toDateTime(%(until)s), %(timezone)s)), 'UTC') + INTERVAL 1 {step_unit}"
+
         query = f"""
             SELECT
-                toTimeZone(toStartOfHour(toTimeZone(timestamp, %(timezone)s)), 'UTC') AS bucket,
+                {bucket_expr} AS bucket,
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
@@ -2696,6 +2825,7 @@ class AnalyticsService:
             {' '.join(filters)}
             GROUP BY bucket
             ORDER BY bucket ASC
+            WITH FILL FROM {fill_from} TO {fill_to} STEP INTERVAL 1 {step_unit}
         """
         try:
             return client.execute(query, params)
@@ -2714,6 +2844,7 @@ class AnalyticsService:
         status_classes: list[str] | None = None,
         status_codes: list[int] | None = None,
         search_query: str | None = None,
+        consumer: str | None = None,
         sort_by: str = "total_requests",
         sort_dir: str = "desc",
         page: int = 1,
@@ -2776,6 +2907,13 @@ class AnalyticsService:
             filters.append("AND (lower(path) LIKE %(search_pattern)s OR lower(method) LIKE %(search_pattern)s)")
             params["search_pattern"] = f"%{search_query.lower()}%"
 
+        if consumer:
+            filters.append(
+                "AND if(consumer_name != '', consumer_name, "
+                "if(consumer_id != '', consumer_id, 'unknown')) = %(consumer)s"
+            )
+            params["consumer"] = consumer
+
         # Map sort_by to valid column names
         sort_column_map = {
             "endpoint": "path",
@@ -2829,6 +2967,12 @@ class AnalyticsService:
             rows = client.execute(query, params)
             # Rows are already dicts from the ClickHouse client wrapper
             clickhouse_items = [AnalyticsService._clean_nan_values(row) for row in rows]
+
+            # When filtering by consumer, only show endpoints that consumer
+            # actually hit — skip the DB overlay (which would re-add endpoints
+            # with zero traffic) and report ClickHouse's own count.
+            if consumer:
+                return {"items": clickhouse_items, "total_count": int(total_count or 0)}
 
             # Get all registered endpoints from PostgreSQL
             db_result = AnalyticsService._get_endpoints_from_db(
@@ -3235,7 +3379,7 @@ class AnalyticsService:
                     if(
                         consumer_id != '',
                         consumer_id,
-                        if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                        'unknown'
                     )
                 ) AS consumer,
                 count() AS total_requests,
@@ -3252,6 +3396,74 @@ class AnalyticsService:
             return [AnalyticsService._clean_nan_values(r) for r in client.execute(query, params)]
         except Exception as exc:
             logger.warning("ClickHouse query failed for project endpoint consumers; returning empty list: %s", exc)
+            return []
+
+    @staticmethod
+    def get_project_consumers(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        """
+        List the consumers seen across a project (optionally scoped to apps /
+        environment / time range), ranked by request volume. Powers the
+        consumer filter dropdown. Excludes the synthetic 'unknown' bucket.
+        """
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty project consumers: %s", exc)
+            return []
+        IngestService.ensure_consumer_columns(client)
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params = {
+            "project_id": project_id,
+            "since": since_dt,
+            "until": until_dt,
+            "limit": max(1, min(int(limit), 1000)),
+        }
+
+        filters = ["WHERE project_id = %(project_id)s"]
+        filters.append("AND timestamp >= %(since)s")
+        filters.append("AND timestamp <= %(until)s")
+
+        if app_ids:
+            filters.append("AND app_id IN %(app_ids)s")
+            params["app_ids"] = app_ids
+
+        if environment:
+            filters.append("AND environment = %(environment)s")
+            params["environment"] = environment
+
+        query = f"""
+            SELECT
+                if(
+                    consumer_name != '',
+                    consumer_name,
+                    if(
+                        consumer_id != '',
+                        consumer_id,
+                        'unknown'
+                    )
+                ) AS consumer,
+                count() AS total_requests
+            FROM api_requests
+            {' '.join(filters)}
+            GROUP BY consumer
+            HAVING consumer != 'unknown'
+            ORDER BY total_requests DESC
+            LIMIT %(limit)s
+        """
+        try:
+            return [AnalyticsService._clean_nan_values(r) for r in client.execute(query, params)]
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for project consumers; returning empty list: %s", exc)
             return []
 
     @staticmethod
@@ -3316,6 +3528,7 @@ class AnalyticsService:
             return []
         IngestService.ensure_consumer_columns(client)
         IngestService.ensure_payload_columns(client)
+        IngestService.ensure_header_columns(client)
         IngestService.ensure_base_url_column(client)
 
         since_dt, until_dt = _resolve_time_range(since, until)
@@ -3340,6 +3553,8 @@ class AnalyticsService:
                 consumer_name,
                 request_payload,
                 response_payload,
+                request_headers,
+                response_headers,
                 base_url,
                 if(
                     consumer_name != '',
@@ -3347,7 +3562,7 @@ class AnalyticsService:
                     if(
                         consumer_id != '',
                         consumer_id,
-                        if(user_agent != '', user_agent, if(ip_address != '', ip_address, 'unknown'))
+                        'unknown'
                     )
                 ) AS consumer
             FROM api_requests

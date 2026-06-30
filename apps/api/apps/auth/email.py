@@ -76,3 +76,40 @@ class SecurityEmailService:
         except Exception as exc:
             # Never propagate — the security action itself already succeeded.
             logger.exception(f"Failed to send security email {event} to {user.email}: {exc}")
+
+
+class InvitationEmailService:
+    """Sends a project invitation email. Best-effort (never rolls back the invite)."""
+
+    @staticmethod
+    def send(invitation, raw_token: str, inviter: User) -> None:
+        try:
+            from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@apilens.ai")
+            frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
+            inviter_name = (inviter.get_full_name() or "").strip() or inviter.email
+            context = {
+                "project_name": invitation.project.name,
+                "role": invitation.role,
+                "inviter_name": inviter_name,
+                "email": invitation.email,
+                "invite_url": f"{frontend_url}/auth/invite?token={raw_token}",
+                "expires_at": invitation.expires_at,
+                "frontend_url": frontend_url,
+            }
+            plain_text = render_to_string("auth/emails/invitation.txt", context)
+            html_content = render_to_string("auth/emails/invitation.html", context)
+            msg = EmailMultiAlternatives(
+                subject=f"{inviter_name} invited you to {invitation.project.name} on API Lens",
+                body=plain_text,
+                from_email=from_email,
+                to=[invitation.email],
+            )
+            msg.attach_alternative(html_content, "text/html")
+            msg.send(fail_silently=False)
+            logger.info(
+                f"Invitation email sent to {invitation.email} for project {invitation.project_id}"
+            )
+        except Exception as exc:
+            logger.exception(
+                f"Failed to send invitation email to {invitation.email}: {exc}"
+            )

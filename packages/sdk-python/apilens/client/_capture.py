@@ -20,6 +20,7 @@ class CaptureContext:
     consumer_name: str = ""
     consumer_group: str = ""
     request_payload: str = ""
+    request_headers: str = ""
     base_url: str = ""
 
 
@@ -103,6 +104,7 @@ def capture_response(
     started_at: float,
     environment: str | None = None,
     response_payload: str = "",
+    response_headers: str = "",
 ) -> None:
     elapsed_ms = max((time.perf_counter() - started_at) * 1000.0, 0.0)
     client.capture(
@@ -121,6 +123,8 @@ def capture_response(
         consumer_group=ctx.consumer_group,
         request_payload=ctx.request_payload,
         response_payload=response_payload,
+        request_headers=ctx.request_headers,
+        response_headers=response_headers,
         environment=environment,
         base_url=ctx.base_url,
     )

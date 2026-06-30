@@ -76,6 +76,57 @@ export interface ProjectInfo {
   updated_at: string;
 }
 
+export type ProjectRole = "owner" | "admin" | "member" | "viewer";
+
+export interface ProjectMember {
+  id: string | null;
+  user_id: string;
+  email: string;
+  name: string;
+  role: ProjectRole;
+  is_owner: boolean;
+  is_you: boolean;
+}
+
+export interface ProjectInvitation {
+  id: string;
+  email: string;
+  role: ProjectRole;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface ProjectMembersResult {
+  members: ProjectMember[];
+  invitations: ProjectInvitation[];
+  your_role: ProjectRole;
+}
+
+export interface InviteInfo {
+  valid: boolean;
+  email: string;
+  role: ProjectRole | "";
+  project_name: string;
+  project_slug: string;
+  inviter: string;
+}
+
+export interface PendingInvitation {
+  id: string;
+  project_name: string;
+  project_slug: string;
+  role: ProjectRole;
+  inviter: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface AcceptResult {
+  message: string;
+  project_slug: string;
+  project_name: string;
+}
+
 export interface ProjectListItem {
   id: string;
   name: string;
@@ -299,19 +350,30 @@ async function fetchDjango<T>(
   }
 }
 
-// Single-flight guard: parallel requests that all see a 401 must share one
-// refresh call, otherwise the second one sends an already-revoked refresh
-// token and the family-reuse detector wipes every session.
-let refreshInflight: Promise<{ accessToken: string; refreshToken: string } | null> | null = null;
+// Refresh-token rotation is single-use with family-reuse detection on the
+// backend: presenting an already-rotated token wipes the whole session family.
+// The dashboard fires many parallel requests that all carry the SAME refresh
+// token, so on a 401 wave they must ALL resolve to the one rotated token —
+// never re-present the old one. We coalesce two ways, keyed by the presented
+// token:
+//   • in-flight map  — concurrent callers share the one /refresh promise;
+//   • recent cache   — callers that 401 just *after* it settled still get the
+//                      already-rotated result instead of refreshing again.
+type RefreshResult = { accessToken: string; refreshToken: string } | null;
+const REFRESH_CACHE_TTL_MS = 15_000;
+const refreshInflight = new Map<string, Promise<RefreshResult>>();
+const refreshRecent = new Map<string, { result: RefreshResult; at: number }>();
 
-async function refreshTokens(
-  refreshToken: string,
-): Promise<{ accessToken: string; refreshToken: string } | null> {
-  if (refreshInflight) {
-    return refreshInflight;
+async function refreshTokens(refreshToken: string): Promise<RefreshResult> {
+  const cached = refreshRecent.get(refreshToken);
+  if (cached && Date.now() - cached.at < REFRESH_CACHE_TTL_MS) {
+    return cached.result;
   }
 
-  refreshInflight = (async () => {
+  const existing = refreshInflight.get(refreshToken);
+  if (existing) return existing;
+
+  const inflight = (async (): Promise<RefreshResult> => {
     try {
       const response = await fetch(`${AUTH_API_URL}/refresh`, {
         method: "POST",
@@ -338,13 +400,24 @@ async function refreshTokens(
       };
     } catch {
       return null;
-    } finally {
-      // Release the lock once the call settles, so the next 401 wave can refresh.
-      refreshInflight = null;
     }
   })();
 
-  return refreshInflight;
+  refreshInflight.set(refreshToken, inflight);
+  try {
+    const result = await inflight;
+    // Remember the outcome briefly so the rest of the herd reuses it.
+    refreshRecent.set(refreshToken, { result, at: Date.now() });
+    if (refreshRecent.size > 50) {
+      const cutoff = Date.now() - REFRESH_CACHE_TTL_MS;
+      for (const [key, val] of refreshRecent) {
+        if (val.at < cutoff) refreshRecent.delete(key);
+      }
+    }
+    return result;
+  } finally {
+    refreshInflight.delete(refreshToken);
+  }
 }
 
 export const apiClient = {
@@ -545,6 +618,75 @@ export const apiClient = {
   async revokeProjectApiKey(projectSlug: string, keyId: string): Promise<ApiResponse<{ message: string }>> {
     return fetchDjango<{ message: string }>(`/projects/${projectSlug}/api-keys/${keyId}`, {
       method: "DELETE",
+    });
+  },
+
+  // ── Project Members & Invitations ──────────────────────────────────
+
+  async getProjectMembers(projectSlug: string): Promise<ApiResponse<ProjectMembersResult>> {
+    return fetchDjango<ProjectMembersResult>(`/projects/${projectSlug}/members`);
+  },
+
+  async inviteProjectMember(projectSlug: string, email: string, role: string): Promise<ApiResponse<ProjectInvitation>> {
+    return fetchDjango<ProjectInvitation>(`/projects/${projectSlug}/members/invite`, {
+      method: "POST",
+      body: JSON.stringify({ email, role }),
+    });
+  },
+
+  async updateMemberRole(projectSlug: string, memberId: string, role: string): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>(`/projects/${projectSlug}/members/${memberId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    });
+  },
+
+  async removeProjectMember(projectSlug: string, memberId: string): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>(`/projects/${projectSlug}/members/${memberId}`, {
+      method: "DELETE",
+    });
+  },
+
+  async revokeProjectInvitation(projectSlug: string, inviteId: string): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>(`/projects/${projectSlug}/invitations/${inviteId}`, {
+      method: "DELETE",
+    });
+  },
+
+  async getInviteInfo(token: string): Promise<ApiResponse<InviteInfo>> {
+    return fetchDjango<InviteInfo>(`/auth/invite-info`, {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  async acceptInvitation(token: string): Promise<ApiResponse<AcceptResult>> {
+    return fetchDjango<AcceptResult>(`/projects/invitations/accept`, {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  async declineInvitationByToken(token: string): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>(`/projects/invitations/decline`, {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  async getPendingInvitations(): Promise<ApiResponse<PendingInvitation[]>> {
+    return fetchDjango<PendingInvitation[]>(`/projects/invitations/pending`);
+  },
+
+  async acceptInvitationById(inviteId: string): Promise<ApiResponse<AcceptResult>> {
+    return fetchDjango<AcceptResult>(`/projects/invitations/${inviteId}/accept`, {
+      method: "POST",
+    });
+  },
+
+  async declineInvitation(inviteId: string): Promise<ApiResponse<{ message: string }>> {
+    return fetchDjango<{ message: string }>(`/projects/invitations/${inviteId}/decline`, {
+      method: "POST",
     });
   },
 

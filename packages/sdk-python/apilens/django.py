@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 from .client._capture import CaptureContext, _normalize_path, _to_int, capture_response
+from .client._sanitize import decode_utf8_safe, serialize_headers
 from .client import ApiLensClient, ApiLensConfig
 from .client.middleware import (
     _apply_consumer,
@@ -119,7 +120,8 @@ class ApiLensDjangoMiddleware:
         self.app_id = getattr(settings, "APILENS_APP_ID", "")
         if not self.app_id:
             raise RuntimeError("APILENS_APP_ID is required in Django settings")
-        self.max_payload_bytes = 8192
+        self.max_payload_bytes = int(getattr(settings, "APILENS_MAX_PAYLOAD_BYTES", 65536))
+        self.capture_headers = bool(getattr(settings, "APILENS_CAPTURE_HEADERS", True))
         # Optional resolver, e.g. APILENS_GET_CONSUMER = lambda request: request.user.username
         # Nothing is inferred automatically; it only runs the resolver you provide.
         self.get_consumer = _resolve_get_consumer(settings)
@@ -152,18 +154,29 @@ class ApiLensDjangoMiddleware:
             user_agent=(request.META.get("HTTP_USER_AGENT") or "").strip(),
             base_url=base_url,
         )
+        if self.capture_headers:
+            try:
+                ctx.request_headers = serialize_headers(dict(request.headers.items()))
+            except Exception:
+                ctx.request_headers = ""
         try:
             body = request.body[: self.max_payload_bytes]
-            ctx.request_payload = body.decode("utf-8", errors="replace")
+            ctx.request_payload = decode_utf8_safe(body)
         except Exception:
             ctx.request_payload = ""
 
+        response_headers = ""
         try:
             response = self.get_response(request)
             status_code = int(getattr(response, "status_code", 500) or 500)
             content = getattr(response, "content", b"") or b""
             response_size = len(content)
-            response_payload = (content[: self.max_payload_bytes]).decode("utf-8", errors="replace")
+            response_payload = decode_utf8_safe(content[: self.max_payload_bytes])
+            if self.capture_headers:
+                try:
+                    response_headers = serialize_headers(dict(response.items()))
+                except Exception:
+                    response_headers = ""
             return response
         finally:
             consumer = dict(_read_consumer(request))
@@ -183,6 +196,7 @@ class ApiLensDjangoMiddleware:
                 response_size=response_size,
                 started_at=started_at,
                 response_payload=locals().get("response_payload", ""),
+                response_headers=response_headers,
             )
 
 

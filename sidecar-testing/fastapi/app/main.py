@@ -4,7 +4,11 @@ from fastapi import Depends, FastAPI, Request
 from apilens.fastapi import ApiLensMiddleware, set_consumer
 from dotenv import load_dotenv
 import uvicorn
+import random
+from typing import List
 
+from fastapi import Depends, FastAPI, Request
+from pydantic import BaseModel
 # Load .env file from parent directory
 env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
@@ -23,21 +27,80 @@ app.add_middleware(
 )
 
 
-# --- Consumer identification ---
-# Inject as a FastAPI Dependency so it runs on every route that uses it.
-# Test with: curl -H "X-User-Email: alice@example.com" http://localhost:4321/v1/orders
+import random
+from fastapi import Request
+
+USERS = [
+    {"name": "Neel Bhatt", "email": "neel.bhatt@example.com"},
+    {"name": "Aarav Patel", "email": "aarav.patel@example.com"},
+    {"name": "Riya Shah", "email": "riya.shah@example.com"},
+    {"name": "Vivaan Mehta", "email": "vivaan.mehta@example.com"},
+    {"name": "Ananya Desai", "email": "ananya.desai@example.com"},
+    {"name": "Krish Patel", "email": "krish.patel@example.com"},
+    {"name": "Diya Joshi", "email": "diya.joshi@example.com"},
+    {"name": "Arjun Shah", "email": "arjun.shah@example.com"},
+    {"name": "Meera Trivedi", "email": "meera.trivedi@example.com"},
+    {"name": "Kabir Pandya", "email": "kabir.pandya@example.com"},
+]
+
 async def consumer_dep(request: Request):
+    # If the client sends these headers, use them.
     user_email = request.headers.get("X-User-Email")
-    user_name = request.headers.get("X-User-Name")
     user_role = request.headers.get("X-User-Role")
+    user_name = request.headers.get("X-User-Name")
+
     if user_email:
         set_consumer(
-            request,                   # pass the Request object for ASGI state
-            identifier=user_email,     # required: stable id
-            name=user_name or None,    # optional: display name
-            group=user_role or None,   # optional: team / role / tier
+            request,
+            identifier=user_email,
+            name=user_name,
+            group=user_role or None,
+        )
+    else:
+        # Otherwise pick a random user.
+        user = random.choice(USERS)
+
+        set_consumer(
+            request,
+            identifier=user["email"],
+            name=user["name"],
+            group=user_role or None,
         )
 
+# -----------------------------
+# Mock Request Models
+# -----------------------------
+class OrderItem(BaseModel):
+    product_id: str
+    product_name: str
+    quantity: int
+    price: float
+
+
+class Customer(BaseModel):
+    customer_id: str
+    name: str
+    email: str
+
+
+class OrderRequest(BaseModel):
+    order_id: str
+    customer: Customer
+    items: List[OrderItem]
+    payment_method: str
+    shipping_address: str
+    priority: str
+
+
+@app.post("/v1/orders")
+async def create_order(
+    order: OrderRequest,
+    _: None = Depends(consumer_dep),
+):
+    return {
+        "message": "Order created successfully",
+        "order": order,
+    }
 
 @app.get("/v1/orders")
 async def list_orders(_: None = Depends(consumer_dep)):
