@@ -165,10 +165,12 @@ function RecentRequests({
   rows,
   errorsOnly = false,
   onSelect,
+  onConsumer,
 }: {
   rows: RequestRow[] | null;
   errorsOnly?: boolean;
   onSelect: (r: RequestRow) => void;
+  onConsumer?: (consumer: string) => void;
 }) {
   if (rows === null) return <Skeleton height={200} />;
   const list = errorsOnly ? rows.filter((r) => isErrorStatus(r.status_code)) : rows;
@@ -219,7 +221,20 @@ function RecentRequests({
                   </div>
                   <div className="ep-recent-meta">
                     {r.environment ? <span className="ep-recent-fact"><Layers size={12} />{r.environment}</span> : null}
-                    {r.consumer ? <span className="ep-recent-fact"><Fingerprint size={12} />{r.consumer}</span> : null}
+                    {r.consumer ? (
+                      onConsumer ? (
+                        <button
+                          type="button"
+                          className="ep-recent-fact ep-recent-consumer"
+                          title={`Show all requests from ${r.consumer}`}
+                          onClick={(e) => { e.stopPropagation(); onConsumer(r.consumer_id || r.consumer); }}
+                        >
+                          <Fingerprint size={12} />{r.consumer}
+                        </button>
+                      ) : (
+                        <span className="ep-recent-fact"><Fingerprint size={12} />{r.consumer}</span>
+                      )
+                    ) : null}
                     {size > 0 ? <span className="ep-recent-fact"><ArrowUpFromLine size={12} />{formatBytes(size)}</span> : null}
                     <span className="ep-recent-fact"><Timer size={12} />{formatMs(r.response_time_ms)}</span>
                   </div>
@@ -432,7 +447,7 @@ function DataOverTime({ timeseries }: { timeseries: TimeseriesPoint[] | null }) 
   );
 }
 
-function ConsumersTable({ consumers }: { consumers: ConsumerRow[] | null }) {
+function ConsumersTable({ consumers, onConsumer }: { consumers: ConsumerRow[] | null; onConsumer?: (consumer: string) => void }) {
   if (consumers === null) return <Skeleton height={220} />;
   if (consumers.length === 0) return <EmptyBlock message="No consumer data in the selected period." />;
   const max = Math.max(1, ...consumers.map((c) => c.total_requests));
@@ -452,7 +467,20 @@ function ConsumersTable({ consumers }: { consumers: ConsumerRow[] | null }) {
           {consumers.map((c) => (
             <tr key={c.consumer}>
               <td className="ep-recent-clock"><Fingerprint size={14} /></td>
-              <td className="ep-consumer-name">{c.consumer}</td>
+              <td className="ep-consumer-name">
+                {onConsumer ? (
+                  <button
+                    type="button"
+                    className="ep-recent-consumer"
+                    title={`Show all requests from ${c.consumer}`}
+                    onClick={() => onConsumer(c.consumer_identifier || c.consumer)}
+                  >
+                    {c.consumer}
+                  </button>
+                ) : (
+                  c.consumer
+                )}
+              </td>
               <td className="ep-td-num">
                 <span className="ep-cbar-wrap">
                   <span className="ep-cbar" style={{ width: `${(c.total_requests / max) * 100}%` }} />
@@ -639,6 +667,23 @@ export default function EndpointDetailInspector({
     [router, projectSlug, method, path, environment, appSlugs, since, until],
   );
 
+  // Jump to the project request log filtered to a single consumer, carrying the
+  // current scope (env / apps / range) so the view matches what was on screen.
+  const openConsumer = useCallback(
+    (consumer: string) => {
+      if (!consumer) return;
+      const p = new URLSearchParams();
+      p.set("consumer", consumer);
+      if (environment) p.set("env", environment);
+      if (appSlugs.length) p.set("apps", appSlugs.join(","));
+      const end = until ? new Date(until).getTime() : Date.now();
+      const hours = Math.round((end - new Date(since).getTime()) / 3_600_000);
+      if (hours && hours !== 24) p.set("range", String(hours));
+      router.push(`/projects/${projectSlug}/endpoints?${p.toString()}`);
+    },
+    [router, projectSlug, environment, appSlugs, since, until],
+  );
+
   const content = (
     <div className="ep-emodal-overlay" onClick={onClose}>
       <div className="ep-emodal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
@@ -705,14 +750,14 @@ export default function EndpointDetailInspector({
                 <RequestsOverTime timeseries={timeseries} />
               </CollapsibleSection>
               <CollapsibleSection title="Most recent requests">
-                <RecentRequests rows={recentRequests} onSelect={openRequest} />
+                <RecentRequests rows={recentRequests} onSelect={openRequest} onConsumer={openConsumer} />
               </CollapsibleSection>
             </>
           )}
 
           {activeTab === "consumers" && (
             <CollapsibleSection title="Consumers">
-              <ConsumersTable consumers={consumers} />
+              <ConsumersTable consumers={consumers} onConsumer={openConsumer} />
             </CollapsibleSection>
           )}
 
@@ -725,7 +770,7 @@ export default function EndpointDetailInspector({
                 <ErrorsOverTime timeseries={timeseries} />
               </CollapsibleSection>
               <CollapsibleSection title="Most recent client & server errors">
-                <RecentRequests rows={recentRequests} errorsOnly onSelect={openRequest} />
+                <RecentRequests rows={recentRequests} errorsOnly onSelect={openRequest} onConsumer={openConsumer} />
               </CollapsibleSection>
             </>
           )}

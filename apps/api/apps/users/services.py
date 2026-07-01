@@ -1,13 +1,9 @@
 import logging
-from io import BytesIO
 from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from django.conf import settings
-from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
-from PIL import Image
 
 from django.contrib.auth.password_validation import validate_password as django_validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -16,8 +12,6 @@ from core.exceptions.base import AuthenticationError, ValidationError
 from .models import User
 
 logger = logging.getLogger(__name__)
-
-ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
 class UserService:
@@ -137,57 +131,4 @@ class UserService:
             ip_address=ip_address, device_info=device_info,
         )
 
-        return user
-
-    @staticmethod
-    @transaction.atomic
-    def update_picture(user: User, file) -> User:
-        if file.content_type not in ALLOWED_IMAGE_TYPES:
-            raise ValidationError("Only JPEG, PNG, and WebP images are allowed")
-
-        max_size = getattr(settings, "PROFILE_PICTURE_MAX_SIZE", 5 * 1024 * 1024)
-        if file.size > max_size:
-            raise ValidationError(f"Image must be smaller than {max_size // (1024 * 1024)}MB")
-
-        try:
-            img = Image.open(file)
-            img.verify()
-            file.seek(0)
-            img = Image.open(file)
-        except Exception:
-            raise ValidationError("Invalid image file")
-
-        # Resize if needed
-        max_dim = getattr(settings, "PROFILE_PICTURE_MAX_DIMENSION", 800)
-        if img.width > max_dim or img.height > max_dim:
-            img.thumbnail((max_dim, max_dim), Image.LANCZOS)
-
-        # Convert to RGB (strip alpha) and save as JPEG
-        if img.mode in ("RGBA", "P", "LA"):
-            img = img.convert("RGB")
-
-        buffer = BytesIO()
-        img.save(buffer, format="JPEG", quality=90)
-        buffer.seek(0)
-
-        # Delete the previous file via Django's storage API so this works
-        # against any backend (local FS, GCS, S3, …).
-        if user.picture:
-            user.picture.delete(save=False)
-
-        user.picture.save(
-            f"{user.id}.jpg",
-            ContentFile(buffer.read()),
-            save=False,
-        )
-        user.save(update_fields=["picture", "updated_at"])
-        return user
-
-    @staticmethod
-    @transaction.atomic
-    def remove_picture(user: User) -> User:
-        if user.picture:
-            user.picture.delete(save=False)
-            user.picture = ""
-            user.save(update_fields=["picture", "updated_at"])
         return user

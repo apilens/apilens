@@ -69,6 +69,7 @@ export interface TimeseriesPoint {
 
 export interface ConsumerRow {
   consumer: string;
+  consumer_identifier?: string;
   total_requests: number;
   error_count: number;
   error_rate: number;
@@ -88,6 +89,7 @@ export interface RequestRow {
   response_time_ms: number;
   environment: string;
   consumer: string;
+  consumer_id?: string;
   request_payload?: string;
   response_payload?: string;
   request_headers?: string;
@@ -430,7 +432,8 @@ export function ConsumersSection({ projectSlug, consumers }: { projectSlug: stri
   const consumerData = (consumers || []).map((c) => ({
     label: c.consumer.length > 28 ? `${c.consumer.slice(0, 28)}…` : c.consumer,
     requests: c.total_requests,
-    raw: c.consumer,
+    // Filter by the stable identifier (consumer_id), not the display name.
+    raw: c.consumer_identifier || c.consumer,
   }));
   const openConsumer = (consumer: string) => {
     if (!consumer) return;

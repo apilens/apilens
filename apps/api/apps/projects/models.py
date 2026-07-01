@@ -6,6 +6,8 @@ from django.db import models
 from .managers import ProjectManager, AppManager, EndpointManager, EnvironmentManager
 
 
+# Retained only so historical migrations that referenced this upload_to
+# callable still import. The app-icon image field itself has been removed.
 def app_icon_path(instance, filename):
     return f"app_icons/{instance.id}.jpg"
 
@@ -66,7 +68,6 @@ class App(models.Model):
     name = models.CharField(max_length=100)
     slug = models.SlugField(max_length=120, db_index=True)
     icon = models.CharField(max_length=8, blank=True, default="")
-    icon_image = models.ImageField(upload_to=app_icon_path, blank=True, default="")
     description = models.TextField(blank=True, default="")
     framework = models.CharField(
         max_length=24,

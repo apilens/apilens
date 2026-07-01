@@ -513,6 +513,45 @@ def get_project_consumers(
     )
 
 
+@router.get("/{project_slug}/analytics/filter-values", response=list[dict])
+def get_filter_values(
+    request: HttpRequest,
+    project_slug: str,
+    field: str,
+    q: str = None,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    limit: int = 20,
+):
+    """
+    Typeahead source for the filter bar. Returns distinct values of `field`
+    (path/consumer/ip/ua/method) matching `q`, ranked by frequency. Optimised
+    for autocomplete — term-filtered + small LIMIT, never the full cardinality.
+    """
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+
+    app_ids: list[str] | None = None
+    if app_slugs:
+        slugs = [s.strip() for s in app_slugs.split(",") if s.strip()]
+        if slugs:
+            apps = AppService.get_apps_by_slugs(project, slugs)
+            app_ids = [str(app.id) for app in apps]
+
+    return AnalyticsService.get_filter_values(
+        project_id=str(project.id),
+        field=field,
+        q=q,
+        app_ids=app_ids,
+        environment=environment,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+
+
 @router.get("/{project_slug}/analytics/consumer-stats", response=list[dict])
 def get_project_consumer_stats(
     request: HttpRequest,
@@ -808,11 +847,15 @@ def query_project_requests(
     max_response_time: float = None,
     path_filter: str = None,
     consumer: str = None,
+    filter: str = None,
     page: int = 1,
     page_size: int = 50,
 ):
     """
     Query raw API request data across all apps in a project (or specific apps).
+
+    `filter` is a canonical rich-filter string (field:op:value;… — see
+    apps.projects.filters) applied on top of the discrete params below.
 
     Filters:
     - app_slugs: Comma-separated app slugs (e.g., "api,worker")
@@ -854,6 +897,7 @@ def query_project_requests(
         max_response_time=max_response_time,
         path_filter=path_filter,
         consumer=consumer,
+        filter=filter,
         page=page,
         page_size=page_size,
     )

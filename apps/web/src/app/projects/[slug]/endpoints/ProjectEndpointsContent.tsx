@@ -3,17 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  Check,
   ChevronLeft,
   ChevronRight,
   Clock,
   Fingerprint,
   Layers,
   RefreshCw,
-  Search,
-  SlidersHorizontal,
   Timer,
-  X,
 } from "lucide-react";
 import {
   formatBytes,
@@ -28,12 +24,12 @@ import {
   resolveRange,
   TimeRangePicker,
 } from "../_shared/timeRange";
+import FilterBar from "../_shared/filters/FilterBar";
+import { parseFilter, upsertSingle } from "../_shared/filters/query";
 
 interface ProjectEndpointsContentProps {
   projectSlug: string;
 }
-
-type AppOption = { id: string; name: string; slug: string };
 
 interface RequestsResponse {
   items: RequestItem[];
@@ -42,7 +38,6 @@ interface RequestsResponse {
   page_size: number;
 }
 
-const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 const PAGE_SIZE = 50;
 
 function methodColor(m: string): string {
@@ -77,19 +72,18 @@ function dayLabel(ts: string): string {
 export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpointsContentProps) {
   const searchParams = useSearchParams();
 
-  const [apps, setApps] = useState<AppOption[]>([]);
-  const [selectedAppSlugs, setSelectedAppSlugs] = useState<string[]>([]);
-  const [environments, setEnvironments] = useState<string[]>([]);
-  const [selectedEnv, setSelectedEnv] = useState("");
-  const [selectedConsumer, setSelectedConsumer] = useState("");
   const [rangeValue, setRangeValue] = useState<RangeValue>(() => parseRange({}));
 
-  // Filters
-  const [pathSearch, setPathSearch] = useState("");
-  const [pathExact, setPathExact] = useState(false);
-  const [methodsFilter, setMethodsFilter] = useState<Set<string>>(new Set());
-  const [filterOpen, setFilterOpen] = useState(false);
-  const filterRef = useRef<HTMLDivElement>(null);
+  // Unified rich filter (canonical field:op:value;… string). App scope,
+  // method, path, status, latency, consumer, env… all live in here.
+  const [filter, setFilter] = useState("");
+
+  // App slugs currently in the filter — used to scope the request-detail
+  // modal's "related requests" lookup.
+  const appSlugs = useMemo(
+    () => parseFilter(filter).filter((p) => p.field === "app" && !p.negate).flatMap((p) => p.values),
+    [filter],
+  );
 
   // Data
   const [items, setItems] = useState<RequestItem[]>([]);
@@ -119,6 +113,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     const path = searchParams.get("path");
     const q = searchParams.get("q");
     const consumer = searchParams.get("consumer");
+    const filterParam = searchParams.get("filter");
     const pageParam = searchParams.get("page");
     const req = searchParams.get("req");
 
@@ -127,19 +122,31 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       since: sinceParam || undefined,
       until: untilParam || undefined,
     }));
-    if (env) setSelectedEnv(env);
-    if (appsParam) setSelectedAppSlugs(appsParam.split(",").filter(Boolean));
-    else if (app) setSelectedAppSlugs([app]);
-    if (methods) setMethodsFilter(new Set(methods.split(",").map((m) => m.trim().toUpperCase()).filter(Boolean)));
-    else if (method) setMethodsFilter(new Set([method.toUpperCase()]));
-    if (path) {
-      setPathSearch(path);
-      setPathExact(true);
-    } else if (q) {
-      setPathSearch(q);
-      setPathExact(false);
+    // Seed the rich filter from ?filter=, or migrate legacy deep-link params
+    // (app/method/path/methods/q/env/consumer) so existing links keep working.
+    if (filterParam) {
+      setFilter(filterParam);
+    } else {
+      const seed: string[] = [];
+      if (appsParam) {
+        const as = appsParam.split(",").map((s) => s.trim()).filter(Boolean);
+        if (as.length) seed.push(`app:is:${as.join(",")}`);
+      } else if (app) {
+        seed.push(`app:is:${app}`);
+      }
+      if (methods) {
+        const ms = methods.split(",").map((m) => m.trim().toUpperCase()).filter(Boolean);
+        if (ms.length) seed.push(`method:is:${ms.join(",")}`);
+      } else if (method) {
+        seed.push(`method:is:${method.toUpperCase()}`);
+      }
+      if (path) seed.push(`path:is:${path}`);
+      else if (q) seed.push(`path:contains:${q}`);
+      if (env) seed.push(`env:is:${env}`);
+      if (consumer) seed.push(`consumer:is:${consumer}`);
+      if (seed.length) setFilter(seed.join(";"));
     }
-    if (consumer) setSelectedConsumer(consumer);
+
     if (pageParam) {
       const pp = parseInt(pageParam, 10);
       if (pp > 1) setPage(pp);
@@ -158,58 +165,20 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     } else if (rangeValue.id !== DEFAULT_PRESET_ID) {
       p.set("range", rangeValue.id);
     }
-    if (selectedEnv) p.set("env", selectedEnv);
-    if (apps.length && selectedAppSlugs.length && selectedAppSlugs.length < apps.length) {
-      p.set("apps", selectedAppSlugs.join(","));
-    }
-    if (methodsFilter.size) p.set("methods", [...methodsFilter].join(","));
-    if (pathSearch.trim()) p.set(pathExact ? "path" : "q", pathSearch.trim());
-    if (selectedConsumer) p.set("consumer", selectedConsumer);
+    if (filter) p.set("filter", filter);
     if (page > 1) p.set("page", String(page));
     if (openRow) p.set("req", openRow.timestamp);
     const qs = p.toString();
     window.history.replaceState(null, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
-  }, [isInitialized, rangeValue, selectedEnv, apps.length, selectedAppSlugs, methodsFilter, pathSearch, pathExact, selectedConsumer, page, openRow]);
-
-  // Apps + environments
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`/api/projects/${projectSlug}/apps`);
-        if (res.ok) {
-          const data = await res.json();
-          const list: AppOption[] = (data.apps || []).map((a: AppOption) => ({ id: a.id, name: a.name, slug: a.slug }));
-          setApps(list);
-        }
-      } catch { /* ignore */ }
-    })();
-    (async () => {
-      try {
-        const res = await fetch(`/api/projects/${projectSlug}/analytics/environments`);
-        if (res.ok) {
-          const data = await res.json();
-          setEnvironments(data.environments || []);
-        }
-      } catch { /* ignore */ }
-    })();
-  }, [projectSlug]);
+  }, [isInitialized, rangeValue, filter, page, openRow]);
 
   const resolved = useMemo(() => resolveRange(rangeValue), [rangeValue, refreshKey]);
   const { since, until } = resolved;
 
-  const appScope = useCallback(
-    (p: URLSearchParams) => {
-      if (selectedAppSlugs.length && (apps.length === 0 || selectedAppSlugs.length < apps.length)) {
-        p.set("app_slugs", selectedAppSlugs.join(","));
-      }
-    },
-    [selectedAppSlugs, apps.length],
-  );
-
   // Reset to page 1 when filters change.
   useEffect(() => {
     setPage(1);
-  }, [since, until, selectedEnv, selectedConsumer, selectedAppSlugs, pathSearch, pathExact, methodsFilter]);
+  }, [since, until, filter]);
 
   // Request list.
   useEffect(() => {
@@ -220,14 +189,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       const p = new URLSearchParams();
       p.set("since", since);
       if (until) p.set("until", until);
-      if (selectedEnv) p.set("environment", selectedEnv);
-      appScope(p);
-      if (methodsFilter.size) p.set("methods", [...methodsFilter].join(","));
-      if (pathSearch.trim()) {
-        const term = pathSearch.trim();
-        p.set("path_filter", pathExact ? term : `*${term}*`);
-      }
-      if (selectedConsumer) p.set("consumer", selectedConsumer);
+      if (filter) p.set("filter", filter);
       p.set("page", String(page));
       p.set("page_size", String(PAGE_SIZE));
       try {
@@ -245,7 +207,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
       }
     })();
     return () => { cancelled = true; };
-  }, [projectSlug, isInitialized, since, until, selectedEnv, selectedConsumer, selectedAppSlugs, methodsFilter, pathSearch, pathExact, page, appScope, refreshKey]);
+  }, [projectSlug, isInitialized, since, until, filter, page, refreshKey]);
 
   // Auto-open the deep-linked request once it shows up in the list.
   useEffect(() => {
@@ -263,28 +225,12 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     }
   }, [items, initialReqTs, loading]);
 
-  // Close the Filter popover on outside click.
-  useEffect(() => {
-    if (!filterOpen) return;
-    const onClick = (e: MouseEvent) => {
-      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setFilterOpen(false);
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, [filterOpen]);
-
-  const toggleMethod = (m: string) =>
-    setMethodsFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(m)) next.delete(m);
-      else next.add(m);
-      return next;
-    });
-
-  const clearPath = () => { setPathSearch(""); setPathExact(false); };
+  // Append a consumer predicate to the rich filter (used by row/modal clicks).
+  const filterByConsumer = useCallback((consumerId: string) => {
+    if (consumerId) setFilter((f) => upsertSingle(f, "consumer", "is", consumerId));
+  }, []);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-  const activeFilters = methodsFilter.size + (pathSearch.trim() ? 1 : 0);
 
   return (
     <div className="ep-rl">
@@ -293,83 +239,6 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
         <h1 className="ep-rl-title">Request logs</h1>
         <div className="ep-rl-spacer" />
 
-        <div className="ep-search ep-rl-search">
-          <Search size={12} />
-          <input
-            type="text"
-            value={pathSearch}
-            onChange={(e) => { setPathSearch(e.target.value); setPathExact(false); }}
-            placeholder="Search path…"
-          />
-          {pathSearch && (
-            <button type="button" className="ep-search-clear" onClick={clearPath} aria-label="Clear">
-              <X size={12} />
-            </button>
-          )}
-        </div>
-
-        <div className="ep-rl-filter" ref={filterRef}>
-          <button
-            type="button"
-            className={`ep-rl-filter-btn${activeFilters ? " has-active" : ""}`}
-            onClick={() => setFilterOpen((o) => !o)}
-            aria-expanded={filterOpen}
-          >
-            <SlidersHorizontal size={13} />
-            <span>Filter</span>
-            {activeFilters ? <span className="ep-rl-filter-badge">{activeFilters}</span> : null}
-          </button>
-          {filterOpen && (
-            <div className="ep-rl-filter-menu" role="dialog">
-              <p className="ep-rl-filter-heading">Methods</p>
-              <div className="ep-rl-method-grid">
-                {METHODS.map((m) => {
-                  const on = methodsFilter.has(m);
-                  return (
-                    <button
-                      key={m}
-                      type="button"
-                      className={`ep-rl-method-opt${on ? " on" : ""}`}
-                      onClick={() => toggleMethod(m)}
-                      style={on ? { color: methodColor(m), borderColor: methodColor(m) } : undefined}
-                    >
-                      {on && <Check size={11} />}
-                      {m}
-                    </button>
-                  );
-                })}
-              </div>
-              {(methodsFilter.size > 0 || pathSearch) && (
-                <button
-                  type="button"
-                  className="ep-rl-filter-clear"
-                  onClick={() => { setMethodsFilter(new Set()); clearPath(); }}
-                >
-                  Clear all filters
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {apps.length > 1 && (
-          <select
-            className="ep-env-select"
-            value={selectedAppSlugs.length === apps.length || selectedAppSlugs.length === 0 ? "" : selectedAppSlugs[0] || ""}
-            onChange={(e) => setSelectedAppSlugs(e.target.value ? [e.target.value] : apps.map((a) => a.slug))}
-          >
-            <option value="">All apps</option>
-            {apps.map((a) => <option key={a.slug} value={a.slug}>{a.name}</option>)}
-          </select>
-        )}
-
-        {environments.length > 0 && (
-          <select className="ep-env-select" value={selectedEnv} onChange={(e) => setSelectedEnv(e.target.value)}>
-            <option value="">All envs</option>
-            {environments.map((env) => <option key={env} value={env}>{env}</option>)}
-          </select>
-        )}
-
         <TimeRangePicker value={rangeValue} resolved={resolved} onChange={setRangeValue} />
 
         <button type="button" className="tf-refresh" onClick={() => setRefreshKey((k) => k + 1)} title="Refresh" aria-label="Refresh">
@@ -377,23 +246,10 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
         </button>
       </div>
 
-      {/* ── Active deep-link chips ── */}
-      {((pathExact && pathSearch) || selectedConsumer) && (
-        <div className="ep-rl-chips">
-          {pathExact && pathSearch && (
-            <span className="ep-rl-chip">
-              Path = <span className="ep-rl-mono">{pathSearch}</span>
-              <button type="button" onClick={clearPath} aria-label="Remove path filter"><X size={11} /></button>
-            </span>
-          )}
-          {selectedConsumer && (
-            <span className="ep-rl-chip">
-              Consumer = <span className="ep-rl-mono">{selectedConsumer}</span>
-              <button type="button" onClick={() => setSelectedConsumer("")} aria-label="Remove consumer filter"><X size={11} /></button>
-            </span>
-          )}
-        </div>
-      )}
+      {/* Full-width filter row (rich query bar). */}
+      <div className="ep-rl-filterrow">
+        <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} />
+      </div>
 
       {/* ── Request list ── */}
       <section className="ep-rl-card">
@@ -443,7 +299,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
                             type="button"
                             className="ep-recent-fact ep-recent-consumer"
                             title={`Filter by consumer ${r.consumer_name || r.consumer_id}`}
-                            onClick={(e) => { e.stopPropagation(); setSelectedConsumer(r.consumer_id || r.consumer_name); }}
+                            onClick={(e) => { e.stopPropagation(); filterByConsumer(r.consumer_id || r.consumer_name); }}
                           >
                             <Fingerprint size={12} />{r.consumer_name || r.consumer_id}
                           </button>
@@ -483,11 +339,10 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
         <RequestLogDetailModal
           projectSlug={projectSlug}
           row={openRow}
-          appSlugs={selectedAppSlugs.length && selectedAppSlugs.length < apps.length ? selectedAppSlugs : []}
-          environment={selectedEnv || undefined}
+          appSlugs={appSlugs}
           since={since}
           onClose={() => setOpenRow(null)}
-          onFilterConsumer={(c) => { setSelectedConsumer(c); setOpenRow(null); }}
+          onFilterConsumer={(c) => { filterByConsumer(c); setOpenRow(null); }}
         />
       )}
     </div>

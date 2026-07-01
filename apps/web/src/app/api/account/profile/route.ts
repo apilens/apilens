@@ -11,7 +11,6 @@ function toProfile(user: DjangoUser): UserProfile {
     first_name: user.first_name,
     last_name: user.last_name,
     display_name: user.display_name,
-    picture: user.picture,
     email_verified: user.email_verified,
     has_password: user.has_password,
     timezone: user.timezone,

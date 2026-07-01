@@ -87,41 +87,6 @@ export function useAccountSettings() {
     },
   );
 
-  const uploadPicture = useAsyncAction(
-    async (blob: Blob) => {
-      const formData = new FormData();
-      formData.append("file", blob, "profile.jpg");
-      const res = await fetch("/api/account/profile/picture", {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to upload picture");
-      }
-      await refreshProfile();
-    },
-    {
-      onSuccess: () => toast.success("Profile picture updated"),
-      onError: (err) => toast.error(err.message || "Couldn't upload picture"),
-    },
-  );
-
-  const removePicture = useAsyncAction(
-    async () => {
-      const res = await fetch("/api/account/profile/picture", { method: "DELETE" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to remove picture");
-      }
-      await refreshProfile();
-    },
-    {
-      onSuccess: () => toast.success("Profile picture removed"),
-      onError: (err) => toast.error(err.message || "Couldn't remove picture"),
-    },
-  );
-
   const setPassword = useAsyncAction(
     async (payload: SetPasswordPayload) => {
       const res = await fetch("/api/account/profile/password", {
@@ -181,8 +146,6 @@ export function useAccountSettings() {
     refreshProfile,
     updateName,
     updateTimezone,
-    uploadPicture,
-    removePicture,
     setPassword,
     logoutOthers,
     deleteAccount,

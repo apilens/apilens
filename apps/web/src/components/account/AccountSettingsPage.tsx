@@ -30,8 +30,6 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
     refreshProfile,
     updateName,
     updateTimezone,
-    uploadPicture,
-    removePicture,
     setPassword,
     logoutOthers,
     deleteAccount,
@@ -48,16 +46,6 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
   const handleUpdateTimezone = async (timezone: string) => {
     const next = await updateTimezone.run(timezone);
     if (next) await refreshUser();
-  };
-
-  const handlePictureUpload = async (blob: Blob) => {
-    await uploadPicture.run(blob);
-    await refreshUser();
-  };
-
-  const handlePictureRemove = async () => {
-    await removePicture.run();
-    await refreshUser();
   };
 
   const handleSetPassword = async (data: {
@@ -137,8 +125,6 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
                 <ProfileSection
                   profile={profile}
                   onUpdateName={handleUpdateName}
-                  onPictureUpload={handlePictureUpload}
-                  onPictureRemove={handlePictureRemove}
                 />
               </ErrorBoundary>
               <ErrorBoundary>

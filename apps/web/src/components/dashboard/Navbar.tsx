@@ -53,7 +53,6 @@ export default function Navbar({ projectSlug }: NavbarProps) {
           >
             {!isLoading && user ? (
               <UserAvatar
-                picture={user.picture}
                 name={displayName}
                 email={displayEmail}
                 size="sm"

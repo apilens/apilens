@@ -8,6 +8,13 @@ import {
   formatNumber,
   timeAgo,
 } from "../endpoints/detail/sections";
+import {
+  type RangeValue,
+  DEFAULT_RANGE,
+  ROLLING_PRESETS,
+  resolveRange,
+  TimeRangePicker,
+} from "../_shared/timeRange";
 
 interface ConsumersContentProps {
   projectSlug: string;
@@ -26,14 +33,6 @@ interface ConsumerStat {
   last_seen_at: string | null;
 }
 
-const TIME_RANGES = [
-  { label: "1h", value: 1 },
-  { label: "6h", value: 6 },
-  { label: "24h", value: 24 },
-  { label: "7d", value: 168 },
-  { label: "30d", value: 720 },
-] as const;
-
 export default function ConsumersContent({ projectSlug }: ConsumersContentProps) {
   const router = useRouter();
 
@@ -41,7 +40,7 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
   const [selectedAppSlugs, setSelectedAppSlugs] = useState<string[]>([]);
   const [environments, setEnvironments] = useState<string[]>([]);
   const [selectedEnv, setSelectedEnv] = useState("");
-  const [selectedRange, setSelectedRange] = useState(24);
+  const [rangeValue, setRangeValue] = useState<RangeValue>(DEFAULT_RANGE);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -56,10 +55,9 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
     return () => clearTimeout(t);
   }, [search]);
 
-  const since = useMemo(
-    () => new Date(Date.now() - selectedRange * 60 * 60 * 1000).toISOString(),
-    [selectedRange, refreshKey],
-  );
+  // Re-resolve when the range changes or on refresh, so rolling windows slide.
+  const resolved = useMemo(() => resolveRange(rangeValue), [rangeValue, refreshKey]);
+  const { since, until } = resolved;
 
   // Apps + environments for the filter selects.
   useEffect(() => {
@@ -99,6 +97,7 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
       setLoading(true);
       const p = new URLSearchParams();
       p.set("since", since);
+      p.set("until", until);
       if (selectedEnv) p.set("environment", selectedEnv);
       if (debouncedSearch) p.set("search", debouncedSearch);
       appScope(p);
@@ -114,7 +113,7 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
       }
     })();
     return () => { cancelled = true; };
-  }, [projectSlug, since, selectedEnv, debouncedSearch, appScope, refreshKey]);
+  }, [projectSlug, since, until, selectedEnv, debouncedSearch, appScope, refreshKey]);
 
   const maxRequests = useMemo(
     () => Math.max(1, ...(rows || []).map((r) => r.total_requests)),
@@ -127,7 +126,11 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
     const p = new URLSearchParams();
     // Filter by the stable identifier, not the display name.
     p.set("consumer", c.consumer_identifier || c.consumer);
-    if (selectedRange !== 24) p.set("range", String(selectedRange));
+    // Carry the range across when it maps to a Request-logs preset window.
+    if (rangeValue.type === "preset") {
+      const hours = ROLLING_PRESETS.find((r) => r.id === rangeValue.id)?.hours;
+      if (hours && hours !== 24 && [1, 6, 168, 720].includes(hours)) p.set("range", String(hours));
+    }
     if (selectedEnv) p.set("env", selectedEnv);
     if (apps.length && selectedAppSlugs.length && selectedAppSlugs.length < apps.length) {
       p.set("apps", selectedAppSlugs.join(","));
@@ -175,18 +178,7 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
           </select>
         )}
 
-        <div className="ep-timerange">
-          {TIME_RANGES.map(({ label, value }) => (
-            <button
-              key={value}
-              type="button"
-              className={`ep-time-btn${selectedRange === value ? " active" : ""}`}
-              onClick={() => setSelectedRange(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <TimeRangePicker value={rangeValue} resolved={resolved} onChange={setRangeValue} />
 
         <button type="button" className="tf-refresh" onClick={() => setRefreshKey((k) => k + 1)} title="Refresh" aria-label="Refresh">
           <RefreshCw size={14} className={loading ? "tf-spin" : ""} />

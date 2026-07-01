@@ -164,13 +164,7 @@ export default function AppCard({ app, projectSlug, onDeleted }: AppCardProps) {
 
       <div className="app-card-meta-row">
         <div className="app-card-icon-overlay" aria-label={`${framework.label} app`}>
-          {app.icon_url ? (
-            <span className="app-card-logo app-card-logo-app app-card-logo-image-wrap">
-              <img src={app.icon_url} alt={app.name} className="app-card-logo-image" />
-            </span>
-          ) : (
-            <span className="app-card-logo app-card-logo-app">{appAvatar}</span>
-          )}
+          <span className="app-card-logo app-card-logo-app">{appAvatar}</span>
           <span className="app-card-logo app-card-logo-framework">
             <Image
               src={framework.icon}

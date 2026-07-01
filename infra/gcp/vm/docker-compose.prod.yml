@@ -19,7 +19,6 @@ name: apilens
 # apps/api/.env.example):
 #   - Postgres   -> APILENS_POSTGRES_URL   (postgresql://...)
 #   - ClickHouse -> APILENS_CLICKHOUSE_URL (native protocol on port 9000)
-#   - Media GCS  -> GS_BUCKET_NAME
 x-db-env: &db-env
   APILENS_POSTGRES_URL: "postgresql://apilens:${POSTGRES_PASSWORD}@postgres:5432/apilens"
   APILENS_CLICKHOUSE_URL: "clickhouse://default:${CLICKHOUSE_PASSWORD}@clickhouse:9000/apilens"
@@ -109,8 +108,6 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       PORT: "8000"
       GUNICORN_WORKERS: "4"
-      GS_BUCKET_NAME: ${MEDIA_BUCKET}
-      GS_PROJECT_ID: ${GS_PROJECT_ID:-}
       # Transactional email (magic links / verification) via Resend over SMTP.
       # Django's standard SMTP backend (apps/auth/email.py uses EmailMessage);
       # username is the literal "resend", password is the Resend API key

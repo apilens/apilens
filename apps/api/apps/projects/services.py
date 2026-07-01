@@ -4,16 +4,12 @@ import threading
 import json
 from typing import Any
 from datetime import datetime, timedelta, timezone as tz
-from io import BytesIO
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from django.conf import settings
-from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
-from PIL import Image
 
 from core.exceptions.base import (
     NotFoundError,
@@ -38,7 +34,6 @@ MAX_APPS_PER_PROJECT = 50
 
 # For backwards compatibility - now imported from validators
 RESERVED_SLUGS = RESERVED_PROJECT_SLUGS
-ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
 def _resolve_time_range(since: str | None, until: str | None) -> tuple[datetime, datetime]:
@@ -422,57 +417,6 @@ class AppService:
 
         app.is_active = False
         app.save(update_fields=["is_active", "updated_at"])
-
-    @staticmethod
-    @transaction.atomic
-    def update_icon(app: App, file) -> App:
-        if file.content_type not in ALLOWED_IMAGE_TYPES:
-            raise ValidationError("Only JPEG, PNG, and WebP images are allowed")
-
-        max_size = getattr(settings, "APP_ICON_MAX_SIZE", 2 * 1024 * 1024)
-        if file.size > max_size:
-            raise ValidationError(f"Image must be smaller than {max_size // (1024 * 1024)}MB")
-
-        try:
-            img = Image.open(file)
-            img.verify()
-            file.seek(0)
-            img = Image.open(file)
-        except Exception:
-            raise ValidationError("Invalid image file")
-
-        max_dim = getattr(settings, "APP_ICON_MAX_DIMENSION", 512)
-        if img.width > max_dim or img.height > max_dim:
-            img.thumbnail((max_dim, max_dim), Image.LANCZOS)
-
-        if img.mode in ("RGBA", "P", "LA"):
-            img = img.convert("RGB")
-
-        buffer = BytesIO()
-        img.save(buffer, format="JPEG", quality=90)
-        buffer.seek(0)
-
-        # Delete the previous file via Django's storage API so this works
-        # against any backend (local FS, GCS, S3, …).
-        if app.icon_image:
-            app.icon_image.delete(save=False)
-
-        app.icon_image.save(
-            f"{app.id}.jpg",
-            ContentFile(buffer.read()),
-            save=False,
-        )
-        app.save(update_fields=["icon_image", "updated_at"])
-        return app
-
-    @staticmethod
-    @transaction.atomic
-    def remove_icon(app: App) -> App:
-        if app.icon_image:
-            app.icon_image.delete(save=False)
-            app.icon_image = ""
-            app.save(update_fields=["icon_image", "updated_at"])
-        return app
 
 
 class EndpointService:
@@ -1964,12 +1908,16 @@ class DataQueryService:
         max_response_time: float | None = None,
         path_filter: str | None = None,
         consumer: str | None = None,
+        filter: str | None = None,
         page: int = 1,
         page_size: int = 50,
     ) -> dict:
         """
         Query API requests across all apps in a project or specific apps.
         Returns paginated request records with filters.
+
+        ``filter`` is a canonical rich-filter string (see apps.projects.filters)
+        applied additively on top of the discrete params above.
         """
         from core.database.clickhouse.client import get_clickhouse_client
 
@@ -2050,6 +1998,33 @@ class DataQueryService:
         if consumer:
             filters.append("consumer_id = %(consumer)s")
             params["consumer"] = consumer
+
+        # Rich filter string (apps.projects.filters) — additive on top of the
+        # discrete params. build_where emits parenthesised "AND (...)" clauses.
+        if filter:
+            from apps.projects.filters import parse_filter, build_where, Predicate
+            from apps.projects.models import App
+
+            preds = parse_filter(filter)
+            remapped: list = []
+            for p in preds:
+                if p.field == "app":
+                    # Frontend sends slugs; resolve to the app_id values stored
+                    # in ClickHouse. Unknown slugs -> a sentinel that matches
+                    # nothing (so the predicate correctly returns no rows).
+                    ids = [
+                        str(i)
+                        for i in App.objects.filter(
+                            project_id=project_id, slug__in=p.values
+                        ).values_list("id", flat=True)
+                    ]
+                    remapped.append(Predicate("app", p.op, ids or ["__no_app__"], p.negate))
+                else:
+                    remapped.append(p)
+
+            fragment = build_where(remapped, params)
+            if fragment:
+                filters.append(fragment.removeprefix("AND ").strip())
 
         where_clause = ""
         if filters:
@@ -3374,13 +3349,14 @@ class AnalyticsService:
                         'unknown'
                     )
                 ) AS consumer,
+                if(consumer_id != '', consumer_id, '') AS consumer_identifier,
                 count() AS total_requests,
                 countIf(status_code >= 400) AS error_count,
                 if(count() > 0, countIf(status_code >= 400) / count() * 100, 0) AS error_rate,
                 avg(response_time_ms) AS avg_response_time_ms
             FROM api_requests
             {' '.join(filters)}
-            GROUP BY consumer
+            GROUP BY consumer, consumer_identifier
             ORDER BY total_requests DESC
             LIMIT %(limit)s
         """
@@ -3444,10 +3420,11 @@ class AnalyticsService:
                         'unknown'
                     )
                 ) AS consumer,
+                if(consumer_id != '', consumer_id, '') AS consumer_identifier,
                 count() AS total_requests
             FROM api_requests
             {' '.join(filters)}
-            GROUP BY consumer
+            GROUP BY consumer, consumer_identifier
             HAVING consumer != 'unknown'
             ORDER BY total_requests DESC
             LIMIT %(limit)s
@@ -3456,6 +3433,111 @@ class AnalyticsService:
             return [AnalyticsService._clean_nan_values(r) for r in client.execute(query, params)]
         except Exception as exc:
             logger.warning("ClickHouse query failed for project consumers; returning empty list: %s", exc)
+            return []
+
+    # Columns exposed to the generic value-autocomplete search. Whitelisted so
+    # `field` can never inject SQL — it only ever selects a fixed column.
+    _FILTER_VALUE_COLUMNS = {
+        "path": "path",
+        "ip": "ip_address",
+        "ua": "user_agent",
+        "method": "method",
+    }
+
+    @staticmethod
+    def get_filter_values(
+        project_id: str,
+        field: str,
+        q: str | None = None,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """
+        Typeahead source for the filter bar: distinct values of a single field,
+        substring-matched against ``q`` and ranked by frequency.
+
+        Optimised for autocomplete: the query is time-bounded, filtered by the
+        search term (so ClickHouse groups far fewer rows), and hard-capped by a
+        small LIMIT — we never load the full cardinality of a field. Returns
+        ``[{value, label, count}]``. ``consumer`` is special-cased to return the
+        stable identifier as ``value`` and the display name as ``label``.
+        """
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        if field != "consumer" and field not in AnalyticsService._FILTER_VALUE_COLUMNS:
+            return []
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty filter values: %s", exc)
+            return []
+        IngestService.ensure_consumer_columns(client)
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        params: dict[str, Any] = {
+            "project_id": project_id,
+            "since": since_dt,
+            "until": until_dt,
+            "limit": max(1, min(int(limit), 50)),
+        }
+
+        filters = [
+            "WHERE project_id = %(project_id)s",
+            "AND timestamp >= %(since)s",
+            "AND timestamp <= %(until)s",
+        ]
+        if app_ids:
+            filters.append("AND app_id IN %(app_ids)s")
+            params["app_ids"] = app_ids
+        if environment:
+            filters.append("AND environment = %(environment)s")
+            params["environment"] = environment
+
+        term = (q or "").strip()
+
+        if field == "consumer":
+            if term:
+                filters.append(
+                    "AND (positionCaseInsensitive(consumer_name, %(q)s) > 0 "
+                    "OR positionCaseInsensitive(consumer_id, %(q)s) > 0)"
+                )
+                params["q"] = term
+            query = f"""
+                SELECT
+                    if(consumer_name != '', consumer_name,
+                       if(consumer_id != '', consumer_id, 'unknown')) AS label,
+                    if(consumer_id != '', consumer_id, '') AS value,
+                    count() AS count
+                FROM api_requests
+                {' '.join(filters)}
+                GROUP BY label, value
+                HAVING label != 'unknown'
+                ORDER BY count DESC
+                LIMIT %(limit)s
+            """
+        else:
+            column = AnalyticsService._FILTER_VALUE_COLUMNS[field]
+            if term:
+                filters.append(f"AND positionCaseInsensitive({column}, %(q)s) > 0")
+                params["q"] = term
+            query = f"""
+                SELECT {column} AS value, {column} AS label, count() AS count
+                FROM api_requests
+                {' '.join(filters)}
+                GROUP BY value
+                HAVING value != ''
+                ORDER BY count DESC
+                LIMIT %(limit)s
+            """
+
+        try:
+            return [AnalyticsService._clean_nan_values(r) for r in client.execute(query, params)]
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for filter values (%s); returning empty list: %s", field, exc)
             return []
 
     @staticmethod

@@ -23,7 +23,6 @@ export interface DjangoUser {
   first_name: string;
   last_name: string;
   display_name: string;
-  picture: string;
   email_verified: boolean;
   has_password: boolean;
   timezone: string;
@@ -35,7 +34,6 @@ export interface DjangoUserContext {
   id: string;
   email: string;
   display_name: string;
-  picture: string;
   is_authenticated: boolean;
   permissions: string[];
   role: string;
@@ -140,7 +138,6 @@ export interface AppInfo {
   id: string;
   name: string;
   slug: string;
-  icon_url: string;
   description: string;
   framework: FrameworkId;
   created_at: string;
@@ -151,7 +148,6 @@ export interface AppListItem {
   id: string;
   name: string;
   slug: string;
-  icon_url: string;
   description: string;
   framework: FrameworkId;
   api_key_count: number;
@@ -512,66 +508,6 @@ export const apiClient = {
     });
   },
 
-  async uploadPicture(file: Blob): Promise<ApiResponse<{ picture: string; message: string }>> {
-    const session = await getSession();
-    if (!session) {
-      return { error: "Not authenticated", status: 401 };
-    }
-
-    const formData = new FormData();
-    formData.append("file", file, "profile.jpg");
-
-    const url = `${DJANGO_API_URL}/users/me/picture`;
-
-    try {
-      let response = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-        },
-        body: formData,
-      });
-
-      if (response.status === 401) {
-        const refreshResult = await refreshTokens(session.refreshToken);
-        if (!refreshResult) {
-          await clearSession();
-          return { error: "Session expired", status: 401 };
-        }
-
-        response = await fetch(url, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${refreshResult.accessToken}`,
-          },
-          body: formData,
-        });
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        return {
-          error: errorData.detail || errorData.message || "Upload failed",
-          status: response.status,
-        };
-      }
-
-      const data = await response.json();
-      return { data, status: response.status };
-    } catch (error) {
-      return {
-        error: error instanceof Error ? error.message : "Upload failed",
-        status: 500,
-      };
-    }
-  },
-
-  async removePicture(): Promise<ApiResponse<{ message: string }>> {
-    return fetchDjango<{ message: string }>("/users/me/picture", {
-      method: "DELETE",
-    });
-  },
-
   // ── Projects ──────────────────────────────────────────────────────
 
   async getProjects(): Promise<ApiResponse<ProjectListItem[]>> {
@@ -746,51 +682,6 @@ export const apiClient = {
     return fetchDjango<{ message: string }>(`/apps/${slug}`, {
       method: "DELETE",
     });
-  },
-
-  async uploadAppIcon(slug: string, file: Blob): Promise<ApiResponse<{ icon_url: string; message: string }>> {
-    const session = await getSession();
-    if (!session) return { error: "Not authenticated", status: 401 };
-
-    const formData = new FormData();
-    formData.append("file", file, "app-icon.jpg");
-    const url = `${DJANGO_API_URL}/apps/${slug}/icon`;
-
-    try {
-      let response = await fetch(url, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${session.accessToken}` },
-        body: formData,
-      });
-
-      if (response.status === 401) {
-        const refreshResult = await refreshTokens(session.refreshToken);
-        if (!refreshResult) {
-          await clearSession();
-          return { error: "Session expired", status: 401 };
-        }
-        response = await fetch(url, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${refreshResult.accessToken}` },
-          body: formData,
-        });
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        return {
-          error: errorData.detail || errorData.error || "Upload failed",
-          status: response.status,
-        };
-      }
-      return { data: await response.json(), status: response.status };
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : "Upload failed", status: 500 };
-    }
-  },
-
-  async removeAppIcon(slug: string): Promise<ApiResponse<{ message: string }>> {
-    return fetchDjango<{ message: string }>(`/apps/${slug}/icon`, { method: "DELETE" });
   },
 
   // ── App-scoped API Keys ────────────────────────────────────────────

@@ -1,6 +1,5 @@
 from django.http import HttpRequest
-from ninja import Router, File
-from ninja.files import UploadedFile
+from ninja import Router
 
 from apps.auth.services import TokenService
 from apps.users.models import User
@@ -14,10 +13,8 @@ from .schemas import (
     SetPasswordRequest,
     SetPasswordResponse,
     UserContextResponse,
-    PictureResponse,
     SessionResponse,
     MessageResponse,
-    _build_picture_url,
 )
 
 
@@ -66,28 +63,10 @@ def get_user_context(request: HttpRequest):
         id=user.id,
         email=user.email,
         display_name=user.display_name,
-        picture=_build_picture_url(user),
         is_authenticated=True,
         permissions=context.permissions if context else [],
         role=context.role if context else "member",
     )
-
-
-@router.post("/me/picture", response=PictureResponse)
-def upload_picture(request: HttpRequest, file: UploadedFile = File(...)):
-    user: User = request.auth
-    user = UserService.update_picture(user, file)
-    return PictureResponse(
-        picture=_build_picture_url(user),
-        message="Profile picture updated",
-    )
-
-
-@router.delete("/me/picture", response=MessageResponse)
-def remove_picture(request: HttpRequest):
-    user: User = request.auth
-    UserService.remove_picture(user)
-    return {"message": "Profile picture removed"}
 
 
 @router.post("/me/password", response=SetPasswordResponse)

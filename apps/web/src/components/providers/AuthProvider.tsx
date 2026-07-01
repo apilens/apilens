@@ -8,7 +8,6 @@ interface AuthUser {
   first_name: string;
   last_name: string;
   display_name: string;
-  picture: string;
   email_verified: boolean;
   has_password: boolean;
   timezone: string;

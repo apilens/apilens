@@ -5,16 +5,11 @@ import { Check, X, Loader2, Pencil } from "lucide-react";
 import { UserProfile } from "@/types/settings";
 import SettingsCard from "./SettingsCard";
 import UserAvatar from "@/components/shared/UserAvatar";
-import ProfilePictureEditor from "./ProfilePictureEditor";
-import ImageViewModal from "./ImageViewModal";
 import Skeleton from "@/components/ui/Skeleton";
-import { useConfirm } from "@/hooks/useConfirm";
 
 interface ProfileSectionProps {
   profile: UserProfile | null;
   onUpdateName: (name: string) => Promise<void>;
-  onPictureUpload: (blob: Blob) => Promise<void>;
-  onPictureRemove: () => Promise<void>;
 }
 
 const NAME_MAX_LENGTH = 100;
@@ -22,17 +17,12 @@ const NAME_MAX_LENGTH = 100;
 export default function ProfileSection({
   profile,
   onUpdateName,
-  onPictureUpload,
-  onPictureRemove,
 }: ProfileSectionProps) {
-  const confirm = useConfirm();
   const displayName = profile?.display_name || "";
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(displayName);
   const [isSaving, setIsSaving] = useState(false);
   const [nameError, setNameError] = useState("");
-  const [showEditor, setShowEditor] = useState(false);
-  const [showImageView, setShowImageView] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
 
   const handleStartEdit = () => {
@@ -85,34 +75,6 @@ export default function ProfileSection({
     else if (e.key === "Escape") handleCancelEdit();
   };
 
-  const handleAvatarClick = () => {
-    if (profile?.picture) setShowImageView(true);
-  };
-
-  const handleEditClick = () => setShowEditor(true);
-
-  const handleEditorSave = async (blob: Blob) => {
-    await onPictureUpload(blob);
-    setShowEditor(false);
-  };
-
-  const handleEditorRemove = async () => {
-    setShowEditor(false);  // close editor first so the confirm dialog is on top
-    const ok = await confirm({
-      title: "Remove profile picture?",
-      description: "Your initials will show in place of the picture. You can upload a new one anytime.",
-      confirmText: "Remove picture",
-      variant: "danger",
-    });
-    if (ok) {
-      try {
-        await onPictureRemove();
-      } catch {
-        // toast handled upstream
-      }
-    }
-  };
-
   // ── Loading state ───────────────────────────────────────────────
   if (!profile) {
     return (
@@ -133,137 +95,115 @@ export default function ProfileSection({
   const showCounter = isEditing && (editedName.length > NAME_MAX_LENGTH - 20 || nameError);
 
   return (
-    <>
-      <SettingsCard title="Profile" description="Your personal information">
-        <div className="profile-header">
-          <UserAvatar
-            picture={profile.picture}
-            name={displayName}
-            email={profile.email}
-            size="lg"
-            showEditOverlay
-            onClick={handleAvatarClick}
-            onEditClick={handleEditClick}
-          />
-          <div className="profile-info">
-            {isEditing ? (
-              <>
-                <div className="profile-edit-row">
-                  <input
-                    type="text"
-                    className="profile-edit-input"
-                    value={editedName}
-                    onChange={(e) => {
-                      setEditedName(e.target.value);
-                      if (nameError) setNameError("");
-                    }}
-                    onKeyDown={handleKeyDown}
-                    maxLength={NAME_MAX_LENGTH + 10}
-                    autoFocus
+    <SettingsCard title="Profile" description="Your personal information">
+      <div className="profile-header">
+        <UserAvatar
+          name={displayName}
+          email={profile.email}
+          size="lg"
+        />
+        <div className="profile-info">
+          {isEditing ? (
+            <>
+              <div className="profile-edit-row">
+                <input
+                  type="text"
+                  className="profile-edit-input"
+                  value={editedName}
+                  onChange={(e) => {
+                    setEditedName(e.target.value);
+                    if (nameError) setNameError("");
+                  }}
+                  onKeyDown={handleKeyDown}
+                  maxLength={NAME_MAX_LENGTH + 10}
+                  autoFocus
+                  disabled={isSaving}
+                  aria-invalid={!!nameError}
+                />
+                <div className="profile-edit-actions">
+                  <button
+                    className="settings-btn settings-btn-icon settings-btn-primary"
+                    onClick={handleSave}
+                    disabled={isSaving || !editedName.trim() || overLimit}
+                    aria-label="Save name"
+                  >
+                    {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                  </button>
+                  <button
+                    className="settings-btn settings-btn-icon settings-btn-ghost"
+                    onClick={handleCancelEdit}
                     disabled={isSaving}
-                    aria-invalid={!!nameError}
-                  />
-                  <div className="profile-edit-actions">
-                    <button
-                      className="settings-btn settings-btn-icon settings-btn-primary"
-                      onClick={handleSave}
-                      disabled={isSaving || !editedName.trim() || overLimit}
-                      aria-label="Save name"
-                    >
-                      {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                    </button>
-                    <button
-                      className="settings-btn settings-btn-icon settings-btn-ghost"
-                      onClick={handleCancelEdit}
-                      disabled={isSaving}
-                      aria-label="Cancel editing"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
+                    aria-label="Cancel editing"
+                  >
+                    <X size={14} />
+                  </button>
                 </div>
-                {(nameError || showCounter) && (
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: "12px",
-                      marginTop: "4px",
-                      fontSize: "12px",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    <span style={{ color: nameError ? "var(--danger, #dc2626)" : "var(--text-secondary)" }}>
-                      {nameError}
-                    </span>
-                    {showCounter && (
-                      <span
-                        style={{
-                          color: overLimit ? "var(--danger, #dc2626)" : "var(--text-secondary)",
-                          fontVariantNumeric: "tabular-nums",
-                        }}
-                      >
-                        {editedName.length} / {NAME_MAX_LENGTH}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </>
-            ) : (
-              <span
-                className="profile-name profile-name-editable"
-                onClick={handleStartEdit}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    handleStartEdit();
-                  }
-                }}
-              >
-                {displayName}
-                <Pencil size={13} className="profile-name-pencil" aria-hidden="true" />
-                {justSaved && (
-                  <span
-                    style={{
-                      marginLeft: "8px",
-                      fontSize: "12px",
-                      color: "var(--success, #16a34a)",
-                      fontWeight: 500,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "4px",
-                      animation: "fade-in 0.15s ease",
-                    }}
-                    aria-live="polite"
-                  >
-                    <Check size={12} />
-                    Saved
+              </div>
+              {(nameError || showCounter) && (
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    marginTop: "4px",
+                    fontSize: "12px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <span style={{ color: nameError ? "var(--danger, #dc2626)" : "var(--text-secondary)" }}>
+                    {nameError}
                   </span>
-                )}
-              </span>
-            )}
-            <p className="profile-email">{profile.email}</p>
-          </div>
+                  {showCounter && (
+                    <span
+                      style={{
+                        color: overLimit ? "var(--danger, #dc2626)" : "var(--text-secondary)",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {editedName.length} / {NAME_MAX_LENGTH}
+                    </span>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <span
+              className="profile-name profile-name-editable"
+              onClick={handleStartEdit}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleStartEdit();
+                }
+              }}
+            >
+              {displayName}
+              <Pencil size={13} className="profile-name-pencil" aria-hidden="true" />
+              {justSaved && (
+                <span
+                  style={{
+                    marginLeft: "8px",
+                    fontSize: "12px",
+                    color: "var(--success, #16a34a)",
+                    fontWeight: 500,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    animation: "fade-in 0.15s ease",
+                  }}
+                  aria-live="polite"
+                >
+                  <Check size={12} />
+                  Saved
+                </span>
+              )}
+            </span>
+          )}
+          <p className="profile-email">{profile.email}</p>
         </div>
-      </SettingsCard>
-
-      {showEditor && (
-        <ProfilePictureEditor
-          currentPicture={profile.picture}
-          onSave={handleEditorSave}
-          onRemove={handleEditorRemove}
-          onClose={() => setShowEditor(false)}
-        />
-      )}
-
-      {showImageView && profile.picture && (
-        <ImageViewModal
-          src={profile.picture}
-          onClose={() => setShowImageView(false)}
-        />
-      )}
-    </>
+      </div>
+    </SettingsCard>
   );
 }

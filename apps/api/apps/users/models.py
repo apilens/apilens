@@ -4,6 +4,8 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 
+# Retained only so historical migrations that referenced this upload_to
+# callable still import. The profile-picture field itself has been removed.
 def profile_picture_path(instance, filename):
     return f"profile_pictures/{instance.id}.jpg"
 
@@ -16,12 +18,6 @@ class User(AbstractUser):
     )
 
     email = models.EmailField(unique=True, db_index=True)
-
-    picture = models.ImageField(
-        upload_to=profile_picture_path,
-        blank=True,
-        default="",
-    )
 
     email_verified = models.BooleanField(default=False)
 

@@ -165,33 +165,20 @@ export default function ProjectAppsContent({ slug }: ProjectAppsContentProps) {
                   >
                     <td>
                       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        {app.icon_url ? (
-                          <img
-                            src={app.icon_url}
-                            alt={app.name}
-                            style={{
-                              width: "40px",
-                              height: "40px",
-                              borderRadius: "8px",
-                              objectFit: "cover"
-                            }}
-                          />
-                        ) : (
-                          <div style={{
-                            width: "40px",
-                            height: "40px",
-                            borderRadius: "8px",
-                            background: "var(--color-primary)",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "16px",
-                            fontWeight: "600",
-                            color: "white"
-                          }}>
-                            {appAvatar}
-                          </div>
-                        )}
+                        <div style={{
+                          width: "40px",
+                          height: "40px",
+                          borderRadius: "8px",
+                          background: "var(--color-primary)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: "16px",
+                          fontWeight: "600",
+                          color: "white"
+                        }}>
+                          {appAvatar}
+                        </div>
                         <div>
                           <div style={{ fontWeight: 500, fontSize: "14px" }}>{app.name}</div>
                           <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>

@@ -65,10 +65,6 @@ fi
 # Browser CORS origins: the app origin plus localhost for dev tooling.
 CORS_ORIGINS="${FRONTEND_URL},http://localhost:3000,http://127.0.0.1:3000"
 
-# GCS media bucket name matches the terraform resource: "<project>-media".
-# The Django app reads it from GS_BUCKET_NAME (apps/api config/settings.py).
-MEDIA_BUCKET="${PROJECT_ID}-media"
-
 # ----------------------------------------------------------------------------
 # Base tooling
 # ----------------------------------------------------------------------------
@@ -268,8 +264,6 @@ FRONTEND_URL=${FRONTEND_URL}
 # IdP issuer = https://<api_site>/auth (computed above), now that identity is
 # served under the API gateway at api.apilens.ai/auth/*.
 JWT_ISSUER=${JWT_ISSUER}
-MEDIA_BUCKET=${MEDIA_BUCKET}
-GS_PROJECT_ID=${PROJECT_ID}
 DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
 SESSION_SECRET=${SESSION_SECRET}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}

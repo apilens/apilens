@@ -1,31 +1,10 @@
-import os
 from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
 
 from ninja import Schema
 
-from apps.projects.models import App
-
 FrameworkValue = Literal["fastapi", "flask", "django", "starlette", "express"]
-
-
-def _build_app_icon_url(app: App) -> str:
-    """Return the public URL for the app's icon, or "".
-
-    Mirrors users.schemas._build_picture_url — `icon_image.url` is absolute on
-    GCS (prod), path-relative on the local filesystem backend.
-    """
-    if not app.icon_image:
-        return ""
-    url = app.icon_image.url
-    if url.startswith(("http://", "https://")):
-        base_url = url
-    else:
-        base = os.environ.get("DJANGO_BASE_URL", "http://localhost:8000").rstrip("/")
-        base_url = f"{base}{url}"
-    cache_bust = int(app.updated_at.timestamp()) if app.updated_at else ""
-    return f"{base_url}?v={cache_bust}" if cache_bust else base_url
 
 
 class CreateAppRequest(Schema):
@@ -44,7 +23,6 @@ class AppResponse(Schema):
     id: UUID
     name: str
     slug: str
-    icon_url: str
     description: str
     framework: FrameworkValue
     created_at: datetime
@@ -55,7 +33,6 @@ class AppListResponse(Schema):
     id: UUID
     name: str
     slug: str
-    icon_url: str
     description: str
     framework: FrameworkValue
     api_key_count: int
@@ -83,11 +60,6 @@ class CreateApiKeyResponse(Schema):
 
 
 class MessageResponse(Schema):
-    message: str
-
-
-class AppIconResponse(Schema):
-    icon_url: str
     message: str
 
 

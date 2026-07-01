@@ -93,55 +93,6 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
     }
   };
 
-  const refreshApp = async () => {
-    const url = projectSlug
-      ? `/api/projects/${projectSlug}/apps/${appSlug}`
-      : `/api/apps/${appSlug}`;
-    const res = await fetch(url);
-    if (!res.ok) return;
-    const next = await res.json();
-    setLocalApp(next);
-  };
-
-  const handleUploadAppIcon = async (file: Blob) => {
-    try {
-      const formData = new FormData();
-      formData.append("file", file, "app-icon.jpg");
-      const url = projectSlug
-        ? `/api/projects/${projectSlug}/apps/${appSlug}/icon`
-        : `/api/apps/${appSlug}/icon`;
-      const res = await fetch(url, {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to upload app icon");
-      }
-      await refreshApp();
-      showToast("success", "App icon updated");
-    } catch (error) {
-      showToast("error", error instanceof Error ? error.message : "Failed to upload app icon");
-    }
-  };
-
-  const handleRemoveAppIcon = async () => {
-    try {
-      const url = projectSlug
-        ? `/api/projects/${projectSlug}/apps/${appSlug}/icon`
-        : `/api/apps/${appSlug}/icon`;
-      const res = await fetch(url, { method: "DELETE" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to remove app icon");
-      }
-      await refreshApp();
-      showToast("success", "App icon removed");
-    } catch (error) {
-      showToast("error", error instanceof Error ? error.message : "Failed to remove app icon");
-    }
-  };
-
   const handleDeleteApp = async () => {
     try {
       const url = projectSlug
@@ -207,8 +158,6 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
               appSlug={appSlug}
               app={localApp}
               onUpdate={handleUpdateApp}
-              onUploadIcon={handleUploadAppIcon}
-              onRemoveIcon={handleRemoveAppIcon}
               onDelete={handleDeleteApp}
             />
           )}

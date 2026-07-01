@@ -1,7 +1,5 @@
 from django.db.models import Count, Q
 from django.http import HttpRequest
-from ninja import File
-from ninja.files import UploadedFile
 from ninja import Router
 
 from apps.auth.services import ApiKeyService
@@ -30,14 +28,12 @@ from .schemas import (
     EndpointOptionResponse,
     EndpointMetaResponse,
     EnvironmentOptionResponse,
-    AppIconResponse,
     ConsumerStatsResponse,
     ConsumerRequestStatsResponse,
     ConsumerActivityResponse,
     ApiKeyResponse,
     CreateApiKeyResponse,
     MessageResponse,
-    _build_app_icon_url,
 )
 
 router = Router(auth=[jwt_auth])
@@ -51,7 +47,6 @@ def create_app(request: HttpRequest, data: CreateAppRequest):
         id=app.id,
         name=app.name,
         slug=app.slug,
-        icon_url=_build_app_icon_url(app),
         description=app.description,
         framework=app.framework,
         created_at=app.created_at,
@@ -83,7 +78,6 @@ def list_apps(request: HttpRequest):
             id=a.id,
             name=a.name,
             slug=a.slug,
-            icon_url=_build_app_icon_url(a),
             description=a.description,
             framework=a.framework,
             api_key_count=counts.get(a.id, 0),
@@ -101,7 +95,6 @@ def get_app(request: HttpRequest, app_slug: str):
         id=app.id,
         name=app.name,
         slug=app.slug,
-        icon_url=_build_app_icon_url(app),
         description=app.description,
         framework=app.framework,
         created_at=app.created_at,
@@ -117,7 +110,6 @@ def update_app(request: HttpRequest, app_slug: str, data: UpdateAppRequest):
         id=app.id,
         name=app.name,
         slug=app.slug,
-        icon_url=_build_app_icon_url(app),
         description=app.description,
         framework=app.framework,
         created_at=app.created_at,
@@ -130,25 +122,6 @@ def delete_app(request: HttpRequest, app_slug: str):
     user: User = request.auth
     AppService.delete_app(user, app_slug)
     return {"message": "App deleted"}
-
-
-@router.post("/{app_slug}/icon", response=AppIconResponse)
-def upload_app_icon(request: HttpRequest, app_slug: str, file: UploadedFile = File(...)):
-    user: User = request.auth
-    app = AppService.get_app_by_slug(user, app_slug)
-    app = AppService.update_icon(app, file)
-    return AppIconResponse(
-        icon_url=_build_app_icon_url(app),
-        message="App icon updated",
-    )
-
-
-@router.delete("/{app_slug}/icon", response=MessageResponse)
-def remove_app_icon(request: HttpRequest, app_slug: str):
-    user: User = request.auth
-    app = AppService.get_app_by_slug(user, app_slug)
-    AppService.remove_icon(app)
-    return {"message": "App icon removed"}
 
 
 # ── App-scoped API Keys ──────────────────────────────────────────────
