@@ -4,15 +4,24 @@ from .client import ApiLensClient
 from .client.middleware import ApiLensASGIMiddleware
 
 
-def instrument_app(app, client: ApiLensClient, *, environment: str | None = None):
-    """BlackSheep integration via ASGI middleware."""
-    wrapped = None
+def instrument_app(
+    app,
+    client: ApiLensClient,
+    *,
+    app_id: str = "",
+    project_slug: str = "",
+    environment: str | None = None,
+):
+    """BlackSheep integration via ASGI middleware.
+
+    ``app_id`` selects which app in the project the traffic belongs to and is
+    required for ingestion (and for span capture).
+    """
+    kwargs = dict(client=client, app_id=app_id, project_slug=project_slug, environment=environment)
     if hasattr(app, "asgi"):
-        wrapped = ApiLensASGIMiddleware(app.asgi, client=client, environment=environment)
-        app.asgi = wrapped
+        app.asgi = ApiLensASGIMiddleware(app.asgi, **kwargs)
     elif hasattr(app, "_asgi_app"):
-        wrapped = ApiLensASGIMiddleware(app._asgi_app, client=client, environment=environment)  # noqa: SLF001
-        app._asgi_app = wrapped  # noqa: SLF001
+        app._asgi_app = ApiLensASGIMiddleware(app._asgi_app, **kwargs)  # noqa: SLF001
     else:
         raise RuntimeError("Unsupported BlackSheep app shape for middleware installation")
     return app

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "apilenss"
-version = "0.2.1"
+dynamic = ["version"]
 description = "API Lens Python SDK with OpenTelemetry-based ingest forwarding"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -62,6 +62,9 @@ all = [
 Homepage = "https://apilens.ai"
 Documentation = "https://apilens.ai"
 Repository = "https://github.com/apilens/apilens"
+
+[tool.hatch.version]
+path = "apilens/_version.py"
 
 [tool.hatch.build.targets.wheel]
 # Wheel published as `apilenss` on PyPI (see `name` above); the actual code

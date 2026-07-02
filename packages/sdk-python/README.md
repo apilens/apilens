@@ -205,26 +205,32 @@ instrument_app(app, client, app_id="orders-api")
 
 ### Other ASGI apps
 
-Litestar, BlackSheep, and any other ASGI framework are supported through the
-generic ASGI middleware — pass your `app_id` when you install it.
-
 **Litestar:**
 
 ```python
 from litestar import Litestar
-from litestar.middleware import DefineMiddleware
-from apilens import ApiLensClient, ApiLensConfig
-from apilens.client.middleware import ApiLensASGIMiddleware
+from apilens import ApiLensClient, ApiLensConfig, ApiLensPlugin
 
 client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
-
 app = Litestar(
     route_handlers=[...],
-    middleware=[DefineMiddleware(ApiLensASGIMiddleware, client=client, app_id="orders-api")],
+    plugins=[ApiLensPlugin(client=client, app_id="orders-api")],
 )
 ```
 
-**Any ASGI app:**
+**BlackSheep:**
+
+```python
+from blacksheep import Application
+from apilens import ApiLensClient, ApiLensConfig
+from apilens.blacksheep import instrument_app
+
+client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
+app = Application()
+instrument_app(app, client, app_id="orders-api")
+```
+
+**Any other ASGI framework** — wrap the app with the generic middleware:
 
 ```python
 from apilens import ApiLensClient, ApiLensConfig

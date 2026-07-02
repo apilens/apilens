@@ -8,9 +8,22 @@ from .client.middleware import ApiLensASGIMiddleware
 
 @dataclass(slots=True)
 class ApiLensPlugin:
-    """Litestar plugin-protocol style integration."""
+    """Litestar plugin-protocol style integration.
+
+    Usage::
+
+        app = Litestar(
+            route_handlers=[...],
+            plugins=[ApiLensPlugin(client=client, app_id="orders-api")],
+        )
+
+    ``app_id`` selects which app in the project the traffic belongs to and is
+    required for ingestion (and for span capture).
+    """
 
     client: ApiLensClient
+    app_id: str = ""
+    project_slug: str = ""
     environment: str | None = None
 
     def on_app_init(self, app_config):
@@ -26,6 +39,8 @@ class ApiLensPlugin:
             DefineMiddleware(
                 ApiLensASGIMiddleware,
                 client=self.client,
+                app_id=self.app_id,
+                project_slug=self.project_slug,
                 environment=self.environment,
             )
         )
@@ -33,11 +48,20 @@ class ApiLensPlugin:
         return app_config
 
 
-def instrument_app(app, client: ApiLensClient, *, environment: str | None = None):
+def instrument_app(
+    app,
+    client: ApiLensClient,
+    *,
+    app_id: str = "",
+    project_slug: str = "",
+    environment: str | None = None,
+):
     """Fallback direct installation for Litestar ASGI apps."""
     app.asgi_handler = ApiLensASGIMiddleware(
         app.asgi_handler,
         client=client,
+        app_id=app_id,
+        project_slug=project_slug,
         environment=environment,
     )
     return app

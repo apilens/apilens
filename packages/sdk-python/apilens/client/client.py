@@ -12,6 +12,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from .._version import __version__
 from .models import RequestRecord, SpanRecord
 
 logger = logging.getLogger("apilens")
@@ -38,7 +39,7 @@ class ApiLensConfig:
     retry_backoff_max: float = 5.0
 
     enabled: bool = True
-    user_agent: str = "apilens-python-sdk/0.1.8"
+    user_agent: str = f"apilenss/{__version__}"
 
 
 class ApiLensClient:
