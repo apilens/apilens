@@ -19,6 +19,7 @@ jobs) or no middleware has been installed — ``span()`` is always safe to call.
 from __future__ import annotations
 
 import contextvars
+import os
 import threading
 import time
 from contextlib import contextmanager
@@ -33,6 +34,23 @@ if TYPE_CHECKING:
 
 _MAX_ATTRIBUTES = 32
 _MAX_ATTRIBUTE_VALUE_CHARS = 512
+
+_FALSEY = {"0", "false", "no", "off", "disabled", ""}
+
+
+def env_spans_enabled() -> bool:
+    """Global trace kill-switch via the ``APILENS_CAPTURE_SPANS`` env var.
+
+    Returns ``True`` (tracing allowed) unless the variable is explicitly set to
+    a falsey value (``0``/``false``/``no``/``off``). This lets ops disable trace
+    ingestion for a whole process without a code change; it can only turn spans
+    OFF — a per-integration ``capture_spans=True`` never overrides an env
+    ``APILENS_CAPTURE_SPANS=false``.
+    """
+    raw = os.getenv("APILENS_CAPTURE_SPANS")
+    if raw is None:
+        return True
+    return raw.strip().lower() not in _FALSEY
 
 
 class _SpanRecorder:

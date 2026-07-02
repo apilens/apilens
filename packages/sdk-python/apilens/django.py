@@ -14,7 +14,7 @@ from .client.middleware import (
     set_consumer,
     track_consumer,
 )
-from .client.spans import configure_spans, record_span
+from .client.spans import configure_spans, env_spans_enabled, record_span
 from .client.trace import begin_request_trace, end_request_trace
 
 _client_singleton: ApiLensClient | None = None
@@ -127,7 +127,8 @@ class ApiLensDjangoMiddleware:
         # Optional resolver, e.g. APILENS_GET_CONSUMER = lambda request: request.user.username
         # Nothing is inferred automatically; it only runs the resolver you provide.
         self.get_consumer = _resolve_get_consumer(settings)
-        self.capture_spans = bool(getattr(settings, "APILENS_CAPTURE_SPANS", True))
+        # APILENS_CAPTURE_SPANS also works as an env kill-switch (env wins over the setting).
+        self.capture_spans = bool(getattr(settings, "APILENS_CAPTURE_SPANS", True)) and env_spans_enabled()
         if self.capture_spans:
             configure_spans(
                 self.client,

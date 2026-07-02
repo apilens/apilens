@@ -5,4 +5,4 @@ ingest client's ``User-Agent`` string, and by the build backend
 (``[tool.hatch.version]`` in ``pyproject.toml``).
 """
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"

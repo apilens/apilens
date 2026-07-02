@@ -18,7 +18,7 @@ from ._capture import (
 )
 from ._sanitize import decode_utf8_safe, serialize_headers
 from .client import ApiLensClient
-from .spans import configure_spans, record_span
+from .spans import configure_spans, env_spans_enabled, record_span
 from .trace import begin_request_trace, end_request_trace
 
 _consumer_ctx: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar(
@@ -262,7 +262,8 @@ class ApiLensASGIMiddleware:
         # against auth state — it only runs the resolver you provide.
         self.get_consumer = get_consumer
         # Spans need an app_id to be ingestible; skip configuration without one.
-        self.capture_spans = capture_spans and bool(app_id)
+        # APILENS_CAPTURE_SPANS=false is a global kill-switch (env wins over code).
+        self.capture_spans = capture_spans and bool(app_id) and env_spans_enabled()
         if self.capture_spans:
             configure_spans(
                 client,
@@ -424,7 +425,8 @@ class ApiLensWSGIMiddleware:
         # inside your view when you have the framework request object.
         self.get_consumer = get_consumer
         # Spans need an app_id to be ingestible; skip configuration without one.
-        self.capture_spans = capture_spans and bool(app_id)
+        # APILENS_CAPTURE_SPANS=false is a global kill-switch (env wins over code).
+        self.capture_spans = capture_spans and bool(app_id) and env_spans_enabled()
         if self.capture_spans:
             configure_spans(
                 client,

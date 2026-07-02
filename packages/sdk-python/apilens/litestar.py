@@ -25,6 +25,8 @@ class ApiLensPlugin:
     app_id: str = ""
     project_slug: str = ""
     environment: str | None = None
+    capture_spans: bool = True
+    service_name: str = ""
 
     def on_app_init(self, app_config):
         try:
@@ -42,6 +44,8 @@ class ApiLensPlugin:
                 app_id=self.app_id,
                 project_slug=self.project_slug,
                 environment=self.environment,
+                capture_spans=self.capture_spans,
+                service_name=self.service_name,
             )
         )
         app_config.middleware = middleware
@@ -55,6 +59,8 @@ def instrument_app(
     app_id: str = "",
     project_slug: str = "",
     environment: str | None = None,
+    capture_spans: bool = True,
+    service_name: str = "",
 ):
     """Fallback direct installation for Litestar ASGI apps."""
     app.asgi_handler = ApiLensASGIMiddleware(
@@ -63,5 +69,7 @@ def instrument_app(
         app_id=app_id,
         project_slug=project_slug,
         environment=environment,
+        capture_spans=capture_spans,
+        service_name=service_name,
     )
     return app

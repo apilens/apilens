@@ -377,8 +377,35 @@ return the active context (empty strings outside a request). Use
 `current_traceparent()` if you propagate the trace across a boundary the SDK
 doesn't patch (a message queue, a gRPC call, a manually built client).
 
-Tracing is on by default wherever an `app_id` is set. On Django it is controlled
-by `APILENS_CAPTURE_SPANS` (default `True`).
+### Turning tracing on and off
+
+Tracing is on by default wherever an `app_id` is set. Request analytics keep
+working with tracing off — you just stop emitting spans (and the outbound-HTTP
+auto-instrumentation).
+
+**Per integration** — pass `capture_spans=False`:
+
+```python
+# FastAPI
+app.add_middleware(ApiLensMiddleware, api_key="apilens_xxx", app_id="orders-api", capture_spans=False)
+
+# Flask / Starlette / Litestar / BlackSheep helpers all take capture_spans too
+instrument_flask(app, client, app_id="orders-api", capture_spans=False)
+```
+
+```python
+# Django — settings.py
+APILENS_CAPTURE_SPANS = False
+```
+
+**Globally, without a code change** — set the environment variable (accepts
+`0`/`false`/`no`/`off`). This is a kill-switch: it can only turn tracing **off**,
+and it overrides any `capture_spans=True` in code, so ops can disable trace
+ingestion for a whole process or fleet:
+
+```bash
+export APILENS_CAPTURE_SPANS=false
+```
 
 ---
 

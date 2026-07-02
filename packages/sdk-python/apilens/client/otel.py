@@ -11,6 +11,7 @@ from opentelemetry.trace import SpanKind, StatusCode
 
 from .client import ApiLensClient
 from .models import RequestRecord, SpanRecord
+from .spans import env_spans_enabled
 
 _HTTP_METHOD_KEYS = ("http.request.method", "http.method")
 _HTTP_PATH_KEYS = ("http.route", "url.path", "http.target")
@@ -124,7 +125,7 @@ class ApiLensSpanExporter(SpanExporter):
                 # Avoid ingest loop if transport is instrumented.
                 continue
 
-            if self.export_spans:
+            if self.export_spans and env_spans_enabled():
                 span_record = self._to_span_record(span, attrs)
                 if span_record.trace_id and span_record.span_id:
                     self.client.capture_span(span_record)
