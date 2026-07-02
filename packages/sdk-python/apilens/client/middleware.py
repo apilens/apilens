@@ -18,6 +18,8 @@ from ._capture import (
 )
 from ._sanitize import decode_utf8_safe, serialize_headers
 from .client import ApiLensClient
+from .spans import configure_spans, record_span
+from .trace import begin_request_trace, end_request_trace
 
 _consumer_ctx: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar(
     "apilens_consumer_ctx",
@@ -238,6 +240,8 @@ class ApiLensASGIMiddleware:
         log_response_body: bool = True,
         capture_payloads: bool = True,
         capture_headers: bool = True,
+        capture_spans: bool = True,
+        service_name: str = "",
         max_payload_bytes: int = 65536,
         get_consumer: Callable[..., Any] | None = None,
     ) -> None:
@@ -257,6 +261,15 @@ class ApiLensASGIMiddleware:
         # Return a str, dict, object or None. Never invoked automatically
         # against auth state — it only runs the resolver you provide.
         self.get_consumer = get_consumer
+        # Spans need an app_id to be ingestible; skip configuration without one.
+        self.capture_spans = capture_spans and bool(app_id)
+        if self.capture_spans:
+            configure_spans(
+                client,
+                app_id=app_id,
+                environment=environment,
+                service_name=service_name or app_id,
+            )
 
     async def __call__(self, scope, receive, send) -> None:
         if scope.get("type") != "http":
@@ -265,6 +278,7 @@ class ApiLensASGIMiddleware:
 
         headers = _headers_to_dict(scope.get("headers", []))
         path = _normalize_path(scope.get("path", "/"))
+        trace_id, span_id, parent_span_id, trace_token = begin_request_trace(headers.get("traceparent"))
 
         request_payload_chunks: list[bytes] = []
         request_payload_len = 0
@@ -279,6 +293,8 @@ class ApiLensASGIMiddleware:
             user_agent=_extract_user_agent(headers),
             base_url=_detect_base_url_from_headers(headers, default_scheme=scope.get("scheme", "https")),
             request_headers=serialize_headers(headers) if self.capture_headers else "",
+            trace_id=trace_id,
+            span_id=span_id,
         )
 
         started_at = time.perf_counter()
@@ -355,7 +371,19 @@ class ApiLensASGIMiddleware:
                 response_payload=response_payload,
                 response_headers=response_headers_json,
             )
+            if self.capture_spans:
+                record_span(
+                    name=f"{ctx.method} {ctx.path}",
+                    kind="server",
+                    trace_id=trace_id,
+                    span_id=span_id,
+                    parent_span_id=parent_span_id,
+                    duration_ms=(time.perf_counter() - started_at) * 1000.0,
+                    status="error" if status_code >= 500 else "ok",
+                    status_code=status_code,
+                )
             _consumer_ctx.reset(token)
+            end_request_trace(trace_token)
 
 
 class ApiLensWSGIMiddleware:
@@ -374,6 +402,8 @@ class ApiLensWSGIMiddleware:
         log_response_body: bool = True,
         capture_payloads: bool = True,
         capture_headers: bool = True,
+        capture_spans: bool = True,
+        service_name: str = "",
         max_payload_bytes: int = 65536,
         get_consumer: Callable[..., Any] | None = None,
     ) -> None:
@@ -393,10 +423,20 @@ class ApiLensWSGIMiddleware:
         # Return a str, dict, object or None. Prefer calling track_consumer()
         # inside your view when you have the framework request object.
         self.get_consumer = get_consumer
+        # Spans need an app_id to be ingestible; skip configuration without one.
+        self.capture_spans = capture_spans and bool(app_id)
+        if self.capture_spans:
+            configure_spans(
+                client,
+                app_id=app_id,
+                environment=environment,
+                service_name=service_name or app_id,
+            )
 
     def __call__(self, environ: dict[str, Any], start_response: Callable) -> Any:
         started_at = time.perf_counter()
         consumer_token = _consumer_ctx.set(None)
+        trace_id, span_id, parent_span_id, trace_token = begin_request_trace(environ.get("HTTP_TRACEPARENT"))
 
         path = _normalize_path(environ.get("PATH_INFO") or "/")
         query = environ.get("QUERY_STRING")
@@ -439,6 +479,8 @@ class ApiLensWSGIMiddleware:
             request_payload=request_payload,
             request_headers=request_headers_json,
             base_url=_detect_base_url_from_environ(environ),
+            trace_id=trace_id,
+            span_id=span_id,
         )
 
         status_code = 500
@@ -482,6 +524,18 @@ class ApiLensWSGIMiddleware:
                     consumer = normalize_consumer(resolved)
             _apply_consumer(ctx, consumer)
             _consumer_ctx.reset(consumer_token)
+            end_request_trace(trace_token)
+            if self.capture_spans:
+                record_span(
+                    name=f"{ctx.method} {ctx.path}",
+                    kind="server",
+                    trace_id=trace_id,
+                    span_id=span_id,
+                    parent_span_id=parent_span_id,
+                    duration_ms=(time.perf_counter() - started_at) * 1000.0,
+                    status="error" if status_code >= 500 else "ok",
+                    status_code=status_code,
+                )
             response_payload = decode_utf8_safe(b"".join(response_payload_chunks))
             capture_response(
                 self.client,

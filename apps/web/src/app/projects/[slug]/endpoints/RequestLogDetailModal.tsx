@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDownToLine, ArrowUpFromLine, Check, Copy, Fingerprint, Globe, Server, Terminal, Timer, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Check, Copy, Fingerprint, Globe, Link2, Server, Terminal, Timer, X } from "lucide-react";
 import {
   formatBytes,
   formatDateTime,
@@ -29,6 +29,8 @@ export interface RequestItem {
   consumer_id: string;
   consumer_name: string;
   consumer_group: string;
+  trace_id?: string;
+  span_id?: string;
 }
 
 // Payload/header detail, lazily fetched from endpoint-requests (the flat
@@ -44,14 +46,48 @@ interface PayloadRow {
   base_url?: string;
   country?: string;
   country_code?: string;
+  trace_id?: string;
+  span_id?: string;
 }
 
-type TabKey = "details" | "headers" | "response" | "related";
+// A log line correlated with this request via trace_id (from /data/logs).
+interface LogItem {
+  timestamp: string;
+  app_id: string;
+  environment: string;
+  level: string;
+  message: string;
+  logger_name: string;
+  trace_id?: string;
+  span_id?: string;
+  payload: string;
+  attributes: Record<string, string>;
+}
+
+// A span of the distributed trace this request belongs to (from /data/trace).
+interface SpanItem {
+  timestamp: string;
+  app_id: string;
+  environment: string;
+  trace_id: string;
+  span_id: string;
+  parent_span_id: string;
+  name: string;
+  kind: string;
+  service_name: string;
+  duration_ms: number;
+  status: string;
+  status_code: number;
+  attributes: Record<string, string>;
+}
+
+type TabKey = "details" | "headers" | "response" | "trace" | "related";
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "details", label: "Details" },
   { key: "headers", label: "Headers" },
   { key: "response", label: "Payload" },
+  { key: "trace", label: "Trace" },
   { key: "related", label: "Related" },
 ];
 
@@ -364,6 +400,189 @@ function RelatedTab({
   );
 }
 
+/* ── Trace tab ───────────────────────────────────────────────────────── */
+
+function levelTone(level: string): string {
+  const l = (level || "").toUpperCase();
+  if (l === "ERROR" || l === "CRITICAL") return "endpoint-status-5xx";
+  if (l === "WARNING") return "endpoint-status-4xx";
+  if (l === "DEBUG") return "endpoint-status-3xx";
+  return "endpoint-status-2xx";
+}
+
+function spanColor(kind: string, status: string): string {
+  if (status === "error") return "#f87171";
+  const k = (kind || "").toLowerCase();
+  if (k === "server") return "#14b8a6";
+  if (k === "http" || k === "client") return "#5A9CF8";
+  if (k === "db") return "#f59e0b";
+  return "#94a3b8";
+}
+
+// Depth of each span in the tree (root = 0); tolerates missing parents
+// (e.g. the caller's span in another project) and cycles.
+function spanDepths(spans: SpanItem[]): Map<string, number> {
+  const byId = new Map(spans.map((s) => [s.span_id, s]));
+  const depths = new Map<string, number>();
+  for (const s of spans) {
+    let depth = 0;
+    let cur: SpanItem | undefined = s;
+    const seen = new Set<string>();
+    while (cur && cur.parent_span_id && byId.has(cur.parent_span_id) && !seen.has(cur.span_id) && depth < 8) {
+      seen.add(cur.span_id);
+      cur = byId.get(cur.parent_span_id);
+      depth += 1;
+    }
+    depths.set(s.span_id, depth);
+  }
+  return depths;
+}
+
+function Waterfall({ spans }: { spans: SpanItem[] }) {
+  const depths = spanDepths(spans);
+  const starts = spans.map((s) => new Date(s.timestamp).getTime());
+  const traceStart = Math.min(...starts);
+  const traceEnd = Math.max(...spans.map((s, i) => starts[i] + Math.max(s.duration_ms, 0)));
+  const total = Math.max(traceEnd - traceStart, 1);
+
+  return (
+    <div className="ep-rel-list">
+      {spans.map((s, i) => {
+        const left = Math.min(((starts[i] - traceStart) / total) * 100, 99);
+        const width = Math.max(Math.min((Math.max(s.duration_ms, 0) / total) * 100, 100 - left), 0.75);
+        const color = spanColor(s.kind, s.status);
+        return (
+          <div key={`${s.span_id}-${i}`} className="ep-trace-row">
+            <span
+              className="ep-trace-name"
+              style={{ paddingLeft: (depths.get(s.span_id) || 0) * 14 }}
+              title={`${s.name}${s.service_name ? ` · ${s.service_name}` : ""}`}
+            >
+              <span className="ep-trace-kind" style={{ color }}>{s.kind || "internal"}</span>
+              {s.name}
+            </span>
+            <span className="ep-trace-track">
+              <span className="ep-trace-bar" style={{ left: `${left}%`, width: `${width}%`, background: color }} />
+            </span>
+            <span className="ep-rel-dur">{formatMs(s.duration_ms)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TraceTab({
+  projectSlug,
+  traceId,
+  loadingTrace,
+  appSlugs,
+  environment,
+  since,
+  until,
+}: {
+  projectSlug: string;
+  traceId: string;
+  loadingTrace: boolean;
+  appSlugs: string[];
+  environment?: string;
+  since: string;
+  until?: string;
+}) {
+  const [spans, setSpans] = useState<SpanItem[] | null>(null);
+  const [logs, setLogs] = useState<LogItem[] | null>(null);
+
+  useEffect(() => {
+    if (!traceId) { setSpans(null); setLogs(null); return; }
+    let cancelled = false;
+    setSpans(null);
+    setLogs(null);
+    (async () => {
+      try {
+        const res = await fetch(`/api/projects/${projectSlug}/data/trace?trace_id=${encodeURIComponent(traceId)}`);
+        const data = res.ok ? await res.json() : { spans: [] };
+        if (!cancelled) setSpans(data.spans || []);
+      } catch { if (!cancelled) setSpans([]); }
+    })();
+    (async () => {
+      try {
+        const p = new URLSearchParams();
+        p.set("trace_id", traceId);
+        p.set("since", since);
+        if (until) p.set("until", until);
+        if (environment) p.set("environment", environment);
+        if (appSlugs.length) p.set("app_slugs", appSlugs.join(","));
+        p.set("page_size", "100");
+        const res = await fetch(`/api/projects/${projectSlug}/data/logs?${p.toString()}`);
+        const data = res.ok ? await res.json() : { items: [] };
+        if (cancelled) return;
+        const items: LogItem[] = (data.items || []).slice();
+        // The API returns newest-first; a single request's logs read naturally
+        // in chronological order.
+        items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        setLogs(items);
+      } catch { if (!cancelled) setLogs([]); }
+    })();
+    return () => { cancelled = true; };
+  }, [projectSlug, traceId, appSlugs, environment, since, until]);
+
+  if (!traceId) {
+    return loadingTrace ? (
+      <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
+    ) : (
+      <div className="endpoint-detail-empty">
+        No trace id was captured for this request, so its trace can&apos;t be shown.
+        Requests recorded before trace support don&apos;t carry one — upgrade the APILens SDK to enable it.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="ep-rl-headblock">
+        <h4 className="ep-rl-subhead">
+          Spans
+          {spans?.length ? <span className="ep-rl-count">{spans.length}</span> : null}
+        </h4>
+        {spans === null ? (
+          <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
+        ) : spans.length === 0 ? (
+          <div className="endpoint-detail-empty">
+            No spans recorded for this trace yet. The middleware records the request span automatically;
+            add <code>with apilens.span(&quot;name&quot;)</code> around interesting work to break the time down further.
+          </div>
+        ) : (
+          <Waterfall spans={spans} />
+        )}
+      </div>
+      <div className="ep-rl-headblock">
+        <h4 className="ep-rl-subhead">
+          Logs in this trace
+          {logs?.length ? <span className="ep-rl-count">{logs.length}</span> : null}
+        </h4>
+        {logs === null ? (
+          <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
+        ) : logs.length === 0 ? (
+          <div className="endpoint-detail-empty">
+            No logs correlated with this request. Ship application logs with this trace id to see them here.
+          </div>
+        ) : (
+          <div className="ep-rel-list">
+            {logs.map((l, i) => (
+              <div key={`${l.timestamp}-${i}`} className="ep-log-row">
+                <span className="ep-rel-time">{timeShort(l.timestamp)}</span>
+                <span className={`endpoint-status-pill ${levelTone(l.level)}`}>{(l.level || "INFO").toUpperCase()}</span>
+                {l.logger_name ? <span className="ep-log-logger" title={l.logger_name}>{l.logger_name}</span> : null}
+                <span className="ep-log-msg" title={l.message}>{l.message}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 /* ── Modal ───────────────────────────────────────────────────────────── */
 
 interface Props {
@@ -448,6 +667,17 @@ export default function RequestLogDetailModal({
   const stext = StatusText(row.status_code);
   const loadingPayload = payload === "loading";
   const pr = payload && payload !== "loading" ? payload : null;
+  // The list row carries trace_id for fresh data; fall back to the lazily
+  // fetched detail row (older list responses don't include it).
+  const traceId = (row.trace_id || pr?.trace_id || "").trim();
+  const [copiedTrace, setCopiedTrace] = useState(false);
+  const copyTrace = async () => {
+    try {
+      await navigator.clipboard.writeText(traceId);
+      setCopiedTrace(true);
+      setTimeout(() => setCopiedTrace(false), 1500);
+    } catch { /* clipboard unavailable */ }
+  };
 
   const curl = useMemo(() => {
     const base = (pr?.base_url || "").replace(/\/$/, "") || "YOUR_BASE_URL";
@@ -537,6 +767,21 @@ export default function RequestLogDetailModal({
                   }
                 />
                 <DetailRow label="Environment" value={row.environment || "—"} />
+                {traceId ? (
+                  <DetailRow
+                    label="Trace"
+                    value={
+                      <button
+                        type="button"
+                        className="ep-rl-mono ep-rl-consumer-link"
+                        title="Copy trace id"
+                        onClick={copyTrace}
+                      >
+                        <Link2 size={12} /> {traceId} {copiedTrace ? <Check size={12} /> : <Copy size={12} />}
+                      </button>
+                    }
+                  />
+                ) : null}
                 {row.user_agent ? <DetailRow label="User agent" value={<span className="ep-rl-ua">{row.user_agent}</span>} /> : null}
               </div>
             </>
@@ -562,6 +807,18 @@ export default function RequestLogDetailModal({
                 <Body title="Response payload" raw={pr?.response_payload} />
               </>
             )
+          )}
+
+          {activeTab === "trace" && (
+            <TraceTab
+              projectSlug={projectSlug}
+              traceId={traceId}
+              loadingTrace={loadingPayload}
+              appSlugs={appSlugs}
+              environment={environment}
+              since={since}
+              until={until}
+            />
           )}
 
           {activeTab === "related" && (

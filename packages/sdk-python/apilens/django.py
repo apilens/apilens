@@ -14,6 +14,8 @@ from .client.middleware import (
     set_consumer,
     track_consumer,
 )
+from .client.spans import configure_spans, record_span
+from .client.trace import begin_request_trace, end_request_trace
 
 _client_singleton: ApiLensClient | None = None
 
@@ -125,6 +127,14 @@ class ApiLensDjangoMiddleware:
         # Optional resolver, e.g. APILENS_GET_CONSUMER = lambda request: request.user.username
         # Nothing is inferred automatically; it only runs the resolver you provide.
         self.get_consumer = _resolve_get_consumer(settings)
+        self.capture_spans = bool(getattr(settings, "APILENS_CAPTURE_SPANS", True))
+        if self.capture_spans:
+            configure_spans(
+                self.client,
+                app_id=self.app_id,
+                environment=getattr(settings, "APILENS_ENVIRONMENT", None),
+                service_name=getattr(settings, "APILENS_SERVICE_NAME", "") or self.app_id,
+            )
 
     def __call__(self, request):
         started_at = time.perf_counter()
@@ -132,6 +142,7 @@ class ApiLensDjangoMiddleware:
         status_code = 500
         response_size = 0
         consumer_token = _consumer_ctx.set(None)
+        trace_id, span_id, parent_span_id, trace_token = begin_request_trace(request.META.get("HTTP_TRACEPARENT"))
 
         xff = (request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
         if xff:
@@ -153,6 +164,8 @@ class ApiLensDjangoMiddleware:
             ip_address=ip_address,
             user_agent=(request.META.get("HTTP_USER_AGENT") or "").strip(),
             base_url=base_url,
+            trace_id=trace_id,
+            span_id=span_id,
         )
         if self.capture_headers:
             try:
@@ -189,6 +202,18 @@ class ApiLensDjangoMiddleware:
                     consumer = normalize_consumer(resolved)
             _apply_consumer(ctx, consumer)
             _consumer_ctx.reset(consumer_token)
+            end_request_trace(trace_token)
+            if self.capture_spans:
+                record_span(
+                    name=f"{ctx.method} {ctx.path}",
+                    kind="server",
+                    trace_id=trace_id,
+                    span_id=span_id,
+                    parent_span_id=parent_span_id,
+                    duration_ms=(time.perf_counter() - started_at) * 1000.0,
+                    status="error" if status_code >= 500 else "ok",
+                    status_code=status_code,
+                )
             capture_response(
                 self.client,
                 ctx,

@@ -7,10 +7,10 @@ from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
-from opentelemetry.trace import SpanKind
+from opentelemetry.trace import SpanKind, StatusCode
 
 from .client import ApiLensClient
-from .models import RequestRecord
+from .models import RequestRecord, SpanRecord
 
 _HTTP_METHOD_KEYS = ("http.request.method", "http.method")
 _HTTP_PATH_KEYS = ("http.route", "url.path", "http.target")
@@ -78,30 +78,62 @@ class ApiLensSpanExporter(SpanExporter):
         *,
         app_id: str,
         environment: str,
+        service_name: str = "",
         capture_client_ip: bool = False,
         capture_user_agent: bool = True,
+        export_spans: bool = True,
     ) -> None:
         self.client = client
         self.app_id = app_id
         self.environment = environment
+        self.service_name = service_name
         self.capture_client_ip = capture_client_ip
         self.capture_user_agent = capture_user_agent
+        # Ship the full span tree to /v1/traces (waterfall view), in addition
+        # to collapsing SERVER/CONSUMER spans into request records.
+        self.export_spans = export_spans
+
+    def _to_span_record(self, span: ReadableSpan, attrs: dict[str, Any]) -> SpanRecord:
+        span_context = span.get_span_context()
+        duration_ms = max((span.end_time - span.start_time) / 1_000_000.0, 0.0)
+        is_error = span.status is not None and span.status.status_code is StatusCode.ERROR
+        return SpanRecord(
+            timestamp=datetime.fromtimestamp(span.start_time / 1_000_000_000, tz=timezone.utc),
+            environment=self.environment,
+            trace_id=format(span_context.trace_id, "032x") if span_context.trace_id else "",
+            span_id=format(span_context.span_id, "016x") if span_context.span_id else "",
+            parent_span_id=format(span.parent.span_id, "016x") if span.parent else "",
+            name=span.name or "",
+            kind=span.kind.name.lower() if span.kind else "internal",
+            service_name=self.service_name,
+            duration_ms=duration_ms,
+            status="error" if is_error else "ok",
+            status_code=_coerce_int(_pick_attr(attrs, _HTTP_STATUS_KEYS, 0), 0),
+            project_slug=self.client.config.project_slug,
+            app_id=self.app_id,
+        )
 
     def export(self, spans: list[ReadableSpan]) -> SpanExportResult:
         records: list[RequestRecord] = []
 
         for span in spans:
+            attrs = dict(span.attributes or {})
+            path = _normalize_path(_pick_attr(attrs, _HTTP_PATH_KEYS, "/"))
+
+            if path.endswith("/v1/requests") or path.endswith("/v1/traces") or path.endswith("/v1/logs"):
+                # Avoid ingest loop if transport is instrumented.
+                continue
+
+            if self.export_spans:
+                span_record = self._to_span_record(span, attrs)
+                if span_record.trace_id and span_record.span_id:
+                    self.client.capture_span(span_record)
+
             if span.kind not in (SpanKind.SERVER, SpanKind.CONSUMER):
                 continue
 
-            attrs = dict(span.attributes or {})
             method = str(_pick_attr(attrs, _HTTP_METHOD_KEYS, "GET")).upper()
-            path = _normalize_path(_pick_attr(attrs, _HTTP_PATH_KEYS, "/"))
             status_code = _coerce_int(_pick_attr(attrs, _HTTP_STATUS_KEYS, 0), 0)
-
-            if path.endswith("/v1/requests"):
-                # Avoid ingest loop if transport is instrumented.
-                continue
 
             duration_ms = max((span.end_time - span.start_time) / 1_000_000.0, 0.0)
             timestamp = datetime.fromtimestamp(span.start_time / 1_000_000_000, tz=timezone.utc)
@@ -113,6 +145,10 @@ class ApiLensSpanExporter(SpanExporter):
             user_agent = ""
             if self.capture_user_agent:
                 user_agent = str(_pick_attr(attrs, _HTTP_USER_AGENT_KEYS, "") or "")
+
+            span_context = span.get_span_context()
+            trace_id = format(span_context.trace_id, "032x") if span_context.trace_id else ""
+            span_id = format(span_context.span_id, "016x") if span_context.span_id else ""
 
             record = RequestRecord(
                 timestamp=timestamp,
@@ -127,6 +163,8 @@ class ApiLensSpanExporter(SpanExporter):
                 response_size=_coerce_int(_pick_attr(attrs, _HTTP_RESPONSE_SIZE_KEYS, 0), 0),
                 ip_address=ip_address,
                 user_agent=user_agent,
+                trace_id=trace_id,
+                span_id=span_id,
             )
             records.append(record)
 
@@ -172,6 +210,7 @@ def install_apilens_exporter(
         client,
         app_id=app_id,
         environment=environment,
+        service_name=service_name,
         capture_client_ip=capture_client_ip,
         capture_user_agent=capture_user_agent,
     )

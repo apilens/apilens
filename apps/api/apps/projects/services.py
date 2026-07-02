@@ -582,8 +582,12 @@ class IngestService:
     _consumer_columns_lock = threading.Lock()
     _base_url_column_ready = False
     _base_url_column_lock = threading.Lock()
+    _trace_columns_ready = False
+    _trace_columns_lock = threading.Lock()
     _api_logs_table_ready = False
     _api_logs_table_lock = threading.Lock()
+    _api_spans_table_ready = False
+    _api_spans_table_lock = threading.Lock()
 
     @staticmethod
     def ensure_payload_columns(client) -> None:
@@ -662,6 +666,28 @@ class IngestService:
             IngestService._consumer_columns_ready = True
 
     @staticmethod
+    def ensure_trace_columns(client) -> None:
+        if IngestService._trace_columns_ready:
+            return
+        with IngestService._trace_columns_lock:
+            if IngestService._trace_columns_ready:
+                return
+            try:
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS trace_id String DEFAULT '' CODEC(ZSTD(1))"
+                )
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS span_id String DEFAULT '' CODEC(ZSTD(1))"
+                )
+                client.execute(
+                    "ALTER TABLE api_requests ADD INDEX IF NOT EXISTS idx_api_requests_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1"
+                )
+            except Exception as exc:
+                logger.warning("Unable to ensure trace columns on api_requests: %s", exc)
+                return
+            IngestService._trace_columns_ready = True
+
+    @staticmethod
     def _safe_payload(value: str) -> str:
         if not value:
             return ""
@@ -708,10 +734,68 @@ class IngestService:
                 client.execute(
                     "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS attributes_json String CODEC(ZSTD(3))"
                 )
+                # Correlation columns from migration 004; the legacy runtime
+                # CREATE above lacks them, so ensure before selecting them.
+                for stmt in (
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS endpoint_method LowCardinality(String) CODEC(ZSTD(1))",
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS endpoint_path String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS status_code UInt16 CODEC(ZSTD(1))",
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS consumer_id String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS consumer_name String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS consumer_group String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS trace_id String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS span_id String CODEC(ZSTD(1))",
+                    "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
+                ):
+                    client.execute(stmt)
             except Exception as exc:
                 logger.warning("Unable to ensure api_logs table: %s", exc)
                 return
             IngestService._api_logs_table_ready = True
+
+    @staticmethod
+    def ensure_api_spans_table(client) -> None:
+        # Keep in lock-step with apps/ingest ensure_clickhouse_schema.
+        if IngestService._api_spans_table_ready:
+            return
+        with IngestService._api_spans_table_lock:
+            if IngestService._api_spans_table_ready:
+                return
+            try:
+                client.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS api_spans (
+                        timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1)),
+                        app_id String CODEC(ZSTD(1)),
+                        project_id String CODEC(ZSTD(1)),
+                        environment LowCardinality(String) CODEC(ZSTD(1)),
+                        trace_id String CODEC(ZSTD(1)),
+                        span_id String CODEC(ZSTD(1)),
+                        parent_span_id String CODEC(ZSTD(1)),
+                        name String CODEC(ZSTD(1)),
+                        kind LowCardinality(String) CODEC(ZSTD(1)),
+                        service_name LowCardinality(String) CODEC(ZSTD(1)),
+                        duration_ms Float64 CODEC(Gorilla, ZSTD(1)),
+                        status LowCardinality(String) CODEC(ZSTD(1)),
+                        status_code UInt16 CODEC(ZSTD(1)),
+                        attributes_json String CODEC(ZSTD(3))
+                    ) ENGINE = MergeTree()
+                    PARTITION BY toYYYYMM(timestamp)
+                    ORDER BY (app_id, trace_id, timestamp)
+                    TTL toDateTime(timestamp) + INTERVAL 30 DAY
+                    SETTINGS index_granularity = 8192
+                    """
+                )
+                client.execute(
+                    "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1"
+                )
+                client.execute(
+                    "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_project_id project_id TYPE bloom_filter(0.01) GRANULARITY 1"
+                )
+            except Exception as exc:
+                logger.warning("Unable to ensure api_spans table: %s", exc)
+                return
+            IngestService._api_spans_table_ready = True
 
     @staticmethod
     def _safe_log_text(value: str, *, limit: int) -> str:
@@ -1770,6 +1854,65 @@ class DataQueryService:
     """Service for querying raw telemetry data at project level."""
 
     @staticmethod
+    def get_trace_spans(project_id: str, trace_id: str) -> dict:
+        """All spans of one trace (the request-detail waterfall).
+
+        No time bounds: the trace_id bloom index makes the point lookup cheap
+        and spans of one trace can straddle the caller's visible range.
+        """
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        clean_trace = (trace_id or "").strip().lower()
+        if len(clean_trace) != 32 or any(c not in "0123456789abcdef" for c in clean_trace):
+            return {"spans": []}
+
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse client initialization failed; returning empty trace: %s", exc)
+            return {"spans": []}
+
+        IngestService.ensure_api_spans_table(client)
+
+        query = """
+            SELECT
+                timestamp,
+                app_id,
+                environment,
+                trace_id,
+                span_id,
+                parent_span_id,
+                name,
+                kind,
+                service_name,
+                duration_ms,
+                status,
+                status_code,
+                attributes_json
+            FROM api_spans
+            WHERE project_id = %(project_id)s
+              AND trace_id = %(trace_id)s
+            ORDER BY timestamp ASC
+            LIMIT 500
+        """
+        try:
+            spans = client.execute(query, {"project_id": project_id, "trace_id": clean_trace})
+            for item in spans:
+                item["timestamp"] = _as_utc(item.get("timestamp"))
+                raw_attributes = item.pop("attributes_json", "") or "{}"
+                try:
+                    parsed = json.loads(raw_attributes)
+                    if not isinstance(parsed, dict):
+                        parsed = {}
+                except Exception:
+                    parsed = {}
+                item["attributes"] = {str(k): str(v) for k, v in parsed.items()}
+            return {"spans": spans}
+        except Exception as exc:
+            logger.warning("ClickHouse query failed for trace spans: %s", exc)
+            return {"spans": []}
+
+    @staticmethod
     def get_project_logs(
         project_id: str,
         app_ids: list[str] | None = None,
@@ -1780,6 +1923,7 @@ class DataQueryService:
         search: str | None = None,
         attribute_filters: list[tuple[str, str]] | None = None,
         logger_filters: list[str] | None = None,
+        trace_id: str | None = None,
         page: int = 1,
         page_size: int = 50,
     ) -> dict:
@@ -1834,6 +1978,10 @@ class DataQueryService:
             logger_filters=logger_filters,
         )
 
+        if trace_id:
+            where_filters += " AND trace_id = %(trace_id)s"
+            params["trace_id"] = trace_id.strip().lower()
+
         count_query = f"""
             SELECT count() AS total_count
             FROM api_logs
@@ -1852,6 +2000,8 @@ class DataQueryService:
                 level,
                 message,
                 logger_name,
+                trace_id,
+                span_id,
                 payload,
                 attributes_json
             FROM api_logs
@@ -1935,6 +2085,7 @@ class DataQueryService:
                 "page": safe_page,
                 "page_size": safe_size,
             }
+        IngestService.ensure_trace_columns(client)
 
         since_dt, until_dt = _resolve_time_range(since, until)
         params: dict[str, Any] = {
@@ -2000,31 +2151,11 @@ class DataQueryService:
             params["consumer"] = consumer
 
         # Rich filter string (apps.projects.filters) — additive on top of the
-        # discrete params. build_where emits parenthesised "AND (...)" clauses.
-        if filter:
-            from apps.projects.filters import parse_filter, build_where, Predicate
-            from apps.projects.models import App
-
-            preds = parse_filter(filter)
-            remapped: list = []
-            for p in preds:
-                if p.field == "app":
-                    # Frontend sends slugs; resolve to the app_id values stored
-                    # in ClickHouse. Unknown slugs -> a sentinel that matches
-                    # nothing (so the predicate correctly returns no rows).
-                    ids = [
-                        str(i)
-                        for i in App.objects.filter(
-                            project_id=project_id, slug__in=p.values
-                        ).values_list("id", flat=True)
-                    ]
-                    remapped.append(Predicate("app", p.op, ids or ["__no_app__"], p.negate))
-                else:
-                    remapped.append(p)
-
-            fragment = build_where(remapped, params)
-            if fragment:
-                filters.append(fragment.removeprefix("AND ").strip())
+        # discrete params. This list is joined with " AND ", so strip the
+        # leading "AND " the builder emits.
+        fragment = AnalyticsService.build_filter_clause(project_id, filter, params)
+        if fragment:
+            filters.append(fragment.removeprefix("AND ").strip())
 
         where_clause = ""
         if filters:
@@ -2054,7 +2185,9 @@ class DataQueryService:
                 user_agent,
                 consumer_id,
                 consumer_name,
-                consumer_group
+                consumer_group,
+                trace_id,
+                span_id
             FROM api_requests
             WHERE project_id = %(project_id)s
               AND timestamp >= %(since)s
@@ -2618,6 +2751,37 @@ class AnalyticsService:
     # ── Project-Level Analytics Methods ──────────────────────────────────
 
     @staticmethod
+    def build_filter_clause(project_id: str, filter: str | None, params: dict, key_prefix: str = "flt") -> str:
+        """
+        Turn a canonical rich-filter string (apps.projects.filters) into a
+        parameterised ``AND (...) AND (...)`` SQL fragment over ``api_requests``.
+
+        `app` predicates carry slugs from the UI; they're resolved to the
+        app_id values stored in ClickHouse here (unknown slugs → a sentinel
+        that matches nothing). Mutates ``params`` and returns the fragment
+        (empty string when there's no filter). Raises ValidationError on a
+        malformed filter (mapped to HTTP 422).
+        """
+        if not filter:
+            return ""
+        from apps.projects.filters import parse_filter, build_where, Predicate
+        from apps.projects.models import App
+
+        remapped: list = []
+        for p in parse_filter(filter):
+            if p.field == "app":
+                ids = [
+                    str(i)
+                    for i in App.objects.filter(
+                        project_id=project_id, slug__in=p.values
+                    ).values_list("id", flat=True)
+                ]
+                remapped.append(Predicate("app", p.op, ids or ["__no_app__"], p.negate))
+            else:
+                remapped.append(p)
+        return build_where(remapped, params, key_prefix=key_prefix)
+
+    @staticmethod
     def get_project_summary(
         project_id: str,
         app_ids: list[str] | None = None,
@@ -2625,6 +2789,7 @@ class AnalyticsService:
         since: str | None = None,
         until: str | None = None,
         consumer: str | None = None,
+        filter: str | None = None,
     ) -> dict:
         """
         Get aggregated analytics summary for a project.
@@ -2668,6 +2833,8 @@ class AnalyticsService:
             # Filter on the stable identifier, not the display name.
             filters.append("AND consumer_id = %(consumer)s")
             params["consumer"] = consumer
+
+        filters.append(AnalyticsService.build_filter_clause(project_id, filter, params))
 
         query = f"""
             SELECT
@@ -2731,6 +2898,7 @@ class AnalyticsService:
         until: str | None = None,
         timezone_name: str | None = None,
         consumer: str | None = None,
+        filter: str | None = None,
     ) -> list[dict]:
         """
         Get time-series analytics for a project.
@@ -2768,6 +2936,8 @@ class AnalyticsService:
             # Filter on the stable identifier, not the display name.
             filters.append("AND consumer_id = %(consumer)s")
             params["consumer"] = consumer
+
+        filters.append(AnalyticsService.build_filter_clause(project_id, filter, params))
 
         # Pick a bucket granularity that fits the window: hourly for short
         # ranges (≤48h), daily beyond that — so a 30-day view shows ~30 daily
@@ -2814,6 +2984,7 @@ class AnalyticsService:
         status_codes: list[int] | None = None,
         search_query: str | None = None,
         consumer: str | None = None,
+        filter: str | None = None,
         sort_by: str = "total_requests",
         sort_dir: str = "desc",
         page: int = 1,
@@ -2881,6 +3052,8 @@ class AnalyticsService:
             filters.append("AND consumer_id = %(consumer)s")
             params["consumer"] = consumer
 
+        filters.append(AnalyticsService.build_filter_clause(project_id, filter, params))
+
         # Map sort_by to valid column names
         sort_column_map = {
             "endpoint": "path",
@@ -2935,10 +3108,11 @@ class AnalyticsService:
             # Rows are already dicts from the ClickHouse client wrapper
             clickhouse_items = [AnalyticsService._clean_nan_values(row) for row in rows]
 
-            # When filtering by consumer, only show endpoints that consumer
-            # actually hit — skip the DB overlay (which would re-add endpoints
-            # with zero traffic) and report ClickHouse's own count.
-            if consumer:
+            # When a consumer or rich filter is applied, only show endpoints
+            # that actually matched — skip the DB overlay (which would re-add
+            # registered endpoints with zero traffic) and report ClickHouse's
+            # own count.
+            if consumer or filter:
                 return {"items": clickhouse_items, "total_count": int(total_count or 0)}
 
             # Get all registered endpoints from PostgreSQL
@@ -3548,6 +3722,7 @@ class AnalyticsService:
         since: str | None = None,
         until: str | None = None,
         search: str | None = None,
+        filter: str | None = None,
         limit: int = 200,
     ) -> list[dict]:
         """
@@ -3583,6 +3758,8 @@ class AnalyticsService:
         if environment:
             filters.append("AND environment = %(environment)s")
             params["environment"] = environment
+
+        filters.append(AnalyticsService.build_filter_clause(project_id, filter, params))
 
         having = ["consumer != 'unknown'"]
         if search and search.strip():
@@ -3680,6 +3857,7 @@ class AnalyticsService:
         IngestService.ensure_payload_columns(client)
         IngestService.ensure_header_columns(client)
         IngestService.ensure_base_url_column(client)
+        IngestService.ensure_trace_columns(client)
 
         since_dt, until_dt = _resolve_time_range(since, until)
         filters, params = AnalyticsService._project_endpoint_filters(
@@ -3706,6 +3884,8 @@ class AnalyticsService:
                 request_headers,
                 response_headers,
                 base_url,
+                trace_id,
+                span_id,
                 if(
                     consumer_name != '',
                     consumer_name,
@@ -3801,6 +3981,7 @@ class AnalyticsService:
         until: str | None = None,
         levels: str | None = None,
         search: str | None = None,
+        trace_id: str | None = None,
         page: int = 1,
         page_size: int = 50,
     ) -> dict:
@@ -3847,6 +4028,10 @@ class AnalyticsService:
         if search:
             filters.append("AND (message ILIKE %(search)s OR logger_name ILIKE %(search)s)")
             params["search"] = f"%{search}%"
+
+        if trace_id:
+            filters.append("AND trace_id = %(trace_id)s")
+            params["trace_id"] = trace_id.strip().lower()
 
         count_query = f"""
             SELECT count() AS total

@@ -19,7 +19,6 @@ import {
 import RequestLogDetailModal, { type RequestItem } from "./RequestLogDetailModal";
 import {
   type RangeValue,
-  DEFAULT_PRESET_ID,
   parseRange,
   resolveRange,
   TimeRangePicker,
@@ -162,7 +161,9 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
     if (rangeValue.type === "custom") {
       p.set("since", rangeValue.since);
       p.set("until", rangeValue.until);
-    } else if (rangeValue.id !== DEFAULT_PRESET_ID) {
+    } else {
+      // Always surface the active range (including the 24h default) so the URL
+      // fully describes the view and shared links keep their meaning.
       p.set("range", rangeValue.id);
     }
     if (filter) p.set("filter", filter);

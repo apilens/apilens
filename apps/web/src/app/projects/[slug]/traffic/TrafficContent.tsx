@@ -14,11 +14,12 @@ import {
 import { Check, ChevronDown, ChevronRight, MoreVertical, RefreshCw, Search, X } from "lucide-react";
 import {
   type RangeValue,
-  DEFAULT_PRESET_ID,
   parseRange,
   resolveRange,
   TimeRangePicker,
 } from "../_shared/timeRange";
+import FilterBar from "../_shared/filters/FilterBar";
+import { parseFilter } from "../_shared/filters/query";
 import EndpointDetailInspector from "./EndpointDetailInspector";
 
 /* ── Types ───────────────────────────────────────────────────────────── */
@@ -70,6 +71,16 @@ interface InitialFilters {
   metric?: string;
   sort?: string;
   consumer?: string;
+  filter?: string;
+}
+
+// Migrate legacy ?env= / ?consumer= links into the unified filter string.
+function seedFilter(f?: InitialFilters): string {
+  if (f?.filter) return f.filter;
+  const seed: string[] = [];
+  if (f?.env) seed.push(`env:is:${f.env}`);
+  if (f?.consumer) seed.push(`consumer:is:${f.consumer}`);
+  return seed.join(";");
 }
 
 interface Props {
@@ -149,8 +160,15 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
   const [apps, setApps] = useState<AppOption[]>([]);
   const [selectedAppSlugs, setSelectedAppSlugs] = useState<string[]>([]);
   const [appsLoaded, setAppsLoaded] = useState(false);
-  const [environments, setEnvironments] = useState<string[]>([]);
-  const [selectedEnv, setSelectedEnv] = useState(initialFilters?.env || "");
+
+  // Unified rich filter (env, method, status, path, latency, consumer, …).
+  // App scope stays as the dedicated AppFilter; time as the range picker.
+  const [filter, setFilter] = useState(() => seedFilter(initialFilters));
+  // Environment for the endpoint inspector's sub-queries, derived from filter.
+  const filterEnv = useMemo(
+    () => parseFilter(filter).find((p) => p.field === "env" && !p.negate)?.values[0] || "",
+    [filter],
+  );
 
   const [rangeValue, setRangeValue] = useState<RangeValue>(() => parseRange(initialFilters));
   const [sortKey, setSortKey] = useState<SortKey>(() =>
@@ -204,19 +222,21 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
     if (rangeValue.type === "custom") {
       p.set("since", rangeValue.since);
       p.set("until", rangeValue.until);
-    } else if (rangeValue.id !== DEFAULT_PRESET_ID) {
+    } else {
+      // Always surface the active range (including the 24h default) so the URL
+      // fully describes the view and shared links keep their meaning.
       p.set("range", rangeValue.id);
     }
     if (apps.length > 0) {
       if (selectedAppSlugs.length === 0) p.set("apps", "none");
       else if (selectedAppSlugs.length < apps.length) p.set("apps", selectedAppSlugs.join(","));
     }
-    if (selectedEnv) p.set("env", selectedEnv);
+    if (filter) p.set("filter", filter);
     if (activeMetric !== "requests") p.set("metric", activeMetric);
     if (sortKey !== "total_requests") p.set("sort", sortKey);
     const qs = p.toString();
     window.history.replaceState(null, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
-  }, [appsLoaded, rangeValue, apps.length, selectedAppSlugs, selectedEnv, activeMetric, sortKey]);
+  }, [appsLoaded, rangeValue, apps.length, selectedAppSlugs, filter, activeMetric, sortKey]);
 
   // Fetch apps + environments
   useEffect(() => {
@@ -249,18 +269,6 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
         setAppsLoaded(true);
       }
     })();
-
-    (async () => {
-      try {
-        const res = await fetch(`/api/projects/${projectSlug}/analytics/environments`);
-        if (res.ok) {
-          const data = await res.json();
-          setEnvironments(data.environments || []);
-        }
-      } catch {
-        /* ignore */
-      }
-    })();
   }, [projectSlug]);
 
   // Build the shared query string for the active filters.
@@ -275,11 +283,11 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
       }
       p.set("since", since);
       p.set("until", until);
-      if (selectedEnv) p.set("environment", selectedEnv);
+      if (filter) p.set("filter", filter);
       for (const [k, v] of Object.entries(extra || {})) p.set(k, v);
       return p.toString();
     },
-    [selectedAppSlugs, apps.length, since, until, selectedEnv]
+    [selectedAppSlugs, apps.length, since, until, filter]
   );
 
 
@@ -437,20 +445,6 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
 
         <AppFilter apps={apps} selected={selectedAppSlugs} onChange={setSelectedAppSlugs} />
 
-        {environments.length > 0 && (
-          <select
-            className="tf-select"
-            value={selectedEnv}
-            onChange={(e) => setSelectedEnv(e.target.value)}
-            aria-label="Environment"
-          >
-            <option value="">All envs</option>
-            {environments.map((env) => (
-              <option key={env} value={env}>{env}</option>
-            ))}
-          </select>
-        )}
-
         <TimeRangePicker value={rangeValue} resolved={resolved} onChange={setRangeValue} />
 
         <button
@@ -462,6 +456,11 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
         >
           <RefreshCw size={14} className={loading ? "tf-spin" : ""} />
         </button>
+      </div>
+
+      {/* Full-width rich filter row (app scope lives in the AppFilter above). */}
+      <div className="ep-rl-filterrow">
+        <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} exclude={["app"]} />
       </div>
 
       {/* ── Metrics + chart (metrics are tabs that drive the chart) ── */}
@@ -684,7 +683,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
           path={openRow.path}
           since={since}
           until={until}
-          environment={selectedEnv || undefined}
+          environment={filterEnv || undefined}
           appSlugs={selectedAppSlugs.length === apps.length ? [] : selectedAppSlugs}
           rangeLabel={resolved.label}
           onClose={() => setOpenRow(null)}

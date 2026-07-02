@@ -249,7 +249,7 @@ body {
   border-bottom: 1px solid var(--hairline);
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
 }
 
 .logo {
@@ -14359,6 +14359,44 @@ a.settings-btn {
   color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ep-rel-dur { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Logs tab — trace-correlated log lines */
+.ep-log-row {
+  display: flex; align-items: baseline; gap: 10px; width: 100%;
+  padding: 8px 12px; border-bottom: 1px solid var(--border-color); font-size: 12px;
+}
+.ep-log-row:last-child { border-bottom: none; }
+.ep-log-logger {
+  color: var(--text-muted); white-space: nowrap;
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis;
+}
+.ep-log-msg {
+  flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text-primary); overflow-wrap: anywhere;
+}
+
+/* Trace tab — span waterfall */
+.ep-trace-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 7px 12px; border-bottom: 1px solid var(--border-color); font-size: 12px;
+}
+.ep-trace-row:last-child { border-bottom: none; }
+.ep-trace-name {
+  flex: 0 0 44%; min-width: 0; display: flex; align-items: center; gap: 7px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ep-trace-kind {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+.ep-trace-track {
+  position: relative; flex: 1; height: 8px; border-radius: 4px;
+  background: var(--bg-hover); overflow: hidden;
+}
+.ep-trace-bar {
+  position: absolute; top: 0; bottom: 0; border-radius: 4px; min-width: 2px;
+}
 
 @media (max-width: 860px) {
   .ep-emodal-overlay { padding: 12px; }

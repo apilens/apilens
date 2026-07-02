@@ -22,6 +22,8 @@ class CaptureContext:
     request_payload: str = ""
     request_headers: str = ""
     base_url: str = ""
+    trace_id: str = ""
+    span_id: str = ""
 
 
 
@@ -127,4 +129,6 @@ def capture_response(
         response_headers=response_headers,
         environment=environment,
         base_url=ctx.base_url,
+        trace_id=ctx.trace_id,
+        span_id=ctx.span_id,
     )

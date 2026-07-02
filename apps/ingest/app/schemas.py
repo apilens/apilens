@@ -32,6 +32,8 @@ class RequestRecord(BaseModel):
     request_headers: str = ""
     response_headers: str = ""
     base_url: str = ""
+    trace_id: str = ""
+    span_id: str = ""
 
 
 class IngestRequest(BaseModel):
@@ -67,4 +69,29 @@ class IngestLogsRequest(BaseModel):
 
 
 class IngestLogsResponse(BaseModel):
+    accepted: int
+
+
+class SpanRecord(BaseModel):
+    project_slug: str = ""
+    app_id: str
+    timestamp: datetime  # span start, UTC
+    environment: str = "production"
+    trace_id: str
+    span_id: str
+    parent_span_id: str = ""
+    name: str = ""
+    kind: str = "internal"  # server | client | http | db | internal | ...
+    service_name: str = ""
+    duration_ms: float = 0.0
+    status: str = "ok"  # ok | error
+    status_code: int = 0
+    attributes: dict = Field(default_factory=dict)
+
+
+class IngestSpansRequest(BaseModel):
+    spans: list[SpanRecord]
+
+
+class IngestSpansResponse(BaseModel):
     accepted: int

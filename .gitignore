@@ -151,6 +151,8 @@ build/
 logs/
 *.log
 log/
+# But NOT Next.js API route directories that happen to be named "logs"
+!apps/web/src/app/api/**/logs/
 
 # =============================================================================
 # Docker (don't ignore Dockerfiles)

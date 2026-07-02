@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, Fingerprint, RefreshCw, Search, X } from "lucide-react";
 import {
   formatMs,
@@ -12,15 +12,16 @@ import {
   type RangeValue,
   DEFAULT_RANGE,
   ROLLING_PRESETS,
+  parseRange,
   resolveRange,
   TimeRangePicker,
 } from "../_shared/timeRange";
+import FilterBar from "../_shared/filters/FilterBar";
+import { parseFilter, serializeFilter } from "../_shared/filters/query";
 
 interface ConsumersContentProps {
   projectSlug: string;
 }
-
-type AppOption = { id: string; name: string; slug: string };
 
 interface ConsumerStat {
   consumer: string;
@@ -35,12 +36,12 @@ interface ConsumerStat {
 
 export default function ConsumersContent({ projectSlug }: ConsumersContentProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [apps, setApps] = useState<AppOption[]>([]);
-  const [selectedAppSlugs, setSelectedAppSlugs] = useState<string[]>([]);
-  const [environments, setEnvironments] = useState<string[]>([]);
-  const [selectedEnv, setSelectedEnv] = useState("");
   const [rangeValue, setRangeValue] = useState<RangeValue>(DEFAULT_RANGE);
+  // Unified rich filter (app, env, method, status, path, latency…). The
+  // per-consumer `consumer` field is excluded — this page IS the consumer list.
+  const [filter, setFilter] = useState("");
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -48,6 +49,38 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
   const [rows, setRows] = useState<ConsumerStat[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Seed range / filter / search from the URL once (shareable links).
+  useEffect(() => {
+    if (isInitialized) return;
+    setRangeValue(parseRange({
+      range: searchParams.get("range") || undefined,
+      since: searchParams.get("since") || undefined,
+      until: searchParams.get("until") || undefined,
+    }));
+    const f = searchParams.get("filter");
+    if (f) setFilter(f);
+    const s = searchParams.get("q");
+    if (s) setSearch(s);
+    setIsInitialized(true);
+  }, [searchParams, isInitialized]);
+
+  // Mirror the active view into the URL so it fully describes the page.
+  useEffect(() => {
+    if (!isInitialized) return;
+    const p = new URLSearchParams();
+    if (rangeValue.type === "custom") {
+      p.set("since", rangeValue.since);
+      p.set("until", rangeValue.until);
+    } else {
+      p.set("range", rangeValue.id);
+    }
+    if (filter) p.set("filter", filter);
+    if (search.trim()) p.set("q", search.trim());
+    const qs = p.toString();
+    window.history.replaceState(null, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+  }, [isInitialized, rangeValue, filter, search]);
 
   // Debounce the search box so we don't hammer the API on every keystroke.
   useEffect(() => {
@@ -59,37 +92,6 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
   const resolved = useMemo(() => resolveRange(rangeValue), [rangeValue, refreshKey]);
   const { since, until } = resolved;
 
-  // Apps + environments for the filter selects.
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`/api/projects/${projectSlug}/apps`);
-        if (res.ok) {
-          const data = await res.json();
-          setApps((data.apps || []).map((a: AppOption) => ({ id: a.id, name: a.name, slug: a.slug })));
-        }
-      } catch { /* ignore */ }
-    })();
-    (async () => {
-      try {
-        const res = await fetch(`/api/projects/${projectSlug}/analytics/environments`);
-        if (res.ok) {
-          const data = await res.json();
-          setEnvironments(data.environments || []);
-        }
-      } catch { /* ignore */ }
-    })();
-  }, [projectSlug]);
-
-  const appScope = useCallback(
-    (p: URLSearchParams) => {
-      if (selectedAppSlugs.length && (apps.length === 0 || selectedAppSlugs.length < apps.length)) {
-        p.set("app_slugs", selectedAppSlugs.join(","));
-      }
-    },
-    [selectedAppSlugs, apps.length],
-  );
-
   // Consumer stats.
   useEffect(() => {
     let cancelled = false;
@@ -98,9 +100,8 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
       const p = new URLSearchParams();
       p.set("since", since);
       p.set("until", until);
-      if (selectedEnv) p.set("environment", selectedEnv);
+      if (filter) p.set("filter", filter);
       if (debouncedSearch) p.set("search", debouncedSearch);
-      appScope(p);
       p.set("limit", "500");
       try {
         const res = await fetch(`/api/projects/${projectSlug}/analytics/consumer-stats?${p.toString()}`);
@@ -113,7 +114,7 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
       }
     })();
     return () => { cancelled = true; };
-  }, [projectSlug, since, until, selectedEnv, debouncedSearch, appScope, refreshKey]);
+  }, [projectSlug, since, until, filter, debouncedSearch, refreshKey]);
 
   const maxRequests = useMemo(
     () => Math.max(1, ...(rows || []).map((r) => r.total_requests)),
@@ -124,16 +125,14 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
   // app/env/time filters carried across.
   const openConsumer = (c: ConsumerStat) => {
     const p = new URLSearchParams();
-    // Filter by the stable identifier, not the display name.
-    p.set("consumer", c.consumer_identifier || c.consumer);
-    // Carry the range across when it maps to a Request-logs preset window.
+    // Carry the active rich filter across, plus this consumer (stable id).
+    const preds = parseFilter(filter).filter((x) => x.field !== "consumer");
+    preds.push({ field: "consumer", op: "is", values: [c.consumer_identifier || c.consumer] });
+    p.set("filter", serializeFilter(preds));
+    // Carry the range when it maps to a Request-logs preset window.
     if (rangeValue.type === "preset") {
       const hours = ROLLING_PRESETS.find((r) => r.id === rangeValue.id)?.hours;
       if (hours && hours !== 24 && [1, 6, 168, 720].includes(hours)) p.set("range", String(hours));
-    }
-    if (selectedEnv) p.set("env", selectedEnv);
-    if (apps.length && selectedAppSlugs.length && selectedAppSlugs.length < apps.length) {
-      p.set("apps", selectedAppSlugs.join(","));
     }
     router.push(`/projects/${projectSlug}/endpoints?${p.toString()}`);
   };
@@ -160,29 +159,16 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
           )}
         </div>
 
-        {apps.length > 1 && (
-          <select
-            className="ep-env-select"
-            value={selectedAppSlugs.length === apps.length || selectedAppSlugs.length === 0 ? "" : selectedAppSlugs[0] || ""}
-            onChange={(e) => setSelectedAppSlugs(e.target.value ? [e.target.value] : apps.map((a) => a.slug))}
-          >
-            <option value="">All apps</option>
-            {apps.map((a) => <option key={a.slug} value={a.slug}>{a.name}</option>)}
-          </select>
-        )}
-
-        {environments.length > 0 && (
-          <select className="ep-env-select" value={selectedEnv} onChange={(e) => setSelectedEnv(e.target.value)}>
-            <option value="">All envs</option>
-            {environments.map((env) => <option key={env} value={env}>{env}</option>)}
-          </select>
-        )}
-
         <TimeRangePicker value={rangeValue} resolved={resolved} onChange={setRangeValue} />
 
         <button type="button" className="tf-refresh" onClick={() => setRefreshKey((k) => k + 1)} title="Refresh" aria-label="Refresh">
           <RefreshCw size={14} className={loading ? "tf-spin" : ""} />
         </button>
+      </div>
+
+      {/* Full-width rich filter row (consumer is excluded — this IS the list). */}
+      <div className="ep-rl-filterrow">
+        <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} exclude={["consumer"]} />
       </div>
 
       {/* ── Consumer table ── */}

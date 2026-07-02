@@ -166,6 +166,8 @@ class LogItemResponse(Schema):
     level: str
     message: str
     logger_name: str
+    trace_id: str = ""
+    span_id: str = ""
     payload: str
     attributes: dict
 
@@ -190,12 +192,33 @@ class RequestItemResponse(Schema):
     consumer_id: str
     consumer_name: str
     consumer_group: str
+    trace_id: str = ""
+    span_id: str = ""
 
 class RequestsQueryResponse(Schema):
     items: list[RequestItemResponse]
     total_count: int
     page: int
     page_size: int
+
+
+class SpanItemResponse(Schema):
+    timestamp: datetime
+    app_id: str
+    environment: str
+    trace_id: str
+    span_id: str
+    parent_span_id: str
+    name: str
+    kind: str
+    service_name: str
+    duration_ms: float
+    status: str
+    status_code: int
+    attributes: dict
+
+class TraceQueryResponse(Schema):
+    spans: list[SpanItemResponse]
 
 
 class AnalyticsTimeseriesPointResponse(Schema):

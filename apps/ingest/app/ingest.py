@@ -33,11 +33,18 @@ REQUEST_COLUMNS = [
     "path", "status_code", "response_time_ms", "request_size", "response_size",
     "ip_address", "user_agent", "consumer_id", "consumer_name", "consumer_group",
     "request_payload", "response_payload", "request_headers", "response_headers",
-    "base_url",
+    "base_url", "trace_id", "span_id",
 ]
 LOG_COLUMNS = [
     "timestamp", "app_id", "project_id", "environment", "level", "message",
-    "logger_name", "payload", "attributes_json",
+    "logger_name", "endpoint_method", "endpoint_path", "status_code",
+    "consumer_id", "consumer_name", "consumer_group", "trace_id", "span_id",
+    "payload", "attributes_json",
+]
+SPAN_COLUMNS = [
+    "timestamp", "app_id", "project_id", "environment", "trace_id", "span_id",
+    "parent_span_id", "name", "kind", "service_name", "duration_ms", "status",
+    "status_code", "attributes_json",
 ]
 
 
@@ -64,6 +71,16 @@ def _safe_log_text(value: str, *, limit: int) -> str:
     if not value:
         return ""
     return str(value)[:limit]
+
+
+def _safe_trace_component(value: str, length: int) -> str:
+    """Accept only a well-formed hex trace/span id (W3C Trace Context)."""
+    text = str(value or "").strip().lower()
+    if len(text) != length or text == "0" * length:
+        return ""
+    if any(c not in "0123456789abcdef" for c in text):
+        return ""
+    return text
 
 
 def _normalize_log_level(value: str) -> str:
@@ -117,8 +134,49 @@ def ensure_clickhouse_schema(client) -> None:
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_name String CODEC(ZSTD(3))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS consumer_group String CODEC(ZSTD(3))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS base_url String DEFAULT '' CODEC(ZSTD(1))",
+            "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS trace_id String DEFAULT '' CODEC(ZSTD(1))",
+            "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS span_id String DEFAULT '' CODEC(ZSTD(1))",
+            "ALTER TABLE api_requests ADD INDEX IF NOT EXISTS idx_api_requests_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS project_id String CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS attributes_json String CODEC(ZSTD(3))",
+            # Log-correlation columns exist in the 004 migration but not in the
+            # legacy runtime-created api_logs table; ensure them before writing.
+            "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS endpoint_method LowCardinality(String) CODEC(ZSTD(1))",
+            "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS endpoint_path String CODEC(ZSTD(1))",
+            "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS status_code UInt16 CODEC(ZSTD(1))",
+            "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS consumer_id String CODEC(ZSTD(1))",
+            "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS consumer_name String CODEC(ZSTD(1))",
+            "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS consumer_group String CODEC(ZSTD(1))",
+            "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS trace_id String CODEC(ZSTD(1))",
+            "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS span_id String CODEC(ZSTD(1))",
+            "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
+            # Span storage for distributed traces (the waterfall view). The
+            # legacy `traces` table (tenant_id model) is intentionally unused.
+            """
+            CREATE TABLE IF NOT EXISTS api_spans (
+                timestamp DateTime64(3) CODEC(DoubleDelta, ZSTD(1)),
+                app_id String CODEC(ZSTD(1)),
+                project_id String CODEC(ZSTD(1)),
+                environment LowCardinality(String) CODEC(ZSTD(1)),
+                trace_id String CODEC(ZSTD(1)),
+                span_id String CODEC(ZSTD(1)),
+                parent_span_id String CODEC(ZSTD(1)),
+                name String CODEC(ZSTD(1)),
+                kind LowCardinality(String) CODEC(ZSTD(1)),
+                service_name LowCardinality(String) CODEC(ZSTD(1)),
+                duration_ms Float64 CODEC(Gorilla, ZSTD(1)),
+                status LowCardinality(String) CODEC(ZSTD(1)),
+                status_code UInt16 CODEC(ZSTD(1)),
+                attributes_json String CODEC(ZSTD(3))
+            ) ENGINE = MergeTree()
+            PARTITION BY toYYYYMM(timestamp)
+            ORDER BY (app_id, trace_id, timestamp)
+            TTL toDateTime(timestamp) + INTERVAL 30 DAY
+            SETTINGS index_granularity = 8192
+            """,
+            "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
+            "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_project_id project_id TYPE bloom_filter(0.01) GRANULARITY 1",
+            "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_environment environment TYPE bloom_filter(0.01) GRANULARITY 1",
         ]
         for s in stmts:
             client.execute(s)
@@ -239,6 +297,7 @@ def handle_requests(project_id: str, project_slug: str, records) -> int:
                 _safe_payload(r.request_payload), _safe_payload(r.response_payload),
                 _safe_payload(r.request_headers), _safe_payload(r.response_headers),
                 (r.base_url or "")[:512],
+                _safe_trace_component(r.trace_id, 32), _safe_trace_component(r.span_id, 16),
             ))
         client.execute(
             f"INSERT INTO api_requests ({', '.join(REQUEST_COLUMNS)}) VALUES",
@@ -275,11 +334,71 @@ def handle_logs(project_id: str, project_slug: str, records) -> int:
                 _normalize_log_level(r.level),
                 _safe_log_text(r.message, limit=MAX_LOG_MESSAGE_CHARS),
                 _safe_log_text(r.logger_name, limit=256),
+                _safe_log_text((r.endpoint_method or "").upper(), limit=16),
+                _safe_log_text(r.endpoint_path, limit=2048),
+                max(0, min(int(r.status_code or 0), 599)),
+                _safe_log_text(r.consumer_id, limit=256),
+                _safe_log_text(r.consumer_name, limit=256),
+                _safe_log_text(r.consumer_group, limit=256),
+                _safe_trace_component(r.trace_id, 32),
+                _safe_trace_component(r.span_id, 16),
                 _safe_log_text(r.payload, limit=MAX_LOG_PAYLOAD_CHARS),
                 json.dumps(_sanitize_log_attributes(r.attributes), separators=(",", ":")),
             ))
         client.execute(
             f"INSERT INTO api_logs ({', '.join(LOG_COLUMNS)}) VALUES",
+            rows,
+        )
+        total += len(rows)
+    return total
+
+
+ALLOWED_SPAN_STATUSES = {"ok", "error"}
+
+
+def handle_spans(project_id: str, project_slug: str, records) -> int:
+    if len(records) > MAX_BATCH_SIZE:
+        raise IngestError(422, "validation_error", f"Batch size exceeds maximum of {MAX_BATCH_SIZE}")
+    if not records:
+        return 0
+
+    validate_project_slug(project_slug, {r.project_slug for r in records})
+
+    with pg_conn() as conn:
+        with conn.cursor() as cur:
+            id_to_uuid = resolve_app_identifiers(cur, project_id, {r.app_id for r in records})
+            by_app: dict[str, list] = defaultdict(list)
+            for r in records:
+                by_app[id_to_uuid[r.app_id]].append(r)
+
+    client = clickhouse()
+    ensure_clickhouse_schema(client)
+    total = 0
+    for app_uuid, recs in by_app.items():
+        rows = []
+        for r in recs:
+            trace_id = _safe_trace_component(r.trace_id, 32)
+            span_id = _safe_trace_component(r.span_id, 16)
+            if not trace_id or not span_id:
+                continue  # unusable without valid ids; drop silently (telemetry)
+            status = (r.status or "ok").strip().lower()
+            rows.append((
+                r.timestamp, app_uuid, project_id,
+                (r.environment or "production").strip().lower(),
+                trace_id, span_id,
+                _safe_trace_component(r.parent_span_id, 16),
+                _safe_log_text(r.name, limit=256),
+                _safe_log_text((r.kind or "internal").strip().lower(), limit=16),
+                _safe_log_text(r.service_name, limit=128),
+                max(float(r.duration_ms or 0.0), 0.0),
+                status if status in ALLOWED_SPAN_STATUSES else "ok",
+                max(0, min(int(r.status_code or 0), 599)),
+                json.dumps(_sanitize_log_attributes(r.attributes), separators=(",", ":")),
+            ))
+        if not rows:
+            continue
+        client.execute(
+            f"INSERT INTO api_spans ({', '.join(SPAN_COLUMNS)}) VALUES",
             rows,
         )
         total += len(rows)

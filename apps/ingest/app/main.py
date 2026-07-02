@@ -14,12 +14,14 @@ from fastapi.responses import JSONResponse
 
 from .auth import authenticate
 from .db import clickhouse, init_postgres_pool
-from .ingest import IngestError, ensure_clickhouse_schema, handle_logs, handle_requests
+from .ingest import IngestError, ensure_clickhouse_schema, handle_logs, handle_requests, handle_spans
 from .schemas import (
     IngestLogsRequest,
     IngestLogsResponse,
     IngestRequest,
     IngestResponse,
+    IngestSpansRequest,
+    IngestSpansResponse,
 )
 
 logger = logging.getLogger("apilens.ingest")
@@ -77,3 +79,10 @@ def ingest_logs(data: IngestLogsRequest, ctx: tuple[str, str] = Depends(require_
     project_id, project_slug = ctx
     accepted = handle_logs(project_id, project_slug, data.logs)
     return IngestLogsResponse(accepted=accepted)
+
+
+@app.post("/v1/traces", response_model=IngestSpansResponse, tags=["Ingest"])
+def ingest_spans(data: IngestSpansRequest, ctx: tuple[str, str] = Depends(require_project)) -> IngestSpansResponse:
+    project_id, project_slug = ctx
+    accepted = handle_spans(project_id, project_slug, data.spans)
+    return IngestSpansResponse(accepted=accepted)

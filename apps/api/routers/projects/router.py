@@ -35,6 +35,7 @@ from .schemas import (
     MessageResponse,
     LogsQueryResponse,
     RequestsQueryResponse,
+    TraceQueryResponse,
     AnalyticsTimeseriesPointResponse,
     MembersListResponse,
     InvitationResponse,
@@ -304,6 +305,7 @@ def get_analytics_summary(
     since: str = None,
     until: str = None,
     consumer: str = None,
+    filter: str = None,
 ):
     """
     Get aggregated analytics summary for a project.
@@ -326,6 +328,7 @@ def get_analytics_summary(
         since=since,
         until=until,
         consumer=consumer,
+        filter=filter,
     )
 
 
@@ -339,6 +342,7 @@ def get_analytics_timeseries(
     until: str = None,
     timezone: str = None,
     consumer: str = None,
+    filter: str = None,
 ):
     """
     Get time-series analytics for a project.
@@ -368,6 +372,7 @@ def get_analytics_timeseries(
         until=until,
         timezone_name=bucket_timezone,
         consumer=consumer,
+        filter=filter,
     )
 
 
@@ -384,6 +389,7 @@ def get_endpoint_stats(
     status_codes: str = None,
     q: str = None,
     consumer: str = None,
+    filter: str = None,
     sort_by: str = "total_requests",
     sort_dir: str = "desc",
     page: int = 1,
@@ -445,6 +451,7 @@ def get_endpoint_stats(
         status_codes=status_code_list,
         search_query=q,
         consumer=consumer,
+        filter=filter,
         sort_by=sort_by,
         sort_dir=sort_dir,
         page=page,
@@ -561,12 +568,13 @@ def get_project_consumer_stats(
     since: str = None,
     until: str = None,
     search: str = None,
+    filter: str = None,
     limit: int = 200,
 ):
     """
     Rich per-consumer stats across a project (requests, error rate, avg
-    response, last seen), filterable by app/env/time and a name/id search.
-    Powers the dedicated Consumers page.
+    response, last seen), filterable by app/env/time, a name/id search, and
+    the shared rich `filter` query. Powers the dedicated Consumers page.
     """
     user: User = request.auth
     project = ProjectService.get_project_by_slug(user, project_slug)
@@ -585,6 +593,7 @@ def get_project_consumer_stats(
         since=since,
         until=until,
         search=search,
+        filter=filter,
         limit=limit,
     )
 
@@ -784,6 +793,7 @@ def query_project_logs(
     levels: str = None,
     search: str = None,
     loggers: str = None,
+    trace_id: str = None,
     page: int = 1,
     page_size: int = 50,
 ):
@@ -796,6 +806,7 @@ def query_project_logs(
     - levels: Comma-separated log levels (e.g., "ERROR,WARNING")
     - search: Search in message, logger_name, or attributes
     - loggers: Comma-separated logger names
+    - trace_id: Only logs correlated with this W3C trace id
     - since/until: ISO8601 timestamps for time range
     - page/page_size: Pagination controls
     """
@@ -826,11 +837,28 @@ def query_project_logs(
         levels=level_list,
         search=search,
         logger_filters=logger_list,
+        trace_id=trace_id,
         page=page,
         page_size=page_size,
     )
 
     return LogsQueryResponse(**result)
+
+
+@router.get("/{project_slug}/data/trace", response=TraceQueryResponse)
+def query_trace_spans(
+    request: HttpRequest,
+    project_slug: str,
+    trace_id: str,
+):
+    """All spans of one distributed trace (request-detail waterfall)."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    result = DataQueryService.get_trace_spans(
+        project_id=str(project.id),
+        trace_id=trace_id,
+    )
+    return TraceQueryResponse(**result)
 
 
 @router.get("/{project_slug}/data/requests", response=RequestsQueryResponse)

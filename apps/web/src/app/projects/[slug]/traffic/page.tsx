@@ -34,6 +34,7 @@ export default async function ProjectTrafficPage({
         metric: one(sp.metric),
         sort: one(sp.sort),
         consumer: one(sp.consumer),
+        filter: one(sp.filter),
       }}
     />
   );

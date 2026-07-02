@@ -33,6 +33,9 @@ interface Props {
   projectSlug: string;
   value: string;
   onChange: (filter: string) => void;
+  // Fields to omit from the field picker (e.g. a page that owns `app` via a
+  // dedicated control, or the Consumers page which is already per-consumer).
+  exclude?: string[];
 }
 
 type ValueOption = { label: string; value: string };
@@ -78,8 +81,9 @@ function analyze(text: string): { stage: Stage; neg: string; field: string; op: 
   return { stage: "value", neg, field, op: op ?? "is", q: rest.slice(c2 + 1).trimStart() };
 }
 
-export default function FilterBar({ projectSlug, value, onChange }: Props) {
+export default function FilterBar({ projectSlug, value, onChange, exclude }: Props) {
   const predicates = useMemo(() => parseFilter(value), [value]);
+  const fields = useMemo(() => FIELDS.filter((f) => !exclude?.includes(f.field)), [exclude]);
 
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
@@ -238,7 +242,7 @@ export default function FilterBar({ projectSlug, value, onChange }: Props) {
     const q = a.q.toLowerCase();
 
     if (a.stage === "field") {
-      return FIELDS.filter((f) => f.field.includes(q) || f.label.toLowerCase().includes(q))
+      return fields.filter((f) => f.field.includes(q) || f.label.toLowerCase().includes(q))
         .slice(0, 10)
         .map((f) => ({ kind: "nav", label: f.label, hint: f.field, apply: `${a.neg}${f.field}:` }));
     }
@@ -274,7 +278,7 @@ export default function FilterBar({ projectSlug, value, onChange }: Props) {
       hint: o.label !== o.value ? o.value : undefined,
       predicate: { field: a.field, op, values: [o.value], negate: a.neg ? true : undefined },
     }));
-  }, [a, spec, serverOptions, localOptions, predicates]);
+  }, [a, spec, serverOptions, localOptions, predicates, fields]);
 
   useEffect(() => { setActive(0); }, [items.length]);
 
