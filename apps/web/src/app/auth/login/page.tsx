@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowRight, Loader2, Mail, Eye, EyeOff, Fingerprint } from "lucide-react";
+import { AlertCircle, ArrowRight, Loader2, Mail, Eye, EyeOff, Fingerprint } from "lucide-react";
 import {
   isPasskeySupported,
   authenticatePasskey,
@@ -10,6 +10,12 @@ import {
   startConditionalPasskeyAuth,
   getBiometricLabel,
 } from "@/lib/webauthn";
+import { Button } from "@/components/reui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/reui/card";
+import { Input } from "@/components/reui/input";
+import { Label } from "@/components/reui/label";
+import { Checkbox } from "@/components/reui/checkbox";
+import { Alert, AlertDescription } from "@/components/reui/alert";
 
 /**
  * Single-input, smart-routing login.
@@ -62,6 +68,18 @@ function BrandingPanel() {
         <a href="https://apilens.ai/terms" className="auth-footer-link">Terms</a>
         <span className="auth-footer-sep" />
         <a href="https://apilens.ai/privacy" className="auth-footer-link">Privacy</a>
+      </div>
+    </div>
+  );
+}
+
+/** Shared right-panel wrapper: keeps the split layout contract classes. */
+function AuthShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="auth-split">
+      <BrandingPanel />
+      <div className="auth-panel">
+        <div className="auth-panel-inner">{children}</div>
       </div>
     </div>
   );
@@ -413,64 +431,73 @@ function LoginPageContent() {
     const canRetryPasskey = !!passkeyOptions;
     const canUsePassword = fallbacks.includes("password");
     return (
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            <div className="auth-card">
-              <p className="auth-mobile-logo">API Lens</p>
-              <div className="auth-header">
-                <h1 className="auth-title">How would you like to sign in?</h1>
-                <p className="auth-description">
-                  Signing in as <strong>{email}</strong>
-                </p>
-              </div>
-              {error && <p className="auth-error">{error}</p>}
+      <AuthShell>
+        <Card className="w-full gap-5">
+          <CardHeader className="text-center">
+            <p className="auth-mobile-logo">API Lens</p>
+            <CardTitle className="text-xl">How would you like to sign in?</CardTitle>
+            <CardDescription>
+              Signing in as <strong className="text-foreground">{email}</strong>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-              <div className="auth-form auth-form-tight">
-                {canRetryPasskey && (
-                  <button
-                    type="button"
-                    className="auth-submit-btn"
-                    onClick={() => void runPasskeyFlow(passkeyOptions)}
-                    disabled={isSubmitting}
-                  >
-                    <Fingerprint size={16} />
-                    Try {getBiometricLabel()} again
-                  </button>
-                )}
+            {canRetryPasskey && (
+              <Button
+                type="button"
+                className="w-full"
+                onClick={() => void runPasskeyFlow(passkeyOptions)}
+                disabled={isSubmitting}
+              >
+                <Fingerprint size={16} />
+                Try {getBiometricLabel()} again
+              </Button>
+            )}
 
-                {canUsePassword && (
-                  <button
-                    type="button"
-                    className={canRetryPasskey ? "settings-btn settings-btn-secondary" : "auth-submit-btn"}
-                    onClick={() => {
-                      setError("");
-                      setFlowState("password");
-                    }}
-                    disabled={isSubmitting}
-                  >
-                    Use my password
-                  </button>
-                )}
+            {canUsePassword && (
+              <Button
+                type="button"
+                variant={canRetryPasskey ? "outline" : "default"}
+                className="w-full"
+                onClick={() => {
+                  setError("");
+                  setFlowState("password");
+                }}
+                disabled={isSubmitting}
+              >
+                Use my password
+              </Button>
+            )}
 
-                <button
-                  type="button"
-                  className="auth-link-btn"
-                  onClick={() => void sendMagicLink()}
-                  disabled={isSubmitting}
-                >
-                  Email me a sign-in link instead
-                </button>
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto self-center text-muted-foreground hover:text-foreground"
+              onClick={() => void sendMagicLink()}
+              disabled={isSubmitting}
+            >
+              Email me a sign-in link instead
+            </Button>
 
-                <button type="button" className="auth-link-btn" onClick={backToInput}>
-                  Use a different email
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto self-center text-muted-foreground hover:text-foreground"
+              onClick={backToInput}
+            >
+              Use a different email
+            </Button>
+          </CardContent>
+        </Card>
+      </AuthShell>
     );
   }
 
@@ -479,94 +506,105 @@ function LoginPageContent() {
   // ──────────────────────────────────────────────────────────────────
   if (flowState === "2fa-required") {
     return (
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            <div className="auth-card">
-              <p className="auth-mobile-logo">API Lens</p>
-              <div className="auth-header">
-                <h1 className="auth-title">Two-Factor Authentication</h1>
-                <p className="auth-description">
-                  {useBackupCode
-                    ? "Enter one of your backup codes"
-                    : "Enter the 6-digit code from your authenticator app"}
-                </p>
+      <AuthShell>
+        <Card className="w-full gap-5">
+          <CardHeader className="text-center">
+            <p className="auth-mobile-logo">API Lens</p>
+            <CardTitle className="text-xl">Two-Factor Authentication</CardTitle>
+            <CardDescription>
+              {useBackupCode
+                ? "Enter one of your backup codes"
+                : "Enter the 6-digit code from your authenticator app"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleTwoFactorVerify();
+              }}
+              className="flex flex-col gap-3"
+            >
+              <div className="grid gap-2">
+                <Label htmlFor="twofa-code">
+                  {useBackupCode ? "Backup Code" : "Verification Code"}
+                </Label>
+                <Input
+                  id="twofa-code"
+                  type="text"
+                  inputMode={useBackupCode ? "text" : "numeric"}
+                  value={twoFactorCode}
+                  onChange={(e) => {
+                    const value = useBackupCode
+                      ? e.target.value.toUpperCase()
+                      : e.target.value.replace(/\D/g, "");
+                    setTwoFactorCode(value);
+                    setError("");
+                  }}
+                  placeholder={useBackupCode ? "XXXX-XXXX" : "000000"}
+                  maxLength={useBackupCode ? 9 : 6}
+                  required
+                  autoFocus
+                  disabled={isSubmitting}
+                />
               </div>
 
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void handleTwoFactorVerify();
-                }}
-                className="auth-form auth-form-tight"
+              {error && (
+                <Alert variant="destructive">
+                  <AlertCircle />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isSubmitting || !twoFactorCode}
               >
-                <div className="auth-input-group">
-                  <label htmlFor="twofa-code" className="auth-label">
-                    {useBackupCode ? "Backup Code" : "Verification Code"}
-                  </label>
-                  <input
-                    id="twofa-code"
-                    type="text"
-                    inputMode={useBackupCode ? "text" : "numeric"}
-                    value={twoFactorCode}
-                    onChange={(e) => {
-                      const value = useBackupCode
-                        ? e.target.value.toUpperCase()
-                        : e.target.value.replace(/\D/g, "");
-                      setTwoFactorCode(value);
-                      setError("");
-                    }}
-                    placeholder={useBackupCode ? "XXXX-XXXX" : "000000"}
-                    maxLength={useBackupCode ? 9 : 6}
-                    className="auth-input"
-                    required
-                    autoFocus
-                    disabled={isSubmitting}
-                  />
-                </div>
+                {isSubmitting ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <>
+                    Verify and Sign In
+                    <ArrowRight size={14} />
+                  </>
+                )}
+              </Button>
 
-                {error && <p className="auth-error">{error}</p>}
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto self-center text-muted-foreground hover:text-foreground"
+                onClick={() => setUseBackupCode(!useBackupCode)}
+              >
+                {useBackupCode ? "Use authenticator code instead" : "Use backup code"}
+              </Button>
 
-                <button
-                  type="submit"
-                  className="auth-submit-btn"
-                  disabled={isSubmitting || !twoFactorCode}
-                >
-                  {isSubmitting ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <>
-                      Verify and Sign In
-                      <ArrowRight size={14} />
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  className="auth-link-btn"
-                  onClick={() => setUseBackupCode(!useBackupCode)}
-                >
-                  {useBackupCode ? "Use authenticator code instead" : "Use backup code"}
-                </button>
-
-                <a
-                  href={`/auth/recovery${email ? `?email=${encodeURIComponent(email)}` : ""}`}
-                  className="auth-link-btn"
-                  style={{ display: "inline-block" }}
-                >
+              <Button
+                asChild
+                variant="link"
+                size="sm"
+                className="h-auto self-center text-muted-foreground hover:text-foreground"
+              >
+                <a href={`/auth/recovery${email ? `?email=${encodeURIComponent(email)}` : ""}`}>
                   Lost access to your codes?
                 </a>
+              </Button>
 
-                <button type="button" className="auth-link-btn" onClick={backToInput}>
-                  Back to sign in
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
-      </div>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto self-center text-muted-foreground hover:text-foreground"
+                onClick={backToInput}
+              >
+                Back to sign in
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </AuthShell>
     );
   }
 
@@ -576,36 +614,41 @@ function LoginPageContent() {
   if (flowState === "no-account") {
     const signupUrl = `/auth/signup?email=${encodeURIComponent(email)}`;
     return (
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            <div className="auth-card auth-status-card auth-status-minimal">
-              <div className="auth-icon-primary auth-status-icon">
-                <Mail size={24} strokeWidth={1.7} />
-              </div>
-              <p className="auth-status-kicker">No account found</p>
-              <h1 className="auth-title">Create one in seconds?</h1>
-              <p className="auth-description auth-status-description">
-                We couldn't find an API Lens account for this email.
-              </p>
-              <p className="auth-status-email">
-                <span className="auth-status-email-label">Searched for</span>
-                <strong>{email}</strong>
-              </p>
-              <div className="auth-status-divider" aria-hidden="true" />
-              <div className="auth-status-actions auth-status-actions-minimal">
-                <a href={signupUrl} className="auth-submit-btn auth-action">
-                  Sign up with this email <ArrowRight size={14} />
-                </a>
-                <button className="auth-link-btn" onClick={backToInput}>
-                  Try a different email
-                </button>
-              </div>
-            </div>
+      <AuthShell>
+        <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Mail size={24} strokeWidth={1.7} />
           </div>
-        </div>
-      </div>
+          <div>
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">No account found</p>
+            <h1 className="mt-1 text-xl font-semibold text-foreground">Create one in seconds?</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              We couldn't find an API Lens account for this email.
+            </p>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            <span className="mr-1.5">Searched for</span>
+            <strong className="text-foreground">{email}</strong>
+          </p>
+          <div className="h-px w-full bg-border" aria-hidden="true" />
+          <div className="flex w-full flex-col items-center gap-2">
+            <Button asChild className="w-full">
+              <a href={signupUrl}>
+                Sign up with this email <ArrowRight size={14} />
+              </a>
+            </Button>
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto text-muted-foreground hover:text-foreground"
+              onClick={backToInput}
+            >
+              Try a different email
+            </Button>
+          </div>
+        </Card>
+      </AuthShell>
     );
   }
 
@@ -614,33 +657,36 @@ function LoginPageContent() {
   // ──────────────────────────────────────────────────────────────────
   if (flowState === "reset-link-sent") {
     return (
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            <div className="auth-card auth-status-card auth-status-minimal">
-              <div className="auth-icon-primary auth-status-icon">
-                <Mail size={24} strokeWidth={1.7} />
-              </div>
-              <p className="auth-status-kicker">Password Reset</p>
-              <h1 className="auth-title">Check your email</h1>
-              <p className="auth-description auth-status-description">
-                If an account exists for this email, we've sent a link to reset your password.
-              </p>
-              <p className="auth-status-email">
-                <span className="auth-status-email-label">Sent to</span>
-                <strong>{email}</strong>
-              </p>
-              <div className="auth-status-divider" aria-hidden="true" />
-              <div className="auth-status-actions auth-status-actions-minimal">
-                <button className="auth-link-btn" onClick={backToInput}>
-                  Back to sign in
-                </button>
-              </div>
-            </div>
+      <AuthShell>
+        <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Mail size={24} strokeWidth={1.7} />
           </div>
-        </div>
-      </div>
+          <div>
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Password Reset</p>
+            <h1 className="mt-1 text-xl font-semibold text-foreground">Check your email</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              If an account exists for this email, we've sent a link to reset your password.
+            </p>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            <span className="mr-1.5">Sent to</span>
+            <strong className="text-foreground">{email}</strong>
+          </p>
+          <div className="h-px w-full bg-border" aria-hidden="true" />
+          <div className="flex w-full flex-col items-center gap-2">
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto text-muted-foreground hover:text-foreground"
+              onClick={backToInput}
+            >
+              Back to sign in
+            </Button>
+          </div>
+        </Card>
+      </AuthShell>
     );
   }
 
@@ -649,41 +695,46 @@ function LoginPageContent() {
   // ──────────────────────────────────────────────────────────────────
   if (flowState === "magic-link-sent") {
     return (
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            <div className="auth-card auth-status-card auth-status-minimal">
-              <div className="auth-icon-primary auth-status-icon">
-                <Mail size={24} strokeWidth={1.7} />
-              </div>
-              <p className="auth-status-kicker">Magic Link Sent</p>
-              <h1 className="auth-title">Check your email</h1>
-              <p className="auth-description auth-status-description">
-                Open the link to sign in.
-              </p>
-              <p className="auth-status-email">
-                <span className="auth-status-email-label">Sent to</span>
-                <strong>{email}</strong>
-              </p>
-              <div className="auth-status-divider" aria-hidden="true" />
-              <div className="auth-status-actions auth-status-actions-minimal">
-                <button
-                  type="button"
-                  className="auth-link-btn"
-                  onClick={() => void sendMagicLink()}
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? "Sending..." : "Resend link"}
-                </button>
-                <button className="auth-link-btn" onClick={backToInput}>
-                  Change email
-                </button>
-              </div>
-            </div>
+      <AuthShell>
+        <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Mail size={24} strokeWidth={1.7} />
           </div>
-        </div>
-      </div>
+          <div>
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Magic Link Sent</p>
+            <h1 className="mt-1 text-xl font-semibold text-foreground">Check your email</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Open the link to sign in.
+            </p>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            <span className="mr-1.5">Sent to</span>
+            <strong className="text-foreground">{email}</strong>
+          </p>
+          <div className="h-px w-full bg-border" aria-hidden="true" />
+          <div className="flex w-full flex-col items-center gap-2">
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto text-muted-foreground hover:text-foreground"
+              onClick={() => void sendMagicLink()}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Sending..." : "Resend link"}
+            </Button>
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto text-muted-foreground hover:text-foreground"
+              onClick={backToInput}
+            >
+              Change email
+            </Button>
+          </div>
+        </Card>
+      </AuthShell>
     );
   }
 
@@ -692,41 +743,47 @@ function LoginPageContent() {
   // ──────────────────────────────────────────────────────────────────
   if (flowState === "passkey-running") {
     return (
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            <div className="auth-card auth-status-card auth-status-minimal">
-              <div className="auth-icon-primary auth-status-icon">
-                <Fingerprint size={28} strokeWidth={1.7} />
-              </div>
-              <p className="auth-status-kicker">Signing in</p>
-              <h1 className="auth-title">
-                Authenticate with {getBiometricLabel()}
-              </h1>
-              <p className="auth-description auth-status-description">
-                Follow the prompt on your device.
-              </p>
-              <Loader2 size={20} className="animate-spin" style={{ margin: "12px auto" }} />
-              <div className="auth-status-divider" aria-hidden="true" />
-              <div className="auth-status-actions auth-status-actions-minimal">
-                {fallbacks.length > 0 ? (
-                  <button
-                    className="auth-link-btn"
-                    onClick={() => setFlowState("passkey-fallback")}
-                  >
-                    Cancel and use another way
-                  </button>
-                ) : (
-                  <button className="auth-link-btn" onClick={backToInput}>
-                    Cancel
-                  </button>
-                )}
-              </div>
-            </div>
+      <AuthShell>
+        <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Fingerprint size={28} strokeWidth={1.7} />
           </div>
-        </div>
-      </div>
+          <div>
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Signing in</p>
+            <h1 className="mt-1 text-xl font-semibold text-foreground">
+              Authenticate with {getBiometricLabel()}
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Follow the prompt on your device.
+            </p>
+          </div>
+          <Loader2 size={20} className="my-3 animate-spin text-muted-foreground" />
+          <div className="h-px w-full bg-border" aria-hidden="true" />
+          <div className="flex w-full flex-col items-center gap-2">
+            {fallbacks.length > 0 ? (
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto text-muted-foreground hover:text-foreground"
+                onClick={() => setFlowState("passkey-fallback")}
+              >
+                Cancel and use another way
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto text-muted-foreground hover:text-foreground"
+                onClick={backToInput}
+              >
+                Cancel
+              </Button>
+            )}
+          </div>
+        </Card>
+      </AuthShell>
     );
   }
 
@@ -735,117 +792,127 @@ function LoginPageContent() {
   // ──────────────────────────────────────────────────────────────────
   if (flowState === "password") {
     return (
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            <div className="auth-card">
-              <p className="auth-mobile-logo">API Lens</p>
-              <div className="auth-header">
-                <h1 className="auth-title">Enter your password</h1>
-                <p className="auth-description">
-                  Signing in as <strong>{email}</strong>
-                </p>
-              </div>
-
-              <form onSubmit={handlePasswordLogin} className="auth-form auth-form-tight">
-                <div className="auth-input-group">
-                  <div className="auth-label-row">
-                    <label htmlFor="password" className="auth-label">Password</label>
-                    <button
-                      type="button"
-                      className="auth-forgot-link"
-                      onClick={handleForgotPassword}
-                      disabled={isSubmitting}
-                    >
-                      Forgot?
-                    </button>
-                  </div>
-                  <div className="auth-input-wrapper">
-                    <input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        setError("");
-                      }}
-                      placeholder="Your password"
-                      className="auth-input"
-                      required
-                      autoFocus
-                      autoComplete="current-password"
-                      disabled={isSubmitting}
-                    />
-                    <button
-                      type="button"
-                      className="auth-input-toggle"
-                      onClick={() => setShowPassword(!showPassword)}
-                      tabIndex={-1}
-                    >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                </div>
-
-                <label className="auth-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    disabled={isSubmitting}
-                  />
-                  <span className="auth-checkbox-box">
-                    <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                      <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </span>
-                  Remember me for 30 days
-                </label>
-
-                {error && <p className="auth-error">{error}</p>}
-
-                <button
-                  type="submit"
-                  className="auth-submit-btn"
-                  disabled={isSubmitting || !password}
-                >
-                  {isSubmitting ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <>Sign in <ArrowRight size={14} /></>
-                  )}
-                </button>
-
-                {fallbacks.includes("passkey") && passkeyOptions && (
-                  <button
+      <AuthShell>
+        <Card className="w-full gap-5">
+          <CardHeader className="text-center">
+            <p className="auth-mobile-logo">API Lens</p>
+            <CardTitle className="text-xl">Enter your password</CardTitle>
+            <CardDescription>
+              Signing in as <strong className="text-foreground">{email}</strong>
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handlePasswordLogin} className="flex flex-col gap-3">
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <Button
                     type="button"
-                    className="auth-link-btn"
-                    onClick={() => void runPasskeyFlow(passkeyOptions)}
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0 text-xs"
+                    onClick={handleForgotPassword}
                     disabled={isSubmitting}
                   >
-                    <Fingerprint size={14} style={{ verticalAlign: "-2px", marginRight: "4px" }} />
-                    Use {getBiometricLabel()} instead
+                    Forgot?
+                  </Button>
+                </div>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setError("");
+                    }}
+                    placeholder="Your password"
+                    className="pr-9"
+                    required
+                    autoFocus
+                    autoComplete="current-password"
+                    disabled={isSubmitting}
+                  />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-0 flex items-center px-2.5 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
-                )}
+                </div>
+              </div>
 
-                <button
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="remember-me"
+                  checked={rememberMe}
+                  onCheckedChange={(checked) => setRememberMe(checked === true)}
+                  disabled={isSubmitting}
+                />
+                <Label htmlFor="remember-me" className="font-normal text-muted-foreground">
+                  Remember me for 30 days
+                </Label>
+              </div>
+
+              {error && (
+                <Alert variant="destructive">
+                  <AlertCircle />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isSubmitting || !password}
+              >
+                {isSubmitting ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <>Sign in <ArrowRight size={14} /></>
+                )}
+              </Button>
+
+              {fallbacks.includes("passkey") && passkeyOptions && (
+                <Button
                   type="button"
-                  className="auth-link-btn"
-                  onClick={() => void sendMagicLink()}
+                  variant="link"
+                  size="sm"
+                  className="h-auto self-center text-muted-foreground hover:text-foreground"
+                  onClick={() => void runPasskeyFlow(passkeyOptions)}
                   disabled={isSubmitting}
                 >
-                  Email me a sign-in link instead
-                </button>
+                  <Fingerprint size={14} />
+                  Use {getBiometricLabel()} instead
+                </Button>
+              )}
 
-                <button type="button" className="auth-link-btn" onClick={backToInput}>
-                  Use a different email
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
-      </div>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto self-center text-muted-foreground hover:text-foreground"
+                onClick={() => void sendMagicLink()}
+                disabled={isSubmitting}
+              >
+                Email me a sign-in link instead
+              </Button>
+
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto self-center text-muted-foreground hover:text-foreground"
+                onClick={backToInput}
+              >
+                Use a different email
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </AuthShell>
     );
   }
 
@@ -853,68 +920,68 @@ function LoginPageContent() {
   // Default: input state — single email field
   // ──────────────────────────────────────────────────────────────────
   return (
-    <div className="auth-split">
-      <BrandingPanel />
-      <div className="auth-panel">
-        <div className="auth-panel-inner">
-          <div className="auth-card">
-            <p className="auth-mobile-logo">API Lens</p>
-            <div className="auth-header">
-              <h1 className="auth-title">Sign in to API Lens</h1>
-              <p className="auth-description">
-                Enter your email — we'll take you to the right step.
-              </p>
+    <AuthShell>
+      <Card className="w-full gap-5">
+        <CardHeader className="text-center">
+          <p className="auth-mobile-logo">API Lens</p>
+          <CardTitle className="text-xl">Sign in to API Lens</CardTitle>
+          <CardDescription>
+            Enter your email — we'll take you to the right step.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleIdentify} className="flex flex-col gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="email">Email address</Label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setError("");
+                  setPrefetchedIdentify(null);
+                }}
+                onBlur={handleEmailBlur}
+                placeholder="you@company.com"
+                required
+                autoFocus
+                // Critical for conditional WebAuthn — surfaces saved passkeys
+                // alongside saved email autofill suggestions.
+                autoComplete="username webauthn"
+                disabled={isSubmitting}
+              />
             </div>
 
-            <form onSubmit={handleIdentify} className="auth-form auth-form-tight">
-              <div className="auth-input-group">
-                <label htmlFor="email" className="auth-label">Email address</label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    setError("");
-                    setPrefetchedIdentify(null);
-                  }}
-                  onBlur={handleEmailBlur}
-                  placeholder="you@company.com"
-                  className="auth-input"
-                  required
-                  autoFocus
-                  // Critical for conditional WebAuthn — surfaces saved passkeys
-                  // alongside saved email autofill suggestions.
-                  autoComplete="username webauthn"
-                  disabled={isSubmitting}
-                />
-              </div>
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-              {error && <p className="auth-error">{error}</p>}
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isSubmitting || !email}
+            >
+              {isSubmitting ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <>Continue <ArrowRight size={14} /></>
+              )}
+            </Button>
 
-              <button
-                type="submit"
-                className="auth-submit-btn"
-                disabled={isSubmitting || !email}
-              >
-                {isSubmitting ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <>Continue <ArrowRight size={14} /></>
-                )}
-              </button>
-
-              <p className="auth-footer-note">
-                Don't have an account?{" "}
-                <a href="/auth/signup" className="auth-footer-link-btn">
-                  Sign up
-                </a>
-              </p>
-            </form>
-          </div>
-        </div>
-      </div>
-    </div>
+            <p className="text-center text-sm text-muted-foreground">
+              Don't have an account?{" "}
+              <a href="/auth/signup" className="font-medium text-primary hover:underline">
+                Sign up
+              </a>
+            </p>
+          </form>
+        </CardContent>
+      </Card>
+    </AuthShell>
   );
 }
 
@@ -922,16 +989,11 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="auth-split">
-          <BrandingPanel />
-          <div className="auth-panel">
-            <div className="auth-panel-inner">
-              <div className="auth-card">
-                <Loader2 size={24} className="animate-spin" style={{ margin: "16px auto" }} />
-              </div>
-            </div>
-          </div>
-        </div>
+        <AuthShell>
+          <Card className="w-full items-center px-6 py-8">
+            <Loader2 size={24} className="animate-spin text-muted-foreground" />
+          </Card>
+        </AuthShell>
       }
     >
       <LoginPageContent />

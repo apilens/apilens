@@ -287,7 +287,7 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
                     <td className="ep-recent-req">
                       <div className="ep-recent-req-line">
                         <span className="ep-recent-method" style={{ color: methodColor(r.method) }}>{r.method}</span>
-                        <span className="ep-recent-path">{r.path}</span>
+                        <span className="ep-recent-path">{r.raw_path || r.path}</span>
                       </div>
                       <div className="ep-recent-meta">
                         {r.environment ? <span className="ep-recent-fact"><Layers size={12} />{r.environment}</span> : null}

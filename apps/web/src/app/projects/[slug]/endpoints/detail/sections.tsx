@@ -17,13 +17,28 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { Inspector } from "@/components/aperture";
+import { cn } from "@/lib/utils";
+import { Badge, type BadgeProps } from "@/components/reui/badge";
+import { Button } from "@/components/reui/button";
 import {
-  Button,
-  Inspector,
-  Panel,
-  StatusPill,
-  statusCodeTone,
-} from "@/components/aperture";
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/reui/card";
+import { Input } from "@/components/reui/input";
+import { Skeleton as UISkeleton } from "@/components/reui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/reui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/reui/tabs";
 
 /* ── Types ───────────────────────────────────────────────────────────── */
 
@@ -222,6 +237,44 @@ export function statusBarClass(status: number): string {
   return "is-2xx";
 }
 
+/* ── ReUI badge mappings (shared across the request-logs surfaces) ────── */
+
+export function statusBadgeVariant(status: number): BadgeProps["variant"] {
+  if (status >= 500) return "destructive-light";
+  if (status >= 400) return "warning-light";
+  if (status >= 300) return "info-light";
+  return "success-light";
+}
+
+/** HTTP status code pill on ReUI Badge. */
+export function StatusBadge({ status, className }: { status: number; className?: string }) {
+  return (
+    <Badge variant={statusBadgeVariant(status)} size="sm" className={cn("font-mono tabular-nums", className)}>
+      {status}
+    </Badge>
+  );
+}
+
+/** HTTP method pill on ReUI Badge (GET teal, POST blue, PUT/PATCH amber, DELETE red). */
+export function MethodBadge({ method, className }: { method: string; className?: string }) {
+  const m = (method || "").toUpperCase();
+  const variant: BadgeProps["variant"] =
+    m === "GET"
+      ? "primary-light"
+      : m === "POST"
+        ? "info-light"
+        : m === "PUT" || m === "PATCH"
+          ? "warning-light"
+          : m === "DELETE"
+            ? "destructive-light"
+            : "outline";
+  return (
+    <Badge variant={variant} size="sm" className={cn("font-mono font-semibold", className)}>
+      {m}
+    </Badge>
+  );
+}
+
 export function errRateToneClass(rate: number): string {
   if (rate >= 5) return "tf-err-bad";
   if (rate >= 1) return "tf-err-warn";
@@ -249,14 +302,22 @@ export function ErrorSplit({ overall, client, server }: { overall: number; clien
 
 export function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
-    <Panel className="endpoint-card" title={title} hint={hint}>
-      {children}
-    </Panel>
+    <Card className="gap-3 rounded-xl border-border py-4 shadow-none">
+      <CardHeader className="flex flex-row items-baseline justify-between gap-2 space-y-0 px-4">
+        <CardTitle className="text-[13px] font-semibold">{title}</CardTitle>
+        {hint ? <CardDescription className="text-[11px]">{hint}</CardDescription> : null}
+      </CardHeader>
+      <CardContent className="px-4">{children}</CardContent>
+    </Card>
   );
 }
 
 export function EmptyBlock({ message }: { message: string }) {
-  return <div className="endpoint-detail-empty">{message}</div>;
+  return (
+    <div className="rounded-md border border-dashed border-border px-4 py-6 text-center text-[13px] text-muted-foreground">
+      {message}
+    </div>
+  );
 }
 
 export function ChartBox({ height = 240, children }: { height?: number; children: React.ReactElement }) {
@@ -270,15 +331,15 @@ export function ChartBox({ height = 240, children }: { height?: number; children
 }
 
 export function Skeleton({ height = 120 }: { height?: number }) {
-  return <div className="endpoint-skeleton" style={{ height }} aria-hidden="true" />;
+  return <UISkeleton className="w-full" style={{ height }} aria-hidden="true" />;
 }
 
 export function ChartTooltip({ active, payload, label, valueFormatter }: any) {
   if (!active || !payload || !payload.length) return null;
   const full = payload[0]?.payload?.full;
   return (
-    <div className="endpoint-chart-tooltip">
-      <p className="endpoint-chart-tooltip-label">{full || label}</p>
+    <div className="rounded-md border border-border bg-popover px-2.5 py-2 text-xs text-popover-foreground shadow-md">
+      <p className="mb-1 font-medium text-muted-foreground">{full || label}</p>
       {payload.map((entry: any) => (
         <p key={entry.dataKey} style={{ color: entry.color }}>
           {entry.name}: {valueFormatter ? valueFormatter(entry.value) : formatNumber(entry.value)}
@@ -292,9 +353,9 @@ export function ChartTooltip({ active, payload, label, valueFormatter }: any) {
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="ep-info-row">
-      <span className="ep-info-key">{label}</span>
-      <span className="ep-info-val">{value}</span>
+    <div className="flex items-baseline justify-between gap-3 border-b border-border/60 py-1.5 text-[13px] last:border-0">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 truncate text-right text-foreground">{value}</span>
     </div>
   );
 }
@@ -312,8 +373,8 @@ export function InfoSection({ detail }: { detail: EndpointDetail | null }) {
     : "Never";
   return (
     <Section title="Endpoint info">
-      {detail.description ? <p className="endpoint-page-description">{detail.description}</p> : null}
-      <div className="ep-info-grid">
+      {detail.description ? <p className="mb-3 text-[13px] text-muted-foreground">{detail.description}</p> : null}
+      <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
         <InfoRow label="Method" value={detail.method || "—"} />
         <InfoRow label="Path" value={detail.path || "—"} />
         {detail.base_url ? <InfoRow label="Base URL" value={detail.base_url} /> : null}
@@ -418,16 +479,26 @@ export function StatusCodesBlock({ statusCodes }: { statusCodes: StatusCodeRow[]
       ) : codes.length === 0 ? (
         <EmptyBlock message="No requests in the selected period." />
       ) : (
-        <div className="endpoint-status-breakdown">
+        <div className="flex h-full flex-col justify-center gap-2.5">
           {codes.map((s) => {
             const pct = total > 0 ? (s.total_requests / total) * 100 : 0;
+            const barColor =
+              s.status_code >= 500
+                ? "bg-destructive"
+                : s.status_code >= 400
+                  ? "bg-warning"
+                  : s.status_code >= 300
+                    ? "bg-info"
+                    : "bg-success";
             return (
-              <div key={s.status_code} className="endpoint-status-row">
-                <span className={`endpoint-status-pill ${statusTone(s.status_code)}`}>{s.status_code}</span>
-                <div className="endpoint-status-bar-track">
-                  <div className={`endpoint-status-bar ${statusBarClass(s.status_code)}`} style={{ width: `${Math.max(2, pct)}%` }} />
+              <div key={s.status_code} className="flex items-center gap-3">
+                <StatusBadge status={s.status_code} className="w-11 justify-center" />
+                <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div className={cn("h-full rounded-full", barColor)} style={{ width: `${Math.max(2, pct)}%` }} />
                 </div>
-                <span className="endpoint-status-count">{formatNumber(s.total_requests)}</span>
+                <span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                  {formatNumber(s.total_requests)}
+                </span>
               </div>
             );
           })}
@@ -567,28 +638,32 @@ export function RequestsTab({ requests, baseUrl }: { requests: RequestRow[] | nu
   }, [requests, statusFilter, search]);
 
   return (
-    <Panel className="endpoint-card">
-      <div className="endpoint-requests-toolbar">
-        <div className="endpoint-status-filter">
-          {STATUS_FILTERS.map((c) => (
-            <StatusPill
-              key={c}
-              interactive
-              active={statusFilter === c}
-              tone={statusFilter === c ? "accent" : "neutral"}
-              onClick={() => setStatusFilter(c)}
-            >
-              {c === "all" ? "All" : c}
-            </StatusPill>
-          ))}
+    <Card className="gap-3 rounded-xl border-border py-4 shadow-none">
+      <CardContent className="flex flex-col gap-3 px-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+            <TabsList className="h-8">
+              {STATUS_FILTERS.map((c) => (
+                <TabsTrigger key={c} value={c} className="px-2.5 text-xs">
+                  {c === "all" ? "All" : c}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          <div className="relative w-full max-w-60">
+            <Search size={13} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter by consumer or status…"
+              className="h-8 pl-8 text-[13px]"
+            />
+          </div>
         </div>
-        <div className="endpoint-requests-search">
-          <Search size={13} />
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by consumer or status…" />
-        </div>
-      </div>
-      <RequestsTable rows={requests === null ? null : filtered} baseUrl={baseUrl} emptyMessage={requests && requests.length ? "No requests match the filter." : "No logged requests."} />
-    </Panel>
+        <RequestsTable rows={requests === null ? null : filtered} baseUrl={baseUrl} emptyMessage={requests && requests.length ? "No requests match the filter." : "No logged requests."} />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -598,43 +673,41 @@ export function RequestsTable({ rows, baseUrl, emptyMessage }: { rows: RequestRo
   if (rows.length === 0) return <EmptyBlock message={emptyMessage} />;
   return (
     <>
-      <div className="endpoint-detail-table-wrapper">
-        <table className="endpoint-detail-table">
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Status</th>
-              <th>Consumer</th>
-              <th>Response</th>
-              <th aria-hidden="true" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr
-                key={`${r.timestamp}-${i}`}
-                className="request-row-clickable"
-                onClick={() => setSelected(r)}
-                tabIndex={0}
-                role="button"
-                aria-label="View request and response payload"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setSelected(r);
-                  }
-                }}
-              >
-                <td className="endpoint-detail-time">{formatDateTime(r.timestamp)}</td>
-                <td><span className={`endpoint-status-pill ${statusTone(r.status_code)}`}>{r.status_code}</span></td>
-                <td className="endpoint-detail-consumer">{r.consumer || "—"}</td>
-                <td className="endpoint-detail-time">{formatMs(r.response_time_ms)}</td>
-                <td className="request-row-chevron"><ChevronRight size={14} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Table className="text-[13px]">
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="h-8 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Time</TableHead>
+            <TableHead className="h-8 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Status</TableHead>
+            <TableHead className="h-8 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Consumer</TableHead>
+            <TableHead className="h-8 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Response</TableHead>
+            <TableHead aria-hidden="true" className="h-8 w-8" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((r, i) => (
+            <TableRow
+              key={`${r.timestamp}-${i}`}
+              className="cursor-pointer"
+              onClick={() => setSelected(r)}
+              tabIndex={0}
+              role="button"
+              aria-label="View request and response payload"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSelected(r);
+                }
+              }}
+            >
+              <TableCell className="tabular-nums text-muted-foreground">{formatDateTime(r.timestamp)}</TableCell>
+              <TableCell><StatusBadge status={r.status_code} /></TableCell>
+              <TableCell className="max-w-55 truncate">{r.consumer || "—"}</TableCell>
+              <TableCell className="tabular-nums text-muted-foreground">{formatMs(r.response_time_ms)}</TableCell>
+              <TableCell className="w-8 text-muted-foreground"><ChevronRight size={14} /></TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
       {selected && <RequestPayloadModal row={selected} baseUrl={baseUrl} onClose={() => setSelected(null)} />}
     </>
   );
@@ -697,14 +770,14 @@ export function PayloadBlock({ title, body }: { title: string; body: string }) {
   const tooBig = body.length > 40_000;
   const isJson = !!body && !tooBig && (() => { try { JSON.parse(body); return true; } catch { return false; } })();
   return (
-    <section className="request-payload-section">
-      <div className="request-payload-section-head">
-        <h4>{title}</h4>
+    <section className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{title}</h4>
         {body ? (
-          <button type="button" className="request-payload-copy" onClick={copy}>
+          <Button type="button" variant="ghost" size="xs" className="text-muted-foreground" onClick={copy}>
             {copied ? <Check size={13} /> : <Copy size={13} />}
             {copied ? "Copied" : "Copy"}
-          </button>
+          </Button>
         ) : null}
       </div>
       {body ? (
@@ -714,7 +787,7 @@ export function PayloadBlock({ title, body }: { title: string; body: string }) {
           <pre className="request-payload-pre">{body}</pre>
         )
       ) : (
-        <div className="endpoint-detail-empty">No payload captured.</div>
+        <EmptyBlock message="No payload captured." />
       )}
     </section>
   );
@@ -737,15 +810,15 @@ export function HeadersBlock({ title, raw }: { title: string; raw: string | unde
   const headers = parseHeaders(raw);
   if (headers.length === 0) return null;
   return (
-    <section className="request-payload-section">
-      <div className="request-payload-section-head">
-        <h4>{title}</h4>
+    <section className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{title}</h4>
       </div>
-      <div className="ep-headers-list">
+      <div className="overflow-hidden rounded-md border border-border">
         {headers.map(([k, v]) => (
-          <div key={k} className="ep-header-row">
-            <span className="ep-header-key">{k}</span>
-            <span className="ep-header-val">{v}</span>
+          <div key={k} className="flex gap-3 border-b border-border/60 px-2.5 py-1.5 font-mono text-xs last:border-0">
+            <span className="w-44 shrink-0 truncate text-muted-foreground">{k}</span>
+            <span className="min-w-0 break-all text-foreground">{v}</span>
           </div>
         ))}
       </div>
@@ -782,26 +855,26 @@ export function RequestPayloadModal({ row, baseUrl: detectedBaseUrl, onClose }: 
       onClose={onClose}
       title={
         <>
-          <span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span>
-          <span className="request-payload-path">{requestUrl(row)}</span>
-          <StatusPill tone={statusCodeTone(row.status_code)}>{row.status_code}</StatusPill>
+          <MethodBadge method={row.method} />
+          <span className="min-w-0 truncate font-mono text-[13px] text-foreground">{requestUrl(row)}</span>
+          <StatusBadge status={row.status_code} />
         </>
       }
       actions={
-        <Button variant="secondary" size="sm" onClick={copyCurl} title="Copy as cURL" aria-label="Copy as cURL">
+        <Button variant="outline" size="sm" onClick={copyCurl} title="Copy as cURL" aria-label="Copy as cURL">
           {copiedCurl ? <Check size={13} /> : <Terminal size={13} />}
           {copiedCurl ? "Copied!" : "Copy cURL"}
         </Button>
       }
     >
-      <div className="request-payload-meta">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         <span>{formatDateTime(row.timestamp)}</span>
         <span>·</span>
         <span>{formatMs(row.response_time_ms)}</span>
-        {row.consumer ? (<><span>·</span><span className="request-payload-meta-consumer">{row.consumer}</span></>) : null}
+        {row.consumer ? (<><span>·</span><span className="font-medium text-foreground">{row.consumer}</span></>) : null}
         {row.environment ? (<><span>·</span><span>{row.environment}</span></>) : null}
       </div>
-      <div className="request-payload-body">
+      <div className="mt-3 flex flex-col gap-4">
         <HeadersBlock title="Request headers" raw={row.request_headers} />
         <PayloadBlock title="Request payload" body={formatPayload(row.request_payload)} />
         <HeadersBlock title="Response headers" raw={row.response_headers} />

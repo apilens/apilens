@@ -1,8 +1,10 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { OptionalAppProvider } from "@/components/providers/AppProvider";
 import { SidebarProvider, useSidebar } from "@/components/providers/SidebarProvider";
+import { cn } from "@/lib/utils";
 import Sidebar from "./Sidebar";
 import Navbar from "./Navbar";
 
@@ -17,17 +19,19 @@ function DashboardInner({ children, projectSlug }: DashboardLayoutProps) {
 
   if (isLoading) {
     return (
-      <div className="loading-screen">
-        <div className="loading-spinner" />
-        <p>Loading...</p>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 text-muted-foreground">
+        <Loader2 size={24} className="animate-spin" />
+        <p className="text-sm">Loading...</p>
       </div>
     );
   }
 
   return (
+    // `.dashboard-container` / `.main-wrapper` / `.main-content` are
+    // layout-contract classes — keep them.
     <div className="dashboard-container">
       <Sidebar />
-      <div className={`main-wrapper ${collapsed ? "main-wrapper-expanded" : ""}`}>
+      <div className={cn("main-wrapper", collapsed && "main-wrapper-expanded")}>
         <Navbar projectSlug={projectSlug} />
         <main className="main-content">
           {children}

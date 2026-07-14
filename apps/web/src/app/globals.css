@@ -2,6 +2,10 @@
 @import "tailwindcss";
 @import "../styles/aperture.tokens.css";
 @import "../styles/aperture.components.css";
+@import "../styles/reui.tokens.css";
+
+/* The app themes via [data-theme] (ThemeProvider), not a .dark class. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
   --font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -275,8 +279,8 @@ body {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--text-2xl);
-  font-weight: var(--weight-bold);
+  font-size: 18px;
+  font-weight: var(--weight-semibold);
   color: var(--text-primary);
   letter-spacing: var(--tracking-tight);
   -webkit-font-smoothing: antialiased;
@@ -502,21 +506,18 @@ body {
   flex: 1;
   padding: var(--space-4) var(--space-3);
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
 }
 
 .nav-section {
-  margin-bottom: var(--space-6);
+  margin-bottom: 0;
 }
 
-.nav-section-title {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  padding: 0 12px;
-  margin-bottom: 8px;
+/* Secondary links (notifications, help) sit at the bottom of the rail. */
+.nav-section-bottom {
+  margin-top: auto;
 }
 
 .nav-list {
@@ -530,11 +531,12 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
+  height: 32px;
+  padding: 0 var(--space-3);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   text-decoration: none;
-  font-size: var(--text-md);
+  font-size: var(--text-base);
   font-weight: var(--weight-medium);
   transition: background var(--dur-fast) var(--ease-standard),
     color var(--dur-fast) var(--ease-standard);
@@ -546,22 +548,9 @@ body {
 }
 
 .nav-item-active {
-  position: relative;
   background-color: var(--accent-subtle);
   color: var(--text-primary);
   font-weight: var(--weight-semibold);
-}
-
-.nav-item-active::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 18px;
-  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
-  background: var(--accent);
 }
 
 .nav-item-active .nav-icon {
@@ -598,12 +587,13 @@ body {
   align-items: center;
   gap: var(--space-3);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  height: 32px;
+  padding: 0 var(--space-3);
   background: transparent;
   border: none;
   border-radius: var(--radius-md);
   color: var(--text-secondary);
-  font-size: var(--text-md);
+  font-size: var(--text-base);
   font-weight: var(--weight-medium);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-standard),
@@ -682,7 +672,6 @@ body {
   color: var(--text-primary);
   font-weight: 600;
 }
-
 
 .search-container {
   position: relative;
@@ -1222,7 +1211,8 @@ body {
 
 .sidebar-collapsed .nav-item {
   justify-content: center;
-  padding: 10px;
+  padding: 0;
+  height: 36px;
 }
 
 .sidebar-collapsed .sidebar-footer {
@@ -1231,7 +1221,8 @@ body {
 
 .sidebar-collapsed .sidebar-action-btn {
   justify-content: center;
-  padding: 10px;
+  padding: 0;
+  height: 36px;
 }
 
 .main-wrapper-expanded {
@@ -1255,7 +1246,6 @@ body {
   margin-bottom: 0;
   flex-shrink: 0;
 }
-
 
 .settings-page-body {
   display: flex;
@@ -1908,7 +1898,6 @@ body {
   overflow: hidden;
   animation: dropdownFadeIn 0.15s ease;
 }
-
 
 @keyframes dropdownFadeIn {
   from {
@@ -7179,7 +7168,6 @@ a.settings-btn {
   color: var(--text-muted);
 }
 
-
 .time-range-selector {
   display: inline-flex;
   align-items: center;
@@ -9405,7 +9393,6 @@ a.settings-btn {
   flex-wrap: wrap;
 }
 
-
 /* Dashboard Charts Grid */
 .dashboard-charts-grid {
   display: -ms-grid;
@@ -9840,7 +9827,6 @@ a.settings-btn {
   margin-top: 4px;
   margin-bottom: 0;
 }
-
 
 /* ============================================
    ENDPOINTS TABLE
@@ -10514,9 +10500,6 @@ a.settings-btn {
 .auth-passkey-prompt {
   will-change: max-height, opacity;
 }
-
-
-
 
 /* Two-Factor Authentication Styles */
 .twofa-disabled-state,
@@ -13632,26 +13615,6 @@ a.settings-btn {
   min-width: 0;
 }
 .tf-metric-labelrow .tf-metric-label { min-width: 0; }
-.tf-metric-breakdown {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-shrink: 0;
-  font-size: 9px;
-  font-weight: 500;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-/* Caption, not a metric: dial the shared .err-* reds down toward gray. */
-.tf-metric-breakdown .err-4xx { color: color-mix(in srgb, #fca5a5 55%, var(--text-muted)); }
-.tf-metric-breakdown .err-5xx { color: color-mix(in srgb, #f87171 55%, var(--text-muted)); }
-.tf-metric-breakdown .err-5xx::before {
-  content: "·";
-  color: var(--text-muted);
-  margin-right: 6px;
-}
 .tf-panel-chart { padding: 16px; }
 .tf-legend {
   display: flex;
@@ -13690,13 +13653,17 @@ a.settings-btn {
 .tf-legend-toggle.is-off { opacity: 0.5; text-decoration: line-through; }
 /* "4xx + 5xx = Total" breakdown shown in the Total errors legend. */
 .tf-legend-op { color: var(--text-muted); font-size: 11px; align-self: center; }
+/* Label vs value inside a legend entry (flex gap already separates them). */
+.tf-legend-pct { font-variant-numeric: tabular-nums; opacity: 0.85; }
 .tf-legend-total {
   display: inline-flex;
   align-items: center;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
-  padding-left: 2px;
+  /* Match the 6px inner padding of the legend buttons so the "=" sits
+     visually centered between "5xx …%" and "Total". */
+  padding-left: 6px;
 }
 
 /* Table card */
@@ -13823,7 +13790,7 @@ a.settings-btn {
 .tf-td-ep {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px; /* match .err-endpoint so both tables read identically */
   min-width: 0;
   max-width: 520px;
 }
@@ -14068,6 +14035,9 @@ a.settings-btn {
 }
 .ep-emodal-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
 .ep-emodal-tab.is-active { color: var(--text-primary); border-bottom-color: #14b8a6; }
+/* Count pill on a tab (e.g. "Exceptions 1"); error variant tints it red. */
+.ep-emodal-tab .ep-rl-count { margin-left: 6px; vertical-align: 1px; }
+.ep-tab-count--error { background: rgba(248, 113, 113, 0.16); color: #f87171; }
 
 .ep-emodal-body {
   flex: 1;
@@ -14642,19 +14612,100 @@ a.settings-btn {
   background: rgba(248, 113, 113, 0.05);
   max-height: 420px;
 }
+/* Exceptions tab — the traceback is the main content, so drop the height caps
+   and let the modal body scroll instead. */
+.ep-exc-list { max-height: none; overflow-y: visible; }
+.ep-exc-list .ep-log-trace { max-height: none; }
+
+/* Trace tab ↔ exceptions correlation. */
+.ep-trace-item { border-bottom: 1px solid var(--border-color); transition: opacity 140ms ease, background 140ms ease; }
+.ep-trace-item:last-child { border-bottom: none; }
+.ep-trace-item .ep-trace-row { border-bottom: none; }
+/* Replay sync: the row whose span is running at the replay's current moment
+   lights up; rows the replay hasn't reached yet dim; passed rows are normal. */
+.ep-trace-item.is-replay-pending { opacity: 0.3; }
+.ep-trace-item.is-replay-active { background: rgba(20, 184, 166, 0.09); box-shadow: inset 2px 0 0 var(--accent); }
+.ep-trace-item.is-replay-active.is-failed { background: rgba(248, 113, 113, 0.09); box-shadow: inset 2px 0 0 #f87171; }
+.ep-trace-item.is-replay-active .ep-trace-name { color: var(--text-primary); }
+.ep-trace-exc {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-left: 8px; padding: 1px 7px;
+  background: rgba(248, 113, 113, 0.14); color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.3); border-radius: 999px;
+  font-size: 10.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.ep-trace-exc:hover { background: rgba(248, 113, 113, 0.24); }
+
+/* Trace tab — request flow canvas (pannable/zoomable graph with replay) */
+.ep-flow-canvas {
+  position: relative; height: 380px; margin: 2px 0 20px;
+  border: 1px solid var(--border-color); border-radius: 12px;
+  overflow: hidden; cursor: grab; touch-action: none;
+  background-image: radial-gradient(circle, rgba(148, 163, 184, 0.13) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.ep-flow-canvas.is-panning { cursor: grabbing; }
+.ep-flow-stage {
+  position: absolute; top: 0; left: 0; transform-origin: 0 0;
+  display: flex; align-items: stretch; gap: 76px; width: max-content; padding: 6px 2px;
+}
+.ep-flow-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.ep-flow-edge-label { font-size: 10px; font-weight: 600; }
+.ep-flow-pulse { filter: drop-shadow(0 0 4px currentColor); }
+/* Floating controls (replay bar top-left, zoom cluster top-right) */
+.ep-flow-ctl {
+  position: absolute; top: 10px; z-index: 2;
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-primary, #0b1220) 82%, transparent);
+  border: 1px solid var(--border-color); backdrop-filter: blur(6px);
+  cursor: default;
+}
+.ep-flow-replaybar { left: 10px; }
+.ep-flow-zoomctl { right: 10px; gap: 4px; }
+.ep-flow-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border-color);
+  background: transparent; color: var(--text-secondary);
+  font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.ep-flow-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.ep-flow-scrub { width: 150px; accent-color: var(--accent); cursor: pointer; }
+.ep-flow-time { font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--text-muted); white-space: nowrap; }
+/* Replay node states */
+.ep-flow-node.is-pending { opacity: 0.3; }
+.ep-flow-node.is-active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 18px rgba(20, 184, 166, 0.3); }
+.ep-flow-node.is-active.is-failed { border-color: #f87171; box-shadow: 0 0 0 1px #f87171, 0 0 18px rgba(248, 113, 113, 0.35); }
+.ep-flow-col { display: flex; flex-direction: column; justify-content: center; gap: 14px; position: relative; z-index: 1; }
+.ep-flow-node { min-width: 170px; max-width: 250px; padding: 9px 12px; background: var(--bg-hover); border: 1px solid var(--border-color); border-radius: 10px; }
+.ep-flow-node.is-failed { border-color: rgba(248, 113, 113, 0.45); background: rgba(248, 113, 113, 0.06); }
+.ep-flow-node-svc { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+.ep-flow-tag {
+  font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 1px 6px; border-radius: 999px;
+  border: 1px solid var(--border-color); color: var(--text-muted); white-space: nowrap;
+}
+.ep-flow-tag.is-origin { color: #f87171; border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.12); }
+.ep-flow-node-op {
+  margin-top: 3px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px;
+  color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ep-flow-node-meta { margin-top: 4px; font-size: 11px; color: var(--text-muted); }
+.ep-flow-node.is-failed .ep-flow-node-meta { color: #f87171; }
 
 /* Trace tab — span waterfall */
-.ep-trace-hint {
-  margin: 0 0 10px; padding: 0 2px; font-size: 12px; line-height: 1.5;
-  color: var(--text-secondary);
+/* Hover info dot next to the axis label — holds the how-to-read explainer. */
+.ep-trace-info {
+  display: inline-flex; align-items: center;
+  margin-left: 5px; color: var(--text-muted); cursor: help;
 }
-.ep-trace-hint strong { color: var(--text-primary); font-weight: 600; }
+.ep-trace-info:hover { color: var(--text-secondary); }
 .ep-trace-note {
   margin: 10px 2px 0; padding: 9px 12px; font-size: 12px; line-height: 1.55;
   color: var(--text-secondary); background: var(--bg-hover);
   border: 1px solid var(--border-color); border-radius: 8px;
 }
-.ep-trace-note code, .ep-trace-hint code {
+.ep-trace-note code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px; padding: 1px 5px; border-radius: 4px;
   background: var(--bg-subtle, rgba(148, 163, 184, 0.16)); color: var(--text-primary);
@@ -14952,3 +15003,27 @@ a.settings-btn {
 .err-occ-time { display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .err-occ-consumer { flex: 1 1 auto; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .err-occ-trace { font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; color: var(--text-muted); background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
+
+.dark {
+  --destructive-foreground: var(--color-red-600);
+  --success: var(--color-emerald-500);
+  --success-foreground: var(--color-emerald-600);
+  --info: var(--color-violet-500);
+  --info-foreground: var(--color-violet-600);
+  --warning: var(--color-yellow-500);
+  --warning-foreground: var(--color-yellow-600);
+  --invert: var(--color-zinc-700);
+  --invert-foreground: var(--color-zinc-50);
+}
+
+@theme inline {
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-invert: var(--invert);
+  --color-invert-foreground: var(--invert-foreground);
+}

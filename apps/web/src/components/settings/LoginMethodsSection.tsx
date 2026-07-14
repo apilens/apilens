@@ -7,7 +7,12 @@ import { useAddPasskey } from "@/hooks/useAddPasskey";
 import SettingsCard from "./SettingsCard";
 import ConfirmDialog from "./ConfirmDialog";
 import PasswordStrengthMeter from "./PasswordStrengthMeter";
-import Skeleton from "@/components/ui/Skeleton";
+import { Alert, AlertDescription } from "@/components/reui/alert";
+import { Badge } from "@/components/reui/badge";
+import { Button } from "@/components/reui/button";
+import { Input } from "@/components/reui/input";
+import { Label } from "@/components/reui/label";
+import { Skeleton } from "@/components/reui/skeleton";
 
 interface PasskeyCredential {
   id: string;
@@ -42,6 +47,56 @@ function AppleIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
       <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
     </svg>
+  );
+}
+
+/** Shared row shell for a login method (icon + name/detail + trailing action). */
+function MethodIcon({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+      {children}
+    </div>
+  );
+}
+
+/** Password-style input with a show/hide toggle. */
+function PasswordInput({
+  value,
+  onChange,
+  show,
+  onToggleShow,
+  placeholder,
+  autoComplete,
+  invalid,
+}: {
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  show: boolean;
+  onToggleShow: () => void;
+  placeholder: string;
+  autoComplete: string;
+  invalid?: boolean;
+}) {
+  return (
+    <div className="relative">
+      <Input
+        type={show ? "text" : "password"}
+        className="pr-9 text-[13px]"
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        aria-invalid={invalid || undefined}
+      />
+      <button
+        type="button"
+        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        onClick={onToggleShow}
+        aria-label={show ? "Hide password" : "Show password"}
+      >
+        {show ? <EyeOff size={14} /> : <Eye size={14} />}
+      </button>
+    </div>
   );
 }
 
@@ -196,245 +251,170 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
     }
   };
 
+  const passwordsMismatch = confirmPassword.length > 0 && newPassword !== confirmPassword;
+
   return (
     <SettingsCard
       title="Login Methods"
       description="How you sign in to your account"
     >
-      <div className="login-methods">
-        <div className="login-method-item">
-          <div className="login-method-icon">
+      <div className="flex flex-col divide-y divide-border">
+        <div className="flex items-center gap-3.5 py-3 first:pt-0 last:pb-0">
+          <MethodIcon>
             <Mail size={16} />
-          </div>
-          <div className="login-method-info">
-            <p className="login-method-name">Email · Magic link</p>
-            <p className="login-method-detail">
+          </MethodIcon>
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium text-foreground">Email · Magic link</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
               {email || "—"} · We email you a one-tap link when you sign in.
             </p>
           </div>
-          <span className="login-method-badge login-method-badge-active">Always on</span>
+          <Badge variant="primary-light" radius="full">Always on</Badge>
         </div>
 
-        <div className="login-method-item-wrapper">
-          <div className="login-method-item">
-            <div className="login-method-icon">
+        <div className="py-3 last:pb-0">
+          <div className="flex items-center gap-3.5">
+            <MethodIcon>
               <Lock size={16} />
-            </div>
-            <div className="login-method-info">
-              <p className="login-method-name">Password</p>
-              <p className="login-method-detail">
+            </MethodIcon>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-medium text-foreground">Password</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 {hasPassword
                   ? "Reliable fallback when you can't get to your passkey."
                   : "Optional — useful as a backup if your passkey isn't available."}
               </p>
             </div>
             {!showForm && (
-              <>
-                {/*<span className={`login-method-badge ${hasPassword ? "login-method-badge-active" : "login-method-badge-inactive"}`}>*/}
-                {/*  {hasPassword ? "Active" : "Not set"}*/}
-                {/*</span>*/}
-                <button
-                  className="settings-btn settings-btn-secondary settings-btn-sm"
-                  onClick={() => setShowForm(true)}
-                >
-                  {hasPassword ? "Change password" : "Set password"}
-                </button>
-              </>
+              <Button variant="outline" size="sm" onClick={() => setShowForm(true)}>
+                {hasPassword ? "Change password" : "Set password"}
+              </Button>
             )}
           </div>
 
           {showForm && (
-            <form className="password-form" onSubmit={handleSubmit}>
+            <form className="mt-4 flex max-w-sm flex-col gap-4 pl-11.5" onSubmit={handleSubmit}>
               {hasPassword && (
-                <div className="password-field">
-                  <label className="password-label">Current password</label>
-                  <div className="password-input-wrapper">
-                    <input
-                      type={showCurrentPassword ? "text" : "password"}
-                      className="password-input"
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      placeholder="Enter current password"
-                      autoComplete="current-password"
-                    />
-                    <button
-                      type="button"
-                      className="password-toggle"
-                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                    >
-                      {showCurrentPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-[13px]">Current password</Label>
+                  <PasswordInput
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    show={showCurrentPassword}
+                    onToggleShow={() => setShowCurrentPassword(!showCurrentPassword)}
+                    placeholder="Enter current password"
+                    autoComplete="current-password"
+                  />
                 </div>
               )}
 
-              <div className="password-field">
-                <label className="password-label">New password</label>
-                <div className="password-input-wrapper">
-                  <input
-                    type={showNewPassword ? "text" : "password"}
-                    className="password-input"
-                    value={newPassword}
-                    onChange={(e) => {
-                      setNewPassword(e.target.value);
-                      if (error === "Passwords do not match") setError("");
-                    }}
-                    placeholder="Enter new password"
-                    autoComplete="new-password"
-                    aria-invalid={
-                      confirmPassword.length > 0 && newPassword !== confirmPassword
-                    }
-                    style={
-                      confirmPassword.length > 0 && newPassword !== confirmPassword
-                        ? { borderColor: "var(--danger, #dc2626)" }
-                        : undefined
-                    }
-                  />
-                  <button
-                    type="button"
-                    className="password-toggle"
-                    onClick={() => setShowNewPassword(!showNewPassword)}
-                  >
-                    {showNewPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-[13px]">New password</Label>
+                <PasswordInput
+                  value={newPassword}
+                  onChange={(e) => {
+                    setNewPassword(e.target.value);
+                    if (error === "Passwords do not match") setError("");
+                  }}
+                  show={showNewPassword}
+                  onToggleShow={() => setShowNewPassword(!showNewPassword)}
+                  placeholder="Enter new password"
+                  autoComplete="new-password"
+                  invalid={passwordsMismatch}
+                />
                 <PasswordStrengthMeter password={newPassword} />
               </div>
 
-              <div className="password-field">
-                <label className="password-label">Confirm new password</label>
-                <div className="password-input-wrapper">
-                  <input
-                    type={showConfirmPassword ? "text" : "password"}
-                    className="password-input"
-                    value={confirmPassword}
-                    onChange={(e) => {
-                      setConfirmPassword(e.target.value);
-                      if (error === "Passwords do not match") setError("");
-                    }}
-                    placeholder="Confirm new password"
-                    autoComplete="new-password"
-                    aria-invalid={
-                      confirmPassword.length > 0 && newPassword !== confirmPassword
-                    }
-                    style={
-                      confirmPassword.length > 0 && newPassword !== confirmPassword
-                        ? { borderColor: "var(--danger, #dc2626)" }
-                        : undefined
-                    }
-                  />
-                  <button
-                    type="button"
-                    className="password-toggle"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  >
-                    {showConfirmPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-                {confirmPassword.length > 0 && newPassword !== confirmPassword && (
-                  <p
-                    className="password-error"
-                    style={{ marginTop: "4px" }}
-                  >
-                    Passwords don't match yet.
-                  </p>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-[13px]">Confirm new password</Label>
+                <PasswordInput
+                  value={confirmPassword}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    if (error === "Passwords do not match") setError("");
+                  }}
+                  show={showConfirmPassword}
+                  onToggleShow={() => setShowConfirmPassword(!showConfirmPassword)}
+                  placeholder="Confirm new password"
+                  autoComplete="new-password"
+                  invalid={passwordsMismatch}
+                />
+                {passwordsMismatch && (
+                  <p className="text-xs text-destructive">Passwords don't match yet.</p>
                 )}
               </div>
 
               {error && error !== "Passwords do not match" && (
-                <p className="password-error">{error}</p>
+                <p className="text-xs text-destructive">{error}</p>
               )}
 
-              <div className="password-actions">
-                <button
+              <div className="flex justify-end gap-2">
+                <Button
                   type="button"
-                  className="settings-btn settings-btn-secondary settings-btn-sm"
+                  variant="outline"
+                  size="sm"
                   onClick={handleCancel}
                   disabled={isSubmitting}
                 >
                   Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="settings-btn settings-btn-primary settings-btn-sm"
-                  disabled={isSubmitting}
-                >
+                </Button>
+                <Button type="submit" size="sm" disabled={isSubmitting}>
                   {isSubmitting ? "Saving..." : hasPassword ? "Update password" : "Set password"}
-                </button>
+                </Button>
               </div>
             </form>
           )}
         </div>
 
         {passkeySupported && (
-          <div className="login-method-item-wrapper">
-            <div className="login-method-item">
-              <div className="login-method-icon">
+          <div className="py-3 last:pb-0">
+            <div className="flex items-center gap-3.5">
+              <MethodIcon>
                 <Fingerprint size={16} />
-              </div>
-              <div className="login-method-info">
-                <p className="login-method-name">Passkeys</p>
-                <p className="login-method-detail">
+              </MethodIcon>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium text-foreground">Passkeys</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   {passkeys.length > 0
                     ? `${passkeys.length} registered · Fastest and most secure sign-in.`
                     : `Sign in instantly with ${biometricLabel}. No password needed.`}
                 </p>
               </div>
               {!showAddPasskey && (
-                <button
-                  className="settings-btn settings-btn-secondary settings-btn-sm"
-                  onClick={() => setShowAddPasskey(true)}
-                >
+                <Button variant="outline" size="sm" onClick={() => setShowAddPasskey(true)}>
                   Add {biometricLabel}
-                </button>
+                </Button>
               )}
             </div>
 
             {showAddPasskey && (
-              <form className="password-form" onSubmit={handleAddPasskey}>
-                <div className="password-field">
-                  <label className="password-label">Device name (optional)</label>
-                  <input
+              <form className="mt-4 flex max-w-sm flex-col gap-4 pl-11.5" onSubmit={handleAddPasskey}>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-[13px]">Device name (optional)</Label>
+                  <Input
                     type="text"
-                    className="password-input"
+                    className="text-[13px]"
                     value={deviceName}
                     onChange={(e) => setDeviceName(e.target.value)}
                     placeholder={detectDeviceName()}
                   />
-                  <p
-                    style={{
-                      fontSize: "11px",
-                      color: "var(--text-muted)",
-                      marginTop: "4px",
-                      lineHeight: 1.4,
-                    }}
-                  >
+                  <p className="text-[11px] leading-snug text-muted-foreground">
                     You'll be prompted for {biometricLabel} when you continue.
                   </p>
                 </div>
 
-                {passkeyError && <p className="password-error">{passkeyError}</p>}
+                {passkeyError && <p className="text-xs text-destructive">{passkeyError}</p>}
                 {passkeyInfo && (
-                  <div
-                    style={{
-                      padding: "12px 14px",
-                      background: "#eff6ff",
-                      border: "1px solid #bfdbfe",
-                      borderRadius: "8px",
-                      fontSize: "13px",
-                      color: "#1e3a8a",
-                      lineHeight: "1.5",
-                    }}
-                    role="status"
-                  >
-                    {passkeyInfo}
-                  </div>
+                  <Alert variant="info" role="status">
+                    <AlertDescription>{passkeyInfo}</AlertDescription>
+                  </Alert>
                 )}
 
-                <div className="password-actions">
-                  <button
+                <div className="flex justify-end gap-2">
+                  <Button
                     type="button"
-                    className="settings-btn settings-btn-secondary settings-btn-sm"
+                    variant="outline"
+                    size="sm"
                     onClick={() => {
                       setShowAddPasskey(false);
                       setDeviceName("");
@@ -444,13 +424,9 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
                     disabled={isAddingPasskey}
                   >
                     {passkeyInfo ? "Close" : "Cancel"}
-                  </button>
+                  </Button>
                   {!passkeyInfo && (
-                    <button
-                      type="submit"
-                      className="settings-btn settings-btn-primary settings-btn-sm"
-                      disabled={isAddingPasskey}
-                    >
+                    <Button type="submit" size="sm" disabled={isAddingPasskey}>
                       {isAddingPasskey ? (
                         <>
                           <Loader2 size={14} className="animate-spin" />
@@ -459,47 +435,50 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
                       ) : (
                         `Set up ${biometricLabel}`
                       )}
-                    </button>
+                    </Button>
                   )}
                 </div>
               </form>
             )}
 
             {isLoadingPasskeys && passkeys.length === 0 && (
-              <div className="passkeys-list" aria-busy="true">
+              <div className="mt-3 flex flex-col gap-2 pl-11.5" aria-busy="true">
                 {[0, 1].map((i) => (
-                  <div key={i} className="passkey-item" style={{ pointerEvents: "none" }}>
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "6px" }}>
-                      <Skeleton variant="line" width="50%" height={12} />
-                      <Skeleton variant="line" width="70%" height={10} />
-                    </div>
+                  <div key={i} className="pointer-events-none flex flex-col gap-1.5 rounded-md border border-border p-3">
+                    <Skeleton className="h-3 w-1/2" />
+                    <Skeleton className="h-2.5 w-7/10" />
                   </div>
                 ))}
               </div>
             )}
 
             {passkeys.length > 0 && (
-              <div className="passkeys-list">
+              <div className="mt-3 flex flex-col gap-2 pl-11.5">
                 {passkeys.map((passkey) => (
-                  <div key={passkey.id} className="passkey-item">
-                    <div className="passkey-info">
-                      <p className="passkey-name">
-                        <Fingerprint size={14} />
+                  <div
+                    key={passkey.id}
+                    className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
+                        <Fingerprint size={14} className="text-muted-foreground" />
                         {passkey.device_name}
                       </p>
-                      <p className="passkey-detail">
+                      <p className="mt-0.5 text-xs text-muted-foreground">
                         Added {new Date(passkey.created_at).toLocaleDateString()}
                         {passkey.last_used_at && ` • Last used ${new Date(passkey.last_used_at).toLocaleDateString()}`}
                       </p>
                     </div>
-                    <button
-                      className="passkey-delete-btn"
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="text-muted-foreground hover:text-destructive"
                       onClick={() => setConfirmDeletePasskey(passkey)}
                       title="Delete passkey"
                       aria-label={`Delete passkey ${passkey.device_name}`}
                     >
                       <Trash2 size={14} />
-                    </button>
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -507,26 +486,30 @@ export default function LoginMethodsSection({ email, hasPassword, onSetPassword 
           </div>
         )}
 
-        <div className="login-method-item">
-          <div className="login-method-icon">
+        <div className="flex items-center gap-3.5 py-3 last:pb-0">
+          <MethodIcon>
             <GoogleIcon />
+          </MethodIcon>
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium text-foreground">Google</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Sign in with Google</p>
           </div>
-          <div className="login-method-info">
-            <p className="login-method-name">Google</p>
-            <p className="login-method-detail">Sign in with Google</p>
-          </div>
-          <span className="login-method-badge login-method-badge-soon">Coming soon</span>
+          <Badge variant="outline" radius="full" className="text-muted-foreground">
+            Coming soon
+          </Badge>
         </div>
 
-        <div className="login-method-item">
-          <div className="login-method-icon">
+        <div className="flex items-center gap-3.5 py-3 last:pb-0">
+          <MethodIcon>
             <AppleIcon />
+          </MethodIcon>
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium text-foreground">Apple</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Sign in with Apple</p>
           </div>
-          <div className="login-method-info">
-            <p className="login-method-name">Apple</p>
-            <p className="login-method-detail">Sign in with Apple</p>
-          </div>
-          <span className="login-method-badge login-method-badge-soon">Coming soon</span>
+          <Badge variant="outline" radius="full" className="text-muted-foreground">
+            Coming soon
+          </Badge>
         </div>
       </div>
 

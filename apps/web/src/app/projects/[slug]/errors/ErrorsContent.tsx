@@ -16,21 +16,42 @@ import LiveIndicator from "@/components/aperture/LiveIndicator";
 import LiveNumber from "@/components/aperture/LiveNumber";
 import { useLivePoll } from "@/lib/useLivePoll";
 import { fmtNum, fmtCompact } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/reui/badge";
+import { Button } from "@/components/reui/button";
+import { Card } from "@/components/reui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/reui/dropdown-menu";
+import { Input } from "@/components/reui/input";
+import { Skeleton } from "@/components/reui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/reui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/reui/tabs";
 import {
   type RangeValue,
   parseRange,
   resolveRange,
   TimeRangePicker,
 } from "../_shared/timeRange";
+import FilterBar from "../_shared/filters/FilterBar";
+import { parseFilter } from "../_shared/filters/query";
 import {
   AXIS_TICK,
   ChartTooltip,
   EmptyBlock,
   GRID,
-  Skeleton,
   formatBucketFull,
   formatBucketTime,
-  statusTone,
 } from "../endpoints/detail/sections";
 import ErrorGroupInspector from "./ErrorGroupInspector";
 import { type ErrorGroup, reasonPhrase } from "./util";
@@ -60,6 +81,13 @@ interface InitialFilters {
   since?: string;
   until?: string;
   env?: string;
+  filter?: string;
+}
+
+// Migrate legacy ?env= links into the unified filter string.
+function seedFilter(f?: InitialFilters): string {
+  if (f?.filter) return f.filter;
+  return f?.env ? `env:is:${f.env}` : "";
 }
 
 interface Props {
@@ -82,6 +110,26 @@ const SERVER_ROSE = "#c04b4b";
 
 const groupKey = (g: ErrorGroup) => `${g.status_code}|${g.method}|${g.path}`;
 
+/* ── ReUI badge tone mapping ─────────────────────────────────────────── */
+
+function statusBadgeVariant(status: number) {
+  if (status >= 500) return "destructive-light" as const;
+  if (status >= 400) return "warning-light" as const;
+  if (status >= 300) return "info-light" as const;
+  return "success-light" as const;
+}
+
+function methodBadgeVariant(method: string) {
+  switch (method.toUpperCase()) {
+    case "GET": return "info-light" as const;
+    case "POST": return "success-light" as const;
+    case "PUT":
+    case "PATCH": return "warning-light" as const;
+    case "DELETE": return "destructive-light" as const;
+    default: return "secondary" as const;
+  }
+}
+
 /* ── Self-measuring chart frame (recharts width(-1) guard) ───────────── */
 function Chart({ height, render }: { height: number; render: (w: number) => React.ReactElement }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -97,7 +145,7 @@ function Chart({ height, render }: { height: number; render: (w: number) => Reac
     return () => ro.disconnect();
   }, []);
   return (
-    <div ref={ref} className="tf-chart-stage" style={{ height, width: "100%", minWidth: 0 }}>
+    <div ref={ref} className="relative" style={{ height, width: "100%", minWidth: 0 }}>
       {width > 0 ? render(width) : null}
     </div>
   );
@@ -107,8 +155,12 @@ function Chart({ height, render }: { height: number; render: (w: number) => Reac
 
 export default function ErrorsContent({ projectSlug, initialFilters }: Props) {
   const [rangeValue, setRangeValue] = useState<RangeValue>(() => parseRange(initialFilters));
-  const [environment, setEnvironment] = useState<string>(initialFilters?.env || "");
-  const [envOptions, setEnvOptions] = useState<string[]>([]);
+  const [filter, setFilter] = useState(() => seedFilter(initialFilters));
+  // Environment for the group inspector's sub-queries, derived from the filter.
+  const filterEnv = useMemo(
+    () => parseFilter(filter).find((p) => p.field === "env" && !p.negate)?.values[0] || "",
+    [filter],
+  );
   const [activeMetric, setActiveMetric] = useState<MetricKey>("total");
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -132,19 +184,10 @@ export default function ErrorsContent({ projectSlug, initialFilters }: Props) {
     } else {
       p.set("range", rangeValue.id);
     }
-    if (environment) p.set("env", environment);
+    if (filter) p.set("filter", filter);
     const qs = p.toString();
     window.history.replaceState(null, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
-  }, [rangeValue, environment]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`/api/projects/${projectSlug}/analytics/environments`);
-        if (res.ok) setEnvOptions((await res.json()).environments || []);
-      } catch { /* ignore */ }
-    })();
-  }, [projectSlug]);
+  }, [rangeValue, filter]);
 
   const reqId = useRef(0);
   const loadData = useCallback(
@@ -154,7 +197,7 @@ export default function ErrorsContent({ projectSlug, initialFilters }: Props) {
         const p = new URLSearchParams();
         p.set("since", since);
         p.set("until", until);
-        if (environment) p.set("environment", environment);
+        if (filter) p.set("filter", filter);
         return p.toString();
       };
       const get = async <T,>(path: string, extra: string, fallback: T): Promise<T> => {
@@ -178,7 +221,7 @@ export default function ErrorsContent({ projectSlug, initialFilters }: Props) {
       setGroups(Array.isArray(grp) ? grp : []);
       if (!silent) setLoading(false);
     },
-    [projectSlug, rangeValue, environment],
+    [projectSlug, rangeValue, filter],
   );
 
   useEffect(() => {
@@ -252,72 +295,100 @@ export default function ErrorsContent({ projectSlug, initialFilters }: Props) {
 
   const pctY = (v: number) => `${v}%`;
 
-  return (
-    <div className="err-page">
-      {/* ── Toolbar ── */}
-      <div className="tf-toolbar">
-        <h1 className="tf-title">Errors</h1>
-        <div className="tf-toolbar-spacer" />
+  const sortHeadClass = (key: SortKey) =>
+    cn(
+      "h-auto cursor-pointer px-3.5 py-[11px] text-right text-[11px] font-semibold tracking-wide whitespace-nowrap uppercase select-none",
+      sortKey === key ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+    );
 
-        <select
-          className="err-env-select"
-          value={environment}
-          onChange={(e) => setEnvironment(e.target.value)}
-          aria-label="Environment"
-        >
-          <option value="">All environments</option>
-          {envOptions.map((env) => (
-            <option key={env} value={env}>{env}</option>
-          ))}
-        </select>
+  return (
+    <div className="flex flex-col gap-4">
+      {/* ── Toolbar ── */}
+      <div className="flex flex-wrap items-center gap-2.5">
+        <h1 className="m-0 text-lg font-semibold tracking-tight text-foreground">Errors</h1>
+
+        <div className="tf-filter-grow">
+          <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} />
+        </div>
 
         <TimeRangePicker value={rangeValue} resolved={resolved} onChange={setRangeValue} />
         <LiveIndicator live={poll.live} onToggle={poll.toggle} lastTickAt={poll.lastTickAt} />
 
-        <button
+        <Button
           type="button"
-          className="tf-refresh"
+          variant="outline"
+          size="icon-sm"
+          className="text-muted-foreground hover:text-foreground"
           onClick={() => setRefreshKey((k) => k + 1)}
           title="Refresh now"
           aria-label="Refresh now"
         >
-          <RefreshCw size={14} className={loading ? "tf-spin" : ""} />
-        </button>
+          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+        </Button>
       </div>
 
       {/* ── Metrics + chart (tabs attached to the visualization) ── */}
-      <section className="tf-panel">
-        <div className="tf-metrics" role="tablist" aria-label="Error metric">
-          {metricOrder.map((key) => {
-            const m = METRICS[key];
-            const isActive = key === activeMetric;
-            return (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                className={`tf-metric${isActive ? " active" : ""}${m.tone ? ` tf-metric-${m.tone}` : ""}`}
-                onClick={() => setActiveMetric(key)}
-              >
-                <span className="tf-metric-label">{m.label}</span>
-                <span className="tf-metric-value">
-                  {loading ? "—" : <LiveNumber value={m.num} format={m.fmt} />}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+      <Card className="gap-0 overflow-hidden rounded-[10px] py-0 shadow-none">
+        <Tabs
+          value={activeMetric}
+          onValueChange={(v) => setActiveMetric(v as MetricKey)}
+          className="w-full gap-0"
+        >
+          <TabsList
+            variant="line"
+            aria-label="Error metric"
+            className="grid w-full grid-cols-4 gap-0 rounded-none border-b border-border bg-transparent p-0 group-data-[orientation=horizontal]/tabs:h-auto"
+          >
+            {metricOrder.map((key) => {
+              const m = METRICS[key];
+              return (
+                <TabsTrigger
+                  key={key}
+                  value={key}
+                  className={cn(
+                    "group/mt relative h-auto min-w-0 flex-col items-start justify-start gap-2 overflow-hidden rounded-none border-0 border-l border-border px-3.5 py-3.5 first:border-l-0",
+                    "group-data-[variant=line]/tabs-list:hover:bg-accent",
+                    "group-data-[variant=line]/tabs-list:data-[state=active]:bg-muted dark:group-data-[variant=line]/tabs-list:data-[state=active]:bg-muted",
+                    "dark:group-data-[variant=line]/tabs-list:data-[state=active]:border-border",
+                  )}
+                >
+                  <span className="max-w-full truncate text-[11px] tracking-[0.04em] uppercase text-muted-foreground group-data-[state=active]/mt:text-primary">
+                    {m.label}
+                  </span>
+                  <span
+                    className={cn(
+                      "max-w-full truncate text-2xl font-semibold tracking-tight tabular-nums",
+                      m.tone === "bad" ? "text-destructive" : m.tone === "warn" ? "text-warning" : "text-foreground",
+                    )}
+                  >
+                    {loading ? "—" : <LiveNumber value={m.num} format={m.fmt} />}
+                  </span>
+                  {/* Active indicator: teal bar bridging into the chart below. */}
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-primary opacity-0 transition-opacity group-data-[state=active]/mt:opacity-100"
+                  />
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
+        </Tabs>
 
-        <div className="tf-panel-chart">
+        <div className="p-4">
           {activeMetric === "total" && !loading && hasChart ? (
-            <div className="tf-legend">
-              <span className="tf-legend-item"><span className="tf-legend-dot" style={{ background: SERVER_ROSE }} />Server (5xx)</span>
-              <span className="tf-legend-item"><span className="tf-legend-dot" style={{ background: CLIENT_ROSE }} />Client (4xx)</span>
+            <div className="mb-1.5 flex justify-end gap-3.5">
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span className="inline-block size-[9px] rounded-[2px]" style={{ background: SERVER_ROSE }} />
+                Server (5xx)
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span className="inline-block size-[9px] rounded-[2px]" style={{ background: CLIENT_ROSE }} />
+                Client (4xx)
+              </span>
             </div>
           ) : null}
           {series === null || loading ? (
-            <Skeleton height={220} />
+            <Skeleton className="h-[220px] w-full" />
           ) : !hasChart ? (
             <EmptyBlock message="No errors in the selected period." />
           ) : (
@@ -356,14 +427,14 @@ export default function ErrorsContent({ projectSlug, initialFilters }: Props) {
             />
           )}
         </div>
-      </section>
+      </Card>
 
       {/* ── Errors table ── */}
-      <section className="err-panel err-panel-flush">
-        <div className="err-search">
-          <Search size={15} className="err-search-icon" />
-          <input
-            className="err-search-input"
+      <Card className="gap-0 overflow-hidden rounded-[10px] py-0 shadow-none">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+          <Search size={15} className="shrink-0 text-muted-foreground" />
+          <Input
+            className="h-auto rounded-none border-0 bg-transparent p-0 text-[13.5px] shadow-none focus-visible:ring-0 dark:bg-transparent"
             placeholder="Search errors"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -371,78 +442,109 @@ export default function ErrorsContent({ projectSlug, initialFilters }: Props) {
         </div>
 
         {groups === null ? (
-          <Skeleton height={320} />
+          <div className="p-4">
+            <Skeleton className="h-80 w-full" />
+          </div>
         ) : rows.length === 0 ? (
           <EmptyBlock message={search ? "No errors match your search." : "No errors in this period. 🎉"} />
         ) : (
-          <table className="err-table">
-            <thead>
-              <tr>
-                <th aria-hidden className="err-th-caret" />
-                <th>Response status</th>
-                <th>Endpoint</th>
-                <th
-                  className={`err-th-num err-th-sort${sortKey === "occurrences" ? " is-active" : ""}`}
+          <Table className="text-[13px]">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead aria-hidden className="h-auto w-[30px] px-3.5 py-[11px]" />
+                <TableHead className="h-auto px-3.5 py-[11px] text-[11px] font-semibold tracking-wide whitespace-nowrap uppercase text-muted-foreground">
+                  Response status
+                </TableHead>
+                <TableHead className="h-auto px-3.5 py-[11px] text-[11px] font-semibold tracking-wide whitespace-nowrap uppercase text-muted-foreground">
+                  Endpoint
+                </TableHead>
+                <TableHead
+                  className={sortHeadClass("occurrences")}
                   onClick={() => setSortKey("occurrences")}
                   aria-sort={sortKey === "occurrences" ? "descending" : "none"}
                 >
                   Occurrences{sortKey === "occurrences" ? " ▾" : ""}
-                </th>
-                <th
-                  className={`err-th-num err-th-sort${sortKey === "consumers" ? " is-active" : ""}`}
+                </TableHead>
+                <TableHead
+                  className={sortHeadClass("consumers")}
                   onClick={() => setSortKey("consumers")}
                   aria-sort={sortKey === "consumers" ? "descending" : "none"}
                 >
                   Consumers{sortKey === "consumers" ? " ▾" : ""}
-                </th>
-                <th aria-hidden className="err-th-kebab" />
-              </tr>
-            </thead>
-            <tbody>
+                </TableHead>
+                <TableHead aria-hidden className="h-auto w-11 px-3.5 py-[11px]" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {rows.map((g) => (
-                <tr key={groupKey(g)} className="err-row" onClick={() => setOpenGroup(g)}>
-                  <td className="err-td-caret"><ChevronRight size={15} /></td>
-                  <td>
-                    <span className="err-status">
-                      <span className={`endpoint-status-pill ${statusTone(g.status_code)}`}>{g.status_code}</span>
-                      <span className="err-status-reason">{reasonPhrase(g.status_code)}</span>
+                <TableRow key={groupKey(g)} className="cursor-pointer" onClick={() => setOpenGroup(g)}>
+                  <TableCell className="w-[30px] px-3.5 py-[11px] text-muted-foreground">
+                    <ChevronRight size={15} />
+                  </TableCell>
+                  <TableCell className="px-3.5 py-[11px]">
+                    <span className="inline-flex items-center gap-2">
+                      <Badge variant={statusBadgeVariant(g.status_code)} className="tabular-nums">
+                        {g.status_code}
+                      </Badge>
+                      <span className="text-[13px] text-foreground">{reasonPhrase(g.status_code)}</span>
                     </span>
-                  </td>
-                  <td>
-                    <span className="err-endpoint">
-                      <span className={`method-badge method-badge-${g.method.toLowerCase()}`}>{g.method}</span>
-                      <span className="err-endpoint-path">{g.path}</span>
+                  </TableCell>
+                  <TableCell className="max-w-0 px-3.5 py-[11px]">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Badge variant={methodBadgeVariant(g.method)} className="font-mono">
+                        {g.method}
+                      </Badge>
+                      <span className="truncate font-mono text-xs text-muted-foreground">{g.path}</span>
                     </span>
-                  </td>
-                  <td className="err-td-num">
-                    <span className="err-occ-cell">
-                      <span className="err-occ-bar" style={{ width: `${(g.occurrences / maxOcc) * 100}%` }} />
-                      <span className="err-occ-val">{fmtNum(g.occurrences)}</span>
+                  </TableCell>
+                  <TableCell className="px-3.5 py-[11px] text-right tabular-nums">
+                    <span className="relative inline-flex min-w-24 items-center justify-end overflow-hidden rounded-[5px] px-2 py-1">
+                      <span
+                        aria-hidden
+                        className="absolute inset-y-0 left-0 rounded-[5px] bg-primary/15"
+                        style={{ width: `${(g.occurrences / maxOcc) * 100}%` }}
+                      />
+                      <span className="relative text-[13px] font-semibold tabular-nums text-foreground">
+                        {fmtNum(g.occurrences)}
+                      </span>
                     </span>
-                  </td>
-                  <td className="err-td-num err-td-consumers">{fmtNum(g.consumers)}</td>
-                  <td className="err-td-kebab">
-                    <button
-                      type="button"
-                      className="err-kebab-btn"
-                      aria-label="Row actions"
-                      onClick={(e) => { e.stopPropagation(); setKebab(kebab === groupKey(g) ? null : groupKey(g)); }}
+                  </TableCell>
+                  <TableCell className="w-[110px] px-3.5 py-[11px] text-right text-[13px] tabular-nums text-muted-foreground">
+                    {fmtNum(g.consumers)}
+                  </TableCell>
+                  <TableCell className="w-11 px-1 py-[11px] text-center">
+                    <DropdownMenu
+                      open={kebab === groupKey(g)}
+                      onOpenChange={(open) => setKebab(open ? groupKey(g) : null)}
                     >
-                      <MoreVertical size={15} />
-                    </button>
-                    {kebab === groupKey(g) ? (
-                      <div className="err-kebab-menu" onClick={(e) => e.stopPropagation()}>
-                        <button type="button" onClick={() => { setOpenGroup(g); setKebab(null); }}>View details</button>
-                        <button type="button" onClick={() => copyEndpoint(g)}>Copy endpoint</button>
-                      </div>
-                    ) : null}
-                  </td>
-                </tr>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-muted-foreground hover:text-foreground"
+                          aria-label="Row actions"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreVertical size={15} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenuItem onSelect={() => { setOpenGroup(g); setKebab(null); }}>
+                          View details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => copyEndpoint(g)}>
+                          Copy endpoint
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         )}
-      </section>
+      </Card>
 
       {openGroup ? (
         <ErrorGroupInspector
@@ -450,7 +552,7 @@ export default function ErrorsContent({ projectSlug, initialFilters }: Props) {
           group={openGroup}
           since={resolved.since}
           until={resolved.until}
-          environment={environment}
+          environment={filterEnv}
           onClose={() => setOpenGroup(null)}
         />
       ) : null}

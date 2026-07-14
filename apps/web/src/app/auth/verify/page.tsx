@@ -3,6 +3,8 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2, XCircle } from "lucide-react";
+import { Button } from "@/components/reui/button";
+import { Card } from "@/components/reui/card";
 
 function BrandingPanel() {
   return (
@@ -103,30 +105,30 @@ function VerifyContent() {
 
   if (isVerifying) {
     return (
-      <div className="auth-card">
-        <Loader2 size={24} className="auth-spinner animate-spin" />
-        <div className="auth-header">
-          <h1 className="auth-title">Verifying your link</h1>
-          <p className="auth-description">Please wait while we sign you in.</p>
+      <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+        <Loader2 size={24} className="animate-spin text-muted-foreground" />
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Verifying your link</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Please wait while we sign you in.</p>
         </div>
-      </div>
+      </Card>
     );
   }
 
   if (error) {
     return (
-      <div className="auth-card">
-        <div className="auth-icon-error">
+      <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+        <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
           <XCircle size={36} strokeWidth={1.5} />
         </div>
-        <div className="auth-header">
-          <h1 className="auth-title">Verification failed</h1>
-          <p className="auth-description">{error}</p>
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Verification failed</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
         </div>
-        <a href="/auth/login" className="auth-submit-btn auth-action">
-          Back to sign in
-        </a>
-      </div>
+        <Button asChild className="w-full">
+          <a href="/auth/login">Back to sign in</a>
+        </Button>
+      </Card>
     );
   }
 
@@ -135,12 +137,12 @@ function VerifyContent() {
 
 function VerifyFallback() {
   return (
-    <div className="auth-card">
-      <Loader2 size={24} className="auth-spinner animate-spin" />
-      <div className="auth-header">
-        <h1 className="auth-title">Loading</h1>
+    <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+      <Loader2 size={24} className="animate-spin text-muted-foreground" />
+      <div>
+        <h1 className="text-xl font-semibold text-foreground">Loading</h1>
       </div>
-    </div>
+    </Card>
   );
 }
 

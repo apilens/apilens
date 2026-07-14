@@ -5,7 +5,10 @@ import { Check, X, Loader2, Pencil } from "lucide-react";
 import { UserProfile } from "@/types/settings";
 import SettingsCard from "./SettingsCard";
 import UserAvatar from "@/components/shared/UserAvatar";
-import Skeleton from "@/components/ui/Skeleton";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/reui/button";
+import { Input } from "@/components/reui/input";
+import { Skeleton } from "@/components/reui/skeleton";
 
 interface ProfileSectionProps {
   profile: UserProfile | null;
@@ -79,11 +82,11 @@ export default function ProfileSection({
   if (!profile) {
     return (
       <SettingsCard title="Profile" description="Your personal information">
-        <div className="profile-header">
-          <Skeleton variant="avatar" width={72} height={72} />
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "8px" }}>
-            <Skeleton variant="line" width={160} height={20} />
-            <Skeleton variant="line" width={200} height={14} />
+        <div className="flex items-center gap-5">
+          <Skeleton className="size-[72px] shrink-0 rounded-full" />
+          <div className="flex flex-1 flex-col gap-2">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-3.5 w-50" />
           </div>
         </div>
       </SettingsCard>
@@ -96,19 +99,19 @@ export default function ProfileSection({
 
   return (
     <SettingsCard title="Profile" description="Your personal information">
-      <div className="profile-header">
+      <div className="flex items-center gap-5">
         <UserAvatar
           name={displayName}
           email={profile.email}
           size="lg"
         />
-        <div className="profile-info">
+        <div className="min-w-0 flex-1">
           {isEditing ? (
             <>
-              <div className="profile-edit-row">
-                <input
+              <div className="flex items-center gap-2">
+                <Input
                   type="text"
-                  className="profile-edit-input"
+                  className="h-8 max-w-xs text-[13px]"
                   value={editedName}
                   onChange={(e) => {
                     setEditedName(e.target.value);
@@ -120,45 +123,37 @@ export default function ProfileSection({
                   disabled={isSaving}
                   aria-invalid={!!nameError}
                 />
-                <div className="profile-edit-actions">
-                  <button
-                    className="settings-btn settings-btn-icon settings-btn-primary"
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="icon-sm"
                     onClick={handleSave}
                     disabled={isSaving || !editedName.trim() || overLimit}
                     aria-label="Save name"
                   >
                     {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                  </button>
-                  <button
-                    className="settings-btn settings-btn-icon settings-btn-ghost"
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     onClick={handleCancelEdit}
                     disabled={isSaving}
                     aria-label="Cancel editing"
                   >
                     <X size={14} />
-                  </button>
+                  </Button>
                 </div>
               </div>
               {(nameError || showCounter) && (
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: "12px",
-                    marginTop: "4px",
-                    fontSize: "12px",
-                    lineHeight: 1.5,
-                  }}
-                >
-                  <span style={{ color: nameError ? "var(--danger, #dc2626)" : "var(--text-secondary)" }}>
+                <div className="mt-1 flex justify-between gap-3 text-xs leading-normal">
+                  <span className={nameError ? "text-destructive" : "text-muted-foreground"}>
                     {nameError}
                   </span>
                   {showCounter && (
                     <span
-                      style={{
-                        color: overLimit ? "var(--danger, #dc2626)" : "var(--text-secondary)",
-                        fontVariantNumeric: "tabular-nums",
-                      }}
+                      className={cn(
+                        "tabular-nums",
+                        overLimit ? "text-destructive" : "text-muted-foreground",
+                      )}
                     >
                       {editedName.length} / {NAME_MAX_LENGTH}
                     </span>
@@ -168,7 +163,7 @@ export default function ProfileSection({
             </>
           ) : (
             <span
-              className="profile-name profile-name-editable"
+              className="group inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[15px] font-semibold text-foreground outline-none hover:text-primary focus-visible:ring-[3px] focus-visible:ring-ring/50"
               onClick={handleStartEdit}
               role="button"
               tabIndex={0}
@@ -180,19 +175,14 @@ export default function ProfileSection({
               }}
             >
               {displayName}
-              <Pencil size={13} className="profile-name-pencil" aria-hidden="true" />
+              <Pencil
+                size={13}
+                className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                aria-hidden="true"
+              />
               {justSaved && (
                 <span
-                  style={{
-                    marginLeft: "8px",
-                    fontSize: "12px",
-                    color: "var(--success, #16a34a)",
-                    fontWeight: 500,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "4px",
-                    animation: "fade-in 0.15s ease",
-                  }}
+                  className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-success"
                   aria-live="polite"
                 >
                   <Check size={12} />
@@ -201,7 +191,7 @@ export default function ProfileSection({
               )}
             </span>
           )}
-          <p className="profile-email">{profile.email}</p>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">{profile.email}</p>
         </div>
       </div>
     </SettingsCard>

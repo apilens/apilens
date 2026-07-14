@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertCircle } from "lucide-react";
+import { Button } from "@/components/reui/button";
+import { Input } from "@/components/reui/input";
+import { Label } from "@/components/reui/label";
+import { Textarea } from "@/components/reui/textarea";
+import { Alert, AlertDescription } from "@/components/reui/alert";
 
 export default function CreateProjectForm() {
   const router = useRouter();
@@ -40,16 +45,20 @@ export default function CreateProjectForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="create-app-form">
-      {error && <div className="create-app-error">{error}</div>}
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
-      <div className="create-app-field">
-        <label htmlFor="project-name" className="create-app-label">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="project-name" className="text-[13px]">
           Project name
-        </label>
-        <input
+        </Label>
+        <Input
           id="project-name"
-          className="create-app-input"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Production Services"
@@ -59,13 +68,12 @@ export default function CreateProjectForm() {
         />
       </div>
 
-      <div className="create-app-field">
-        <label htmlFor="project-description" className="create-app-label">
-          Description <span className="create-app-optional">(optional)</span>
-        </label>
-        <textarea
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="project-description" className="text-[13px]">
+          Description <span className="font-normal text-muted-foreground">(optional)</span>
+        </Label>
+        <Textarea
           id="project-description"
-          className="create-app-textarea"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Describe what this project is for"
@@ -74,19 +82,15 @@ export default function CreateProjectForm() {
         />
       </div>
 
-      <div className="create-app-actions">
-        <button
+      <div className="flex justify-end gap-2 pt-2">
+        <Button
           type="button"
-          className="settings-btn settings-btn-secondary"
+          variant="outline"
           onClick={() => router.push("/projects")}
         >
           Cancel
-        </button>
-        <button
-          type="submit"
-          className="settings-btn settings-btn-primary"
-          disabled={isCreating || !name.trim()}
-        >
+        </Button>
+        <Button type="submit" disabled={isCreating || !name.trim()}>
           {isCreating ? (
             <>
               <Loader2 size={14} strokeWidth={2} className="animate-spin" />
@@ -95,7 +99,7 @@ export default function CreateProjectForm() {
           ) : (
             "Create Project"
           )}
-        </button>
+        </Button>
       </div>
     </form>
   );

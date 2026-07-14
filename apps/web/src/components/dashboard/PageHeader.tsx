@@ -2,6 +2,7 @@
 
 import { ArrowLeft } from "lucide-react";
 import { useApp } from "@/components/providers/AppProvider";
+import { Button } from "@/components/reui/button";
 
 interface PageHeaderProps {
   title: string;
@@ -14,20 +15,28 @@ export default function PageHeader({ title, description, onBack, backLabel = "Ba
   const { app } = useApp();
 
   return (
+    // `.page-header` stays: it is a layout-contract class (`.settings-page >
+    // .page-header` gates the divider/spacing on settings surfaces).
     <div className="page-header">
       {onBack && (
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={onBack}
-          className="page-header-back"
           aria-label={backLabel}
+          className="-ml-2 mb-2 h-7 gap-1 px-2 text-[13px] font-medium text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft size={16} />
           <span>{backLabel}</span>
-        </button>
+        </Button>
       )}
-      {app && <span className="page-header-app">{app.name}</span>}
-      <h1 className="page-header-title">{title}</h1>
-      {description && <p className="page-header-desc">{description}</p>}
+      {app && (
+        <span className="mb-1 block text-xs font-medium tracking-wide text-muted-foreground">
+          {app.name}
+        </span>
+      )}
+      <h1 className="m-0 text-[22px] font-bold leading-snug text-foreground">{title}</h1>
+      {description && <p className="mt-1.5 text-sm text-muted-foreground">{description}</p>}
     </div>
   );
 }

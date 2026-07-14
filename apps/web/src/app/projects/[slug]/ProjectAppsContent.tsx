@@ -1,11 +1,28 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, ArrowLeft, Box, Trash2, MoreVertical, ArrowRight, BookOpen, Settings } from "lucide-react";
+import { Loader2, Plus, ArrowLeft, Box, Trash2, MoreVertical, ArrowRight, BookOpen, Settings, AlertCircle } from "lucide-react";
 import Image from "next/image";
 import type { AppListItem } from "@/types/app";
+import { Button } from "@/components/reui/button";
+import { Alert, AlertDescription } from "@/components/reui/alert";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/reui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/reui/dropdown-menu";
 
 interface ProjectAppsContentProps {
   slug: string;
@@ -26,7 +43,6 @@ export default function ProjectAppsContent({ slug }: ProjectAppsContentProps) {
   const [error, setError] = useState("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
-  const menuRef = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   useEffect(() => {
     async function fetchApps() {
@@ -47,18 +63,6 @@ export default function ProjectAppsContent({ slug }: ProjectAppsContentProps) {
     }
     fetchApps();
   }, [slug]);
-
-  useEffect(() => {
-    if (!openMenuId) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      const currentMenu = menuRef.current[openMenuId];
-      if (currentMenu && !currentMenu.contains(e.target as Node)) {
-        setOpenMenuId(null);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [openMenuId]);
 
   const formatDate = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString("en-US", {
@@ -88,11 +92,11 @@ export default function ProjectAppsContent({ slug }: ProjectAppsContentProps) {
 
   if (loading) {
     return (
-      <div className="apps-page">
-        <div className="apps-page-header">
-          <h1 className="apps-page-title">Apps</h1>
+      <div className="mx-auto w-full max-w-[960px]">
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="text-2xl font-semibold text-foreground">Apps</h1>
         </div>
-        <div className="apps-page-loading">
+        <div className="flex min-h-[200px] items-center justify-center gap-3 text-sm text-muted-foreground">
           <Loader2 size={24} strokeWidth={2} className="animate-spin" />
           <span>Loading apps...</span>
         </div>
@@ -102,208 +106,170 @@ export default function ProjectAppsContent({ slug }: ProjectAppsContentProps) {
 
   if (error) {
     return (
-      <div className="apps-page">
-        <div className="apps-page-header">
-          <Link href={`/projects/${slug}/apps`} className="settings-btn">
-            <ArrowLeft size={16} strokeWidth={2} />
-            Back to Apps
-          </Link>
+      <div className="mx-auto w-full max-w-[960px]">
+        <div className="mb-6 flex items-center justify-between">
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/projects/${slug}/apps`}>
+              <ArrowLeft size={16} strokeWidth={2} />
+              Back to Apps
+            </Link>
+          </Button>
         </div>
-        <div className="create-app-error">{error}</div>
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       </div>
     );
   }
 
   return (
-    <div className="apps-page">
-      <div className="apps-page-header">
-        <h1 className="apps-page-title">Apps</h1>
-        <Link href={`/projects/${slug}/new-app`} className="settings-btn settings-btn-primary">
-          <Plus size={16} strokeWidth={2} />
-          Create App
-        </Link>
+    <div className="mx-auto w-full max-w-[960px]">
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-foreground">Apps</h1>
+        <Button asChild size="sm">
+          <Link href={`/projects/${slug}/new-app`}>
+            <Plus size={16} strokeWidth={2} />
+            Create App
+          </Link>
+        </Button>
       </div>
 
       {apps.length === 0 ? (
-        <div className="apps-empty">
-          <div className="apps-empty-icon">
+        <div className="flex flex-col items-center justify-center gap-3 px-6 py-20 text-center">
+          <div className="mb-1 text-muted-foreground">
             <Box size={32} strokeWidth={2} />
           </div>
-          <h2 className="apps-empty-title">No apps yet</h2>
-          <p className="apps-empty-text">Create your first app in this project to start monitoring your APIs.</p>
-          <Link href={`/projects/${slug}/new-app`} className="settings-btn settings-btn-primary">
-            <Plus size={16} strokeWidth={2} />
-            Create your first app
-          </Link>
+          <h2 className="text-lg font-semibold text-foreground">No apps yet</h2>
+          <p className="mb-2 max-w-[400px] text-sm text-muted-foreground">
+            Create your first app in this project to start monitoring your APIs.
+          </p>
+          <Button asChild size="sm">
+            <Link href={`/projects/${slug}/new-app`}>
+              <Plus size={16} strokeWidth={2} />
+              Create your first app
+            </Link>
+          </Button>
         </div>
       ) : (
-        <div className="apps-table-wrapper">
-          <table className="apps-table">
-            <thead>
-              <tr>
-                <th>App</th>
-                <th>Framework</th>
-                <th>Description</th>
-                <th>Created</th>
-                <th style={{ width: "60px" }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {apps.map((app, index) => {
+        <div className="overflow-x-auto rounded-lg border border-border bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>App</TableHead>
+                <TableHead>Framework</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead className="w-[60px]"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {apps.map((app) => {
                 const framework = FRAMEWORK_META[app.framework] || FRAMEWORK_META.fastapi;
                 const appAvatar = (app.name.charAt(0) || "A").toUpperCase();
                 const isMenuOpen = openMenuId === app.id;
                 const isAppDeleting = isDeleting === app.id;
-                const shouldOpenMenuUp = index === apps.length - 1;
 
                 return (
-                  <tr
+                  <TableRow
                     key={app.id}
-                    className="apps-table-row"
+                    className="cursor-pointer"
                     onClick={() => router.push(`/projects/${slug}/endpoints?app=${app.slug}`)}
-                    style={{ cursor: "pointer" }}
                   >
-                    <td>
-                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        <div style={{
-                          width: "40px",
-                          height: "40px",
-                          borderRadius: "8px",
-                          background: "var(--color-primary)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: "16px",
-                          fontWeight: "600",
-                          color: "white"
-                        }}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-base font-semibold text-primary-foreground">
                           {appAvatar}
                         </div>
                         <div>
-                          <div style={{ fontWeight: 500, fontSize: "14px" }}>{app.name}</div>
-                          <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                            {app.slug}
-                          </div>
+                          <div className="text-sm font-medium text-foreground">{app.name}</div>
+                          <div className="text-xs text-muted-foreground">{app.slug}</div>
                         </div>
                       </div>
-                    </td>
-                    <td>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
                         <Image
                           src={framework.icon}
                           alt={framework.label}
                           width={16}
                           height={16}
                         />
-                        <span style={{ fontSize: "14px" }}>{framework.label}</span>
+                        <span className="text-sm">{framework.label}</span>
                       </div>
-                    </td>
-                    <td>
-                      <div style={{
-                        fontSize: "14px",
-                        color: "var(--text-secondary)",
-                        maxWidth: "300px",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap"
-                      }}>
+                    </TableCell>
+                    <TableCell>
+                      <div className="max-w-[300px] truncate text-sm text-muted-foreground">
                         {app.description || "—"}
                       </div>
-                    </td>
-                    <td>
-                      <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-sm text-muted-foreground">
                         {formatDate(app.created_at)}
                       </div>
-                    </td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <div style={{ position: "relative" }} ref={(el) => { menuRef.current[app.id] = el; }}>
-                        <button
-                          type="button"
-                          className="app-card-menu-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenMenuId(isMenuOpen ? null : app.id);
-                          }}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            cursor: "pointer",
-                            padding: "8px",
-                            borderRadius: "6px",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center"
-                          }}
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-                        {isMenuOpen && (
-                          <div className="app-card-menu" style={{
-                            position: "absolute",
-                            right: 0,
-                            top: shouldOpenMenuUp ? "auto" : "100%",
-                            bottom: shouldOpenMenuUp ? "100%" : "auto",
-                            marginTop: shouldOpenMenuUp ? 0 : "4px",
-                            marginBottom: shouldOpenMenuUp ? "4px" : 0,
-                            zIndex: 10
-                          }}>
-                            <button
-                              type="button"
-                              className="app-card-menu-item"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenMenuId(null);
-                                router.push(`/projects/${slug}/endpoints?app=${app.slug}`);
-                              }}
-                            >
-                              <ArrowRight size={14} />
-                              View endpoints
-                            </button>
-                            <button
-                              type="button"
-                              className="app-card-menu-item"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenMenuId(null);
-                                router.push(`/projects/${slug}/apps/${app.slug}/settings/general`);
-                              }}
-                            >
-                              <Settings size={14} />
-                              App settings
-                            </button>
-                            <button
-                              type="button"
-                              className="app-card-menu-item"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenMenuId(null);
-                                router.push(`/projects/${slug}/apps/${app.slug}/settings/setup`);
-                              }}
-                            >
-                              <BookOpen size={14} />
-                              Setup guide
-                            </button>
-                            <button
-                              type="button"
-                              className="app-card-menu-item app-card-menu-item-danger"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void handleDelete(app);
-                              }}
-                              disabled={isAppDeleting}
-                            >
-                              {isAppDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                              Delete app
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu
+                        open={isMenuOpen}
+                        onOpenChange={(open) => setOpenMenuId(open ? app.id : null)}
+                      >
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="App actions"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <MoreVertical size={16} />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              setOpenMenuId(null);
+                              router.push(`/projects/${slug}/endpoints?app=${app.slug}`);
+                            }}
+                          >
+                            <ArrowRight size={14} />
+                            View endpoints
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              setOpenMenuId(null);
+                              router.push(`/projects/${slug}/apps/${app.slug}/settings/general`);
+                            }}
+                          >
+                            <Settings size={14} />
+                            App settings
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              setOpenMenuId(null);
+                              router.push(`/projects/${slug}/apps/${app.slug}/settings/setup`);
+                            }}
+                          >
+                            <BookOpen size={14} />
+                            Setup guide
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            variant="destructive"
+                            disabled={isAppDeleting}
+                            onSelect={() => {
+                              void handleDelete(app);
+                            }}
+                          >
+                            {isAppDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                            Delete app
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>

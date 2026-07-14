@@ -1,8 +1,21 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Trash2, X, AlertTriangle, Loader2 } from "lucide-react";
+import { Trash2, AlertTriangle, Loader2 } from "lucide-react";
 import SettingsCard from "./SettingsCard";
+import { cn } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/reui/alert-dialog";
+import { Button } from "@/components/reui/button";
+import { Checkbox } from "@/components/reui/checkbox";
+import { Input } from "@/components/reui/input";
+import { Label } from "@/components/reui/label";
 
 interface DangerZoneSectionProps {
   onDeleteAccount: () => Promise<void>;
@@ -102,163 +115,122 @@ export default function DangerZoneSection({ onDeleteAccount }: DangerZoneSection
         description="Irreversible actions for your account"
         variant="danger"
       >
-        <div className="danger-zone-content">
-          <div className="danger-zone-item">
-            <div className="danger-zone-info">
-              <p className="danger-zone-label">Delete Account</p>
-              <p className="danger-zone-description">
-                Permanently delete your account and all data we hold about you. There's no undo.
-              </p>
-            </div>
-            <button
-              className="settings-btn settings-btn-danger"
-              onClick={() => setShowConfirm(true)}
-            >
-              <Trash2 size={14} />
-              Delete account
-            </button>
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-foreground">Delete Account</p>
+            <p className="mt-0.5 text-[13px] text-muted-foreground">
+              Permanently delete your account and all data we hold about you. There's no undo.
+            </p>
           </div>
+          <Button variant="destructive" size="sm" onClick={() => setShowConfirm(true)}>
+            <Trash2 size={14} />
+            Delete account
+          </Button>
         </div>
       </SettingsCard>
 
-      {showConfirm && (
-        <div className="dialog-overlay">
-          <div className="dialog-content" style={{ maxWidth: "480px" }}>
-            <button
-              className="dialog-close"
-              onClick={() => !isDeleting && setShowConfirm(false)}
-              disabled={isDeleting}
-              aria-label="Close dialog"
-            >
-              <X size={18} />
-            </button>
-
-            <div className="dialog-header">
-              <div className="dialog-icon-danger">
-                <AlertTriangle size={24} />
-              </div>
-              <h3 className="dialog-title">Permanently delete your account?</h3>
-              <p className="dialog-description">
-                The following data will be erased — this cannot be undone.
-              </p>
+      <AlertDialog
+        open={showConfirm}
+        onOpenChange={(open) => {
+          if (!open && !isDeleting) setShowConfirm(false);
+        }}
+      >
+        <AlertDialogContent
+          className="sm:max-w-[480px]"
+          onEscapeKeyDown={(e) => {
+            if (isDeleting) e.preventDefault();
+          }}
+        >
+          <AlertDialogHeader>
+            <div className="mb-1 flex size-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+              <AlertTriangle size={20} />
             </div>
+            <AlertDialogTitle>Permanently delete your account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The following data will be erased — this cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
 
-            <div style={{ padding: "0 24px 16px" }}>
-              {isLoadingFootprint ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    color: "var(--text-secondary)",
-                    fontSize: "13px",
-                    padding: "12px 0",
-                  }}
-                >
-                  <Loader2 size={14} className="animate-spin" />
-                  Calculating what will be removed…
-                </div>
-              ) : items ? (
-                <ul
-                  style={{
-                    margin: 0,
-                    padding: "12px 16px",
-                    background: "rgba(255, 68, 68, 0.05)",
-                    border: "1px solid rgba(255, 68, 68, 0.2)",
-                    borderRadius: "8px",
-                    listStyle: "disc",
-                    listStylePosition: "inside",
-                    fontSize: "13px",
-                    lineHeight: 1.7,
-                    color: "var(--text-primary)",
-                  }}
-                >
-                  {items.map((it, i) => (
-                    <li key={i}>{it}</li>
-                  ))}
-                </ul>
-              ) : null}
+          {isLoadingFootprint ? (
+            <div className="flex items-center gap-2.5 py-3 text-[13px] text-muted-foreground">
+              <Loader2 size={14} className="animate-spin" />
+              Calculating what will be removed…
             </div>
+          ) : items ? (
+            <ul className="m-0 list-inside list-disc rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-[13px] leading-7 text-foreground">
+              {items.map((it, i) => (
+                <li key={i}>{it}</li>
+              ))}
+            </ul>
+          ) : null}
 
-            <div className="dialog-input-section">
-              <label
-                style={{
-                  display: "flex",
-                  gap: "10px",
-                  alignItems: "flex-start",
-                  cursor: "pointer",
-                  fontSize: "13px",
-                  lineHeight: 1.5,
-                  color: "var(--text-primary)",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={acknowledged}
-                  onChange={(e) => setAcknowledged(e.target.checked)}
-                  disabled={isDeleting}
-                  style={{
-                    marginTop: "2px",
-                    width: "16px",
-                    height: "16px",
-                    flexShrink: 0,
-                    cursor: "pointer",
-                  }}
-                />
-                <span>
-                  I understand this cannot be undone, and I've copied any data I need to keep.
-                </span>
-              </label>
-
-              <div style={{ marginTop: "16px", opacity: acknowledged ? 1 : 0.4, transition: "opacity 0.15s" }}>
-                <label
-                  className="dialog-input-label"
-                  htmlFor="delete-confirm-word"
-                >
-                  Type <code style={{ background: "var(--bg-tertiary)", padding: "1px 6px", borderRadius: "4px", fontFamily: "monospace", fontWeight: 600 }}>DELETE</code> to confirm
-                </label>
-                <input
-                  id="delete-confirm-word"
-                  className="dialog-input"
-                  type="text"
-                  value={typedWord}
-                  onChange={(e) => setTypedWord(e.target.value)}
-                  placeholder="DELETE"
-                  disabled={!acknowledged || isDeleting}
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                />
-              </div>
-            </div>
-
-            <div className="dialog-footer">
-              <button
-                className="settings-btn settings-btn-secondary"
-                onClick={() => setShowConfirm(false)}
+          <div className="flex flex-col gap-4">
+            <Label className="flex cursor-pointer items-start gap-2.5 text-[13px] font-normal leading-normal text-foreground">
+              <Checkbox
+                checked={acknowledged}
+                onCheckedChange={(checked) => setAcknowledged(checked === true)}
                 disabled={isDeleting}
+                className="mt-0.5"
+              />
+              <span>
+                I understand this cannot be undone, and I've copied any data I need to keep.
+              </span>
+            </Label>
+
+            <div
+              className={cn(
+                "flex flex-col gap-2 transition-opacity",
+                acknowledged ? "opacity-100" : "opacity-40",
+              )}
+            >
+              <Label
+                htmlFor="delete-confirm-word"
+                className="text-[13px] font-normal text-muted-foreground"
               >
-                Keep my account
-              </button>
-              <button
-                className="settings-btn settings-btn-danger"
-                onClick={handleDelete}
-                disabled={!canDelete}
-              >
-                {isDeleting ? (
-                  <span className="btn-loading">
-                    <span className="btn-spinner" />
-                    Deleting…
-                  </span>
-                ) : (
-                  "Permanently delete account"
-                )}
-              </button>
+                <span>
+                  Type{" "}
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs font-semibold text-foreground">
+                    DELETE
+                  </code>{" "}
+                  to confirm
+                </span>
+              </Label>
+              <Input
+                id="delete-confirm-word"
+                type="text"
+                value={typedWord}
+                onChange={(e) => setTypedWord(e.target.value)}
+                placeholder="DELETE"
+                disabled={!acknowledged || isDeleting}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+              />
             </div>
           </div>
-        </div>
-      )}
+
+          <AlertDialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowConfirm(false)}
+              disabled={isDeleting}
+            >
+              Keep my account
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={!canDelete}>
+              {isDeleting ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  Deleting…
+                </>
+              ) : (
+                "Permanently delete account"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

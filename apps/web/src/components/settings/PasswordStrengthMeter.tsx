@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface PasswordStrengthMeterProps {
   password: string;
@@ -9,7 +10,8 @@ interface PasswordStrengthMeterProps {
 interface StrengthResult {
   score: 0 | 1 | 2 | 3 | 4;
   label: string;
-  color: string;
+  colorClass: string;
+  barClass: string;
 }
 
 const COMMON_PATTERNS = [
@@ -23,7 +25,7 @@ const COMMON_PATTERNS = [
 ];
 
 function score(pw: string): StrengthResult {
-  if (!pw) return { score: 0, label: "", color: "#e5e7eb" };
+  if (!pw) return { score: 0, label: "", colorClass: "text-muted-foreground", barClass: "bg-muted" };
 
   let s = 0;
   if (pw.length >= 8) s++;
@@ -39,19 +41,19 @@ function score(pw: string): StrengthResult {
 
   const clamped = Math.max(0, Math.min(4, s)) as 0 | 1 | 2 | 3 | 4;
   const meta = [
-    { label: "Too weak", color: "#dc2626" },
-    { label: "Weak", color: "#f59e0b" },
-    { label: "Fair", color: "#eab308" },
-    { label: "Good", color: "#16a34a" },
-    { label: "Strong", color: "#15803d" },
+    { label: "Too weak", colorClass: "text-destructive", barClass: "bg-destructive" },
+    { label: "Weak", colorClass: "text-warning", barClass: "bg-warning" },
+    { label: "Fair", colorClass: "text-warning", barClass: "bg-warning" },
+    { label: "Good", colorClass: "text-success", barClass: "bg-success" },
+    { label: "Strong", colorClass: "text-success", barClass: "bg-success" },
   ][clamped];
-  return { score: clamped, label: meta.label, color: meta.color };
+  return { score: clamped, label: meta.label, colorClass: meta.colorClass, barClass: meta.barClass };
 }
 
 export default function PasswordStrengthMeter({ password }: PasswordStrengthMeterProps) {
   if (!password) return null;
 
-  const { score: s, label, color } = score(password);
+  const { score: s, label, colorClass, barClass } = score(password);
   const checks = [
     { ok: password.length >= 8, label: "At least 8 characters" },
     { ok: /[A-Z]/.test(password) && /[a-z]/.test(password), label: "Upper and lowercase letters" },
@@ -60,35 +62,27 @@ export default function PasswordStrengthMeter({ password }: PasswordStrengthMete
   ];
 
   return (
-    <div style={{ marginTop: "8px" }} aria-live="polite">
-      <div style={{ display: "flex", gap: "4px", marginBottom: "6px" }}>
+    <div className="mt-2" aria-live="polite">
+      <div className="mb-1.5 flex gap-1">
         {[0, 1, 2, 3].map((i) => (
           <div
             key={i}
-            style={{
-              flex: 1,
-              height: "4px",
-              borderRadius: "2px",
-              background: i < s ? color : "#e5e7eb",
-              transition: "background 150ms ease",
-            }}
+            className={cn(
+              "h-1 flex-1 rounded-full transition-colors",
+              i < s ? barClass : "bg-muted",
+            )}
           />
         ))}
       </div>
-      <div style={{ fontSize: "12px", color, fontWeight: 500, marginBottom: "6px" }}>
-        {label}
-      </div>
-      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: "2px" }}>
+      <div className={cn("mb-1.5 text-xs font-medium", colorClass)}>{label}</div>
+      <ul className="m-0 grid list-none gap-0.5 p-0">
         {checks.map((c, i) => (
           <li
             key={i}
-            style={{
-              fontSize: "12px",
-              color: c.ok ? "#16a34a" : "#6b7280",
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-            }}
+            className={cn(
+              "flex items-center gap-1.5 text-xs",
+              c.ok ? "text-success" : "text-muted-foreground",
+            )}
           >
             {c.ok ? <Check size={12} /> : <X size={12} />}
             {c.label}

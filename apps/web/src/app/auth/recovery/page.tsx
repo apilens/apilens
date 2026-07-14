@@ -12,6 +12,11 @@ import {
   Clock,
   XCircle,
 } from "lucide-react";
+import { Button } from "@/components/reui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/reui/card";
+import { Input } from "@/components/reui/input";
+import { Label } from "@/components/reui/label";
+import { Alert, AlertDescription } from "@/components/reui/alert";
 
 /**
  * Recovery page state machine
@@ -55,6 +60,18 @@ function BrandingPanel() {
         <a href="https://apilens.ai/terms" className="auth-footer-link">Terms</a>
         <span className="auth-footer-sep" />
         <a href="https://apilens.ai/privacy" className="auth-footer-link">Privacy</a>
+      </div>
+    </div>
+  );
+}
+
+/** Shared right-panel wrapper: keeps the split layout contract classes. */
+function AuthShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="auth-split">
+      <BrandingPanel />
+      <div className="auth-panel">
+        <div className="auth-panel-inner">{children}</div>
       </div>
     </div>
   );
@@ -223,12 +240,10 @@ function RecoveryContent() {
   function renderStatusCard(): React.ReactNode {
     if (isLoadingStatus) {
       return (
-        <div className="auth-card">
-          <Loader2 size={24} className="animate-spin" style={{ margin: "0 auto" }} />
-          <div className="auth-header" style={{ marginTop: 16 }}>
-            <h1 className="auth-title">Checking your recovery request</h1>
-          </div>
-        </div>
+        <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+          <Loader2 size={24} className="animate-spin text-muted-foreground" />
+          <h1 className="text-xl font-semibold text-foreground">Checking your recovery request</h1>
+        </Card>
       );
     }
 
@@ -238,7 +253,11 @@ function RecoveryContent() {
         kicker: "Recovery",
         title: "We couldn't load this recovery",
         body: statusError || "Try opening the link from the email again.",
-        actions: <a href="/auth/recovery" className="auth-link-btn">Start a new recovery</a>,
+        actions: (
+          <Button asChild variant="link" size="sm" className="h-auto text-muted-foreground hover:text-foreground">
+            <a href="/auth/recovery">Start a new recovery</a>
+          </Button>
+        ),
         tone: "error",
       });
     }
@@ -251,9 +270,11 @@ function RecoveryContent() {
         title: "Two-factor authentication is off",
         body: "Your account is back. You can sign in with your password (or any sign-in method).",
         actions: (
-          <a href="/auth/login" className="auth-submit-btn auth-action">
-            Sign in <ArrowRight size={14} />
-          </a>
+          <Button asChild className="w-full">
+            <a href="/auth/login">
+              Sign in <ArrowRight size={14} />
+            </a>
+          </Button>
         ),
         tone: "success",
       });
@@ -265,7 +286,11 @@ function RecoveryContent() {
         kicker: "Cancelled",
         title: "Recovery cancelled",
         body: "No changes were made to your account. If you didn't initiate this, change your password as a precaution.",
-        actions: <a href="/auth/login" className="auth-link-btn">Back to sign in</a>,
+        actions: (
+          <Button asChild variant="link" size="sm" className="h-auto text-muted-foreground hover:text-foreground">
+            <a href="/auth/login">Back to sign in</a>
+          </Button>
+        ),
         tone: "success",
       });
     }
@@ -277,7 +302,11 @@ function RecoveryContent() {
         kicker: "Already done",
         title: "Recovery already completed",
         body: "Two-factor authentication is off for this account.",
-        actions: <a href="/auth/login" className="auth-submit-btn auth-action">Sign in <ArrowRight size={14} /></a>,
+        actions: (
+          <Button asChild className="w-full">
+            <a href="/auth/login">Sign in <ArrowRight size={14} /></a>
+          </Button>
+        ),
         tone: "default",
       });
     }
@@ -288,7 +317,11 @@ function RecoveryContent() {
         kicker: "Cancelled",
         title: "This recovery was cancelled",
         body: "If you still need to recover access, start a new request below.",
-        actions: <a href="/auth/recovery" className="auth-link-btn">Start a new recovery</a>,
+        actions: (
+          <Button asChild variant="link" size="sm" className="h-auto text-muted-foreground hover:text-foreground">
+            <a href="/auth/recovery">Start a new recovery</a>
+          </Button>
+        ),
         tone: "default",
       });
     }
@@ -299,7 +332,11 @@ function RecoveryContent() {
         kicker: "Expired",
         title: "This recovery link has expired",
         body: "Start a new recovery to disable 2FA.",
-        actions: <a href="/auth/recovery" className="auth-submit-btn auth-action">Start over <ArrowRight size={14} /></a>,
+        actions: (
+          <Button asChild className="w-full">
+            <a href="/auth/recovery">Start over <ArrowRight size={14} /></a>
+          </Button>
+        ),
         tone: "default",
       });
     }
@@ -310,7 +347,11 @@ function RecoveryContent() {
         kicker: "Invalid",
         title: "This link isn't valid",
         body: "It may have been tampered with. Start a fresh recovery to try again.",
-        actions: <a href="/auth/recovery" className="auth-link-btn">Start a new recovery</a>,
+        actions: (
+          <Button asChild variant="link" size="sm" className="h-auto text-muted-foreground hover:text-foreground">
+            <a href="/auth/recovery">Start a new recovery</a>
+          </Button>
+        ),
         tone: "error",
       });
     }
@@ -326,10 +367,15 @@ function RecoveryContent() {
         body: `The 48-hour cooldown has elapsed for ${status.email}. Click below to disable two-factor authentication and wipe your backup codes.`,
         actions: (
           <>
-            {actionError && <p className="auth-error" style={{ width: "100%" }}>{actionError}</p>}
-            <button
+            {actionError && (
+              <Alert variant="destructive" className="text-left">
+                <AlertCircle />
+                <AlertDescription>{actionError}</AlertDescription>
+              </Alert>
+            )}
+            <Button
               type="button"
-              className="auth-submit-btn auth-action"
+              className="w-full"
               onClick={() => doConfirm(token!)}
               disabled={actionRunning === "confirm"}
             >
@@ -338,15 +384,17 @@ function RecoveryContent() {
               ) : (
                 <>Disable 2FA on my account <ArrowRight size={14} /></>
               )}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="auth-link-btn"
+              variant="link"
+              size="sm"
+              className="h-auto self-center text-muted-foreground hover:text-foreground"
               onClick={() => doCancel(token!)}
               disabled={actionRunning !== null}
             >
               Cancel instead — I didn't request this
-            </button>
+            </Button>
           </>
         ),
         tone: "warning",
@@ -360,7 +408,7 @@ function RecoveryContent() {
       title: `Available ${formatHuman(status.available_at)}`,
       body: (
         <>
-          We're holding off on disabling 2FA for <strong>{status.email}</strong> until the cooldown ends.
+          We're holding off on disabling 2FA for <strong className="text-foreground">{status.email}</strong> until the cooldown ends.
           You'll be able to continue from this same link then.
         </>
       ),
@@ -368,34 +416,29 @@ function RecoveryContent() {
         <>
           <div
             aria-live="polite"
-            style={{
-              fontVariantNumeric: "tabular-nums",
-              fontSize: "18px",
-              fontWeight: 600,
-              padding: "12px 16px",
-              borderRadius: "10px",
-              background: "var(--bg-tertiary)",
-              border: "1px solid var(--border-color)",
-              display: "flex",
-              gap: "16px",
-              justifyContent: "center",
-              width: "100%",
-            }}
+            className="flex w-full justify-center gap-4 rounded-lg border border-border bg-muted px-4 py-3 text-lg font-semibold text-foreground tabular-nums"
           >
             <span><strong>{countdown.d}</strong>d</span>
             <span><strong>{countdown.h}</strong>h</span>
             <span><strong>{countdown.m}</strong>m</span>
             <span><strong>{countdown.s}</strong>s</span>
           </div>
-          {actionError && <p className="auth-error" style={{ width: "100%" }}>{actionError}</p>}
-          <button
+          {actionError && (
+            <Alert variant="destructive" className="text-left">
+              <AlertCircle />
+              <AlertDescription>{actionError}</AlertDescription>
+            </Alert>
+          )}
+          <Button
             type="button"
-            className="auth-link-btn"
+            variant="link"
+            size="sm"
+            className="h-auto self-center text-muted-foreground hover:text-foreground"
             onClick={() => doCancel(token!)}
             disabled={actionRunning !== null}
           >
             {actionRunning === "cancel" ? "Cancelling…" : "Cancel — I didn't request this"}
-          </button>
+          </Button>
         </>
       ),
       tone: "default",
@@ -404,123 +447,109 @@ function RecoveryContent() {
 
   // ────── Render ──────
   if (token) {
-    return (
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            {renderStatusCard()}
-          </div>
-        </div>
-      </div>
-    );
+    return <AuthShell>{renderStatusCard()}</AuthShell>;
   }
 
   // No token → request form
   if (requestSent) {
     return (
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            {statusCard({
-              Icon: Mail,
-              kicker: "Almost there",
-              title: "Check your email",
-              body: (
-                <>
-                  If <strong>{email}</strong> has an account with 2FA, we sent a recovery link.
-                  The recovery will become available <strong>48 hours</strong> after you confirm from your inbox.
-                </>
-              ),
-              actions: (
-                <>
-                  <button
-                    type="button"
-                    className="auth-link-btn"
-                    onClick={() => setRequestSent(false)}
-                  >
-                    Use a different email
-                  </button>
-                  <a href="/auth/login" className="auth-link-btn">
-                    Back to sign in
-                  </a>
-                </>
-              ),
-              tone: "default",
-            })}
-          </div>
-        </div>
-      </div>
+      <AuthShell>
+        {statusCard({
+          Icon: Mail,
+          kicker: "Almost there",
+          title: "Check your email",
+          body: (
+            <>
+              If <strong className="text-foreground">{email}</strong> has an account with 2FA, we sent a recovery link.
+              The recovery will become available <strong className="text-foreground">48 hours</strong> after you confirm from your inbox.
+            </>
+          ),
+          actions: (
+            <>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto self-center text-muted-foreground hover:text-foreground"
+                onClick={() => setRequestSent(false)}
+              >
+                Use a different email
+              </Button>
+              <Button asChild variant="link" size="sm" className="h-auto self-center text-muted-foreground hover:text-foreground">
+                <a href="/auth/login">Back to sign in</a>
+              </Button>
+            </>
+          ),
+          tone: "default",
+        })}
+      </AuthShell>
     );
   }
 
   return (
-    <div className="auth-split">
-      <BrandingPanel />
-      <div className="auth-panel">
-        <div className="auth-panel-inner">
-          <div className="auth-card">
-            <p className="auth-mobile-logo">API Lens</p>
-            <div className="auth-header">
-              <h1 className="auth-title">Recover account access</h1>
-              <p className="auth-description">
-                Lost both your authenticator and your backup codes? We can disable 2FA after a 48-hour cooldown.
-              </p>
+    <AuthShell>
+      <Card className="w-full gap-5">
+        <CardHeader className="text-center">
+          <p className="auth-mobile-logo">API Lens</p>
+          <CardTitle className="text-xl">Recover account access</CardTitle>
+          <CardDescription>
+            Lost both your authenticator and your backup codes? We can disable 2FA after a 48-hour cooldown.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleRequest} className="flex flex-col gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="email">Account email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setRequestError("");
+                }}
+                placeholder="you@company.com"
+                required
+                autoFocus
+                autoComplete="email"
+                disabled={isRequesting}
+              />
             </div>
 
-            <form onSubmit={handleRequest} className="auth-form auth-form-tight">
-              <div className="auth-input-group">
-                <label htmlFor="email" className="auth-label">
-                  Account email
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    setRequestError("");
-                  }}
-                  placeholder="you@company.com"
-                  className="auth-input"
-                  required
-                  autoFocus
-                  autoComplete="email"
-                  disabled={isRequesting}
-                />
-              </div>
+            {requestError && (
+              <Alert variant="destructive">
+                <AlertCircle />
+                <AlertDescription>{requestError}</AlertDescription>
+              </Alert>
+            )}
 
-              {requestError && <p className="auth-error">{requestError}</p>}
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isRequesting || !email}
+            >
+              {isRequesting ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <>Start recovery <ArrowRight size={14} /></>
+              )}
+            </Button>
 
-              <button
-                type="submit"
-                className="auth-submit-btn"
-                disabled={isRequesting || !email}
-              >
-                {isRequesting ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <>Start recovery <ArrowRight size={14} /></>
-                )}
-              </button>
+            <p className="mt-1 text-center text-xs leading-relaxed text-muted-foreground">
+              We'll email you a link. The recovery becomes available 48 hours later — long enough to
+              cancel if it wasn't you.
+            </p>
 
-              <p className="auth-footer-note" style={{ fontSize: "12px", marginTop: "12px" }}>
-                We'll email you a link. The recovery becomes available 48 hours later — long enough to
-                cancel if it wasn't you.
-              </p>
-
-              <p className="auth-footer-note">
-                Remembered your codes?{" "}
-                <a href="/auth/login" className="auth-footer-link-btn">
-                  Back to sign in
-                </a>
-              </p>
-            </form>
-          </div>
-        </div>
-      </div>
-    </div>
+            <p className="text-center text-sm text-muted-foreground">
+              Remembered your codes?{" "}
+              <a href="/auth/login" className="font-medium text-primary hover:underline">
+                Back to sign in
+              </a>
+            </p>
+          </form>
+        </CardContent>
+      </Card>
+    </AuthShell>
   );
 }
 
@@ -540,36 +569,27 @@ function statusCard({
   actions: React.ReactNode;
   tone: "default" | "success" | "warning" | "error";
 }) {
-  const iconBg =
-    tone === "success" ? "rgba(22, 163, 74, 0.12)"
-    : tone === "warning" ? "rgba(245, 158, 11, 0.12)"
-    : tone === "error" ? "rgba(220, 38, 38, 0.12)"
-    : "var(--bg-tertiary)";
-  const iconColor =
-    tone === "success" ? "#16a34a"
-    : tone === "warning" ? "#f59e0b"
-    : tone === "error" ? "#dc2626"
-    : "var(--text-secondary)";
+  const iconClasses =
+    tone === "success" ? "bg-success/10 text-success"
+    : tone === "warning" ? "bg-warning/10 text-warning"
+    : tone === "error" ? "bg-destructive/10 text-destructive"
+    : "bg-muted text-muted-foreground";
 
   return (
-    <div className="auth-card auth-status-card auth-status-minimal">
-      <div
-        className="auth-icon-primary auth-status-icon"
-        style={{ background: iconBg, color: iconColor }}
-      >
+    <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+      <div className={`flex size-12 items-center justify-center rounded-full ${iconClasses}`}>
         <Icon size={24} strokeWidth={1.7} />
       </div>
-      <p className="auth-status-kicker">{kicker}</p>
-      <h1 className="auth-title">{title}</h1>
-      <p className="auth-description auth-status-description">{body}</p>
-      <div className="auth-status-divider" aria-hidden="true" />
-      <div
-        className="auth-status-actions auth-status-actions-minimal"
-        style={{ display: "flex", flexDirection: "column", gap: "10px", width: "100%" }}
-      >
+      <div>
+        <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{kicker}</p>
+        <h1 className="mt-1 text-xl font-semibold text-foreground">{title}</h1>
+        <p className="mt-2 text-sm text-muted-foreground">{body}</p>
+      </div>
+      <div className="h-px w-full bg-border" aria-hidden="true" />
+      <div className="flex w-full flex-col gap-2.5">
         {actions}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -577,16 +597,11 @@ export default function RecoveryPage() {
   return (
     <Suspense
       fallback={
-        <div className="auth-split">
-          <BrandingPanel />
-          <div className="auth-panel">
-            <div className="auth-panel-inner">
-              <div className="auth-card">
-                <Loader2 size={24} className="animate-spin" style={{ margin: "16px auto" }} />
-              </div>
-            </div>
-          </div>
-        </div>
+        <AuthShell>
+          <Card className="w-full items-center px-6 py-8">
+            <Loader2 size={24} className="animate-spin text-muted-foreground" />
+          </Card>
+        </AuthShell>
       }
     >
       <RecoveryContent />

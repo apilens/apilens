@@ -4,11 +4,13 @@ import { useState, useEffect } from "react";
 import { Monitor, Smartphone, Loader2, LogOut, RotateCw } from "lucide-react";
 import SettingsCard from "./SettingsCard";
 import ConfirmDialog from "./ConfirmDialog";
-import Skeleton from "@/components/ui/Skeleton";
 import SectionError from "@/components/ui/SectionError";
 import { useFetchWithRetry } from "@/hooks/useFetchWithRetry";
 import { useAsyncAction } from "@/hooks/useAsyncAction";
 import { useToast } from "@/hooks/useToast";
+import { Badge } from "@/components/reui/badge";
+import { Button } from "@/components/reui/button";
+import { Skeleton } from "@/components/reui/skeleton";
 
 interface Session {
   id: string;
@@ -167,36 +169,40 @@ export default function SessionsSection({
 
   // ── Header action (sign out others) ────────────────────────────────
   const headerAction = (sessions?.length ?? 0) > 1 ? (
-    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-      <button
-        className="settings-btn settings-btn-ghost settings-btn-icon"
+    <div className="flex items-center gap-1.5">
+      <Button
+        variant="ghost"
+        size="icon-sm"
         onClick={() => refetch()}
         disabled={isRetrying}
         aria-label="Refresh sessions"
         title="Refresh"
       >
         {isRetrying ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
-      </button>
-      <button
-        className="settings-btn settings-btn-ghost"
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-[13px]"
         onClick={() => setConfirmLogoutOthers(true)}
         disabled={logoutOthersAction.isRunning}
       >
         {logoutOthersAction.isRunning ? <Loader2 size={14} className="animate-spin" /> : <LogOut size={14} />}
         Sign out other devices
-      </button>
+      </Button>
     </div>
   ) : (
     // Single session — still expose refresh.
-    <button
-      className="settings-btn settings-btn-ghost settings-btn-icon"
+    <Button
+      variant="ghost"
+      size="icon-sm"
       onClick={() => refetch()}
       disabled={isRetrying || isLoading}
       aria-label="Refresh sessions"
       title="Refresh"
     >
       {(isRetrying || isLoading) ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
-    </button>
+    </Button>
   );
 
   return (
@@ -211,13 +217,13 @@ export default function SessionsSection({
     >
       {/* Loading: skeletons, not the empty-state copy. */}
       {isLoading && !sessions ? (
-        <div className="sessions-list" aria-busy="true">
+        <div className="flex flex-col divide-y divide-border" aria-busy="true">
           {[0, 1].map((i) => (
-            <div key={i} className="session-item" style={{ pointerEvents: "none" }}>
-              <Skeleton variant="avatar" width={36} height={36} />
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "8px", paddingLeft: "14px" }}>
-                <Skeleton variant="line" width="40%" height={14} />
-                <Skeleton variant="line" width="60%" height={12} />
+            <div key={i} className="pointer-events-none flex items-center gap-3.5 py-3">
+              <Skeleton className="size-9 shrink-0 rounded-full" />
+              <div className="flex flex-1 flex-col gap-2">
+                <Skeleton className="h-3.5 w-2/5" />
+                <Skeleton className="h-3 w-3/5" />
               </div>
             </div>
           ))}
@@ -229,44 +235,45 @@ export default function SessionsSection({
           onRetry={refetch}
         />
       ) : !sessions || sessions.length === 0 ? (
-        <p className="sessions-empty">
+        <p className="text-[13px] text-muted-foreground">
           You're only signed in on this device. Sessions from other browsers or devices will appear here.
         </p>
       ) : (
-        <div className="sessions-list">
+        <div className="flex flex-col divide-y divide-border">
           {sessions.map((session) => {
             const device = parseDevice(session.device_info);
             const DeviceIcon = device.isMobile ? Smartphone : Monitor;
             const isRevoking = revoke.isRunning && confirmRevoke?.id === session.id;
             return (
-              <div key={session.id} className="session-item">
-                <div className="session-icon">
+              <div key={session.id} className="flex items-center gap-3.5 py-3">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                   <DeviceIcon size={16} />
                 </div>
-                <div className="session-info" style={{ minWidth: 0 }}>
-                  <p className="session-device truncate-with-tooltip" title={device.name}>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-medium text-foreground" title={device.name}>
                     {device.name}
                   </p>
-                  <p className="session-details">
+                  <p className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
                     {(session.location || session.ip_address) && (
-                      <span className="truncate-with-tooltip" title={session.location || session.ip_address || ""}>
+                      <span className="truncate" title={session.location || session.ip_address || ""}>
                         {session.location || session.ip_address}
                       </span>
                     )}
-                    <span>{formatRelativeTime(session.last_used_at)}</span>
+                    <span className="shrink-0">{formatRelativeTime(session.last_used_at)}</span>
                   </p>
                 </div>
                 {session.is_current ? (
-                  <span className="session-current-badge">This device</span>
+                  <Badge variant="primary-light" radius="full">This device</Badge>
                 ) : (
-                  <button
-                    className="settings-btn settings-btn-ghost settings-btn-sm"
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     onClick={() => handleRevokeClick(session)}
                     disabled={isRevoking}
                     aria-label={`Sign out ${device.name}`}
                   >
                     {isRevoking ? <Loader2 size={14} className="animate-spin" /> : <LogOut size={14} />}
-                  </button>
+                  </Button>
                 )}
               </div>
             );
@@ -274,11 +281,11 @@ export default function SessionsSection({
         </div>
       )}
 
-      <div className="sessions-footer-meta">
-        <span className="sessions-footer-item">
+      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 border-t border-border pt-3 text-xs text-muted-foreground">
+        <span>
           Last login {lastLoginAt ? formatAbsoluteTime(lastLoginAt) : "—"}
         </span>
-        <span className="sessions-footer-item">
+        <span>
           Member since {memberSince ? formatAbsoluteTime(memberSince) : "—"}
         </span>
       </div>

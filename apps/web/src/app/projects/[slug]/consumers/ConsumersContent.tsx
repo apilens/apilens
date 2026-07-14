@@ -3,6 +3,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, Fingerprint, RefreshCw, Search, X } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/reui/badge";
+import { Button } from "@/components/reui/button";
+import { Card } from "@/components/reui/card";
+import { Input } from "@/components/reui/input";
+import { Skeleton } from "@/components/reui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/reui/table";
 import {
   formatMs,
   formatNumber,
@@ -149,100 +163,132 @@ export default function ConsumersContent({ projectSlug }: ConsumersContentProps)
           <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} exclude={["consumer"]} />
         </div>
 
-        <div className="ep-search ep-rl-search">
-          <Search size={12} />
-          <input
+        <div className="relative w-full max-w-[260px]">
+          <Search size={12} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search consumer…"
+            className="h-[30px] rounded-full pl-8 pr-8 text-xs"
           />
           {search && (
-            <button type="button" className="ep-search-clear" onClick={() => setSearch("")} aria-label="Clear">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full text-muted-foreground"
+              onClick={() => setSearch("")}
+              aria-label="Clear"
+            >
               <X size={12} />
-            </button>
+            </Button>
           )}
         </div>
 
         <TimeRangePicker value={rangeValue} resolved={resolved} onChange={setRangeValue} />
 
-        <button type="button" className="tf-refresh" onClick={() => setRefreshKey((k) => k + 1)} title="Refresh" aria-label="Refresh">
-          <RefreshCw size={14} className={loading ? "tf-spin" : ""} />
-        </button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          className="size-[30px] shrink-0 text-muted-foreground hover:text-foreground"
+          onClick={() => setRefreshKey((k) => k + 1)}
+          title="Refresh"
+          aria-label="Refresh"
+        >
+          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+        </Button>
       </div>
 
       {/* ── Consumer table ── */}
-      <section className="ep-rl-card">
+      <Card className="gap-0 overflow-hidden rounded-xl py-0">
         {loading && (rows === null || rows.length === 0) ? (
-          <div className="ep-rl-message">Loading consumers…</div>
+          <div className="flex flex-col gap-2 p-4" aria-hidden>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 py-1.5">
+                <Skeleton className="size-4 shrink-0 rounded-full" />
+                <Skeleton className="h-3.5 w-40" />
+                <Skeleton className="ml-auto h-3.5 w-24" />
+                <Skeleton className="h-3.5 w-16" />
+              </div>
+            ))}
+          </div>
         ) : rows && rows.length === 0 ? (
-          <div className="ep-rl-message">
+          <div className="px-4 py-10 text-center text-[13px] text-muted-foreground">
             {debouncedSearch
               ? "No consumers match this search in the selected period."
               : "No identified consumers in the selected period. Set a consumer in your SDK middleware to see them here."}
           </div>
         ) : (
-          <div className="ep-recent">
-            <table className="ep-recent-table ep-consumers-table">
-              <thead>
-                <tr>
-                  <th aria-hidden />
-                  <th>Consumer</th>
-                  <th>Group</th>
-                  <th className="ep-th-num">Requests</th>
-                  <th className="ep-th-num">Client 4xx</th>
-                  <th className="ep-th-num">Server 5xx</th>
-                  <th className="ep-th-num">Avg response</th>
-                  <th className="ep-th-num">Last seen</th>
-                  <th aria-hidden />
-                </tr>
-              </thead>
-              <tbody>
-                {(rows || []).map((c) => (
-                  <tr
-                    key={c.consumer}
-                    className="ep-recent-row"
-                    onClick={() => openConsumer(c)}
-                    tabIndex={0}
-                    role="button"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openConsumer(c); }
-                    }}
-                  >
-                    <td className="ep-recent-clock"><Fingerprint size={14} /></td>
-                    <td className="ep-consumer-name">
-                      <div className="ep-consumer-cell">
-                        <span className="ep-consumer-primary">{c.consumer}</span>
-                        {c.consumer_identifier && c.consumer_identifier !== c.consumer ? (
-                          <span className="ep-consumer-id">{c.consumer_identifier}</span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="ep-consumer-group-cell">
-                      {c.consumer_group ? <span className="ep-consumer-group">{c.consumer_group}</span> : <span className="ep-consumer-muted">—</span>}
-                    </td>
-                    <td className="ep-td-num">
-                      <span className="ep-cbar-wrap">
-                        <span className="ep-cbar" style={{ width: `${(c.total_requests / maxRequests) * 100}%` }} />
-                        <span className="ep-cbar-val">{formatNumber(c.total_requests)}</span>
-                      </span>
-                    </td>
-                    <td className={`ep-td-num${(c.client_error_rate || 0) > 0 ? " err-4xx" : ""}`}>
-                      {(c.client_error_rate || 0).toFixed(1)} %
-                    </td>
-                    <td className={`ep-td-num${(c.server_error_rate || 0) > 0 ? " err-5xx" : ""}`}>
-                      {(c.server_error_rate || 0).toFixed(1)} %
-                    </td>
-                    <td className="ep-td-num">{formatMs(c.avg_response_time_ms)}</td>
-                    <td className="ep-td-num">{c.last_seen_at ? timeAgo(c.last_seen_at) : "—"}</td>
-                    <td className="ep-recent-go"><ChevronRight size={15} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table className="text-xs">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="w-8 px-3" aria-hidden />
+                <TableHead className="h-9 px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Consumer</TableHead>
+                <TableHead className="h-9 px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Group</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Requests</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Client 4xx</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Server 5xx</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Avg response</TableHead>
+                <TableHead className="h-9 px-3 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Last seen</TableHead>
+                <TableHead className="w-8 px-3" aria-hidden />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(rows || []).map((c) => (
+                <TableRow
+                  key={c.consumer}
+                  className="group cursor-pointer"
+                  onClick={() => openConsumer(c)}
+                  tabIndex={0}
+                  role="button"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openConsumer(c); }
+                  }}
+                >
+                  <TableCell className="w-8 px-3 py-2.5 text-muted-foreground"><Fingerprint size={14} /></TableCell>
+                  <TableCell className="px-3 py-2.5">
+                    <div className="flex flex-col gap-px">
+                      <span className="font-medium text-foreground">{c.consumer}</span>
+                      {c.consumer_identifier && c.consumer_identifier !== c.consumer ? (
+                        <span className="font-mono text-[11px] text-muted-foreground">{c.consumer_identifier}</span>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                  <TableCell className="px-3 py-2.5">
+                    {c.consumer_group ? (
+                      <Badge variant="outline" radius="full" className="text-muted-foreground">{c.consumer_group}</Badge>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
+                    <span className="relative inline-flex h-[18px] min-w-[110px] items-center justify-end">
+                      <span
+                        className="absolute left-0 top-1/2 h-3.5 min-w-0.5 -translate-y-1/2 rounded-[3px] bg-primary/20"
+                        style={{ width: `${(c.total_requests / maxRequests) * 100}%` }}
+                      />
+                      <span className="relative z-[1] pr-0.5 text-foreground">{formatNumber(c.total_requests)}</span>
+                    </span>
+                  </TableCell>
+                  <TableCell className={cn("px-3 py-2.5 text-right tabular-nums text-muted-foreground", (c.client_error_rate || 0) > 0 && "text-warning")}>
+                    {(c.client_error_rate || 0).toFixed(1)} %
+                  </TableCell>
+                  <TableCell className={cn("px-3 py-2.5 text-right tabular-nums text-muted-foreground", (c.server_error_rate || 0) > 0 && "text-destructive")}>
+                    {(c.server_error_rate || 0).toFixed(1)} %
+                  </TableCell>
+                  <TableCell className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{formatMs(c.avg_response_time_ms)}</TableCell>
+                  <TableCell className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{c.last_seen_at ? timeAgo(c.last_seen_at) : "—"}</TableCell>
+                  <TableCell className="w-8 px-3 py-2.5 text-right text-muted-foreground opacity-50 transition-opacity group-hover:opacity-100">
+                    <ChevronRight size={15} />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
-      </section>
+      </Card>
     </div>
   );
 }

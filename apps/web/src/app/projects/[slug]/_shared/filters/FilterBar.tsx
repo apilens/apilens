@@ -2,6 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Filter, Loader2, Plus, X } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/reui/badge";
+import { Button } from "@/components/reui/button";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/reui/popover";
 import {
   FIELDS,
   FIELD_MAP,
@@ -212,11 +220,15 @@ export default function FilterBar({ projectSlug, value, onChange, exclude }: Pro
     return () => { cancelled = true; clearTimeout(handle); };
   }, [open, isServer, a.field, a.q, projectSlug, learnLabels]);
 
-  // Close + discard the in-progress token on outside click.
+  // Close + discard the in-progress token on outside click. The suggestion
+  // menu is portaled (ReUI Popover), so "inside" = the bar OR the menu.
   useEffect(() => {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const inMenu =
+        target instanceof Element && !!target.closest("[data-flt-menu]");
+      if (rootRef.current && !rootRef.current.contains(target) && !inMenu) {
         setOpen(false);
         setText("");
       }
@@ -391,87 +403,157 @@ export default function FilterBar({ projectSlug, value, onChange, exclude }: Pro
   const hasToggle = items.some((it) => it.kind === "toggle");
 
   return (
+    // `.flt-bar` stays: it is a layout-contract class (`.tf-filter-grow >
+    // .flt-bar` / `.ep-rl-filtergrow > .flt-bar` gate sizing in page CSS).
     <div className="flt-bar" ref={rootRef}>
-      <Filter size={13} className="flt-bar-icon" />
+      <Filter size={13} className="ml-px shrink-0 text-muted-foreground" />
 
       {predicates.map((p, i) => {
         const d = describe(p);
         const fSpec = FIELD_MAP[p.field];
         const val = chipValue(p);
         return (
-          <span key={predicateKey(p, i)} className="flt-chip">
-            <button type="button" className="flt-chip-body" onClick={() => editChip(i)}>
-              <span className="flt-chip-field">{d.field}</span>
-              <span className="flt-chip-op">{d.op}</span>
-              <span className="flt-chip-val">{fSpec?.unit ? `${val} ${fSpec.unit}` : val}</span>
+          <Badge
+            key={predicateKey(p, i)}
+            variant="outline"
+            className="h-[22px] items-stretch gap-0 overflow-hidden rounded-md p-0 text-xs leading-none"
+          >
+            <button
+              type="button"
+              className="flex h-full items-center gap-1.5 px-2 transition-colors hover:bg-primary/10"
+              onClick={() => editChip(i)}
+            >
+              <span className="shrink-0 font-semibold text-foreground">{d.field}</span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">{d.op}</span>
+              <span className="max-w-[280px] truncate font-mono text-primary">
+                {fSpec?.unit ? `${val} ${fSpec.unit}` : val}
+              </span>
             </button>
-            <button type="button" className="flt-chip-x" onClick={() => remove(i)} aria-label="Remove filter">
+            <button
+              type="button"
+              className="flex h-full items-center border-l border-border px-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => remove(i)}
+              aria-label="Remove filter"
+            >
               <X size={11} />
             </button>
-          </span>
+          </Badge>
         );
       })}
 
-      <div className="flt-input-wrap">
-        {predicates.length === 0 && !text && <Plus size={12} className="flt-input-plus" />}
-        <input
-          ref={inputRef}
-          className="flt-input"
-          value={text}
-          placeholder={predicates.length ? "" : "Filter… (e.g. status:>=500 path:~/v1/orders)"}
-          onChange={(e) => { setText(e.target.value); setOpen(true); }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={onKeyDown}
-          spellCheck={false}
-          aria-label="Add filter"
-        />
-        {showMenu && (
-          <div className="flt-menu" role="listbox">
-            {isServer && !a.q.trim() && (
-              <div className="flt-menu-note">Type to search {spec?.label.toLowerCase()}…</div>
+      <Popover open={showMenu}>
+        <PopoverAnchor asChild>
+          <div className="flex min-w-[150px] flex-1 basis-40 items-center gap-1">
+            {predicates.length === 0 && !text && (
+              <Plus size={12} className="shrink-0 text-muted-foreground" />
             )}
-            {isServer && a.q.trim() && serverLoading && items.length === 0 && (
-              <div className="flt-menu-note"><Loader2 size={13} className="flt-spin" /> Searching…</div>
-            )}
-            {isServer && a.q.trim() && !serverLoading && items.length === 0 && (
-              <div className="flt-menu-note">No matches for “{a.q.trim()}”</div>
-            )}
-            {items.map((item, i) => {
-              const checked = item.kind === "toggle" && item.checked;
-              return (
-                <button
-                  key={`${item.kind}:${item.label}:${i}`}
-                  type="button"
-                  role="option"
-                  aria-selected={i === active}
-                  className={`flt-opt${i === active ? " is-active" : ""}${checked ? " is-checked" : ""}`}
-                  onMouseEnter={() => setActive(i)}
-                  onMouseDown={(e) => { e.preventDefault(); pick(item); }}
-                >
-                  <span className="flt-opt-main">
-                    {item.kind === "toggle" && (
-                      <span className={`flt-check${checked ? " on" : ""}`}>{checked && <Check size={10} />}</span>
-                    )}
-                    <span className="flt-opt-label">{item.label}</span>
-                  </span>
-                  {item.hint && <span className="flt-opt-hint">{item.hint}</span>}
-                </button>
-              );
-            })}
-            {showChecklist && hasToggle && (
-              <div className="flt-menu-foot">
-                <span>Select multiple · Esc to cancel</span>
-                <button type="button" className="flt-done" onMouseDown={(e) => { e.preventDefault(); done(); }}>Done</button>
-              </div>
-            )}
+            <input
+              ref={inputRef}
+              className="w-full border-none bg-transparent py-1 text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+              value={text}
+              placeholder={predicates.length ? "" : "Filter… (e.g. status:>=500 path:~/v1/orders)"}
+              onChange={(e) => { setText(e.target.value); setOpen(true); }}
+              onFocus={() => setOpen(true)}
+              onKeyDown={onKeyDown}
+              spellCheck={false}
+              aria-label="Add filter"
+            />
           </div>
-        )}
-      </div>
+        </PopoverAnchor>
+        <PopoverContent
+          data-flt-menu=""
+          role="listbox"
+          align="start"
+          sideOffset={6}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          className="max-h-[300px] w-auto min-w-[240px] max-w-[calc(100vw-32px)] overflow-y-auto p-1"
+        >
+          {isServer && !a.q.trim() && (
+            <div className="flex items-center gap-2 px-2.5 py-2 text-xs text-muted-foreground">
+              Type to search {spec?.label.toLowerCase()}…
+            </div>
+          )}
+          {isServer && a.q.trim() && serverLoading && items.length === 0 && (
+            <div className="flex items-center gap-2 px-2.5 py-2 text-xs text-muted-foreground">
+              <Loader2 size={13} className="animate-spin" /> Searching…
+            </div>
+          )}
+          {isServer && a.q.trim() && !serverLoading && items.length === 0 && (
+            <div className="flex items-center gap-2 px-2.5 py-2 text-xs text-muted-foreground">
+              No matches for “{a.q.trim()}”
+            </div>
+          )}
+          {items.map((item, i) => {
+            const checked = item.kind === "toggle" && item.checked;
+            return (
+              <button
+                key={`${item.kind}:${item.label}:${i}`}
+                type="button"
+                role="option"
+                aria-selected={i === active}
+                className={cn(
+                  "flex w-full items-center justify-between gap-3 rounded-sm px-2.5 py-1.5 text-left",
+                  i === active && "bg-accent",
+                )}
+                onMouseEnter={() => setActive(i)}
+                onMouseDown={(e) => { e.preventDefault(); pick(item); }}
+              >
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  {item.kind === "toggle" && (
+                    <span
+                      className={cn(
+                        "flex size-[15px] shrink-0 items-center justify-center rounded-[4px] border border-border bg-card",
+                        checked && "border-primary bg-primary text-primary-foreground",
+                      )}
+                    >
+                      {checked && <Check size={10} />}
+                    </span>
+                  )}
+                  <span
+                    className={cn(
+                      "truncate whitespace-nowrap text-[13px] text-foreground",
+                      checked && "text-primary",
+                    )}
+                  >
+                    {item.label}
+                  </span>
+                </span>
+                {item.hint && (
+                  <span className="ml-2 max-w-[45%] shrink-0 truncate whitespace-nowrap font-mono text-[11px] text-muted-foreground">
+                    {item.hint}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+          {showChecklist && hasToggle && (
+            <div className="mt-1 flex items-center justify-between gap-2 border-t border-border py-1.5 pl-2.5 pr-1.5 text-[11px] text-muted-foreground">
+              <span>Select multiple · Esc to cancel</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="font-semibold"
+                onMouseDown={(e) => { e.preventDefault(); done(); }}
+              >
+                Done
+              </Button>
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
 
       {predicates.length > 0 && (
-        <button type="button" className="flt-clear" onClick={() => { onChange(""); setText(""); }}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="ml-auto shrink-0 font-normal text-muted-foreground hover:text-foreground"
+          onClick={() => { onChange(""); setText(""); }}
+        >
           Clear
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -4,6 +4,9 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2, AlertCircle, CheckCircle, Mail, Users, X } from "lucide-react";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { Button } from "@/components/reui/button";
+import { Card } from "@/components/reui/card";
+import { Alert, AlertDescription } from "@/components/reui/alert";
 
 function BrandingPanel() {
   return (
@@ -48,7 +51,7 @@ function AuthShell({ children }: { children: React.ReactNode }) {
       <BrandingPanel />
       <div className="auth-panel">
         <div className="auth-panel-inner">
-          <div className="auth-card">{children}</div>
+          <Card className="w-full items-center gap-4 px-6 py-8 text-center">{children}</Card>
         </div>
       </div>
     </div>
@@ -182,10 +185,8 @@ function InviteContent() {
   if (isLoading || authLoading) {
     return (
       <AuthShell>
-        <div className="auth-header">
-          <Loader2 size={32} className="animate-spin" style={{ margin: "0 auto 16px" }} />
-          <h1 className="auth-title">Loading invitation...</h1>
-        </div>
+        <Loader2 size={32} className="animate-spin text-muted-foreground" />
+        <h1 className="text-xl font-semibold text-foreground">Loading invitation...</h1>
       </AuthShell>
     );
   }
@@ -193,16 +194,16 @@ function InviteContent() {
   if (error && !info) {
     return (
       <AuthShell>
-        <div className="auth-icon-error" style={{ color: "#dc3545", margin: "0 auto 16px" }}>
+        <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
           <AlertCircle size={36} strokeWidth={1.5} />
         </div>
-        <div className="auth-header">
-          <h1 className="auth-title">Invitation unavailable</h1>
-          <p className="auth-description">{error}</p>
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Invitation unavailable</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
         </div>
-        <a href="/projects" className="auth-submit-btn" style={{ display: "block", textAlign: "center", textDecoration: "none" }}>
-          Go to API Lens
-        </a>
+        <Button asChild className="w-full">
+          <a href="/projects">Go to API Lens</a>
+        </Button>
       </AuthShell>
     );
   }
@@ -210,12 +211,12 @@ function InviteContent() {
   if (accepted && info) {
     return (
       <AuthShell>
-        <div className="auth-icon-success" style={{ color: "#14b8a6", margin: "0 auto 16px" }}>
+        <div className="flex size-12 items-center justify-center rounded-full bg-success/10 text-success">
           <CheckCircle size={36} strokeWidth={1.5} />
         </div>
-        <div className="auth-header">
-          <h1 className="auth-title">You&apos;re in!</h1>
-          <p className="auth-description">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">You&apos;re in!</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
             Taking you to {info.project_name}...
           </p>
         </div>
@@ -226,18 +227,18 @@ function InviteContent() {
   if (declined && info) {
     return (
       <AuthShell>
-        <div className="auth-icon-error" style={{ color: "#94a3b8", margin: "0 auto 16px" }}>
+        <div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
           <X size={36} strokeWidth={1.5} />
         </div>
-        <div className="auth-header">
-          <h1 className="auth-title">Invitation declined</h1>
-          <p className="auth-description">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Invitation declined</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
             You declined the invitation to {info.project_name}. No further action needed.
           </p>
         </div>
-        <a href="/projects" className="auth-submit-btn" style={{ display: "block", textAlign: "center", textDecoration: "none" }}>
-          Go to API Lens
-        </a>
+        <Button asChild className="w-full">
+          <a href="/projects">Go to API Lens</a>
+        </Button>
       </AuthShell>
     );
   }
@@ -245,13 +246,13 @@ function InviteContent() {
   if (linkSent && info) {
     return (
       <AuthShell>
-        <div className="auth-icon-success" style={{ color: "#14b8a6", margin: "0 auto 16px" }}>
+        <div className="flex size-12 items-center justify-center rounded-full bg-success/10 text-success">
           <Mail size={36} strokeWidth={1.5} />
         </div>
-        <div className="auth-header">
-          <h1 className="auth-title">Check your email</h1>
-          <p className="auth-description">
-            We sent a sign-in link to <strong>{info.email}</strong>. After you sign in,
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Check your email</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            We sent a sign-in link to <strong className="text-foreground">{info.email}</strong>. After you sign in,
             accept the invitation from the notification bell to join {info.project_name}.
           </p>
         </div>
@@ -267,28 +268,28 @@ function InviteContent() {
 
   return (
     <AuthShell>
-      <div className="auth-icon-success" style={{ color: "#14b8a6", margin: "0 auto 16px" }}>
+      <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
         <Users size={36} strokeWidth={1.5} />
       </div>
-      <div className="auth-header">
-        <h1 className="auth-title">Join {info.project_name}</h1>
-        <p className="auth-description">
-          {info.inviter ? <><strong>{info.inviter}</strong> invited you</> : "You've been invited"} to
-          collaborate as a <strong>{roleLabel}</strong>.
+      <div>
+        <h1 className="text-xl font-semibold text-foreground">Join {info.project_name}</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {info.inviter ? <><strong className="text-foreground">{info.inviter}</strong> invited you</> : "You've been invited"} to
+          collaborate as a <strong className="text-foreground">{roleLabel}</strong>.
         </p>
       </div>
 
       {error && (
-        <div className="auth-error" style={{ marginBottom: 16 }}>
-          <AlertCircle size={16} />
-          <span>{error}</span>
-        </div>
+        <Alert variant="destructive" className="text-left">
+          <AlertCircle />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       {emailMatches ? (
         <>
-          <button
-            className="auth-submit-btn"
+          <Button
+            className="w-full"
             onClick={handleAccept}
             disabled={isSubmitting}
           >
@@ -297,32 +298,33 @@ function InviteContent() {
             ) : (
               "Accept invitation"
             )}
-          </button>
-          <button
-            className="invite-decline-link"
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full text-muted-foreground hover:text-foreground"
             onClick={handleDecline}
             disabled={isSubmitting}
           >
             Decline
-          </button>
+          </Button>
         </>
       ) : isLoggedIn ? (
-        <div className="auth-header" style={{ marginTop: 0 }}>
-          <p className="auth-description">
-            This invitation was sent to <strong>{info.email}</strong>, but you&apos;re signed in as{" "}
-            <strong>{user?.email}</strong>. Sign in with the invited email to accept.
+        <div className="flex w-full flex-col gap-4">
+          <p className="text-sm text-muted-foreground">
+            This invitation was sent to <strong className="text-foreground">{info.email}</strong>, but you&apos;re signed in as{" "}
+            <strong className="text-foreground">{user?.email}</strong>. Sign in with the invited email to accept.
           </p>
-          <button
-            className="auth-submit-btn"
+          <Button
+            className="w-full"
             onClick={handleSwitchAccount}
             disabled={isSubmitting}
           >
             {isSubmitting ? <><Loader2 size={16} className="animate-spin" /> Signing out...</> : "Switch account"}
-          </button>
+          </Button>
         </div>
       ) : (
-        <button
-          className="auth-submit-btn"
+        <Button
+          className="w-full"
           onClick={handleSendLink}
           disabled={isSubmitting}
         >
@@ -331,7 +333,7 @@ function InviteContent() {
           ) : (
             <>Sign in as {info.email}</>
           )}
-        </button>
+        </Button>
       )}
     </AuthShell>
   );
@@ -342,10 +344,8 @@ export default function InvitePage() {
     <Suspense
       fallback={
         <AuthShell>
-          <div className="auth-header">
-            <Loader2 size={32} className="animate-spin" style={{ margin: "0 auto 16px" }} />
-            <h1 className="auth-title">Loading...</h1>
-          </div>
+          <Loader2 size={32} className="animate-spin text-muted-foreground" />
+          <h1 className="text-xl font-semibold text-foreground">Loading...</h1>
         </AuthShell>
       }
     >

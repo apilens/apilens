@@ -30,6 +30,7 @@ export default async function ProjectErrorsPage({
         since: one(sp.since),
         until: one(sp.until),
         env: one(sp.env),
+        filter: one(sp.filter),
       }}
     />
   );

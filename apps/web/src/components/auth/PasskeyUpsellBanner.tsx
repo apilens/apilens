@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Fingerprint, X, Loader2, Check } from "lucide-react";
 import { isPasskeySupported, getBiometricLabel } from "@/lib/webauthn";
 import { useAddPasskey } from "@/hooks/useAddPasskey";
+import { Button } from "@/components/reui/button";
 
 const DISMISSED_KEY = "apilens.passkey_upsell_dismissed_until";
 const HAS_PASSKEY_KEY = "apilens.has_passkey_ever";
@@ -106,48 +107,26 @@ export default function PasskeyUpsellBanner() {
     <div
       role="region"
       aria-label="Set up passkey"
-      style={{
-        margin: "0 0 20px 0",
-        padding: "16px 20px",
-        background: "linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%)",
-        color: "#fff",
-        borderRadius: "10px",
-        display: "flex",
-        alignItems: "center",
-        gap: "16px",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-      }}
+      className="mb-5 flex items-center gap-4 rounded-xl bg-invert px-5 py-4 text-invert-foreground shadow-sm"
     >
-      <div
-        style={{
-          background: "rgba(255,255,255,0.1)",
-          padding: "10px",
-          borderRadius: "8px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        }}
-      >
+      <div className="flex shrink-0 items-center justify-center rounded-lg bg-invert-foreground/10 p-2.5">
         <Fingerprint size={22} strokeWidth={1.7} />
       </div>
 
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="min-w-0 flex-1">
         {registered ? (
-          <>
-            <p style={{ margin: 0, fontWeight: 600, fontSize: "14px" }}>
-              <Check size={14} style={{ verticalAlign: "-2px", marginRight: "6px" }} />
-              Passkey added. You can sign in with {biometric} next time.
-            </p>
-          </>
+          <p className="flex items-center gap-1.5 text-sm font-semibold">
+            <Check size={14} />
+            Passkey added. You can sign in with {biometric} next time.
+          </p>
         ) : (
           <>
-            <p style={{ margin: 0, fontWeight: 600, fontSize: "14px", lineHeight: 1.4 }}>
+            <p className="text-sm leading-snug font-semibold">
               Sign in faster next time with {biometric}
             </p>
-            <p style={{ margin: "2px 0 0 0", fontSize: "12.5px", opacity: 0.7, lineHeight: 1.4 }}>
+            <p className="mt-0.5 text-xs leading-snug text-invert-foreground/70">
               No password needed. Uses your device's built-in biometrics.
-              {error && <span style={{ color: "#fca5a5", display: "block", marginTop: "4px" }}>{error}</span>}
+              {error && <span className="mt-1 block text-destructive">{error}</span>}
             </p>
           </>
         )}
@@ -155,25 +134,12 @@ export default function PasskeyUpsellBanner() {
 
       {!registered && (
         <>
-          <button
+          <Button
             type="button"
+            size="sm"
             onClick={() => void addPasskey()}
             disabled={isAdding}
-            style={{
-              background: "#fff",
-              color: "#1a1a1a",
-              border: "none",
-              padding: "8px 14px",
-              borderRadius: "6px",
-              fontSize: "13px",
-              fontWeight: 600,
-              cursor: isAdding ? "default" : "pointer",
-              opacity: isAdding ? 0.7 : 1,
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              flexShrink: 0,
-            }}
+            className="shrink-0 bg-invert-foreground text-invert hover:bg-invert-foreground/90"
           >
             {isAdding ? (
               <>
@@ -183,25 +149,18 @@ export default function PasskeyUpsellBanner() {
             ) : (
               <>Set up {biometric}</>
             )}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-sm"
             onClick={dismiss}
             disabled={isAdding}
             aria-label="Dismiss"
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "rgba(255,255,255,0.6)",
-              cursor: "pointer",
-              padding: "4px",
-              display: "flex",
-              alignItems: "center",
-              flexShrink: 0,
-            }}
+            className="shrink-0 text-invert-foreground/60 hover:bg-invert-foreground/10 hover:text-invert-foreground"
           >
             <X size={16} />
-          </button>
+          </Button>
         </>
       )}
     </div>

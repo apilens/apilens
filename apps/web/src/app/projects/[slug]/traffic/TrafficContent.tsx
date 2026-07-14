@@ -11,7 +11,27 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Check, ChevronDown, ChevronRight, MoreVertical, RefreshCw, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, MoreVertical, RefreshCw, Search, X } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/reui/button";
+import { Card } from "@/components/reui/card";
+import { Input } from "@/components/reui/input";
+import { Skeleton } from "@/components/reui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/reui/dropdown-menu";
+import {
+  Table as ReTable,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/reui/table";
 import Pagination from "@/components/aperture/Pagination";
 import LiveNumber from "@/components/aperture/LiveNumber";
 import LiveIndicator from "@/components/aperture/LiveIndicator";
@@ -149,16 +169,6 @@ function bucketTipLabel(b: string, rangeHours: number): string {
   }
   return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 }
-function methodColor(m: string): string {
-  const k = m.toUpperCase();
-  if (k === "GET") return "ep-method-get";
-  if (k === "POST") return "ep-method-post";
-  if (k === "PUT") return "ep-method-put";
-  if (k === "PATCH") return "ep-method-patch";
-  if (k === "DELETE") return "ep-method-delete";
-  return "ep-method-other";
-}
-
 /* ── Component ───────────────────────────────────────────────────────── */
 
 export default function TrafficContent({ projectSlug, initialFilters }: Props) {
@@ -604,14 +614,17 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
   };
 
   const sortTh = (key: SortKey, label: string) => (
-    <th
-      className={`tf-th tf-th-right${sortKey === key ? " active" : ""}`}
+    <TableHead
+      className={cn(
+        "h-auto cursor-pointer select-none whitespace-nowrap px-4 py-[11px] text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground",
+        sortKey === key && "text-primary hover:text-primary",
+      )}
       onClick={() => setSortKey(key)}
       aria-sort={sortKey === key ? "descending" : "none"}
     >
       {label}
-      <span className="tf-th-arrow">{sortKey === key ? "↓" : ""}</span>
-    </th>
+      <span className="ml-1 text-[10px]">{sortKey === key ? "↓" : ""}</span>
+    </TableHead>
   );
 
   return (
@@ -628,20 +641,22 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
 
         <LiveIndicator live={poll.live} onToggle={poll.toggle} lastTickAt={poll.lastTickAt} />
 
-        <button
+        <Button
           type="button"
-          className="tf-refresh"
+          variant="outline"
+          size="icon-sm"
+          className="size-[30px] shrink-0 text-muted-foreground hover:text-foreground"
           onClick={() => setRefreshKey((k) => k + 1)}
           title="Refresh now"
           aria-label="Refresh now"
         >
-          <RefreshCw size={14} className={loading ? "tf-spin" : ""} />
-        </button>
+          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+        </Button>
       </div>
 
       {/* ── Metrics + chart (metrics are tabs that drive the chart) ── */}
-      <section className="tf-panel">
-        <div className="tf-metrics" role="tablist" aria-label="Traffic metric">
+      <Card className="gap-0 overflow-hidden rounded-xl py-0">
+        <div className="grid auto-cols-fr grid-flow-col border-b border-border" role="tablist" aria-label="Traffic metric">
           {(Object.keys(METRICS) as MetricKey[]).map((key) => {
             const m = METRICS[key];
             const isActive = key === activeMetric;
@@ -651,21 +666,30 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                 type="button"
                 role="tab"
                 aria-selected={isActive}
-                className={`tf-metric${isActive ? " active" : ""}${m.tone ? ` tf-metric-${m.tone}` : ""}`}
+                className={cn(
+                  "relative flex min-w-0 cursor-pointer flex-col items-start gap-2 border-l border-border p-3.5 text-left transition-colors first:border-l-0 hover:bg-accent",
+                  isActive &&
+                    "bg-muted after:absolute after:-bottom-px after:-left-px after:right-0 after:h-0.5 after:bg-primary",
+                )}
                 onClick={() => selectMetric(key)}
               >
-                <span className="tf-metric-labelrow">
-                  <span className="tf-metric-label">{m.label}</span>
-                  {/* Total errors: subtle 4xx / 5xx caption in the label row, so
-                      the tile keeps the same height and the number stays clean. */}
-                  {key === "totalErr" && !loading && (
-                    <span className="tf-metric-breakdown">
-                      <span className="err-4xx">4xx {clientRate.toFixed(1)}%</span>
-                      <span className="err-5xx">5xx {serverRate.toFixed(1)}%</span>
-                    </span>
-                  )}
+                <span className="flex w-full min-w-0 items-baseline justify-between gap-2.5">
+                  <span
+                    className={cn(
+                      "min-w-0 truncate text-[11px] uppercase tracking-wider text-muted-foreground",
+                      isActive && "text-primary",
+                    )}
+                  >
+                    {m.label}
+                  </span>
                 </span>
-                <span className="tf-metric-value">
+                <span
+                  className={cn(
+                    "max-w-full truncate text-2xl font-semibold tabular-nums tracking-tight text-foreground",
+                    m.tone === "warn" && "text-warning",
+                    m.tone === "bad" && "text-destructive",
+                  )}
+                >
                   {loading ? "—" : <LiveNumber value={m.num} format={m.fmt} invertTone={m.invert} />}
                 </span>
               </button>
@@ -673,32 +697,44 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
           })}
         </div>
 
-        <div className="tf-panel-chart">
+        <div className="p-4">
           {!loading && chartData.length > 0 && active.kind === "stack" && (
-            <div className="tf-legend">
+            <div className="mb-1.5 flex justify-end gap-3.5">
               {active.series.map((s, idx) => {
                 const hidden = hiddenSeries.has(s.key);
                 return (
                   <Fragment key={s.key}>
                     {/* "4xx + 5xx = total" breakdown on the Total errors chart. */}
                     {idx > 0 && active.series.every((x) => x.pct !== undefined) && (
-                      <span className="tf-legend-op">+</span>
+                      <span className="self-center text-[11px] text-muted-foreground">+</span>
                     )}
                     <button
                       type="button"
-                      className={`tf-legend-item tf-legend-toggle${hidden ? " is-off" : ""}`}
+                      className={cn(
+                        "inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring",
+                        hidden && "opacity-50 line-through",
+                      )}
                       onClick={() => toggleSeries(s.key)}
                       aria-pressed={!hidden}
                       title={hidden ? `Show ${s.name}` : `Show only the others — hide ${s.name}`}
                     >
-                      <span className="tf-legend-dot" style={{ background: hidden ? "transparent" : s.color, borderColor: s.color }} />
-                      {s.name}{s.pct !== undefined ? ` ${s.pct.toFixed(1)}%` : ""}
+                      <span
+                        className="inline-block size-[9px] rounded-[2px] border"
+                        style={{ background: hidden ? "transparent" : s.color, borderColor: s.color }}
+                      />
+                      {s.name}
+                      {s.pct !== undefined && <span className="tabular-nums opacity-85">{s.pct.toFixed(1)}%</span>}
                     </button>
                   </Fragment>
                 );
               })}
               {active.series.every((s) => s.pct !== undefined) && (
-                <span className="tf-legend-total">= Total {totalRate.toFixed(1)}%</span>
+                <>
+                  <span className="self-center text-[11px] text-muted-foreground">=</span>
+                  <span className="inline-flex items-center pl-1.5 text-[11px] font-semibold text-foreground">
+                    Total {totalRate.toFixed(1)}%
+                  </span>
+                </>
               )}
             </div>
           )}
@@ -713,7 +749,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
               remount to stay in sync with the active tab. */}
           <div ref={stageRef} className="tf-chart-stage" style={{ height: 220, width: "100%", minWidth: 0 }}>
             {!loading && chartData.length === 0 ? (
-              <div className="tf-empty" style={{ height: "100%" }}>No traffic in this period.</div>
+              <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">No traffic in this period.</div>
             ) : stageWidth === 0 ? null : active.kind === "stack" ? (
               <BarChart key={`stack-${activeMetric}-${visibleSeries.map((s) => s.key).join("")}`} width={stageWidth} height={220} data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -8 }} barCategoryGap="18%">
                 <CartesianGrid stroke={GRID} vertical={false} />
@@ -750,78 +786,84 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
               </AreaChart>
             )}
             {loading && (
-              <div className="tf-chart-loading" aria-hidden>
+              <div
+                className="absolute inset-0 z-[1] flex items-end justify-between gap-2 bg-card pb-[30px] pl-10 pr-2 pt-2"
+                aria-hidden
+              >
                 {SKELETON_BARS.map((h, i) => (
-                  <span key={i} className="tf-skeleton-bar" style={{ height: `${h}%` }} />
+                  <Skeleton key={i} className="min-w-0 max-w-[30px] flex-1 rounded-t rounded-b-none" style={{ height: `${h}%` }} />
                 ))}
               </div>
             )}
           </div>
         </div>
-      </section>
+      </Card>
 
       {/* ── Endpoints table ── */}
-      <section className="tf-table-card">
-        <div className="tf-search-row">
-          <div className="ep-search">
-            <Search size={12} />
-            <input
+      <Card className="gap-0 overflow-hidden rounded-xl py-0">
+        <div className="flex items-center border-b border-border px-4 py-3">
+          <div className="relative w-full max-w-[360px]">
+            <Search size={12} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
               type="text"
               value={endpointSearch}
               onChange={(e) => setEndpointSearch(e.target.value)}
               placeholder="Search endpoints…"
+              className="h-[30px] rounded-full pl-8 pr-8 text-xs"
             />
             {endpointSearch && (
-              <button
+              <Button
                 type="button"
-                className="ep-search-clear"
+                variant="ghost"
+                size="icon-xs"
+                className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full text-muted-foreground"
                 onClick={() => setEndpointSearch("")}
                 aria-label="Clear search"
               >
                 <X size={12} />
-              </button>
+              </Button>
             )}
           </div>
         </div>
 
-        <div className="tf-table-wrap">
+        <div className="w-full overflow-x-auto">
           {endpointsLoading ? (
-            <div className="tf-table-skeleton" aria-hidden>
+            <div className="py-2" aria-hidden>
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="tf-skeleton-row">
-                  <span className="tf-skeleton tf-sk-method" />
-                  <span className="tf-skeleton tf-sk-path" />
-                  <span className="tf-skeleton tf-sk-num" />
+                <div key={i} className="flex items-center gap-3 px-4 py-[11px]">
+                  <Skeleton className="h-[18px] w-11 shrink-0" />
+                  <Skeleton className="h-3.5 max-w-80 flex-1" />
+                  <Skeleton className="ml-auto h-3.5 w-16 shrink-0" />
                 </div>
               ))}
             </div>
           ) : endpoints.length === 0 ? (
-            <div className="tf-list-message">
+            <div className="px-4 py-8 text-center text-[13px] text-muted-foreground">
               {debouncedSearch
                 ? "No endpoints match this search."
                 : "No endpoint activity in this period."}
             </div>
           ) : (
-            <table className="tf-table">
-              <thead>
-                <tr>
-                  <th className="tf-th tf-th-chevron" aria-hidden />
-                  <th className="tf-th tf-th-left">Endpoint</th>
+            <ReTable className="text-xs">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-10 px-2" aria-hidden />
+                  <TableHead className="h-auto px-4 py-[11px] text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Endpoint</TableHead>
                   {sortTh("total_requests", "Requests")}
                   {sortTh("client_error_rate", "Client 4xx")}
                   {sortTh("server_error_rate", "Server 5xx")}
                   {sortTh("error_rate", "Total")}
                   {sortTh("data", "Data transferred")}
-                  <th className="tf-th tf-th-actions" aria-hidden />
-                </tr>
-              </thead>
-              <tbody>
+                  <TableHead className="w-11 px-2" aria-hidden />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {endpoints.map((row) => {
                   const key = rowKey(row);
                   return (
-                  <tr
+                  <TableRow
                     key={key}
-                    className="tf-trow"
+                    className="group cursor-pointer"
                     tabIndex={0}
                     role="button"
                     onClick={() => setOpenRow(row)}
@@ -832,34 +874,45 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                       }
                     }}
                   >
-                    <td className="tf-td-chevron"><ChevronRight size={14} /></td>
-                    <td className="tf-td-ep">
-                      <span className={`ep-method ${methodColor(row.method)}`}>{row.method}</span>
-                      <span className="tf-td-path">{row.path}</span>
-                    </td>
-                    <td className="tf-td-num">
-                      <span className="tf-bar-wrap">
+                    <TableCell className="w-10 px-2 py-2.5 text-center text-muted-foreground opacity-45 transition-opacity group-hover:opacity-100">
+                      <ChevronRight size={14} />
+                    </TableCell>
+                    <TableCell className="px-4 py-2.5">
+                      <div className="flex min-w-0 max-w-[520px] items-center gap-2">
+                        <span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span>
+                        <span className="err-endpoint-path">{row.path}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                      <span className="relative inline-flex h-[18px] min-w-[120px] items-center justify-end">
                         <span
-                          className="tf-bar"
+                          className="absolute left-0 top-1/2 h-3.5 min-w-0.5 -translate-y-1/2 rounded-[3px] bg-primary/20"
                           style={{ width: `${(row.total_requests / maxRequests) * 100}%` }}
                         />
-                        <span className="tf-bar-val"><LiveNumber value={row.total_requests} format={fmtNum} hideDelta /></span>
+                        <span className="relative z-[1] pr-0.5 text-foreground"><LiveNumber value={row.total_requests} format={fmtNum} hideDelta /></span>
                       </span>
-                    </td>
-                    <td className={`tf-td-num ${(row.client_error_rate || 0) > 0 ? "err-4xx" : ""}`}>
+                    </TableCell>
+                    <TableCell className={cn("px-4 py-2.5 text-right tabular-nums text-muted-foreground", (row.client_error_rate || 0) > 0 && "text-warning")}>
                       {(row.client_error_rate || 0).toFixed(1)} %
-                    </td>
-                    <td className={`tf-td-num ${(row.server_error_rate || 0) > 0 ? "err-5xx" : ""}`}>
+                    </TableCell>
+                    <TableCell className={cn("px-4 py-2.5 text-right tabular-nums text-muted-foreground", (row.server_error_rate || 0) > 0 && "text-destructive")}>
                       {(row.server_error_rate || 0).toFixed(1)} %
-                    </td>
-                    <td className={`tf-td-num ${(row.error_rate || 0) >= 5 ? "tf-err-bad" : (row.error_rate || 0) >= 1 ? "tf-err-warn" : ""}`}>
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        "px-4 py-2.5 text-right tabular-nums text-muted-foreground",
+                        (row.error_rate || 0) >= 5 ? "text-destructive" : (row.error_rate || 0) >= 1 ? "text-warning" : "",
+                      )}
+                    >
                       {(row.error_rate || 0).toFixed(1)} %
-                    </td>
-                    <td className="tf-td-num">{fmtBytes(dataBytes(row))}</td>
-                    <td className="tf-td-actions" onClick={(e) => e.stopPropagation()}>
-                      <button
+                    </TableCell>
+                    <TableCell className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{fmtBytes(dataBytes(row))}</TableCell>
+                    <TableCell className="relative w-11 px-2 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                      <Button
                         type="button"
-                        className="tf-kebab"
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-muted-foreground opacity-55 transition-opacity hover:text-foreground group-hover:opacity-100"
                         aria-label="Endpoint actions"
                         aria-haspopup="menu"
                         aria-expanded={kebabRow === key}
@@ -869,12 +922,15 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                         }}
                       >
                         <MoreVertical size={15} />
-                      </button>
+                      </Button>
                       {kebabRow === key && (
-                        <div className="tf-kebab-menu" role="menu">
+                        <div
+                          className="absolute right-2 top-[calc(100%-4px)] z-40 min-w-[150px] rounded-lg border border-border bg-popover p-1 text-left shadow-lg"
+                          role="menu"
+                        >
                           <button
                             type="button"
-                            className="tf-kebab-opt"
+                            className="block w-full cursor-pointer rounded-md px-2.5 py-[7px] text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
                             role="menuitem"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -886,7 +942,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                           </button>
                           <button
                             type="button"
-                            className="tf-kebab-opt"
+                            className="block w-full cursor-pointer rounded-md px-2.5 py-[7px] text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
                             role="menuitem"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -897,18 +953,18 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                           </button>
                         </div>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </ReTable>
           )}
         </div>
 
         {!endpointsLoading && endpointTotal > 0 && (
-          <div className="tf-pagination">
-            <span className="tf-pagination-info">
+          <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2.5">
+            <span className="text-xs text-muted-foreground">
               Showing {((currentPage - 1) * EP_PAGE_SIZE + 1).toLocaleString()}–
               {Math.min(currentPage * EP_PAGE_SIZE, endpointTotal).toLocaleString()} of{" "}
               {endpointTotal.toLocaleString()} endpoint{endpointTotal === 1 ? "" : "s"}
@@ -916,7 +972,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
             <Pagination page={currentPage} totalPages={totalPages} onChange={setEndpointPage} />
           </div>
         )}
-      </section>
+      </Card>
 
       {openRow && (
         <EndpointDetailInspector
@@ -947,17 +1003,6 @@ function AppFilter({
   onChange: (slugs: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    if (open) {
-      document.addEventListener("mousedown", onClickOutside);
-      return () => document.removeEventListener("mousedown", onClickOutside);
-    }
-  }, [open]);
 
   if (apps.length === 0) return null;
 
@@ -976,49 +1021,43 @@ function AppFilter({
   };
 
   return (
-    <div className="tf-appfilter" ref={ref}>
-      <button
-        type="button"
-        className="tf-appfilter-trigger"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-      >
-        <span className="tf-appfilter-label">{label}</span>
-        <ChevronDown size={14} className="tf-appfilter-icon" />
-      </button>
-
-      {open && (
-        <div className="tf-appfilter-menu">
-          <button
-            type="button"
-            className="tf-appfilter-opt tf-appfilter-all"
-            onClick={() => onChange(allSelected ? [] : apps.map((a) => a.slug))}
-          >
-            <span className={`tf-appfilter-check${allSelected ? " on" : ""}`}>
-              {allSelected && <Check size={12} />}
-            </span>
-            <span className="tf-appfilter-name">All apps</span>
-          </button>
-          <div className="tf-appfilter-divider" />
-          {apps.map((app) => {
-            const on = selected.includes(app.slug);
-            return (
-              <button
-                key={app.slug}
-                type="button"
-                className="tf-appfilter-opt"
-                onClick={() => toggle(app.slug)}
-              >
-                <span className={`tf-appfilter-check${on ? " on" : ""}`}>
-                  {on && <Check size={12} />}
-                </span>
-                <span className="tf-appfilter-name">{app.name}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-[30px] shrink-0 gap-1.5 px-2.5 text-xs font-normal"
+        >
+          <span className="max-w-[140px] truncate">{label}</span>
+          <ChevronDown size={14} className="text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuCheckboxItem
+          checked={allSelected}
+          className="font-semibold"
+          onSelect={(e) => e.preventDefault()}
+          onCheckedChange={() => onChange(allSelected ? [] : apps.map((a) => a.slug))}
+        >
+          <span className="truncate">All apps</span>
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        {apps.map((app) => {
+          const on = selected.includes(app.slug);
+          return (
+            <DropdownMenuCheckboxItem
+              key={app.slug}
+              checked={on}
+              onSelect={(e) => e.preventDefault()}
+              onCheckedChange={() => toggle(app.slug)}
+            >
+              <span className="truncate">{app.name}</span>
+            </DropdownMenuCheckboxItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

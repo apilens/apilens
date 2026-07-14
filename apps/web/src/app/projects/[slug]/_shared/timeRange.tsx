@@ -1,7 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/reui/badge";
+import { Button } from "@/components/reui/button";
+import { Input } from "@/components/reui/input";
+import { Separator } from "@/components/reui/separator";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/reui/popover";
 
 /* Shared time-range picker used by Traffic, Request logs, etc.
    A range is either a named preset (rolling window or calendar-aligned) or a
@@ -136,17 +146,6 @@ export function TimeRangePicker({
   const [from, setFrom] = useState(() => toLocalInput(resolved.since));
   const [to, setTo] = useState(() => toLocalInput(resolved.until));
   const [error, setError] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    if (open) {
-      document.addEventListener("mousedown", onClickOutside);
-      return () => document.removeEventListener("mousedown", onClickOutside);
-    }
-  }, [open]);
 
   // Seed the custom inputs from the live window each time the menu opens.
   useEffect(() => {
@@ -183,81 +182,87 @@ export function TimeRangePicker({
     setOpen(false);
   };
 
-  return (
-    <div className="tf-range" ref={ref}>
-      <button
-        type="button"
-        className="tf-range-trigger"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-      >
-        <span className="tf-range-label">{resolved.label}</span>
-        <ChevronDown size={14} className="tf-range-chev" />
-      </button>
-
-      {open && (
-        <div className="tf-range-menu" role="dialog" aria-label="Select time range">
-          <div className="tf-range-presets">
-            <p className="tf-range-heading">Quick ranges</p>
-            {ROLLING_PRESETS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                className={`tf-range-opt${isPreset(p.id) ? " active" : ""}`}
-                onClick={() => pickPreset(p.id)}
-              >
-                <span>{p.label}</span>
-                {isPreset(p.id) && <Check size={13} />}
-              </button>
-            ))}
-            <div className="tf-range-divider" />
-            <p className="tf-range-heading">Calendar</p>
-            {CALENDAR_PRESETS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                className={`tf-range-opt${isPreset(p.id) ? " active" : ""}`}
-                onClick={() => pickPreset(p.id)}
-              >
-                <span>{p.label}</span>
-                {isPreset(p.id) && <Check size={13} />}
-              </button>
-            ))}
-          </div>
-
-          <div className="tf-range-custom">
-            <p className="tf-range-heading">
-              Custom range
-              {value.type === "custom" && <span className="tf-range-active-pill">Active</span>}
-            </p>
-            <label className="tf-range-field">
-              <span>From</span>
-              <input
-                type="datetime-local"
-                className="tf-range-input"
-                value={from}
-                max={to || undefined}
-                onChange={(e) => setFrom(e.target.value)}
-              />
-            </label>
-            <label className="tf-range-field">
-              <span>To</span>
-              <input
-                type="datetime-local"
-                className="tf-range-input"
-                value={to}
-                min={from || undefined}
-                onChange={(e) => setTo(e.target.value)}
-              />
-            </label>
-            {error && <p className="tf-range-error">{error}</p>}
-            <button type="button" className="tf-range-apply" onClick={applyCustom}>
-              Apply custom range
-            </button>
-          </div>
-        </div>
+  const presetButton = (p: { id: string; label: string }) => (
+    <button
+      key={p.id}
+      type="button"
+      className={cn(
+        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[12.5px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+        isPreset(p.id) && "font-semibold text-primary hover:text-primary",
       )}
-    </div>
+      onClick={() => pickPreset(p.id)}
+    >
+      <span>{p.label}</span>
+      {isPreset(p.id) && <Check size={13} className="text-primary" />}
+    </button>
+  );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-[30px] gap-1.5 rounded-lg px-2.5 text-xs font-medium data-[state=open]:border-primary"
+        >
+          <span className="whitespace-nowrap">{resolved.label}</span>
+          <ChevronDown size={14} className="text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        aria-label="Select time range"
+        className="flex w-[420px] max-w-[calc(100vw-32px)] flex-col overflow-hidden p-0 sm:flex-row"
+      >
+        <div className="shrink-0 border-b border-border p-2 sm:w-[190px] sm:border-b-0 sm:border-r">
+          <p className="mx-1 mb-1.5 mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Quick ranges
+          </p>
+          {ROLLING_PRESETS.map(presetButton)}
+          <Separator className="my-1.5" />
+          <p className="mx-1 mb-1.5 mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Calendar
+          </p>
+          {CALENDAR_PRESETS.map(presetButton)}
+        </div>
+
+        <div className="flex flex-1 flex-col gap-2 p-3">
+          <p className="mx-1 mb-0.5 mt-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Custom range
+            {value.type === "custom" && (
+              <Badge variant="primary-light" size="sm" radius="full" className="normal-case tracking-normal">
+                Active
+              </Badge>
+            )}
+          </p>
+          <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+            <span>From</span>
+            <Input
+              type="datetime-local"
+              className="h-8 rounded-lg px-2 text-xs dark:[color-scheme:dark]"
+              value={from}
+              max={to || undefined}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+            <span>To</span>
+            <Input
+              type="datetime-local"
+              className="h-8 rounded-lg px-2 text-xs dark:[color-scheme:dark]"
+              value={to}
+              min={from || undefined}
+              onChange={(e) => setTo(e.target.value)}
+            />
+          </label>
+          {error && <p className="m-0 text-[11px] text-destructive">{error}</p>}
+          <Button size="sm" className="mt-auto h-8 text-xs font-semibold" onClick={applyCustom}>
+            Apply custom range
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

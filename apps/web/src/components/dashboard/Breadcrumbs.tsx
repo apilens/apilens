@@ -85,24 +85,24 @@ export default function Breadcrumbs({ projectSlug }: BreadcrumbsProps) {
   }
 
   return (
-    <nav className="breadcrumbs" aria-label="Breadcrumb">
-      <ol className="breadcrumbs-list">
+    <nav className="flex items-center" aria-label="Breadcrumb">
+      <ol className="m-0 flex list-none items-center gap-1.5 p-0">
         {crumbs.map((crumb, index) => {
           const isLast = index === crumbs.length - 1;
           return (
-            <li key={`${crumb.label}-${index}`} className="breadcrumbs-item">
+            <li key={`${crumb.label}-${index}`} className="flex items-center gap-1.5">
               {index > 0 && (
-                <ChevronRight size={14} className="breadcrumbs-separator" />
+                <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
               )}
               {crumb.href && !isLast ? (
                 <Link
                   href={crumb.href}
-                  className="breadcrumbs-link"
+                  className="text-[13px] text-muted-foreground no-underline transition-colors hover:text-foreground"
                 >
                   {crumb.label}
                 </Link>
               ) : (
-                <span className="breadcrumbs-current">{crumb.label}</span>
+                <span className="text-[13px] font-semibold text-foreground">{crumb.label}</span>
               )}
             </li>
           );

@@ -2,7 +2,12 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowRight, Loader2, Mail } from "lucide-react";
+import { ArrowRight, Info, Loader2, Mail } from "lucide-react";
+import { Button } from "@/components/reui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/reui/card";
+import { Input } from "@/components/reui/input";
+import { Label } from "@/components/reui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/reui/alert";
 
 /**
  * Signup flow — explicit entry point for new users.
@@ -40,6 +45,18 @@ function BrandingPanel() {
         <a href="https://apilens.ai/terms" className="auth-footer-link">Terms</a>
         <span className="auth-footer-sep" />
         <a href="https://apilens.ai/privacy" className="auth-footer-link">Privacy</a>
+      </div>
+    </div>
+  );
+}
+
+/** Shared right-panel wrapper: keeps the split layout contract classes. */
+function AuthShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="auth-split">
+      <BrandingPanel />
+      <div className="auth-panel">
+        <div className="auth-panel-inner">{children}</div>
       </div>
     </div>
   );
@@ -127,164 +144,154 @@ function SignupContent() {
 
   if (sent) {
     return (
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            <div className="auth-card auth-status-card">
-              <div className="auth-icon-primary">
-                <Mail size={24} strokeWidth={1.7} />
-              </div>
-              <h1 className="auth-title">Check your email</h1>
-              <p className="auth-description auth-status-description">
-                We sent a link to finish creating your account.
-              </p>
-              <p className="auth-status-email">
-                <span className="auth-status-email-label">Sent to</span>
-                <strong>{email}</strong>
-              </p>
-              <div className="auth-status-actions" style={{ marginTop: "20px" }}>
-                <button
-                  type="button"
-                  className="auth-link-btn"
-                  onClick={() => setSent(false)}
-                >
-                  Use a different email
-                </button>
-                <span className="auth-footer-sep" aria-hidden="true" />
-                <a href="/auth/login" className="auth-link-btn">
-                  Back to sign in
-                </a>
-              </div>
-            </div>
+      <AuthShell>
+        <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Mail size={24} strokeWidth={1.7} />
           </div>
-        </div>
-      </div>
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">Check your email</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              We sent a link to finish creating your account.
+            </p>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            <span className="mr-1.5">Sent to</span>
+            <strong className="text-foreground">{email}</strong>
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto text-muted-foreground hover:text-foreground"
+              onClick={() => setSent(false)}
+            >
+              Use a different email
+            </Button>
+            <span className="h-3 w-px bg-border" aria-hidden="true" />
+            <Button
+              asChild
+              variant="link"
+              size="sm"
+              className="h-auto text-muted-foreground hover:text-foreground"
+            >
+              <a href="/auth/login">Back to sign in</a>
+            </Button>
+          </div>
+        </Card>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="auth-split">
-      <BrandingPanel />
-      <div className="auth-panel">
-        <div className="auth-panel-inner">
-          <div className="auth-card">
-            <p className="auth-mobile-logo">API Lens</p>
-            <div className="auth-header">
-              <h1 className="auth-title">Create your account</h1>
-              <p className="auth-description">
-                Free to start. No credit card required.
-              </p>
-            </div>
-
-            <form onSubmit={handleSubmit} className="auth-form auth-form-tight">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                <div className="auth-input-group">
-                  <label htmlFor="first-name" className="auth-label">First name</label>
-                  <input
-                    id="first-name"
-                    type="text"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="Ada"
-                    className="auth-input"
-                    autoComplete="given-name"
-                    disabled={isSubmitting}
-                  />
-                </div>
-                <div className="auth-input-group">
-                  <label htmlFor="last-name" className="auth-label">Last name</label>
-                  <input
-                    id="last-name"
-                    type="text"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    placeholder="Lovelace"
-                    className="auth-input"
-                    autoComplete="family-name"
-                    disabled={isSubmitting}
-                  />
-                </div>
-              </div>
-
-              <div className="auth-input-group">
-                <label htmlFor="email" className="auth-label">Work email</label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    setError("");
-                    setAccountExists(false);
-                  }}
-                  placeholder="you@company.com"
-                  className="auth-input"
-                  required
-                  autoFocus
-                  autoComplete="email"
+    <AuthShell>
+      <Card className="w-full gap-5">
+        <CardHeader className="text-center">
+          <p className="auth-mobile-logo">API Lens</p>
+          <CardTitle className="text-xl">Create your account</CardTitle>
+          <CardDescription>
+            Free to start. No credit card required.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-2">
+                <Label htmlFor="first-name">First name</Label>
+                <Input
+                  id="first-name"
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Ada"
+                  autoComplete="given-name"
                   disabled={isSubmitting}
                 />
               </div>
+              <div className="grid gap-2">
+                <Label htmlFor="last-name">Last name</Label>
+                <Input
+                  id="last-name"
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Lovelace"
+                  autoComplete="family-name"
+                  disabled={isSubmitting}
+                />
+              </div>
+            </div>
 
-              {accountExists && (
-                <div
-                  role="status"
-                  style={{
-                    padding: "12px 14px",
-                    background: "#eff6ff",
-                    border: "1px solid #bfdbfe",
-                    borderRadius: "8px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "10px",
-                  }}
-                >
-                  <p style={{ margin: 0, fontSize: "13px", color: "#1e3a8a", lineHeight: 1.5 }}>
-                    <strong>This email is already registered.</strong> Sign in instead, or pick a different email below.
-                  </p>
-                  <a
-                    href={`/auth/login?email=${encodeURIComponent(email)}`}
-                    className="settings-btn settings-btn-primary settings-btn-sm"
-                    style={{ alignSelf: "flex-start", textDecoration: "none" }}
-                  >
-                    Sign in as {email} <ArrowRight size={14} />
-                  </a>
-                </div>
+            <div className="grid gap-2">
+              <Label htmlFor="email">Work email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setError("");
+                  setAccountExists(false);
+                }}
+                placeholder="you@company.com"
+                required
+                autoFocus
+                autoComplete="email"
+                disabled={isSubmitting}
+              />
+            </div>
+
+            {accountExists && (
+              <Alert variant="info" role="status">
+                <Info />
+                <AlertTitle>This email is already registered.</AlertTitle>
+                <AlertDescription>
+                  Sign in instead, or pick a different email below.
+                  <Button asChild variant="outline" size="sm" className="mt-1">
+                    <a href={`/auth/login?email=${encodeURIComponent(email)}`}>
+                      Sign in as {email} <ArrowRight size={14} />
+                    </a>
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isSubmitting || !email || accountExists}
+            >
+              {isSubmitting ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <>Create account <ArrowRight size={14} /></>
               )}
+            </Button>
 
-              {error && <p className="auth-error">{error}</p>}
+            <p className="mt-2 text-center text-xs leading-relaxed text-muted-foreground">
+              By continuing you agree to our{" "}
+              <a href="https://apilens.ai/terms" className="font-medium text-primary hover:underline">Terms</a>
+              {" "}and{" "}
+              <a href="https://apilens.ai/privacy" className="font-medium text-primary hover:underline">Privacy Policy</a>.
+            </p>
 
-              <button
-                type="submit"
-                className="auth-submit-btn"
-                disabled={isSubmitting || !email || accountExists}
-              >
-                {isSubmitting ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <>Create account <ArrowRight size={14} /></>
-                )}
-              </button>
-
-              <p className="auth-footer-note" style={{ marginTop: "16px", fontSize: "12px", lineHeight: 1.5 }}>
-                By continuing you agree to our{" "}
-                <a href="https://apilens.ai/terms" className="auth-footer-link-btn">Terms</a>
-                {" "}and{" "}
-                <a href="https://apilens.ai/privacy" className="auth-footer-link-btn">Privacy Policy</a>.
-              </p>
-
-              <p className="auth-footer-note">
-                Already have an account?{" "}
-                <a href="/auth/login" className="auth-footer-link-btn">
-                  Sign in
-                </a>
-              </p>
-            </form>
-          </div>
-        </div>
-      </div>
-    </div>
+            <p className="text-center text-sm text-muted-foreground">
+              Already have an account?{" "}
+              <a href="/auth/login" className="font-medium text-primary hover:underline">
+                Sign in
+              </a>
+            </p>
+          </form>
+        </CardContent>
+      </Card>
+    </AuthShell>
   );
 }
 
@@ -292,18 +299,11 @@ export default function SignupPage() {
   return (
     <Suspense
       fallback={
-        <div className="auth-split">
-          <BrandingPanel />
-          <div className="auth-panel">
-            <div className="auth-panel-inner">
-              <div className="auth-card">
-                <div className="auth-header">
-                  <Loader2 size={24} className="animate-spin" style={{ margin: "0 auto" }} />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AuthShell>
+          <Card className="w-full items-center px-6 py-8">
+            <Loader2 size={24} className="animate-spin text-muted-foreground" />
+          </Card>
+        </AuthShell>
       }
     >
       <SignupContent />

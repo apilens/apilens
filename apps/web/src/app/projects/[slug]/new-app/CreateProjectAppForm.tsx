@@ -2,7 +2,20 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, CheckCircle2, XCircle, Copy, Check } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Copy, Check, AlertCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/reui/button";
+import { Input } from "@/components/reui/input";
+import { Label } from "@/components/reui/label";
+import { Textarea } from "@/components/reui/textarea";
+import { Alert, AlertDescription } from "@/components/reui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/reui/select";
 
 type FrameworkId = "fastapi" | "flask" | "django" | "starlette";
 
@@ -176,16 +189,20 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
     : "idle";
 
   return (
-    <form onSubmit={handleSubmit} className="create-app-form">
-      {error && <div className="create-app-error">{error}</div>}
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
-      <div className="create-app-field">
-        <label htmlFor="app-name" className="create-app-label">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="app-name" className="text-[13px]">
           App name
-        </label>
-        <input
+        </Label>
+        <Input
           id="app-name"
-          className="create-app-input"
           value={name}
           onChange={(e) => {
             const newName = e.target.value;
@@ -201,34 +218,43 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
         />
       </div>
 
-      <div className="create-app-field">
-        <label htmlFor="project-slug" className="create-app-label">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="project-slug" className="text-[13px]">
           Project slug
-        </label>
-        <div className="settings-inline-field">
-          <div id="project-slug" className="settings-inline-value" aria-readonly="true">
-            <code className="settings-inline-code">{projectSlug}</code>
+        </Label>
+        <div className="flex items-center gap-2">
+          <div
+            id="project-slug"
+            aria-readonly="true"
+            className="flex h-9 min-w-0 flex-1 items-center rounded-md border border-border bg-muted px-3"
+          >
+            <code className="truncate font-mono text-[13px] text-foreground">{projectSlug}</code>
           </div>
-          <button
+          <Button
             type="button"
-            className="settings-btn settings-btn-secondary settings-btn-sm settings-inline-action"
+            variant="outline"
+            size="sm"
             onClick={handleCopyProjectSlug}
           >
             {copiedProjectSlug ? <Check size={14} /> : <Copy size={14} />}
             {copiedProjectSlug ? "Copied" : "Copy"}
-          </button>
+          </Button>
         </div>
-        <p className="settings-inline-help">This stays fixed for every app inside this project.</p>
+        <p className="text-xs text-muted-foreground">This stays fixed for every app inside this project.</p>
       </div>
 
-      <div className="create-app-field">
-        <label htmlFor="app-slug" className="create-app-label">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="app-slug" className="text-[13px]">
           App ID
-        </label>
-        <div className="create-app-slug-input-wrap">
-          <input
+        </Label>
+        <div className="relative">
+          <Input
             id="app-slug"
-            className={`create-app-input create-app-slug-input ${slugState === "error" ? "create-app-input-error" : slugState === "valid" ? "create-app-input-valid" : ""}`}
+            aria-invalid={slugState === "error" || undefined}
+            className={cn(
+              "pr-9",
+              slugState === "valid" && "border-success focus-visible:border-success focus-visible:ring-success/20",
+            )}
             value={slug}
             onChange={(e) => {
               const value = e.target.value.toLowerCase();
@@ -240,18 +266,24 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
             required
           />
           {slugTouched && (
-            <div className="create-app-slug-indicator">
+            <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
               {slugChecking ? (
-                <Loader2 size={16} className="animate-spin" style={{ color: "var(--text-secondary)" }} />
+                <Loader2 size={16} className="animate-spin text-muted-foreground" />
               ) : slugError ? (
-                <XCircle size={16} style={{ color: "#ef4444" }} />
+                <XCircle size={16} className="text-destructive" />
               ) : (
-                <CheckCircle2 size={16} style={{ color: "#10b981" }} />
+                <CheckCircle2 size={16} className="text-success" />
               )}
             </div>
           )}
         </div>
-        <div className={`create-app-slug-help ${slugState === "error" ? "create-app-slug-help-error" : slugState === "valid" ? "create-app-slug-help-valid" : ""}`}>
+        <div
+          className={cn(
+            "text-xs text-muted-foreground",
+            slugState === "error" && "text-destructive",
+            slugState === "valid" && "text-success",
+          )}
+        >
           {slugState === "checking" && "Checking availability for this app ID."}
           {slugState === "error" && slugError}
           {slugState === "valid" && "Available. This will be used as app_id in the SDK."}
@@ -259,13 +291,12 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
         </div>
       </div>
 
-      <div className="create-app-field">
-        <label htmlFor="app-description" className="create-app-label">
-          Description <span className="create-app-optional">(optional)</span>
-        </label>
-        <textarea
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="app-description" className="text-[13px]">
+          Description <span className="font-normal text-muted-foreground">(optional)</span>
+        </Label>
+        <Textarea
           id="app-description"
-          className="create-app-textarea"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="What does this service do?"
@@ -274,35 +305,37 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
         />
       </div>
 
-      <div className="create-app-field">
-        <label htmlFor="app-framework" className="create-app-label">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="app-framework" className="text-[13px]">
           Framework
-        </label>
-        <select
-          id="app-framework"
-          className="create-app-input"
+        </Label>
+        <Select
           value={framework}
-          onChange={(e) => setFramework(e.target.value as FrameworkId)}
+          onValueChange={(value) => setFramework(value as FrameworkId)}
         >
-          {FRAMEWORK_OPTIONS.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="app-framework" className="w-full">
+            <SelectValue placeholder="Select a framework" />
+          </SelectTrigger>
+          <SelectContent>
+            {FRAMEWORK_OPTIONS.map((option) => (
+              <SelectItem key={option.id} value={option.id}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      <div className="create-app-actions">
-        <button
+      <div className="flex justify-end gap-2 pt-2">
+        <Button
           type="button"
-          className="settings-btn settings-btn-secondary"
+          variant="outline"
           onClick={() => router.push(`/projects/${projectSlug}`)}
         >
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
           type="submit"
-          className="settings-btn settings-btn-primary"
           disabled={isCreating || !name.trim() || !slug.trim() || !!slugError || slugChecking}
         >
           {isCreating ? (
@@ -313,7 +346,7 @@ export default function CreateProjectAppForm({ projectSlug }: CreateProjectAppFo
           ) : (
             "Create App"
           )}
-        </button>
+        </Button>
       </div>
     </form>
   );

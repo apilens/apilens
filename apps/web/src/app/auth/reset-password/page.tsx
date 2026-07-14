@@ -4,6 +4,11 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import PasswordStrengthMeter from "@/components/settings/PasswordStrengthMeter";
+import { Button } from "@/components/reui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/reui/card";
+import { Input } from "@/components/reui/input";
+import { Label } from "@/components/reui/label";
+import { Alert, AlertDescription } from "@/components/reui/alert";
 
 function BrandingPanel() {
   return (
@@ -28,6 +33,18 @@ function BrandingPanel() {
         <a href="https://apilens.ai/terms" className="auth-footer-link">Terms</a>
         <span className="auth-footer-sep" />
         <a href="https://apilens.ai/privacy" className="auth-footer-link">Privacy</a>
+      </div>
+    </div>
+  );
+}
+
+/** Shared right-panel wrapper: keeps the split layout contract classes. */
+function AuthShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="auth-split">
+      <BrandingPanel />
+      <div className="auth-panel">
+        <div className="auth-panel-inner">{children}</div>
       </div>
     </div>
   );
@@ -131,188 +148,164 @@ function ResetPasswordContent() {
 
   if (isVerifying) {
     return (
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            <div className="auth-card">
-              <div className="auth-header">
-                <Loader2 size={32} className="animate-spin" style={{ margin: "0 auto 16px" }} />
-                <h1 className="auth-title">Verifying reset link...</h1>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <AuthShell>
+        <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+          <Loader2 size={32} className="animate-spin text-muted-foreground" />
+          <h1 className="text-xl font-semibold text-foreground">Verifying reset link...</h1>
+        </Card>
+      </AuthShell>
     );
   }
 
   if (!tokenValid) {
     return (
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            <div className="auth-card">
-              <div className="auth-icon-error" style={{ color: "#dc3545", margin: "0 auto 16px" }}>
-                <AlertCircle size={36} strokeWidth={1.5} />
-              </div>
-              <div className="auth-header">
-                <h1 className="auth-title">Invalid reset link</h1>
-                <p className="auth-description">
-                  {error || "This password reset link is invalid or has expired."}
-                </p>
-              </div>
-              <a href="/auth/login" className="auth-submit-btn" style={{ display: "block", textAlign: "center", textDecoration: "none" }}>
-                Request a new reset link
-              </a>
-            </div>
+      <AuthShell>
+        <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+            <AlertCircle size={36} strokeWidth={1.5} />
           </div>
-        </div>
-      </div>
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">Invalid reset link</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {error || "This password reset link is invalid or has expired."}
+            </p>
+          </div>
+          <Button asChild className="w-full">
+            <a href="/auth/login">Request a new reset link</a>
+          </Button>
+        </Card>
+      </AuthShell>
     );
   }
 
   if (success) {
     return (
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            <div className="auth-card">
-              <div className="auth-icon-success" style={{ color: "#28a745", margin: "0 auto 16px" }}>
-                <CheckCircle size={36} strokeWidth={1.5} />
-              </div>
-              <div className="auth-header">
-                <h1 className="auth-title">Password reset successful</h1>
-                <p className="auth-description">
-                  Your password has been reset. Redirecting you to login...
-                </p>
-              </div>
-            </div>
+      <AuthShell>
+        <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-success/10 text-success">
+            <CheckCircle size={36} strokeWidth={1.5} />
           </div>
-        </div>
-      </div>
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">Password reset successful</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Your password has been reset. Redirecting you to login...
+            </p>
+          </div>
+        </Card>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="auth-split">
-      <BrandingPanel />
-      <div className="auth-panel">
-        <div className="auth-panel-inner">
-          <div className="auth-card">
-            <p className="auth-mobile-logo">API Lens</p>
-            <div className="auth-header">
-              <h1 className="auth-title">Set new password</h1>
-              <p className="auth-description">
-                Choose a strong password for your account.
-              </p>
+    <AuthShell>
+      <Card className="w-full gap-5">
+        <CardHeader className="text-center">
+          <p className="auth-mobile-logo">API Lens</p>
+          <CardTitle className="text-xl">Set new password</CardTitle>
+          <CardDescription>
+            Choose a strong password for your account.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="new-password">New password</Label>
+              <div className="relative">
+                <Input
+                  id="new-password"
+                  type={showNew ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Enter new password"
+                  className="pr-9"
+                  required
+                  autoFocus
+                  autoComplete="new-password"
+                  disabled={isSubmitting}
+                />
+                <button
+                  type="button"
+                  className="absolute inset-y-0 right-0 flex items-center px-2.5 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowNew(!showNew)}
+                  tabIndex={-1}
+                >
+                  {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              <PasswordStrengthMeter password={newPassword} />
             </div>
 
-            <form onSubmit={handleSubmit} className="auth-form">
-              <div className="auth-input-group">
-                <label htmlFor="new-password" className="auth-label">
-                  New password
-                </label>
-                <div className="auth-input-wrapper">
-                  <input
-                    id="new-password"
-                    type={showNew ? "text" : "password"}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Enter new password"
-                    className="auth-input"
-                    required
-                    autoFocus
-                    autoComplete="new-password"
-                    disabled={isSubmitting}
-                  />
-                  <button
-                    type="button"
-                    className="auth-input-toggle"
-                    onClick={() => setShowNew(!showNew)}
-                    tabIndex={-1}
-                  >
-                    {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-                <PasswordStrengthMeter password={newPassword} />
+            <div className="grid gap-2">
+              <Label htmlFor="confirm-password">Confirm password</Label>
+              <div className="relative">
+                <Input
+                  id="confirm-password"
+                  type={showConfirm ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Confirm new password"
+                  className="pr-9"
+                  required
+                  autoComplete="new-password"
+                  disabled={isSubmitting}
+                />
+                <button
+                  type="button"
+                  className="absolute inset-y-0 right-0 flex items-center px-2.5 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowConfirm(!showConfirm)}
+                  tabIndex={-1}
+                >
+                  {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
+            </div>
 
-              <div className="auth-input-group">
-                <label htmlFor="confirm-password" className="auth-label">
-                  Confirm password
-                </label>
-                <div className="auth-input-wrapper">
-                  <input
-                    id="confirm-password"
-                    type={showConfirm ? "text" : "password"}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Confirm new password"
-                    className="auth-input"
-                    required
-                    autoComplete="new-password"
-                    disabled={isSubmitting}
-                  />
-                  <button
-                    type="button"
-                    className="auth-input-toggle"
-                    onClick={() => setShowConfirm(!showConfirm)}
-                    tabIndex={-1}
+            {error && (
+              <>
+                <Alert variant="destructive">
+                  <AlertCircle />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+                {(error.toLowerCase().includes("invalid") || error.toLowerCase().includes("expired")) && (
+                  <Button
+                    asChild
+                    variant="link"
+                    size="sm"
+                    className="h-auto self-center text-muted-foreground hover:text-foreground"
                   >
-                    {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
-
-              {error && (
-                <>
-                  <p className="auth-error">{error}</p>
-                  {(error.toLowerCase().includes("invalid") || error.toLowerCase().includes("expired")) && (
-                    <a href="/auth/login" className="auth-link-btn">
-                      Request a new reset link
-                    </a>
-                  )}
-                </>
-              )}
-
-              <button
-                type="submit"
-                className="auth-submit-btn"
-                disabled={isSubmitting || !newPassword || !confirmPassword}
-              >
-                {isSubmitting ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  "Set new password"
+                    <a href="/auth/login">Request a new reset link</a>
+                  </Button>
                 )}
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-    </div>
+              </>
+            )}
+
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isSubmitting || !newPassword || !confirmPassword}
+            >
+              {isSubmitting ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                "Set new password"
+              )}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </AuthShell>
   );
 }
 
 export default function ResetPasswordPage() {
   return (
     <Suspense fallback={
-      <div className="auth-split">
-        <BrandingPanel />
-        <div className="auth-panel">
-          <div className="auth-panel-inner">
-            <div className="auth-card">
-              <div className="auth-header">
-                <Loader2 size={32} className="animate-spin" style={{ margin: "0 auto 16px" }} />
-                <h1 className="auth-title">Loading...</h1>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <AuthShell>
+        <Card className="w-full items-center gap-4 px-6 py-8 text-center">
+          <Loader2 size={32} className="animate-spin text-muted-foreground" />
+          <h1 className="text-xl font-semibold text-foreground">Loading...</h1>
+        </Card>
+      </AuthShell>
     }>
       <ResetPasswordContent />
     </Suspense>

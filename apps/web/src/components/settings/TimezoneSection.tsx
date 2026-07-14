@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Loader2, Check } from "lucide-react";
 import SettingsCard from "./SettingsCard";
+import { cn } from "@/lib/utils";
+import { Input } from "@/components/reui/input";
 
 interface TimezoneSectionProps {
   timezone: string;
@@ -124,46 +126,59 @@ export default function TimezoneSection({ timezone, onUpdateTimezone }: Timezone
       title="Timezone"
       description="Affects how dates and times appear across the app"
     >
-      <div className="profile-timezone-row">
-        <span className="profile-timezone-label">Timezone</span>
-        <div className="timezone-combobox" ref={containerRef}>
+      <div className="flex items-center gap-3">
+        <span className="w-23 shrink-0 text-[13px] font-medium text-muted-foreground">
+          Timezone
+        </span>
+        <div className="relative min-w-0 flex-1" ref={containerRef}>
           <button
             type="button"
-            className="profile-timezone-select timezone-trigger"
+            className={cn(
+              "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 text-left text-[13px] text-foreground shadow-xs transition-[color,box-shadow] outline-none",
+              "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
+              "disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50",
+            )}
             onClick={() => setOpen((prev) => !prev)}
             disabled={isSaving}
             aria-haspopup="listbox"
             aria-expanded={open}
           >
-            <span className="timezone-trigger-value" style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-              {timezone}
+            <span className="inline-flex min-w-0 items-center gap-2">
+              <span className="truncate">{timezone}</span>
               {offsetLabel && (
-                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{offsetLabel}</span>
+                <span className="shrink-0 text-[11px] text-muted-foreground">{offsetLabel}</span>
               )}
             </span>
-            <span className="timezone-trigger-icon" aria-hidden="true">
+            <span className="shrink-0 text-muted-foreground" aria-hidden="true">
               {isSaving ? (
                 <Loader2 size={14} className="animate-spin" />
               ) : justSaved ? (
-                <Check size={14} style={{ color: "var(--success, #16a34a)" }} />
+                <Check size={14} className="text-success" />
               ) : (
                 <ChevronDown size={14} />
               )}
             </span>
           </button>
           {open && (
-            <div className="timezone-dropdown" role="listbox">
-              <input
-                type="text"
-                className="timezone-search-input"
-                placeholder="Search by city, region, or abbreviation (EST, IST, …)"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                autoFocus
-              />
-              <div className="timezone-options">
+            <div
+              className="absolute left-0 right-0 top-full z-50 mt-1 flex max-h-72 flex-col overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+              role="listbox"
+            >
+              <div className="border-b border-border p-2">
+                <Input
+                  type="text"
+                  className="h-8 text-[13px]"
+                  placeholder="Search by city, region, or abbreviation (EST, IST, …)"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="flex-1 overflow-y-auto p-1">
                 {filteredOptions.length === 0 ? (
-                  <p className="timezone-empty">No matching timezones</p>
+                  <p className="px-3 py-2 text-[13px] text-muted-foreground">
+                    No matching timezones
+                  </p>
                 ) : (
                   filteredOptions.map((tz) => {
                     const offset = formatOffset(tz);
@@ -174,24 +189,20 @@ export default function TimezoneSection({ timezone, onUpdateTimezone }: Timezone
                         type="button"
                         role="option"
                         aria-selected={isCurrent}
-                        className={`timezone-option${isCurrent ? " active" : ""}`}
+                        className={cn(
+                          "flex w-full items-center justify-between gap-3 rounded-sm px-2 py-1.5 text-left text-[13px] text-foreground outline-none transition-colors",
+                          "hover:bg-accent focus-visible:bg-accent",
+                          isCurrent && "bg-primary/10 font-medium text-primary",
+                        )}
                         onClick={async () => {
                           await handleTimezoneChange(tz);
                           setOpen(false);
                           setSearch("");
                         }}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: "12px",
-                        }}
                       >
-                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {tz}
-                        </span>
+                        <span className="min-w-0 truncate">{tz}</span>
                         {offset && (
-                          <span style={{ fontSize: "11px", color: "var(--text-muted)", flexShrink: 0 }}>
+                          <span className="shrink-0 text-[11px] text-muted-foreground">
                             {offset}
                           </span>
                         )}
@@ -205,16 +216,10 @@ export default function TimezoneSection({ timezone, onUpdateTimezone }: Timezone
         </div>
       </div>
       {localTimeLabel && (
-        <p
-          style={{
-            marginTop: "8px",
-            fontSize: "12px",
-            color: "var(--text-muted)",
-            paddingLeft: "104px",  // align under the input (92px label col + 12px gap)
-          }}
-          aria-live="polite"
-        >
-          It's currently <strong style={{ color: "var(--text-secondary)" }}>{localTimeLabel}</strong> in this timezone.
+        <p className="mt-2 pl-26 text-xs text-muted-foreground" aria-live="polite">
+          It's currently{" "}
+          <strong className="font-semibold text-foreground">{localTimeLabel}</strong> in this
+          timezone.
         </p>
       )}
     </SettingsCard>

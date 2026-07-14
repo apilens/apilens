@@ -1,0 +1,100 @@
+/* ════════════════════════════════════════════════════════════════════════
+   ReUI / shadcn token bridge.
+   Semantic tokens consumed by components/reui/* via Tailwind utilities
+   (bg-background, text-muted-foreground, border-border, …). Namespaced as
+   --ui-* so they never collide with Aperture vars (--accent is teal there,
+   but "accent" means subtle-hover-surface in the shadcn vocabulary).
+   Values are drawn from the same palette as aperture.tokens.css / globals.css
+   so both systems render identically while surfaces migrate.
+   ════════════════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme="dark"] {
+  --ui-background: #000000;
+  --ui-foreground: #ededed;
+  --ui-card: #0a0a0a;
+  --ui-card-foreground: #ededed;
+  --ui-popover: #0a0a0a;
+  --ui-popover-foreground: #ededed;
+  --ui-primary: #14b8a6;
+  --ui-primary-foreground: #ffffff;
+  --ui-secondary: #1a1a1a;
+  --ui-secondary-foreground: #ededed;
+  --ui-muted: #111111;
+  --ui-muted-foreground: #888888;
+  --ui-accent: #1a1a1a;
+  --ui-accent-foreground: #ededed;
+  --ui-destructive: #ef4444;
+  --ui-destructive-foreground: #ffffff;
+  --ui-success: #22c55e;
+  --ui-success-foreground: #ffffff;
+  --ui-warning: #f59e0b;
+  --ui-warning-foreground: #000000;
+  --ui-info: #60a5fa;
+  --ui-info-foreground: #ffffff;
+  --ui-border: #1f1f1f;
+  --ui-input: #1f1f1f;
+  --ui-ring: rgba(20, 184, 166, 0.45);
+  --ui-invert: #ededed;
+  --ui-invert-foreground: #171717;
+}
+
+[data-theme="light"] {
+  --ui-background: #ffffff;
+  --ui-foreground: #171717;
+  --ui-card: #ffffff;
+  --ui-card-foreground: #171717;
+  --ui-popover: #ffffff;
+  --ui-popover-foreground: #171717;
+  --ui-primary: #14b8a6;
+  --ui-primary-foreground: #ffffff;
+  --ui-secondary: #f5f5f5;
+  --ui-secondary-foreground: #171717;
+  --ui-muted: #f5f5f5;
+  --ui-muted-foreground: #525252;
+  --ui-accent: #eeeeee;
+  --ui-accent-foreground: #171717;
+  --ui-destructive: #ef4444;
+  --ui-destructive-foreground: #ffffff;
+  --ui-success: #22c55e;
+  --ui-success-foreground: #ffffff;
+  --ui-warning: #f59e0b;
+  --ui-warning-foreground: #000000;
+  --ui-info: #60a5fa;
+  --ui-info-foreground: #ffffff;
+  --ui-border: #e5e5e5;
+  --ui-input: #e5e5e5;
+  --ui-ring: rgba(20, 184, 166, 0.45);
+  --ui-invert: #171717;
+  --ui-invert-foreground: #ffffff;
+}
+
+@theme inline {
+  --color-background: var(--ui-background);
+  --color-foreground: var(--ui-foreground);
+  --color-card: var(--ui-card);
+  --color-card-foreground: var(--ui-card-foreground);
+  --color-popover: var(--ui-popover);
+  --color-popover-foreground: var(--ui-popover-foreground);
+  --color-primary: var(--ui-primary);
+  --color-primary-foreground: var(--ui-primary-foreground);
+  --color-secondary: var(--ui-secondary);
+  --color-secondary-foreground: var(--ui-secondary-foreground);
+  --color-muted: var(--ui-muted);
+  --color-muted-foreground: var(--ui-muted-foreground);
+  --color-accent: var(--ui-accent);
+  --color-accent-foreground: var(--ui-accent-foreground);
+  --color-destructive: var(--ui-destructive);
+  --color-destructive-foreground: var(--ui-destructive-foreground);
+  --color-success: var(--ui-success);
+  --color-success-foreground: var(--ui-success-foreground);
+  --color-warning: var(--ui-warning);
+  --color-warning-foreground: var(--ui-warning-foreground);
+  --color-info: var(--ui-info);
+  --color-info-foreground: var(--ui-info-foreground);
+  --color-border: var(--ui-border);
+  --color-input: var(--ui-input);
+  --color-ring: var(--ui-ring);
+  --color-invert: var(--ui-invert);
+  --color-invert-foreground: var(--ui-invert-foreground);
+}
