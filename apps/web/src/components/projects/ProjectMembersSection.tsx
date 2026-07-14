@@ -4,6 +4,16 @@ import { useState, useEffect, useCallback } from "react";
 import { Loader2, UserPlus, Trash2, Mail, LogOut, Crown } from "lucide-react";
 import SettingsCard from "@/components/settings/SettingsCard";
 import ConfirmDialog from "@/components/settings/ConfirmDialog";
+import { Badge } from "@/components/reui/badge";
+import { Button } from "@/components/reui/button";
+import { Input } from "@/components/reui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/reui/select";
 
 type Role = "owner" | "admin" | "member" | "viewer";
 
@@ -191,30 +201,33 @@ export default function ProjectMembersSection({ projectSlug, showToast }: Projec
           title="Invite a teammate"
           description="They'll get an email invitation. If they don't have an account yet, one is created when they sign in."
         >
-          <form onSubmit={handleInvite} className="members-invite-form">
-            <input
+          <form onSubmit={handleInvite} className="flex items-center gap-2">
+            <Input
               type="email"
-              className="apikeys-input"
+              className="h-8 min-w-0 flex-1 text-[13px]"
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
               placeholder="teammate@company.com"
               autoComplete="off"
             />
-            <select
-              className="members-role-select"
+            <Select
               value={inviteRole}
-              onChange={(e) => setInviteRole(e.target.value as Role)}
-              aria-label="Role"
+              onValueChange={(value) => setInviteRole(value as Role)}
             >
-              {ASSIGNABLE_ROLES.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-            <button
+              <SelectTrigger size="sm" className="w-28 text-[13px]" aria-label="Role">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ASSIGNABLE_ROLES.map((r) => (
+                  <SelectItem key={r.value} value={r.value}>
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
               type="submit"
-              className="settings-btn settings-btn-primary settings-btn-sm"
+              size="sm"
               disabled={isInviting || !inviteEmail.trim()}
             >
               {isInviting ? (
@@ -228,9 +241,9 @@ export default function ProjectMembersSection({ projectSlug, showToast }: Projec
                   Invite
                 </>
               )}
-            </button>
+            </Button>
           </form>
-          <p className="members-role-hint">{ROLE_DESCRIPTIONS[inviteRole]}</p>
+          <p className="mt-2.5 text-xs text-muted-foreground">{ROLE_DESCRIPTIONS[inviteRole]}</p>
         </SettingsCard>
       )}
 
@@ -239,60 +252,78 @@ export default function ProjectMembersSection({ projectSlug, showToast }: Projec
         description="People with access to this project and their roles."
       >
         {isLoading ? (
-          <div className="sessions-loading">
+          <div className="flex items-center gap-2.5 py-3 text-[13px] text-muted-foreground">
             <Loader2 size={18} className="animate-spin" />
             <span>Loading members...</span>
           </div>
         ) : (
-          <div className="project-apikeys-list">
+          <div className="grid gap-2.5">
             {data?.members.map((m) => (
-              <div key={m.user_id} className="project-apikey-row">
-                <div className="project-apikey-main">
-                  <div className="members-avatar">{initials(m.name, m.email)}</div>
-                  <div className="apikeys-item-info">
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <p className="apikeys-item-name">{m.name || m.email}</p>
-                      {m.is_you && <span className="members-you-badge">You</span>}
+              <div
+                key={m.user_id}
+                className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:bg-accent/40"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold tracking-wide text-primary">
+                    {initials(m.name, m.email)}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-[13px] font-medium text-foreground">{m.name || m.email}</p>
+                      {m.is_you && (
+                        <Badge variant="primary-light" size="sm" radius="full">
+                          You
+                        </Badge>
+                      )}
                     </div>
-                    <p className="apikeys-item-subtitle">{m.email}</p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{m.email}</p>
                   </div>
                 </div>
 
-                <div className="project-apikey-row-action members-row-action">
+                <div className="flex items-center justify-end gap-2">
                   {m.is_owner ? (
-                    <span className="members-role-badge members-role-owner">
+                    <Badge variant="primary-light" radius="full" className="gap-1.5 px-2.5 py-1">
                       <Crown size={12} />
                       Owner
-                    </span>
+                    </Badge>
                   ) : canManage ? (
-                    <select
-                      className="members-role-select"
+                    <Select
                       value={m.role}
                       disabled={savingMemberId === m.id}
-                      onChange={(e) => handleRoleChange(m, e.target.value as Role)}
-                      aria-label={`Role for ${m.email}`}
+                      onValueChange={(value) => handleRoleChange(m, value as Role)}
                     >
-                      {ASSIGNABLE_ROLES.map((r) => (
-                        <option key={r.value} value={r.value}>
-                          {r.label}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger
+                        size="sm"
+                        className="w-28 text-[13px]"
+                        aria-label={`Role for ${m.email}`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ASSIGNABLE_ROLES.map((r) => (
+                          <SelectItem key={r.value} value={r.value}>
+                            {r.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   ) : (
-                    <span className="members-role-badge">
+                    <Badge variant="outline" radius="full" className="px-2.5 py-1 text-xs text-muted-foreground">
                       {m.role.charAt(0).toUpperCase() + m.role.slice(1)}
-                    </span>
+                    </Badge>
                   )}
 
                   {!m.is_owner && (canManage || m.is_you) && (
-                    <button
-                      className="settings-btn settings-btn-ghost settings-btn-sm"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground hover:text-foreground"
                       onClick={() => setRemoveTarget(m)}
                       aria-label={m.is_you ? "Leave project" : `Remove ${m.email}`}
                     >
                       {m.is_you ? <LogOut size={14} /> : <Trash2 size={14} />}
                       {m.is_you ? "Leave" : "Remove"}
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>
@@ -306,30 +337,42 @@ export default function ProjectMembersSection({ projectSlug, showToast }: Projec
           title="Pending invitations"
           description="People who've been invited but haven't joined yet."
         >
-          <div className="project-apikeys-list">
+          <div className="grid gap-2.5">
             {data.invitations.map((inv) => (
-              <div key={inv.id} className="project-apikey-row">
-                <div className="project-apikey-main">
-                  <div className="members-avatar members-avatar-pending">
+              <div
+                key={inv.id}
+                className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:bg-accent/40"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                     <Mail size={15} />
                   </div>
-                  <div className="apikeys-item-info">
-                    <p className="apikeys-item-name">{inv.email}</p>
-                    <p className="apikeys-item-subtitle">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-medium text-foreground">{inv.email}</p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
                       Invited as {inv.role} · Expires {new Date(inv.expires_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </p>
                   </div>
                 </div>
-                <div className="project-apikey-row-action members-row-action">
-                  <span className="members-role-badge members-role-pending">Pending</span>
-                  <button
-                    className="settings-btn settings-btn-ghost settings-btn-sm"
+                <div className="flex items-center justify-end gap-2">
+                  <Badge
+                    variant="outline"
+                    size="sm"
+                    radius="full"
+                    className="uppercase tracking-wide text-muted-foreground"
+                  >
+                    Pending
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground hover:text-foreground"
                     onClick={() => setRevokeTarget(inv)}
                     aria-label={`Revoke invitation for ${inv.email}`}
                   >
                     <Trash2 size={14} />
                     Revoke
-                  </button>
+                  </Button>
                 </div>
               </div>
             ))}

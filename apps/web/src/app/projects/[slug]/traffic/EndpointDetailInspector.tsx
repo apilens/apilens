@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createPortal } from "react-dom";
 import {
   ArrowLeftRight,
   ArrowUpFromLine,
@@ -20,7 +19,6 @@ import {
   Loader,
   Smile,
   Timer,
-  X,
 } from "lucide-react";
 import {
   Area,
@@ -33,6 +31,25 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { Badge } from "@/components/reui/badge";
+import { Button } from "@/components/reui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/reui/sheet";
+import { Skeleton } from "@/components/reui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/reui/tabs";
+import {
+  Table as ReTable,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/reui/table";
+import { cn } from "@/lib/utils";
 import {
   ACCENT,
   AXIS_TICK,
@@ -43,7 +60,6 @@ import {
   EmptyBlock,
   GRID,
   SERVER_ERR,
-  Skeleton,
   THRESHOLD,
   formatBytes,
   formatBucketFull,
@@ -52,7 +68,6 @@ import {
   formatMs,
   formatNumber,
   requestUrl,
-  statusTone,
   type ConsumerRow,
   type EndpointDetail,
   type Histograms,
@@ -103,14 +118,25 @@ function isErrorStatus(code: number): boolean {
   return code >= 400;
 }
 
+function statusBadgeVariant(status: number) {
+  if (status >= 500) return "destructive-light" as const;
+  if (status >= 400) return "warning-light" as const;
+  if (status >= 300) return "info-light" as const;
+  return "success-light" as const;
+}
+
 /* ── Building blocks ─────────────────────────────────────────────────── */
 
 function Pill({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <span className="ep-emodal-pill">
+    <Badge
+      variant="outline"
+      radius="full"
+      className="h-auto gap-1.5 px-2.5 py-1 text-[11.5px] font-normal text-muted-foreground"
+    >
       {icon}
       <span>{children}</span>
-    </span>
+    </Badge>
   );
 }
 
@@ -125,12 +151,17 @@ function CollapsibleSection({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <section className="ep-section">
-      <button type="button" className="ep-section-head" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        <ChevronDown size={14} className={`ep-section-chevron${open ? " is-open" : ""}`} />
+    <section className="mb-5">
+      <button
+        type="button"
+        className="flex w-full items-center gap-1.5 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <ChevronDown size={14} className={cn("shrink-0 transition-transform", !open && "-rotate-90")} />
         <span>{title}</span>
       </button>
-      {open && <div className="ep-section-body">{children}</div>}
+      {open && <div className="pt-2">{children}</div>}
     </section>
   );
 }
@@ -171,12 +202,27 @@ function StatCard({
       }
     : {};
   return (
-    <div className={`ep-statcard${clickable ? " ep-statcard-clickable" : ""}`} {...interactive}>
-      <div className="ep-statcard-label">{label}</div>
-      <div className="ep-statcard-main">
-        <span className={`ep-statcard-icon${tone ? ` tone-${tone}` : ""}`}>{icon}</span>
-        <span className="ep-statcard-value">{value}</span>
-        {sub ? <span className="ep-statcard-sub">{sub}</span> : null}
+    <div
+      className={cn(
+        "flex flex-col gap-1 rounded-lg border border-border bg-muted px-3 py-2.5",
+        clickable && "cursor-pointer transition-colors hover:border-ring/40 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+      )}
+      {...interactive}
+    >
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="flex items-center gap-1.5">
+        <span
+          className={cn(
+            "inline-flex shrink-0 items-center text-muted-foreground",
+            tone === "ok" && "text-success",
+            tone === "warn" && "text-warning",
+            tone === "bad" && "text-destructive",
+          )}
+        >
+          {icon}
+        </span>
+        <span className="text-[15px] font-semibold tabular-nums text-foreground">{value}</span>
+        {sub ? <span className="text-[11px] text-muted-foreground">{sub}</span> : null}
       </div>
     </div>
   );
@@ -198,7 +244,7 @@ function RecentRequests({
   onSelect: (r: RequestRow) => void;
   onConsumer?: (consumer: string) => void;
 }) {
-  if (rows === null) return <Skeleton height={200} />;
+  if (rows === null) return <Skeleton className="w-full" style={{ height: 200 }} />;
   const inScope = (code: number) =>
     statusClass === "4xx" ? code >= 400 && code < 500 : statusClass === "5xx" ? code >= 500 : isErrorStatus(code);
   const list = errorsOnly ? rows.filter((r) => inScope(r.status_code)) : rows;
@@ -213,74 +259,82 @@ function RecentRequests({
     return <EmptyBlock message={emptyMsg} />;
   }
   return (
-    <div className="ep-recent">
-      <table className="ep-recent-table">
-        <thead>
-          <tr>
-            <th aria-hidden />
-            <th>Time</th>
-            <th>Status</th>
-            <th>Request</th>
-            <th aria-hidden />
-          </tr>
-        </thead>
-        <tbody>
-          {list.map((r, i) => {
-            const size = byteLen(r.response_payload);
-            return (
-              <tr
-                key={`${r.timestamp}-${i}`}
-                className="ep-recent-row"
-                onClick={() => onSelect(r)}
-                tabIndex={0}
-                role="button"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onSelect(r);
-                  }
-                }}
-              >
-                <td className="ep-recent-clock"><Clock size={14} /></td>
-                <td className="ep-recent-time">
-                  <span className="ep-recent-time-h">{timeOfDay(r.timestamp)}</span>
-                  <span className="ep-recent-time-d">{dayLabel(r.timestamp)}</span>
-                </td>
-                <td>
-                  <span className={`endpoint-status-pill ${statusTone(r.status_code)}`}>{r.status_code}</span>
-                </td>
-                <td className="ep-recent-req">
-                  <div className="ep-recent-req-line">
-                    <span className="ep-recent-method">{r.method}</span>
-                    <span className="ep-recent-path">{requestUrl(r)}</span>
-                  </div>
-                  <div className="ep-recent-meta">
-                    {r.environment ? <span className="ep-recent-fact"><Layers size={12} />{r.environment}</span> : null}
-                    {r.consumer ? (
-                      onConsumer ? (
-                        <button
-                          type="button"
-                          className="ep-recent-fact ep-recent-consumer"
-                          title={`Show all requests from ${r.consumer}`}
-                          onClick={(e) => { e.stopPropagation(); onConsumer(r.consumer_id || r.consumer); }}
-                        >
-                          <Fingerprint size={12} />{r.consumer}
-                        </button>
-                      ) : (
-                        <span className="ep-recent-fact"><Fingerprint size={12} />{r.consumer}</span>
-                      )
-                    ) : null}
-                    {size > 0 ? <span className="ep-recent-fact"><ArrowUpFromLine size={12} />{formatBytes(size)}</span> : null}
-                    <span className="ep-recent-fact"><Timer size={12} />{formatMs(r.response_time_ms)}</span>
-                  </div>
-                </td>
-                <td className="ep-recent-go"><ChevronRight size={15} /></td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <ReTable className="text-xs">
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          <TableHead className="w-9 px-2" aria-hidden />
+          <TableHead className="h-auto px-2 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Time</TableHead>
+          <TableHead className="h-auto px-2 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Status</TableHead>
+          <TableHead className="h-auto px-2 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Request</TableHead>
+          <TableHead className="w-9 px-2" aria-hidden />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {list.map((r, i) => {
+          const size = byteLen(r.response_payload);
+          return (
+            <TableRow
+              key={`${r.timestamp}-${i}`}
+              className="group cursor-pointer"
+              onClick={() => onSelect(r)}
+              tabIndex={0}
+              role="button"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelect(r);
+                }
+              }}
+            >
+              <TableCell className="w-9 px-2 py-2.5 text-center text-muted-foreground opacity-45 transition-opacity group-hover:opacity-100">
+                <Clock size={14} />
+              </TableCell>
+              <TableCell className="px-2 py-2.5 align-top">
+                <div className="flex flex-col gap-0.5">
+                  <span className="tabular-nums text-foreground">{timeOfDay(r.timestamp)}</span>
+                  <span className="text-[11px] text-muted-foreground">{dayLabel(r.timestamp)}</span>
+                </div>
+              </TableCell>
+              <TableCell className="px-2 py-2.5 align-top">
+                <Badge variant={statusBadgeVariant(r.status_code)} className="tabular-nums">{r.status_code}</Badge>
+              </TableCell>
+              <TableCell className="w-full min-w-0 px-2 py-2.5 align-top whitespace-normal">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className={`method-badge method-badge-${r.method.toLowerCase()}`}>{r.method}</span>
+                  <span className="min-w-0 break-all font-mono text-[12.5px] text-foreground">{requestUrl(r)}</span>
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                  {r.environment ? (
+                    <span className="inline-flex items-center gap-1"><Layers size={12} />{r.environment}</span>
+                  ) : null}
+                  {r.consumer ? (
+                    onConsumer ? (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 text-primary transition-colors hover:underline"
+                        title={`Show all requests from ${r.consumer}`}
+                        onClick={(e) => { e.stopPropagation(); onConsumer(r.consumer_id || r.consumer); }}
+                      >
+                        <Fingerprint size={12} />{r.consumer}
+                      </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-1"><Fingerprint size={12} />{r.consumer}</span>
+                    )
+                  ) : null}
+                  {size > 0 ? (
+                    <span className="inline-flex items-center gap-1"><ArrowUpFromLine size={12} />{formatBytes(size)}</span>
+                  ) : null}
+                  <span className="inline-flex items-center gap-1"><Timer size={12} />{formatMs(r.response_time_ms)}</span>
+                </div>
+              </TableCell>
+              <TableCell className="w-9 px-2 py-2.5 text-center text-muted-foreground opacity-45 transition-opacity group-hover:opacity-100">
+                <ChevronRight size={15} />
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </ReTable>
   );
 }
 
@@ -314,7 +368,7 @@ function Chart({ height, render }: { height: number; render: (width: number) => 
 }
 
 function RequestsOverTime({ timeseries }: { timeseries: TimeseriesPoint[] | null }) {
-  if (timeseries === null) return <Skeleton height={240} />;
+  if (timeseries === null) return <Skeleton className="w-full" style={{ height: 240 }} />;
   const data = timeseries.map((p) => ({
     label: formatBucketTime(p.bucket),
     full: formatBucketFull(p.bucket),
@@ -348,7 +402,7 @@ function ErrorsOverTime({
   timeseries: TimeseriesPoint[] | null;
   classFilter?: "all" | "4xx" | "5xx";
 }) {
-  if (timeseries === null) return <Skeleton height={220} />;
+  if (timeseries === null) return <Skeleton className="w-full" style={{ height: 220 }} />;
   const data = timeseries.map((p) => ({
     label: formatBucketTime(p.bucket),
     full: formatBucketFull(p.bucket),
@@ -381,7 +435,7 @@ function ResponseTimesOverTime({
   timeseries: TimeseriesPoint[] | null;
   threshold: number;
 }) {
-  if (timeseries === null) return <Skeleton height={240} />;
+  if (timeseries === null) return <Skeleton className="w-full" style={{ height: 240 }} />;
   // Stacked percentile bands: p50 (solid), p50→p95, p95→p99 (lighter).
   const data = timeseries.map((p) => {
     const p50 = Math.round(p.p50_response_time_ms || 0);
@@ -442,7 +496,7 @@ function Histogram({
   buckets: { lower: number; upper: number; count: number }[] | null;
   unit: "ms" | "bytes";
 }) {
-  if (buckets === null) return <Skeleton height={220} />;
+  if (buckets === null) return <Skeleton className="w-full" style={{ height: 220 }} />;
   const fmt = unit === "ms" ? formatLatencyBucket : formatBytes;
   const data = buckets.map((b) => ({
     label: fmt(b.lower),
@@ -467,7 +521,7 @@ function Histogram({
 }
 
 function DataOverTime({ timeseries }: { timeseries: TimeseriesPoint[] | null }) {
-  if (timeseries === null) return <Skeleton height={240} />;
+  if (timeseries === null) return <Skeleton className="w-full" style={{ height: 240 }} />;
   const data = timeseries.map((p) => ({
     label: formatBucketTime(p.bucket),
     full: formatBucketFull(p.bucket),
@@ -491,58 +545,59 @@ function DataOverTime({ timeseries }: { timeseries: TimeseriesPoint[] | null }) 
 }
 
 function ConsumersTable({ consumers, onConsumer }: { consumers: ConsumerRow[] | null; onConsumer?: (consumer: string) => void }) {
-  if (consumers === null) return <Skeleton height={220} />;
+  if (consumers === null) return <Skeleton className="w-full" style={{ height: 220 }} />;
   if (consumers.length === 0) return <EmptyBlock message="No consumer data in the selected period." />;
   const max = Math.max(1, ...consumers.map((c) => c.total_requests));
   return (
-    <div className="ep-recent">
-      <table className="ep-recent-table ep-consumers-table">
-        <thead>
-          <tr>
-            <th aria-hidden />
-            <th>Consumer name</th>
-            <th className="ep-th-num">Requests</th>
-            <th className="ep-th-num">Client 4xx</th>
-            <th className="ep-th-num">Server 5xx</th>
-            <th className="ep-th-num">Avg response</th>
-          </tr>
-        </thead>
-        <tbody>
-          {consumers.map((c) => (
-            <tr key={c.consumer}>
-              <td className="ep-recent-clock"><Fingerprint size={14} /></td>
-              <td className="ep-consumer-name">
-                {onConsumer ? (
-                  <button
-                    type="button"
-                    className="ep-recent-consumer"
-                    title={`Show all requests from ${c.consumer}`}
-                    onClick={() => onConsumer(c.consumer_identifier || c.consumer)}
-                  >
-                    {c.consumer}
-                  </button>
-                ) : (
-                  c.consumer
-                )}
-              </td>
-              <td className="ep-td-num">
-                <span className="ep-cbar-wrap">
-                  <span className="ep-cbar" style={{ width: `${(c.total_requests / max) * 100}%` }} />
-                  <span className="ep-cbar-val">{formatNumber(c.total_requests)}</span>
-                </span>
-              </td>
-              <td className={`ep-td-num${(c.client_error_rate || 0) > 0 ? " err-4xx" : ""}`}>
-                {(c.client_error_rate || 0).toFixed(1)} %
-              </td>
-              <td className={`ep-td-num${(c.server_error_rate || 0) > 0 ? " err-5xx" : ""}`}>
-                {(c.server_error_rate || 0).toFixed(1)} %
-              </td>
-              <td className="ep-td-num">{formatMs(c.avg_response_time_ms)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <ReTable className="text-xs">
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          <TableHead className="w-9 px-2" aria-hidden />
+          <TableHead className="h-auto px-2 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Consumer name</TableHead>
+          <TableHead className="h-auto px-2 py-2 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Requests</TableHead>
+          <TableHead className="h-auto px-2 py-2 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Client 4xx</TableHead>
+          <TableHead className="h-auto px-2 py-2 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Server 5xx</TableHead>
+          <TableHead className="h-auto px-2 py-2 text-right text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Avg response</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {consumers.map((c) => (
+          <TableRow key={c.consumer}>
+            <TableCell className="w-9 px-2 py-2.5 text-center text-muted-foreground"><Fingerprint size={14} /></TableCell>
+            <TableCell className="px-2 py-2.5 text-foreground">
+              {onConsumer ? (
+                <button
+                  type="button"
+                  className="text-primary transition-colors hover:underline"
+                  title={`Show all requests from ${c.consumer}`}
+                  onClick={() => onConsumer(c.consumer_identifier || c.consumer)}
+                >
+                  {c.consumer}
+                </button>
+              ) : (
+                c.consumer
+              )}
+            </TableCell>
+            <TableCell className="px-2 py-2.5 text-right tabular-nums text-muted-foreground">
+              <span className="relative inline-flex h-[18px] min-w-[120px] items-center justify-end">
+                <span
+                  className="absolute left-0 top-1/2 h-3.5 min-w-0.5 -translate-y-1/2 rounded-[3px] bg-primary/20"
+                  style={{ width: `${(c.total_requests / max) * 100}%` }}
+                />
+                <span className="relative">{formatNumber(c.total_requests)}</span>
+              </span>
+            </TableCell>
+            <TableCell className={cn("px-2 py-2.5 text-right tabular-nums text-muted-foreground", (c.client_error_rate || 0) > 0 && "text-warning")}>
+              {(c.client_error_rate || 0).toFixed(1)} %
+            </TableCell>
+            <TableCell className={cn("px-2 py-2.5 text-right tabular-nums text-muted-foreground", (c.server_error_rate || 0) > 0 && "text-destructive")}>
+              {(c.server_error_rate || 0).toFixed(1)} %
+            </TableCell>
+            <TableCell className="px-2 py-2.5 text-right tabular-nums text-muted-foreground">{formatMs(c.avg_response_time_ms)}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </ReTable>
   );
 }
 
@@ -553,7 +608,7 @@ function ErrorsByStatus({
   statusCodes: StatusCodeRow[] | null;
   classFilter?: "all" | "4xx" | "5xx";
 }) {
-  if (statusCodes === null) return <Skeleton height={120} />;
+  if (statusCodes === null) return <Skeleton className="w-full" style={{ height: 120 }} />;
   const inScope = (code: number) =>
     classFilter === "4xx" ? code >= 400 && code < 500 : classFilter === "5xx" ? code >= 500 : isErrorStatus(code);
   const codes = statusCodes.filter((s) => inScope(s.status_code)).sort((a, b) => b.total_requests - a.total_requests);
@@ -566,17 +621,20 @@ function ErrorsByStatus({
   }
   const total = codes.reduce((a, s) => a + s.total_requests, 0);
   return (
-    <div className="endpoint-status-breakdown">
+    <div className="flex flex-col gap-2">
       {codes.map((s) => {
         const pct = total > 0 ? (s.total_requests / total) * 100 : 0;
-        const cls = s.status_code >= 500 ? "is-5xx" : "is-4xx";
+        const is5xx = s.status_code >= 500;
         return (
-          <div key={s.status_code} className="endpoint-status-row">
-            <span className={`endpoint-status-pill ${statusTone(s.status_code)}`}>{s.status_code}</span>
-            <div className="endpoint-status-bar-track">
-              <div className={`endpoint-status-bar ${cls}`} style={{ width: `${Math.max(2, pct)}%` }} />
+          <div key={s.status_code} className="flex items-center gap-3">
+            <Badge variant={statusBadgeVariant(s.status_code)} className="tabular-nums">{s.status_code}</Badge>
+            <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className={cn("h-full rounded-full", is5xx ? "bg-destructive" : "bg-warning")}
+                style={{ width: `${Math.max(2, pct)}%` }}
+              />
             </div>
-            <span className="endpoint-status-count">{formatNumber(s.total_requests)}</span>
+            <span className="min-w-12 text-right text-xs tabular-nums text-muted-foreground">{formatNumber(s.total_requests)}</span>
           </div>
         );
       })}
@@ -672,7 +730,7 @@ export default function EndpointDetailInspector({
   // tracked that, every widget below would reset + refetch every 5s and flicker.
   // We snapshot the window when the panel opens and re-freeze only when a
   // different endpoint is opened (method/path changes).
-  const idKey = `${method} ${path}`;
+  const idKey = `${method} ${path}`;
   const [frozen, setFrozen] = useState({ since, until });
   const prevIdRef = useRef(idKey);
   useEffect(() => {
@@ -791,178 +849,193 @@ export default function EndpointDetailInspector({
     [router, projectSlug, environment, appSlugs, since, until],
   );
 
-  const content = (
-    <div className="ep-emodal-overlay" onClick={onClose}>
-      <div className="ep-emodal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="ep-emodal-head">
-          <div className="ep-emodal-id">
-            <span className="ep-emodal-crumb">Endpoint details</span>
-            <ChevronRight size={13} className="ep-emodal-crumb-sep" />
-            <span className={`method-badge method-badge-${method.toLowerCase()}`}>{method}</span>
-            <span className="ep-emodal-path">{path}</span>
-          </div>
-          <div className="ep-emodal-headactions">
-            <button type="button" className="ep-rl-curl" onClick={copyLink} title="Copy a shareable link to this endpoint">
-              {copiedLink ? <Check size={13} /> : <Link2 size={13} />}
-              <span>{copiedLink ? "Copied" : "Copy link"}</span>
-            </button>
-            <button type="button" className="ep-emodal-close" onClick={onClose} aria-label="Close">
-              <X size={18} />
-            </button>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <nav className="ep-emodal-tabs" role="tablist">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === t.key}
-              className={`ep-emodal-tab${activeTab === t.key ? " is-active" : ""}`}
-              onClick={() => {
-                // Opening the Errors tab directly (not via a card) shows all classes.
-                if (t.key === "errors") setErrorClass("all");
-                setActiveTab(t.key);
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
-
-        {/* Body */}
-        <div className="ep-emodal-body">
-          <div className="ep-emodal-pills">
-            <Pill icon={<Clock size={12} />}>Period = {rangeLabel}</Pill>
-            {activeTab === "response_times" && threshold > 0 ? (
-              <Pill icon={<Timer size={12} />}>Response time threshold = {formatMs(threshold)}</Pill>
-            ) : null}
-          </div>
-
-          {activeTab === "info" && (
-            <CollapsibleSection title="Summary">
-              {dl ? (
-                <Skeleton height={60} />
-              ) : (
-                <div className="ep-info-box">{d!.description || "No description available for this endpoint."}</div>
-              )}
-            </CollapsibleSection>
-          )}
-
-          {activeTab === "requests" && (
-            <>
-              <CollapsibleSection title="Summary">
-                <div className="ep-statcards">
-                  <StatCard label="Total requests" icon={<Hash size={16} />} value={dl ? "—" : formatNumber(d!.total_requests)} onClick={scrollToLog} hint="Jump to the request log" />
-                  <StatCard label="Requests per minute" icon={<Gauge size={16} />} value={dl ? "—" : (d!.requests_per_minute || 0).toFixed(1)} />
-                  <StatCard label="Unique consumers" icon={<Fingerprint size={16} />} value={consumers === null ? "—" : formatNumber(consumers.length)} onClick={() => setActiveTab("consumers")} hint="View consumers for this endpoint" />
-                  <StatCard label="Client errors" icon={<CircleX size={16} />} value={dl ? "—" : formatNumber(d!.client_errors)} tone={!dl && d!.client_errors > 0 ? "warn" : undefined} onClick={() => goToErrors("4xx")} hint="Show client (4xx) errors" />
-                  <StatCard label="Server errors" icon={<Bug size={16} />} value={dl ? "—" : formatNumber(d!.server_errors)} tone={!dl && d!.server_errors > 0 ? "bad" : undefined} onClick={() => goToErrors("5xx")} hint="Show server (5xx) errors" />
-                </div>
-              </CollapsibleSection>
-              <CollapsibleSection title="Requests over time">
-                <RequestsOverTime timeseries={timeseries} />
-              </CollapsibleSection>
-              <div ref={recentRef}>
-                <CollapsibleSection title="Most recent requests">
-                  <RecentRequests rows={recentRequests} onSelect={openRequest} onConsumer={openConsumer} />
-                </CollapsibleSection>
-              </div>
-            </>
-          )}
-
-          {activeTab === "consumers" && (
-            <CollapsibleSection title="Consumers">
-              <ConsumersTable consumers={consumers} onConsumer={openConsumer} />
-            </CollapsibleSection>
-          )}
-
-          {activeTab === "errors" && (
-            <>
-              {errorClass !== "all" && (
-                <div className="ep-err-filter">
-                  <span className={`ep-err-filter-pill ${errorClass === "4xx" ? "is-4xx" : "is-5xx"}`}>
-                    {errorClass === "4xx" ? "Client (4xx) errors only" : "Server (5xx) errors only"}
-                  </span>
-                  <button type="button" className="ep-err-filter-clear" onClick={() => setErrorClass("all")}>
-                    Show all errors
-                  </button>
-                </div>
-              )}
-              <CollapsibleSection title="Errors by status code">
-                <ErrorsByStatus statusCodes={statusCodes} classFilter={errorClass} />
-              </CollapsibleSection>
-              <CollapsibleSection
-                title={
-                  errorClass === "4xx" ? "Client errors over time"
-                  : errorClass === "5xx" ? "Server errors over time"
-                  : "Client & server errors over time"
-                }
-              >
-                <ErrorsOverTime timeseries={timeseries} classFilter={errorClass} />
-              </CollapsibleSection>
-              <CollapsibleSection
-                title={
-                  errorClass === "4xx" ? "Most recent client (4xx) errors"
-                  : errorClass === "5xx" ? "Most recent server (5xx) errors"
-                  : "Most recent client & server errors"
-                }
-              >
-                <RecentRequests
-                  rows={recentRequests}
-                  errorsOnly
-                  statusClass={errorClass === "all" ? undefined : errorClass}
-                  onSelect={openRequest}
-                  onConsumer={openConsumer}
-                />
-              </CollapsibleSection>
-            </>
-          )}
-
-          {activeTab === "response_times" && (
-            <>
-              <CollapsibleSection title="Summary">
-                <div className="ep-statcards">
-                  <StatCard label="Apdex score" icon={<Smile size={16} />} value={dl ? "—" : (d!.apdex || 0).toFixed(3)} tone={!dl ? (d!.apdex >= 0.94 ? "ok" : d!.apdex >= 0.85 ? "warn" : "bad") : undefined} />
-                  <StatCard label="Slow requests" icon={<Loader size={16} />} value={dl ? "—" : formatNumber(d!.slow_requests)} sub={dl ? undefined : `of ${formatNumber(d!.total_requests)}`} />
-                  <StatCard label="50th percentile" icon={<Timer size={16} />} value={dl ? "—" : formatMs(d!.p50_response_time_ms)} />
-                  <StatCard label="75th percentile" icon={<Timer size={16} />} value={dl ? "—" : formatMs(d!.p75_response_time_ms)} />
-                  <StatCard label="95th percentile" icon={<Timer size={16} />} value={dl ? "—" : formatMs(d!.p95_response_time_ms)} />
-                </div>
-              </CollapsibleSection>
-              <CollapsibleSection title="Response times over time">
-                <ResponseTimesOverTime timeseries={timeseries} threshold={threshold} />
-              </CollapsibleSection>
-              <CollapsibleSection title="Histogram of response times">
-                <Histogram buckets={histograms ? histograms.response_time : null} unit="ms" />
-              </CollapsibleSection>
-            </>
-          )}
-
-          {activeTab === "data" && (
-            <>
-              <CollapsibleSection title="Summary">
-                <div className="ep-statcards">
-                  <StatCard label="Total data transferred" icon={<ArrowLeftRight size={16} />} value={dl ? "—" : formatBytes(d!.total_data_transferred)} />
-                  <StatCard label="Average response size" icon={<ArrowUpFromLine size={16} />} value={dl ? "—" : formatBytes(d!.avg_response_size)} />
-                </div>
-              </CollapsibleSection>
-              <CollapsibleSection title="Data transferred over time">
-                <DataOverTime timeseries={timeseries} />
-              </CollapsibleSection>
-              <CollapsibleSection title="Histogram of response sizes">
-                <Histogram buckets={histograms ? histograms.response_size : null} unit="bytes" />
-              </CollapsibleSection>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-
   if (typeof document === "undefined") return null;
-  return createPortal(content, document.body);
+  return (
+    <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <SheetContent
+        side="right"
+        aria-describedby={undefined}
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-[min(1240px,92vw)]"
+      >
+        {/* Header */}
+        <SheetHeader className="flex-row items-center justify-between gap-3 border-b border-border px-5 py-3.5">
+          <SheetTitle className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+            <span className="whitespace-nowrap text-[13px] font-normal text-muted-foreground">Endpoint details</span>
+            <ChevronRight size={13} className="shrink-0 text-muted-foreground" />
+            <span className={`method-badge method-badge-${method.toLowerCase()}`}>{method}</span>
+            <span className="truncate font-mono text-[13px] text-foreground">{path}</span>
+          </SheetTitle>
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            className="mr-9 shrink-0 gap-1 text-muted-foreground hover:text-foreground"
+            onClick={copyLink}
+            title="Copy a shareable link to this endpoint"
+          >
+            {copiedLink ? <Check size={13} /> : <Link2 size={13} />}
+            <span>{copiedLink ? "Copied" : "Copy link"}</span>
+          </Button>
+        </SheetHeader>
+
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => {
+            // Opening the Errors tab directly (not via a card) shows all classes.
+            if (v === "errors") setErrorClass("all");
+            setActiveTab(v as TabKey);
+          }}
+          className="flex min-h-0 flex-1 flex-col gap-0"
+        >
+          {/* Tabs */}
+          <TabsList variant="line" className="w-full shrink-0 justify-start gap-5 border-b border-border px-5">
+            {TABS.map((t) => (
+              <TabsTrigger
+                key={t.key}
+                value={t.key}
+                className="h-auto flex-none px-0 py-2.5 text-[13px] after:bottom-0"
+              >
+                {t.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <Pill icon={<Clock size={12} />}>Period = {rangeLabel}</Pill>
+              {activeTab === "response_times" && threshold > 0 ? (
+                <Pill icon={<Timer size={12} />}>Response time threshold = {formatMs(threshold)}</Pill>
+              ) : null}
+            </div>
+
+            {activeTab === "info" && (
+              <CollapsibleSection title="Summary">
+                {dl ? (
+                  <Skeleton className="w-full" style={{ height: 60 }} />
+                ) : (
+                  <div className="rounded-lg border border-border bg-muted px-3 py-2.5 text-[13px] leading-relaxed text-foreground/90">
+                    {d!.description || "No description available for this endpoint."}
+                  </div>
+                )}
+              </CollapsibleSection>
+            )}
+
+            {activeTab === "requests" && (
+              <>
+                <CollapsibleSection title="Summary">
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+                    <StatCard label="Total requests" icon={<Hash size={16} />} value={dl ? "—" : formatNumber(d!.total_requests)} onClick={scrollToLog} hint="Jump to the request log" />
+                    <StatCard label="Requests per minute" icon={<Gauge size={16} />} value={dl ? "—" : (d!.requests_per_minute || 0).toFixed(1)} />
+                    <StatCard label="Unique consumers" icon={<Fingerprint size={16} />} value={consumers === null ? "—" : formatNumber(consumers.length)} onClick={() => setActiveTab("consumers")} hint="View consumers for this endpoint" />
+                    <StatCard label="Client errors" icon={<CircleX size={16} />} value={dl ? "—" : formatNumber(d!.client_errors)} tone={!dl && d!.client_errors > 0 ? "warn" : undefined} onClick={() => goToErrors("4xx")} hint="Show client (4xx) errors" />
+                    <StatCard label="Server errors" icon={<Bug size={16} />} value={dl ? "—" : formatNumber(d!.server_errors)} tone={!dl && d!.server_errors > 0 ? "bad" : undefined} onClick={() => goToErrors("5xx")} hint="Show server (5xx) errors" />
+                  </div>
+                </CollapsibleSection>
+                <CollapsibleSection title="Requests over time">
+                  <RequestsOverTime timeseries={timeseries} />
+                </CollapsibleSection>
+                <div ref={recentRef}>
+                  <CollapsibleSection title="Most recent requests">
+                    <RecentRequests rows={recentRequests} onSelect={openRequest} onConsumer={openConsumer} />
+                  </CollapsibleSection>
+                </div>
+              </>
+            )}
+
+            {activeTab === "consumers" && (
+              <CollapsibleSection title="Consumers">
+                <ConsumersTable consumers={consumers} onConsumer={openConsumer} />
+              </CollapsibleSection>
+            )}
+
+            {activeTab === "errors" && (
+              <>
+                {errorClass !== "all" && (
+                  <div className="mb-3 flex items-center gap-2">
+                    <Badge variant={errorClass === "4xx" ? "warning-light" : "destructive-light"}>
+                      {errorClass === "4xx" ? "Client (4xx) errors only" : "Server (5xx) errors only"}
+                    </Badge>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => setErrorClass("all")}
+                    >
+                      Show all errors
+                    </Button>
+                  </div>
+                )}
+                <CollapsibleSection title="Errors by status code">
+                  <ErrorsByStatus statusCodes={statusCodes} classFilter={errorClass} />
+                </CollapsibleSection>
+                <CollapsibleSection
+                  title={
+                    errorClass === "4xx" ? "Client errors over time"
+                    : errorClass === "5xx" ? "Server errors over time"
+                    : "Client & server errors over time"
+                  }
+                >
+                  <ErrorsOverTime timeseries={timeseries} classFilter={errorClass} />
+                </CollapsibleSection>
+                <CollapsibleSection
+                  title={
+                    errorClass === "4xx" ? "Most recent client (4xx) errors"
+                    : errorClass === "5xx" ? "Most recent server (5xx) errors"
+                    : "Most recent client & server errors"
+                  }
+                >
+                  <RecentRequests
+                    rows={recentRequests}
+                    errorsOnly
+                    statusClass={errorClass === "all" ? undefined : errorClass}
+                    onSelect={openRequest}
+                    onConsumer={openConsumer}
+                  />
+                </CollapsibleSection>
+              </>
+            )}
+
+            {activeTab === "response_times" && (
+              <>
+                <CollapsibleSection title="Summary">
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+                    <StatCard label="Apdex score" icon={<Smile size={16} />} value={dl ? "—" : (d!.apdex || 0).toFixed(3)} tone={!dl ? (d!.apdex >= 0.94 ? "ok" : d!.apdex >= 0.85 ? "warn" : "bad") : undefined} />
+                    <StatCard label="Slow requests" icon={<Loader size={16} />} value={dl ? "—" : formatNumber(d!.slow_requests)} sub={dl ? undefined : `of ${formatNumber(d!.total_requests)}`} />
+                    <StatCard label="50th percentile" icon={<Timer size={16} />} value={dl ? "—" : formatMs(d!.p50_response_time_ms)} />
+                    <StatCard label="75th percentile" icon={<Timer size={16} />} value={dl ? "—" : formatMs(d!.p75_response_time_ms)} />
+                    <StatCard label="95th percentile" icon={<Timer size={16} />} value={dl ? "—" : formatMs(d!.p95_response_time_ms)} />
+                  </div>
+                </CollapsibleSection>
+                <CollapsibleSection title="Response times over time">
+                  <ResponseTimesOverTime timeseries={timeseries} threshold={threshold} />
+                </CollapsibleSection>
+                <CollapsibleSection title="Histogram of response times">
+                  <Histogram buckets={histograms ? histograms.response_time : null} unit="ms" />
+                </CollapsibleSection>
+              </>
+            )}
+
+            {activeTab === "data" && (
+              <>
+                <CollapsibleSection title="Summary">
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+                    <StatCard label="Total data transferred" icon={<ArrowLeftRight size={16} />} value={dl ? "—" : formatBytes(d!.total_data_transferred)} />
+                    <StatCard label="Average response size" icon={<ArrowUpFromLine size={16} />} value={dl ? "—" : formatBytes(d!.avg_response_size)} />
+                  </div>
+                </CollapsibleSection>
+                <CollapsibleSection title="Data transferred over time">
+                  <DataOverTime timeseries={timeseries} />
+                </CollapsibleSection>
+                <CollapsibleSection title="Histogram of response sizes">
+                  <Histogram buckets={histograms ? histograms.response_size : null} unit="bytes" />
+                </CollapsibleSection>
+              </>
+            )}
+          </div>
+        </Tabs>
+      </SheetContent>
+    </Sheet>
+  );
 }

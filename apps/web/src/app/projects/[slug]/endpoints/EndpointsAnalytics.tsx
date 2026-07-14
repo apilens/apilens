@@ -14,6 +14,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { cn } from "@/lib/utils";
+import {
+  Card as ReCard,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/reui/card";
+import { Skeleton } from "@/components/reui/skeleton";
 
 /* ── Types ───────────────────────────────────────────────────────────── */
 
@@ -166,14 +175,14 @@ export default function EndpointsAnalytics({
   }));
 
   return (
-    <div className="ep-an">
-      <div className="ep-an-head">
-        <span className="ep-an-title">Analytics</span>
-        <span className="ep-an-sub">Last {rangeLabel} · vs previous {rangeLabel}</span>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-baseline gap-2.5">
+        <span className="text-lg font-semibold tracking-tight text-foreground">Analytics</span>
+        <span className="text-[13px] text-muted-foreground">Last {rangeLabel} · vs previous {rangeLabel}</span>
       </div>
 
       {/* KPI strip with period-over-period deltas */}
-      <div className="ep-an-kpis">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
         <Kpi label="Requests" value={loading ? "—" : fmtNum(cur.total_requests)} cur={cur.total_requests} prev={pre.total_requests} goodWhen="up" />
         <Kpi label="Error rate" value={loading ? "—" : `${cur.error_rate.toFixed(2)}%`} cur={cur.error_rate} prev={pre.error_rate} goodWhen="down" />
         <Kpi label="p95 latency" value={loading ? "—" : fmtMs(cur.p95_response_time_ms)} cur={cur.p95_response_time_ms} prev={pre.p95_response_time_ms} goodWhen="down" />
@@ -183,7 +192,7 @@ export default function EndpointsAnalytics({
       </div>
 
       {/* Charts */}
-      <div className="ep-an-grid">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card title="Requests over time" hint="Traffic & errors" span2>
           <ChartFrame height={220} loading={loading} empty={reqData.length === 0}>
             <AreaChart data={reqData} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
@@ -273,39 +282,53 @@ export default function EndpointsAnalytics({
 
 function Kpi({ label, value, cur, prev, goodWhen }: { label: string; value: string; cur: number; prev: number; goodWhen: "up" | "down" | "neutral" }) {
   return (
-    <div className="ep-an-kpi">
-      <span className="ep-an-kpi-label">{label}</span>
-      <span className="ep-an-kpi-value">{value}</span>
+    <div className="flex min-w-0 flex-col gap-1 rounded-[10px] border border-border bg-card px-3.5 py-3">
+      <span className="truncate text-[11px] tracking-[0.04em] uppercase text-muted-foreground">{label}</span>
+      <span className="truncate text-xl font-semibold tracking-tight tabular-nums text-foreground">{value}</span>
       <Delta cur={cur} prev={prev} goodWhen={goodWhen} />
     </div>
   );
 }
 
 function Delta({ cur, prev, goodWhen }: { cur: number; prev: number; goodWhen: "up" | "down" | "neutral" }) {
-  if (cur === prev) return <span className="ep-an-delta ep-an-delta-flat">→ no change</span>;
+  if (cur === prev) return <span className="text-[11px] font-semibold text-muted-foreground">→ no change</span>;
   const up = cur > prev;
   const pct = prev > 0 ? ((cur - prev) / prev) * 100 : 100;
   const dirGood = goodWhen === "neutral" ? null : up === (goodWhen === "up");
-  const tone = dirGood === null ? "flat" : dirGood ? "good" : "bad";
+  const toneClass =
+    dirGood === null ? "text-muted-foreground" : dirGood ? "text-success" : "text-destructive";
   const label = prev === 0 ? "new" : `${Math.abs(pct).toFixed(Math.abs(pct) >= 100 ? 0 : 1)}%`;
-  return <span className={`ep-an-delta ep-an-delta-${tone}`}>{up ? "▲" : "▼"} {label} <span className="ep-an-delta-ctx">vs prev</span></span>;
+  return (
+    <span className={cn("text-[11px] font-semibold tabular-nums", toneClass)}>
+      {up ? "▲" : "▼"} {label} <span className="font-normal text-muted-foreground">vs prev</span>
+    </span>
+  );
 }
 
 function Card({ title, hint, span2, children }: { title: string; hint?: string; span2?: boolean; children: React.ReactNode }) {
   return (
-    <section className={`ep-an-card${span2 ? " ep-an-span2" : ""}`}>
-      <div className="ep-an-card-head">
-        <span className="ep-an-card-title">{title}</span>
-        {hint ? <span className="ep-an-card-hint">{hint}</span> : null}
-      </div>
-      {children}
-    </section>
+    <ReCard className={cn("min-w-0 gap-3 rounded-xl border-border py-4 shadow-none", span2 && "md:col-span-2")}>
+      <CardHeader className="flex flex-row items-baseline justify-between gap-2 space-y-0 px-4">
+        <CardTitle className="text-[13px] font-semibold">{title}</CardTitle>
+        {hint ? <CardDescription className="text-[11px]">{hint}</CardDescription> : null}
+      </CardHeader>
+      <CardContent className="px-4">{children}</CardContent>
+    </ReCard>
   );
 }
 
 function ChartFrame({ height, loading, empty, children }: { height: number; loading: boolean; empty: boolean; children: React.ReactElement }) {
-  if (loading) return <div className="ep-an-skeleton" style={{ height }} aria-hidden />;
-  if (empty) return <div className="ep-an-empty" style={{ height }}>No data in this period.</div>;
+  if (loading) return <Skeleton className="w-full" style={{ height }} aria-hidden />;
+  if (empty) {
+    return (
+      <div
+        className="flex items-center justify-center rounded-md border border-dashed border-border text-[13px] text-muted-foreground"
+        style={{ height }}
+      >
+        No data in this period.
+      </div>
+    );
+  }
   return (
     <div style={{ height, width: "100%", minWidth: 0 }}>
       <ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer>
@@ -316,10 +339,10 @@ function ChartFrame({ height, loading, empty, children }: { height: number; load
 function AnTooltip({ active, payload, label, suffix, bytes }: any) {
   if (!active || !payload || !payload.length) return null;
   return (
-    <div className="ep-an-tip">
-      <p className="ep-an-tip-label">{label}</p>
+    <div className="rounded-md border border-border bg-popover px-2.5 py-2 text-xs text-popover-foreground shadow-md">
+      <p className="mb-1 font-medium text-muted-foreground">{label}</p>
       {payload.map((e: any) => (
-        <p key={e.dataKey} style={{ color: e.color }}>
+        <p key={e.dataKey} className="my-0.5" style={{ color: e.color }}>
           {e.name}: {bytes ? fmtBytes(e.value) : `${fmtNum(e.value)}${suffix || ""}`}
         </p>
       ))}

@@ -4,20 +4,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Check, Link2, Lock } from "lucide-react";
-import {
-  Button,
-  StatStrip,
-  Tabs,
-  type Stat,
-} from "@/components/aperture";
+import { StatStrip, type Stat } from "@/components/aperture";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/reui/button";
+import { Input } from "@/components/reui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/reui/tabs";
 import FilterBar from "../../_shared/filters/FilterBar";
 import {
   ConsumersSection,
   DataTransferredSection,
   EMPTY_DETAIL,
   EMPTY_HISTOGRAMS,
+  EmptyBlock,
   LatencyHistogramBlock,
   LatencySection,
+  MethodBadge,
   RequestsTab,
   StatusCodesBlock,
   TrafficSection,
@@ -262,87 +263,128 @@ export default function EndpointDetailContent({ projectSlug }: { projectSlug: st
   /* ── Guard: missing identity ── */
   if (!method || !path) {
     return (
-      <div className="endpoint-page">
-        <Link href={`/projects/${projectSlug}/endpoints`} className="endpoint-page-back">
+      <div className="mx-auto max-w-[1200px] px-4 pt-5 pb-12 sm:px-6">
+        <Link
+          href={`/projects/${projectSlug}/endpoints`}
+          className="mb-3 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[13px] text-muted-foreground no-underline hover:bg-accent hover:text-foreground"
+        >
           <ArrowLeft size={15} /> Endpoints
         </Link>
-        <div className="endpoint-detail-empty">No endpoint specified. Pick an endpoint from the list.</div>
+        <EmptyBlock message="No endpoint specified. Pick an endpoint from the list." />
       </div>
     );
   }
 
   return (
-    <div className="endpoint-page">
-      <div className="endpoint-page-topbar">
-        <Link href={`/projects/${projectSlug}/endpoints`} className="endpoint-page-back">
+    <div className="mx-auto max-w-[1200px] px-4 pt-5 pb-12 sm:px-6">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <Link
+          href={`/projects/${projectSlug}/endpoints`}
+          className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[13px] text-muted-foreground no-underline hover:bg-accent hover:text-foreground"
+        >
           <ArrowLeft size={15} /> Endpoints
         </Link>
-        <Button variant="secondary" size="sm" onClick={copyLink} title="Copy shareable link">
+        <Button variant="outline" size="sm" onClick={copyLink} title="Copy shareable link">
           {copied ? <Check size={14} /> : <Link2 size={14} />}
           {copied ? "Copied" : "Copy link"}
         </Button>
       </div>
 
-      <header className="endpoint-page-header">
-        <div className="endpoint-page-identity">
-          <span className={`method-badge method-badge-${method.toLowerCase()}`}>{method}</span>
-          <span className="endpoint-page-path">{path}</span>
-          {detail?.base_url ? <span className="endpoint-detail-baseurl">{detail.base_url}</span> : null}
+      <header className="mb-4">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <MethodBadge method={method} className="text-xs" />
+          <span className="font-mono text-xl font-semibold break-all text-foreground">{path}</span>
+          {detail?.base_url ? <span className="text-xs text-muted-foreground">{detail.base_url}</span> : null}
         </div>
-        {detail?.description ? <p className="endpoint-page-description">{detail.description}</p> : null}
+        {detail?.description ? (
+          <p className="mt-2 mb-0 max-w-[720px] text-[13px] leading-relaxed text-muted-foreground">
+            {detail.description}
+          </p>
+        ) : null}
       </header>
 
       <HealthStrip detail={detail} />
 
-      <div className="endpoint-page-filters">
-        <div className="time-range-selector">
-          {TIME_RANGES.map(({ label, value }) => (
-            <button
-              key={value}
+      <div className="flex flex-wrap items-center gap-2.5 border-t border-border py-3">
+        <div className="relative inline-flex items-center gap-1.5 rounded-xl border border-border bg-card p-1">
+          {TIME_RANGES.map(({ label, value }) => {
+            const active = selectedRange === value && !customActive;
+            return (
+              <Button
+                key={value}
+                type="button"
+                variant={active ? "outline" : "ghost"}
+                size="sm"
+                className={cn(
+                  "h-7 rounded-lg px-2.5 text-xs font-semibold",
+                  active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => pickPreset(value)}
+              >
+                {label}
+              </Button>
+            );
+          })}
+          <div className="relative inline-flex items-center self-center" ref={customPopoverRef}>
+            <Button
               type="button"
-              className={`time-range-btn${selectedRange === value && !customActive ? " active" : ""}`}
-              onClick={() => pickPreset(value)}
-            >
-              {label}
-            </button>
-          ))}
-          <div className="custom-time-anchor" ref={customPopoverRef}>
-            <button
-              type="button"
-              className={`time-range-btn${customActive ? " active" : ""}`}
+              variant={customActive ? "outline" : "ghost"}
+              size="sm"
+              className={cn(
+                "h-7 rounded-lg px-2.5 text-xs font-semibold",
+                customActive ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
               onClick={() => setCustomPanelOpen((v) => !v)}
             >
               Custom
-            </button>
+            </Button>
             {customPanelOpen && (
-              <div className="custom-range-panel">
-                <div className="custom-range-header">
-                  <div>
-                    <p className="custom-range-title">Custom time range</p>
-                    <p className="custom-range-subtitle">Pick start and end to refine this endpoint.</p>
-                  </div>
+              <div className="absolute top-[calc(100%+8px)] right-0 z-40 w-[min(420px,92vw)] rounded-xl border border-border bg-popover p-3.5 shadow-lg">
+                <div>
+                  <p className="m-0 text-[13px] font-semibold text-popover-foreground">Custom time range</p>
+                  <p className="m-0 mt-0.5 text-xs text-muted-foreground">Pick start and end to refine this endpoint.</p>
                 </div>
-                <div className="custom-range-fields custom-range-fields-4">
-                  <label className="custom-range-field">
+                <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                  <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
                     <span>From date</span>
-                    <input type="date" value={customSinceDraft ? customSinceDraft.slice(0, 10) : ""} onChange={(e) => updateDraftPart("since", "date", e.target.value)} />
+                    <Input
+                      type="date"
+                      className="h-8 px-2 text-xs"
+                      value={customSinceDraft ? customSinceDraft.slice(0, 10) : ""}
+                      onChange={(e) => updateDraftPart("since", "date", e.target.value)}
+                    />
                   </label>
-                  <label className="custom-range-field">
+                  <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
                     <span>From time</span>
-                    <input type="time" value={customSinceDraft ? customSinceDraft.slice(11, 16) : "00:00"} onChange={(e) => updateDraftPart("since", "time", e.target.value)} />
+                    <Input
+                      type="time"
+                      className="h-8 px-2 text-xs"
+                      value={customSinceDraft ? customSinceDraft.slice(11, 16) : "00:00"}
+                      onChange={(e) => updateDraftPart("since", "time", e.target.value)}
+                    />
                   </label>
-                  <label className="custom-range-field">
+                  <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
                     <span>To date</span>
-                    <input type="date" value={customUntilDraft ? customUntilDraft.slice(0, 10) : ""} onChange={(e) => updateDraftPart("until", "date", e.target.value)} />
+                    <Input
+                      type="date"
+                      className="h-8 px-2 text-xs"
+                      value={customUntilDraft ? customUntilDraft.slice(0, 10) : ""}
+                      onChange={(e) => updateDraftPart("until", "date", e.target.value)}
+                    />
                   </label>
-                  <label className="custom-range-field">
+                  <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
                     <span>To time</span>
-                    <input type="time" value={customUntilDraft ? customUntilDraft.slice(11, 16) : "00:00"} onChange={(e) => updateDraftPart("until", "time", e.target.value)} />
+                    <Input
+                      type="time"
+                      className="h-8 px-2 text-xs"
+                      value={customUntilDraft ? customUntilDraft.slice(11, 16) : "00:00"}
+                      onChange={(e) => updateDraftPart("until", "time", e.target.value)}
+                    />
                   </label>
                 </div>
-                {customRangeError ? <p className="custom-range-error">{customRangeError}</p> : null}
-                <div className="custom-range-actions">
-                  <button type="button" className="custom-range-apply" onClick={applyCustomRange}>Apply</button>
+                {customRangeError ? <p className="m-0 mt-2 text-xs text-destructive">{customRangeError}</p> : null}
+                <div className="mt-3 flex justify-end">
+                  <Button type="button" size="sm" onClick={applyCustomRange}>Apply</Button>
                 </div>
               </div>
             )}
@@ -354,17 +396,17 @@ export default function EndpointDetailContent({ projectSlug }: { projectSlug: st
       {/* Locked scope — the endpoint and app the user is already on. Shown as
           read-only chips (not part of the editable filter) so it's clear these
           can't be changed here. */}
-      <div className="endpoint-scope" role="status" aria-label="Locked scope">
-        <span className="endpoint-scope-label">
+      <div className="flex flex-wrap items-center gap-2 pt-2.5 pb-3" role="status" aria-label="Locked scope">
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-wide uppercase text-muted-foreground">
           <Lock size={12} /> Scope
         </span>
-        <span className="endpoint-scope-chip">
-          <span className="endpoint-scope-key">Endpoint</span>
-          <span className={`method-badge method-badge-${method.toLowerCase()}`}>{method}</span>
-          <span className="endpoint-scope-path" title={path}>{path}</span>
+        <span className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1 text-xs whitespace-nowrap text-foreground">
+          <span className="text-[10px] font-semibold tracking-wide uppercase text-muted-foreground">Endpoint</span>
+          <MethodBadge method={method} />
+          <span className="truncate font-mono" title={path}>{path}</span>
         </span>
-        <span className="endpoint-scope-chip">
-          <span className="endpoint-scope-key">App</span>
+        <span className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1 text-xs whitespace-nowrap text-foreground">
+          <span className="text-[10px] font-semibold tracking-wide uppercase text-muted-foreground">App</span>
           {appSlugs.length === 0 ? "All apps" : appSlugs.length === 1 ? appSlugs[0] : `${appSlugs.length} apps`}
         </span>
       </div>
@@ -372,7 +414,7 @@ export default function EndpointDetailContent({ projectSlug }: { projectSlug: st
       {/* Editable rich filter — explore this endpoint's data by env, status,
           consumer, latency, size, ip, ua. path/method/app are excluded (they're
           the fixed scope above). Sits above the tabs, so it applies on every tab. */}
-      <div className="ep-rl-filterrow endpoint-page-filterbar">
+      <div className="mt-3 mb-[18px] flex border-b border-border pb-3.5">
         <FilterBar
           projectSlug={projectSlug}
           value={filter}
@@ -382,13 +424,20 @@ export default function EndpointDetailContent({ projectSlug }: { projectSlug: st
       </div>
 
       <Tabs
-        className="endpoint-page-tabs"
-        tabs={TABS}
-        active={activeTab}
-        onChange={(k) => setActiveTab(k as TabKey)}
-      />
+        value={activeTab}
+        onValueChange={(k) => setActiveTab(k as TabKey)}
+        className="mb-5 w-full gap-0"
+      >
+        <TabsList>
+          {TABS.map((t) => (
+            <TabsTrigger key={t.key} value={t.key} className="px-3 text-[13px]">
+              {t.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
-      <div className="endpoint-page-body">
+      <div className="min-h-[200px]">
         {activeTab === "overview" ? (
           <OverviewGrid projectSlug={projectSlug} detail={detail} timeseries={timeseries} consumers={consumers} statusCodes={statusCodes} histograms={histograms} />
         ) : (
@@ -445,15 +494,15 @@ function OverviewGrid({
   // each pack tightly — this keeps side-by-side cards top-aligned and avoids
   // the row-height coupling of a rigid grid (which left gaps under short cards).
   return (
-    <div className="endpoint-overview">
+    <div className="flex flex-col gap-4">
       <TrafficSection timeseries={timeseries} />
       <LatencySection detail={detail} timeseries={timeseries} />
-      <div className="endpoint-overview-cols">
-        <div className="endpoint-overview-col">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        <div className="flex min-w-0 flex-col gap-4">
           <StatusCodesBlock statusCodes={statusCodes} />
           <ConsumersSection projectSlug={projectSlug} consumers={consumers} />
         </div>
-        <div className="endpoint-overview-col">
+        <div className="flex min-w-0 flex-col gap-4">
           <LatencyHistogramBlock histograms={histograms} />
           <DataTransferredSection detail={detail} timeseries={timeseries} histograms={histograms} />
         </div>

@@ -3,6 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2, Loader2, X, Check, Copy, Lock, SearchX } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/reui/button";
+import { Input } from "@/components/reui/input";
+import { Label } from "@/components/reui/label";
+import { Textarea } from "@/components/reui/textarea";
 import SettingsCard from "@/components/settings/SettingsCard";
 import ProjectApiKeysSection from "@/components/projects/ProjectApiKeysSection";
 import ProjectMembersSection from "@/components/projects/ProjectMembersSection";
@@ -164,7 +169,7 @@ export default function ProjectSettingsContent({
     return (
       <div className="settings-page">
         <div className="settings-page-loading">
-          <div className="loading-spinner" />
+          <Loader2 size={24} className="animate-spin text-muted-foreground" />
         </div>
       </div>
     );
@@ -174,24 +179,21 @@ export default function ProjectSettingsContent({
     const isForbidden = accessError === "forbidden";
     return (
       <div className="settings-page">
-        <div className="settings-noaccess">
-          <div className="settings-noaccess-icon">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-24 text-center">
+          <div className="flex size-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
             {isForbidden ? <Lock size={26} strokeWidth={1.5} /> : <SearchX size={26} strokeWidth={1.5} />}
           </div>
-          <h2 className="settings-noaccess-title">
+          <h2 className="text-lg font-semibold text-foreground">
             {isForbidden ? "You don't have access" : "Project not found"}
           </h2>
-          <p className="settings-noaccess-text">
+          <p className="max-w-sm text-[13px] leading-relaxed text-muted-foreground">
             {isForbidden
               ? "You're not a member of this project. If you think this is a mistake, ask the project owner to invite you."
               : "This project doesn't exist, or it may have been deleted."}
           </p>
-          <button
-            className="settings-btn settings-btn-primary"
-            onClick={() => router.push("/projects")}
-          >
+          <Button className="mt-2" onClick={() => router.push("/projects")}>
             Back to Projects
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -200,7 +202,7 @@ export default function ProjectSettingsContent({
   if (!project) {
     return (
       <div className="settings-page">
-        <div className="error-message">Project not found</div>
+        <div className="py-12 text-center text-sm text-muted-foreground">Project not found</div>
       </div>
     );
   }
@@ -208,14 +210,24 @@ export default function ProjectSettingsContent({
   return (
     <div className="settings-page">
       {toast && (
-        <div className={`settings-toast settings-toast-${toast.type}`}>
-          <div className="settings-toast-icon">
+        <div className="fixed bottom-6 left-1/2 z-[300] flex -translate-x-1/2 items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-3 text-sm text-foreground shadow-lg animate-in fade-in-0 slide-in-from-bottom-2">
+          <div
+            className={cn(
+              "flex items-center justify-center",
+              toast.type === "success" ? "text-success" : "text-destructive",
+            )}
+          >
             {toast.type === "success" ? <Check size={16} /> : <X size={16} />}
           </div>
           <span>{toast.message}</span>
-          <button className="settings-toast-close" onClick={() => setToast(null)}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="ml-1 text-muted-foreground hover:text-foreground"
+            onClick={() => setToast(null)}
+          >
             <X size={14} />
-          </button>
+          </Button>
         </div>
       )}
 
@@ -226,57 +238,67 @@ export default function ProjectSettingsContent({
           {activeTab === "general" && (
             <div className="settings-section-content">
               <SettingsCard title="General" description="Update your project details">
-                <form onSubmit={handleSave} className="app-general-form">
-                  <div className="create-app-field">
-                    <label htmlFor="project-slug" className="create-app-label">
+                <form onSubmit={handleSave} className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="project-slug" className="text-[13px]">
                       Project slug
-                    </label>
-                    <div className="settings-inline-field">
-                      <div id="project-slug" className="settings-inline-value" aria-readonly="true">
-                        <code className="settings-inline-code">{project.slug}</code>
+                    </Label>
+                    <div className="flex items-stretch justify-between gap-2.5">
+                      <div
+                        id="project-slug"
+                        className="flex min-h-9 min-w-0 flex-1 items-center rounded-md border border-border bg-muted/50 px-3.5"
+                        aria-readonly="true"
+                      >
+                        <code className="truncate font-mono text-[13px] text-foreground">{project.slug}</code>
                       </div>
-                      <button
+                      <Button
                         type="button"
-                        className="settings-btn settings-btn-secondary settings-btn-sm settings-inline-action"
+                        variant="outline"
+                        size="sm"
+                        className="h-auto shrink-0"
                         onClick={handleCopySlug}
                       >
                         {copiedSlug ? <Check size={14} /> : <Copy size={14} />}
                         {copiedSlug ? "Copied" : "Copy"}
-                      </button>
+                      </Button>
                     </div>
-                    <p className="settings-inline-help">Use this exact value as <code>project_slug</code> in SDK setup.</p>
+                    <p className="text-xs text-muted-foreground">
+                      Use this exact value as{" "}
+                      <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground">project_slug</code>{" "}
+                      in SDK setup.
+                    </p>
                   </div>
 
-                  <div className="create-app-field">
-                    <label htmlFor="name" className="create-app-label">
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="name" className="text-[13px]">
                       Project Name
-                    </label>
-                    <input
+                    </Label>
+                    <Input
                       id="name"
                       type="text"
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      className="create-app-input"
+                      className="text-[13px]"
                       required
                     />
                   </div>
 
-                  <div className="create-app-field">
-                    <label htmlFor="description" className="create-app-label">
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="description" className="text-[13px]">
                       Description
-                    </label>
-                    <textarea
+                    </Label>
+                    <Textarea
                       id="description"
                       value={formData.description}
                       onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                      className="create-app-textarea"
+                      className="text-[13px]"
                       rows={3}
                       placeholder="Add a description for your project"
                     />
                   </div>
 
-                  <div className="app-general-actions">
-                    <button type="submit" className="settings-btn settings-btn-primary" disabled={isSaving}>
+                  <div className="flex justify-end pt-1">
+                    <Button type="submit" disabled={isSaving}>
                       {isSaving ? (
                         <>
                           <Loader2 size={14} className="animate-spin" />
@@ -285,7 +307,7 @@ export default function ProjectSettingsContent({
                       ) : (
                         "Save changes"
                       )}
-                    </button>
+                    </Button>
                   </div>
                 </form>
               </SettingsCard>
@@ -295,10 +317,10 @@ export default function ProjectSettingsContent({
                 description="Deleting a project will permanently remove it and all associated apps, API keys, and data. This action cannot be undone."
                 variant="danger"
               >
-                <button
+                <Button
                   type="button"
+                  variant="destructive"
                   onClick={handleDelete}
-                  className="settings-btn settings-btn-danger"
                   disabled={isDeleting}
                 >
                   {isDeleting ? (
@@ -312,7 +334,7 @@ export default function ProjectSettingsContent({
                       Delete Project
                     </>
                   )}
-                </button>
+                </Button>
               </SettingsCard>
             </div>
           )}

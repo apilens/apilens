@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { Button } from "@/components/reui/button";
 import type { FrameworkId } from "@/types/app";
 
 const FRAMEWORK_OPTIONS: Record<
@@ -177,15 +178,15 @@ function SetupIdentifier({
   onCopy: () => void;
 }) {
   return (
-    <div className="create-app-identifier">
-      <div className="create-app-identifier-copy">
-        <div className="create-app-identifier-label">{label}</div>
-        <code className="create-app-identifier-value">{value}</code>
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3.5 py-2.5">
+      <div className="min-w-0">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+        <code className="block truncate font-mono text-[13px] text-foreground">{value}</code>
       </div>
-      <button type="button" className="settings-btn settings-btn-secondary settings-btn-sm" onClick={onCopy}>
+      <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={onCopy}>
         {copied ? <Check size={14} /> : <Copy size={14} />}
         {copied ? "Copied" : "Copy"}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -222,40 +223,43 @@ export default function AppSetupGuide({
   };
 
   return (
-    <div className="create-app-setup">
-      <div className="create-app-setup-head">
-        <p className="create-app-setup-kicker">Quickstart</p>
-        <h3>{appName} is live</h3>
-        <p>
+    <div className="flex flex-col gap-7">
+      <div className="flex flex-col gap-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-primary">Quickstart</p>
+        <h3 className="text-lg font-semibold leading-tight text-foreground">{appName} is live</h3>
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
           {frameworkOption.label} setup guide. Replace the masked API key below with the API key from{" "}
-          {projectLabel ? <strong>{projectLabel}</strong> : "this project"}.{" "}
+          {projectLabel ? <strong className="font-semibold text-foreground">{projectLabel}</strong> : "this project"}.{" "}
           {projectSlug && (
-            <Link href={`/projects/${projectSlug}/settings/api-keys`} style={{ textDecoration: "underline" }}>
+            <Link
+              href={`/projects/${projectSlug}/settings/api-keys`}
+              className="underline underline-offset-2 hover:text-foreground"
+            >
               View API Keys
             </Link>
           )}
         </p>
       </div>
 
-      <div className="create-app-doc-main create-app-doc-main-single">
-        <div className="create-app-guide-step">
-          <div className="create-app-guide-index">1</div>
-          <div className="create-app-guide-body">
-            <h4>Install package</h4>
-            <p>Install the API Lens SDK package for {frameworkOption.label}.</p>
+      <div className="flex flex-col gap-6">
+        <div className="flex gap-3.5">
+          <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary">1</div>
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <h4 className="text-sm font-semibold text-foreground">Install package</h4>
+            <p className="text-[13px] text-muted-foreground">Install the API Lens SDK package for {frameworkOption.label}.</p>
             <CodeBlock language="bash" code={installCmd} copied={copiedItem === "install"} onCopy={() => copyText(installCmd, "install")} />
           </div>
         </div>
 
-        <div className="create-app-guide-step">
-          <div className="create-app-guide-index">2</div>
-          <div className="create-app-guide-body">
-            <h4>Add middleware in app bootstrap</h4>
-            <p>
+        <div className="flex gap-3.5">
+          <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary">2</div>
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <h4 className="text-sm font-semibold text-foreground">Add middleware in app bootstrap</h4>
+            <p className="text-[13px] text-muted-foreground">
               Paste this snippet in your entry file, keep these identifiers exactly as shown, and use a key from{" "}
-              {projectLabel ? <strong>{projectLabel}</strong> : "the same project"}.
+              {projectLabel ? <strong className="font-semibold text-foreground">{projectLabel}</strong> : "the same project"}.
             </p>
-            <div className="create-app-identifiers">
+            <div className="grid gap-2">
               <SetupIdentifier
                 label="Project slug"
                 value={projectSlugValue}
@@ -273,14 +277,15 @@ export default function AppSetupGuide({
           </div>
         </div>
 
-        <div className="create-app-setup-footer">
-          <p>After restarting your app, hit a few endpoints and open Endpoints to verify traffic.</p>
-          <Link
-            href={projectSlug ? `/projects/${projectSlug}/endpoints?app=${appSlug}` : `/apps/${appSlug}/endpoints`}
-            className="settings-btn settings-btn-primary"
-          >
-            Continue to app
-          </Link>
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/30 px-4 py-3.5">
+          <p className="text-[13px] text-muted-foreground">After restarting your app, hit a few endpoints and open Endpoints to verify traffic.</p>
+          <Button asChild className="shrink-0">
+            <Link
+              href={projectSlug ? `/projects/${projectSlug}/endpoints?app=${appSlug}` : `/apps/${appSlug}/endpoints`}
+            >
+              Continue to app
+            </Link>
+          </Button>
         </div>
       </div>
     </div>

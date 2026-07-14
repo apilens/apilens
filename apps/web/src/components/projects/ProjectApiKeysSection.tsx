@@ -15,6 +15,9 @@ import {
 } from "lucide-react";
 import SettingsCard from "@/components/settings/SettingsCard";
 import ConfirmDialog from "@/components/settings/ConfirmDialog";
+import { Button } from "@/components/reui/button";
+import { Input } from "@/components/reui/input";
+import { Label } from "@/components/reui/label";
 
 interface ApiKey {
   id: string;
@@ -171,76 +174,71 @@ export default function ProjectApiKeysSection({ projectSlug, showToast }: Projec
         action={
           !showCreateForm &&
           !newRawKey && (
-            <button
-              className="settings-btn settings-btn-secondary settings-btn-sm"
-              onClick={() => setShowCreateForm(true)}
-            >
+            <Button variant="outline" size="sm" onClick={() => setShowCreateForm(true)}>
               <Plus size={14} />
               Create key
-            </button>
+            </Button>
           )
         }
       >
         {newRawKey && (
-          <div className="apikeys-reveal">
-            <div className="apikeys-reveal-header">
-              <div className="apikeys-reveal-icon">
+          <div className="mb-3.5 flex flex-col gap-5 rounded-xl border border-border bg-muted/40 p-6">
+            <div className="flex items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-success/10 text-success">
                 <Key size={16} />
               </div>
               <div>
-                <p className="apikeys-reveal-title">Your new API key</p>
-                <p className="apikeys-reveal-subtitle">
+                <p className="text-sm font-semibold text-foreground">Your new API key</p>
+                <p className="text-xs text-muted-foreground">
                   Copy it now — you won&apos;t be able to see it again.
                 </p>
               </div>
             </div>
-            <div className="apikeys-reveal-value">
-              <code className="apikeys-reveal-code">
+            <div className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-background px-3.5 py-2">
+              <code className="min-w-0 flex-1 break-all font-mono text-[13px] leading-snug text-foreground">
                 {showKey ? newRawKey : maskKey(newRawKey)}
               </code>
-              <div className="apikeys-reveal-actions">
-                <button
-                  className="settings-btn settings-btn-ghost settings-btn-sm"
+              <div className="flex shrink-0 items-center gap-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
                   onClick={() => setShowKey(!showKey)}
                   aria-label={showKey ? "Hide key" : "Show key"}
                 >
                   {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-                <button
-                  className="settings-btn settings-btn-ghost settings-btn-sm"
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => handleCopy(newRawKey)}
                   aria-label="Copy key"
                 >
                   {copied ? <Check size={14} /> : <Copy size={14} />}
                   {copied ? "Copied" : "Copy"}
-                </button>
+                </Button>
               </div>
             </div>
-            <div className="apikeys-reveal-warning">
-              <AlertTriangle size={14} />
+            <div className="flex items-center gap-2 rounded-lg border border-warning/15 bg-warning/10 px-3 py-2.5 text-xs text-warning">
+              <AlertTriangle size={14} className="shrink-0" />
               <span>
                 Store this key securely. It has access to all apps in this project.
               </span>
             </div>
-            <button
-              className="settings-btn settings-btn-secondary settings-btn-sm"
-              onClick={dismissNewKey}
-              style={{ width: "100%" }}
-            >
+            <Button variant="outline" size="sm" className="w-full" onClick={dismissNewKey}>
               I&apos;ve copied it
-            </button>
+            </Button>
           </div>
         )}
 
         {showCreateForm && !newRawKey && (
-          <div className="apikeys-create-form">
-            <div className="apikeys-create-field">
-              <label className="apikeys-label" htmlFor="apikey-name">
+          <div className="mb-3.5 flex flex-col gap-5 rounded-xl border border-border bg-muted/40 p-6">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="apikey-name" className="text-xs text-muted-foreground">
                 Key name
-              </label>
-              <input
+              </Label>
+              <Input
                 id="apikey-name"
-                className="apikeys-input"
+                className="h-8 text-[13px]"
                 value={newKeyName}
                 onChange={(e) => setNewKeyName(e.target.value)}
                 onKeyDown={(e) => {
@@ -252,15 +250,12 @@ export default function ProjectApiKeysSection({ projectSlug, showToast }: Projec
                 autoFocus
               />
             </div>
-            <div className="apikeys-create-actions">
-              <button
-                className="settings-btn settings-btn-secondary settings-btn-sm"
-                onClick={cancelCreate}
-              >
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={cancelCreate}>
                 Cancel
-              </button>
-              <button
-                className="settings-btn settings-btn-primary settings-btn-sm"
+              </Button>
+              <Button
+                size="sm"
                 disabled={isCreating || !newKeyName.trim()}
                 onClick={handleCreate}
               >
@@ -272,53 +267,60 @@ export default function ProjectApiKeysSection({ projectSlug, showToast }: Projec
                 ) : (
                   "Create key"
                 )}
-              </button>
+              </Button>
             </div>
           </div>
         )}
 
         {isLoading ? (
-          <div className="sessions-loading">
+          <div className="flex items-center gap-2.5 py-3 text-[13px] text-muted-foreground">
             <Loader2 size={18} className="animate-spin" />
             <span>Loading API keys...</span>
           </div>
         ) : keys.length === 0 && !hasInlineContent ? (
-          <div className="apikeys-empty">
-            <div className="apikeys-empty-icon">
+          <div className="flex items-center gap-3 py-2">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
               <Shield size={20} />
             </div>
-            <p className="apikeys-empty-text">
+            <p className="text-[13px] text-muted-foreground">
               No API keys yet. Create one to start sending data from your apps.
             </p>
           </div>
         ) : keys.length > 0 ? (
-          <div className={`project-apikeys-list${hasInlineContent ? " project-apikeys-list-separated" : ""}`}>
+          <div className="grid gap-2.5">
             {keys.map((k) => (
-              <div key={k.id} className="project-apikey-row">
-                <div className="project-apikey-main">
-                  <div className="apikeys-item-icon">
+              <div
+                key={k.id}
+                className="flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:bg-accent/40"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                     <Key size={16} />
                   </div>
-                  <div className="apikeys-item-info">
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <p className="apikeys-item-name">{k.name}</p>
-                      <code className="apikeys-item-prefix">{k.prefix}...••••••••</code>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-[13px] font-medium text-foreground">{k.name}</p>
+                      <code className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                        {k.prefix}...••••••••
+                      </code>
                     </div>
-                    <p className="apikeys-item-subtitle">
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
                       Created {formatDate(k.created_at)} · Last used {formatRelativeTime(k.last_used_at)}
                     </p>
                   </div>
                 </div>
 
-                <div className="project-apikey-row-action">
-                  <button
-                    className="settings-btn settings-btn-ghost settings-btn-sm"
+                <div className="flex items-center justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground hover:text-foreground"
                     onClick={() => setRevokeTarget(k)}
                     aria-label={`Revoke ${k.name}`}
                   >
                     <Trash2 size={14} />
                     Revoke
-                  </button>
+                  </Button>
                 </div>
               </div>
             ))}

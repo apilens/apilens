@@ -3,13 +3,20 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowDownToLine, ArrowUpFromLine, Check, ChevronRight, Copy, Fingerprint, Globe, Info, Link2, Maximize2, Pause, Play, RotateCcw, Server, Terminal, Timer, TriangleAlert, X, ZoomIn, ZoomOut } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Badge, type BadgeProps } from "@/components/reui/badge";
+import { Button } from "@/components/reui/button";
+import { Skeleton } from "@/components/reui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/reui/tabs";
 import {
+  EmptyBlock,
+  MethodBadge,
+  StatusBadge,
   formatBytes,
   formatDateTime,
   formatMs,
   highlightJson,
   parseHeaders,
-  statusTone,
 } from "./detail/sections";
 
 /* ── Types ───────────────────────────────────────────────────────────── */
@@ -95,15 +102,6 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "related", label: "Related" },
 ];
 
-function methodColor(m: string): string {
-  const k = m.toUpperCase();
-  if (k === "GET") return "#14b8a6";
-  if (k === "POST") return "#5A9CF8";
-  if (k === "PUT") return "#f59e0b";
-  if (k === "PATCH") return "#a78bfa";
-  if (k === "DELETE") return "#f87171";
-  return "#94a3b8";
-}
 function timeShort(ts: string): string {
   const d = new Date(ts);
   if (isNaN(d.getTime())) return ts;
@@ -134,13 +132,42 @@ function StatusText(code: number): string {
 
 /* ── Sub-blocks ──────────────────────────────────────────────────────── */
 
+/** Section heading with optional count pill (ReUI Badge). */
+function SubHead({
+  title,
+  count,
+  countVariant = "secondary",
+  className,
+}: {
+  title: React.ReactNode;
+  count?: number;
+  countVariant?: BadgeProps["variant"];
+  className?: string;
+}) {
+  return (
+    <h4
+      className={cn(
+        "mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide uppercase text-muted-foreground",
+        className,
+      )}
+    >
+      {title}
+      {count ? (
+        <Badge variant={countVariant} size="sm" className="tabular-nums">
+          {count}
+        </Badge>
+      ) : null}
+    </h4>
+  );
+}
+
 function MetricCard({ label, icon, value }: { label: string; icon: React.ReactNode; value: string }) {
   return (
-    <div className="ep-statcard">
-      <div className="ep-statcard-label">{label}</div>
-      <div className="ep-statcard-main">
-        <span className="ep-statcard-icon">{icon}</span>
-        <span className="ep-statcard-value">{value}</span>
+    <div className="min-w-0 max-w-[260px] flex-1 basis-[170px] rounded-[10px] border border-border bg-background px-3.5 py-3">
+      <div className="mb-2.5 truncate text-xs text-muted-foreground">{label}</div>
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="inline-flex shrink-0 text-muted-foreground">{icon}</span>
+        <span className="text-[22px] leading-tight font-semibold tabular-nums text-foreground">{value}</span>
       </div>
     </div>
   );
@@ -148,34 +175,30 @@ function MetricCard({ label, icon, value }: { label: string; icon: React.ReactNo
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="ep-info-row">
-      <span className="ep-info-key">{label}</span>
-      <span className="ep-info-val">{value}</span>
+    <div className="flex items-baseline justify-between gap-3 border-b border-border/60 py-2 text-xs last:border-0">
+      <span className="whitespace-nowrap text-muted-foreground">{label}</span>
+      <span className="min-w-0 text-right break-words text-foreground">{value}</span>
     </div>
   );
 }
 
 function HeadersList({ raw, title }: { raw: string | undefined; title: string }) {
   const headers = parseHeaders(raw);
-  if (headers.length === 0) {
-    return (
-      <div className="ep-rl-headblock">
-        <h4 className="ep-rl-subhead">{title}</h4>
-        <div className="endpoint-detail-empty">No headers captured.</div>
-      </div>
-    );
-  }
   return (
-    <div className="ep-rl-headblock">
-      <h4 className="ep-rl-subhead">{title}</h4>
-      <div className="ep-headers-list">
-        {headers.map(([k, v]) => (
-          <div key={k} className="ep-header-row">
-            <span className="ep-header-key">{k}</span>
-            <span className="ep-header-val">{v}</span>
-          </div>
-        ))}
-      </div>
+    <div className="mb-[18px] last:mb-0">
+      <SubHead title={title} />
+      {headers.length === 0 ? (
+        <EmptyBlock message="No headers captured." />
+      ) : (
+        <div className="overflow-hidden rounded-md border border-border">
+          {headers.map(([k, v]) => (
+            <div key={k} className="flex gap-3 border-b border-border/60 px-2.5 py-1.5 font-mono text-xs last:border-0">
+              <span className="w-44 shrink-0 truncate text-primary">{k}</span>
+              <span className="min-w-0 break-all text-muted-foreground">{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -192,14 +215,14 @@ function Body({ title, raw }: { title: string; raw: string | undefined }) {
     } catch { /* clipboard unavailable */ }
   };
   return (
-    <div className="ep-rl-bodyblock">
-      <div className="ep-rl-bodyhead">
-        <h4 className="ep-rl-subhead">{title}</h4>
+    <div className="mb-[18px] last:mb-0">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <SubHead title={title} className="mb-0" />
         {body ? (
-          <button type="button" className="ep-rl-copy" onClick={copy}>
+          <Button type="button" variant="ghost" size="xs" className="text-muted-foreground" onClick={copy}>
             {copied ? <Check size={13} /> : <Copy size={13} />}
             {copied ? "Copied" : "Copy"}
-          </button>
+          </Button>
         ) : null}
       </div>
       {body ? (
@@ -209,7 +232,7 @@ function Body({ title, raw }: { title: string; raw: string | undefined }) {
           <pre className="request-payload-pre">{body}</pre>
         )
       ) : (
-        <div className="endpoint-detail-empty">No body captured.</div>
+        <EmptyBlock message="No body captured." />
       )}
     </div>
   );
@@ -236,16 +259,24 @@ function RelatedRow({
     <button
       type="button"
       ref={scrollRef}
-      className={`ep-rel-row${current ? " is-current" : ""}`}
+      className={cn(
+        "flex w-full cursor-pointer items-center gap-2.5 border-b border-border px-3 py-2 text-left text-xs last:border-0 hover:bg-accent",
+        current &&
+          "bg-primary/10 hover:bg-primary/15 [box-shadow:inset_3px_0_0_0_var(--color-primary)]",
+      )}
       onClick={() => { if (!current) onOpen(r); }}
       aria-current={current ? "true" : undefined}
     >
-      <span className="ep-rel-time">{timeShort(r.timestamp)}</span>
-      <span className={`endpoint-status-pill ${statusTone(r.status_code)}`}>{r.status_code}</span>
-      <span className="ep-rel-method" style={{ color: methodColor(r.method) }}>{r.method}</span>
-      <span className="ep-rel-path">{reqUrl(r)}</span>
-      {current && <span className="ep-rel-here">this request</span>}
-      <span className="ep-rel-dur">{formatMs(r.response_time_ms)}</span>
+      <span className="whitespace-nowrap tabular-nums text-muted-foreground">{timeShort(r.timestamp)}</span>
+      <StatusBadge status={r.status_code} />
+      <MethodBadge method={r.method} />
+      <span className="min-w-0 flex-1 truncate font-mono text-foreground">{reqUrl(r)}</span>
+      {current && (
+        <span className="whitespace-nowrap text-[10px] font-semibold tracking-wide uppercase text-primary">
+          this request
+        </span>
+      )}
+      <span className="whitespace-nowrap tabular-nums text-muted-foreground">{formatMs(r.response_time_ms)}</span>
     </button>
   );
 }
@@ -276,17 +307,14 @@ function RelatedSection({
   }, [rows]);
   const count = rows ? rows.filter((r) => rowKey(r) !== currentKey).length : 0;
   return (
-    <div className="ep-rl-headblock">
-      <h4 className="ep-rl-subhead">
-        {title}
-        {count ? <span className="ep-rl-count">{count}</span> : null}
-      </h4>
+    <div className="mb-[18px] last:mb-0">
+      <SubHead title={title} count={count} />
       {rows === null ? (
-        <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
+        <Skeleton className="h-24 w-full" aria-hidden />
       ) : rows.length === 0 ? (
-        <div className="endpoint-detail-empty">{emptyMessage}</div>
+        <EmptyBlock message={emptyMessage} />
       ) : (
-        <div className="ep-rel-list" ref={listRef}>
+        <div className="relative flex max-h-[360px] flex-col overflow-x-hidden overflow-y-auto rounded-lg border border-border" ref={listRef}>
           {rows.map((r, i) => {
             const current = rowKey(r) === currentKey;
             return (
@@ -408,12 +436,12 @@ function RelatedTab({
 
 /* ── Trace tab ───────────────────────────────────────────────────────── */
 
-function levelTone(level: string): string {
+function levelBadgeVariant(level: string): BadgeProps["variant"] {
   const l = (level || "").toUpperCase();
-  if (l === "ERROR" || l === "CRITICAL") return "endpoint-status-5xx";
-  if (l === "WARNING") return "endpoint-status-4xx";
-  if (l === "DEBUG") return "endpoint-status-3xx";
-  return "endpoint-status-2xx";
+  if (l === "ERROR" || l === "CRITICAL") return "destructive-light";
+  if (l === "WARNING") return "warning-light";
+  if (l === "DEBUG") return "info-light";
+  return "success-light";
 }
 
 function spanColor(kind: string, status: string): string {
@@ -763,7 +791,7 @@ function FlowMap({ spans, onReplayTime }: { spans: SpanItem[]; onReplayTime?: (t
 
   return (
     <>
-      <h4 className="ep-rl-subhead">Request flow</h4>
+      <SubHead title="Request flow" />
       <div
         className={`ep-flow-canvas${dragRef.current ? " is-panning" : ""}`}
         ref={viewportRef}
@@ -997,28 +1025,49 @@ function LogRow({ log, defaultOpen = false, scrollTo = false }: { log: LogItem; 
     } catch { /* clipboard unavailable */ }
   };
   return (
-    <div ref={rootRef} className={`ep-log-item${open ? " is-open" : ""}${isError ? " is-error" : ""}`}>
+    <div
+      ref={rootRef}
+      className={cn(
+        "border-b border-border last:border-0",
+        isError && "[box-shadow:inset_3px_0_0_0_var(--color-destructive)]",
+        isError && open && "bg-destructive/5",
+      )}
+    >
       <button
         type="button"
-        className="ep-log-row is-expandable"
+        className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-2.5 text-left text-xs hover:bg-accent"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
       >
-        <ChevronRight size={13} className={`ep-log-caret${open ? " is-open" : ""}`} />
-        <span className="ep-rel-time">{timeShort(log.timestamp)}</span>
-        <span className={`endpoint-status-pill ${levelTone(log.level)}`}>{level}</span>
-        {log.logger_name ? <span className="ep-log-logger" title={log.logger_name}>{log.logger_name}</span> : null}
-        <span className="ep-log-msg" title={log.message}>{log.message}</span>
-        <span className="ep-log-toggle">{open ? "Hide" : hasPayload ? "Stack trace" : "Details"}</span>
+        <ChevronRight
+          size={13}
+          className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
+        />
+        <span className="whitespace-nowrap tabular-nums text-muted-foreground">{timeShort(log.timestamp)}</span>
+        <Badge variant={levelBadgeVariant(log.level)} size="sm" className="uppercase">{level}</Badge>
+        {log.logger_name ? (
+          <span className="max-w-40 shrink-0 truncate font-mono text-[11px] text-muted-foreground" title={log.logger_name}>
+            {log.logger_name}
+          </span>
+        ) : null}
+        <span
+          className={cn("min-w-0 flex-1 truncate", isError ? "text-destructive" : "text-foreground")}
+          title={log.message}
+        >
+          {log.message}
+        </span>
+        <span className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">
+          {open ? "Hide" : hasPayload ? "Stack trace" : "Details"}
+        </span>
       </button>
       {open ? (
-        <div className="ep-log-trace-wrap">
-          <div className="ep-log-trace-head">
+        <div className="pr-3.5 pb-3 pl-[30px]">
+          <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px] font-semibold tracking-wide uppercase text-muted-foreground">
             <span>{hasPayload ? "Traceback" : "Raw message"}</span>
-            <button type="button" className="ep-rl-copy" onClick={copyTrace}>
+            <Button type="button" variant="ghost" size="xs" className="text-muted-foreground" onClick={copyTrace}>
               {copied ? <Check size={12} /> : <Copy size={12} />}
               {copied ? "Copied" : "Copy"}
-            </button>
+            </Button>
           </div>
           <pre className="request-payload-pre ep-log-trace">{rawException(log)}</pre>
         </div>
@@ -1091,29 +1140,20 @@ function TraceTab({
 
   if (!traceId) {
     return loadingTrace ? (
-      <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
+      <Skeleton className="h-24 w-full" aria-hidden />
     ) : (
-      <div className="endpoint-detail-empty">
-        No trace id was captured for this request, so its trace can&apos;t be shown.
-        Requests recorded before trace support don&apos;t carry one — upgrade the APILens SDK to enable it.
-      </div>
+      <EmptyBlock message="No trace id was captured for this request, so its trace can't be shown. Requests recorded before trace support don't carry one — upgrade the APILens SDK to enable it." />
     );
   }
 
   return (
-    <div className="ep-rl-headblock">
+    <div className="mb-[18px] last:mb-0">
       {spans && spans.length > 0 ? <FlowMap spans={spans} onReplayTime={setReplayT} /> : null}
-      <h4 className="ep-rl-subhead">
-        Spans
-        {spans?.length ? <span className="ep-rl-count">{spans.length}</span> : null}
-      </h4>
+      <SubHead title="Spans" count={spans?.length || 0} />
       {spans === null ? (
-        <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
+        <Skeleton className="h-24 w-full" aria-hidden />
       ) : spans.length === 0 ? (
-        <div className="endpoint-detail-empty">
-          No spans recorded for this trace yet. Spans are captured automatically — upgrade the APILens SDK
-          if this request is missing them.
-        </div>
+        <EmptyBlock message="No spans recorded for this trace yet. Spans are captured automatically — upgrade the APILens SDK if this request is missing them." />
       ) : (
         <Waterfall spans={spans} excIndicesBySpan={excIndicesBySpan} onOpenExceptions={onOpenExceptions} replayT={replayT} />
       )}
@@ -1140,29 +1180,20 @@ function ExceptionsTab({
 }) {
   if (!traceId) {
     return loadingTrace ? (
-      <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
+      <Skeleton className="h-24 w-full" aria-hidden />
     ) : (
-      <div className="endpoint-detail-empty">
-        No trace id was captured for this request, so exceptions can&apos;t be shown.
-        Requests recorded before trace support don&apos;t carry one — upgrade the APILens SDK to enable it.
-      </div>
+      <EmptyBlock message="No trace id was captured for this request, so exceptions can't be shown. Requests recorded before trace support don't carry one — upgrade the APILens SDK to enable it." />
     );
   }
   return (
-    <div className="ep-rl-headblock">
-      <h4 className="ep-rl-subhead">
-        Exceptions
-        {logs?.length ? <span className="ep-rl-count">{logs.length}</span> : null}
-      </h4>
+    <div className="mb-[18px] last:mb-0">
+      <SubHead title="Exceptions" count={logs?.length || 0} countVariant="destructive-light" />
       {logs === null ? (
-        <div className="endpoint-skeleton" style={{ height: 96 }} aria-hidden />
+        <Skeleton className="h-24 w-full" aria-hidden />
       ) : logs.length === 0 ? (
-        <div className="endpoint-detail-empty">
-          No exceptions on this request. APILens records one here automatically when a request raises an
-          exception or returns a 5xx — a clean request has nothing to show.
-        </div>
+        <EmptyBlock message="No exceptions on this request. APILens records one here automatically when a request raises an exception or returns a 5xx — a clean request has nothing to show." />
       ) : (
-        <div className="ep-rel-list ep-exc-list">
+        <div className="ep-exc-list overflow-hidden rounded-lg border border-border">
           {logs.map((l, i) => (
             <LogRow
               key={`${focus?.token ?? "d"}-${l.timestamp}-${i}`}
@@ -1336,57 +1367,98 @@ export default function RequestLogDetailModal({
   };
 
   const content = (
-    <div className="ep-emodal-overlay" onClick={onClose}>
-      <div className="ep-emodal ep-emodal--narrow" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <div className="ep-emodal-head">
-          <div className="ep-emodal-id">
-            <span className="ep-emodal-crumb">Request details</span>
-            <span className={`endpoint-status-pill ${statusTone(row.status_code)}`}>{row.status_code}</span>
-            <span className={`method-badge method-badge-${row.method.toLowerCase()}`}>{row.method}</span>
-            <span className="ep-emodal-path">{reqUrl(row)}</span>
+    <div
+      className="fixed inset-0 z-[1000] flex items-stretch justify-end overflow-hidden bg-black/50 backdrop-blur-[2px]"
+      onClick={onClose}
+    >
+      <div
+        className="flex h-dvh w-[min(1040px,94vw)] flex-col overflow-hidden border-l border-border bg-card shadow-2xl animate-in fade-in-0 slide-in-from-right-8 duration-200 max-md:w-full"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 px-5 py-4">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="whitespace-nowrap text-[13px] text-muted-foreground">Request details</span>
+            <StatusBadge status={row.status_code} />
+            <MethodBadge method={row.method} />
+            <span className="min-w-0 truncate font-mono text-[15px] font-semibold text-foreground">{reqUrl(row)}</span>
           </div>
-          <div className="ep-emodal-headactions">
-            <button type="button" className="ep-rl-curl" onClick={copyCurl} title="Copy as cURL">
+          <div className="flex shrink-0 items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={copyCurl} title="Copy as cURL">
               {copiedCurl ? <Check size={13} /> : <Terminal size={13} />}
-              <span>{copiedCurl ? "Copied" : "cURL"}</span>
-            </button>
-            <button type="button" className="ep-emodal-close" onClick={onClose} aria-label="Close">
+              {copiedCurl ? "Copied" : "cURL"}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={onClose}
+              aria-label="Close"
+            >
               <X size={18} />
-            </button>
+            </Button>
           </div>
         </div>
 
-        <nav className="ep-emodal-tabs" role="tablist">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === t.key}
-              className={`ep-emodal-tab${activeTab === t.key ? " is-active" : ""}`}
-              onClick={() => { setExcFocus(null); setActiveTab(t.key); }}
-            >
-              {t.label}
-              {t.key === "exceptions" && exceptionCount > 0 ? (
-                <span className="ep-rl-count ep-tab-count--error">{exceptionCount}</span>
-              ) : null}
-            </button>
-          ))}
-        </nav>
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => { setExcFocus(null); setActiveTab(v as TabKey); }}
+          className="w-full shrink-0 gap-0"
+        >
+          <TabsList
+            variant="line"
+            aria-label="Request detail sections"
+            className="w-full justify-start gap-0.5 overflow-x-auto rounded-none border-b border-border bg-transparent p-0 px-5 group-data-[orientation=horizontal]/tabs:h-auto"
+          >
+            {TABS.map((t) => (
+              <TabsTrigger
+                key={t.key}
+                value={t.key}
+                className={cn(
+                  "group/mt relative h-auto flex-none rounded-none border-0 px-3.5 py-3 text-[13.5px] font-medium",
+                  "group-data-[variant=line]/tabs-list:hover:bg-accent",
+                )}
+              >
+                {t.label}
+                {t.key === "exceptions" && exceptionCount > 0 ? (
+                  <Badge variant="destructive-light" size="sm" className="tabular-nums">{exceptionCount}</Badge>
+                ) : null}
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-primary opacity-0 transition-opacity group-data-[state=active]/mt:opacity-100"
+                />
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
-        <div className="ep-emodal-body">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-5 pb-7">
           {activeTab === "details" && (
             <>
-              <div className="ep-rl-when">{formatDateTime(row.timestamp)}</div>
-              <div className="ep-statcards ep-rl-metrics">
+              <div className="mb-3 text-xs text-muted-foreground">{formatDateTime(row.timestamp)}</div>
+              <div className="mb-4 flex flex-wrap gap-2.5">
                 <MetricCard label="Request size" icon={<ArrowUpFromLine size={16} />} value={formatBytes(row.request_size)} />
                 <MetricCard label="Response size" icon={<ArrowDownToLine size={16} />} value={formatBytes(row.response_size)} />
                 <MetricCard label="Response time" icon={<Timer size={16} />} value={formatMs(row.response_time_ms)} />
               </div>
-              <div className="ep-rl-details">
+              <div className="flex flex-col">
                 <DetailRow label="Status" value={`${row.status_code}${stext ? ` ${stext}` : ""}`} />
-                {pr?.base_url ? <DetailRow label="Host" value={<span className="ep-rl-mono"><Server size={12} /> {pr.base_url}</span>} /> : null}
-                <DetailRow label="Client" value={<span className="ep-rl-mono"><Globe size={12} /> {row.ip_address || "—"}{pr?.country ? ` (${pr.country})` : ""}</span>} />
+                {pr?.base_url ? (
+                  <DetailRow
+                    label="Host"
+                    value={<span className="inline-flex items-center gap-1.5 font-mono"><Server size={12} /> {pr.base_url}</span>}
+                  />
+                ) : null}
+                <DetailRow
+                  label="Client"
+                  value={
+                    <span className="inline-flex items-center gap-1.5 font-mono">
+                      <Globe size={12} /> {row.ip_address || "—"}{pr?.country ? ` (${pr.country})` : ""}
+                    </span>
+                  }
+                />
                 <DetailRow
                   label="Consumer"
                   value={
@@ -1394,14 +1466,16 @@ export default function RequestLogDetailModal({
                       onFilterConsumer ? (
                         <button
                           type="button"
-                          className="ep-rl-mono ep-rl-consumer-link"
+                          className="inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 font-mono text-inherit hover:text-primary hover:underline"
                           title={`Show all requests from ${consumer}`}
                           onClick={() => onFilterConsumer(consumerFilter)}
                         >
                           <Fingerprint size={12} /> {consumer}{row.consumer_group ? ` · ${row.consumer_group}` : ""}
                         </button>
                       ) : (
-                        <span className="ep-rl-mono"><Fingerprint size={12} /> {consumer}{row.consumer_group ? ` · ${row.consumer_group}` : ""}</span>
+                        <span className="inline-flex items-center gap-1.5 font-mono">
+                          <Fingerprint size={12} /> {consumer}{row.consumer_group ? ` · ${row.consumer_group}` : ""}
+                        </span>
                       )
                     ) : "—"
                   }
@@ -1413,7 +1487,7 @@ export default function RequestLogDetailModal({
                     value={
                       <button
                         type="button"
-                        className="ep-rl-mono ep-rl-consumer-link"
+                        className="inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 font-mono text-inherit hover:text-primary hover:underline"
                         title="Copy trace id"
                         onClick={copyTrace}
                       >
@@ -1422,14 +1496,19 @@ export default function RequestLogDetailModal({
                     }
                   />
                 ) : null}
-                {row.user_agent ? <DetailRow label="User agent" value={<span className="ep-rl-ua">{row.user_agent}</span>} /> : null}
+                {row.user_agent ? (
+                  <DetailRow
+                    label="User agent"
+                    value={<span className="text-right text-[11px] break-all text-muted-foreground">{row.user_agent}</span>}
+                  />
+                ) : null}
               </div>
             </>
           )}
 
           {activeTab === "headers" && (
             loadingPayload ? (
-              <div className="endpoint-skeleton" style={{ height: 160 }} aria-hidden />
+              <Skeleton className="h-40 w-full" aria-hidden />
             ) : (
               <>
                 <HeadersList title="Request headers" raw={pr?.request_headers} />
@@ -1440,7 +1519,7 @@ export default function RequestLogDetailModal({
 
           {activeTab === "response" && (
             loadingPayload ? (
-              <div className="endpoint-skeleton" style={{ height: 220 }} aria-hidden />
+              <Skeleton className="h-[220px] w-full" aria-hidden />
             ) : (
               <>
                 <Body title="Request payload" raw={pr?.request_payload} />

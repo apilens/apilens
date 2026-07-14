@@ -13,8 +13,20 @@ import {
 import {
   formatBytes,
   formatMs,
-  statusTone,
+  MethodBadge,
+  StatusBadge,
 } from "./detail/sections";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/reui/button";
+import { Card } from "@/components/reui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/reui/table";
 import Pagination from "@/components/aperture/Pagination";
 import RequestLogDetailModal, { type RequestItem } from "./RequestLogDetailModal";
 import {
@@ -39,15 +51,6 @@ interface RequestsResponse {
 
 const PAGE_SIZE = 50;
 
-function methodColor(m: string): string {
-  const k = m.toUpperCase();
-  if (k === "GET") return "#14b8a6";
-  if (k === "POST") return "#5A9CF8";
-  if (k === "PUT") return "#f59e0b";
-  if (k === "PATCH") return "#a78bfa";
-  if (k === "DELETE") return "#f87171";
-  return "#94a3b8";
-}
 function reqKey(r: RequestItem): string {
   return `${r.timestamp}|${r.method}|${r.path}|${r.status_code}`;
 }
@@ -234,43 +237,64 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   return (
-    <div className="ep-rl">
+    <div className="flex flex-col gap-4">
       {/* ── Toolbar: filter search + time on one line ── */}
-      <div className="ep-rl-toolbar">
+      <div className="flex flex-wrap items-center gap-2.5">
         <div className="ep-rl-filtergrow">
           <FilterBar projectSlug={projectSlug} value={filter} onChange={setFilter} />
         </div>
 
         <TimeRangePicker value={rangeValue} resolved={resolved} onChange={setRangeValue} />
 
-        <button type="button" className="tf-refresh" onClick={() => setRefreshKey((k) => k + 1)} title="Refresh" aria-label="Refresh">
-          <RefreshCw size={14} className={loading ? "tf-spin" : ""} />
-        </button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          className="text-muted-foreground hover:text-foreground"
+          onClick={() => setRefreshKey((k) => k + 1)}
+          title="Refresh"
+          aria-label="Refresh"
+        >
+          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+        </Button>
       </div>
 
       {/* ── Request list ── */}
-      <section className="ep-rl-card">
+      <Card className="gap-0 overflow-hidden rounded-[10px] py-0 shadow-none">
         {loading && items.length === 0 ? (
-          <div className="ep-rl-message">Loading requests…</div>
+          <div className="px-4 py-10 text-center text-[13px] text-muted-foreground">Loading requests…</div>
         ) : items.length === 0 ? (
-          <div className="ep-rl-message">No requests match these filters in this period.</div>
+          <div className="px-4 py-10 text-center text-[13px] text-muted-foreground">
+            No requests match these filters in this period.
+          </div>
         ) : (
-          <div className="ep-recent">
-            <table className="ep-recent-table">
-              <thead>
-                <tr>
-                  <th aria-hidden />
-                  <th>Time</th>
-                  <th>Status</th>
-                  <th>Request</th>
-                  <th aria-hidden />
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((r, i) => (
-                  <tr
+          <Table className="text-xs">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead aria-hidden className="h-auto w-7 px-3 py-2.5" />
+                <TableHead className="h-auto px-3 py-2.5 text-[11px] font-semibold tracking-wide whitespace-nowrap uppercase text-muted-foreground">
+                  Time
+                </TableHead>
+                <TableHead className="h-auto px-3 py-2.5 text-[11px] font-semibold tracking-wide whitespace-nowrap uppercase text-muted-foreground">
+                  Status
+                </TableHead>
+                <TableHead className="h-auto px-3 py-2.5 text-[11px] font-semibold tracking-wide whitespace-nowrap uppercase text-muted-foreground">
+                  Request
+                </TableHead>
+                <TableHead aria-hidden className="h-auto w-7 px-3 py-2.5" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((r, i) => {
+                const isOpen = !!openRow && reqKey(openRow) === reqKey(r);
+                return (
+                  <TableRow
                     key={`${r.timestamp}-${i}`}
-                    className={`ep-recent-row${openRow && reqKey(openRow) === reqKey(r) ? " is-open" : ""}`}
+                    className={cn(
+                      "cursor-pointer",
+                      isOpen &&
+                        "bg-primary/10 hover:bg-primary/15 [box-shadow:inset_3px_0_0_0_var(--color-primary)]",
+                    )}
                     onClick={() => setOpenRow(r)}
                     tabIndex={0}
                     role="button"
@@ -278,51 +302,63 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
                       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenRow(r); }
                     }}
                   >
-                    <td className="ep-recent-clock"><Clock size={14} /></td>
-                    <td className="ep-recent-time">
-                      <span className="ep-recent-time-h">{timeOfDay(r.timestamp)}</span>
-                      <span className="ep-recent-time-d">{dayLabel(r.timestamp)}</span>
-                    </td>
-                    <td><span className={`endpoint-status-pill ${statusTone(r.status_code)}`}>{r.status_code}</span></td>
-                    <td className="ep-recent-req">
-                      <div className="ep-recent-req-line">
-                        <span className="ep-recent-method" style={{ color: methodColor(r.method) }}>{r.method}</span>
-                        <span className="ep-recent-path">{r.raw_path || r.path}</span>
+                    <TableCell className="w-7 px-3 py-2 text-muted-foreground"><Clock size={14} /></TableCell>
+                    <TableCell className="px-3 py-2">
+                      <span className="tabular-nums text-foreground">{timeOfDay(r.timestamp)}</span>
+                      <span className="block text-[11px] text-muted-foreground">{dayLabel(r.timestamp)}</span>
+                    </TableCell>
+                    <TableCell className="px-3 py-2"><StatusBadge status={r.status_code} /></TableCell>
+                    <TableCell className="max-w-0 px-3 py-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <MethodBadge method={r.method} />
+                        <span className="truncate font-mono text-xs text-foreground">{r.raw_path || r.path}</span>
                       </div>
-                      <div className="ep-recent-meta">
-                        {r.environment ? <span className="ep-recent-fact"><Layers size={12} />{r.environment}</span> : null}
+                      <div className="mt-1 flex flex-wrap gap-3">
+                        {r.environment ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                            <Layers size={12} />{r.environment}
+                          </span>
+                        ) : null}
                         {(r.consumer_name || r.consumer_id) ? (
                           <button
                             type="button"
-                            className="ep-recent-fact ep-recent-consumer"
+                            className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[11px] text-muted-foreground hover:text-primary hover:underline"
                             title={`Filter by consumer ${r.consumer_name || r.consumer_id}`}
                             onClick={(e) => { e.stopPropagation(); filterByConsumer(r.consumer_id || r.consumer_name); }}
                           >
                             <Fingerprint size={12} />{r.consumer_name || r.consumer_id}
                           </button>
                         ) : null}
-                        {r.response_size > 0 ? <span className="ep-recent-fact">{formatBytes(r.response_size)}</span> : null}
-                        <span className="ep-recent-fact"><Timer size={12} />{formatMs(r.response_time_ms)}</span>
+                        {r.response_size > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                            {formatBytes(r.response_size)}
+                          </span>
+                        ) : null}
+                        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <Timer size={12} />{formatMs(r.response_time_ms)}
+                        </span>
                       </div>
-                    </td>
-                    <td className="ep-recent-go"><ChevronRight size={15} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </TableCell>
+                    <TableCell className="w-7 px-3 py-2 text-right text-muted-foreground">
+                      <ChevronRight size={15} />
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         )}
 
         {/* Pagination */}
         {totalCount > 0 && (
-          <div className="ep-rl-pager">
-            <span className="ep-rl-pager-info">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-2.5">
+            <span className="text-xs tabular-nums text-muted-foreground">
               {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalCount)} of {totalCount.toLocaleString()}
             </span>
             <Pagination page={page} totalPages={totalPages} onChange={setPage} />
           </div>
         )}
-      </section>
+      </Card>
 
       {openRow && (
         <RequestLogDetailModal

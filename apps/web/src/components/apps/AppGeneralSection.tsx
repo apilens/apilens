@@ -4,6 +4,17 @@ import { useEffect, useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import SettingsCard from "@/components/settings/SettingsCard";
 import ConfirmDialog from "@/components/settings/ConfirmDialog";
+import { Button } from "@/components/reui/button";
+import { Input } from "@/components/reui/input";
+import { Label } from "@/components/reui/label";
+import { Textarea } from "@/components/reui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/reui/select";
 import type { App, FrameworkId } from "@/types/app";
 
 const FRAMEWORK_OPTIONS: Array<{ id: FrameworkId; label: string }> = [
@@ -70,27 +81,27 @@ export default function AppGeneralSection({
     <>
       <div className="settings-section-content">
         <SettingsCard title="App Details" description="Update your app name and description">
-        <div className="app-general-form">
-          <div className="create-app-field">
-            <label htmlFor="app-name" className="create-app-label">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="app-name" className="text-[13px]">
               App name
-            </label>
-            <input
+            </Label>
+            <Input
               id="app-name"
-              className="create-app-input"
+              className="text-[13px]"
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={100}
             />
           </div>
 
-          <div className="create-app-field">
-            <label htmlFor="app-description" className="create-app-label">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="app-description" className="text-[13px]">
               Description
-            </label>
-            <textarea
+            </Label>
+            <Textarea
               id="app-description"
-              className="create-app-textarea"
+              className="text-[13px]"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               maxLength={500}
@@ -98,27 +109,29 @@ export default function AppGeneralSection({
             />
           </div>
 
-          <div className="create-app-field">
-            <label htmlFor="app-framework" className="create-app-label">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="app-framework" className="text-[13px]">
               Framework
-            </label>
-            <select
-              id="app-framework"
-              className="create-app-input"
+            </Label>
+            <Select
               value={framework}
-              onChange={(e) => setFramework(e.target.value as FrameworkId)}
+              onValueChange={(value) => setFramework(value as FrameworkId)}
             >
-              {FRAMEWORK_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="app-framework" className="w-full text-[13px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FRAMEWORK_OPTIONS.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
-          <div className="app-general-actions">
-            <button
-              className="settings-btn settings-btn-primary"
+          <div className="flex justify-end pt-1">
+            <Button
               disabled={isSaving || !hasChanges || !name.trim()}
               onClick={handleSave}
             >
@@ -130,7 +143,7 @@ export default function AppGeneralSection({
               ) : (
                 "Save changes"
               )}
-            </button>
+            </Button>
           </div>
         </div>
         </SettingsCard>
@@ -140,22 +153,17 @@ export default function AppGeneralSection({
           description="Permanently delete this app and revoke all its API keys."
           variant="danger"
         >
-          <div className="danger-zone-content">
-            <div className="danger-zone-item">
-              <div className="danger-zone-info">
-                <p className="danger-zone-label">Danger Zone</p>
-                <p className="danger-zone-description">
-                  This action cannot be undone.
-                </p>
-              </div>
-              <button
-                className="settings-btn settings-btn-danger"
-                onClick={() => setShowConfirmDelete(true)}
-              >
-                <Trash2 size={14} />
-                Delete App
-              </button>
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold text-foreground">Danger Zone</p>
+              <p className="mt-0.5 text-[13px] text-muted-foreground">
+                This action cannot be undone.
+              </p>
             </div>
+            <Button variant="destructive" onClick={() => setShowConfirmDelete(true)}>
+              <Trash2 size={14} />
+              Delete App
+            </Button>
           </div>
         </SettingsCard>
       </div>

@@ -2,7 +2,9 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { X, Check } from "lucide-react";
+import { X, Check, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/reui/button";
 import { useApp } from "@/components/providers/AppProvider";
 import AppSettingsSidebar, { AppSettingsTab } from "./AppSettingsSidebar";
 import AppGeneralSection from "./AppGeneralSection";
@@ -108,7 +110,7 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
     return (
       <div className="settings-page">
         <div className="settings-page-loading">
-          <div className="loading-spinner" />
+          <Loader2 size={24} className="animate-spin text-muted-foreground" />
         </div>
       </div>
     );
@@ -117,7 +119,7 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
   if (!localApp) {
     return (
       <div className="settings-page">
-        <div className="error-message">App not found</div>
+        <div className="py-12 text-center text-sm text-muted-foreground">App not found</div>
       </div>
     );
   }
@@ -125,14 +127,24 @@ export default function AppSettingsPage({ appSlug, projectSlug, initialTab = "ge
   return (
     <div className="settings-page">
       {toast && (
-        <div className={`settings-toast settings-toast-${toast.type}`}>
-          <div className="settings-toast-icon">
+        <div className="fixed bottom-6 left-1/2 z-[300] flex -translate-x-1/2 items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-3 text-sm text-foreground shadow-lg animate-in fade-in-0 slide-in-from-bottom-2">
+          <div
+            className={cn(
+              "flex items-center justify-center",
+              toast.type === "success" ? "text-success" : "text-destructive",
+            )}
+          >
             {toast.type === "success" ? <Check size={16} /> : <X size={16} />}
           </div>
           <span>{toast.message}</span>
-          <button className="settings-toast-close" onClick={() => setToast(null)}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="ml-1 text-muted-foreground hover:text-foreground"
+            onClick={() => setToast(null)}
+          >
             <X size={14} />
-          </button>
+          </Button>
         </div>
       )}
 

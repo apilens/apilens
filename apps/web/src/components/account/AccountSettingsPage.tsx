@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useAccountSettings } from "@/hooks/useAccountSettings";
 import PageHeader from "@/components/dashboard/PageHeader";
@@ -75,7 +76,7 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
     return (
       <div className="settings-page">
         <div className="settings-page-loading">
-          <div className="loading-spinner" />
+          <Loader2 size={24} className="animate-spin text-muted-foreground" />
         </div>
       </div>
     );
@@ -91,7 +92,7 @@ export default function AccountSettingsPage({ initialTab = "general" }: AccountS
           onBack={() => router.push("/projects")}
           backLabel="Back to Projects"
         />
-        <div style={{ padding: "32px 24px", maxWidth: "560px", margin: "0 auto" }}>
+        <div className="mx-auto w-full max-w-[560px] px-6 py-8">
           <SectionError
             title="Couldn't load your account"
             message={profileError.message || "Check your connection and try again."}

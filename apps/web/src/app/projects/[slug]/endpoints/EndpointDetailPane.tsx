@@ -18,6 +18,12 @@ import {
   SiPython,
   SiSafari,
 } from "react-icons/si";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/reui/badge";
+import { Button } from "@/components/reui/button";
+import { Input } from "@/components/reui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/reui/tabs";
+import { MethodBadge } from "./detail/sections";
 
 /* ── Types ───────────────────────────────────────────────────────────── */
 
@@ -97,18 +103,6 @@ const EMPTY_DETAIL: EndpointDetail = {
 };
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
-
-function methodPillClass(m: string): string {
-  const k = m.toUpperCase();
-  if (k === "GET") return "ep-pill-get";
-  if (k === "POST") return "ep-pill-post";
-  if (k === "PUT") return "ep-pill-put";
-  if (k === "PATCH") return "ep-pill-patch";
-  if (k === "DELETE") return "ep-pill-delete";
-  if (k === "HEAD") return "ep-pill-head";
-  if (k === "OPTIONS") return "ep-pill-options";
-  return "ep-pill-other";
-}
 
 function fmtNum(n: number): string {
   return Math.round(n || 0).toLocaleString();
@@ -376,15 +370,24 @@ export default function EndpointDetailPane({
 
       {/* ── Header: endpoint identity on the left, metrics on the right ── */}
       <div className="ep-api-header">
-        <div className="ep-api-id">
+        <div className="flex min-w-0 items-center gap-2.5">
           {onBack && (
-            <button type="button" onClick={onBack} className="ep-api-back" aria-label="Back">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={onBack}
+              aria-label="Back"
+            >
               <ArrowLeft size={15} />
-            </button>
+            </Button>
           )}
-          <span className={`ep-method-pill ${methodPillClass(method)}`}>{method}</span>
-          <span className="ep-api-path">{path}</span>
-          {detail?.last_seen_at && <span className="ep-api-age">{timeAgo(detail.last_seen_at)}</span>}
+          <MethodBadge method={method} />
+          <span className="min-w-0 truncate font-mono text-sm font-semibold text-foreground">{path}</span>
+          {detail?.last_seen_at && (
+            <span className="whitespace-nowrap text-[11px] text-muted-foreground">{timeAgo(detail.last_seen_at)}</span>
+          )}
         </div>
 
         {/* Golden signals + throughput, right-aligned. Wraps; no scroll. */}
@@ -418,12 +421,17 @@ export default function EndpointDetailPane({
 
 function Metric({ label, value, tone, title }: { label: string; value: string; tone?: StatTone; title?: string }) {
   return (
-    <span
-      className={`ep-metrics-item${tone === "bad" ? " tone-bad" : tone === "warn" ? " tone-warn" : ""}`}
-      title={title}
-    >
-      <span className="ep-metrics-n">{value}</span>
-      <span className="ep-metrics-l">{label}</span>
+    <span className="inline-flex items-baseline gap-1.5" title={title}>
+      <span
+        className={cn(
+          "text-[13px] font-semibold tabular-nums text-foreground",
+          tone === "bad" && "text-destructive",
+          tone === "warn" && "text-warning",
+        )}
+      >
+        {value}
+      </span>
+      <span className="text-[10px] tracking-wide uppercase text-muted-foreground">{label}</span>
     </span>
   );
 }
@@ -543,21 +551,22 @@ function CallsPane({
       <div className="ep-calls-main">
       {/* Filter bar */}
       <div className="ep-calls-filter">
-        <div className="ep-calls-tabs">
-          {(["all", "2xx", "4xx", "5xx"] as FilterTab[]).map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={`ep-calls-tab${tab === t ? " active" : ""}`}
-              onClick={() => setTab(t)}
-            >
-              {t === "all" ? "All" : t}
-            </button>
-          ))}
-        </div>
-        <div className="ep-calls-search">
-          <Search size={12} />
-          <input
+        <Tabs value={tab} onValueChange={(v) => setTab(v as FilterTab)}>
+          <TabsList className="h-7 p-0.5">
+            {(["all", "2xx", "4xx", "5xx"] as FilterTab[]).map((t) => (
+              <TabsTrigger key={t} value={t} className="px-2 text-[11px]">
+                {t === "all" ? "All" : t}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        <div className="relative min-w-0 flex-1">
+          <Search
+            size={12}
+            className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            className="h-7 pl-6.5 text-xs"
             placeholder="source…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -583,32 +592,32 @@ function CallsPane({
       {/* Call list */}
       <div className="ep-calls-list" ref={listRef}>
         {filtered === null ? (
-          <div className="ep-calls-empty">Loading calls…</div>
+          <div className="px-4 py-8 text-center text-xs text-muted-foreground">Loading calls…</div>
         ) : filtered.length === 0 ? (
           requests !== null && requests.length === 0 ? (
             /* Endpoint truly has no traffic in this window */
-            <div className="ep-no-calls">
+            <div className="flex flex-col items-center gap-1.5 px-4 py-10 text-center">
               {totalRequests === 0 && !lastSeenAt ? (
-                <Activity size={28} className="ep-no-calls-icon" />
+                <Activity size={28} className="text-muted-foreground opacity-70" />
               ) : (
-                <Clock size={28} className="ep-no-calls-icon" />
+                <Clock size={28} className="text-muted-foreground opacity-70" />
               )}
-              <p className="ep-no-calls-title">
+              <p className="m-0 text-[13px] font-medium text-foreground">
                 {totalRequests === 0 && !lastSeenAt
                   ? "No requests tracked yet"
                   : "No requests in this period"}
               </p>
               {lastSeenAt ? (
-                <span className="ep-no-calls-sub">Last active {timeAgo(lastSeenAt)}</span>
+                <span className="text-xs text-muted-foreground">Last active {timeAgo(lastSeenAt)}</span>
               ) : totalRequests > 0 ? (
-                <span className="ep-no-calls-sub">Try expanding the time range</span>
+                <span className="text-xs text-muted-foreground">Try expanding the time range</span>
               ) : (
-                <span className="ep-no-calls-sub">Requests will appear here once your API receives traffic</span>
+                <span className="text-xs text-muted-foreground">Requests will appear here once your API receives traffic</span>
               )}
             </div>
           ) : (
             /* Has requests but the current tab/search filter shows nothing */
-            <div className="ep-calls-empty">No requests match this filter.</div>
+            <div className="px-4 py-8 text-center text-xs text-muted-foreground">No requests match this filter.</div>
           )
         ) : (
           filtered.map((r, i) => (
@@ -701,8 +710,8 @@ const HIGHLIGHT_LIMIT = 40_000;
 function PayloadBody({ body }: { body: string }) {
   if (!body) {
     return (
-      <div className="request-payload-empty">
-        <FileX2 size={16} strokeWidth={1.5} />
+      <div className="flex flex-col items-center gap-1.5 rounded-md border border-dashed border-border px-4 py-6 text-xs text-muted-foreground">
+        <FileX2 size={16} strokeWidth={1.5} className="opacity-60" />
         <span>No body</span>
       </div>
     );
@@ -739,17 +748,24 @@ function HeadersBlock({ raw }: { raw: string | undefined }) {
   if (headers.length === 0) return null;
   return (
     <div className="ep-headers">
-      <button className="ep-headers-toggle" onClick={() => setOpen((v) => !v)}>
-        <ChevronRight size={12} className={`ep-headers-chev${open ? " is-open" : ""}`} />
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        className="px-1 text-muted-foreground hover:text-foreground"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <ChevronRight size={12} className={cn("transition-transform", open && "rotate-90")} />
         Headers
-        <span className="ep-headers-count">{headers.length}</span>
-      </button>
+        <Badge variant="secondary" size="sm" className="tabular-nums">{headers.length}</Badge>
+      </Button>
       {open && (
-        <div className="ep-headers-list">
+        <div className="mt-1.5 overflow-hidden rounded-md border border-border">
           {headers.map(([k, v]) => (
-            <div key={k} className="ep-header-row">
-              <span className="ep-header-key">{k}</span>
-              <span className="ep-header-val">{v}</span>
+            <div key={k} className="flex gap-3 border-b border-border/60 px-2.5 py-1.5 font-mono text-xs last:border-0">
+              <span className="w-44 shrink-0 truncate text-primary">{k}</span>
+              <span className="min-w-0 break-all text-muted-foreground">{v}</span>
             </div>
           ))}
         </div>
@@ -790,31 +806,46 @@ function PayloadModal({
   };
 
   return (
-    <div className="ep-payload-modal-overlay" onClick={onClose}>
-      <div className="ep-payload-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="ep-payload-modal-head">
-          <span className="ep-payload-modal-title">{title}</span>
-          <span className="ep-payload-modal-meta">{fmtBytes(byteLen(body))}</span>
-          <div className="ep-payload-modal-actions">
+    <div
+      className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/60 p-6 backdrop-blur-[2px]"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-[min(860px,94vw)] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center gap-2.5 border-b border-border px-4 py-3">
+          <span className="text-[13px] font-semibold text-foreground">{title}</span>
+          <span className="text-xs text-muted-foreground">{fmtBytes(byteLen(body))}</span>
+          <div className="ml-auto flex items-center gap-1.5">
             {isJson && (
-              <button className="ep-pm-iconbtn" onClick={() => setRaw((v) => !v)}>
+              <Button type="button" variant="outline" size="xs" onClick={() => setRaw((v) => !v)}>
                 {raw ? "Pretty" : "Raw"}
-              </button>
+              </Button>
             )}
-            <button className="ep-pm-iconbtn" onClick={copy}>
+            <Button type="button" variant="outline" size="xs" onClick={copy}>
               {copied ? <Check size={13} /> : <Copy size={13} />}
               {copied ? "Copied" : "Copy"}
-            </button>
-            <button className="ep-pm-iconbtn" onClick={onClose} aria-label="Close">
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={onClose}
+              aria-label="Close"
+            >
               <X size={14} />
-            </button>
+            </Button>
           </div>
         </div>
-        <div className="ep-payload-modal-body">
+        <div className="min-h-0 flex-1 overflow-auto p-4">
           {pretty ? (
-            <pre className="request-payload-pre" dangerouslySetInnerHTML={{ __html: highlightJson(body) }} />
+            <pre className="request-payload-pre max-h-none" dangerouslySetInnerHTML={{ __html: highlightJson(body) }} />
           ) : (
-            <pre className="request-payload-pre">{body}</pre>
+            <pre className="request-payload-pre max-h-none">{body}</pre>
           )}
         </div>
       </div>
@@ -869,18 +900,20 @@ function CallDetailInline({
     <div className="ep-call-detail">
       {/* Postman-style request bar: method + full URL + Copy cURL action */}
       <div className="ep-pm-reqbar">
-        <span className={`ep-method-pill ${methodPillClass(row.method)}`}>{row.method}</span>
+        <MethodBadge method={row.method} />
         <span className="ep-pm-url" title={fullUrl}>{fullUrl}</span>
-        <button
+        <Button
           type="button"
-          className="ep-pm-curl"
+          variant="outline"
+          size="xs"
+          className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
           onClick={copyCurl}
           title="Copy as cURL"
           aria-label="Copy as cURL"
         >
           {copiedCurl ? <Check size={13} /> : <Terminal size={13} />}
-          <span>{copiedCurl ? "Copied" : "cURL"}</span>
-        </button>
+          {copiedCurl ? "Copied" : "cURL"}
+        </Button>
       </div>
 
       {(hasFacts || row.timestamp) && (
@@ -915,14 +948,17 @@ function CallDetailInline({
             <span className="ep-pm-pane-title">Request</span>
             <span className="ep-pm-pane-meta">{fmtBytes(byteLen(row.request_payload))}</span>
             {reqBody && (
-              <button
-                className="ep-pm-expand"
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="ml-auto text-muted-foreground hover:text-foreground"
                 onClick={() => setModal({ title: "Request body", body: reqBody })}
                 title="Expand"
                 aria-label="Expand request body"
               >
                 <Maximize2 size={12} />
-              </button>
+              </Button>
             )}
           </div>
           <HeadersBlock raw={row.request_headers} />
@@ -941,14 +977,17 @@ function CallDetailInline({
               <span className="ep-pm-resp-meta">{fmtMs(row.response_time_ms)}</span>
               <span className="ep-pm-resp-meta">{fmtBytes(byteLen(row.response_payload))}</span>
               {respBody && (
-                <button
-                  className="ep-pm-expand"
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground hover:text-foreground"
                   onClick={() => setModal({ title: "Response body", body: respBody })}
                   title="Expand"
                   aria-label="Expand response body"
                 >
                   <Maximize2 size={12} />
-                </button>
+                </Button>
               )}
             </span>
           </div>
