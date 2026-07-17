@@ -2597,7 +2597,8 @@ class DataQueryService:
                     trace_id,
                     span_id,
                     fingerprint,
-                    release
+                    release,
+                    commit_sha
                 FROM api_logs
                 {where}
                 ORDER BY timestamp DESC

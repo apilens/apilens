@@ -22,6 +22,37 @@ export interface ErrorEvent {
   consumer_name: string;
   trace_id: string;
   span_id: string;
+  fingerprint?: string;
+  release?: string;
+  commit_sha?: string;
+}
+
+// Code Link (GitHub integration): a probable cause commit for an issue.
+export interface SuspectCommit {
+  sha: string;
+  short_sha: string;
+  message: string;
+  author_name: string;
+  author_login: string;
+  date: string;
+  url: string;
+  repository: string;
+  files: string[];
+}
+
+export interface FrameLink {
+  path: string;
+  line: number;
+  function: string;
+  mapped_path: string;
+  repository: string;
+  url: string;
+}
+
+export interface SuspectResponse {
+  suspect_commits: SuspectCommit[];
+  frame_links: FrameLink[];
+  reason: string;
 }
 
 // Recent-request row (from the endpoint-requests analytics view), used to list a

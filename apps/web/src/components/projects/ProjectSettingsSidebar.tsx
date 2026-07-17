@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Settings, Key, Users } from "lucide-react";
+import { Settings, Key, Users, GitBranch } from "lucide-react";
 
-export type ProjectSettingsTab = "general" | "api-keys" | "members";
+export type ProjectSettingsTab = "general" | "api-keys" | "members" | "integrations";
 
 interface ProjectSettingsSidebarProps {
   projectSlug: string;
@@ -14,6 +14,7 @@ const menuItems: { id: ProjectSettingsTab; label: string; icon: React.ElementTyp
   { id: "general", label: "General", icon: Settings },
   { id: "members", label: "Members", icon: Users },
   { id: "api-keys", label: "API Keys", icon: Key },
+  { id: "integrations", label: "Integrations", icon: GitBranch },
 ];
 
 export default function ProjectSettingsSidebar({ projectSlug, activeTab }: ProjectSettingsSidebarProps) {

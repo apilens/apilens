@@ -90,9 +90,11 @@ def health_check(request: HttpRequest):
 from routers.auth.router import router as auth_router
 from routers.users.router import router as users_router
 from routers.projects.router import router as projects_router
+from routers.integrations.router import router as integrations_router
 
 api.add_router("/users", users_router, tags=["Users"])
 api.add_router("/projects", projects_router, tags=["Projects"])
+api.add_router("/integrations", integrations_router, tags=["Integrations"])
 
 # Legacy /apps routes removed - use /projects instead
 

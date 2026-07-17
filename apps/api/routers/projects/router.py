@@ -465,6 +465,170 @@ def get_endpoint_stats(
     )
 
 
+# ── GitHub integration (Code Link) ────────────────────────────────────
+
+
+@router.get("/{project_slug}/integrations/github", response=dict)
+def github_integration_status(request: HttpRequest, project_slug: str):
+    """Installations, linked repos, and code mappings for the settings UI."""
+    from apps.integrations.services import GitHubIntegrationService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return GitHubIntegrationService.get_status(project)
+
+
+@router.post("/{project_slug}/integrations/github/install-url", response=dict)
+def github_install_url(request: HttpRequest, project_slug: str):
+    """Signed install URL for the GitHub App (state ties the callback to this
+    project + user)."""
+    from apps.integrations.services import GitHubIntegrationService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="admin")
+    return GitHubIntegrationService.build_install_url(project, user)
+
+
+@router.delete("/{project_slug}/integrations/github/{install_id}", response=dict)
+def github_remove_installation(request: HttpRequest, project_slug: str, install_id: str):
+    from apps.integrations.services import GitHubIntegrationService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="admin")
+    GitHubIntegrationService.remove_installation(project, install_id)
+    return {"message": "GitHub installation removed"}
+
+
+@router.get("/{project_slug}/integrations/github/repos", response=list[dict])
+def github_available_repos(request: HttpRequest, project_slug: str):
+    """Repos reachable through the project's installations (the link picker)."""
+    from apps.integrations.services import GitHubIntegrationService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="admin")
+    return GitHubIntegrationService.list_available_repos(project)
+
+
+@router.post("/{project_slug}/integrations/github/repos", response=dict)
+def github_link_repo(request: HttpRequest, project_slug: str, data: dict):
+    from apps.integrations.services import GitHubIntegrationService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="admin")
+    repo = GitHubIntegrationService.link_repository(
+        project,
+        str(data.get("installation_id") or ""),
+        int(data.get("external_id") or 0),
+        str(data.get("full_name") or ""),
+        str(data.get("default_branch") or "main"),
+        bool(data.get("private", True)),
+    )
+    return {"id": str(repo.id), "full_name": repo.full_name}
+
+
+@router.delete("/{project_slug}/integrations/github/repos/{repo_id}", response=dict)
+def github_unlink_repo(request: HttpRequest, project_slug: str, repo_id: str):
+    from apps.integrations.services import GitHubIntegrationService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="admin")
+    GitHubIntegrationService.unlink_repository(project, repo_id)
+    return {"message": "Repository unlinked"}
+
+
+@router.post("/{project_slug}/apps/{app_slug}/code-mappings", response=dict)
+def create_code_mapping(request: HttpRequest, project_slug: str, app_slug: str, data: dict):
+    """App-level path mapping (monorepo: many apps → one repo with different
+    source roots; polyrepo: one repo per app)."""
+    from apps.integrations.models import Repository
+    from apps.integrations.services import CodeMappingService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="admin")
+    app = AppService.get_app_by_slug(project, app_slug)
+    repo = Repository.objects.filter(project=project, id=str(data.get("repository_id") or "")).first()
+    if repo is None:
+        from core.exceptions.base import NotFoundError
+
+        raise NotFoundError("Repository not linked to this project")
+    mapping = CodeMappingService.create(
+        app,
+        repo,
+        str(data.get("stack_trace_root") or ""),
+        str(data.get("source_root") or ""),
+        str(data.get("branch") or ""),
+    )
+    return {"id": str(mapping.id)}
+
+
+@router.delete("/{project_slug}/apps/{app_slug}/code-mappings/{mapping_id}", response=dict)
+def delete_code_mapping(request: HttpRequest, project_slug: str, app_slug: str, mapping_id: str):
+    from apps.integrations.services import CodeMappingService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="admin")
+    app = AppService.get_app_by_slug(project, app_slug)
+    CodeMappingService.delete(app, mapping_id)
+    return {"message": "Code mapping deleted"}
+
+
+@router.get("/{project_slug}/analytics/suspect-commits", response=dict)
+def get_suspect_commits(
+    request: HttpRequest,
+    project_slug: str,
+    fingerprint: str = None,
+    method: str = None,
+    path: str = None,
+    message: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+):
+    """Suspect commits + stack-frame source links for one error issue.
+
+    Scope by fingerprint (preferred) or the legacy method/path/message tuple;
+    uses the issue's latest event (stack + stamped running commit)."""
+    from apps.integrations.services import SuspectCommitService
+    from apps.projects.models import ErrorIssue
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+
+    events = DataQueryService.get_project_error_events(
+        project_id=str(project.id),
+        environment=environment,
+        since=since,
+        until=until,
+        method=method,
+        path=path,
+        message=message,
+        fingerprint=fingerprint,
+        limit=1,
+    )
+    if not events:
+        return {"suspect_commits": [], "frame_links": [], "reason": "no_events"}
+    event = events[0]
+
+    app_id = None
+    fp = (fingerprint or event.get("fingerprint") or "").strip()
+    if fp:
+        issue = ErrorIssue.objects.filter(project=project, fingerprint=fp).first()
+        if issue is not None:
+            app_id = issue.app_id
+    if app_id is None:
+        # Fallback: a single-app project needs no issue entity to resolve.
+        app_ids = list(App.objects.filter(project=project, is_active=True).values_list("id", flat=True))
+        app_id = app_ids[0] if len(app_ids) == 1 else None
+
+    return SuspectCommitService.for_event(
+        project,
+        app_id,
+        str(event.get("payload") or ""),
+        str(event.get("commit_sha") or ""),
+        event.get("timestamp"),
+    )
+
+
 @router.get("/{project_slug}/deploys", response=list[dict])
 def list_project_deploys(
     request: HttpRequest,

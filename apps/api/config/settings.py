@@ -66,8 +66,18 @@ INSTALLED_APPS = [
     "apps.users",
     "apps.auth",
     "apps.projects",
+    "apps.integrations",
     "apps.endpoints",  # stub — kept for migration history only
 ]
+
+# ── GitHub App (Code Link) ──────────────────────────────────────────────────
+# Credentials for the APILens GitHub App: stack-trace links, suspect commits,
+# and (Phase 4) fix-PR handoff. The private key is PEM text — in prod it comes
+# from Secret Manager via the environment, never from the repo.
+GITHUB_APP_ID = os.environ.get("APILENS_GITHUB_APP_ID", "")
+GITHUB_APP_SLUG = os.environ.get("APILENS_GITHUB_APP_SLUG", "")
+GITHUB_APP_PRIVATE_KEY = os.environ.get("APILENS_GITHUB_APP_PRIVATE_KEY", "")
+GITHUB_WEBHOOK_SECRET = os.environ.get("APILENS_GITHUB_WEBHOOK_SECRET", "")
 
 # Custom User Model
 AUTH_USER_MODEL = "users.User"

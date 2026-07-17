@@ -6,6 +6,7 @@ import { Trash2, Loader2, X, Check, Copy, Lock, SearchX } from "lucide-react";
 import SettingsCard from "@/components/settings/SettingsCard";
 import ProjectApiKeysSection from "@/components/projects/ProjectApiKeysSection";
 import ProjectMembersSection from "@/components/projects/ProjectMembersSection";
+import ProjectIntegrationsSection from "@/components/projects/ProjectIntegrationsSection";
 import ProjectSettingsSidebar, { ProjectSettingsTab } from "@/components/projects/ProjectSettingsSidebar";
 
 interface ProjectSettingsContentProps {
@@ -326,6 +327,12 @@ export default function ProjectSettingsContent({
           {activeTab === "api-keys" && (
             <div className="settings-section-content">
               <ProjectApiKeysSection projectSlug={projectSlug} showToast={showToast} />
+            </div>
+          )}
+
+          {activeTab === "integrations" && (
+            <div className="settings-section-content">
+              <ProjectIntegrationsSection projectSlug={projectSlug} showToast={showToast} />
             </div>
           )}
         </div>
