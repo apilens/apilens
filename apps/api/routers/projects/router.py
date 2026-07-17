@@ -893,6 +893,7 @@ def get_project_error_events(
     path: str = None,
     message: str = None,
     trace_id: str = None,
+    fingerprint: str = None,
     filter: str = None,
     limit: int = 50,
 ):
@@ -909,6 +910,7 @@ def get_project_error_events(
         path=path,
         message=message,
         trace_id=trace_id,
+        fingerprint=fingerprint,
         filter=filter,
         limit=limit,
     )

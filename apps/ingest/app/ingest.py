@@ -10,12 +10,15 @@ Kept deliberately in lock-step with:
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
 from collections import defaultdict
 
 from .config import MAX_BATCH_SIZE
 from .db import clickhouse, pg_conn
+
+logger = logging.getLogger("apilens.ingest")
 
 ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 
@@ -41,7 +44,7 @@ LOG_COLUMNS = [
     "timestamp", "app_id", "project_id", "environment", "level", "message",
     "logger_name", "endpoint_method", "endpoint_path", "status_code",
     "consumer_id", "consumer_name", "consumer_group", "trace_id", "span_id",
-    "payload", "attributes_json", "release", "commit_sha",
+    "payload", "attributes_json", "release", "commit_sha", "fingerprint",
 ]
 SPAN_COLUMNS = [
     "timestamp", "app_id", "project_id", "environment", "trace_id", "span_id",
@@ -167,6 +170,9 @@ def ensure_clickhouse_schema(client) -> None:
             "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS release LowCardinality(String) DEFAULT '' CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS commit_sha String DEFAULT '' CODEC(ZSTD(1))",
+            # Issue grouping key (see fingerprint.py).
+            "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS fingerprint String DEFAULT '' CODEC(ZSTD(1))",
+            "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_fingerprint fingerprint TYPE bloom_filter(0.01) GRANULARITY 1",
             # Span storage for distributed traces (the waterfall view). The
             # legacy `traces` table (tenant_id model) is intentionally unused.
             """
@@ -332,7 +338,82 @@ def handle_requests(project_id: str, project_slug: str, records) -> int:
     return total
 
 
+def _upsert_error_issues(cur, project_id: str, app_uuid: str, entries: list[tuple]) -> None:
+    """Upsert the error_issues lifecycle entities for one app's ERROR logs.
+
+    ``entries`` is [(record, fingerprint)]. Aggregated per fingerprint before
+    writing so one batch produces one upsert per issue. A previously resolved
+    issue that errors again flips to `regressed` (the regression signal later
+    phases alert on); `ignored` is sticky.
+    """
+    from .fingerprint import exception_type, normalize_message
+
+    grouped: dict[str, dict] = {}
+    for r, fp in entries:
+        g = grouped.get(fp)
+        ts = r.timestamp
+        release, _commit = _safe_release(r)
+        if g is None:
+            grouped[fp] = {
+                "count": 1,
+                "first": ts,
+                "last": ts,
+                "record": r,
+                "release": release,
+            }
+        else:
+            g["count"] += 1
+            if ts < g["first"]:
+                g["first"] = ts
+            if ts >= g["last"]:
+                g["last"] = ts
+                g["record"] = r
+                g["release"] = release or g["release"]
+
+    for fp, g in grouped.items():
+        r = g["record"]
+        title = normalize_message(r.message) or "Unknown error"
+        cur.execute(
+            """
+            INSERT INTO error_issues
+                (id, project_id, app_id, fingerprint, title, exception_type,
+                 endpoint_method, endpoint_path, last_status_code, status,
+                 first_seen_at, last_seen_at, events_count,
+                 first_release, last_release, resolved_at, resolved_in_release,
+                 created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'open',
+                    %s, %s, %s, %s, %s, NULL, '', now(), now())
+            ON CONFLICT (project_id, fingerprint) DO UPDATE SET
+                app_id = EXCLUDED.app_id,
+                title = EXCLUDED.title,
+                endpoint_method = EXCLUDED.endpoint_method,
+                endpoint_path = EXCLUDED.endpoint_path,
+                last_status_code = EXCLUDED.last_status_code,
+                first_seen_at = LEAST(error_issues.first_seen_at, EXCLUDED.first_seen_at),
+                last_seen_at = GREATEST(error_issues.last_seen_at, EXCLUDED.last_seen_at),
+                events_count = error_issues.events_count + EXCLUDED.events_count,
+                last_release = CASE WHEN EXCLUDED.last_release <> ''
+                                    THEN EXCLUDED.last_release
+                                    ELSE error_issues.last_release END,
+                status = CASE WHEN error_issues.status = 'resolved' THEN 'regressed'
+                              ELSE error_issues.status END,
+                updated_at = now()
+            """,
+            (
+                str(uuid.uuid4()), project_id, app_uuid, fp,
+                title[:300], exception_type(r.message)[:128],
+                _safe_log_text((r.endpoint_method or "").upper(), limit=16),
+                _safe_log_text(r.endpoint_path, limit=500),
+                max(0, min(int(r.status_code or 0), 599)),
+                g["first"], g["last"], g["count"],
+                g["release"], g["release"],
+            ),
+        )
+
+
 def handle_logs(project_id: str, project_slug: str, records) -> int:
+    from .fingerprint import compute_fingerprint
+
     if len(records) > MAX_BATCH_SIZE:
         raise IngestError(422, "validation_error", f"Batch size exceeds maximum of {MAX_BATCH_SIZE}")
     if not records:
@@ -340,12 +421,31 @@ def handle_logs(project_id: str, project_slug: str, records) -> int:
 
     validate_project_slug(project_slug, {r.project_slug for r in records})
 
+    # Fingerprint every error-level record once; the same value goes to the
+    # ClickHouse row and the Postgres issue upsert.
+    fingerprints: dict[int, str] = {}
+    for r in records:
+        if _normalize_log_level(r.level) in ("ERROR", "CRITICAL"):
+            fingerprints[id(r)] = compute_fingerprint(
+                r.message, r.payload, r.endpoint_method, r.endpoint_path, r.status_code
+            )
+
     with pg_conn() as conn:
         with conn.cursor() as cur:
             id_to_uuid = resolve_app_identifiers(cur, project_id, {r.app_id for r in records})
             by_app: dict[str, list] = defaultdict(list)
             for r in records:
                 by_app[id_to_uuid[r.app_id]].append(r)
+            for app_uuid, recs in by_app.items():
+                entries = [(r, fingerprints[id(r)]) for r in recs if id(r) in fingerprints]
+                if entries:
+                    try:
+                        _upsert_error_issues(cur, project_id, app_uuid, entries)
+                    except Exception:
+                        # Issue tracking must never block log ingestion (e.g.
+                        # before the error_issues migration has been applied).
+                        conn.rollback()
+                        logger.warning("error_issues upsert failed; logs still ingested", exc_info=True)
 
     client = clickhouse()
     ensure_clickhouse_schema(client)
@@ -371,6 +471,7 @@ def handle_logs(project_id: str, project_slug: str, records) -> int:
                 _safe_log_text(r.payload, limit=MAX_LOG_PAYLOAD_CHARS),
                 json.dumps(_sanitize_log_attributes(r.attributes), separators=(",", ":")),
                 release, commit,
+                fingerprints.get(id(r), ""),
             ))
         client.execute(
             f"INSERT INTO api_logs ({', '.join(LOG_COLUMNS)}) VALUES",

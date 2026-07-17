@@ -308,3 +308,69 @@ class Deploy(models.Model):
     def __str__(self):
         scope = self.app_id or "project"
         return f"deploy {self.release} ({self.environment}, {scope})"
+
+
+class ErrorIssue(models.Model):
+    """One grouped error issue (Sentry-style), keyed by fingerprint.
+
+    Written by the ingest service when ERROR logs arrive (upsert on
+    (project, fingerprint)); ClickHouse api_logs rows carry the same
+    fingerprint, so analytics queries and this lifecycle entity join
+    naturally. The lifecycle is the substrate for alerting ("new issue"),
+    regression detection ("resolved but seen again"), and AI investigation.
+    """
+
+    class Status(models.TextChoices):
+        OPEN = "open"
+        REGRESSED = "regressed"
+        RESOLVED = "resolved"
+        IGNORED = "ignored"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="error_issues",
+    )
+    # The app that most recently produced the error (issues are project-scoped
+    # because shared code produces identical fingerprints across apps).
+    app = models.ForeignKey(
+        "projects.App",
+        on_delete=models.SET_NULL,
+        related_name="error_issues",
+        null=True,
+        blank=True,
+    )
+    fingerprint = models.CharField(max_length=40)
+    title = models.CharField(max_length=300)
+    exception_type = models.CharField(max_length=128, blank=True, default="")
+    endpoint_method = models.CharField(max_length=16, blank=True, default="")
+    endpoint_path = models.CharField(max_length=500, blank=True, default="")
+    last_status_code = models.PositiveSmallIntegerField(default=0)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.OPEN, db_index=True
+    )
+    first_seen_at = models.DateTimeField()
+    last_seen_at = models.DateTimeField(db_index=True)
+    # Approximate (incremented per ingested batch); exact counts stay in ClickHouse.
+    events_count = models.BigIntegerField(default=0)
+    first_release = models.CharField(max_length=128, blank=True, default="")
+    last_release = models.CharField(max_length=128, blank=True, default="")
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_in_release = models.CharField(max_length=128, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "error_issues"
+        ordering = ["-last_seen_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "fingerprint"],
+                name="unique_issue_per_project",
+            ),
+        ]
+        indexes = [models.Index(fields=["project", "status", "last_seen_at"])]
+
+    def __str__(self):
+        return f"issue {self.fingerprint[:8]} {self.title[:60]}"

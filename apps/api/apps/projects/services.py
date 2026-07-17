@@ -793,6 +793,9 @@ class IngestService:
                     # Deploy correlation (wire `commit` → column `commit_sha`).
                     "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS release LowCardinality(String) DEFAULT '' CODEC(ZSTD(1))",
                     "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS commit_sha String DEFAULT '' CODEC(ZSTD(1))",
+                    # Issue grouping key (apps/ingest fingerprint.py).
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS fingerprint String DEFAULT '' CODEC(ZSTD(1))",
+                    "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_fingerprint fingerprint TYPE bloom_filter(0.01) GRANULARITY 1",
                 ):
                     client.execute(stmt)
             except Exception as exc:
@@ -2472,32 +2475,62 @@ class DataQueryService:
             if search:
                 params["search"] = f"%{search.strip()}%"
                 where += " AND message ILIKE %(search)s"
+            # Group by fingerprint (stable issue key) when present; rows
+            # ingested before fingerprinting fall back to the legacy exact
+            # tuple so old data still groups sensibly.
             query = f"""
                 SELECT
-                    endpoint_method AS method,
-                    endpoint_path AS path,
-                    status_code,
-                    message,
+                    if(fingerprint != '', fingerprint,
+                       concat('legacy|', endpoint_method, '|', endpoint_path, '|',
+                              toString(status_code), '|', message)) AS group_key,
+                    any(fingerprint) AS fingerprint,
+                    argMax(endpoint_method, timestamp) AS method,
+                    argMax(endpoint_path, timestamp) AS path,
+                    argMax(status_code, timestamp) AS status_code,
+                    argMax(message, timestamp) AS message,
                     any(logger_name) AS logger_name,
                     count() AS occurrences,
                     max(timestamp) AS last_seen,
                     min(timestamp) AS first_seen,
                     uniqExactIf(consumer_id, consumer_id != '') AS affected_consumers,
                     argMax(payload, timestamp) AS stack_trace,
-                    argMax(trace_id, timestamp) AS last_trace_id
+                    argMax(trace_id, timestamp) AS last_trace_id,
+                    argMax(release, timestamp) AS last_release
                 FROM api_logs
                 {where}
-                GROUP BY method, path, status_code, message
+                GROUP BY group_key
                 ORDER BY occurrences DESC, last_seen DESC
                 LIMIT %(limit)s
             """
             rows = client.execute(query, params)
             for row in rows:
+                row.pop("group_key", None)
                 row["last_seen"] = _as_utc(row.get("last_seen"))
                 row["first_seen"] = _as_utc(row.get("first_seen"))
                 row["occurrences"] = int(row.get("occurrences") or 0)
                 row["affected_consumers"] = int(row.get("affected_consumers") or 0)
                 row["status_code"] = int(row.get("status_code") or 0)
+
+            # Attach the lifecycle status from the Postgres issue entities so
+            # the Errors page can show open/regressed/resolved chips.
+            fingerprints = [r["fingerprint"] for r in rows if r.get("fingerprint")]
+            if fingerprints:
+                try:
+                    from apps.projects.models import ErrorIssue
+
+                    issues = {
+                        i["fingerprint"]: i
+                        for i in ErrorIssue.objects.filter(
+                            project_id=project_id, fingerprint__in=fingerprints
+                        ).values("fingerprint", "status", "first_release", "last_release")
+                    }
+                    for row in rows:
+                        issue = issues.get(row.get("fingerprint") or "")
+                        row["issue_status"] = issue["status"] if issue else ""
+                        if issue and not row.get("last_release"):
+                            row["last_release"] = issue["last_release"]
+                except Exception as exc:
+                    logger.warning("error_issues status join failed: %s", exc)
             return rows
         except Exception as exc:
             logger.warning("ClickHouse error-issues query failed: %s", exc)
@@ -2514,11 +2547,13 @@ class DataQueryService:
         path: str | None = None,
         message: str | None = None,
         trace_id: str | None = None,
+        fingerprint: str | None = None,
         filter: str | None = None,
         limit: int = 50,
     ) -> list[dict]:
-        """Individual ERROR events, newest first. With no method/path/message it is
-        the flat "Feed"; with them it's a single issue's occurrences."""
+        """Individual ERROR events, newest first. With no scoping params it is
+        the flat "Feed"; with fingerprint (preferred) or method/path/message
+        it's a single issue's occurrences."""
         from core.database.clickhouse.client import get_clickhouse_client
 
         try:
@@ -2545,6 +2580,9 @@ class DataQueryService:
             if trace_id:
                 params["trace_id"] = trace_id.strip().lower()
                 where += " AND trace_id = %(trace_id)s"
+            if fingerprint:
+                params["fingerprint"] = fingerprint.strip()
+                where += " AND fingerprint = %(fingerprint)s"
             query = f"""
                 SELECT
                     timestamp,
@@ -2557,7 +2595,9 @@ class DataQueryService:
                     consumer_id,
                     consumer_name,
                     trace_id,
-                    span_id
+                    span_id,
+                    fingerprint,
+                    release
                 FROM api_logs
                 {where}
                 ORDER BY timestamp DESC
