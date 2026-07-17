@@ -203,8 +203,9 @@ Gaps we must close, mapped to the features they unblock:
 
 Sized for a small team; each phase ships user-visible value and feeds the next. Rough effort in engineer-weeks (ew).
 
-**Phase 0 — Foundations & data (3–4 ew)**
+**Phase 0 — Foundations & data (3–4 ew)** — ✅ **SHIPPED 2026-07-15 (launch branch)**
 Release/commit/deploy tagging end-to-end (SDK → ingest → ClickHouse → deploy markers on charts); issue fingerprinting v1 (normalization + stack-frame hash, issues as Postgres entities); consumer dimension table; rollup views. *Exit: "this issue regressed in v1.4.2" is computable.*
+*Shipped: SDK 0.5.0 release/commit tagging + `release` filter field; `POST /v1/deploys` + Traffic chart markers; fingerprint column + ErrorIssue lifecycle entities (open/regressed/resolved/ignored) + fingerprint-grouped error-issues API; Consumer dimension table + `backfill_consumers`. Deferred to Phase 5: ClickHouse rollup views (needed for baselines, not for the RCA spine). New Django migrations 0018–0020 are gitignored — apply per environment.*
 
 **Phase 1 — Code Link (3–4 ew)**
 GitHub App (cloud + self-hosted), repo connect UI, code mappings w/ auto-derivation, suspect commits on issue pages, stack-frame → source links. *Exit: every error issue shows the suspect commit + author.*
