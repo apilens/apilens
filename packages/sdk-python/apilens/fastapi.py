@@ -44,6 +44,8 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         app_id: str = "",
         base_url: str = "https://ingest.apilens.ai/v1",
         env: str = "production",
+        release: str = "",
+        commit: str = "",
         verify_tls: bool = True,
         ca_bundle_path: str = "",
         client: ApiLensClient | None = None,
@@ -70,6 +72,8 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
                     project_slug=resolved_project_slug,
                     base_url=base_url,
                     environment=env,
+                    release=release,
+                    commit=commit,
                     verify_tls=verify_tls,
                     ca_bundle_path=ca_bundle_path,
                 )

@@ -28,24 +28,35 @@ MAX_LOG_ATTRIBUTE_KEY_CHARS = 64
 MAX_LOG_ATTRIBUTE_VALUE_CHARS = 512
 MAX_LOG_ATTRIBUTES = 64
 
+# Deploy correlation: wire field `commit` is stored as `commit_sha` (COMMIT is
+# an SQL keyword); `release` is stored as-is. Same columns on all three tables.
 REQUEST_COLUMNS = [
     "timestamp", "app_id", "project_id", "endpoint_id", "environment", "method",
     "path", "raw_path", "status_code", "response_time_ms", "request_size", "response_size",
     "ip_address", "user_agent", "consumer_id", "consumer_name", "consumer_group",
     "request_payload", "response_payload", "request_headers", "response_headers",
-    "base_url", "trace_id", "span_id",
+    "base_url", "trace_id", "span_id", "release", "commit_sha",
 ]
 LOG_COLUMNS = [
     "timestamp", "app_id", "project_id", "environment", "level", "message",
     "logger_name", "endpoint_method", "endpoint_path", "status_code",
     "consumer_id", "consumer_name", "consumer_group", "trace_id", "span_id",
-    "payload", "attributes_json",
+    "payload", "attributes_json", "release", "commit_sha",
 ]
 SPAN_COLUMNS = [
     "timestamp", "app_id", "project_id", "environment", "trace_id", "span_id",
     "parent_span_id", "name", "kind", "service_name", "duration_ms", "status",
-    "status_code", "attributes_json",
+    "status_code", "attributes_json", "release", "commit_sha",
 ]
+
+MAX_RELEASE_CHARS = 128
+MAX_COMMIT_CHARS = 64
+
+
+def _safe_release(record) -> tuple[str, str]:
+    release = str(getattr(record, "release", "") or "").strip()[:MAX_RELEASE_CHARS]
+    commit = str(getattr(record, "commit", "") or "").strip()[:MAX_COMMIT_CHARS]
+    return release, commit
 
 
 class IngestError(Exception):
@@ -138,6 +149,9 @@ def ensure_clickhouse_schema(client) -> None:
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS trace_id String DEFAULT '' CODEC(ZSTD(1))",
             "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS span_id String DEFAULT '' CODEC(ZSTD(1))",
             "ALTER TABLE api_requests ADD INDEX IF NOT EXISTS idx_api_requests_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
+            # Deploy correlation columns (uniform across all three tables).
+            "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS release LowCardinality(String) DEFAULT '' CODEC(ZSTD(1))",
+            "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS commit_sha String DEFAULT '' CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS project_id String CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS attributes_json String CODEC(ZSTD(3))",
             # Log-correlation columns exist in the 004 migration but not in the
@@ -151,6 +165,8 @@ def ensure_clickhouse_schema(client) -> None:
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS trace_id String CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS span_id String CODEC(ZSTD(1))",
             "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
+            "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS release LowCardinality(String) DEFAULT '' CODEC(ZSTD(1))",
+            "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS commit_sha String DEFAULT '' CODEC(ZSTD(1))",
             # Span storage for distributed traces (the waterfall view). The
             # legacy `traces` table (tenant_id model) is intentionally unused.
             """
@@ -168,13 +184,18 @@ def ensure_clickhouse_schema(client) -> None:
                 duration_ms Float64 CODEC(Gorilla, ZSTD(1)),
                 status LowCardinality(String) CODEC(ZSTD(1)),
                 status_code UInt16 CODEC(ZSTD(1)),
-                attributes_json String CODEC(ZSTD(3))
+                attributes_json String CODEC(ZSTD(3)),
+                release LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
+                commit_sha String DEFAULT '' CODEC(ZSTD(1))
             ) ENGINE = MergeTree()
             PARTITION BY toYYYYMM(timestamp)
             ORDER BY (app_id, trace_id, timestamp)
             TTL toDateTime(timestamp) + INTERVAL 30 DAY
             SETTINGS index_granularity = 8192
             """,
+            # Existing api_spans tables predate the release columns.
+            "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS release LowCardinality(String) DEFAULT '' CODEC(ZSTD(1))",
+            "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS commit_sha String DEFAULT '' CODEC(ZSTD(1))",
             "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
             "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_project_id project_id TYPE bloom_filter(0.01) GRANULARITY 1",
             "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_environment environment TYPE bloom_filter(0.01) GRANULARITY 1",
@@ -289,6 +310,7 @@ def handle_requests(project_id: str, project_slug: str, records) -> int:
         rows = []
         for r in recs:
             method = r.method.upper()
+            release, commit = _safe_release(r)
             rows.append((
                 r.timestamp, app_uuid, project_id, emap.get((method, r.path), ""),
                 r.environment, method, r.path, (r.raw_path or r.path),
@@ -300,6 +322,7 @@ def handle_requests(project_id: str, project_slug: str, records) -> int:
                 _safe_payload(r.request_headers), _safe_payload(r.response_headers),
                 (r.base_url or "")[:512],
                 _safe_trace_component(r.trace_id, 32), _safe_trace_component(r.span_id, 16),
+                release, commit,
             ))
         client.execute(
             f"INSERT INTO api_requests ({', '.join(REQUEST_COLUMNS)}) VALUES",
@@ -330,6 +353,7 @@ def handle_logs(project_id: str, project_slug: str, records) -> int:
     for app_uuid, recs in by_app.items():
         rows = []
         for r in recs:
+            release, commit = _safe_release(r)
             rows.append((
                 r.timestamp, app_uuid, project_id,
                 (r.environment or "production").strip().lower(),
@@ -346,6 +370,7 @@ def handle_logs(project_id: str, project_slug: str, records) -> int:
                 _safe_trace_component(r.span_id, 16),
                 _safe_log_text(r.payload, limit=MAX_LOG_PAYLOAD_CHARS),
                 json.dumps(_sanitize_log_attributes(r.attributes), separators=(",", ":")),
+                release, commit,
             ))
         client.execute(
             f"INSERT INTO api_logs ({', '.join(LOG_COLUMNS)}) VALUES",
@@ -384,6 +409,7 @@ def handle_spans(project_id: str, project_slug: str, records) -> int:
             if not trace_id or not span_id:
                 continue  # unusable without valid ids; drop silently (telemetry)
             status = (r.status or "ok").strip().lower()
+            release, commit = _safe_release(r)
             rows.append((
                 r.timestamp, app_uuid, project_id,
                 (r.environment or "production").strip().lower(),
@@ -396,6 +422,7 @@ def handle_spans(project_id: str, project_slug: str, records) -> int:
                 status if status in ALLOWED_SPAN_STATUSES else "ok",
                 max(0, min(int(r.status_code or 0), 599)),
                 json.dumps(_sanitize_log_attributes(r.attributes), separators=(",", ":")),
+                release, commit,
             ))
         if not rows:
             continue

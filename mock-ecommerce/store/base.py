@@ -56,6 +56,9 @@ def make_app(app_id: str) -> FastAPI:
             api_key=APILENS_API_KEY,
             app_id=app_id,
             env=APILENS_ENVIRONMENT,
+            # Deploy correlation demo — every record carries the store release.
+            release=os.environ.get("STORE_RELEASE", "v1.0.0"),
+            commit=os.environ.get("STORE_COMMIT", ""),
             # PII never leaves the service: values whose NAME matches one of
             # these regexes are stored as [redacted] (names stay visible).
             redact_query_params=[r"^card_number$", r"token"],

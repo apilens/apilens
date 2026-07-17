@@ -586,6 +586,8 @@ class IngestService:
     _raw_path_column_lock = threading.Lock()
     _trace_columns_ready = False
     _trace_columns_lock = threading.Lock()
+    _release_columns_ready = False
+    _release_columns_lock = threading.Lock()
     _api_logs_table_ready = False
     _api_logs_table_lock = threading.Lock()
     _api_spans_table_ready = False
@@ -707,6 +709,29 @@ class IngestService:
             IngestService._trace_columns_ready = True
 
     @staticmethod
+    def ensure_release_columns(client) -> None:
+        """Deploy-correlation columns (wire `commit` → column `commit_sha`).
+
+        Keep in lock-step with apps/ingest ensure_clickhouse_schema.
+        """
+        if IngestService._release_columns_ready:
+            return
+        with IngestService._release_columns_lock:
+            if IngestService._release_columns_ready:
+                return
+            try:
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS release LowCardinality(String) DEFAULT '' CODEC(ZSTD(1))"
+                )
+                client.execute(
+                    "ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS commit_sha String DEFAULT '' CODEC(ZSTD(1))"
+                )
+            except Exception as exc:
+                logger.warning("Unable to ensure release columns on api_requests: %s", exc)
+                return
+            IngestService._release_columns_ready = True
+
+    @staticmethod
     def _safe_payload(value: str) -> str:
         if not value:
             return ""
@@ -765,6 +790,9 @@ class IngestService:
                     "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS trace_id String CODEC(ZSTD(1))",
                     "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS span_id String CODEC(ZSTD(1))",
                     "ALTER TABLE api_logs ADD INDEX IF NOT EXISTS idx_api_logs_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
+                    # Deploy correlation (wire `commit` → column `commit_sha`).
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS release LowCardinality(String) DEFAULT '' CODEC(ZSTD(1))",
+                    "ALTER TABLE api_logs ADD COLUMN IF NOT EXISTS commit_sha String DEFAULT '' CODEC(ZSTD(1))",
                 ):
                     client.execute(stmt)
             except Exception as exc:
@@ -797,13 +825,21 @@ class IngestService:
                         duration_ms Float64 CODEC(Gorilla, ZSTD(1)),
                         status LowCardinality(String) CODEC(ZSTD(1)),
                         status_code UInt16 CODEC(ZSTD(1)),
-                        attributes_json String CODEC(ZSTD(3))
+                        attributes_json String CODEC(ZSTD(3)),
+                        release LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
+                        commit_sha String DEFAULT '' CODEC(ZSTD(1))
                     ) ENGINE = MergeTree()
                     PARTITION BY toYYYYMM(timestamp)
                     ORDER BY (app_id, trace_id, timestamp)
                     TTL toDateTime(timestamp) + INTERVAL 30 DAY
                     SETTINGS index_granularity = 8192
                     """
+                )
+                client.execute(
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS release LowCardinality(String) DEFAULT '' CODEC(ZSTD(1))"
+                )
+                client.execute(
+                    "ALTER TABLE api_spans ADD COLUMN IF NOT EXISTS commit_sha String DEFAULT '' CODEC(ZSTD(1))"
                 )
                 client.execute(
                     "ALTER TABLE api_spans ADD INDEX IF NOT EXISTS idx_api_spans_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 1"
@@ -3199,7 +3235,7 @@ class AnalyticsService:
     # Rich-filter fields that also exist on api_logs, and the columns whose
     # names differ from api_requests. Request-only fields (latency, sizes,
     # ip, ua) are silently dropped for log queries.
-    _LOG_FILTER_FIELDS = {"app", "method", "status", "status_class", "path", "env", "consumer"}
+    _LOG_FILTER_FIELDS = {"app", "method", "status", "status_class", "path", "env", "consumer", "release"}
     _LOG_FILTER_COLUMNS = {"method": "endpoint_method", "path": "endpoint_path"}
 
     @staticmethod
@@ -3983,6 +4019,7 @@ class AnalyticsService:
         "ip": "ip_address",
         "ua": "user_agent",
         "method": "method",
+        "release": "release",
     }
 
     @staticmethod
@@ -4017,6 +4054,7 @@ class AnalyticsService:
             logger.warning("ClickHouse client initialization failed; returning empty filter values: %s", exc)
             return []
         IngestService.ensure_consumer_columns(client)
+        IngestService.ensure_release_columns(client)
 
         since_dt, until_dt = _resolve_time_range(since, until)
         params: dict[str, Any] = {

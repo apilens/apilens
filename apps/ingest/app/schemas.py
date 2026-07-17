@@ -37,6 +37,9 @@ class RequestRecord(BaseModel):
     base_url: str = ""
     trace_id: str = ""
     span_id: str = ""
+    # Deploy correlation (optional; older SDKs omit them).
+    release: str = ""
+    commit: str = ""
 
 
 class IngestRequest(BaseModel):
@@ -65,6 +68,8 @@ class LogRecord(BaseModel):
     span_id: str = ""
     payload: str = ""
     attributes: dict = Field(default_factory=dict)
+    release: str = ""
+    commit: str = ""
 
 
 class IngestLogsRequest(BaseModel):
@@ -90,6 +95,8 @@ class SpanRecord(BaseModel):
     status: str = "ok"  # ok | error
     status_code: int = 0
     attributes: dict = Field(default_factory=dict)
+    release: str = ""
+    commit: str = ""
 
 
 class IngestSpansRequest(BaseModel):

@@ -30,6 +30,9 @@ class RequestRecord:
     base_url: str = ""
     trace_id: str = ""
     span_id: str = ""
+    # Deploy correlation; empty fields inherit the client config at capture time.
+    release: str = ""
+    commit: str = ""
 
     def to_wire(self) -> dict[str, object]:
         ts = self.timestamp
@@ -70,6 +73,8 @@ class RequestRecord:
             "base_url": self.base_url or "",
             "trace_id": self.trace_id or "",
             "span_id": self.span_id or "",
+            "release": self.release or "",
+            "commit": self.commit or "",
         }
 
 
@@ -99,6 +104,8 @@ class SpanRecord:
     project_slug: str = ""
     app_id: str = ""
     attributes: dict[str, str] | None = None
+    release: str = ""
+    commit: str = ""
 
     def to_wire(self) -> dict[str, object]:
         return {
@@ -116,6 +123,8 @@ class SpanRecord:
             "status": (self.status or "ok").lower(),
             "status_code": int(self.status_code or 0),
             "attributes": {str(k): str(v) for k, v in (self.attributes or {}).items()},
+            "release": self.release or "",
+            "commit": self.commit or "",
         }
 
 
@@ -145,6 +154,8 @@ class LogRecord:
     app_id: str = ""
     payload: str = ""
     attributes: dict[str, str] | None = None
+    release: str = ""
+    commit: str = ""
 
     def to_wire(self) -> dict[str, object]:
         return {
@@ -165,4 +176,6 @@ class LogRecord:
             "span_id": self.span_id or "",
             "payload": self.payload or "",
             "attributes": {str(k): str(v) for k, v in (self.attributes or {}).items()},
+            "release": self.release or "",
+            "commit": self.commit or "",
         }

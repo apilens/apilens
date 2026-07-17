@@ -67,6 +67,8 @@ FIELD_REGISTRY: dict[str, FieldSpec] = {
     "resp_size": FieldSpec("response_size", "int", {"is", "not", "gt", "gte", "lt", "lte", "between"}),
     "ip": FieldSpec("ip_address", "string", {"is", "not", "contains"}),
     "ua": FieldSpec("user_agent", "string", {"contains"}),
+    # Deploy correlation (populated by SDK release/commit tagging).
+    "release": FieldSpec("release", "string", {"is", "not", "contains"}),
 }
 
 # status class -> (min inclusive, max exclusive) on status_code.

@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.12'",
@@ -40,7 +40,6 @@ wheels = [
 
 [[package]]
 name = "apilenss"
-version = "0.1.3"
 source = { editable = "." }
 dependencies = [
     { name = "opentelemetry-api" },
@@ -94,7 +93,7 @@ requires-dist = [
     { name = "starlette", marker = "extra == 'all'", specifier = ">=0.36.0" },
     { name = "starlette", marker = "extra == 'starlette'", specifier = ">=0.36.0" },
 ]
-provides-extras = ["fastapi", "starlette", "flask", "django", "litestar", "blacksheep", "all"]
+provides-extras = ["all", "blacksheep", "django", "fastapi", "flask", "litestar", "starlette"]
 
 [[package]]
 name = "asgiref"
