@@ -374,3 +374,44 @@ class ErrorIssue(models.Model):
 
     def __str__(self):
         return f"issue {self.fingerprint[:8]} {self.title[:60]}"
+
+
+class Consumer(models.Model):
+    """First-class consumer entity (one row per caller identity per project).
+
+    Telemetry stores consumers as denormalised strings on every request; this
+    table gives them a lifecycle (first/last seen) and a home for metadata the
+    wire never carries (tier, plan, notes) — the substrate for consumer-level
+    anomaly detection and impact reports. Upserted by the ingest service;
+    backfillable from ClickHouse via `manage.py backfill_consumers`.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="consumers",
+    )
+    consumer_id = models.CharField(max_length=256)
+    name = models.CharField(max_length=256, blank=True, default="")
+    group = models.CharField(
+        max_length=256, blank=True, default="", db_column="consumer_group"
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+    first_seen_at = models.DateTimeField()
+    last_seen_at = models.DateTimeField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "consumers"
+        ordering = ["-last_seen_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "consumer_id"],
+                name="unique_consumer_per_project",
+            ),
+        ]
+
+    def __str__(self):
+        return f"consumer {self.consumer_id} ({self.project_id})"

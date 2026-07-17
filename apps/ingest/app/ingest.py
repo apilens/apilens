@@ -289,6 +289,52 @@ def discover_endpoints(cur, app_id: str, records) -> dict[tuple[str, str], str]:
 
 # --- public entrypoints ------------------------------------------------------
 
+def _upsert_consumers(cur, project_id: str, records) -> None:
+    """Upsert the consumer dimension rows seen in one batch of requests.
+
+    One row per (project, consumer_id): bumps last_seen_at and refreshes
+    name/group from the newest occurrence (empty values never overwrite)."""
+    latest: dict[str, dict] = {}
+    for r in records:
+        cid = (r.consumer_id or "").strip()[:256]
+        if not cid:
+            continue
+        cur_entry = latest.get(cid)
+        if cur_entry is None:
+            latest[cid] = {
+                "first": r.timestamp,
+                "last": r.timestamp,
+                "name": (r.consumer_name or "")[:256],
+                "group": (r.consumer_group or "")[:256],
+            }
+        else:
+            if r.timestamp < cur_entry["first"]:
+                cur_entry["first"] = r.timestamp
+            if r.timestamp >= cur_entry["last"]:
+                cur_entry["last"] = r.timestamp
+                cur_entry["name"] = (r.consumer_name or "")[:256] or cur_entry["name"]
+                cur_entry["group"] = (r.consumer_group or "")[:256] or cur_entry["group"]
+
+    for cid, e in latest.items():
+        cur.execute(
+            """
+            INSERT INTO consumers
+                (id, project_id, consumer_id, name, consumer_group, metadata,
+                 first_seen_at, last_seen_at, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, '{}', %s, %s, now(), now())
+            ON CONFLICT (project_id, consumer_id) DO UPDATE SET
+                first_seen_at = LEAST(consumers.first_seen_at, EXCLUDED.first_seen_at),
+                last_seen_at = GREATEST(consumers.last_seen_at, EXCLUDED.last_seen_at),
+                name = CASE WHEN EXCLUDED.name <> '' THEN EXCLUDED.name ELSE consumers.name END,
+                consumer_group = CASE WHEN EXCLUDED.consumer_group <> ''
+                                      THEN EXCLUDED.consumer_group
+                                      ELSE consumers.consumer_group END,
+                updated_at = now()
+            """,
+            (str(uuid.uuid4()), project_id, cid, e["name"], e["group"], e["first"], e["last"]),
+        )
+
+
 def handle_requests(project_id: str, project_slug: str, records) -> int:
     if len(records) > MAX_BATCH_SIZE:
         raise IngestError(422, "validation_error", f"Batch size exceeds maximum of {MAX_BATCH_SIZE}")
@@ -307,6 +353,15 @@ def handle_requests(project_id: str, project_slug: str, records) -> int:
                 app_uuid: discover_endpoints(cur, app_uuid, recs)
                 for app_uuid, recs in by_app.items()
             }
+            # Savepoint: a failed dimension upsert (e.g. before the consumers
+            # migration is applied) must not roll back the endpoint discovery
+            # already done in this transaction, nor block ingestion.
+            cur.execute("SAVEPOINT consumers_upsert")
+            try:
+                _upsert_consumers(cur, project_id, records)
+            except Exception:
+                cur.execute("ROLLBACK TO SAVEPOINT consumers_upsert")
+                logger.warning("consumers upsert failed; requests still ingested", exc_info=True)
 
     client = clickhouse()
     ensure_clickhouse_schema(client)
@@ -439,12 +494,13 @@ def handle_logs(project_id: str, project_slug: str, records) -> int:
             for app_uuid, recs in by_app.items():
                 entries = [(r, fingerprints[id(r)]) for r in recs if id(r) in fingerprints]
                 if entries:
+                    # Savepoint: issue tracking must never block log ingestion
+                    # (e.g. before the error_issues migration has been applied).
+                    cur.execute("SAVEPOINT issues_upsert")
                     try:
                         _upsert_error_issues(cur, project_id, app_uuid, entries)
                     except Exception:
-                        # Issue tracking must never block log ingestion (e.g.
-                        # before the error_issues migration has been applied).
-                        conn.rollback()
+                        cur.execute("ROLLBACK TO SAVEPOINT issues_upsert")
                         logger.warning("error_issues upsert failed; logs still ingested", exc_info=True)
 
     client = clickhouse()
