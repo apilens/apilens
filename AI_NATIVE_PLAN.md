@@ -207,8 +207,9 @@ Sized for a small team; each phase ships user-visible value and feeds the next. 
 Release/commit/deploy tagging end-to-end (SDK → ingest → ClickHouse → deploy markers on charts); issue fingerprinting v1 (normalization + stack-frame hash, issues as Postgres entities); consumer dimension table; rollup views. *Exit: "this issue regressed in v1.4.2" is computable.*
 *Shipped: SDK 0.5.0 release/commit tagging + `release` filter field; `POST /v1/deploys` + Traffic chart markers; fingerprint column + ErrorIssue lifecycle entities (open/regressed/resolved/ignored) + fingerprint-grouped error-issues API; Consumer dimension table + `backfill_consumers`. Deferred to Phase 5: ClickHouse rollup views (needed for baselines, not for the RCA spine). New Django migrations 0018–0020 are gitignored — apply per environment.*
 
-**Phase 1 — Code Link (3–4 ew)**
+**Phase 1 — Code Link (3–4 ew)** — ✅ **SHIPPED 2026-07-15 (launch branch)**
 GitHub App (cloud + self-hosted), repo connect UI, code mappings w/ auto-derivation, suspect commits on issue pages, stack-frame → source links. *Exit: every error issue shows the suspect commit + author.*
+*Shipped: apps/integrations (installation/repository/app-level code mappings — monorepo & polyrepo), hardened install flow (signed state + server-side verification of the untrusted installation_id), lifecycle webhooks (uninstall/suspend/repo-removal + lazy revocation), deploy-aware suspect commits (scoped to the Phase 0 stamped running commit), Settings → Integrations UI, /github/setup callback, suspect commits + source links in the Errors inspector. See PHASE1_CODE_LINK_DESIGN.md for the edge-case matrix. Deferred: automatic code-mapping derivation from observed traces; GHES UI (model-ready via base_url); user-token installation verification (residual risk documented).*
 
 **Phase 2 — The Investigator (4–6 ew)**
 LLM plumbing (provider config, BYO key, cost metering); staged RCA pipeline over stack trace + trace + payload + suspect commit + impact; evidence-trail UI on the Errors page; "Explain this request" + humanized issue titles ride along. *Exit: one-click RCA with confidence + impact statement.*
