@@ -14,7 +14,13 @@ from ninja import Router
 
 from apps.auth.services import ApiKeyService
 from apps.projects.models import App
-from apps.projects.services import ProjectService, AppService, AnalyticsService, DataQueryService
+from apps.projects.services import (
+    ProjectService,
+    AppService,
+    AnalyticsService,
+    DataQueryService,
+    DeployService,
+)
 from apps.projects.membership import MembershipService
 from apps.users.models import User
 from apps.users.services import UserService
@@ -456,6 +462,37 @@ def get_endpoint_stats(
         sort_dir=sort_dir,
         page=page,
         page_size=page_size,
+    )
+
+
+@router.get("/{project_slug}/deploys", response=list[dict])
+def list_project_deploys(
+    request: HttpRequest,
+    project_slug: str,
+    app_slugs: str = None,
+    environment: str = None,
+    since: str = None,
+    until: str = None,
+    limit: int = 100,
+):
+    """Deploy/release events in a time window (chart markers, release timeline)."""
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+
+    app_ids = []
+    if app_slugs:
+        slugs = [s.strip() for s in app_slugs.split(",") if s.strip()]
+        for slug in slugs:
+            app = AppService.get_app_by_slug(project, slug)
+            app_ids.append(str(app.id))
+
+    return DeployService.list_deploys(
+        project_id=str(project.id),
+        app_ids=app_ids if app_ids else None,
+        environment=environment,
+        since=since,
+        until=until,
+        limit=limit,
     )
 
 

@@ -4490,3 +4490,53 @@ class AnalyticsService:
         except Exception as exc:
             logger.warning("ClickHouse query failed for project logs; returning empty logs: %s", exc)
             return {"logs": [], "total": 0, "page": page, "page_size": page_size}
+
+
+class DeployService:
+    """Read side of deploy/release events (written by the ingest service)."""
+
+    @staticmethod
+    def list_deploys(
+        project_id: str,
+        app_ids: list[str] | None = None,
+        environment: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Deploys in a time window, newest first — chart markers and the
+        release timeline. App-scoped filters still include project-wide
+        deploys (app IS NULL): they affect every app's traffic."""
+        from django.db.models import Q
+
+        from apps.projects.models import Deploy
+
+        since_dt, until_dt = _resolve_time_range(since, until)
+        qs = (
+            Deploy.objects.filter(
+                project_id=project_id,
+                deployed_at__gte=since_dt,
+                deployed_at__lte=until_dt,
+            )
+            .select_related("app")
+        )
+        if app_ids:
+            qs = qs.filter(Q(app_id__in=app_ids) | Q(app__isnull=True))
+        if environment:
+            qs = qs.filter(environment=environment.strip().lower())
+
+        rows: list[dict] = []
+        for d in qs.order_by("-deployed_at")[: max(1, min(int(limit), 500))]:
+            rows.append(
+                {
+                    "id": str(d.id),
+                    "app_slug": d.app.slug if d.app_id else "",
+                    "app_name": d.app.name if d.app_id else "",
+                    "environment": d.environment,
+                    "release": d.release,
+                    "commit": d.commit,
+                    "url": d.url,
+                    "deployed_at": _as_utc(d.deployed_at).isoformat(),
+                }
+            )
+        return rows

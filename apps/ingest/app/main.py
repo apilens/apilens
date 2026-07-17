@@ -14,8 +14,17 @@ from fastapi.responses import JSONResponse
 
 from .auth import authenticate
 from .db import clickhouse, init_postgres_pool
-from .ingest import IngestError, ensure_clickhouse_schema, handle_logs, handle_requests, handle_spans
+from .ingest import (
+    IngestError,
+    ensure_clickhouse_schema,
+    handle_deploys,
+    handle_logs,
+    handle_requests,
+    handle_spans,
+)
 from .schemas import (
+    IngestDeploysRequest,
+    IngestDeploysResponse,
     IngestLogsRequest,
     IngestLogsResponse,
     IngestRequest,
@@ -86,3 +95,11 @@ def ingest_spans(data: IngestSpansRequest, ctx: tuple[str, str] = Depends(requir
     project_id, project_slug = ctx
     accepted = handle_spans(project_id, project_slug, data.spans)
     return IngestSpansResponse(accepted=accepted)
+
+
+@app.post("/v1/deploys", response_model=IngestDeploysResponse, tags=["Ingest"])
+def ingest_deploys(data: IngestDeploysRequest, ctx: tuple[str, str] = Depends(require_project)) -> IngestDeploysResponse:
+    """Record deploy/release events (typically curl'd from CI after rollout)."""
+    project_id, project_slug = ctx
+    accepted = handle_deploys(project_id, project_slug, data.deploys)
+    return IngestDeploysResponse(accepted=accepted)

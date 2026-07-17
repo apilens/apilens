@@ -105,3 +105,26 @@ class IngestSpansRequest(BaseModel):
 
 class IngestSpansResponse(BaseModel):
     accepted: int
+
+
+class DeployRecord(BaseModel):
+    """A deploy/release event, typically posted from CI after a rollout.
+
+    `app_id` is optional: omit it for a project-wide deploy. `release` should
+    match the value the SDK stamps on telemetry (APILENS_RELEASE)."""
+
+    project_slug: str = ""
+    app_id: str = ""
+    environment: str = "production"
+    release: str
+    commit: str = ""
+    url: str = ""
+    deployed_at: datetime | None = None
+
+
+class IngestDeploysRequest(BaseModel):
+    deploys: list[DeployRecord]
+
+
+class IngestDeploysResponse(BaseModel):
+    accepted: int

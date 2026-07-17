@@ -267,3 +267,44 @@ class ProjectInvitation(models.Model):
 
     def __str__(self):
         return f"invite {self.email} -> {self.project_id} ({self.role}, {self.status})"
+
+
+class Deploy(models.Model):
+    """A deploy/release event for a project (optionally scoped to one app).
+
+    Posted by CI via the ingest service (POST /v1/deploys) and rendered as
+    markers on the analytics charts; the substrate for "did this deploy cause
+    the regression?" correlation. `release`/`commit` match the values the SDK
+    stamps on telemetry records, joining deploys to traffic.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="deploys",
+    )
+    # Null = a project-wide deploy (all apps shipped together).
+    app = models.ForeignKey(
+        "projects.App",
+        on_delete=models.CASCADE,
+        related_name="deploys",
+        null=True,
+        blank=True,
+    )
+    environment = models.CharField(max_length=64, default="production")
+    release = models.CharField(max_length=128)
+    commit = models.CharField(max_length=64, blank=True, default="")
+    # Optional link to the CI run / release notes.
+    url = models.URLField(max_length=500, blank=True, default="")
+    deployed_at = models.DateTimeField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "deploys"
+        ordering = ["-deployed_at"]
+        indexes = [models.Index(fields=["project", "environment", "deployed_at"])]
+
+    def __str__(self):
+        scope = self.app_id or "project"
+        return f"deploy {self.release} ({self.environment}, {scope})"

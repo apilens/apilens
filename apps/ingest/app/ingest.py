@@ -380,6 +380,48 @@ def handle_logs(project_id: str, project_slug: str, records) -> int:
     return total
 
 
+def handle_deploys(project_id: str, project_slug: str, records) -> int:
+    """Store deploy/release events (Postgres `deploys`; the Django `Deploy`
+    model owns the table). `app_id` is optional — empty means project-wide."""
+    if len(records) > MAX_BATCH_SIZE:
+        raise IngestError(422, "validation_error", f"Batch size exceeds maximum of {MAX_BATCH_SIZE}")
+    if not records:
+        return 0
+
+    validate_project_slug(project_slug, {r.project_slug for r in records})
+
+    for r in records:
+        if not (r.release or "").strip():
+            raise IngestError(422, "validation_error", "release is required for every deploy")
+
+    from datetime import datetime, timezone
+
+    with pg_conn() as conn:
+        with conn.cursor() as cur:
+            scoped = {r.app_id for r in records if (r.app_id or "").strip()}
+            id_to_uuid = resolve_app_identifiers(cur, project_id, scoped) if scoped else {}
+            for r in records:
+                release, commit = _safe_release(r)
+                cur.execute(
+                    """
+                    INSERT INTO deploys
+                        (id, project_id, app_id, environment, release, commit, url, deployed_at, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        project_id,
+                        id_to_uuid.get(r.app_id) if (r.app_id or "").strip() else None,
+                        (r.environment or "production").strip().lower()[:64],
+                        release,
+                        commit,
+                        _safe_log_text(r.url, limit=500),
+                        r.deployed_at or datetime.now(tz=timezone.utc),
+                    ),
+                )
+    return len(records)
+
+
 ALLOWED_SPAN_STATUSES = {"ok", "error"}
 
 
