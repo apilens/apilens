@@ -31,6 +31,7 @@ dependencies = [
     # layer — OpenAI/Anthropic/Gemini/proxy gateway, chosen via config).
     "agno>=2.7,<3.0",
     "litellm>=1.55",
+    "orjson>=3.10",  # Agno uses it to parse structured (output_schema) results.
     # MCP server (Phase 3): apps/mcp bootstraps Django from this env.
     "mcp>=1.10",
 ]

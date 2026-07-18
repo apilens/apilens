@@ -77,9 +77,11 @@ def translate(question: str) -> dict:
     if len(question) > 500:
         raise ValidationError("question is too long")
 
+    from .llm import structured
+
     agent = _agent()
     run = agent.run(f"Question: {question}")
-    result: FilterTranslation = run.content
+    result: FilterTranslation = structured(run, FilterTranslation)
 
     candidate = (result.filter or "").strip()
     if candidate:
@@ -92,7 +94,7 @@ def translate(question: str) -> dict:
                 f"Your previous answer `{candidate}` failed validation: {exc.message}. "
                 "Produce a corrected filter using only the documented fields and operators."
             )
-            result = retry.content
+            result = structured(retry, FilterTranslation)
             candidate = (result.filter or "").strip()
             if candidate:
                 parse_filter(candidate)  # still invalid → surfaces as 422

@@ -50,6 +50,22 @@ def model_id() -> str:
     return _setting("AI_MODEL", DEFAULT_MODEL) or DEFAULT_MODEL
 
 
+def structured(run, expected_type):
+    """Return an Agno run's structured content, or raise a clear error.
+
+    With models that lack native structured-output support, Agno parses the
+    schema out of the text; a malformed response yields a raw string instead
+    of the pydantic object. Callers get a legible failure rather than a bare
+    AttributeError deep in the pipeline."""
+    content = getattr(run, "content", None)
+    if isinstance(content, expected_type):
+        return content
+    raise RuntimeError(
+        f"AI returned an unparseable {expected_type.__name__} "
+        f"(got {type(content).__name__}); try a stronger model via APILENS_AI_MODEL"
+    )
+
+
 def build_model():
     """Return (model_id, Agno LiteLLM model). Raises RuntimeError when AI is
     not configured."""

@@ -282,8 +282,10 @@ def run_pipeline(evidence: dict) -> dict:
             "If evidence is thin, say so and mark confidence low."
         ),
     )
+    from .llm import structured
+
     rca_run = rca_agent.run(f"Investigate this production error issue.\n\n{bundle}")
-    rca: RootCauseAnalysis = rca_run.content
+    rca: RootCauseAnalysis = structured(rca_run, RootCauseAnalysis)
 
     fix_agent = Agent(
         model=model,
@@ -303,7 +305,7 @@ def run_pipeline(evidence: dict) -> dict:
         f"{_clip(bundle, 6_000)}\n\n"
         "Produce the fix plan."
     )
-    fix: FixPlan = fix_run.content
+    fix: FixPlan = structured(fix_run, FixPlan)
 
     def _tokens(run, attr):
         try:

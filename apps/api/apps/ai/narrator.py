@@ -161,8 +161,10 @@ def generate_postmortem(project, fingerprint: str) -> dict:
             "Resolution, Follow-ups."
         ),
     )
+    from .llm import structured
+
     run = agent.run(f"Draft the postmortem.\n\n{facts['facts_text']}")
-    doc: PostmortemDoc = run.content
+    doc: PostmortemDoc = structured(run, PostmortemDoc)
 
     def _tok(attr):
         try:
