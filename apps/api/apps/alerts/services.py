@@ -37,6 +37,9 @@ def serialize_rule(r: AlertRule) -> dict:
         "sensitivity": r.sensitivity,
         "min_events": r.min_events,
         "group_by": r.group_by,
+        "for_windows": r.for_windows,
+        "of_windows": r.of_windows,
+        "resolve_windows": r.resolve_windows,
         "renotify_minutes": r.renotify_minutes,
         "notify_resolved": r.notify_resolved,
         "auto_investigate": r.auto_investigate,
@@ -140,6 +143,12 @@ class AlertService:
             if group_by == "consumer" and rule.threshold_type != AlertRule.ThresholdType.STATIC:
                 raise ValidationError("group_by=consumer supports static thresholds only (v1)")
             rule.group_by = group_by
+
+        # State-machine tuning (M-of-N to fire; K consecutive OK to resolve).
+        # Clamped and kept internally consistent (for ≤ of).
+        rule.of_windows = max(1, min(int(data.get("of_windows") or rule.of_windows or 3), 10))
+        rule.for_windows = max(1, min(int(data.get("for_windows") or rule.for_windows or 2), rule.of_windows))
+        rule.resolve_windows = max(1, min(int(data.get("resolve_windows") or rule.resolve_windows or 2), 10))
 
         rule.renotify_minutes = max(5, min(int(data.get("renotify_minutes") or rule.renotify_minutes or 240), 10080))
         rule.notify_resolved = bool(data.get("notify_resolved", rule.notify_resolved))

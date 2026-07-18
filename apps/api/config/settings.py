@@ -72,10 +72,22 @@ INSTALLED_APPS = [
     "apps.endpoints",  # stub — kept for migration history only
 ]
 
-# ── AI Investigator (Phase 2) ───────────────────────────────────────────────
-# Server-level provider config; per-project BYO keys are a later phase.
-AI_API_KEY = os.environ.get("APILENS_AI_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
-AI_MODEL = os.environ.get("APILENS_AI_MODEL", "claude-sonnet-5")
+# ── AI (Investigator, Narrator, Sentinel triage, NL query) ──────────────────
+# Provider-agnostic via LiteLLM (see apps/ai/llm.py). Swap models with one env
+# var; the code never names a provider.
+#   APILENS_AI_MODEL    LiteLLM model id — e.g. gpt-4o-mini, gpt-4o,
+#                       openai/gpt-4o, anthropic/claude-sonnet-5,
+#                       gemini/gemini-2.0-flash. Default: gpt-4o-mini.
+#   APILENS_AI_API_KEY  Key for that provider (or a LiteLLM proxy key).
+#   APILENS_AI_BASE_URL Optional LiteLLM proxy gateway URL for central routing.
+# Legacy OPENAI_API_KEY / ANTHROPIC_API_KEY in the env are also honored.
+AI_API_KEY = (
+    os.environ.get("APILENS_AI_API_KEY", "")
+    or os.environ.get("OPENAI_API_KEY", "")
+    or os.environ.get("ANTHROPIC_API_KEY", "")
+)
+AI_MODEL = os.environ.get("APILENS_AI_MODEL", "gpt-4o-mini")
+AI_BASE_URL = os.environ.get("APILENS_AI_BASE_URL", "")
 
 # ── GitHub App (Code Link) ──────────────────────────────────────────────────
 # Credentials for the APILens GitHub App: stack-trace links, suspect commits,

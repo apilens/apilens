@@ -15,7 +15,9 @@ from .models import Investigation
 class InvestigationService:
     @staticmethod
     def ai_configured() -> bool:
-        return bool(getattr(settings, "AI_API_KEY", ""))
+        from .llm import ai_enabled
+
+        return ai_enabled()
 
     @staticmethod
     def start(project, fingerprint: str, user) -> Investigation:
@@ -31,7 +33,7 @@ class InvestigationService:
             raise ValidationError("fingerprint is required")
         if not InvestigationService.ai_configured():
             raise ValidationError(
-                "AI is not configured on this server (set APILENS_AI_API_KEY)"
+                "AI is not configured on this server (set APILENS_AI_API_KEY + APILENS_AI_MODEL)"
             )
 
         in_flight = (

@@ -27,9 +27,10 @@ dependencies = [
     "pyotp>=2.9,<3.0",
     "django-storages[google]>=1.14,<2.0",
     "geoip2fast>=1.2,<2.0",
-    # AI investigator (Phase 2): Agno agent framework + Anthropic provider.
+    # AI features: Agno agent framework + LiteLLM (provider-agnostic model
+    # layer — OpenAI/Anthropic/Gemini/proxy gateway, chosen via config).
     "agno>=2.7,<3.0",
-    "anthropic>=0.40",
+    "litellm>=1.55",
     # MCP server (Phase 3): apps/mcp bootstraps Django from this env.
     "mcp>=1.10",
 ]

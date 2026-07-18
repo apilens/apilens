@@ -129,9 +129,9 @@ def generate_postmortem(project, fingerprint: str) -> dict:
     if not facts["facts_text"]:
         raise RuntimeError("Not enough history to draft a postmortem")
 
-    from django.conf import settings
+    from .llm import ai_enabled
 
-    if not getattr(settings, "AI_API_KEY", ""):
+    if not ai_enabled():
         # Deterministic fallback: still useful, just not prose.
         md = f"# {issue.title}\n\n{facts['facts_text']}"
         return {
@@ -343,15 +343,13 @@ def narrate_digest(digest: dict) -> str:
         f"{len(digest['regressed'])} regressed."
     )
     try:
-        from django.conf import settings
+        from .llm import ai_enabled, build_model
 
-        if not getattr(settings, "AI_API_KEY", ""):
+        if not ai_enabled():
             return fallback
         from agno.agent import Agent
 
-        from .investigator import _build_model
-
-        _mid, model = _build_model()
+        _mid, model = build_model()
         agent = Agent(
             model=model,
             telemetry=False,

@@ -196,15 +196,11 @@ def render_evidence(evidence: dict) -> str:
 # ── Agno pipeline ───────────────────────────────────────────────────────────
 
 def _build_model():
-    from django.conf import settings
+    """Provider-agnostic model (LiteLLM). Kept as a thin alias so existing
+    callers importing `_build_model` from here keep working."""
+    from .llm import build_model
 
-    from agno.models.anthropic import Claude
-
-    api_key = str(getattr(settings, "AI_API_KEY", "") or "")
-    if not api_key:
-        raise RuntimeError("AI is not configured: set APILENS_AI_API_KEY")
-    model_id = str(getattr(settings, "AI_MODEL", "") or "claude-sonnet-5")
-    return model_id, Claude(id=model_id, api_key=api_key, max_tokens=4096)
+    return build_model()
 
 
 def _make_source_tool(evidence: dict):

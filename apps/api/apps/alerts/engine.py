@@ -254,15 +254,13 @@ def _ai_triage_line(rule: AlertRule, targets: list[dict], transition: str) -> st
     except Exception:
         fallback = f"{rule.name} is {transition}"
     try:
-        from django.conf import settings
+        from apps.ai.llm import ai_enabled, build_model
 
-        if not getattr(settings, "AI_API_KEY", ""):
+        if not ai_enabled():
             return fallback
         from agno.agent import Agent
 
-        from apps.ai.investigator import _build_model
-
-        _mid, model = _build_model()
+        _mid, model = build_model()
         agent = Agent(
             model=model,
             telemetry=False,
