@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Clock, Copy, ExternalLink, Fingerprint, GitCommitHorizontal, Loader2, Sparkles } from "lucide-react";
+import { Check, Clock, Copy, ExternalLink, Fingerprint, GitCommitHorizontal, Loader2, Sparkles, X } from "lucide-react";
 import Inspector from "@/components/aperture/Inspector";
 import { fmtNum } from "@/lib/format";
 import { formatDateTime, statusTone, timeAgo } from "../endpoints/detail/sections";
 import {
   type ErrorEvent,
   type ErrorGroup,
+  type FixHandoffResult,
   type Investigation,
+  type IssueVerification,
   type OccurrenceRow,
   type SuspectResponse,
   reasonPhrase,
@@ -44,6 +46,9 @@ export default function ErrorGroupInspector({
   const [suspects, setSuspects] = useState<SuspectResponse | null>(null);
   const [investigation, setInvestigation] = useState<Investigation | null>(null);
   const [investigating, setInvestigating] = useState(false);
+  const [verification, setVerification] = useState<IssueVerification | null>(null);
+  const [fixBusy, setFixBusy] = useState("");
+  const [fixNote, setFixNote] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const reqId = useRef(0);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -183,6 +188,84 @@ export default function ErrorGroupInspector({
       }
     };
   }, [projectSlug, fingerprint]);
+
+  // Issue lifecycle + post-deploy verification state.
+  useEffect(() => {
+    if (!fingerprint) {
+      setVerification(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/projects/${projectSlug}/analytics/issue-verification?fingerprint=${encodeURIComponent(fingerprint)}`,
+        );
+        const data = res.ok ? ((await res.json()) as IssueVerification) : null;
+        if (!cancelled) setVerification(data);
+      } catch {
+        if (!cancelled) setVerification(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectSlug, fingerprint]);
+
+  const setIssueStatus = async (status: "resolved" | "open") => {
+    if (!fingerprint) return;
+    setFixBusy(`status-${status}`);
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/analytics/error-issues`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fingerprint, status, release: stackEvent?.release || "" }),
+      });
+      if (!res.ok) throw new Error("Failed to update issue");
+      setVerification((v) => (v ? { ...v, status } : { exists: true, status }));
+      setFixNote({ kind: "ok", text: status === "resolved" ? "Marked resolved — APILens verifies after the next deploy." : "Issue reopened." });
+    } catch (err) {
+      setFixNote({ kind: "err", text: err instanceof Error ? err.message : "Failed to update issue" });
+    } finally {
+      setFixBusy("");
+    }
+  };
+
+  const handoff = async (kind: "clipboard" | "github_issue" | "cursor") => {
+    if (!fingerprint) return;
+    setFixBusy(kind);
+    setFixNote(null);
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/analytics/fix-handoff`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fingerprint, kind }),
+      });
+      const data = (await res.json().catch(() => ({}))) as FixHandoffResult & { detail?: string; error?: string };
+      if (!res.ok) throw new Error(data.detail || data.error || "Handoff failed");
+
+      if (kind === "github_issue") {
+        setFixNote({ kind: "ok", text: `GitHub issue created in ${data.repository} — assign it to Copilot to start the coding agent.` });
+        if (data.external_url) window.open(data.external_url, "_blank", "noreferrer");
+      } else {
+        try {
+          await navigator.clipboard.writeText(data.markdown || "");
+        } catch { /* clipboard unavailable */ }
+        if (kind === "cursor") {
+          // Best-effort deeplink; the brief is on the clipboard either way.
+          const text = encodeURIComponent((data.markdown || "").slice(0, 6000));
+          window.location.href = `cursor://anysphere.cursor-deeplink/prompt?text=${text}`;
+          setFixNote({ kind: "ok", text: "Fix brief copied — opening Cursor (paste it if the deeplink doesn't fire)." });
+        } else {
+          setFixNote({ kind: "ok", text: "Fix brief copied — paste it into Claude Code (or any coding agent)." });
+        }
+      }
+    } catch (err) {
+      setFixNote({ kind: "err", text: err instanceof Error ? err.message : "Handoff failed" });
+    } finally {
+      setFixBusy("");
+    }
+  };
 
   const startInvestigation = async () => {
     if (!fingerprint || investigating) return;
@@ -368,6 +451,69 @@ export default function ErrorGroupInspector({
               </p>
             </div>
           )}
+        </div>
+      ) : null}
+
+      {/* Fix handoff + lifecycle (Phase 4) */}
+      {isServer && stack && fingerprint ? (
+        <div className="err-insp-section">
+          <div className="err-insp-section-head">
+            <h3>Fix with your agent</h3>
+            {verification?.exists ? (
+              verification.verified ? (
+                <span className="endpoint-status-pill status-success" title="Resolved, deployed, and no recurrence since">
+                  <Check size={11} style={{ verticalAlign: "-1px" }} /> verified in production
+                </span>
+              ) : verification.status === "resolved" ? (
+                <span
+                  className="endpoint-status-pill status-warning"
+                  title={
+                    verification.deploy_after_resolve
+                      ? `Deployed ${verification.deploy_after_resolve.release}; watching for recurrence`
+                      : "Waiting for a deploy to verify against"
+                  }
+                >
+                  {verification.deploy_after_resolve ? "verifying…" : "awaiting deploy"}
+                </span>
+              ) : verification.status === "regressed" ? (
+                <span className="endpoint-status-pill status-error">regressed</span>
+              ) : null
+            ) : null}
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <button type="button" className="ep-rl-copy" onClick={() => handoff("clipboard")} disabled={!!fixBusy}>
+              {fixBusy === "clipboard" ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
+              Copy fix brief
+            </button>
+            <button type="button" className="ep-rl-copy" onClick={() => handoff("github_issue")} disabled={!!fixBusy}>
+              {fixBusy === "github_issue" ? <Loader2 size={12} className="animate-spin" /> : <GitCommitHorizontal size={12} />}
+              GitHub issue (Copilot)
+            </button>
+            <button type="button" className="ep-rl-copy" onClick={() => handoff("cursor")} disabled={!!fixBusy}>
+              {fixBusy === "cursor" ? <Loader2 size={12} className="animate-spin" /> : <ExternalLink size={12} />}
+              Open in Cursor
+            </button>
+            {verification?.exists && verification.status === "resolved" ? (
+              <button type="button" className="ep-rl-copy" onClick={() => setIssueStatus("open")} disabled={!!fixBusy}>
+                {fixBusy === "status-open" ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+                Reopen
+              </button>
+            ) : (
+              <button type="button" className="ep-rl-copy" onClick={() => setIssueStatus("resolved")} disabled={!!fixBusy}>
+                {fixBusy === "status-resolved" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                Mark resolved
+              </button>
+            )}
+          </div>
+          {fixNote ? (
+            <p
+              className="err-insp-note"
+              style={{ marginTop: 6, color: fixNote.kind === "err" ? "var(--error, #f87171)" : undefined }}
+            >
+              {fixNote.text}
+            </p>
+          ) : null}
         </div>
       ) : null}
 

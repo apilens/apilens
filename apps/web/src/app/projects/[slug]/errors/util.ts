@@ -55,6 +55,25 @@ export interface SuspectResponse {
   reason: string;
 }
 
+// Fix handoff (Phase 4).
+export interface FixHandoffResult {
+  kind: "github_issue" | "clipboard" | "cursor";
+  external_url: string;
+  repository: string;
+  title: string;
+  markdown: string;
+}
+
+export interface IssueVerification {
+  exists: boolean;
+  status?: string;
+  resolved_at?: string | null;
+  resolved_in_release?: string;
+  deploy_after_resolve?: { release: string; commit: string; environment: string; deployed_at: string } | null;
+  events_since_deploy?: number | null;
+  verified?: boolean;
+}
+
 // AI Investigator (Phase 2): one staged root-cause analysis run.
 export interface Investigation {
   exists: boolean;

@@ -219,6 +219,34 @@ def get_file_content(
         return ""
 
 
+def create_issue(
+    installation_id: int,
+    full_name: str,
+    *,
+    title: str,
+    body: str,
+    labels: list[str] | None = None,
+    base_url: str = "",
+) -> dict:
+    """Create a repo issue (the Copilot-coding-agent handoff target).
+
+    Requires the GitHub App to hold Issues: Read & Write — added in Phase 4;
+    installations that predate the permission bump must re-accept it on
+    GitHub (the new_permissions_accepted webhook already handles the ack)."""
+    token = installation_token(installation_id, base_url)
+    resp = _request(
+        "POST",
+        f"{api_base(base_url)}/repos/{full_name}/issues",
+        token=token,
+        json_body={
+            "title": title[:250],
+            "body": body[:60_000],
+            "labels": labels or ["apilens"],
+        },
+    )
+    return resp.json()
+
+
 def list_commits_for_path(
     installation_id: int,
     full_name: str,

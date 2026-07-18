@@ -298,6 +298,60 @@ def get_investigation(fingerprint: str) -> dict:
     return InvestigationService.serialize(InvestigationService.get_latest(project, fingerprint))
 
 
+@mcp_server.tool()
+def get_fix_brief(fingerprint: str) -> dict:
+    """The complete fix brief for an error issue: impact, AI root cause + fix
+    plan (when investigated), stack trace, suspect commits, repo paths, and a
+    repro cURL of the captured failing request. Start here when asked to fix
+    an APILens issue."""
+    from apps.ai.fix_brief import build_fix_brief
+    from apps.projects.models import Project
+
+    project_id, _ = _project()
+    close_old_connections()
+    project = Project.objects.filter(id=project_id).first()
+    if project is None:
+        return {"error": "project not found"}
+    return build_fix_brief(project, fingerprint)
+
+
+@mcp_server.tool()
+def resolve_issue(fingerprint: str, release: str = "") -> dict:
+    """Mark an error issue resolved after fixing it (optionally naming the
+    release carrying the fix). APILens then watches the fingerprint: a deploy
+    with no recurrence marks it verified in production; recurrence auto-flips
+    it to regressed."""
+    from apps.projects.models import Project
+    from apps.projects.services import ErrorIssueService
+
+    project_id, _ = _project()
+    close_old_connections()
+    project = Project.objects.filter(id=project_id).first()
+    if project is None:
+        return {"error": "project not found"}
+    try:
+        issue = ErrorIssueService.set_status(project, fingerprint, "resolved", release)
+    except Exception as exc:  # noqa: BLE001 — surface as data
+        return {"error": str(exc)}
+    return {"fingerprint": issue.fingerprint, "status": issue.status}
+
+
+@mcp_server.tool()
+def get_issue_verification(fingerprint: str) -> dict:
+    """Post-deploy verification state for a resolved issue: the deploy that
+    shipped after resolution, recurrence count since, and the verified
+    verdict."""
+    from apps.projects.models import Project
+    from apps.projects.services import ErrorIssueService
+
+    project_id, _ = _project()
+    close_old_connections()
+    project = Project.objects.filter(id=project_id).first()
+    if project is None:
+        return {"exists": False}
+    return ErrorIssueService.get_verification(project, fingerprint)
+
+
 # ── ASGI app with API-key auth ──────────────────────────────────────────────
 
 def _authenticate(api_key: str) -> tuple[str, str] | None:

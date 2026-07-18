@@ -149,3 +149,50 @@ class CodeMapping(models.Model):
 
     def __str__(self):
         return f"map {self.stack_trace_root} -> {self.repository_id}:{self.source_root}"
+
+
+class FixHandoff(models.Model):
+    """One handoff of an error issue to a coding agent (Phase 4).
+
+    kinds: github_issue (created in the linked repo for the Copilot coding
+    agent), clipboard (fix brief copied for Claude Code or any agent),
+    cursor (deeplink open). external_url set when the handoff produced a
+    linkable artifact (the GitHub issue)."""
+
+    class Kind(models.TextChoices):
+        GITHUB_ISSUE = "github_issue"
+        CLIPBOARD = "clipboard"
+        CURSOR = "cursor"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="fix_handoffs",
+    )
+    fingerprint = models.CharField(max_length=40, db_index=True)
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    repository = models.ForeignKey(
+        Repository,
+        on_delete=models.SET_NULL,
+        related_name="fix_handoffs",
+        null=True,
+        blank=True,
+    )
+    external_url = models.URLField(max_length=500, blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "fix_handoffs"
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["project", "fingerprint", "created_at"])]
+
+    def __str__(self):
+        return f"handoff {self.kind} {self.fingerprint[:8]}"

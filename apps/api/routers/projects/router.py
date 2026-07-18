@@ -502,6 +502,125 @@ def get_investigation(request: HttpRequest, project_slug: str, fingerprint: str)
     return InvestigationService.serialize(InvestigationService.get_latest(project, fingerprint))
 
 
+# ── Fix handoff + issue lifecycle (Phase 4) ───────────────────────────
+
+
+@router.get("/{project_slug}/analytics/fix-brief", response=dict)
+def get_fix_brief(request: HttpRequest, project_slug: str, fingerprint: str):
+    """The coding-agent fix brief for an error issue, plus past handoffs."""
+    from apps.ai.fix_brief import build_fix_brief
+    from apps.integrations.models import FixHandoff
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    brief = build_fix_brief(project, (fingerprint or "").strip())
+    brief["handoffs"] = [
+        {
+            "kind": h.kind,
+            "external_url": h.external_url,
+            "repository": h.repository.full_name if h.repository_id else "",
+            "created_at": h.created_at.isoformat(),
+        }
+        for h in FixHandoff.objects.filter(project=project, fingerprint=fingerprint)
+        .select_related("repository")[:5]
+    ]
+    return brief
+
+
+@router.post("/{project_slug}/analytics/fix-handoff", response=dict)
+def create_fix_handoff(request: HttpRequest, project_slug: str, data: dict):
+    """Hand an issue to a coding agent.
+
+    kind=github_issue creates a real issue in the app's mapped repository
+    (assign it to Copilot on GitHub to trigger the coding agent); clipboard
+    and cursor record the handoff and return the brief for the client to
+    deliver."""
+    from apps.ai.fix_brief import build_fix_brief
+    from apps.integrations import github_client
+    from apps.integrations.models import FixHandoff, Repository
+    from core.exceptions.base import ValidationError
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    fingerprint = str(data.get("fingerprint") or "").strip()
+    kind = str(data.get("kind") or "").strip()
+    if kind not in FixHandoff.Kind.values:
+        raise ValidationError(f"kind must be one of {list(FixHandoff.Kind.values)}")
+
+    brief = build_fix_brief(project, fingerprint)
+    repo = None
+    external_url = ""
+    if kind == FixHandoff.Kind.GITHUB_ISSUE:
+        if not brief.get("repository_id"):
+            raise ValidationError(
+                "No repository mapped for this issue's app — link a repo and add a code mapping first"
+            )
+        repo = Repository.objects.select_related("installation").filter(
+            project=project, id=brief["repository_id"]
+        ).first()
+        if repo is None:
+            raise ValidationError("Mapped repository is no longer linked")
+        try:
+            issue = github_client.create_issue(
+                repo.installation.installation_id,
+                repo.full_name,
+                title=brief["title"],
+                body=brief["markdown"],
+                labels=["apilens", "bug"],
+                base_url=repo.installation.base_url,
+            )
+        except github_client.GitHubApiError as exc:
+            if exc.status_code == 403:
+                raise ValidationError(
+                    "GitHub refused issue creation — grant the APILens app Issues: Read & Write and re-accept permissions"
+                ) from exc
+            raise ValidationError(f"GitHub issue creation failed: {exc.detail}") from exc
+        external_url = str(issue.get("html_url") or "")
+
+    handoff = FixHandoff.objects.create(
+        project=project,
+        fingerprint=fingerprint,
+        kind=kind,
+        repository=repo,
+        external_url=external_url,
+        created_by=user,
+    )
+    return {
+        "kind": handoff.kind,
+        "external_url": handoff.external_url,
+        "repository": repo.full_name if repo else "",
+        "title": brief["title"],
+        "markdown": brief["markdown"],
+    }
+
+
+@router.patch("/{project_slug}/analytics/error-issues", response=dict)
+def update_error_issue(request: HttpRequest, project_slug: str, data: dict):
+    """Resolve / ignore / reopen an error issue. Recurrence after resolve
+    auto-flips it to `regressed` at ingest."""
+    from apps.projects.services import ErrorIssueService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    issue = ErrorIssueService.set_status(
+        project,
+        str(data.get("fingerprint") or ""),
+        str(data.get("status") or ""),
+        str(data.get("release") or ""),
+    )
+    return {"fingerprint": issue.fingerprint, "status": issue.status}
+
+
+@router.get("/{project_slug}/analytics/issue-verification", response=dict)
+def get_issue_verification(request: HttpRequest, project_slug: str, fingerprint: str):
+    """Post-deploy verification: resolved + deployed + no recurrence = verified."""
+    from apps.projects.services import ErrorIssueService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return ErrorIssueService.get_verification(project, fingerprint)
+
+
 # ── GitHub integration (Code Link) ────────────────────────────────────
 
 

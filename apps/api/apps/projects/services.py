@@ -2639,7 +2639,7 @@ class DataQueryService:
                     consumer_id, consumer_name, consumer_group,
                     request_payload, response_payload,
                     request_headers, response_headers,
-                    ip_address, user_agent, release, commit_sha
+                    ip_address, user_agent, release, commit_sha, base_url
                 FROM api_requests
                 WHERE project_id = %(project_id)s AND trace_id = %(trace_id)s
                 ORDER BY timestamp DESC
@@ -4624,3 +4624,110 @@ class DeployService:
                 }
             )
         return rows
+
+
+class ErrorIssueService:
+    """Lifecycle actions + post-deploy fix verification for error issues.
+
+    The Phase-0 ingest upsert already flips resolved→regressed on recurrence;
+    this service adds the human/agent side (resolve, ignore, reopen) and the
+    read-time verification: an issue counts as *verified in production* when
+    it was resolved, a deploy shipped afterwards, and the fingerprint has not
+    recurred since that deploy (with a small soak window)."""
+
+    VALID_STATUSES = {"open", "resolved", "ignored"}
+    VERIFY_SOAK_MINUTES = 30
+
+    @staticmethod
+    def set_status(project, fingerprint: str, status: str, release: str = ""):
+        from django.utils import timezone as dj_tz
+
+        from apps.projects.models import ErrorIssue
+        from core.exceptions.base import NotFoundError, ValidationError
+
+        status = (status or "").strip().lower()
+        if status not in ErrorIssueService.VALID_STATUSES:
+            raise ValidationError(f"status must be one of {sorted(ErrorIssueService.VALID_STATUSES)}")
+        issue = ErrorIssue.objects.filter(project=project, fingerprint=(fingerprint or "").strip()).first()
+        if issue is None:
+            raise NotFoundError("Error issue not found")
+
+        issue.status = status
+        if status == "resolved":
+            issue.resolved_at = dj_tz.now()
+            issue.resolved_in_release = (release or "").strip()[:128]
+        elif status == "open":
+            issue.resolved_at = None
+            issue.resolved_in_release = ""
+        issue.save(update_fields=["status", "resolved_at", "resolved_in_release", "updated_at"])
+        return issue
+
+    @staticmethod
+    def get_verification(project, fingerprint: str) -> dict:
+        """Facts + verdict for the 'verified in production' badge."""
+        from datetime import timedelta as _td
+
+        from django.utils import timezone as dj_tz
+
+        from apps.projects.models import Deploy, ErrorIssue
+
+        issue = ErrorIssue.objects.filter(project=project, fingerprint=(fingerprint or "").strip()).first()
+        if issue is None:
+            return {"exists": False}
+
+        result: dict = {
+            "exists": True,
+            "status": issue.status,
+            "resolved_at": issue.resolved_at.isoformat() if issue.resolved_at else None,
+            "resolved_in_release": issue.resolved_in_release,
+            "deploy_after_resolve": None,
+            "events_since_deploy": None,
+            "verified": False,
+        }
+        if issue.status != "resolved" or issue.resolved_at is None:
+            return result
+
+        deploy = (
+            Deploy.objects.filter(project=project, deployed_at__gte=issue.resolved_at)
+            .order_by("deployed_at")
+            .first()
+        )
+        if deploy is None:
+            return result
+        result["deploy_after_resolve"] = {
+            "release": deploy.release,
+            "commit": deploy.commit,
+            "environment": deploy.environment,
+            "deployed_at": _as_utc(deploy.deployed_at).isoformat(),
+        }
+
+        # Recurrence check: any events for this fingerprint after the deploy?
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        try:
+            client = get_clickhouse_client()
+            IngestService.ensure_api_logs_table(client)
+            rows = client.execute(
+                """
+                SELECT count() AS c
+                FROM api_logs
+                WHERE project_id = %(project_id)s
+                  AND fingerprint = %(fingerprint)s
+                  AND timestamp > %(deployed_at)s
+                """,
+                {
+                    "project_id": str(project.id),
+                    "fingerprint": issue.fingerprint,
+                    "deployed_at": deploy.deployed_at,
+                },
+            )
+            count = int(rows[0]["c"]) if rows else 0
+        except Exception as exc:
+            logger.warning("verification recurrence check failed: %s", exc)
+            return result
+
+        result["events_since_deploy"] = count
+        soaked = dj_tz.now() - _as_utc(deploy.deployed_at) >= _td(minutes=ErrorIssueService.VERIFY_SOAK_MINUTES)
+        result["verified"] = count == 0 and soaked
+        result["soak_minutes"] = ErrorIssueService.VERIFY_SOAK_MINUTES
+        return result
