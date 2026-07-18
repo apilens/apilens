@@ -27,6 +27,9 @@ dependencies = [
     "pyotp>=2.9,<3.0",
     "django-storages[google]>=1.14,<2.0",
     "geoip2fast>=1.2,<2.0",
+    # AI investigator (Phase 2): Agno agent framework + Anthropic provider.
+    "agno>=2.7,<3.0",
+    "anthropic>=0.40",
 ]
 
 [build-system]

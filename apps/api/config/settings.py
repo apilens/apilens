@@ -67,8 +67,14 @@ INSTALLED_APPS = [
     "apps.auth",
     "apps.projects",
     "apps.integrations",
+    "apps.ai",
     "apps.endpoints",  # stub — kept for migration history only
 ]
+
+# ── AI Investigator (Phase 2) ───────────────────────────────────────────────
+# Server-level provider config; per-project BYO keys are a later phase.
+AI_API_KEY = os.environ.get("APILENS_AI_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+AI_MODEL = os.environ.get("APILENS_AI_MODEL", "claude-sonnet-5")
 
 # ── GitHub App (Code Link) ──────────────────────────────────────────────────
 # Credentials for the APILens GitHub App: stack-trace links, suspect commits,

@@ -183,6 +183,42 @@ def list_installation_repos(installation_id: int, base_url: str = "", limit: int
     return repos[:limit]
 
 
+def get_file_content(
+    installation_id: int,
+    full_name: str,
+    path: str,
+    *,
+    ref: str = "",
+    max_bytes: int = 40_000,
+    base_url: str = "",
+) -> str:
+    """Raw file content at `ref` (branch or commit sha), size-capped.
+
+    Used by the AI investigator's code-reading tool; returns "" for binary or
+    oversized files rather than erroring."""
+    import base64
+
+    token = installation_token(installation_id, base_url)
+    params: dict = {}
+    if ref:
+        params["ref"] = ref
+    resp = _request(
+        "GET",
+        f"{api_base(base_url)}/repos/{full_name}/contents/{path}",
+        token=token,
+        params=params,
+    )
+    data = resp.json()
+    if not isinstance(data, dict) or data.get("type") != "file":
+        return ""
+    if int(data.get("size") or 0) > max_bytes:
+        return ""
+    try:
+        return base64.b64decode(data.get("content", "")).decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
 def list_commits_for_path(
     installation_id: int,
     full_name: str,

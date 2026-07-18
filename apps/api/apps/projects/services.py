@@ -2614,6 +2614,49 @@ class DataQueryService:
             return []
 
     @staticmethod
+    def get_request_by_trace(project_id: str, trace_id: str) -> dict | None:
+        """The captured request row for one trace (payloads + headers included).
+
+        Point lookup via the trace_id bloom index; feeds the AI investigator's
+        evidence bundle with the exact request that failed."""
+        from core.database.clickhouse.client import get_clickhouse_client
+
+        clean = (trace_id or "").strip().lower()
+        if len(clean) != 32 or any(c not in "0123456789abcdef" for c in clean):
+            return None
+        try:
+            client = get_clickhouse_client()
+        except Exception as exc:
+            logger.warning("ClickHouse init failed; no request for trace: %s", exc)
+            return None
+        try:
+            IngestService.ensure_release_columns(client)
+            rows = client.execute(
+                """
+                SELECT
+                    timestamp, method, path, raw_path, status_code,
+                    response_time_ms, environment,
+                    consumer_id, consumer_name, consumer_group,
+                    request_payload, response_payload,
+                    request_headers, response_headers,
+                    ip_address, user_agent, release, commit_sha
+                FROM api_requests
+                WHERE project_id = %(project_id)s AND trace_id = %(trace_id)s
+                ORDER BY timestamp DESC
+                LIMIT 1
+                """,
+                {"project_id": project_id, "trace_id": clean},
+            )
+            if not rows:
+                return None
+            row = rows[0]
+            row["timestamp"] = _as_utc(row.get("timestamp"))
+            return row
+        except Exception as exc:
+            logger.warning("request-by-trace lookup failed: %s", exc)
+            return None
+
+    @staticmethod
     def get_project_error_status_groups(
         project_id: str,
         app_ids: list[str] | None = None,

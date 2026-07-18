@@ -465,6 +465,30 @@ def get_endpoint_stats(
     )
 
 
+# ── AI Investigator ────────────────────────────────────────────────────
+
+
+@router.post("/{project_slug}/analytics/investigations", response=dict)
+def start_investigation(request: HttpRequest, project_slug: str, data: dict):
+    """Start (or return the in-flight) AI investigation for an error issue."""
+    from apps.ai.services import InvestigationService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    inv = InvestigationService.start(project, str(data.get("fingerprint") or ""), user)
+    return InvestigationService.serialize(inv)
+
+
+@router.get("/{project_slug}/analytics/investigations", response=dict)
+def get_investigation(request: HttpRequest, project_slug: str, fingerprint: str):
+    """Latest investigation for an issue (poll target while one is running)."""
+    from apps.ai.services import InvestigationService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return InvestigationService.serialize(InvestigationService.get_latest(project, fingerprint))
+
+
 # ── GitHub integration (Code Link) ────────────────────────────────────
 
 

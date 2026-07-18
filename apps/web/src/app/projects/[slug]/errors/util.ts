@@ -55,6 +55,27 @@ export interface SuspectResponse {
   reason: string;
 }
 
+// AI Investigator (Phase 2): one staged root-cause analysis run.
+export interface Investigation {
+  exists: boolean;
+  ai_configured: boolean;
+  id?: string;
+  status?: "queued" | "running" | "completed" | "failed";
+  root_cause?: string;
+  confidence?: string;
+  explanation?: string;
+  impact_summary?: string;
+  evidence?: { source: string; detail: string }[];
+  fix_steps?: string[];
+  patch_suggestion?: string;
+  risk_notes?: string;
+  model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  error?: string;
+  completed_at?: string | null;
+}
+
 // Recent-request row (from the endpoint-requests analytics view), used to list a
 // status group's individual occurrences (works for 4xx and 5xx alike).
 export interface OccurrenceRow {
