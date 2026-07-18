@@ -502,6 +502,110 @@ def get_investigation(request: HttpRequest, project_slug: str, fingerprint: str)
     return InvestigationService.serialize(InvestigationService.get_latest(project, fingerprint))
 
 
+# ── Sentinel: alert channels, rules, events (Phase 5) ─────────────────
+
+
+@router.get("/{project_slug}/alerts", response=dict)
+def list_alerts_config(request: HttpRequest, project_slug: str):
+    """Channels + rules + recent events for the Alerts settings tab."""
+    from apps.alerts.models import AlertChannel, AlertEvent, AlertRule
+    from apps.alerts.services import serialize_channel, serialize_event, serialize_rule
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return {
+        "channels": [serialize_channel(c) for c in AlertChannel.objects.filter(project=project)],
+        "rules": [
+            serialize_rule(r)
+            for r in AlertRule.objects.filter(project=project).prefetch_related("channels")
+        ],
+        "events": [
+            serialize_event(e)
+            for e in AlertEvent.objects.filter(project=project)[:30]
+        ],
+    }
+
+
+@router.post("/{project_slug}/alerts/channels", response=dict)
+def create_alert_channel(request: HttpRequest, project_slug: str, data: dict):
+    from apps.alerts.services import AlertService, serialize_channel
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    return serialize_channel(AlertService.create_channel(project, user, data))
+
+
+@router.post("/{project_slug}/alerts/channels/{channel_id}/test", response=dict)
+def test_alert_channel(request: HttpRequest, project_slug: str, channel_id: str):
+    """Send a test notification through one channel."""
+    from apps.alerts.models import AlertChannel
+    from apps.alerts.notify import deliver
+    from core.exceptions.base import NotFoundError
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    channel = AlertChannel.objects.filter(project=project, id=channel_id).first()
+    if channel is None:
+        raise NotFoundError("Channel not found")
+    ok, detail = deliver(
+        channel,
+        {
+            "transition": "firing",
+            "rule_name": "Test alert",
+            "rule_kind": "test",
+            "project_slug": project.slug,
+            "summary": "This is a test notification from APILens — your channel works.",
+            "targets": [{"target": "test", "value": 1, "threshold": 0}],
+            "link": "",
+            "timestamp": "",
+        },
+    )
+    return {"ok": ok, "detail": detail}
+
+
+@router.delete("/{project_slug}/alerts/channels/{channel_id}", response=dict)
+def delete_alert_channel(request: HttpRequest, project_slug: str, channel_id: str):
+    from apps.alerts.services import AlertService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    AlertService.delete_channel(project, channel_id)
+    return {"message": "Channel deleted"}
+
+
+@router.post("/{project_slug}/alerts/rules", response=dict)
+def create_alert_rule(request: HttpRequest, project_slug: str, data: dict):
+    from apps.alerts.services import AlertService, serialize_rule
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    return serialize_rule(AlertService.upsert_rule(project, user, data))
+
+
+@router.patch("/{project_slug}/alerts/rules/{rule_id}", response=dict)
+def update_alert_rule(request: HttpRequest, project_slug: str, rule_id: str, data: dict):
+    from apps.alerts.models import AlertRule
+    from apps.alerts.services import AlertService, serialize_rule
+    from core.exceptions.base import NotFoundError
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    rule = AlertRule.objects.filter(project=project, id=rule_id).first()
+    if rule is None:
+        raise NotFoundError("Rule not found")
+    return serialize_rule(AlertService.upsert_rule(project, user, data, rule=rule))
+
+
+@router.delete("/{project_slug}/alerts/rules/{rule_id}", response=dict)
+def delete_alert_rule(request: HttpRequest, project_slug: str, rule_id: str):
+    from apps.alerts.services import AlertService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    AlertService.delete_rule(project, rule_id)
+    return {"message": "Rule deleted"}
+
+
 # ── Fix handoff + issue lifecycle (Phase 4) ───────────────────────────
 
 

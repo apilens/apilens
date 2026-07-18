@@ -7,6 +7,7 @@ import SettingsCard from "@/components/settings/SettingsCard";
 import ProjectApiKeysSection from "@/components/projects/ProjectApiKeysSection";
 import ProjectMembersSection from "@/components/projects/ProjectMembersSection";
 import ProjectIntegrationsSection from "@/components/projects/ProjectIntegrationsSection";
+import ProjectAlertsSection from "@/components/projects/ProjectAlertsSection";
 import ProjectSettingsSidebar, { ProjectSettingsTab } from "@/components/projects/ProjectSettingsSidebar";
 
 interface ProjectSettingsContentProps {
@@ -333,6 +334,12 @@ export default function ProjectSettingsContent({
           {activeTab === "integrations" && (
             <div className="settings-section-content">
               <ProjectIntegrationsSection projectSlug={projectSlug} showToast={showToast} />
+            </div>
+          )}
+
+          {activeTab === "alerts" && (
+            <div className="settings-section-content">
+              <ProjectAlertsSection projectSlug={projectSlug} showToast={showToast} />
             </div>
           )}
         </div>

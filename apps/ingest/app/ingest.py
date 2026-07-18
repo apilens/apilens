@@ -393,13 +393,39 @@ def handle_requests(project_id: str, project_slug: str, records) -> int:
     return total
 
 
+def _emit_alert_signals(cur, project_id: str, app_uuid: str, transitions: list[tuple]) -> None:
+    """Write AlertSignal outbox rows (same transaction as the issue upsert;
+    the Sentinel evaluator drains them — delivery never sits on ingest).
+    ``transitions`` is [(kind, fingerprint, record)]."""
+    for kind, fp, r in transitions:
+        cur.execute(
+            """
+            INSERT INTO alert_signals (id, project_id, kind, fingerprint, payload, created_at, processed_at)
+            VALUES (%s, %s, %s, %s, %s::jsonb, now(), NULL)
+            """,
+            (
+                str(uuid.uuid4()), project_id, kind, fp,
+                json.dumps({
+                    "title": _safe_log_text(r.message, limit=200),
+                    "endpoint_method": (r.endpoint_method or "").upper(),
+                    "endpoint_path": _safe_log_text(r.endpoint_path, limit=500),
+                    "status_code": int(r.status_code or 0),
+                    "environment": (r.environment or "production").strip().lower(),
+                    "app_id": app_uuid,
+                    "release": _safe_release(r)[0],
+                }),
+            ),
+        )
+
+
 def _upsert_error_issues(cur, project_id: str, app_uuid: str, entries: list[tuple]) -> None:
     """Upsert the error_issues lifecycle entities for one app's ERROR logs.
 
     ``entries`` is [(record, fingerprint)]. Aggregated per fingerprint before
     writing so one batch produces one upsert per issue. A previously resolved
     issue that errors again flips to `regressed` (the regression signal later
-    phases alert on); `ignored` is sticky.
+    phases alert on); `ignored` is sticky. New issues and regressions emit
+    AlertSignal outbox rows in the same transaction.
     """
     from .fingerprint import exception_type, normalize_message
 
@@ -424,6 +450,22 @@ def _upsert_error_issues(cur, project_id: str, app_uuid: str, entries: list[tupl
                 g["last"] = ts
                 g["record"] = r
                 g["release"] = release or g["release"]
+
+    # Prior lifecycle states — the transition source of truth: absent = this
+    # batch creates the issue (new_issue signal); 'resolved' = this batch
+    # regresses it (regression signal).
+    cur.execute(
+        "SELECT fingerprint, status FROM error_issues WHERE project_id = %s AND fingerprint = ANY(%s)",
+        (project_id, list(grouped.keys())),
+    )
+    prior = {row[0]: row[1] for row in cur.fetchall()}
+
+    transitions: list[tuple] = []
+    for fp, g in grouped.items():
+        if fp not in prior:
+            transitions.append(("new_issue", fp, g["record"]))
+        elif prior[fp] == "resolved":
+            transitions.append(("regression", fp, g["record"]))
 
     for fp, g in grouped.items():
         r = g["record"]
@@ -464,6 +506,17 @@ def _upsert_error_issues(cur, project_id: str, app_uuid: str, entries: list[tupl
                 g["release"], g["release"],
             ),
         )
+
+    if transitions:
+        # Own savepoint: alerting is best-effort at ingest (the alert_signals
+        # table may not exist yet) — a signal failure must not roll back the
+        # issue upserts above.
+        cur.execute("SAVEPOINT alert_signals")
+        try:
+            _emit_alert_signals(cur, project_id, app_uuid, transitions)
+        except Exception:
+            cur.execute("ROLLBACK TO SAVEPOINT alert_signals")
+            logger.warning("alert signal emission failed", exc_info=True)
 
 
 def handle_logs(project_id: str, project_slug: str, records) -> int:

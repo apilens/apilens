@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     "apps.projects",
     "apps.integrations",
     "apps.ai",
+    "apps.alerts",
     "apps.endpoints",  # stub — kept for migration history only
 ]
 
