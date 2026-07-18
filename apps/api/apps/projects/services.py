@@ -2478,16 +2478,21 @@ class DataQueryService:
             # Group by fingerprint (stable issue key) when present; rows
             # ingested before fingerprinting fall back to the legacy exact
             # tuple so old data still groups sensibly.
+            # Aggregate aliases must NOT reuse a raw column name that the
+            # group_key expression references (fingerprint/message/status_code):
+            # ClickHouse's analyzer would bind those references to the aggregate
+            # alias and reject the query ("aggregate found in GROUP BY"). So the
+            # colliding aggregates get _v-suffixed aliases and are remapped below.
             query = f"""
                 SELECT
                     if(fingerprint != '', fingerprint,
                        concat('legacy|', endpoint_method, '|', endpoint_path, '|',
                               toString(status_code), '|', message)) AS group_key,
-                    any(fingerprint) AS fingerprint,
+                    any(fingerprint) AS fingerprint_v,
                     argMax(endpoint_method, timestamp) AS method,
                     argMax(endpoint_path, timestamp) AS path,
-                    argMax(status_code, timestamp) AS status_code,
-                    argMax(message, timestamp) AS message,
+                    argMax(status_code, timestamp) AS status_code_v,
+                    argMax(message, timestamp) AS message_v,
                     any(logger_name) AS logger_name,
                     count() AS occurrences,
                     max(timestamp) AS last_seen,
@@ -2505,6 +2510,9 @@ class DataQueryService:
             rows = client.execute(query, params)
             for row in rows:
                 row.pop("group_key", None)
+                row["fingerprint"] = row.pop("fingerprint_v", "")
+                row["status_code"] = row.pop("status_code_v", 0)
+                row["message"] = row.pop("message_v", "")
                 row["last_seen"] = _as_utc(row.get("last_seen"))
                 row["first_seen"] = _as_utc(row.get("first_seen"))
                 row["occurrences"] = int(row.get("occurrences") or 0)

@@ -287,11 +287,13 @@ def render_digest_markdown(digest: dict) -> str:
     lines = [f"# {label} API health — {digest['project_name']}\n"]
 
     total = int(s.get("total_requests") or 0)
-    err_rate = float(s.get("error_rate") or 0) * 100
+    # AnalyticsService returns error_rate already as a percentage (0–100) and
+    # p95 in ms — do not rescale.
+    err_rate = float(s.get("error_rate") or 0)
     p95 = float(s.get("p95_response_time_ms") or 0)
     lines.append(
         f"**{total:,} requests** · error rate **{err_rate:.2f}%**"
-        f"{_pct_change(err_rate, float(p.get('error_rate') or 0) * 100)} · "
+        f"{_pct_change(err_rate, float(p.get('error_rate') or 0))} · "
         f"p95 **{p95:.0f}ms**"
         f"{_pct_change(p95, float(p.get('p95_response_time_ms') or 0))}\n"
     )
@@ -311,7 +313,7 @@ def render_digest_markdown(digest: dict) -> str:
     if digest["worst_endpoints"]:
         lines.append("## Highest error rate")
         lines += [
-            f"- {e.get('method')} {e.get('path')} — {float(e.get('error_rate') or 0) * 100:.1f}% of {int(e.get('total_requests') or 0):,}"
+            f"- {e.get('method')} {e.get('path')} — {float(e.get('error_rate') or 0):.1f}% of {int(e.get('total_requests') or 0):,}"
             for e in digest["worst_endpoints"]
         ]
         lines.append("")
@@ -336,7 +338,7 @@ def narrate_digest(digest: dict) -> str:
     s = digest["summary"] or {}
     fallback = (
         f"{int(s.get('total_requests') or 0):,} requests this period, "
-        f"{float(s.get('error_rate') or 0) * 100:.2f}% errors; "
+        f"{float(s.get('error_rate') or 0):.2f}% errors; "
         f"{len(digest['new_issues'])} new issues, {len(digest['resolved'])} resolved, "
         f"{len(digest['regressed'])} regressed."
     )

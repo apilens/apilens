@@ -36,6 +36,8 @@ _MAX_HEADERS_CHARS = 1_000
 _MAX_STACK_CHARS = 8_000
 _MAX_TRACE_SPANS = 30
 _MAX_EVENTS = 3
+# Scan more occurrences than we render, to find one with a sampled trace.
+_EVENT_SCAN_LIMIT = 50
 _MAX_TOOL_FILE_CHARS = 12_000
 _MAX_TOOL_CALLS = 4
 
@@ -76,14 +78,21 @@ def assemble_evidence(project, fingerprint: str) -> dict:
 
     issue = ErrorIssue.objects.filter(project=project, fingerprint=fingerprint).first()
 
-    events = DataQueryService.get_project_error_events(
+    # Fetch a wider candidate set than we render, so we can find a *traced*
+    # occurrence for the waterfall + captured request — SDKs sample traces, so
+    # the few newest events usually have none. We still only show the top
+    # _MAX_EVENTS stack traces in the bundle.
+    candidates = DataQueryService.get_project_error_events(
         project_id=str(project.id),
         fingerprint=fingerprint,
         since=(timezone.now() - timedelta(days=30)).isoformat(),
-        limit=_MAX_EVENTS,
+        limit=_EVENT_SCAN_LIMIT,
     )
+    events = candidates[:_MAX_EVENTS]
 
-    latest = events[0] if events else {}
+    # Prefer the most recent event that actually carries a trace_id; fall back
+    # to the newest event (its stack trace is representative either way).
+    latest = next((e for e in candidates if str(e.get("trace_id") or "")), events[0] if events else {})
     trace_id = str(latest.get("trace_id") or "")
     trace = DataQueryService.get_trace_spans(str(project.id), trace_id) if trace_id else {"spans": []}
     request = DataQueryService.get_request_by_trace(str(project.id), trace_id) if trace_id else None
