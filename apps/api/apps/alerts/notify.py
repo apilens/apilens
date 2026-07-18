@@ -73,6 +73,9 @@ def send_slack(url: str, ctx: dict) -> tuple[bool, str]:
         if threshold is not None:
             detail += f" (threshold {threshold})"
         lines.append(detail)
+    # Digests carry a long markdown body; prefer it over the target list.
+    if ctx.get("markdown"):
+        lines = [ctx.get("summary") or "", "", str(ctx["markdown"])]
     if ctx.get("link"):
         lines.append(f"<{ctx['link']}|Open in APILens>")
     body = {
@@ -98,6 +101,8 @@ def send_webhook(url: str, ctx: dict) -> tuple[bool, str]:
         "link": ctx.get("link", ""),
         "timestamp": ctx.get("timestamp", ""),
     }
+    if ctx.get("markdown"):
+        payload["markdown"] = str(ctx["markdown"])
     return _post_with_retry(url, payload)
 
 
@@ -111,10 +116,13 @@ def send_email(emails: list[str], ctx: dict) -> tuple[bool, str]:
     emoji = _severity_emoji(ctx["transition"])
     subject = f"{emoji} [APILens] {ctx['rule_name']} {ctx['transition']}"
     lines = [ctx.get("summary") or "", ""]
-    for t in ctx.get("targets", [])[:10]:
-        lines.append(
-            f"- {t.get('target') or 'aggregate'}: value={t.get('value')} threshold={t.get('threshold')}"
-        )
+    if ctx.get("markdown"):
+        lines.append(str(ctx["markdown"]))
+    else:
+        for t in ctx.get("targets", [])[:10]:
+            lines.append(
+                f"- {t.get('target') or 'aggregate'}: value={t.get('value')} threshold={t.get('threshold')}"
+            )
     if ctx.get("link"):
         lines += ["", f"Open in APILens: {ctx['link']}"]
     try:

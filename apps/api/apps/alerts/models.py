@@ -218,3 +218,36 @@ class AlertSignal(models.Model):
 
     def __str__(self):
         return f"signal {self.kind} {self.fingerprint[:8]}"
+
+
+class DigestSubscription(models.Model):
+    """A recurring API-health digest (Phase 6 Narrator). Delivered through the
+    same AlertChannels the Sentinel uses; `send_digest` sends due ones and
+    stamps last_sent_at so a day's digest goes out once."""
+
+    class Cadence(models.TextChoices):
+        DAILY = "daily"
+        WEEKLY = "weekly"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.OneToOneField(
+        "projects.Project", on_delete=models.CASCADE, related_name="digest_subscription"
+    )
+    is_active = models.BooleanField(default=True)
+    cadence = models.CharField(max_length=8, choices=Cadence.choices, default=Cadence.WEEKLY)
+    # 0=Mon..6=Sun; used for weekly cadence.
+    weekday = models.PositiveSmallIntegerField(default=0)
+    channels = models.ManyToManyField(AlertChannel, related_name="digests", blank=True)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "digest_subscriptions"
+
+    def __str__(self):
+        return f"digest {self.cadence} -> {self.project_id}"

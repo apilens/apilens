@@ -93,3 +93,64 @@ class InvestigationService:
             "created_at": inv.created_at.isoformat() if inv.created_at else None,
             "completed_at": inv.completed_at.isoformat() if inv.completed_at else None,
         }
+
+
+class PostmortemService:
+    @staticmethod
+    def start(project, fingerprint: str, user) -> "object":
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from core.exceptions.base import ValidationError
+
+        from . import narrator
+        from .models import Postmortem
+
+        fingerprint = (fingerprint or "").strip()
+        if not fingerprint:
+            raise ValidationError("fingerprint is required")
+
+        in_flight = (
+            Postmortem.objects.filter(
+                project=project, fingerprint=fingerprint,
+                status__in=[Postmortem.Status.QUEUED, Postmortem.Status.RUNNING],
+                created_at__gte=timezone.now() - timedelta(minutes=10),
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if in_flight is not None:
+            return in_flight
+
+        pm = Postmortem.objects.create(project=project, fingerprint=fingerprint, created_by=user)
+        narrator.start_postmortem_async(str(pm.id))
+        return pm
+
+    @staticmethod
+    def get_latest(project, fingerprint: str):
+        from .models import Postmortem
+
+        return (
+            Postmortem.objects.filter(project=project, fingerprint=(fingerprint or "").strip())
+            .order_by("-created_at")
+            .first()
+        )
+
+    @staticmethod
+    def serialize(pm) -> dict:
+        if pm is None:
+            return {"exists": False, "ai_configured": InvestigationService.ai_configured()}
+        return {
+            "exists": True,
+            "id": str(pm.id),
+            "status": pm.status,
+            "title": pm.title,
+            "summary": pm.summary,
+            "markdown": pm.markdown,
+            "model": pm.model,
+            "input_tokens": pm.input_tokens,
+            "output_tokens": pm.output_tokens,
+            "error": pm.error,
+            "created_at": pm.created_at.isoformat() if pm.created_at else None,
+        }

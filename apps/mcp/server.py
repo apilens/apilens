@@ -352,6 +352,53 @@ def get_issue_verification(fingerprint: str) -> dict:
     return ErrorIssueService.get_verification(project, fingerprint)
 
 
+@mcp_server.tool()
+def get_postmortem(fingerprint: str) -> dict:
+    """The incident postmortem for a resolved/investigated issue (timeline,
+    impact, root cause, resolution, verification). Generates on demand if none
+    exists yet; poll until status=completed."""
+    from apps.ai.services import PostmortemService
+    from apps.projects.models import Project
+
+    project_id, _ = _project()
+    close_old_connections()
+    project = Project.objects.filter(id=project_id).first()
+    if project is None:
+        return {"exists": False, "error": "project not found"}
+    existing = PostmortemService.get_latest(project, fingerprint)
+    if existing is None:
+        try:
+            existing = PostmortemService.start(project, fingerprint, user=None)
+        except Exception as exc:  # noqa: BLE001
+            return {"exists": False, "error": str(exc)}
+    return PostmortemService.serialize(existing)
+
+
+@mcp_server.tool()
+def get_health_digest(days: int = 7) -> dict:
+    """An API-health rollup for the last `days`: totals + error rate vs the
+    prior period, new/regressed/resolved issues, worst and slowest endpoints,
+    top consumers, and API-surface changes (endpoints appeared/disappeared)."""
+    from apps.ai.narrator import assemble_digest, narrate_digest, render_digest_markdown
+    from apps.projects.models import Project
+
+    project_id, _ = _project()
+    close_old_connections()
+    project = Project.objects.filter(id=project_id).first()
+    if project is None:
+        return {"error": "project not found"}
+    digest = assemble_digest(project, days=max(1, min(int(days), 30)))
+    return {
+        "narrative": narrate_digest(digest),
+        "markdown": render_digest_markdown(digest),
+        "summary": digest["summary"],
+        "new_issues": digest["new_issues"],
+        "regressed": digest["regressed"],
+        "resolved": digest["resolved"],
+        "surface": digest["surface"],
+    }
+
+
 # ── ASGI app with API-key auth ──────────────────────────────────────────────
 
 def _authenticate(api_key: str) -> tuple[str, str] | None:

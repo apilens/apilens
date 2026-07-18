@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bell, Check, Loader2, Plus, Send, Trash2, X } from "lucide-react";
+import { Bell, Check, FileText, Loader2, Plus, Send, Trash2, X } from "lucide-react";
 import SettingsCard from "@/components/settings/SettingsCard";
 
 /* The Sentinel (Phase 5): alert channels, rules, and the recent-alerts feed.
@@ -68,6 +68,13 @@ export default function ProjectAlertsSection({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
 
+  // Digest config
+  const [digestActive, setDigestActive] = useState(false);
+  const [digestCadence, setDigestCadence] = useState<"weekly" | "daily">("weekly");
+  const [digestWeekday, setDigestWeekday] = useState(0);
+  const [digestChannels, setDigestChannels] = useState<string[]>([]);
+  const [digestPreview, setDigestPreview] = useState<string>("");
+
   // Channel form
   const [chKind, setChKind] = useState<Channel["kind"]>("slack_webhook");
   const [chName, setChName] = useState("");
@@ -87,12 +94,24 @@ export default function ProjectAlertsSection({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/projects/${projectSlug}/alerts`);
-      if (res.ok) {
-        const data = await res.json();
+      const [alertsRes, digestRes] = await Promise.all([
+        fetch(`/api/projects/${projectSlug}/alerts`),
+        fetch(`/api/projects/${projectSlug}/digest`),
+      ]);
+      if (alertsRes.ok) {
+        const data = await alertsRes.json();
         setChannels(data.channels || []);
         setRules(data.rules || []);
         setEvents(data.events || []);
+      }
+      if (digestRes.ok) {
+        const d = await digestRes.json();
+        if (d.exists) {
+          setDigestActive(d.is_active);
+          setDigestCadence(d.cadence);
+          setDigestWeekday(d.weekday);
+          setDigestChannels(d.channel_ids || []);
+        }
       }
     } catch {
       showToast("error", "Failed to load alerts");
@@ -100,6 +119,54 @@ export default function ProjectAlertsSection({
       setLoading(false);
     }
   }, [projectSlug, showToast]);
+
+  const saveDigest = async () => {
+    setBusy("save-digest");
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/digest`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          is_active: digestActive,
+          cadence: digestCadence,
+          weekday: digestWeekday,
+          channel_ids: digestChannels,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to save digest settings");
+      showToast("success", "Digest settings saved");
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : "Failed to save digest");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const previewDigest = async () => {
+    setBusy("preview-digest");
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/analytics/digest-preview?days=${digestCadence === "daily" ? 1 : 7}`);
+      const data = await res.json().catch(() => ({}));
+      setDigestPreview(`${data.narrative || ""}\n\n${data.markdown || ""}`.trim());
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const sendDigestNow = async () => {
+    setBusy("send-digest");
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/digest/send`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || data.error || "Failed to send digest");
+      const ok = Object.values(data.delivery || {}).filter((d) => (d as { ok: boolean }).ok).length;
+      showToast("success", `Digest sent (${ok} channel${ok === 1 ? "" : "s"})`);
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : "Failed to send digest");
+    } finally {
+      setBusy("");
+    }
+  };
 
   useEffect(() => {
     load();
@@ -386,6 +453,69 @@ export default function ProjectAlertsSection({
               </button>
             </div>
           </form>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard
+        title="API health digest"
+        description="A recurring summary — new issues, regressions, resolved, worst/slowest endpoints, and API-surface changes — with an AI-written lead, sent through your channels."
+      >
+        <div className="settings-section-content" style={{ gap: 10 }}>
+          <div className="settings-inline-field" style={{ flexWrap: "wrap", gap: 10 }}>
+            <label className="settings-inline-help" style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+              <input type="checkbox" checked={digestActive} onChange={(e) => setDigestActive(e.target.checked)} />
+              Enabled
+            </label>
+            <select className="create-app-input" style={{ width: "auto" }} value={digestCadence} onChange={(e) => setDigestCadence(e.target.value as "weekly" | "daily")}>
+              <option value="weekly">Weekly</option>
+              <option value="daily">Daily</option>
+            </select>
+            {digestCadence === "weekly" && (
+              <select className="create-app-input" style={{ width: "auto" }} value={digestWeekday} onChange={(e) => setDigestWeekday(Number(e.target.value))}>
+                {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((d, i) => (
+                  <option key={d} value={i}>{d}</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div className="settings-inline-field" style={{ flexWrap: "wrap", gap: 10 }}>
+            <span className="settings-inline-help">Send to:</span>
+            {channels.length === 0 && <span className="settings-inline-help">add a channel above first</span>}
+            {channels.map((c) => (
+              <label key={c.id} className="settings-inline-help" style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={digestChannels.includes(c.id)}
+                  onChange={(e) =>
+                    setDigestChannels((prev) => (e.target.checked ? [...prev, c.id] : prev.filter((x) => x !== c.id)))
+                  }
+                />
+                {c.name}
+              </label>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <button type="button" className="settings-btn settings-btn-secondary settings-btn-sm" onClick={saveDigest} disabled={busy === "save-digest"}>
+              {busy === "save-digest" ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+              Save
+            </button>
+            <button type="button" className="settings-btn settings-btn-secondary settings-btn-sm" onClick={previewDigest} disabled={busy === "preview-digest"}>
+              {busy === "preview-digest" ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />}
+              Preview
+            </button>
+            <button type="button" className="settings-btn settings-btn-secondary settings-btn-sm" onClick={sendDigestNow} disabled={busy === "send-digest"}>
+              {busy === "send-digest" ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+              Send now
+            </button>
+          </div>
+
+          {digestPreview ? (
+            <pre className="request-payload-pre ep-log-trace" style={{ whiteSpace: "pre-wrap", maxHeight: 320, overflow: "auto" }}>
+              {digestPreview}
+            </pre>
+          ) : null}
         </div>
       </SettingsCard>
 

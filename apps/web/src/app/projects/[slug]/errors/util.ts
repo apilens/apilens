@@ -55,6 +55,22 @@ export interface SuspectResponse {
   reason: string;
 }
 
+// Postmortem (Phase 6 Narrator).
+export interface Postmortem {
+  exists: boolean;
+  ai_configured?: boolean;
+  id?: string;
+  status?: "queued" | "running" | "completed" | "failed";
+  title?: string;
+  summary?: string;
+  markdown?: string;
+  model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  error?: string;
+  created_at?: string | null;
+}
+
 // Fix handoff (Phase 4).
 export interface FixHandoffResult {
   kind: "github_issue" | "clipboard" | "cursor";

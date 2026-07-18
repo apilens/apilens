@@ -12,6 +12,7 @@ import {
   type Investigation,
   type IssueVerification,
   type OccurrenceRow,
+  type Postmortem,
   type SuspectResponse,
   reasonPhrase,
   splitException,
@@ -47,6 +48,9 @@ export default function ErrorGroupInspector({
   const [investigation, setInvestigation] = useState<Investigation | null>(null);
   const [investigating, setInvestigating] = useState(false);
   const [verification, setVerification] = useState<IssueVerification | null>(null);
+  const [postmortem, setPostmortem] = useState<Postmortem | null>(null);
+  const [pmBusy, setPmBusy] = useState(false);
+  const pmPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [fixBusy, setFixBusy] = useState("");
   const [fixNote, setFixNote] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -228,6 +232,95 @@ export default function ErrorGroupInspector({
       setFixNote({ kind: "err", text: err instanceof Error ? err.message : "Failed to update issue" });
     } finally {
       setFixBusy("");
+    }
+  };
+
+  // Postmortem: load latest for this issue; poll while drafting.
+  useEffect(() => {
+    if (pmPollRef.current) {
+      clearInterval(pmPollRef.current);
+      pmPollRef.current = null;
+    }
+    if (!fingerprint) {
+      setPostmortem(null);
+      return;
+    }
+    let cancelled = false;
+    const fetchOnce = async (): Promise<Postmortem | null> => {
+      try {
+        const res = await fetch(
+          `/api/projects/${projectSlug}/analytics/postmortem?fingerprint=${encodeURIComponent(fingerprint)}`,
+        );
+        return res.ok ? ((await res.json()) as Postmortem) : null;
+      } catch {
+        return null;
+      }
+    };
+    (async () => {
+      const pm = await fetchOnce();
+      if (cancelled) return;
+      setPostmortem(pm);
+      if (pm?.exists && (pm.status === "queued" || pm.status === "running")) {
+        pmPollRef.current = setInterval(async () => {
+          const next = await fetchOnce();
+          if (cancelled || !next) return;
+          setPostmortem(next);
+          if (next.status === "completed" || next.status === "failed") {
+            if (pmPollRef.current) clearInterval(pmPollRef.current);
+            pmPollRef.current = null;
+          }
+        }, 3000);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (pmPollRef.current) {
+        clearInterval(pmPollRef.current);
+        pmPollRef.current = null;
+      }
+    };
+  }, [projectSlug, fingerprint]);
+
+  const startPostmortem = async () => {
+    if (!fingerprint || pmBusy) return;
+    setPmBusy(true);
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/analytics/postmortem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fingerprint }),
+      });
+      const pm = (await res.json().catch(() => null)) as Postmortem | null;
+      if (res.ok && pm) {
+        setPostmortem(pm);
+        if (!pmPollRef.current && (pm.status === "queued" || pm.status === "running")) {
+          pmPollRef.current = setInterval(async () => {
+            try {
+              const r = await fetch(
+                `/api/projects/${projectSlug}/analytics/postmortem?fingerprint=${encodeURIComponent(fingerprint)}`,
+              );
+              const next = r.ok ? ((await r.json()) as Postmortem) : null;
+              if (next) {
+                setPostmortem(next);
+                if (next.status === "completed" || next.status === "failed") {
+                  if (pmPollRef.current) clearInterval(pmPollRef.current);
+                  pmPollRef.current = null;
+                }
+              }
+            } catch { /* keep polling */ }
+          }, 3000);
+        }
+      }
+    } finally {
+      setPmBusy(false);
+    }
+  };
+
+  const copyPostmortem = async () => {
+    if (postmortem?.markdown) {
+      try {
+        await navigator.clipboard.writeText(postmortem.markdown);
+      } catch { /* clipboard unavailable */ }
     }
   };
 
@@ -514,6 +607,48 @@ export default function ErrorGroupInspector({
               {fixNote.text}
             </p>
           ) : null}
+        </div>
+      ) : null}
+
+      {/* Postmortem (Narrator, Phase 6) */}
+      {isServer && stack && fingerprint ? (
+        <div className="err-insp-section">
+          <div className="err-insp-section-head">
+            <h3>Postmortem</h3>
+            {(!postmortem?.exists ||
+              postmortem.status === "completed" ||
+              postmortem.status === "failed") && (
+              <button type="button" className="ep-rl-copy" onClick={startPostmortem} disabled={pmBusy}>
+                {pmBusy ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                {postmortem?.exists && postmortem.status === "completed" ? "Regenerate" : "Draft postmortem"}
+              </button>
+            )}
+          </div>
+          {!postmortem?.exists ? (
+            <p className="err-insp-note">
+              Auto-draft a blameless incident postmortem — timeline, impact, root cause,
+              resolution, and verification — from everything APILens captured.
+            </p>
+          ) : postmortem.status === "queued" || postmortem.status === "running" ? (
+            <p className="err-insp-note">
+              <Loader2 size={13} className="animate-spin" style={{ verticalAlign: "-2px", marginRight: 6 }} />
+              Drafting the postmortem…
+            </p>
+          ) : postmortem.status === "failed" ? (
+            <p className="err-insp-note">Postmortem failed: {postmortem.error || "unknown error"}</p>
+          ) : (
+            <div className="settings-section-content" style={{ gap: 8 }}>
+              {postmortem.summary ? (
+                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55 }}>{postmortem.summary}</p>
+              ) : null}
+              <pre className="request-payload-pre ep-log-trace" style={{ whiteSpace: "pre-wrap" }}>
+                {postmortem.markdown}
+              </pre>
+              <button type="button" className="ep-rl-copy" onClick={copyPostmortem} style={{ alignSelf: "flex-start" }}>
+                <Copy size={12} /> Copy markdown
+              </button>
+            </div>
+          )}
         </div>
       ) : null}
 

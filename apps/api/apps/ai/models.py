@@ -70,3 +70,46 @@ class Investigation(models.Model):
 
     def __str__(self):
         return f"investigation {self.fingerprint[:8]} ({self.status})"
+
+
+class Postmortem(models.Model):
+    """An auto-drafted incident postmortem for one error issue (Phase 6,
+    feature F7). Mostly retrieval (issue + investigation + deploys +
+    verification + fix handoffs) with a single LLM synthesis pass; stored
+    whole and regenerable so the Errors page renders it without re-running."""
+
+    class Status(models.TextChoices):
+        QUEUED = "queued"
+        RUNNING = "running"
+        COMPLETED = "completed"
+        FAILED = "failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        "projects.Project", on_delete=models.CASCADE, related_name="postmortems"
+    )
+    fingerprint = models.CharField(max_length=40, db_index=True)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.QUEUED
+    )
+    title = models.CharField(max_length=300, blank=True, default="")
+    summary = models.TextField(blank=True, default="")
+    markdown = models.TextField(blank=True, default="")
+    model = models.CharField(max_length=64, blank=True, default="")
+    input_tokens = models.BigIntegerField(default=0)
+    output_tokens = models.BigIntegerField(default=0)
+    error = models.TextField(blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "postmortems"
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["project", "fingerprint", "created_at"])]
+
+    def __str__(self):
+        return f"postmortem {self.fingerprint[:8]} ({self.status})"

@@ -502,6 +502,99 @@ def get_investigation(request: HttpRequest, project_slug: str, fingerprint: str)
     return InvestigationService.serialize(InvestigationService.get_latest(project, fingerprint))
 
 
+# ── Narrator: postmortems, digests, surface changelog (Phase 6) ───────
+
+
+@router.post("/{project_slug}/analytics/postmortem", response=dict)
+def start_postmortem(request: HttpRequest, project_slug: str, data: dict):
+    """Draft (or return the in-flight) incident postmortem for an issue."""
+    from apps.ai.services import PostmortemService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    pm = PostmortemService.start(project, str(data.get("fingerprint") or ""), user)
+    return PostmortemService.serialize(pm)
+
+
+@router.get("/{project_slug}/analytics/postmortem", response=dict)
+def get_postmortem(request: HttpRequest, project_slug: str, fingerprint: str):
+    """Latest postmortem for an issue (poll while it drafts)."""
+    from apps.ai.services import PostmortemService
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    return PostmortemService.serialize(PostmortemService.get_latest(project, fingerprint))
+
+
+@router.get("/{project_slug}/analytics/digest-preview", response=dict)
+def digest_preview(request: HttpRequest, project_slug: str, days: int = 7):
+    """Render the digest for the last `days` without sending it."""
+    from apps.ai.narrator import assemble_digest, narrate_digest, render_digest_markdown
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    digest = assemble_digest(project, days=max(1, min(int(days), 30)))
+    return {
+        "narrative": narrate_digest(digest),
+        "markdown": render_digest_markdown(digest),
+        "surface": digest["surface"],
+    }
+
+
+@router.get("/{project_slug}/digest", response=dict)
+def get_digest_config(request: HttpRequest, project_slug: str):
+    from apps.alerts.models import DigestSubscription
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug)
+    sub = DigestSubscription.objects.filter(project=project).prefetch_related("channels").first()
+    if sub is None:
+        return {"exists": False}
+    return {
+        "exists": True,
+        "is_active": sub.is_active,
+        "cadence": sub.cadence,
+        "weekday": sub.weekday,
+        "channel_ids": [str(c.id) for c in sub.channels.all()],
+        "last_sent_at": sub.last_sent_at.isoformat() if sub.last_sent_at else None,
+    }
+
+
+@router.put("/{project_slug}/digest", response=dict)
+def set_digest_config(request: HttpRequest, project_slug: str, data: dict):
+    """Create or update the project's digest subscription."""
+    from apps.alerts.models import AlertChannel, DigestSubscription
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    sub, _ = DigestSubscription.objects.get_or_create(project=project, defaults={"created_by": user})
+    sub.is_active = bool(data.get("is_active", True))
+    sub.cadence = "daily" if str(data.get("cadence")) == "daily" else "weekly"
+    sub.weekday = max(0, min(int(data.get("weekday") or 0), 6))
+    sub.save()
+    if data.get("channel_ids") is not None:
+        sub.channels.set(
+            AlertChannel.objects.filter(project=project, id__in=[str(c) for c in data["channel_ids"]])
+        )
+    return {"message": "Digest updated"}
+
+
+@router.post("/{project_slug}/digest/send", response=dict)
+def send_digest_now(request: HttpRequest, project_slug: str):
+    """Send the digest immediately through its channels (the 'send now' button)."""
+    from apps.alerts.digest import build_and_send
+    from apps.alerts.models import DigestSubscription
+    from core.exceptions.base import ValidationError
+
+    user: User = request.auth
+    project = ProjectService.get_project_by_slug(user, project_slug, action="write")
+    sub = DigestSubscription.objects.filter(project=project).first()
+    if sub is None or not sub.channels.exists():
+        raise ValidationError("Configure the digest with at least one channel first")
+    result = build_and_send(sub, force=True)
+    return {"delivery": result["delivery"], "narrative": result["narrative"]}
+
+
 # ── Sentinel: alert channels, rules, events (Phase 5) ─────────────────
 
 
