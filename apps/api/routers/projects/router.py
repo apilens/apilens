@@ -465,6 +465,19 @@ def get_endpoint_stats(
     )
 
 
+# ── Ask APILens (NL → filter DSL) ─────────────────────────────────────
+
+
+@router.post("/{project_slug}/analytics/ask", response=dict)
+def ask_project(request: HttpRequest, project_slug: str, data: dict):
+    """Translate a natural-language question into a validated filter string."""
+    from apps.ai.nl_filter import translate
+
+    user: User = request.auth
+    ProjectService.get_project_by_slug(user, project_slug)
+    return translate(str(data.get("question") or ""))
+
+
 # ── AI Investigator ────────────────────────────────────────────────────
 
 

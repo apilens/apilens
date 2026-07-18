@@ -30,6 +30,8 @@ dependencies = [
     # AI investigator (Phase 2): Agno agent framework + Anthropic provider.
     "agno>=2.7,<3.0",
     "anthropic>=0.40",
+    # MCP server (Phase 3): apps/mcp bootstraps Django from this env.
+    "mcp>=1.10",
 ]
 
 [build-system]
