@@ -1,0 +1,48 @@
+{{- if .Values.ingress.enabled }}
+{{- if not (index .Values.roles .Values.ingress.ingestRole).enabled }}
+{{- fail (printf "ingress.ingestRole %q must be an enabled role" .Values.ingress.ingestRole) }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "apilens.fullname" . }}
+  labels:
+    {{- include "apilens.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- if .Values.ingress.ingestHost }}
+    - host: {{ .Values.ingress.ingestHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "apilens.roleServiceName" (dict "root" . "role" .Values.ingress.ingestRole) }}
+                port:
+                  name: http
+    {{- end }}
+    {{- if and .Values.web.enabled .Values.ingress.webHost }}
+    - host: {{ .Values.ingress.webHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "apilens.fullname" . }}-web
+                port:
+                  name: http
+    {{- end }}
+{{- end }}

@@ -1,0 +1,111 @@
+{{- if .Values.web.enabled }}
+{{- $ctx := dict "root" . "component" "web" }}
+{{- $apiUrl := .Values.web.apiUrl | default (printf "http://%s:%v/api/v1" (include "apilens.roleServiceName" (dict "root" . "role" "all")) .Values.service.port) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "apilens.fullname" . }}-web
+  labels:
+    {{- include "apilens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: {{ .Values.web.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "apilens.componentSelectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "apilens.componentSelectorLabels" $ctx | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "apilens.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # The web image runs as UID/GID 65532 (see apps/web/Dockerfile).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: {{ include "apilens.imageRef" (dict "image" .Values.web.image "root" .) }}
+          imagePullPolicy: {{ .Values.web.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            # The dashboard still speaks the legacy API contract; it is
+            # re-pointed at the v2 API in M3.
+            - name: DJANGO_API_URL
+              value: {{ $apiUrl | quote }}
+            - name: AUTH_API_URL
+              value: {{ $apiUrl | quote }}
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "apilens.secretName" . }}
+                  key: session-secret
+            {{- with .Values.web.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/apps/web/.next/cache
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: next-cache
+          emptyDir:
+            sizeLimit: 256Mi
+      {{- with (include "apilens.topologySpread" $ctx) }}
+      topologySpreadConstraints:
+        {{- . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "apilens.fullname" . }}-web
+  labels:
+    {{- include "apilens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  type: {{ .Values.web.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.web.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "apilens.componentSelectorLabels" $ctx | nindent 4 }}
+{{- end }}

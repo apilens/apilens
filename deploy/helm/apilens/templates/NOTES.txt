@@ -1,0 +1,28 @@
+APILens {{ .Chart.AppVersion }} is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Enabled roles:
+{{- range $role, $spec := .Values.roles }}
+{{- if $spec.enabled }}
+  - {{ $role }}: service {{ include "apilens.roleServiceName" (dict "root" $ "role" $role) }}:{{ $.Values.service.port }}
+{{- end }}
+{{- end }}
+
+Create a development org/project/app and an ingest API key (printed once):
+
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "apilens.fullname" . }}-{{ if .Values.roles.all.enabled }}all{{ else }}edge{{ end }} -- /apilens seed
+
+Send telemetry from an SDK to the ingest service, e.g. locally:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "apilens.roleServiceName" (dict "root" . "role" (ternary "all" "edge" .Values.roles.all.enabled)) }} 8080:{{ .Values.service.port }}
+  # SDK base URL: http://localhost:8080/v1   OTLP endpoint: http://localhost:8080/otlp
+{{- if .Values.web.enabled }}
+
+Dashboard:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "apilens.fullname" . }}-web 3000:{{ .Values.web.service.port }}
+{{- end }}
+{{- if and (not .Values.secrets.existingSecret) (not .Values.secrets.postgresUrl) }}
+
+WARNING: no credentials configured. Set secrets.existingSecret (recommended)
+or the inline secrets.* values, otherwise the pods cannot reach the datastores.
+{{- end }}

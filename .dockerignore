@@ -1,0 +1,47 @@
+# Build context = repo root for every image (apilens, web, ai). Keep it small,
+# but never exclude what deploy/docker/Dockerfile, apps/web/Dockerfile or
+# apps/ai/Dockerfile copy (go.mod/go.sum/cmd/internal, root package.json +
+# pnpm-lock.yaml + pnpm-workspace.yaml + apps/web, root pyproject.toml +
+# uv.lock + apps/ai).
+
+# VCS / editor / OS
+.git
+.github
+.idea
+.vscode
+**/.DS_Store
+
+# Secrets — never ship local env files into an image
+**/.env
+**/.env.*
+
+# Local tool binaries and build output
+bin
+dist
+coverage
+**/coverage
+**/*.test
+**/*.out
+
+# JavaScript
+**/node_modules
+**/.next
+**/.turbo
+**/*.tsbuildinfo
+
+# Python
+**/__pycache__
+**/*.pyc
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+
+# Java SDK build output
+packages/sdk-java/target
+
+# Not needed by any image
+apps/docs
+deploy/helm
+deploy/compose
+test/e2e

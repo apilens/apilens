@@ -1,0 +1,72 @@
+# Datastores for local development. Run the Go binary, web and AI apps on the
+# host (see Taskfile.yml: `task up`, `task dev`).
+#
+#   docker compose -f deploy/compose/compose.dev.yaml up -d --wait
+#
+# Ports are bound to 127.0.0.1 only. Credentials are fixed dev values:
+#   Postgres   postgres://apilens:apilens@127.0.0.1:5432/apilens?sslmode=disable
+#   ClickHouse native 127.0.0.1:9000, HTTP 127.0.0.1:8123, user apilens / password apilens
+#   Valkey     127.0.0.1:6379 (no password)
+# Matching env for the binary:
+#   APILENS_CLICKHOUSE__PASSWORD=apilens APILENS_VALKEY__ADDR=127.0.0.1:6379
+name: apilens-dev
+
+services:
+  postgres:
+    image: postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+    environment:
+      POSTGRES_DB: apilens
+      POSTGRES_USER: apilens
+      POSTGRES_PASSWORD: apilens
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apilens -d apilens"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.8.33.10@sha256:1c0b76ac42e16b4eeb0be84013c67269b660701971d29bab9ad0d01b0ba6c10d
+    environment:
+      CLICKHOUSE_DB: apilens
+      CLICKHOUSE_USER: apilens
+      CLICKHOUSE_PASSWORD: apilens
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:8123:8123"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user apilens --password apilens --query 'SELECT 1' >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  valkey:
+    image: valkey/valkey:9.1.2@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # M3: optional Kafka profile (Apache Kafka 4.x, KRaft) for the kafka sink.
+  # kafka:
+  #   image: apache/kafka:4.x
+  #   profiles: ["kafka"]
+  #   ports: ["127.0.0.1:9092:9092"]
+
+volumes:
+  postgres-data:
+  clickhouse-data:

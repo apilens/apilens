@@ -1,0 +1,20 @@
+apiVersion: v2
+name: apilens
+description: APILens — open-source API observability (single binary, role-based deployments)
+type: application
+version: 0.1.0
+appVersion: "0.1.0-dev"
+kubeVersion: ">=1.29.0-0"
+home: https://github.com/apilens/apilens
+sources:
+  - https://github.com/apilens/apilens
+keywords:
+  - observability
+  - api
+  - opentelemetry
+  - clickhouse
+maintainers:
+  - name: APILens maintainers
+    url: https://github.com/apilens/apilens
+annotations:
+  artifacthub.io/license: MIT

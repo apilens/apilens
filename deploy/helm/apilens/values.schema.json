@@ -1,0 +1,176 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "APILens Helm chart values",
+  "type": "object",
+  "definitions": {
+    "image": {
+      "type": "object",
+      "required": ["repository"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "requests": { "type": "object" },
+        "limits": { "type": "object" }
+      }
+    },
+    "role": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 0 },
+        "resources": { "$ref": "#/definitions/resources" },
+        "autoscaling": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minReplicas": { "type": "integer", "minimum": 1 },
+            "maxReplicas": { "type": "integer", "minimum": 1 },
+            "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        },
+        "nodeSelector": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "affinity": { "type": "object" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "image": { "$ref": "#/definitions/image" },
+    "imagePullSecrets": { "type": "array" },
+    "roles": {
+      "type": "object",
+      "description": "One Deployment per enabled role. Implemented: all, edge. Others are reserved for upcoming releases.",
+      "propertyNames": {
+        "enum": ["all", "edge", "writer", "processor", "query", "api", "identity", "saml", "worker", "mcp"]
+      },
+      "additionalProperties": { "$ref": "#/definitions/role" }
+    },
+    "config": {
+      "type": "object",
+      "description": "Extra APILENS_* environment variables.",
+      "propertyNames": { "pattern": "^APILENS_[A-Z0-9_]+$" },
+      "additionalProperties": { "type": ["string", "number", "boolean"] }
+    },
+    "externalPostgres": {
+      "type": "object",
+      "properties": { "maxConns": { "type": "integer", "minimum": 1 } }
+    },
+    "externalClickHouse": {
+      "type": "object",
+      "required": ["addr", "database", "username"],
+      "properties": {
+        "addr": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "database": { "type": "string", "minLength": 1 },
+        "username": { "type": "string", "minLength": 1 },
+        "secure": { "type": "boolean" },
+        "cluster": { "type": "string" }
+      }
+    },
+    "externalValkey": {
+      "type": "object",
+      "properties": {
+        "addr": { "type": "array", "items": { "type": "string" } },
+        "username": { "type": "string" }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "properties": {
+        "existingSecret": { "type": "string" },
+        "postgresUrl": { "type": "string" },
+        "clickhousePassword": { "type": "string" },
+        "valkeyPassword": { "type": "string" },
+        "sessionSecret": { "type": "string" }
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "backoffLimit": { "type": "integer", "minimum": 0 },
+        "activeDeadlineSeconds": { "type": "integer", "minimum": 1 },
+        "resources": { "$ref": "#/definitions/resources" }
+      }
+    },
+    "web": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 0 },
+        "image": { "$ref": "#/definitions/image" },
+        "apiUrl": { "type": "string" },
+        "service": { "type": "object" },
+        "resources": { "$ref": "#/definitions/resources" },
+        "extraEnv": { "type": "array" }
+      }
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 0 },
+        "image": { "$ref": "#/definitions/image" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "resources": { "$ref": "#/definitions/resources" },
+        "extraEnv": { "type": "array" }
+      }
+    },
+    "service": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "annotations": { "type": "object" },
+        "webHost": { "type": "string" },
+        "ingestHost": { "type": "string" },
+        "ingestRole": { "type": "string" },
+        "tls": { "type": "array" }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "type": "object" },
+        "automountServiceAccountToken": { "type": "boolean" }
+      }
+    },
+    "podAnnotations": { "type": "object" },
+    "podLabels": { "type": "object" },
+    "podSecurityContext": { "type": "object" },
+    "securityContext": { "type": "object" },
+    "podDisruptionBudget": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "maxUnavailable": { "type": ["integer", "string"] }
+      }
+    },
+    "topologySpreadConstraints": { "type": "array" },
+    "defaultTopologySpread": { "type": "boolean" },
+    "metrics": {
+      "type": "object",
+      "properties": { "podAnnotations": { "type": "boolean" } }
+    }
+  },
+  "required": ["image", "roles", "externalClickHouse"]
+}

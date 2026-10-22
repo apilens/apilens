@@ -1,0 +1,26 @@
+{{- range $role, $spec := .Values.roles }}
+{{- if and $spec.enabled (dig "autoscaling" "enabled" false $spec) }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "apilens.fullname" $ }}-{{ $role }}
+  labels:
+    {{- include "apilens.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $role }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "apilens.fullname" $ }}-{{ $role }}
+  minReplicas: {{ $spec.autoscaling.minReplicas }}
+  maxReplicas: {{ $spec.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $spec.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}

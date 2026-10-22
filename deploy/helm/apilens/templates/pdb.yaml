@@ -1,0 +1,19 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{- range $role, $spec := .Values.roles }}
+{{- if and $spec.enabled (or (dig "autoscaling" "enabled" false $spec) (gt (int (dig "replicas" 1 $spec)) 1)) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "apilens.fullname" $ }}-{{ $role }}
+  labels:
+    {{- include "apilens.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $role }}
+spec:
+  maxUnavailable: {{ $.Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "apilens.componentSelectorLabels" (dict "root" $ "component" $role) | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end }}
