@@ -236,7 +236,7 @@ def test_fastapi_end_to_end():
     assert resp.status_code == 200
     rec = client.captured[-1]
     assert rec["path"] == "/product/{id}"
-    assert rec["raw_path"] == "/product/123"
+    assert rec["raw_path"] == "/product/123?ref=x"  # log keeps the query (redacted)
 
 
 def test_flask_end_to_end():
