@@ -1,0 +1,205 @@
+# Default values for the APILens chart.
+#
+# APILens ships ONE image; each enabled entry under `roles` becomes its own
+# Deployment running `apilens -target=<role>`. Small installs run the single
+# `all` role; larger ones split roles out (e.g. `edge` scaled independently).
+#
+# Datastores are NOT bundled. Point the chart at Postgres, ClickHouse and
+# Valkey you operate (see README: CloudNativePG, Altinity ClickHouse operator,
+# valkey-io charts).
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/apilens/apilens
+  # Defaults to the chart appVersion.
+  tag: ""
+  # Optional "sha256:..." digest; takes precedence over tag when set.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# One Deployment per enabled role. Implemented in this release: all, edge.
+roles:
+  all:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 70
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  edge:
+    enabled: false
+    replicas: 2
+    resources:
+      requests:
+        cpu: 500m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+    autoscaling:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 20
+      targetCPUUtilizationPercentage: 70
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  # Planned roles (M2+), not yet available in the binary:
+  # writer, processor, query, api, identity, saml, worker, mcp
+
+# Extra APILENS_* environment variables rendered into the shared ConfigMap.
+# Nested keys use a double underscore (APILENS_SINK__BATCH_SIZE -> sink.batch_size).
+config:
+  APILENS_LOG__LEVEL: info
+  APILENS_LOG__FORMAT: json
+  APILENS_SINK__MODE: direct
+  APILENS_SINK__ACK: flush
+
+# Connection settings for externally operated datastores.
+externalPostgres:
+  # The connection URL (including password) is read from the secret key
+  # `postgres-url`, e.g. postgres://apilens:PASS@pg-rw:5432/apilens?sslmode=require
+  maxConns: 20
+
+externalClickHouse:
+  # Native protocol addresses (host:9000, or :9440 with secure=true).
+  addr:
+    - clickhouse:9000
+  database: apilens
+  username: apilens
+  secure: false
+  # Set to the cluster name for replicated deployments (ON CLUSTER DDL).
+  cluster: ""
+
+externalValkey:
+  # Empty disables Valkey (API-key cache invalidation falls back to TTL).
+  addr: []
+  username: ""
+
+secrets:
+  # Name of an existing Secret with keys: postgres-url, clickhouse-password,
+  # valkey-password (optional), session-secret (web).
+  existingSecret: ""
+  # Inline values for development ONLY (rendered into a chart-managed Secret
+  # when existingSecret is empty).
+  postgresUrl: ""
+  clickhousePassword: ""
+  valkeyPassword: ""
+  sessionSecret: ""
+
+# Database migrations run as a Helm hook Job (pre-install, pre-upgrade).
+migrations:
+  enabled: true
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+# Dashboard (Next.js).
+web:
+  enabled: true
+  replicas: 1
+  image:
+    repository: ghcr.io/apilens/web
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  # Base URL of the APILens API as seen from the web pods. Empty = the
+  # in-cluster service of the `all` role (or `api` once it exists).
+  apiUrl: ""
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
+  extraEnv: []
+
+# AI/ML service (Python). Disabled until it ships real features (M4).
+ai:
+  enabled: false
+  replicas: 1
+  image:
+    repository: ghcr.io/apilens/ai
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  port: 8000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  extraEnv: []
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # Host for the dashboard.
+  webHost: ""
+  # Host for SDK ingest + API (routed to `ingestRole`).
+  ingestHost: ""
+  ingestRole: all
+  tls: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+# Applied to every role Deployment. When empty and defaultTopologySpread is
+# true, pods are spread across zones and nodes (best effort).
+topologySpreadConstraints: []
+defaultTopologySpread: true
+
+metrics:
+  # Adds prometheus.io/* scrape annotations to role pods.
+  podAnnotations: true

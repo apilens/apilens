@@ -1,0 +1,218 @@
+# APILens — self-hosted, all-in-one.
+#
+#   cp .env.example .env   # then fill in the secrets
+#   docker compose up -d --wait
+#   docker compose run --rm --entrypoint /apilens apilens seed
+#
+# Exposes only the ingest/API port (8080) and the dashboard (3000). Terminate
+# TLS in front of both (Caddy, nginx, a cloud load balancer, ...).
+# Datastores are reachable only on the internal compose network.
+name: apilens
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# Hardening shared by the APILens containers (the binary needs no writable
+# filesystem and no Linux capabilities).
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+x-apilens-image: &apilens-image
+  image: ghcr.io/apilens/apilens:${APILENS_VERSION:-edge}
+  # `docker compose up --build` builds from source; otherwise the published
+  # image is used.
+  build:
+    context: ../..
+    dockerfile: deploy/docker/Dockerfile
+
+x-apilens-env: &apilens-env
+  APILENS_LOG__LEVEL: ${APILENS_LOG_LEVEL:-info}
+  APILENS_LOG__FORMAT: json
+  APILENS_POSTGRES__URL: postgres://apilens:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/apilens?sslmode=disable
+  APILENS_CLICKHOUSE__ADDR: clickhouse:9000
+  APILENS_CLICKHOUSE__DATABASE: apilens
+  APILENS_CLICKHOUSE__USERNAME: apilens
+  APILENS_CLICKHOUSE__PASSWORD: ${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env}
+  APILENS_VALKEY__ADDR: valkey:6379
+  APILENS_VALKEY__PASSWORD: ${VALKEY_PASSWORD:?set VALKEY_PASSWORD in .env}
+  APILENS_SINK__MODE: direct
+  APILENS_OTEL__ENDPOINT: ${APILENS_OTEL_ENDPOINT:-}
+
+services:
+  postgres:
+    image: postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: apilens
+      POSTGRES_USER: apilens
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apilens -d apilens"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    security_opt: ["no-new-privileges:true"]
+    shm_size: 256m
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_MEMORY_LIMIT:-1g}
+    logging: *logging
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.8.33.10@sha256:1c0b76ac42e16b4eeb0be84013c67269b660701971d29bab9ad0d01b0ba6c10d
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: apilens
+      CLICKHOUSE_USER: apilens
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1' >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits:
+          memory: ${CLICKHOUSE_MEMORY_LIMIT:-4g}
+    logging: *logging
+
+  valkey:
+    image: valkey/valkey:9.1.2@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd
+    restart: unless-stopped
+    command: ["valkey-server", "--requirepass", "${VALKEY_PASSWORD:?set VALKEY_PASSWORD in .env}", "--save", "", "--appendonly", "no"]
+    environment:
+      VALKEYCLI_AUTH: ${VALKEY_PASSWORD:?set VALKEY_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits:
+          memory: ${VALKEY_MEMORY_LIMIT:-256m}
+    logging: *logging
+
+  # One-shot: applies the embedded Postgres + ClickHouse migrations, then exits.
+  migrate:
+    <<: [*apilens-image, *hardened]
+    command: ["migrate"]
+    user: "65532:65532"
+    restart: "no"
+    environment:
+      <<: *apilens-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    logging: *logging
+
+  apilens:
+    <<: [*apilens-image, *hardened]
+    command: ["-target=all"]
+    user: "65532:65532"
+    restart: unless-stopped
+    environment:
+      <<: *apilens-env
+    ports:
+      - "${APILENS_INGEST_PORT:-8080}:8080"
+    tmpfs:
+      - /tmp:size=64m
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/apilens", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: ${APILENS_MEMORY_LIMIT:-1g}
+    logging: *logging
+
+  web:
+    image: ghcr.io/apilens/web:${APILENS_VERSION:-edge}
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    <<: *hardened
+    environment:
+      # NOTE: the dashboard still targets the legacy API contract; it is
+      # re-pointed at the v2 API in M3. Until then these are placeholders.
+      DJANGO_API_URL: http://apilens:8080/api/v1
+      AUTH_API_URL: http://apilens:8080/api/v1
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+    ports:
+      - "${APILENS_WEB_PORT:-3000}:3000"
+    tmpfs:
+      - /tmp:size=64m
+      # Next.js writes its image/fetch cache here; the web image runs as 65532.
+      - /app/apps/web/.next/cache:size=256m,uid=65532,gid=65532
+    depends_on:
+      apilens:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${WEB_MEMORY_LIMIT:-512m}
+    logging: *logging
+
+  console:
+    image: ghcr.io/apilens/console:${APILENS_VERSION:-edge}
+    build:
+      context: ../..
+      dockerfile: apps/console/Dockerfile
+    restart: unless-stopped
+    <<: *hardened
+    environment:
+      # v2 dashboard: reads the query API with a project read key.
+      APILENS_API_URL: http://apilens:8080
+      # From `apilens seed` → read_key. Empty shows setup instructions.
+      APILENS_READ_KEY: ${APILENS_READ_KEY:-}
+      APILENS_PUBLIC_INGEST_URL: ${APILENS_PUBLIC_INGEST_URL:-http://localhost:8080}
+    ports:
+      - "${APILENS_CONSOLE_PORT:-3100}:3100"
+    tmpfs:
+      - /tmp:size=64m
+      # Next.js writes its fetch cache here; the console image runs as 65532.
+      - /app/apps/console/.next/cache:size=128m,uid=65532,gid=65532
+    depends_on:
+      apilens:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${CONSOLE_MEMORY_LIMIT:-384m}
+    logging: *logging
+
+volumes:
+  postgres-data:
+  clickhouse-data:
+  clickhouse-logs:

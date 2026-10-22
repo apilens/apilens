@@ -1,0 +1,18 @@
+# CI override for end-to-end tests. Use together with ci.env:
+#
+#   docker compose --env-file deploy/compose/ci.env \
+#     -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml \
+#     up -d --build --wait apilens
+#
+# Publishes the ClickHouse HTTP port on localhost so test/e2e can assert rows
+# (APILENS_E2E_CLICKHOUSE_HTTP=http://127.0.0.1:8123, user apilens /
+# password from ci.env). The dashboard is not needed for ingest e2e.
+services:
+  clickhouse:
+    ports:
+      - "127.0.0.1:8123:8123"
+
+  apilens:
+    environment:
+      # Flush quickly so tests don't wait on the batching interval.
+      APILENS_SINK__FLUSH_INTERVAL: 100ms

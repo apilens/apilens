@@ -1,0 +1,75 @@
+// Renovate configuration for the APILens monorepo.
+// Docs: https://docs.renovatebot.com/configuration-options/
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:recommended',
+    // Keep every `uses:` pinned to a full commit SHA (with the tag as a comment).
+    'helpers:pinGitHubActionDigests',
+    ':semanticCommits',
+    ':semanticCommitScopeDisabled',
+  ],
+  timezone: 'Etc/UTC',
+  schedule: ['before 6am on monday'],
+  // Supply-chain buffer: never propose a release younger than 3 days.
+  minimumReleaseAge: '3 days',
+  internalChecksFilter: 'strict',
+  prConcurrentLimit: 10,
+  prHourlyLimit: 4,
+  labels: ['dependencies'],
+  rangeStrategy: 'auto',
+  ignorePaths: ['**/node_modules/**', 'apps/docs/**'],
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ['before 6am on the first day of the month'],
+  },
+  postUpdateOptions: ['gomodTidy', 'gomodUpdateImportPaths'],
+  packageRules: [
+    {
+      description: 'Group non-major Go module updates',
+      matchManagers: ['gomod'],
+      matchUpdateTypes: ['minor', 'patch', 'digest'],
+      groupName: 'go dependencies (non-major)',
+      addLabels: ['go'],
+    },
+    {
+      description: 'Group non-major npm updates',
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: 'npm dependencies (non-major)',
+      addLabels: ['javascript'],
+    },
+    {
+      description: 'Group non-major Python (uv / pep621) updates',
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: 'python dependencies (non-major)',
+      addLabels: ['python'],
+    },
+    {
+      description: 'Group GitHub Actions digest/minor/patch bumps',
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['minor', 'patch', 'digest', 'pinDigest'],
+      groupName: 'github actions',
+      addLabels: ['ci'],
+    },
+    {
+      description: 'Majors always get their own PR and a label',
+      matchUpdateTypes: ['major'],
+      groupName: null,
+      addLabels: ['major-update'],
+    },
+    {
+      description: 'Go toolchain directive is bumped on its own',
+      matchManagers: ['gomod'],
+      matchDepNames: ['go', 'toolchain'],
+      groupName: null,
+    },
+    {
+      description: 'The Python SDK supports old Pythons; never raise its floor automatically',
+      matchFileNames: ['packages/sdk-python/**'],
+      matchDepTypes: ['requires-python'],
+      enabled: false,
+    },
+  ],
+}

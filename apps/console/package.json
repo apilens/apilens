@@ -1,0 +1,29 @@
+{
+  "name": "console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "APILens v2 console: dashboard on the Go query API (Aperture design language)",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^16.4.2",
+    "react": "~19.2.9",
+    "react-dom": "~19.2.9",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^22.13.10",
+    "@types/react": "~19.2.18",
+    "@types/react-dom": "~19.2.7",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "^16.4.2",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3"
+  }
+}

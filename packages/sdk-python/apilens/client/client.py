@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import ssl
 import threading
 import time
@@ -18,6 +19,18 @@ from .models import LogRecord, RequestRecord, SpanRecord
 logger = logging.getLogger("apilens")
 
 
+def _detect_release() -> str:
+    return (os.getenv("APILENS_RELEASE") or "").strip()
+
+
+def _detect_commit() -> str:
+    for var in ("APILENS_COMMIT", "GIT_COMMIT", "SOURCE_VERSION", "RENDER_GIT_COMMIT"):
+        value = (os.getenv(var) or "").strip()
+        if value:
+            return value
+    return ""
+
+
 @dataclass(slots=True)
 class ApiLensConfig:
     api_key: str
@@ -27,6 +40,13 @@ class ApiLensConfig:
     ingest_path: str = "/requests"
     spans_path: str = "/traces"
     logs_path: str = "/logs"
+
+    # Deploy correlation: stamped on every request/span/log record so the
+    # dashboard can answer "did this release cause the regression?". When left
+    # empty they are auto-detected from the environment (APILENS_RELEASE;
+    # APILENS_COMMIT / GIT_COMMIT / SOURCE_VERSION / RENDER_GIT_COMMIT).
+    release: str = ""
+    commit: str = ""
 
     batch_size: int = 200
     flush_interval: float = 3.0
@@ -41,6 +61,12 @@ class ApiLensConfig:
 
     enabled: bool = True
     user_agent: str = f"apilenss/{__version__}"
+
+    def __post_init__(self) -> None:
+        if not self.release:
+            self.release = _detect_release()
+        if not self.commit:
+            self.commit = _detect_commit()
 
 
 class ApiLensClient:
@@ -150,9 +176,18 @@ class ApiLensClient:
         )
         self.capture_record(record)
 
+    def _stamp_release(self, record) -> None:
+        # Records carry release/commit themselves so a batch can straddle a
+        # deploy; empty fields inherit the config (usually env-detected).
+        if not record.release:
+            record.release = self.config.release
+        if not record.commit:
+            record.commit = self.config.commit
+
     def capture_record(self, record: RequestRecord) -> None:
         if not self.config.enabled:
             return
+        self._stamp_release(record)
         with self._lock:
             if len(self._queue) >= self.config.max_queue_size:
                 self._queue.popleft()
@@ -170,6 +205,7 @@ class ApiLensClient:
     def capture_span(self, record: SpanRecord) -> None:
         if not self.config.enabled:
             return
+        self._stamp_release(record)
         with self._lock:
             if len(self._span_queue) >= self.config.max_queue_size:
                 self._span_queue.popleft()
@@ -183,6 +219,7 @@ class ApiLensClient:
     def capture_log(self, record: LogRecord) -> None:
         if not self.config.enabled:
             return
+        self._stamp_release(record)
         with self._lock:
             if len(self._log_queue) >= self.config.max_queue_size:
                 self._log_queue.popleft()

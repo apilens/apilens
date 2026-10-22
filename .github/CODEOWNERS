@@ -1,0 +1,17 @@
+# Code owners are requested for review automatically.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+# Replace individual handles with an @apilens/<team> once teams exist.
+
+*                         @bhatt-neel-dev
+
+# Security-sensitive areas: changes always need a maintainer review.
+/internal/identity/       @bhatt-neel-dev
+/internal/ingest/         @bhatt-neel-dev
+/internal/migrations/     @bhatt-neel-dev
+/.github/                 @bhatt-neel-dev
+/deploy/                  @bhatt-neel-dev
+
+# Published SDKs
+/packages/sdk-python/     @bhatt-neel-dev
+/packages/sdk-typescript/ @bhatt-neel-dev
+/packages/sdk-java/       @bhatt-neel-dev

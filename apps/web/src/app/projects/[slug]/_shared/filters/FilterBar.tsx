@@ -42,7 +42,7 @@ type ValueOption = { label: string; value: string };
 type Stage = "field" | "op" | "value";
 
 // Fields whose value lists are unbounded → searched on the server, on demand.
-const SERVER_FIELDS = new Set(["consumer", "path", "ip", "ua"]);
+const SERVER_FIELDS = new Set(["consumer", "path", "ip", "ua", "release"]);
 
 type MenuItem =
   | { kind: "nav"; label: string; hint?: string; apply: string }

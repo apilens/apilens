@@ -1,0 +1,10 @@
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+breaking:
+  # Events also travel as JSON (debug tooling), so JSON names are part of the contract.
+  use:
+    - WIRE_JSON

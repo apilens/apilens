@@ -1,0 +1,11 @@
+version: v2
+# Local plugins only: no Buf Schema Registry account, network or rate limits.
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/apilens/apilens/internal/gen/pb
+plugins:
+  - local: ["go", "run", "google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12"]
+    out: internal/gen/pb
+    opt: paths=source_relative

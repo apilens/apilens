@@ -38,3 +38,14 @@ export async function GET(
     return NextResponse.json({ error: "Upstream request failed" }, { status: 502 });
   }
 }
+
+// Issue lifecycle updates (resolve / ignore / reopen) — Phase 4.
+import { proxyDjangoSend } from "@/lib/proxy";
+
+export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ slug: string }> | { slug: string } },
+) {
+  const p = "then" in context.params ? await context.params : context.params;
+  return proxyDjangoSend(request, `/projects/${p.slug}/analytics/error-issues`, "PATCH");
+}

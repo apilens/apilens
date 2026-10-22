@@ -1,39 +1,47 @@
-# Used when the Docker build context is the repo root (the frontend image —
-# apps/web/Dockerfile — builds from root so pnpm can see the workspace lockfile).
-# Keep the context small: never ship local installs, build outputs, or secrets.
+# Build context = repo root for every image (apilens, web, ai). Keep it small,
+# but never exclude what deploy/docker/Dockerfile, apps/web/Dockerfile or
+# apps/ai/Dockerfile copy (go.mod/go.sum/cmd/internal, root package.json +
+# pnpm-lock.yaml + pnpm-workspace.yaml + apps/web, root pyproject.toml +
+# uv.lock + apps/ai).
 
-# VCS / editor noise
+# VCS / editor / OS
 .git
-.gitignore
+.github
 .idea
 .vscode
-*.swp
-*~
-.DS_Store
+**/.DS_Store
 
-# Node installs + build outputs (reinstalled/rebuilt inside the image)
+# Secrets — never ship local env files into an image
+**/.env
+**/.env.*
+
+# Local tool binaries and build output
+bin
+dist
+coverage
+**/coverage
+**/*.test
+**/*.out
+
+# JavaScript
 **/node_modules
 **/.next
 **/.turbo
-**/dist
-**/out
+**/*.tsbuildinfo
 
-# Python (backend has its own image/context; never needed in the web build)
-**/.venv
+# Python
 **/__pycache__
 **/*.pyc
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
 
-# Local env / secrets — NEVER bake these into an image
-**/.env
-**/.env.*
-!**/.env.example
+# Java SDK build output
+packages/sdk-java/target
 
-# Infra / terraform state + the other app
-infra/gcp/terraform/.terraform
-**/*.tfstate
-**/*.tfstate.*
-
-# Logs + misc
-**/*.log
-**/coverage
-**/htmlcov
+# Not needed by any image
+apps/docs
+deploy/helm
+deploy/compose
+test/e2e

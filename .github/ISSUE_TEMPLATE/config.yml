@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/apilens/apilens/security/advisories/new
+    about: Please report vulnerabilities privately. See SECURITY.md.
+  - name: Questions and discussions
+    url: https://github.com/apilens/apilens/discussions
+    about: Ask questions and share ideas with the community.
+  - name: Documentation
+    url: https://apilens.ai
+    about: Guides, SDK reference and self-hosting docs.

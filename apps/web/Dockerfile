@@ -1,61 +1,55 @@
-# Frontend (Next.js) image — pnpm monorepo build.
+# syntax=docker/dockerfile:1
+#
+# Web dashboard (Next.js) image — pnpm monorepo build.
 #
 # BUILD CONTEXT IS THE REPO ROOT (not apps/web): pnpm is a workspace and the
-# single source-of-truth lockfile lives at the root (pnpm-lock.yaml). Build with:
-#   docker build -f apps/web/Dockerfile -t <img> --build-arg NEXT_PUBLIC_API_URL=... .
-# (the deploy workflow / Cloud Build pass context "." accordingly.)
+# single lockfile lives at the root.
+#   docker build -f apps/web/Dockerfile -t ghcr.io/apilens/web:dev .
+#
+# Build once, promote everywhere: nothing environment-specific is baked in.
+# The BFF reads DJANGO_API_URL / AUTH_API_URL / SESSION_SECRET at runtime
+# (server-side only; the app uses no NEXT_PUBLIC_* variables).
 
-FROM node:20-alpine AS base
-RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+# Pinned by digest; Renovate bumps both tag and digest.
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS base
+# Version must match "packageManager" in the root package.json.
+RUN corepack enable && corepack prepare pnpm@11.28.7 --activate
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 WORKDIR /app
 
 # ---- deps: install ONLY what the frontend needs, from the frozen lockfile ----
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
-RUN pnpm install --frozen-lockfile --filter frontend...
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --filter frontend...
 
 # ---- builder ----
 FROM base AS builder
 ENV NEXT_TELEMETRY_DISABLED=1
-# NEXT_PUBLIC_* values are inlined into the client bundle at BUILD time, so the
-# API origin must be supplied here. Defaults to local dev; the deploy workflow
-# overrides it with --build-arg NEXT_PUBLIC_API_URL=https://app.apilens.ai/api/v1
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web ./apps/web
-
 RUN pnpm --filter frontend build
 
 # ---- runner: Next standalone output (monorepo layout) ----
-FROM base AS runner
+FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS runner
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
     HOSTNAME=0.0.0.0
-
-# Server-side base URL for the identity (IAM) service. The BFF auth routes +
-# token refresh/validate call this directly over the internal docker network.
-# Baked here as a RUNTIME env for the Next server so prod works via the normal
-# image roll (no compose/metadata change needed); a compose-level AUTH_API_URL
-# still overrides it. Empty default keeps local image builds on the dev fallback.
-ARG AUTH_API_URL=
-ENV AUTH_API_URL=$AUTH_API_URL
-
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs
+WORKDIR /app
 
 # Standalone roots at the workspace dir: node_modules at the root, the app's
 # server.js under apps/web/. Static + public aren't traced into standalone,
 # so copy them explicitly to where server.js expects them.
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
+COPY --from=builder --chown=65532:65532 /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=65532:65532 /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=65532:65532 /app/apps/web/public ./apps/web/public
 
-USER nextjs
+# Non-root (same UID as every APILens image). With a read-only root
+# filesystem, mount a writable tmpfs at /app/apps/web/.next/cache.
+USER 65532:65532
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]

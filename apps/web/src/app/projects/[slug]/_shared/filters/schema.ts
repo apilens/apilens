@@ -79,6 +79,7 @@ export const FIELDS: FieldSpec[] = [
   { field: "resp_size", label: "Response size", type: "int", ops: ["gt", "gte", "lt", "lte", "between"], unit: "bytes", placeholder: "1024" },
   { field: "ip", label: "IP address", type: "string", ops: ["is", "not", "contains"], placeholder: "1.2.3.4" },
   { field: "ua", label: "User agent", type: "string", ops: ["contains"], placeholder: "Mozilla" },
+  { field: "release", label: "Release", type: "string", ops: ["is", "not", "contains"], placeholder: "v1.4.2" },
 ];
 
 export const FIELD_MAP: Record<string, FieldSpec> = Object.fromEntries(

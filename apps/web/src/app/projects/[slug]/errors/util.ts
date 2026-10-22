@@ -22,6 +22,93 @@ export interface ErrorEvent {
   consumer_name: string;
   trace_id: string;
   span_id: string;
+  fingerprint?: string;
+  release?: string;
+  commit_sha?: string;
+}
+
+// Code Link (GitHub integration): a probable cause commit for an issue.
+export interface SuspectCommit {
+  sha: string;
+  short_sha: string;
+  message: string;
+  author_name: string;
+  author_login: string;
+  date: string;
+  url: string;
+  repository: string;
+  files: string[];
+}
+
+export interface FrameLink {
+  path: string;
+  line: number;
+  function: string;
+  mapped_path: string;
+  repository: string;
+  url: string;
+}
+
+export interface SuspectResponse {
+  suspect_commits: SuspectCommit[];
+  frame_links: FrameLink[];
+  reason: string;
+}
+
+// Postmortem (Phase 6 Narrator).
+export interface Postmortem {
+  exists: boolean;
+  ai_configured?: boolean;
+  id?: string;
+  status?: "queued" | "running" | "completed" | "failed";
+  title?: string;
+  summary?: string;
+  markdown?: string;
+  model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  error?: string;
+  created_at?: string | null;
+}
+
+// Fix handoff (Phase 4).
+export interface FixHandoffResult {
+  kind: "github_issue" | "clipboard" | "cursor";
+  external_url: string;
+  repository: string;
+  title: string;
+  markdown: string;
+}
+
+export interface IssueVerification {
+  exists: boolean;
+  status?: string;
+  resolved_at?: string | null;
+  resolved_in_release?: string;
+  deploy_after_resolve?: { release: string; commit: string; environment: string; deployed_at: string } | null;
+  events_since_deploy?: number | null;
+  verified?: boolean;
+}
+
+// AI Investigator (Phase 2): one staged root-cause analysis run.
+export interface Investigation {
+  exists: boolean;
+  ai_configured: boolean;
+  id?: string;
+  status?: "queued" | "running" | "completed" | "failed";
+  root_cause?: string;
+  confidence?: string;
+  explanation?: string;
+  impact_summary?: string;
+  evidence?: { source: string; detail: string }[];
+  fix_steps?: string[];
+  patch_suggestion?: string;
+  risk_notes?: string;
+  model?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  error?: string;
+  completed_at?: string | null;
 }
 
 // Recent-request row (from the endpoint-requests analytics view), used to list a

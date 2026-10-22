@@ -1,0 +1,10 @@
+# osv-scanner configuration (https://google.github.io/osv-scanner/configuration/).
+# Every ignore needs a reason and an expiry; CI fails again once it lapses.
+
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+ignoreUntil = 2027-01-22
+reason = """braces 3.0.3 has no fixed release. It is only reachable through
+eslint-config-next -> @next/eslint-plugin-next -> fast-glob -> micromatch,
+i.e. the dashboard's dev-time linter; it is never bundled or shipped.
+Re-check (or override) when a fixed braces or a fast-glob without it exists."""

@@ -1,0 +1,8 @@
+{
+  ".": "1.0.0",
+  "apps/ai": "0.1.0",
+  "deploy/helm/apilens": "0.1.0",
+  "packages/sdk-python": "0.5.0",
+  "packages/sdk-typescript": "0.1.1",
+  "packages/sdk-java": "0.1.0"
+}

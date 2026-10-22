@@ -7,6 +7,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  ReferenceLine,
   Tooltip,
   XAxis,
   YAxis,
@@ -43,6 +44,17 @@ interface Summary {
   total_response_bytes: number;
   unique_endpoints: number;
   unique_consumers: number;
+}
+
+interface DeployEvent {
+  id: string;
+  app_slug: string;
+  app_name: string;
+  environment: string;
+  release: string;
+  commit: string;
+  url: string;
+  deployed_at: string;
 }
 
 interface TSPoint {
@@ -221,6 +233,7 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
 
   const [summary, setSummary] = useState<Summary | null>(null);
   const [series, setSeries] = useState<TSPoint[] | null>(null);
+  const [deploys, setDeploys] = useState<DeployEvent[]>([]);
   const [endpoints, setEndpoints] = useState<EndpointStat[]>([]);
   const [endpointTotal, setEndpointTotal] = useState(0);
   const [endpointsLoading, setEndpointsLoading] = useState(true);
@@ -352,17 +365,31 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
         }
       };
 
+      const baseQs = buildQuery();
+
+      // Deploys live outside /analytics; markers on the chart come from here.
+      const getDeploys = async (): Promise<DeployEvent[]> => {
+        try {
+          const res = await fetch(`/api/projects/${projectSlug}/deploys?${baseQs}`);
+          const data = res.ok ? await res.json() : [];
+          return Array.isArray(data) ? data : [];
+        } catch {
+          return [];
+        }
+      };
+
       const myId = ++reqId.current;
       if (!silent) setLoading(true);
-      const baseQs = buildQuery();
-      const [sum, ts] = await Promise.all([
+      const [sum, ts, deps] = await Promise.all([
         get<Summary>("summary", baseQs, EMPTY_SUMMARY),
         get<TSPoint[]>("timeseries", baseQs, []),
+        getDeploys(),
       ]);
       // A newer request (filter change or a later poll) has superseded this one.
       if (myId !== reqId.current) return;
       setSummary(sum);
       setSeries(Array.isArray(ts) ? ts : []);
+      setDeploys(deps);
       if (!silent) setLoading(false);
     },
     [projectSlug, appsLoaded, apps.length, selectedAppSlugs, rangeValue, filter]
@@ -483,6 +510,31 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
         };
       });
   }, [series, spanHours]);
+
+  // Deploy markers: snap each deploy to the chart bucket containing it (the
+  // X axis is categorical, so a marker must land on an exact bucket key).
+  // Multiple releases in one bucket collapse into a single labelled line.
+  const deployMarkers = useMemo(() => {
+    if (!deploys.length || !series?.length) return [];
+    const bucketMs = (spanHours <= 48 ? 60 : 1440) * 60_000;
+    const buckets = series
+      .map((p) => ({ key: p.bucket, t: new Date(p.bucket).getTime() }))
+      .filter((b) => !isNaN(b.t));
+    const byBucket = new Map<string, string[]>();
+    for (const d of deploys) {
+      const t = new Date(d.deployed_at).getTime();
+      if (isNaN(t)) continue;
+      const hit = buckets.find((b) => t >= b.t && t < b.t + bucketMs);
+      if (!hit) continue;
+      const releases = byBucket.get(hit.key) || [];
+      if (d.release && !releases.includes(d.release)) releases.push(d.release);
+      byBucket.set(hit.key, releases);
+    }
+    return Array.from(byBucket, ([bucket, releases]) => {
+      const label = releases.join(", ");
+      return { bucket, label: label.length > 18 ? `${label.slice(0, 17)}…` : label };
+    });
+  }, [deploys, series, spanHours]);
 
   // Per-metric config: drives the active tab highlight AND the shared chart.
   // "stack" metrics render success (green) + errors (red) stacked per bucket;
@@ -720,6 +772,16 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                 <XAxis dataKey="bucket" tickFormatter={(b) => bucketLabel(b, spanHours)} tick={AXIS} minTickGap={24} tickLine={false} axisLine={{ stroke: GRID }} />
                 <YAxis tick={AXIS} width={48} tickFormatter={active.fmtY} tickLine={false} axisLine={false} />
                 <Tooltip content={<TfTooltip kind="stack" fmtVal={active.fmtVal} spanHours={spanHours} />} cursor={{ fill: "rgba(148,163,184,0.08)" }} />
+                {deployMarkers.map((m) => (
+                  <ReferenceLine
+                    key={m.bucket}
+                    x={m.bucket}
+                    stroke={ACCENT}
+                    strokeDasharray="4 3"
+                    strokeOpacity={0.55}
+                    label={{ value: m.label, position: "insideTopRight", fill: "var(--text-muted)", fontSize: 9 }}
+                  />
+                ))}
                 {visibleSeries.map((s, i) => (
                   <Bar
                     key={s.key}
@@ -746,6 +808,16 @@ export default function TrafficContent({ projectSlug, initialFilters }: Props) {
                 <XAxis dataKey="bucket" tickFormatter={(b) => bucketLabel(b, spanHours)} tick={AXIS} minTickGap={24} tickLine={false} axisLine={{ stroke: GRID }} />
                 <YAxis tick={AXIS} width={48} tickFormatter={active.fmtY} tickLine={false} axisLine={false} />
                 <Tooltip content={<TfTooltip kind="area" name={active.label} fmtVal={active.fmtVal} spanHours={spanHours} />} cursor={{ stroke: active.color, strokeDasharray: "3 3" }} />
+                {deployMarkers.map((m) => (
+                  <ReferenceLine
+                    key={m.bucket}
+                    x={m.bucket}
+                    stroke={ACCENT}
+                    strokeDasharray="4 3"
+                    strokeOpacity={0.55}
+                    label={{ value: m.label, position: "insideTopRight", fill: "var(--text-muted)", fontSize: 9 }}
+                  />
+                ))}
                 <Area type="monotone" dataKey={active.dataKey} name={active.label} stroke={active.color} strokeWidth={2} fill={`url(#tfArea-${activeMetric})`} animationDuration={300} />
               </AreaChart>
             )}

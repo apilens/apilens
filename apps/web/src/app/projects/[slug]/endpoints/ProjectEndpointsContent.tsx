@@ -24,6 +24,7 @@ import {
   TimeRangePicker,
 } from "../_shared/timeRange";
 import FilterBar from "../_shared/filters/FilterBar";
+import AskBar from "../_shared/filters/AskBar";
 import { parseFilter, upsertSingle } from "../_shared/filters/query";
 
 interface ProjectEndpointsContentProps {
@@ -235,6 +236,9 @@ export default function ProjectEndpointsContent({ projectSlug }: ProjectEndpoint
 
   return (
     <div className="ep-rl">
+      {/* ── Ask APILens: natural language → filter ── */}
+      <AskBar projectSlug={projectSlug} onFilter={setFilter} />
+
       {/* ── Toolbar: filter search + time on one line ── */}
       <div className="ep-rl-toolbar">
         <div className="ep-rl-filtergrow">

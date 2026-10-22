@@ -1,0 +1,21 @@
+{{- range $role, $spec := .Values.roles }}
+{{- if $spec.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "apilens.roleServiceName" (dict "root" $ "role" $role) }}
+  labels:
+    {{- include "apilens.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $role }}
+spec:
+  type: {{ $.Values.service.type }}
+  ports:
+    - name: http
+      port: {{ $.Values.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "apilens.componentSelectorLabels" (dict "root" $ "component" $role) | nindent 4 }}
+{{- end }}
+{{- end }}

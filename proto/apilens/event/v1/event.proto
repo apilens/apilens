@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+// Internal telemetry events: the wire contract between the edge and the
+// writers when the Kafka sink is enabled (M3). One Kafka message carries one
+// batch; all events in a batch belong to the same project. Field semantics
+// match the ClickHouse tables of the same name (internal/migrations).
+//
+// SDKs do NOT use these messages: they speak the JSON ingest API or OTLP.
+package apilens.event.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// RequestEvent is one API request (table api_requests).
+message RequestEvent {
+  string project_id = 1;
+  string app_id = 2;
+  string environment = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  string method = 5;
+  // Route template, e.g. /orders/{id}.
+  string path = 6;
+  string raw_path = 7;
+  uint32 status_code = 8;
+  double response_time_ms = 9;
+  uint64 request_size = 10;
+  uint64 response_size = 11;
+  string ip_address = 12;
+  string user_agent = 13;
+  string consumer_id = 14;
+  string consumer_name = 15;
+  string consumer_group = 16;
+  string request_payload = 17;
+  string response_payload = 18;
+  string request_headers = 19;
+  string response_headers = 20;
+  string base_url = 21;
+  string trace_id = 22;
+  string span_id = 23;
+  string release = 24;
+  string commit = 25;
+}
+
+// LogEvent is one log record (table api_logs).
+message LogEvent {
+  string project_id = 1;
+  string app_id = 2;
+  string environment = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  string level = 5;
+  string message = 6;
+  string logger_name = 7;
+  string endpoint_method = 8;
+  string endpoint_path = 9;
+  uint32 status_code = 10;
+  string consumer_id = 11;
+  string consumer_name = 12;
+  string consumer_group = 13;
+  string trace_id = 14;
+  string span_id = 15;
+  string payload = 16;
+  map<string, string> attributes = 17;
+  string release = 18;
+  string commit = 19;
+}
+
+// SpanEvent is one span (table api_spans).
+message SpanEvent {
+  string project_id = 1;
+  string app_id = 2;
+  string environment = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  string trace_id = 5;
+  string span_id = 6;
+  string parent_span_id = 7;
+  string name = 8;
+  string kind = 9;
+  string service_name = 10;
+  double duration_ms = 11;
+  string status = 12;
+  uint32 status_code = 13;
+  map<string, string> attributes = 14;
+  string release = 15;
+  string commit = 16;
+}
+
+// DeployEvent is one deploy/release (table api_deploys). An empty app_id
+// means a project-wide deploy.
+message DeployEvent {
+  string project_id = 1;
+  string app_id = 2;
+  string environment = 3;
+  string release = 4;
+  string commit = 5;
+  string url = 6;
+  google.protobuf.Timestamp deployed_at = 7;
+}
+
+// RequestBatch is the payload of one message on the requests topic.
+message RequestBatch {
+  repeated RequestEvent events = 1;
+}
+
+// LogBatch is the payload of one message on the logs topic.
+message LogBatch {
+  repeated LogEvent events = 1;
+}
+
+// SpanBatch is the payload of one message on the spans topic.
+message SpanBatch {
+  repeated SpanEvent events = 1;
+}
+
+// DeployBatch is the payload of one message on the deploys topic.
+message DeployBatch {
+  repeated DeployEvent events = 1;
+}

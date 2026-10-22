@@ -1,0 +1,75 @@
+version: "2"
+
+run:
+  timeout: 5m
+  build-tags:
+    - integration
+    - e2e
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - depguard
+    - errorlint
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - prealloc
+    - revive
+    - sqlclosecheck
+    - unconvert
+    - usestdlibvars
+  settings:
+    depguard:
+      rules:
+        # Infrastructure must never depend on feature modules.
+        platform:
+          files:
+            - "**/internal/platform/**"
+          deny:
+            - pkg: github.com/apilens/apilens/internal/ingest
+              desc: platform packages must not import feature modules
+            - pkg: github.com/apilens/apilens/internal/pipeline
+              desc: platform packages must not import feature modules
+            - pkg: github.com/apilens/apilens/internal/controlplane
+              desc: platform packages must not import feature modules
+            - pkg: github.com/apilens/apilens/internal/app
+              desc: platform packages must not import the composition root
+        # Feature modules talk to each other through interfaces, not the root.
+        no-root:
+          files:
+            - "**/internal/ingest/**"
+            - "**/internal/pipeline/**"
+            - "**/internal/controlplane/**"
+          deny:
+            - pkg: github.com/apilens/apilens/internal/app
+              desc: only cmd/ may import the composition root
+    gosec:
+      excludes:
+        - G104 # covered by errcheck
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+  exclusions:
+    generated: strict
+    paths:
+      - internal/gen
+      - internal/controlplane/store/db
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - noctx
+          - prealloc
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/apilens/apilens

@@ -1,72 +1,22 @@
-# Local dev stack for APILens — one tab per service.
-#
-#   pnpm dev      (alias: pnpm stack)
-#
-# Left pane lists every process; arrow keys / mouse switch between them, each
-# with its own live log output.
-#
-# Focus & controls:
-#   <C-a>  toggle focus between the process list and the output pane
-#   q      quit  (must be focused on the process list)
-#   Q      force quit
-#   r      restart selected proc · x stop · s start
-#
-# Lifecycle note: the datastore tabs (postgres/clickhouse/redis/authz) START
-# their containers detached, then just *tail* the logs — so quitting mprocs is
-# instant and leaves the databases running (the same model as `pnpm db:up`).
-# Stop the containers with `pnpm db:down` when you're done for the day.
-# Only api/ingest/web are torn down on quit.
-#
-# The "Neel's Store" mock e-commerce microservices (catalog/user/cart/order/
-# payment/inventory on :9101–:9106) plus a traffic generator are listed but NOT
-# auto-started. Select one and press `s` to start it when you want to exercise
-# the dashboard with lifelike traffic, errors, consumers, and cross-service
-# traces — they all report to the "Neel's Store" APILens project. Switch the SDK
-# source (published PyPI vs the local in-repo SDK) with mock-ecommerce/sdk.sh;
-# see mock-ecommerce/README.md.
+# `task dev` — everything for local development in one terminal UI.
 procs:
-  postgres:
-    shell: "docker compose -f infra/docker/docker-compose.local.yml up -d postgres && docker compose -f infra/docker/docker-compose.local.yml logs -f --no-log-prefix postgres"
-  clickhouse:
-    shell: "docker compose -f infra/docker/docker-compose.local.yml up -d clickhouse && docker compose -f infra/docker/docker-compose.local.yml logs -f --no-log-prefix clickhouse"
-  redis:
-    shell: "docker compose -f infra/docker/docker-compose.local.yml up -d redis && docker compose -f infra/docker/docker-compose.local.yml logs -f --no-log-prefix redis"
-  authz:
-    shell: "docker compose -f infra/docker/docker-compose.local.yml up -d opa && docker compose -f infra/docker/docker-compose.local.yml logs -f --no-log-prefix opa"
-  api:
-    # Django control plane (core API). Waits briefly so Postgres is accepting
-    # connections before the first request. Loads apps/api/.env via dotenv.
-    shell: "sleep 4 && cd apps/api && .venv/bin/python manage.py runserver 0.0.0.0:8000"
-  ingest:
-    # Standalone FastAPI ingestion service on :8001. --env-file loads the
-    # datastore + introspection settings from apps/ingest/.env.
-    shell: "sleep 5 && cd apps/ingest && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001 --env-file .env"
+  datastores:
+    shell: docker compose -f deploy/compose/compose.dev.yaml up
+  backend:
+    shell: go run github.com/air-verse/air@v1.67.4 -c .air.toml
+    env:
+      APILENS_POSTGRES__URL: postgres://apilens:apilens@localhost:5432/apilens?sslmode=disable
+      APILENS_CLICKHOUSE__ADDR: localhost:9000
+      APILENS_CLICKHOUSE__PASSWORD: apilens
+      APILENS_VALKEY__ADDR: localhost:6379
+      APILENS_LOG__FORMAT: text
   web:
-    # Next.js dashboard on :3002.
-    shell: "pnpm --filter frontend dev"
-  # ── Neel's Store mock e-commerce microservices (off by default — press `s`) ──
-  # One APILens app per service; all report to the "Neel's Store" project and
-  # use the SDK currently installed in mock-ecommerce/.venv (published by
-  # default — run `mock-ecommerce/sdk.sh local` to test the in-repo SDK).
-  store-catalog:
-    autostart: false
-    shell: "cd mock-ecommerce && ([ -d .venv ] || (python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt)) && set -a && . ./.env && set +a && PYTHONUNBUFFERED=1 .venv/bin/python -m uvicorn store.catalog:app --host 0.0.0.0 --port 9101 --reload"
-  store-user:
-    autostart: false
-    shell: "cd mock-ecommerce && ([ -d .venv ] || (python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt)) && set -a && . ./.env && set +a && PYTHONUNBUFFERED=1 .venv/bin/python -m uvicorn store.users:app --host 0.0.0.0 --port 9102 --reload"
-  store-cart:
-    autostart: false
-    shell: "cd mock-ecommerce && ([ -d .venv ] || (python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt)) && set -a && . ./.env && set +a && PYTHONUNBUFFERED=1 .venv/bin/python -m uvicorn store.cart:app --host 0.0.0.0 --port 9103 --reload"
-  store-order:
-    autostart: false
-    shell: "cd mock-ecommerce && ([ -d .venv ] || (python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt)) && set -a && . ./.env && set +a && PYTHONUNBUFFERED=1 .venv/bin/python -m uvicorn store.orders:app --host 0.0.0.0 --port 9104 --reload"
-  store-payment:
-    autostart: false
-    shell: "cd mock-ecommerce && ([ -d .venv ] || (python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt)) && set -a && . ./.env && set +a && PYTHONUNBUFFERED=1 .venv/bin/python -m uvicorn store.payments:app --host 0.0.0.0 --port 9105 --reload"
-  store-inventory:
-    autostart: false
-    shell: "cd mock-ecommerce && ([ -d .venv ] || (python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt)) && set -a && . ./.env && set +a && PYTHONUNBUFFERED=1 .venv/bin/python -m uvicorn store.inventory:app --host 0.0.0.0 --port 9106 --reload"
-  # Fire traffic at the running store (restart this tab with `r` to send more).
-  store-traffic:
-    autostart: false
-    shell: "cd mock-ecommerce && .venv/bin/python generate_traffic.py 100"
+    shell: pnpm --filter frontend dev
+  console:
+    shell: pnpm --filter console dev
+    env:
+      APILENS_API_URL: http://localhost:8080
+      # Paste `read_key` from `task seed` here (or export it before `task dev`).
+      # APILENS_READ_KEY: apl_live_...
+  ai:
+    shell: uv run --package apilens-ai uvicorn apilens_ai.main:app --reload --port 8000

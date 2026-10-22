@@ -1,0 +1,42 @@
+# Git hooks (https://lefthook.dev). Install once with: lefthook install
+# Hooks are fast checks only; CI runs the full suite.
+pre-commit:
+  parallel: true
+  commands:
+    gofmt:
+      glob: "*.go"
+      exclude:
+        - "internal/gen/**"
+      run: |
+        unformatted=$(gofmt -l {staged_files})
+        if [ -n "$unformatted" ]; then
+          echo "gofmt needed on:"; echo "$unformatted"; exit 1
+        fi
+    go-vet:
+      glob: "*.go"
+      run: go vet ./...
+    ruff-check:
+      glob: "*.py"
+      run: uvx ruff check {staged_files}
+    ruff-format:
+      glob: "*.py"
+      run: uvx ruff format --check {staged_files}
+    biome:
+      glob: "*.{js,jsx,ts,tsx,json,jsonc}"
+      exclude:
+        - "apps/web/**"
+        - "apps/docs/**"
+        - "**/node_modules/**"
+      run: pnpm exec biome check --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+
+commit-msg:
+  commands:
+    conventional-commit:
+      run: |
+        msg=$(head -n1 {1})
+        pattern='^(feat|fix|perf|refactor|docs|test|build|ci|chore|deps|revert)(\([a-z0-9._/-]+\))?!?: .{1,100}$'
+        if ! printf '%s' "$msg" | grep -Eq "$pattern" && ! printf '%s' "$msg" | grep -Eq '^(Merge|Revert) '; then
+          echo "Commit title must follow Conventional Commits, e.g. 'feat(ingest): accept OTLP logs'."
+          echo "Got: $msg"
+          exit 1
+        fi

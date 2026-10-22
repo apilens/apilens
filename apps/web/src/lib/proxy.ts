@@ -105,3 +105,44 @@ export async function proxyDjangoGet(
     return NextResponse.json({ error: "Upstream request failed" }, { status: 502 });
   }
 }
+
+/**
+ * Like proxyDjangoGet, but for write methods: forwards the JSON body (if any)
+ * to the Django API with the session's bearer token.
+ */
+export async function proxyDjangoSend(
+  request: NextRequest,
+  path: string,
+  method: "POST" | "PATCH" | "PUT" | "DELETE",
+): Promise<NextResponse> {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  const qs = new URL(request.url).searchParams.toString();
+  const upstream = `${DJANGO_API_URL}${path}${qs ? `?${qs}` : ""}`;
+  let body: string | undefined;
+  try {
+    const text = await request.text();
+    body = text || undefined;
+  } catch {
+    body = undefined;
+  }
+
+  try {
+    const res = await fetchWithRefresh(upstream, session, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body,
+      cache: "no-store",
+    });
+    const resBody = await res.text();
+    return new NextResponse(resBody, {
+      status: res.status,
+      headers: { "Content-Type": res.headers.get("content-type") || "application/json" },
+    });
+  } catch {
+    return NextResponse.json({ error: "Upstream request failed" }, { status: 502 });
+  }
+}

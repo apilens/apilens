@@ -1,0 +1,76 @@
+name: Bug report
+description: Something in APILens is broken or behaves unexpectedly.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. **Do not report security
+        vulnerabilities here** — use [private vulnerability reporting](https://github.com/apilens/apilens/security/advisories/new) instead.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Ingest (edge / OTLP)
+        - Dashboard (web)
+        - API / control plane
+        - AI service
+        - Python SDK
+        - TypeScript SDK
+        - Java SDK
+        - Self-hosting (compose / Helm)
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`apilens version` output, image tag, or SDK version."
+      placeholder: "e.g. v2.0.0, ghcr.io/apilens/apilens:edge, apilenss 0.5.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - APILens Cloud
+        - Self-hosted (docker compose)
+        - Self-hosted (Helm / Kubernetes)
+        - Local development
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste logs or error output. Remove API keys and personal data first.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I removed secrets (API keys, tokens, passwords) from this report.
+          required: true

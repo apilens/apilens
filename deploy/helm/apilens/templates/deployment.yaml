@@ -1,0 +1,119 @@
+{{- $implemented := list "all" "edge" }}
+{{- $configChecksum := include "apilens.configData" . | sha256sum }}
+{{- range $role, $spec := .Values.roles }}
+{{- if $spec.enabled }}
+{{- if not (has $role $implemented) }}
+{{- fail (printf "roles.%s: role is not available in this release (implemented: %s)" $role (join ", " $implemented)) }}
+{{- end }}
+{{- $ctx := dict "root" $ "component" $role }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "apilens.fullname" $ }}-{{ $role }}
+  labels:
+    {{- include "apilens.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $role }}
+spec:
+  {{- if not (dig "autoscaling" "enabled" false $spec) }}
+  replicas: {{ if hasKey $spec "replicas" }}{{ $spec.replicas }}{{ else }}1{{ end }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 25%
+  selector:
+    matchLabels:
+      {{- include "apilens.componentSelectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "apilens.componentSelectorLabels" $ctx | nindent 8 }}
+        {{- with $.Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ $configChecksum }}
+        {{- if $.Values.metrics.podAnnotations }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
+        {{- end }}
+        {{- with $.Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "apilens.serviceAccountName" $ }}
+      automountServiceAccountToken: {{ $.Values.serviceAccount.automountServiceAccountToken }}
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml $.Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: apilens
+          image: {{ include "apilens.imageRef" (dict "image" $.Values.image "root" $) }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          args: ["-target={{ $role }}"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "apilens.fullname" $ }}-config
+          env:
+            {{- include "apilens.secretEnv" (dict "root" $ "secretName" (include "apilens.secretName" $)) | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          resources:
+            {{- toYaml $spec.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $.Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+      {{- with (include "apilens.topologySpread" $ctx) }}
+      topologySpreadConstraints:
+        {{- . | nindent 8 }}
+      {{- end }}
+      {{- with $spec.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $spec.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $spec.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}

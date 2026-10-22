@@ -1,0 +1,52 @@
+{{- if .Values.migrations.enabled }}
+{{- /*
+Runs `apilens migrate` (embedded Postgres + ClickHouse migrations) before
+install/upgrade. Hooks run before regular chart resources exist, so this Job
+inlines its config instead of mounting the ConfigMap, reads credentials from
+the hook Secret (or existingSecret), and uses the namespace's default
+ServiceAccount with no token mounted.
+*/}}
+{{- $config := include "apilens.configData" . | fromYaml }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "apilens.fullname" . }}-migrate
+  labels:
+    {{- include "apilens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "apilens.componentSelectorLabels" (dict "root" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "apilens.imageRef" (dict "image" .Values.image "root" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate"]
+          env:
+            {{- range $k, $v := $config }}
+            - name: {{ $k }}
+              value: {{ $v | toString | quote }}
+            {{- end }}
+            {{- include "apilens.secretEnv" (dict "root" . "secretName" (include "apilens.hookSecretName" .)) | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+{{- end }}

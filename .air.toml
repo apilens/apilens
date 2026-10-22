@@ -1,0 +1,15 @@
+# Hot reload for the Go backend during `task dev` (https://github.com/air-verse/air).
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/apilens ./cmd/apilens"
+entrypoint = ["./tmp/apilens", "-target=all"]
+include_ext = ["go", "sql"]
+include_dir = ["cmd", "internal"]
+exclude_dir = ["internal/gen", "node_modules", "apps", "packages", "tmp", "bin"]
+delay = 500
+stop_on_error = true
+
+[log]
+time = false

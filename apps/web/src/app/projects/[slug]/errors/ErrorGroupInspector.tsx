@@ -1,11 +1,22 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Clock, Copy, Fingerprint } from "lucide-react";
+import { Check, Clock, Copy, ExternalLink, Fingerprint, GitCommitHorizontal, Loader2, Sparkles, X } from "lucide-react";
 import Inspector from "@/components/aperture/Inspector";
 import { fmtNum } from "@/lib/format";
 import { formatDateTime, statusTone, timeAgo } from "../endpoints/detail/sections";
-import { type ErrorEvent, type ErrorGroup, type OccurrenceRow, reasonPhrase, splitException } from "./util";
+import {
+  type ErrorEvent,
+  type ErrorGroup,
+  type FixHandoffResult,
+  type Investigation,
+  type IssueVerification,
+  type OccurrenceRow,
+  type Postmortem,
+  type SuspectResponse,
+  reasonPhrase,
+  splitException,
+} from "./util";
 
 function MetaItem({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -33,8 +44,18 @@ export default function ErrorGroupInspector({
 }) {
   const [occurrences, setOccurrences] = useState<OccurrenceRow[] | null>(null);
   const [stackEvent, setStackEvent] = useState<ErrorEvent | null>(null);
+  const [suspects, setSuspects] = useState<SuspectResponse | null>(null);
+  const [investigation, setInvestigation] = useState<Investigation | null>(null);
+  const [investigating, setInvestigating] = useState(false);
+  const [verification, setVerification] = useState<IssueVerification | null>(null);
+  const [postmortem, setPostmortem] = useState<Postmortem | null>(null);
+  const [pmBusy, setPmBusy] = useState(false);
+  const pmPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [fixBusy, setFixBusy] = useState("");
+  const [fixNote, setFixNote] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const reqId = useRef(0);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isServer = group.status_code >= 500;
 
@@ -93,6 +114,289 @@ export default function ErrorGroupInspector({
     return Array.from(seen);
   }, [occurrences]);
 
+  // Suspect commits (Code Link): once the stack event is known, ask the
+  // backend which commits most likely introduced this error. Scoped by
+  // fingerprint when available; fails soft to nothing.
+  useEffect(() => {
+    if (!stackEvent || !stackEvent.payload) {
+      setSuspects(null);
+      return;
+    }
+    const myId = reqId.current;
+    (async () => {
+      const p = new URLSearchParams();
+      p.set("since", since);
+      p.set("until", until);
+      if (environment) p.set("environment", environment);
+      if (stackEvent.fingerprint) {
+        p.set("fingerprint", stackEvent.fingerprint);
+      } else {
+        p.set("method", group.method);
+        p.set("path", group.path);
+      }
+      try {
+        const res = await fetch(`/api/projects/${projectSlug}/analytics/suspect-commits?${p.toString()}`);
+        const data = res.ok ? ((await res.json()) as SuspectResponse) : null;
+        if (myId === reqId.current) setSuspects(data);
+      } catch {
+        if (myId === reqId.current) setSuspects(null);
+      }
+    })();
+  }, [projectSlug, stackEvent, group.method, group.path, since, until, environment]);
+
+  // AI investigation: load the latest run for this issue once the stack event
+  // (and thus fingerprint) is known; poll while queued/running.
+  const fingerprint = stackEvent?.fingerprint || "";
+
+  useEffect(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    if (!fingerprint) {
+      setInvestigation(null);
+      return;
+    }
+    let cancelled = false;
+    const fetchOnce = async (): Promise<Investigation | null> => {
+      try {
+        const res = await fetch(
+          `/api/projects/${projectSlug}/analytics/investigations?fingerprint=${encodeURIComponent(fingerprint)}`,
+        );
+        return res.ok ? ((await res.json()) as Investigation) : null;
+      } catch {
+        return null;
+      }
+    };
+    (async () => {
+      const inv = await fetchOnce();
+      if (cancelled) return;
+      setInvestigation(inv);
+      if (inv?.exists && (inv.status === "queued" || inv.status === "running")) {
+        pollRef.current = setInterval(async () => {
+          const next = await fetchOnce();
+          if (cancelled || !next) return;
+          setInvestigation(next);
+          if (next.status === "completed" || next.status === "failed") {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+        }, 3000);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [projectSlug, fingerprint]);
+
+  // Issue lifecycle + post-deploy verification state.
+  useEffect(() => {
+    if (!fingerprint) {
+      setVerification(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/projects/${projectSlug}/analytics/issue-verification?fingerprint=${encodeURIComponent(fingerprint)}`,
+        );
+        const data = res.ok ? ((await res.json()) as IssueVerification) : null;
+        if (!cancelled) setVerification(data);
+      } catch {
+        if (!cancelled) setVerification(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectSlug, fingerprint]);
+
+  const setIssueStatus = async (status: "resolved" | "open") => {
+    if (!fingerprint) return;
+    setFixBusy(`status-${status}`);
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/analytics/error-issues`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fingerprint, status, release: stackEvent?.release || "" }),
+      });
+      if (!res.ok) throw new Error("Failed to update issue");
+      setVerification((v) => (v ? { ...v, status } : { exists: true, status }));
+      setFixNote({ kind: "ok", text: status === "resolved" ? "Marked resolved — APILens verifies after the next deploy." : "Issue reopened." });
+    } catch (err) {
+      setFixNote({ kind: "err", text: err instanceof Error ? err.message : "Failed to update issue" });
+    } finally {
+      setFixBusy("");
+    }
+  };
+
+  // Postmortem: load latest for this issue; poll while drafting.
+  useEffect(() => {
+    if (pmPollRef.current) {
+      clearInterval(pmPollRef.current);
+      pmPollRef.current = null;
+    }
+    if (!fingerprint) {
+      setPostmortem(null);
+      return;
+    }
+    let cancelled = false;
+    const fetchOnce = async (): Promise<Postmortem | null> => {
+      try {
+        const res = await fetch(
+          `/api/projects/${projectSlug}/analytics/postmortem?fingerprint=${encodeURIComponent(fingerprint)}`,
+        );
+        return res.ok ? ((await res.json()) as Postmortem) : null;
+      } catch {
+        return null;
+      }
+    };
+    (async () => {
+      const pm = await fetchOnce();
+      if (cancelled) return;
+      setPostmortem(pm);
+      if (pm?.exists && (pm.status === "queued" || pm.status === "running")) {
+        pmPollRef.current = setInterval(async () => {
+          const next = await fetchOnce();
+          if (cancelled || !next) return;
+          setPostmortem(next);
+          if (next.status === "completed" || next.status === "failed") {
+            if (pmPollRef.current) clearInterval(pmPollRef.current);
+            pmPollRef.current = null;
+          }
+        }, 3000);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (pmPollRef.current) {
+        clearInterval(pmPollRef.current);
+        pmPollRef.current = null;
+      }
+    };
+  }, [projectSlug, fingerprint]);
+
+  const startPostmortem = async () => {
+    if (!fingerprint || pmBusy) return;
+    setPmBusy(true);
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/analytics/postmortem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fingerprint }),
+      });
+      const pm = (await res.json().catch(() => null)) as Postmortem | null;
+      if (res.ok && pm) {
+        setPostmortem(pm);
+        if (!pmPollRef.current && (pm.status === "queued" || pm.status === "running")) {
+          pmPollRef.current = setInterval(async () => {
+            try {
+              const r = await fetch(
+                `/api/projects/${projectSlug}/analytics/postmortem?fingerprint=${encodeURIComponent(fingerprint)}`,
+              );
+              const next = r.ok ? ((await r.json()) as Postmortem) : null;
+              if (next) {
+                setPostmortem(next);
+                if (next.status === "completed" || next.status === "failed") {
+                  if (pmPollRef.current) clearInterval(pmPollRef.current);
+                  pmPollRef.current = null;
+                }
+              }
+            } catch { /* keep polling */ }
+          }, 3000);
+        }
+      }
+    } finally {
+      setPmBusy(false);
+    }
+  };
+
+  const copyPostmortem = async () => {
+    if (postmortem?.markdown) {
+      try {
+        await navigator.clipboard.writeText(postmortem.markdown);
+      } catch { /* clipboard unavailable */ }
+    }
+  };
+
+  const handoff = async (kind: "clipboard" | "github_issue" | "cursor") => {
+    if (!fingerprint) return;
+    setFixBusy(kind);
+    setFixNote(null);
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/analytics/fix-handoff`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fingerprint, kind }),
+      });
+      const data = (await res.json().catch(() => ({}))) as FixHandoffResult & { detail?: string; error?: string };
+      if (!res.ok) throw new Error(data.detail || data.error || "Handoff failed");
+
+      if (kind === "github_issue") {
+        setFixNote({ kind: "ok", text: `GitHub issue created in ${data.repository} — assign it to Copilot to start the coding agent.` });
+        if (data.external_url) window.open(data.external_url, "_blank", "noreferrer");
+      } else {
+        try {
+          await navigator.clipboard.writeText(data.markdown || "");
+        } catch { /* clipboard unavailable */ }
+        if (kind === "cursor") {
+          // Best-effort deeplink; the brief is on the clipboard either way.
+          const text = encodeURIComponent((data.markdown || "").slice(0, 6000));
+          window.location.href = `cursor://anysphere.cursor-deeplink/prompt?text=${text}`;
+          setFixNote({ kind: "ok", text: "Fix brief copied — opening Cursor (paste it if the deeplink doesn't fire)." });
+        } else {
+          setFixNote({ kind: "ok", text: "Fix brief copied — paste it into Claude Code (or any coding agent)." });
+        }
+      }
+    } catch (err) {
+      setFixNote({ kind: "err", text: err instanceof Error ? err.message : "Handoff failed" });
+    } finally {
+      setFixBusy("");
+    }
+  };
+
+  const startInvestigation = async () => {
+    if (!fingerprint || investigating) return;
+    setInvestigating(true);
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/analytics/investigations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fingerprint }),
+      });
+      const inv = (await res.json().catch(() => null)) as Investigation | null;
+      if (res.ok && inv) {
+        setInvestigation(inv);
+        if (!pollRef.current && (inv.status === "queued" || inv.status === "running")) {
+          pollRef.current = setInterval(async () => {
+            try {
+              const r = await fetch(
+                `/api/projects/${projectSlug}/analytics/investigations?fingerprint=${encodeURIComponent(fingerprint)}`,
+              );
+              const next = r.ok ? ((await r.json()) as Investigation) : null;
+              if (next) {
+                setInvestigation(next);
+                if (next.status === "completed" || next.status === "failed") {
+                  if (pollRef.current) clearInterval(pollRef.current);
+                  pollRef.current = null;
+                }
+              }
+            } catch { /* keep polling */ }
+          }, 3000);
+        }
+      } else if (inv && "detail" in (inv as object)) {
+        setInvestigation({ exists: false, ai_configured: false, error: String((inv as { detail?: string }).detail || "") });
+      }
+    } finally {
+      setInvestigating(false);
+    }
+  };
+
   const stack = stackEvent?.payload || "";
   const { type } = splitException(stackEvent?.message || "");
 
@@ -148,6 +452,251 @@ export default function ErrorGroupInspector({
           </p>
         )}
       </div>
+
+      {/* AI investigation (the Investigator, Phase 2) */}
+      {isServer && stack && fingerprint ? (
+        <div className="err-insp-section">
+          <div className="err-insp-section-head">
+            <h3><Sparkles size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />AI investigation</h3>
+            {(!investigation?.exists ||
+              investigation.status === "completed" ||
+              investigation.status === "failed") && (
+              <button
+                type="button"
+                className="ep-rl-copy"
+                onClick={startInvestigation}
+                disabled={investigating}
+              >
+                {investigating ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                {investigation?.exists && investigation.status === "completed" ? "Re-investigate" : "Investigate"}
+              </button>
+            )}
+          </div>
+
+          {!investigation?.exists && investigation?.error ? (
+            <p className="err-insp-note">{investigation.error}</p>
+          ) : !investigation?.exists ? (
+            <p className="err-insp-note">
+              Run a staged root-cause analysis over this issue&apos;s stack trace, trace
+              waterfall, captured request, suspect commits, and deploys.
+            </p>
+          ) : investigation.status === "queued" || investigation.status === "running" ? (
+            <p className="err-insp-note">
+              <Loader2 size={13} className="animate-spin" style={{ verticalAlign: "-2px", marginRight: 6 }} />
+              Investigating — reading evidence{investigation.status === "running" ? " and reasoning over the code" : ""}…
+            </p>
+          ) : investigation.status === "failed" ? (
+            <p className="err-insp-note">Investigation failed: {investigation.error || "unknown error"}</p>
+          ) : (
+            <div className="settings-section-content" style={{ gap: 10 }}>
+              <div>
+                <span
+                  className={`endpoint-status-pill ${
+                    investigation.confidence === "high"
+                      ? "status-success"
+                      : investigation.confidence === "medium"
+                        ? "status-warning"
+                        : "status-error"
+                  }`}
+                  style={{ marginRight: 8 }}
+                >
+                  {investigation.confidence || "low"} confidence
+                </span>
+                <strong>{investigation.root_cause}</strong>
+              </div>
+              {investigation.impact_summary ? (
+                <p className="err-insp-note" style={{ margin: 0 }}>{investigation.impact_summary}</p>
+              ) : null}
+              {investigation.explanation ? (
+                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55 }}>{investigation.explanation}</p>
+              ) : null}
+              {(investigation.evidence || []).length > 0 ? (
+                <div>
+                  <div className="err-insp-section-head"><h3>Evidence trail</h3></div>
+                  <ul className="err-occ-list">
+                    {(investigation.evidence || []).map((e, i) => (
+                      <li key={i} className="err-occ">
+                        <code className="err-occ-trace">{e.source}</code>
+                        <span className="err-occ-consumer">{e.detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {(investigation.fix_steps || []).length > 0 ? (
+                <div>
+                  <div className="err-insp-section-head"><h3>Fix plan</h3></div>
+                  <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.6 }}>
+                    {(investigation.fix_steps || []).map((s, i) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ol>
+                </div>
+              ) : null}
+              {investigation.patch_suggestion ? (
+                <pre className="request-payload-pre ep-log-trace">{investigation.patch_suggestion}</pre>
+              ) : null}
+              {investigation.risk_notes ? (
+                <p className="err-insp-note" style={{ margin: 0 }}>⚠ {investigation.risk_notes}</p>
+              ) : null}
+              <p className="err-insp-note" style={{ margin: 0, opacity: 0.7 }}>
+                {investigation.model} · {fmtNum((investigation.input_tokens || 0) + (investigation.output_tokens || 0))} tokens
+              </p>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {/* Fix handoff + lifecycle (Phase 4) */}
+      {isServer && stack && fingerprint ? (
+        <div className="err-insp-section">
+          <div className="err-insp-section-head">
+            <h3>Fix with your agent</h3>
+            {verification?.exists ? (
+              verification.verified ? (
+                <span className="endpoint-status-pill status-success" title="Resolved, deployed, and no recurrence since">
+                  <Check size={11} style={{ verticalAlign: "-1px" }} /> verified in production
+                </span>
+              ) : verification.status === "resolved" ? (
+                <span
+                  className="endpoint-status-pill status-warning"
+                  title={
+                    verification.deploy_after_resolve
+                      ? `Deployed ${verification.deploy_after_resolve.release}; watching for recurrence`
+                      : "Waiting for a deploy to verify against"
+                  }
+                >
+                  {verification.deploy_after_resolve ? "verifying…" : "awaiting deploy"}
+                </span>
+              ) : verification.status === "regressed" ? (
+                <span className="endpoint-status-pill status-error">regressed</span>
+              ) : null
+            ) : null}
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <button type="button" className="ep-rl-copy" onClick={() => handoff("clipboard")} disabled={!!fixBusy}>
+              {fixBusy === "clipboard" ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
+              Copy fix brief
+            </button>
+            <button type="button" className="ep-rl-copy" onClick={() => handoff("github_issue")} disabled={!!fixBusy}>
+              {fixBusy === "github_issue" ? <Loader2 size={12} className="animate-spin" /> : <GitCommitHorizontal size={12} />}
+              GitHub issue (Copilot)
+            </button>
+            <button type="button" className="ep-rl-copy" onClick={() => handoff("cursor")} disabled={!!fixBusy}>
+              {fixBusy === "cursor" ? <Loader2 size={12} className="animate-spin" /> : <ExternalLink size={12} />}
+              Open in Cursor
+            </button>
+            {verification?.exists && verification.status === "resolved" ? (
+              <button type="button" className="ep-rl-copy" onClick={() => setIssueStatus("open")} disabled={!!fixBusy}>
+                {fixBusy === "status-open" ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+                Reopen
+              </button>
+            ) : (
+              <button type="button" className="ep-rl-copy" onClick={() => setIssueStatus("resolved")} disabled={!!fixBusy}>
+                {fixBusy === "status-resolved" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                Mark resolved
+              </button>
+            )}
+          </div>
+          {fixNote ? (
+            <p
+              className="err-insp-note"
+              style={{ marginTop: 6, color: fixNote.kind === "err" ? "var(--error, #f87171)" : undefined }}
+            >
+              {fixNote.text}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Postmortem (Narrator, Phase 6) */}
+      {isServer && stack && fingerprint ? (
+        <div className="err-insp-section">
+          <div className="err-insp-section-head">
+            <h3>Postmortem</h3>
+            {(!postmortem?.exists ||
+              postmortem.status === "completed" ||
+              postmortem.status === "failed") && (
+              <button type="button" className="ep-rl-copy" onClick={startPostmortem} disabled={pmBusy}>
+                {pmBusy ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                {postmortem?.exists && postmortem.status === "completed" ? "Regenerate" : "Draft postmortem"}
+              </button>
+            )}
+          </div>
+          {!postmortem?.exists ? (
+            <p className="err-insp-note">
+              Auto-draft a blameless incident postmortem — timeline, impact, root cause,
+              resolution, and verification — from everything APILens captured.
+            </p>
+          ) : postmortem.status === "queued" || postmortem.status === "running" ? (
+            <p className="err-insp-note">
+              <Loader2 size={13} className="animate-spin" style={{ verticalAlign: "-2px", marginRight: 6 }} />
+              Drafting the postmortem…
+            </p>
+          ) : postmortem.status === "failed" ? (
+            <p className="err-insp-note">Postmortem failed: {postmortem.error || "unknown error"}</p>
+          ) : (
+            <div className="settings-section-content" style={{ gap: 8 }}>
+              {postmortem.summary ? (
+                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55 }}>{postmortem.summary}</p>
+              ) : null}
+              <pre className="request-payload-pre ep-log-trace" style={{ whiteSpace: "pre-wrap" }}>
+                {postmortem.markdown}
+              </pre>
+              <button type="button" className="ep-rl-copy" onClick={copyPostmortem} style={{ alignSelf: "flex-start" }}>
+                <Copy size={12} /> Copy markdown
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {/* Suspect commits + source links (Code Link) */}
+      {suspects && (suspects.suspect_commits.length > 0 || suspects.frame_links.length > 0) ? (
+        <div className="err-insp-section">
+          <div className="err-insp-section-head"><h3>Suspect commits</h3></div>
+          {suspects.suspect_commits.length === 0 ? (
+            <p className="err-insp-note">No recent commits touched the files in this stack trace.</p>
+          ) : (
+            <ul className="err-occ-list">
+              {suspects.suspect_commits.map((c) => (
+                <li key={c.sha} className="err-occ">
+                  <span className="err-occ-time">
+                    <GitCommitHorizontal size={12} />
+                    <a href={c.url} target="_blank" rel="noreferrer">
+                      <code className="err-occ-trace">{c.short_sha}</code>
+                    </a>
+                  </span>
+                  <span className="err-occ-consumer" title={c.files.join(", ")}>
+                    {c.message || "(no message)"}
+                  </span>
+                  <span className="err-occ-time">
+                    {c.author_login || c.author_name || "unknown"} · {c.date ? timeAgo(c.date) : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {suspects.frame_links.length > 0 ? (
+            <div className="err-consumer-chips" style={{ marginTop: 8 }}>
+              {suspects.frame_links.slice(0, 4).map((f) => (
+                <a
+                  key={`${f.mapped_path}-${f.line}`}
+                  className="err-consumer-chip"
+                  href={f.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={`${f.repository}/${f.mapped_path}`}
+                >
+                  <ExternalLink size={12} />
+                  {f.mapped_path.split("/").pop()}:{f.line} in {f.function}
+                </a>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Affected consumers */}
       {consumers.length > 0 ? (

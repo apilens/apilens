@@ -61,6 +61,8 @@ def _get_client_from_settings() -> ApiLensClient:
         project_slug=project_slug,
         base_url=getattr(settings, "APILENS_BASE_URL", "https://ingest.apilens.ai/v1"),
         environment=getattr(settings, "APILENS_ENVIRONMENT", "production"),
+        release=str(getattr(settings, "APILENS_RELEASE", "") or ""),
+        commit=str(getattr(settings, "APILENS_COMMIT", "") or ""),
         batch_size=int(getattr(settings, "APILENS_BATCH_SIZE", 200)),
         flush_interval=float(getattr(settings, "APILENS_FLUSH_INTERVAL", 3.0)),
     )
