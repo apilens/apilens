@@ -5,7 +5,8 @@
 // that land in ClickHouse.
 //
 //	APILENS_E2E_BASE_URL=http://localhost:8080
-//	APILENS_E2E_API_KEY=apl_live_...   (from `apilens seed`)
+//	APILENS_E2E_API_KEY=apl_live_...   (from `apilens seed`: api_key)
+//	APILENS_E2E_READ_KEY=apl_live_...  (from `apilens seed`: read_key, optional)
 //	APILENS_E2E_APP=default            (app slug from seed)
 //	APILENS_E2E_CLICKHOUSE_HTTP=http://localhost:8123
 //	APILENS_E2E_CLICKHOUSE_USER / APILENS_E2E_CLICKHOUSE_PASSWORD
@@ -193,4 +194,60 @@ func TestIngestEndToEnd(t *testing.T) {
 	e.eventually(t, "spans", fmt.Sprintf("SELECT count() FROM api_spans WHERE name LIKE '%s %%'", run), 2)
 	e.eventually(t, "otlp span status", fmt.Sprintf("SELECT count() FROM api_spans WHERE name = '%s otlp span' AND status_code = 201 AND environment = 'e2e'", run), 1)
 	e.eventually(t, "deploys", fmt.Sprintf("SELECT count() FROM api_deploys WHERE release = '%s'", run), 1)
+
+	// 6. The dashboard API serves the same data with a read key.
+	readKey := os.Getenv("APILENS_E2E_READ_KEY")
+	if readKey == "" {
+		t.Log("APILENS_E2E_READ_KEY not set; skipping query API checks")
+		return
+	}
+	var endpoints struct {
+		Endpoints []struct {
+			Path     string `json:"path"`
+			Requests int    `json:"requests"`
+		} `json:"endpoints"`
+	}
+	e.getJSON(t, readKey, "/api/v1/traffic/endpoints?range=1h&env=e2e", &endpoints)
+	found := false
+	for _, ep := range endpoints.Endpoints {
+		if ep.Path == "/"+run+"/{id}" && ep.Requests == 3 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("query API endpoints missing /%s/{id} with 3 requests: %+v", run, endpoints)
+	}
+	if code := e.status(t, e.key, "/api/v1/traffic/summary"); code != http.StatusForbidden {
+		t.Fatalf("ingest key on the query API = %d, want 403", code)
+	}
+}
+
+func (e env) status(t *testing.T, key, path string) int {
+	t.Helper()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, e.base+path, nil)
+	req.Header.Set("Authorization", "Bearer "+key)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode
+}
+
+func (e env) getJSON(t *testing.T, key, path string, out any) {
+	t.Helper()
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, e.base+path, nil)
+	req.Header.Set("Authorization", "Bearer "+key)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("GET %s = %d %s", path, resp.StatusCode, b)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		t.Fatal(err)
+	}
 }

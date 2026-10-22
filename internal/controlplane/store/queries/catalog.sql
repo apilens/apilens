@@ -27,7 +27,13 @@ DO UPDATE SET name = environments.name
 RETURNING id, project_id, name, created_at;
 
 -- name: ListProjectApps :many
-SELECT id, slug
+SELECT id, slug, name
 FROM apps
 WHERE project_id = @project_id AND deleted_at IS NULL
 ORDER BY slug;
+
+-- name: GetProjectWithOrg :one
+SELECT p.id, p.slug, p.name, o.id AS org_id, o.slug AS org_slug, o.name AS org_name
+FROM projects p
+JOIN organizations o ON o.id = p.org_id
+WHERE p.id = @id AND p.deleted_at IS NULL;

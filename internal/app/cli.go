@@ -25,6 +25,7 @@ import (
 	applog "github.com/apilens/apilens/internal/platform/log"
 	"github.com/apilens/apilens/internal/platform/pg"
 	"github.com/apilens/apilens/internal/platform/server"
+	"github.com/apilens/apilens/internal/query"
 )
 
 const usage = `apilens — API observability platform (one binary, many roles)
@@ -83,7 +84,7 @@ func Main(args []string, stdout, stderr io.Writer, environ []string) int {
 
 func printUsage(w io.Writer) {
 	planned := slices.Sorted(maps.Keys(PlannedTargets))
-	_, _ = fmt.Fprintf(w, usage, strings.Join([]string{TargetAll, TargetEdge}, ", "), strings.Join(planned, ", "))
+	_, _ = fmt.Fprintf(w, usage, strings.Join([]string{TargetAll, TargetEdge, TargetQuery}, ", "), strings.Join(planned, ", "))
 }
 
 // loadConfig parses the shared flags and returns the merged config.
@@ -204,6 +205,7 @@ func runHealthcheck(ctx context.Context, args []string, stderr io.Writer) error 
 func runOpenAPI(stdout io.Writer) error {
 	srv := server.New(config.ServerConfig{}, slog.New(slog.NewTextHandler(io.Discard, nil)), prometheus.NewRegistry())
 	server.RegisterMeta(srv.API(), nil)
+	query.Register(srv.API(), nil) // handlers are never invoked; only the schema is read
 	b, err := json.MarshalIndent(srv.API().OpenAPI(), "", "  ")
 	if err != nil {
 		return err

@@ -33,7 +33,11 @@ type Result struct {
 	AppID       uuid.UUID `json:"app_id"`
 	AppSlug     string    `json:"app_slug"`
 	Environment string    `json:"environment"`
-	APIKey      string    `json:"api_key"`
+	// APIKey (scope "ingest") goes into SDKs and OTLP exporters.
+	APIKey string `json:"api_key"`
+	// ReadKey (scope "read") lets the console and scripts query data. It
+	// stands in for user sessions until identity arrives in M2.
+	ReadKey string `json:"read_key"`
 }
 
 // Seed is idempotent for the org/project/app/environment and always issues a
@@ -63,19 +67,35 @@ func Seed(ctx context.Context, pool *pgxpool.Pool, o Options) (Result, error) {
 		if _, err := q.UpsertEnvironment(ctx, db.UpsertEnvironmentParams{ID: newID(), ProjectID: project.ID, Name: o.Environment}); err != nil {
 			return fmt.Errorf("environment: %w", err)
 		}
-		raw, prefix, hash, err := apikeys.Generate()
+		ingestKey, err := issueKey(ctx, q, project.ID, o.KeyName, "ingest")
 		if err != nil {
 			return err
 		}
-		if _, err := q.CreateAPIKey(ctx, db.CreateAPIKeyParams{
-			ID: newID(), ProjectID: project.ID, Name: o.KeyName, Prefix: prefix, KeyHash: hash, Scopes: []string{"ingest"},
-		}); err != nil {
-			return fmt.Errorf("api key: %w", err)
+		readKey, err := issueKey(ctx, q, project.ID, o.KeyName+"-read", "read")
+		if err != nil {
+			return err
 		}
-		res = Result{OrgID: org.ID, ProjectID: project.ID, ProjectSlug: project.Slug, AppID: app.ID, AppSlug: app.Slug, Environment: o.Environment, APIKey: raw}
+		res = Result{
+			OrgID: org.ID, ProjectID: project.ID, ProjectSlug: project.Slug, AppID: app.ID, AppSlug: app.Slug,
+			Environment: o.Environment, APIKey: ingestKey, ReadKey: readKey,
+		}
 		return nil
 	})
 	return res, err
+}
+
+// issueKey creates a single-scope key and returns its raw value.
+func issueKey(ctx context.Context, q *db.Queries, projectID uuid.UUID, name, scope string) (string, error) {
+	raw, prefix, hash, err := apikeys.Generate()
+	if err != nil {
+		return "", err
+	}
+	if _, err := q.CreateAPIKey(ctx, db.CreateAPIKeyParams{
+		ID: newID(), ProjectID: projectID, Name: name, Prefix: prefix, KeyHash: hash, Scopes: []string{scope},
+	}); err != nil {
+		return "", fmt.Errorf("%s key: %w", scope, err)
+	}
+	return raw, nil
 }
 
 // newID returns a time-ordered UUIDv7 (better B-tree locality than v4).

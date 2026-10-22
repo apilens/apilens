@@ -12,8 +12,38 @@ import (
 	"github.com/google/uuid"
 )
 
+const getProjectWithOrg = `-- name: GetProjectWithOrg :one
+SELECT p.id, p.slug, p.name, o.id AS org_id, o.slug AS org_slug, o.name AS org_name
+FROM projects p
+JOIN organizations o ON o.id = p.org_id
+WHERE p.id = $1 AND p.deleted_at IS NULL
+`
+
+type GetProjectWithOrgRow struct {
+	ID      uuid.UUID
+	Slug    string
+	Name    string
+	OrgID   uuid.UUID
+	OrgSlug string
+	OrgName string
+}
+
+func (q *Queries) GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error) {
+	row := q.db.QueryRow(ctx, getProjectWithOrg, id)
+	var i GetProjectWithOrgRow
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.OrgID,
+		&i.OrgSlug,
+		&i.OrgName,
+	)
+	return i, err
+}
+
 const listProjectApps = `-- name: ListProjectApps :many
-SELECT id, slug
+SELECT id, slug, name
 FROM apps
 WHERE project_id = $1 AND deleted_at IS NULL
 ORDER BY slug
@@ -22,6 +52,7 @@ ORDER BY slug
 type ListProjectAppsRow struct {
 	ID   uuid.UUID
 	Slug string
+	Name string
 }
 
 func (q *Queries) ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppsRow, error) {
@@ -33,7 +64,7 @@ func (q *Queries) ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]L
 	items := []ListProjectAppsRow{}
 	for rows.Next() {
 		var i ListProjectAppsRow
-		if err := rows.Scan(&i.ID, &i.Slug); err != nil {
+		if err := rows.Scan(&i.ID, &i.Slug, &i.Name); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

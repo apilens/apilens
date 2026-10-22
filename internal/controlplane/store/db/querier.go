@@ -15,6 +15,7 @@ type Querier interface {
 	// Resolves an ingest key to its project. Revoked, expired and keys of
 	// deleted projects never match.
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error)
+	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
 	ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppsRow, error)
 	RevokeAPIKey(ctx context.Context, id uuid.UUID) (string, error)
 	TouchAPIKey(ctx context.Context, id uuid.UUID) error

@@ -28,12 +28,14 @@ import (
 	"github.com/apilens/apilens/internal/platform/otel"
 	"github.com/apilens/apilens/internal/platform/pg"
 	"github.com/apilens/apilens/internal/platform/server"
+	"github.com/apilens/apilens/internal/query"
 )
 
 // Module names. Visible ones are role targets (-target=...).
 const (
-	TargetAll  = "all"
-	TargetEdge = "edge"
+	TargetAll   = "all"
+	TargetEdge  = "edge"
+	TargetQuery = "query"
 
 	modTelemetry  = "telemetry"
 	modServer     = "server"
@@ -50,7 +52,6 @@ const (
 var PlannedTargets = map[string]string{
 	"writer":    "M3 (Kafka consumers)",
 	"processor": "M3 (endpoint discovery, error grouping)",
-	"query":     "M3 (query compiler + dashboard API)",
 	"api":       "M2 (control-plane API)",
 	"identity":  "M2 (OIDC provider, passkeys, TOTP)",
 	"saml":      "M5 (isolated SAML ACS)",
@@ -87,7 +88,7 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	m.Register(modServer, a.initServer, modules.Invisible(), modules.DependsOn(modTelemetry))
 	// The listener starts after, and stops before, every module that
 	// registers routes, so in-flight requests drain before the sink does.
-	m.Register(modHTTP, a.initHTTP, modules.Invisible(), modules.DependsOn(modServer), modules.After(TargetEdge))
+	m.Register(modHTTP, a.initHTTP, modules.Invisible(), modules.DependsOn(modServer), modules.After(TargetEdge, TargetQuery))
 	m.Always(modHTTP)
 
 	m.Register(modPostgres, a.initPostgres, modules.Invisible(), modules.DependsOn(modServer))
@@ -97,7 +98,9 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	m.Register(modSink, a.initSink, modules.Invisible(), modules.DependsOn(modClickHouse))
 
 	m.Register(TargetEdge, a.initEdge, modules.DependsOn(modServer, modCatalog, modSink))
-	m.Register(TargetAll, func(context.Context) (modules.Service, error) { return nil, nil }, modules.DependsOn(TargetEdge))
+	// query is the first slice of the M3 read path (fixed queries, read keys).
+	m.Register(TargetQuery, a.initQuery, modules.DependsOn(modServer, modClickHouse, modCatalog))
+	m.Register(TargetAll, func(context.Context) (modules.Service, error) { return nil, nil }, modules.DependsOn(TargetEdge, TargetQuery))
 	return a
 }
 
@@ -198,6 +201,13 @@ func (a *App) initSink(context.Context) (modules.Service, error) {
 
 func (a *App) initEdge(context.Context) (modules.Service, error) {
 	ingest.New(a.verifier, a.apps, a.sink, a.cfg.Ingest, a.logger, a.registry).Register(a.server.Mux())
+	return nil, nil
+}
+
+func (a *App) initQuery(context.Context) (modules.Service, error) {
+	api := a.server.API()
+	api.UseMiddleware(query.AuthMiddleware(api, a.verifier))
+	query.Register(api, query.NewService(a.chConn, a.queries))
 	return nil, nil
 }
 
