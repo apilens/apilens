@@ -1,0 +1,215 @@
+# Builds, publishes, attests and signs the container images.
+#
+#   ghcr.io/apilens/apilens  deploy/docker/Dockerfile   (Go binary, all roles)
+#   ghcr.io/apilens/web      apps/web/Dockerfile        (Next.js dashboard)
+#   ghcr.io/apilens/ai       apps/ai/Dockerfile         (Python AI/ML service)
+#
+# Each platform is built natively (no QEMU) and pushed by digest; the merge job
+# stitches the digests into one multi-arch manifest, then attaches an SPDX SBOM
+# attestation, SLSA build provenance and a keyless cosign signature to it.
+# Verify with:
+#   cosign verify ghcr.io/apilens/apilens@<digest> \
+#     --certificate-identity-regexp '^https://github.com/apilens/apilens/' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+#   gh attestation verify oci://ghcr.io/apilens/apilens@<digest> -R apilens/apilens
+name: Images
+
+on:
+  push:
+    branches: [v2]
+    tags: ["v*"]
+  workflow_dispatch:
+  # Called by release.yml after release-please tags a platform release (tags
+  # pushed with GITHUB_TOKEN do not trigger `on: push` workflows).
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build (the release tag)
+        type: string
+        required: true
+      version:
+        description: Release version without the leading v (e.g. 2.0.0)
+        type: string
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io/apilens
+  COSIGN_VERSION: v3.1.4
+
+jobs:
+  build:
+    name: Build ${{ matrix.image }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write # push per-arch images (by digest) and the build cache to GHCR
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [apilens, web, ai]
+        platform: [linux/amd64, linux/arm64]
+        include:
+          - image: apilens
+            dockerfile: deploy/docker/Dockerfile
+          - image: web
+            dockerfile: apps/web/Dockerfile
+          - image: ai
+            dockerfile: apps/ai/Dockerfile
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+      - name: Build metadata
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "${INPUT_VERSION}" ]; then
+            version="${INPUT_VERSION}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="edge"
+          fi
+          {
+            echo "version=${version}"
+            echo "commit=${GITHUB_SHA}"
+            echo "date=$(git log -1 --format=%cI)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ steps.meta.outputs.commit }}
+            DATE=${{ steps.meta.outputs.date }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          # Read the shared registry cache everywhere; only branch/tag pushes
+          # from this repository write it.
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ matrix.image }}:buildcache-${{ matrix.arch }}
+          cache-to: ${{ (github.event_name == 'push' || inputs.version != '') && format('type=registry,ref={0}/{1}:buildcache-{2},mode=max', env.REGISTRY, matrix.image, matrix.arch) || '' }}
+          provenance: false
+          sbom: false
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digests-${{ matrix.image }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Publish ${{ matrix.image }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write # create the multi-arch manifest and push attestations to GHCR
+      id-token: write # keyless cosign signing and Sigstore attestations (OIDC)
+      attestations: write # record SBOM and provenance attestations
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [apilens, web, ai]
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: digests-${{ matrix.image }}-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ matrix.image }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/v2' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{version}},value=${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=raw,value=latest,enable=${{ inputs.version != '' }}
+      - name: Create multi-arch manifest
+        id: manifest
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ matrix.image }}
+          FIRST_TAG: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+        run: |
+          tags=()
+          while IFS= read -r tag; do tags+=(-t "$tag"); done < <(jq -r '.tags[]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          sources=()
+          for d in *; do sources+=("${IMAGE}@sha256:${d}"); done
+          docker buildx imagetools create "${tags[@]}" "${sources[@]}"
+          digest="$(docker buildx imagetools inspect "$FIRST_TAG" --format '{{json .Manifest}}' | jq -r .digest)"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "Published ${IMAGE}@${digest}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Generate SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ env.REGISTRY }}/${{ matrix.image }}@${{ steps.manifest.outputs.digest }}
+          format: spdx-json
+          output-file: ${{ runner.temp }}/sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attest SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ matrix.image }}
+          subject-digest: ${{ steps.manifest.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/sbom.spdx.json
+          push-to-registry: true
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ matrix.image }}
+          subject-digest: ${{ steps.manifest.outputs.digest }}
+          push-to-registry: true
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+      - name: Sign (keyless)
+        env:
+          REF: ${{ env.REGISTRY }}/${{ matrix.image }}@${{ steps.manifest.outputs.digest }}
+        run: cosign sign --yes "$REF"

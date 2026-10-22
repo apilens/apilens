@@ -1,0 +1,68 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "8ba4efc",
+  "separate-pull-requests": true,
+  "include-v-in-tag": true,
+  "tag-separator": "-",
+  "changelog-sections": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "perf", "section": "Performance" },
+    { "type": "deps", "section": "Dependencies" },
+    { "type": "docs", "section": "Documentation", "hidden": true },
+    { "type": "chore", "section": "Miscellaneous", "hidden": true },
+    { "type": "ci", "section": "CI", "hidden": true },
+    { "type": "test", "section": "Tests", "hidden": true }
+  ],
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "component": "apilens",
+      "package-name": "apilens",
+      "include-component-in-tag": false,
+      "release-as": "2.0.0",
+      "exclude-paths": [
+        "apps/web",
+        "apps/docs",
+        "apps/ai",
+        "packages/sdk-python",
+        "packages/sdk-typescript",
+        "packages/sdk-java",
+        "deploy/helm"
+      ]
+    },
+    "apps/ai": {
+      "release-type": "python",
+      "component": "ai",
+      "package-name": "apilens-ai"
+    },
+    "deploy/helm/apilens": {
+      "release-type": "helm",
+      "component": "helm-chart"
+    },
+    "packages/sdk-python": {
+      "release-type": "python",
+      "component": "sdk-python",
+      "package-name": "apilenss",
+      "extra-files": [
+        { "type": "generic", "path": "apilens/_version.py" }
+      ]
+    },
+    "packages/sdk-typescript": {
+      "release-type": "node",
+      "component": "sdk-ts",
+      "package-name": "apilens-js-sdk"
+    },
+    "packages/sdk-java": {
+      "release-type": "maven",
+      "component": "sdk-java"
+    }
+  },
+  "plugins": [
+    {
+      "type": "linked-versions",
+      "groupName": "platform",
+      "components": ["apilens", "ai"]
+    }
+  ]
+}

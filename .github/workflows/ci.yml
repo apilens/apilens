@@ -1,0 +1,503 @@
+# CI for the APILens monorepo.
+#
+# Only the jobs affected by a change run (dorny/paths-filter); merge-queue runs
+# execute everything. `ci-passed` aggregates every job and is the ONLY check to
+# mark as required in branch protection — requiring path-filtered jobs directly
+# would block merges whenever they are skipped.
+#
+# Every action is pinned to a full commit SHA (tags are mutable: see the
+# tj-actions/changed-files and trivy-action compromises). Renovate keeps the
+# pins fresh.
+name: CI
+
+on:
+  pull_request:
+    branches: [main, v2]
+  merge_group:
+  push:
+    branches: [v2]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GOTOOLCHAIN: auto
+  GOLANGCI_LINT_VERSION: v2.15.0
+  GOVULNCHECK_VERSION: v1.9.0
+  TASK_VERSION: v3.54.0
+  BUF_VERSION: 1.75.0
+  UV_VERSION: 0.13.5
+  HELM_VERSION: v4.3.1
+  CT_VERSION: v3.15.0
+  ACTIONLINT_VERSION: v1.7.12
+  ZIZMOR_VERSION: 1.31.1
+  OSV_SCANNER_VERSION: v2.7.0
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      go: ${{ github.event_name == 'merge_group' || steps.filter.outputs.go == 'true' }}
+      web: ${{ github.event_name == 'merge_group' || steps.filter.outputs.web == 'true' }}
+      ai: ${{ github.event_name == 'merge_group' || steps.filter.outputs.ai == 'true' }}
+      sdk-python: ${{ github.event_name == 'merge_group' || steps.filter.outputs.sdk-python == 'true' }}
+      sdk-ts: ${{ github.event_name == 'merge_group' || steps.filter.outputs.sdk-ts == 'true' }}
+      sdk-java: ${{ github.event_name == 'merge_group' || steps.filter.outputs.sdk-java == 'true' }}
+      helm: ${{ github.event_name == 'merge_group' || steps.filter.outputs.helm == 'true' }}
+      compose: ${{ github.event_name == 'merge_group' || steps.filter.outputs.compose == 'true' }}
+      workflows: ${{ github.event_name == 'merge_group' || steps.filter.outputs.workflows == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: github.event_name != 'merge_group'
+        with:
+          filters: |
+            go:
+              - go.mod
+              - go.sum
+              - 'cmd/**'
+              - 'internal/**'
+              - 'test/**'
+              - 'tools/**'
+              - 'proto/**'
+              - 'api/**'
+              - sqlc.yaml
+              - 'buf*.yaml'
+              - .golangci.yml
+              - Taskfile.yml
+              - .github/workflows/ci.yml
+            web:
+              - 'apps/web/**'
+              - package.json
+              - 'pnpm-*.yaml'
+              - turbo.json
+              - .github/workflows/ci.yml
+            ai:
+              - 'apps/ai/**'
+              - pyproject.toml
+              - uv.lock
+              - .github/workflows/ci.yml
+            sdk-python:
+              - 'packages/sdk-python/**'
+              - .github/workflows/ci.yml
+            sdk-ts:
+              - 'packages/sdk-typescript/**'
+              - package.json
+              - 'pnpm-*.yaml'
+              - .github/workflows/ci.yml
+            sdk-java:
+              - 'packages/sdk-java/**'
+              - .github/workflows/ci.yml
+            helm:
+              - 'deploy/helm/**'
+              - .github/workflows/ci.yml
+            compose:
+              - 'deploy/compose/**'
+              - 'deploy/docker/**'
+              - 'apps/web/Dockerfile'
+              - .github/workflows/ci.yml
+            workflows:
+              - '.github/**'
+
+  go:
+    name: Go (build, test, lint, vuln)
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Unit tests
+        run: go test -race -count=1 ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-mode: binary
+          args: --timeout=5m
+      - name: govulncheck
+        run: |
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          govulncheck ./...
+
+  go-integration:
+    name: Go integration tests (testcontainers)
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Integration tests
+        run: go test -race -count=1 -tags=integration ./internal/...
+
+  proto:
+    name: Protobuf (lint, format, breaking)
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # `buf breaking` needs contracts on the base branch to compare against;
+      # skip it until the base branch has a buf.yaml (e.g. the first v2 PR).
+      - name: Check base branch for protobuf contracts
+        id: base
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if git fetch --depth=1 origin "refs/heads/${BASE_REF}" && git cat-file -e FETCH_HEAD:buf.yaml 2>/dev/null; then
+            echo "has_buf=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_buf=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Base branch ${BASE_REF} has no buf.yaml; skipping breaking-change detection."
+          fi
+      # buf-action runs buf locally; nothing is pushed to the Buf registry.
+      - uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        with:
+          version: ${{ env.BUF_VERSION }}
+          lint: true
+          format: true
+          breaking: ${{ steps.base.outputs.has_buf == 'true' }}
+          breaking_against: ${{ github.event.repository.clone_url }}#branch=${{ github.base_ref }}
+          push: false
+          pr_comment: false
+
+  codegen:
+    name: Generated code is up to date
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install Task
+        run: go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
+      - name: Regenerate (proto, sqlc, OpenAPI)
+        run: task gen
+      - name: Check for drift
+        run: |
+          if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+            git status --short
+            git --no-pager diff --stat
+            echo "::error::Generated code is out of date. Run 'task gen' locally and commit the result."
+            exit 1
+          fi
+
+  web:
+    name: Web (lint, typecheck, build)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Version comes from the root package.json `packageManager` field.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm --filter frontend lint
+      - name: Typecheck
+        run: pnpm --filter frontend exec tsc --noEmit
+      - name: Build
+        run: pnpm --filter frontend build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          # Build-time placeholders only; real values are injected at runtime.
+          SESSION_SECRET: ci-build-only-session-secret-0123456789
+          DJANGO_API_URL: http://localhost:8080/api/v1
+          AUTH_API_URL: http://localhost:8080/api/v1
+
+  ai:
+    name: AI service (lint, types, tests)
+    needs: changes
+    if: needs.changes.outputs.ai == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - name: Sync workspace
+        run: uv sync --frozen --all-packages
+      - name: ruff check
+        working-directory: apps/ai
+        run: uv run --frozen ruff check .
+      - name: ruff format
+        working-directory: apps/ai
+        run: uv run --frozen ruff format --check .
+      - name: pyright
+        working-directory: apps/ai
+        run: uv run --frozen pyright
+      - name: pytest
+        working-directory: apps/ai
+        run: uv run --frozen pytest
+
+  sdk-python:
+    name: Python SDK (py${{ matrix.python }})
+    needs: changes
+    if: needs.changes.outputs.sdk-python == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    defaults:
+      run:
+        working-directory: packages/sdk-python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      # The SDK is not a member of the root uv workspace, so uv treats it as a
+      # standalone project with its own uv.lock and Python range.
+      - name: Tests
+        run: uv run --frozen --all-extras --with pytest pytest -q
+
+  sdk-ts:
+    name: TypeScript SDK
+    needs: changes
+    if: needs.changes.outputs.sdk-ts == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm --filter apilens-js-sdk check
+      - name: Test
+        run: pnpm --filter apilens-js-sdk test
+      - name: Build
+        run: pnpm --filter apilens-js-sdk build
+
+  sdk-java:
+    name: Java SDK
+    needs: changes
+    if: needs.changes.outputs.sdk-java == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: packages/sdk-java
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Verify
+        run: mvn -B -ntp verify
+
+  helm:
+    name: Helm chart (lint, template)
+    needs: changes
+    if: needs.changes.outputs.helm == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: helm lint
+        run: helm lint --strict deploy/helm/apilens
+      - name: helm template
+        run: helm template ci deploy/helm/apilens > /dev/null
+      - uses: helm/chart-testing-action@720270857a28afd41e2426521a7801db09e9b510 # v2.9.0
+        with:
+          version: ${{ env.CT_VERSION }}
+      - name: ct lint
+        run: ct lint --charts deploy/helm/apilens --validate-maintainers=false --check-version-increment=false
+
+  e2e:
+    name: End-to-end (compose all-in-one)
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.compose == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      COMPOSE: docker compose --env-file deploy/compose/ci.env -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Start stack
+        run: $COMPOSE up -d --build --wait --wait-timeout 300 apilens
+      - name: Seed a project and API key
+        run: |
+          out="$($COMPOSE run --rm --no-deps --entrypoint /apilens apilens seed | tail -n 1)"
+          key="$(jq -r .api_key <<<"$out")"
+          app="$(jq -r .app_slug <<<"$out")"
+          if [ -z "$key" ] || [ "$key" = "null" ]; then
+            echo "::error::seed did not return an api_key: $out"
+            exit 1
+          fi
+          echo "::add-mask::$key"
+          {
+            echo "APILENS_E2E_API_KEY=$key"
+            echo "APILENS_E2E_APP=$app"
+          } >> "$GITHUB_ENV"
+      - name: Run e2e tests
+        env:
+          APILENS_E2E_BASE_URL: http://127.0.0.1:8080
+          APILENS_E2E_CLICKHOUSE_HTTP: http://127.0.0.1:8123
+          APILENS_E2E_CLICKHOUSE_USER: apilens
+          APILENS_E2E_CLICKHOUSE_PASSWORD: ci-clickhouse
+        run: go test -count=1 -tags=e2e ./test/e2e/...
+      - name: Dump logs on failure
+        if: failure()
+        run: $COMPOSE logs --no-color --timestamps
+      - name: Tear down
+        if: always()
+        run: $COMPOSE down -v --remove-orphans
+
+  security:
+    name: Security (zizmor, actionlint, osv-scanner)
+    needs: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: zizmor
+        if: needs.changes.outputs.workflows == 'true'
+        uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
+        with:
+          version: ${{ env.ZIZMOR_VERSION }}
+          inputs: .github
+          min-severity: medium
+          advanced-security: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: actionlint
+        if: needs.changes.outputs.workflows == 'true'
+        run: go run "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}" -color
+      # Scans go.mod, pnpm-lock.yaml, uv.lock, the SDK lockfiles and pom.xml
+      # against the OSV database. Triage false positives in osv-scanner.toml.
+      - name: osv-scanner
+        run: |
+          go install "github.com/google/osv-scanner/v2/cmd/osv-scanner@${OSV_SCANNER_VERSION}"
+          osv-scanner scan source --recursive .
+
+  ci-passed:
+    name: ci-passed
+    if: always()
+    needs:
+      - changes
+      - go
+      - go-integration
+      - proto
+      - codegen
+      - web
+      - ai
+      - sdk-python
+      - sdk-ts
+      - sdk-java
+      - helm
+      - e2e
+      - security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: All required jobs succeeded or were skipped
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if echo "$NEEDS" | jq -e 'any(.[]; .result != "success" and .result != "skipped")' > /dev/null; then
+            echo "::error::One or more jobs failed or were cancelled."
+            exit 1
+          fi
