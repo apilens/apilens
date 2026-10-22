@@ -1,7 +1,16 @@
-# Workspaces visible to pnpm: every directory under apps/ and packages/ that
-# contains a package.json (apps/web, packages/logger, packages/sdk-typescript,
-# ...). Python apps (apps/api, apps/ingest, apps/identity) live in this repo
-# too but are invisible to pnpm — uv manages those separately.
+# pnpm workspace: every directory under apps/ and packages/ with a
+# package.json (apps/web, packages/sdk-typescript). The Go backend
+# (repo root go.mod) and Python services (uv workspace, root pyproject.toml)
+# live in the same repo but are invisible to pnpm.
 packages:
   - "apps/*"
   - "packages/*"
+
+# Supply-chain guard: don't resolve versions published less than 3 days ago
+# (minutes). Gives the registry time to pull compromised releases.
+minimumReleaseAge: 4320
+
+# pnpm 11 blocks dependency install scripts by default; allow only these.
+allowBuilds:
+  esbuild: true
+  unrs-resolver: true

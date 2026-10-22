@@ -1,0 +1,8 @@
+# uv workspace root (virtual — not a package itself).
+#
+# Members are the Python services that ship with the platform. The published
+# SDK (packages/sdk-python) is intentionally NOT a member: a workspace shares
+# one lockfile and the intersection of every member's requires-python, which
+# would stop the SDK from being tested against older Pythons.
+[tool.uv.workspace]
+members = ["apps/ai"]
