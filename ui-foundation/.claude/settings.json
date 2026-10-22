@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(pnpm check)",
+      "Bash(pnpm ui:check)",
+      "Bash(pnpm ui:check *)",
+      "Bash(pnpm ui:contrast)",
+      "Bash(pnpm design:sync)",
+      "Bash(pnpm design:lint)",
+      "Bash(pnpm typecheck)",
+      "Bash(pnpm lint)",
+      "Bash(pnpm lint *)",
+      "Bash(pnpm exec eslint *)",
+      "Bash(pnpm build)",
+      "Bash(pnpm test:visual)",
+      "mcp__playwright__*",
+      "mcp__shadcn__*"
+    ]
+  },
+  "enabledMcpjsonServers": ["playwright", "shadcn"],
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/ui-guard.mjs\" --hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

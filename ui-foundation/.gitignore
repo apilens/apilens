@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+.env*
+test-results/
+playwright-report/
+.playwright-mcp/
+
+# The repo root ignores .claude/ everywhere. This folder's .claude/ holds the
+# shared AI workspace (skills, reviewer agent, hook, rules), so re-include it,
+# but keep personal overrides local.
+!.claude/
+.claude/settings.local.json
+.claude/worktrees/

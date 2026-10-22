@@ -13,6 +13,7 @@ apps/
   docs         Mintlify docs
 packages/
   logger             @apilens/logger — shared TS logger (pino)
+  sdk-java           Maven: ai.apilens:apilens-java-sdk
   sdk-python         PyPI: apilenss
   sdk-typescript     npm:  apilens-js-sdk
 infra/
@@ -203,6 +204,37 @@ Full framework examples (Starlette, Litestar, etc.) in [`packages/sdk-python/REA
 3. `git tag apilens-sdk-vX.Y.Z && git push origin apilens-sdk-vX.Y.Z`
 
 CI builds and publishes to PyPI on the `apilens-sdk-v*` tag pattern.
+
+## Java SDK (`packages/sdk-java`)
+
+Publish-ready Maven package for Spring Boot services:
+
+```xml
+<dependency>
+  <groupId>ai.apilens</groupId>
+  <artifactId>apilens-java-sdk</artifactId>
+  <version>0.1.0</version>
+</dependency>
+```
+
+Spring Boot auto-registers the servlet filter when these properties are set:
+
+```properties
+apilens.api-key=${APILENS_API_KEY}
+apilens.app-id=orders-api
+```
+
+Local development:
+
+```bash
+cd packages/sdk-java
+mvn test
+mvn package
+```
+
+Publishing to Maven Central requires Central Portal token secrets and GPG
+signing secrets in the `maven-central` GitHub environment. Tags named
+`apilens-java-sdk-vX.Y.Z` run the Java publish workflow.
 
 ### Local SDK dev
 

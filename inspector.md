@@ -1,0 +1,346 @@
+- generic [active] [ref=f4e1]:
+  - generic [ref=f4e2]:
+    - complementary [ref=f4e3]:
+      - link "APILens" [ref=f4e5] [cursor=pointer]:
+        - /url: /projects
+      - button "S Sentinel Test" [ref=f4e168] [cursor=pointer]:
+        - generic [ref=f4e9]: S
+        - generic [ref=f4e10]: Sentinel Test
+      - navigation [ref=f4e14]:
+        - list [ref=f4e16]:
+          - listitem [ref=f4e17]:
+            - link "Apps" [ref=f4e18] [cursor=pointer]:
+              - /url: /projects/sentinel-test/apps
+          - listitem [ref=f4e25]:
+            - link "Traffic" [ref=f4e26] [cursor=pointer]:
+              - /url: /projects/sentinel-test/traffic
+          - listitem [ref=f4e30]:
+            - link "Errors" [ref=f4e31] [cursor=pointer]:
+              - /url: /projects/sentinel-test/errors
+          - listitem [ref=f4e35]:
+            - link "Request logs" [ref=f4e36] [cursor=pointer]:
+              - /url: /projects/sentinel-test/endpoints
+          - listitem [ref=f4e41]:
+            - link "Consumers" [ref=f4e42] [cursor=pointer]:
+              - /url: /projects/sentinel-test/consumers
+          - listitem [ref=f4e49]:
+            - link "Settings" [ref=f4e50] [cursor=pointer]:
+              - /url: /projects/sentinel-test/settings
+        - list [ref=f4e56]:
+          - listitem [ref=f4e57]:
+            - link "Notifications" [ref=f4e58] [cursor=pointer]:
+              - /url: /notifications
+          - listitem [ref=f4e63]:
+            - link "Help & Support" [ref=f4e64] [cursor=pointer]:
+              - /url: /help
+      - button "Collapse" [ref=f4e71] [cursor=pointer]
+    - generic [ref=f4e76]:
+      - banner [ref=f4e77]:
+        - navigation "Breadcrumb" [ref=f4e79]:
+          - list [ref=f4e80]:
+            - listitem [ref=f4e81]:
+              - link "Projects" [ref=f4e82] [cursor=pointer]:
+                - /url: /projects
+            - listitem [ref=f4e169]:
+              - link "Sentinel Test" [ref=f4e172] [cursor=pointer]:
+                - /url: /projects/sentinel-test/apps
+            - listitem [ref=f4e87]:
+              - generic [ref=f4e90]: Errors
+        - generic [ref=f4e91]:
+          - button "Open Spotlight search" [ref=f4e92] [cursor=pointer]:
+            - generic [ref=f4e96]: Search…
+            - generic [ref=f4e97]: ⌘K
+          - button "Notifications" [ref=f4e99] [cursor=pointer]
+          - button "T" [ref=f4e104] [cursor=pointer]
+      - main [ref=f4e107]:
+        - generic [ref=f4e108]:
+          - generic [ref=f4e109]:
+            - heading "Errors" [level=1] [ref=f4e110]
+            - combobox "Environment" [ref=f4e111] [cursor=pointer]:
+              - option "All environments" [selected]
+              - option "production"
+            - button "Last 24 hours" [ref=f4e113] [cursor=pointer]
+            - button "LIVE 4s ago" [pressed] [ref=f4e1093] [cursor=pointer]:
+              - generic [ref=f4e119]: LIVE
+              - generic [ref=f4e174]: 4s ago
+            - button "Refresh now" [ref=f4e120] [cursor=pointer]
+          - generic [ref=f4e126]:
+            - tablist "Error metric" [ref=f4e127]:
+              - tab "Total errors 125" [selected] [ref=f4e175] [cursor=pointer]:
+                - generic [ref=f4e129]: Total errors
+                - generic [ref=f4e176]:
+                  - generic [ref=f4e177]:
+                    - generic [ref=f4e179]:
+                      - generic [ref=f4e180]: "0"
+                      - generic [ref=f4e181]: "1"
+                      - generic [ref=f4e182]: "2"
+                      - generic [ref=f4e183]: "3"
+                      - generic [ref=f4e184]: "4"
+                      - generic [ref=f4e185]: "5"
+                      - generic [ref=f4e186]: "6"
+                      - generic [ref=f4e187]: "7"
+                      - generic [ref=f4e188]: "8"
+                      - generic [ref=f4e189]: "9"
+                    - generic [ref=f4e191]:
+                      - generic [ref=f4e192]: "0"
+                      - generic [ref=f4e193]: "1"
+                      - generic [ref=f4e194]: "2"
+                      - generic [ref=f4e195]: "3"
+                      - generic [ref=f4e196]: "4"
+                      - generic [ref=f4e197]: "5"
+                      - generic [ref=f4e198]: "6"
+                      - generic [ref=f4e199]: "7"
+                      - generic [ref=f4e200]: "8"
+                      - generic [ref=f4e201]: "9"
+                    - generic [ref=f4e203]:
+                      - generic [ref=f4e204]: "0"
+                      - generic [ref=f4e205]: "1"
+                      - generic [ref=f4e206]: "2"
+                      - generic [ref=f4e207]: "3"
+                      - generic [ref=f4e208]: "4"
+                      - generic [ref=f4e209]: "5"
+                      - generic [ref=f4e210]: "6"
+                      - generic [ref=f4e211]: "7"
+                      - generic [ref=f4e212]: "8"
+                      - generic [ref=f4e213]: "9"
+                  - generic [ref=f4e214]: "125"
+              - tab "Client errors 5" [ref=f4e215] [cursor=pointer]:
+                - generic [ref=f4e132]: Client errors
+                - generic [ref=f4e216]:
+                  - generic [ref=f4e219]:
+                    - generic [ref=f4e220]: "0"
+                    - generic [ref=f4e221]: "1"
+                    - generic [ref=f4e222]: "2"
+                    - generic [ref=f4e223]: "3"
+                    - generic [ref=f4e224]: "4"
+                    - generic [ref=f4e225]: "5"
+                    - generic [ref=f4e226]: "6"
+                    - generic [ref=f4e227]: "7"
+                    - generic [ref=f4e228]: "8"
+                    - generic [ref=f4e229]: "9"
+                  - generic [ref=f4e230]: "5"
+              - tab "Server errors 120" [ref=f4e231] [cursor=pointer]:
+                - generic [ref=f4e135]: Server errors
+                - generic [ref=f4e232]:
+                  - generic [ref=f4e233]:
+                    - generic [ref=f4e235]:
+                      - generic [ref=f4e236]: "0"
+                      - generic [ref=f4e237]: "1"
+                      - generic [ref=f4e238]: "2"
+                      - generic [ref=f4e239]: "3"
+                      - generic [ref=f4e240]: "4"
+                      - generic [ref=f4e241]: "5"
+                      - generic [ref=f4e242]: "6"
+                      - generic [ref=f4e243]: "7"
+                      - generic [ref=f4e244]: "8"
+                      - generic [ref=f4e245]: "9"
+                    - generic [ref=f4e247]:
+                      - generic [ref=f4e248]: "0"
+                      - generic [ref=f4e249]: "1"
+                      - generic [ref=f4e250]: "2"
+                      - generic [ref=f4e251]: "3"
+                      - generic [ref=f4e252]: "4"
+                      - generic [ref=f4e253]: "5"
+                      - generic [ref=f4e254]: "6"
+                      - generic [ref=f4e255]: "7"
+                      - generic [ref=f4e256]: "8"
+                      - generic [ref=f4e257]: "9"
+                    - generic [ref=f4e259]:
+                      - generic [ref=f4e260]: "0"
+                      - generic [ref=f4e261]: "1"
+                      - generic [ref=f4e262]: "2"
+                      - generic [ref=f4e263]: "3"
+                      - generic [ref=f4e264]: "4"
+                      - generic [ref=f4e265]: "5"
+                      - generic [ref=f4e266]: "6"
+                      - generic [ref=f4e267]: "7"
+                      - generic [ref=f4e268]: "8"
+                      - generic [ref=f4e269]: "9"
+                  - generic [ref=f4e270]: "120"
+              - tab "Error rate 13.4 %" [ref=f4e271] [cursor=pointer]:
+                - generic [ref=f4e138]: Error rate
+                - generic [ref=f4e272]:
+                  - generic [ref=f4e273]:
+                    - generic [ref=f4e275]:
+                      - generic [ref=f4e276]: "0"
+                      - generic [ref=f4e277]: "1"
+                      - generic [ref=f4e278]: "2"
+                      - generic [ref=f4e279]: "3"
+                      - generic [ref=f4e280]: "4"
+                      - generic [ref=f4e281]: "5"
+                      - generic [ref=f4e282]: "6"
+                      - generic [ref=f4e283]: "7"
+                      - generic [ref=f4e284]: "8"
+                      - generic [ref=f4e285]: "9"
+                    - generic [ref=f4e287]:
+                      - generic [ref=f4e288]: "0"
+                      - generic [ref=f4e289]: "1"
+                      - generic [ref=f4e290]: "2"
+                      - generic [ref=f4e291]: "3"
+                      - generic [ref=f4e292]: "4"
+                      - generic [ref=f4e293]: "5"
+                      - generic [ref=f4e294]: "6"
+                      - generic [ref=f4e295]: "7"
+                      - generic [ref=f4e296]: "8"
+                      - generic [ref=f4e297]: "9"
+                    - generic [ref=f4e298]: .
+                    - generic [ref=f4e300]:
+                      - generic [ref=f4e301]: "0"
+                      - generic [ref=f4e302]: "1"
+                      - generic [ref=f4e303]: "2"
+                      - generic [ref=f4e304]: "3"
+                      - generic [ref=f4e305]: "4"
+                      - generic [ref=f4e306]: "5"
+                      - generic [ref=f4e307]: "6"
+                      - generic [ref=f4e308]: "7"
+                      - generic [ref=f4e309]: "8"
+                      - generic [ref=f4e310]: "9"
+                    - generic [ref=f4e312]: "%"
+                  - generic [ref=f4e313]: 13.4 %
+            - generic [ref=f4e140]:
+              - generic [ref=f4e314]:
+                - generic [ref=f4e315]: Server (5xx)
+                - generic [ref=f4e317]: Client (4xx)
+              - application [ref=f4e321]:
+                - generic [ref=f4e341]:
+                  - generic [ref=f4e342]:
+                    - generic [ref=f4e343]: 14:30
+                    - generic [ref=f4e345]: 16:30
+                    - generic [ref=f4e347]: 18:30
+                    - generic [ref=f4e349]: 20:30
+                    - generic [ref=f4e351]: 22:30
+                    - generic [ref=f4e353]: 00:30
+                    - generic [ref=f4e355]: 02:30
+                    - generic [ref=f4e357]: 04:30
+                    - generic [ref=f4e359]: 06:30
+                    - generic [ref=f4e361]: 08:30
+                    - generic [ref=f4e363]: 10:30
+                    - generic [ref=f4e365]: 12:30
+                    - generic [ref=f4e367]: 14:30
+                  - generic [ref=f4e369]:
+                    - generic [ref=f4e370]: "0"
+                    - generic [ref=f4e372]: "30"
+                    - generic [ref=f4e374]: "60"
+                    - generic [ref=f4e376]: "90"
+                    - generic [ref=f4e378]: "120"
+          - generic [ref=f4e142]:
+            - textbox "Search errors" [ref=f4e147]
+            - table [ref=f4e380]:
+              - rowgroup [ref=f4e381]:
+                - row [ref=f4e382]:
+                  - columnheader [ref=f4e383]
+                  - columnheader "Response status" [ref=f4e384]
+                  - columnheader "Endpoint" [ref=f4e385]
+                  - columnheader "Occurrences ▾" [ref=f4e386] [cursor=pointer]
+                  - columnheader "Consumers" [ref=f4e387] [cursor=pointer]
+                  - columnheader [ref=f4e388]
+              - rowgroup [ref=f4e389]:
+                - row [ref=f4e390] [cursor=pointer]:
+                  - cell [ref=f4e391]
+                  - cell "500 Internal Server Error" [ref=f4e394]:
+                    - generic [ref=f4e395]:
+                      - generic [ref=f4e396]: "500"
+                      - generic [ref=f4e397]: Internal Server Error
+                  - cell "POST /charge" [ref=f4e398]:
+                    - generic [ref=f4e399]:
+                      - generic [ref=f4e400]: POST
+                      - generic [ref=f4e401]: /charge
+                  - cell "120" [ref=f4e402]
+                  - cell "1" [ref=f4e406]
+                  - cell [ref=f4e407]:
+                    - button "Row actions" [ref=f4e408]
+                - row [ref=f4e413] [cursor=pointer]:
+                  - cell [ref=f4e414]
+                  - cell "404 Not Found" [ref=f4e417]:
+                    - generic [ref=f4e418]:
+                      - generic [ref=f4e419]: "404"
+                      - generic [ref=f4e420]: Not Found
+                  - 'cell "GET /orders/{id}" [ref=f4e421]':
+                    - generic [ref=f4e422]:
+                      - generic [ref=f4e423]: GET
+                      - generic [ref=f4e424]: "/orders/{id}"
+                  - cell "5" [ref=f4e425]
+                  - cell "1" [ref=f4e429]
+                  - cell [ref=f4e430]:
+                    - button "Row actions" [ref=f4e431]
+  - button "Open Next.js Dev Tools" [ref=f4e154] [cursor=pointer]
+  - alert [ref=f4e158]
+  - button [ref=f4e160] [cursor=pointer]:
+    - generic:
+      - generic:
+        - button
+      - generic:
+        - button
+      - generic:
+        - button [disabled]
+      - generic:
+        - button [disabled]
+      - generic:
+        - button [disabled]
+      - generic:
+        - button [disabled]
+      - generic:
+        - button
+        - generic "MCP Connected"
+      - generic:
+        - button
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+            - paragraph: v3.0.2
+            - button "Switch to light mode"
+          - generic:
+            - generic:
+              - generic: Output Detail
+              - button "Standard"
+            - generic:
+              - generic: React Components
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic: Hide Until Restart
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button "Indigo"
+              - button "Blue"
+              - button "Cyan"
+              - button "Green"
+              - button "Yellow"
+              - button "Orange"
+              - button "Red"
+          - generic:
+            - generic:
+              - generic:
+                - checkbox "Clear on copy/send"
+              - generic: Clear on copy/send
+            - generic:
+              - generic:
+                - checkbox "Block page interactions" [checked]
+              - generic: Block page interactions
+          - button "Manage MCP & Webhooks"
+        - generic:
+          - button "Manage MCP & Webhooks"
+          - generic:
+            - generic:
+              - generic: MCP Connection
+              - generic "Connected"
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link "Learn more":
+                - /url: https://agentation.dev/mcp
+          - generic:
+            - generic:
+              - generic: Webhooks
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox "Auto-Send" [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox "Webhook URL"
+  - generic [ref=f4e436]: "0"

@@ -1,0 +1,50 @@
+# Template, not active. To enable, copy to the repo root:
+#   cp ui-foundation/ci/github-workflow.yml .github/workflows/ui-foundation.yml
+#
+# Visual baselines are platform-specific. The committed ones are *-darwin.png.
+# Generate Linux baselines once inside the same container this job uses:
+#   docker run --rm -v "$PWD":/w -w /w/ui-foundation mcr.microsoft.com/playwright:v1.64.1-noble \
+#     bash -lc "corepack enable && pnpm install --frozen-lockfile && pnpm test:visual:update"
+name: ui-foundation
+
+on:
+  pull_request:
+    paths: ["ui-foundation/**"]
+
+defaults:
+  run:
+    working-directory: ui-foundation
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: ui-foundation/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui-foundation/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm -s design:lint | node -e "const r=JSON.parse(require('fs').readFileSync(0,'utf8'));if(r.summary.errors||r.summary.warnings){console.log(JSON.stringify(r.findings,null,2));process.exit(1)}"
+      - run: pnpm build
+
+  visual:
+    runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright:v1.64.1-noble
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:visual
+        env:
+          CI: "true"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: visual-diff
+          path: ui-foundation/playwright-report
