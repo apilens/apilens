@@ -79,6 +79,7 @@ jobs:
               - .github/workflows/ci.yml
             web:
               - 'apps/web/**'
+              - 'apps/console/**'
               - package.json
               - 'pnpm-*.yaml'
               - turbo.json
@@ -106,6 +107,7 @@ jobs:
               - 'deploy/compose/**'
               - 'deploy/docker/**'
               - 'apps/web/Dockerfile'
+              - 'apps/console/Dockerfile'
               - .github/workflows/ci.yml
             workflows:
               - '.github/**'
@@ -226,7 +228,7 @@ jobs:
           fi
 
   web:
-    name: Web (lint, typecheck, build)
+    name: Web and console (lint, typecheck, build)
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-24.04
@@ -256,6 +258,14 @@ jobs:
           SESSION_SECRET: ci-build-only-session-secret-0123456789
           DJANGO_API_URL: http://localhost:8080/api/v1
           AUTH_API_URL: http://localhost:8080/api/v1
+      - name: Console lint
+        run: pnpm --filter console lint
+      - name: Console typecheck
+        run: pnpm --filter console exec tsc --noEmit
+      - name: Console build
+        run: pnpm --filter console build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
 
   ai:
     name: AI service (lint, types, tests)
@@ -415,13 +425,16 @@ jobs:
           out="$($COMPOSE run --rm --no-deps --entrypoint /apilens apilens seed | tail -n 1)"
           key="$(jq -r .api_key <<<"$out")"
           app="$(jq -r .app_slug <<<"$out")"
-          if [ -z "$key" ] || [ "$key" = "null" ]; then
-            echo "::error::seed did not return an api_key: $out"
+          read_key="$(jq -r .read_key <<<"$out")"
+          if [ -z "$key" ] || [ "$key" = "null" ] || [ -z "$read_key" ] || [ "$read_key" = "null" ]; then
+            echo "::error::seed did not return api_key and read_key"
             exit 1
           fi
           echo "::add-mask::$key"
+          echo "::add-mask::$read_key"
           {
             echo "APILENS_E2E_API_KEY=$key"
+            echo "APILENS_E2E_READ_KEY=$read_key"
             echo "APILENS_E2E_APP=$app"
           } >> "$GITHUB_ENV"
       - name: Run e2e tests

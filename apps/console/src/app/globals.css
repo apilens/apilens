@@ -1,0 +1,242 @@
+/* Theme mapping copied from ui-foundation/src/app/globals.css (Aperture, snapshot
+   backup/wip-2026-10-22) so utilities match that library 1:1. Console-only
+   additions are at the bottom, clearly marked. */
+
+@import "tailwindcss";
+@import "../styles/tokens.css";
+
+/* Theme is a data attribute set by next-themes on <html>. Feature code should
+   never need `dark:`; tokens switch. It exists for primitives only. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ── Scales ──────────────────────────────────────────────────────────────
+   Stock Tailwind scales are CLEARED, then redefined. `bg-red-500`,
+   `shadow-xl`, `rounded-2xl`, `text-5xl` simply don't exist in this
+   project, so off-system classes fail visibly instead of drifting. */
+@theme {
+  --color-*: initial;
+  --shadow-*: initial;
+  --inset-shadow-*: initial;
+  --drop-shadow-*: initial;
+  --text-shadow-*: initial;
+  --blur-*: initial;
+  --radius-*: initial;
+  --text-*: initial;
+  --ease-*: initial;
+  --animate-*: initial;
+
+  /* Radius: small and nested. A child never has a larger radius than its parent. */
+  --radius-sm: 0.25rem; /* 4px  badges, kbd        */
+  --radius-md: 0.375rem; /* 6px  controls           */
+  --radius-lg: 0.5rem; /* 8px  panels, menus      */
+  --radius-xl: 0.625rem; /* 10px dialogs            */
+
+  /* Type: ratio ~1.2, 11px floor, dense UI default is `text-sm` (13px). */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.375rem;
+  --text-lg: 1rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-xl--letter-spacing: -0.01em;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-2xl--letter-spacing: -0.015em;
+  --text-3xl: 2rem;
+  --text-3xl--line-height: 2.5rem;
+  --text-3xl--letter-spacing: -0.02em;
+
+  /* Motion: ease-out only, 100–250ms. Motion confirms state; it never performs. */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  --animate-spin: ap-spin 700ms linear infinite;
+  --animate-skeleton: ap-breathe 1.6s var(--ease-in-out) infinite;
+  --animate-live: ap-breathe 2s var(--ease-in-out) infinite;
+  --animate-fade-in: ap-fade-in 150ms var(--ease-out);
+  --animate-fade-out: ap-fade-out 100ms var(--ease-out);
+  --animate-overlay-in: ap-overlay-in 150ms var(--ease-out);
+  --animate-overlay-out: ap-fade-out 100ms var(--ease-out);
+  --animate-sheet-in: ap-sheet-in 200ms var(--ease-out);
+  --animate-sheet-out: ap-sheet-out 150ms var(--ease-out);
+
+  @keyframes ap-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes ap-breathe {
+    50% {
+      opacity: 0.45;
+    }
+  }
+  @keyframes ap-fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes ap-fade-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes ap-sheet-in {
+    from {
+      transform: translateX(-100%);
+    }
+  }
+  @keyframes ap-sheet-out {
+    to {
+      transform: translateX(-100%);
+    }
+  }
+  @keyframes ap-overlay-in {
+    from {
+      opacity: 0;
+      transform: translateY(2px) scale(0.98);
+    }
+  }
+}
+
+/* ── Semantic colors, fonts, shadows ─────────────────────────────────────
+   `inline` so utilities resolve var(--ap-*) at use, which is what lets
+   [data-theme] switch everything at runtime. Names follow shadcn's
+   vocabulary (background, card, muted-foreground, ring…) so registry
+   components and the model's priors line up with this theme. */
+@theme inline {
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  --color-background: var(--ap-background);
+  --color-foreground: var(--ap-foreground);
+  --color-card: var(--ap-card);
+  --color-card-foreground: var(--ap-foreground);
+  --color-popover: var(--ap-popover);
+  --color-popover-foreground: var(--ap-foreground);
+  --color-muted: var(--ap-muted);
+  --color-muted-foreground: var(--ap-muted-foreground);
+  --color-subtle-foreground: var(--ap-subtle-foreground);
+  --color-accent: var(--ap-accent);
+  --color-accent-foreground: var(--ap-foreground);
+  --color-secondary: var(--ap-muted);
+  --color-secondary-foreground: var(--ap-foreground);
+  --color-field: var(--ap-field);
+  --color-sidebar: var(--ap-sidebar);
+  --color-sidebar-hover: var(--ap-sidebar-hover);
+  --color-sidebar-accent: var(--ap-sidebar-active);
+  --color-border: var(--ap-border);
+  --color-input: var(--ap-input);
+  --color-ring: var(--ap-ring);
+
+  --color-primary: var(--ap-primary);
+  --color-primary-foreground: var(--ap-primary-foreground);
+  --color-brand: var(--ap-brand);
+  --color-brand-text: var(--ap-brand-text);
+  --color-brand-foreground: var(--ap-brand-foreground);
+  --color-destructive: var(--ap-destructive);
+  --color-destructive-foreground: var(--ap-destructive-foreground);
+
+  --color-success: var(--ap-success);
+  --color-warning: var(--ap-warning);
+  --color-danger: var(--ap-danger);
+  --color-info: var(--ap-info);
+
+  --color-chart-1: var(--ap-chart-1);
+  --color-chart-2: var(--ap-chart-2);
+  --color-chart-3: var(--ap-chart-3);
+  --color-chart-4: var(--ap-chart-4);
+  --color-chart-5: var(--ap-chart-5);
+  --color-chart-6: var(--ap-chart-6);
+  --color-chart-7: var(--ap-chart-7);
+  --color-chart-8: var(--ap-chart-8);
+  --color-chart-grid: var(--ap-chart-grid);
+  --color-chart-axis: var(--ap-chart-axis);
+
+  --shadow-panel: var(--ap-shadow-panel);
+  --shadow-control: var(--ap-shadow-control);
+  --shadow-control-primary: var(--ap-shadow-control-primary);
+  --shadow-control-destructive: var(--ap-shadow-control-destructive);
+  --shadow-overlay: var(--ap-shadow-overlay);
+
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* One focus treatment for every interactive element. */
+@utility focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  &:focus-visible {
+    outline-color: var(--ap-brand);
+  }
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--ap-border);
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--ap-background);
+    color: var(--ap-foreground);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  ::selection {
+    background-color: var(--ap-ring);
+  }
+
+  /* Reduced motion keeps state feedback (fades) and drops movement and loops. */
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --animate-overlay-in: ap-fade-in 150ms var(--ease-out);
+      --animate-sheet-in: ap-fade-in 150ms var(--ease-out);
+      --animate-sheet-out: ap-fade-out 100ms var(--ease-out);
+      --animate-live: none;
+      --animate-skeleton: none;
+    }
+  }
+}
+
+/* ── Console additions ──────────────────────────────────────────────────── */
+
+/* Numbers in tables and stats align column-wise. */
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@layer base {
+  /* Native <details> markers are replaced by our own chevrons. */
+  summary {
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  /* Selects keep the control recipe; the native arrow is replaced. */
+  select {
+    appearance: none;
+  }
+}

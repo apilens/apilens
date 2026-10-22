@@ -3,7 +3,7 @@
 | Path | What it is |
 |---|---|
 | `docker/Dockerfile` | One image for every role: a static Go binary on distroless, running as non-root |
-| `compose/compose.yaml` | Self-hosted all-in-one: Postgres, ClickHouse, Valkey, migrate, apilens and web |
+| `compose/compose.yaml` | Self-hosted all-in-one: Postgres, ClickHouse, Valkey, migrate, apilens, console (v2 dashboard) and web (v1 dashboard) |
 | `compose/compose.dev.yaml` | Datastores only, for local development (ports bound to 127.0.0.1) |
 | `compose/compose.ci.yaml` + `compose/ci.env` | Override with throwaway secrets for CI end-to-end tests |
 | `helm/apilens/` | Kubernetes chart: one Deployment per role, migrations as a hook Job |
@@ -17,9 +17,11 @@ docker compose up -d --wait   # add --build to build the images from source
 docker compose run --rm --entrypoint /apilens apilens seed
 ```
 
-`seed` prints one JSON line with an `api_key`. Point an SDK at `http://<host>:8080/v1`, or an OpenTelemetry exporter at `http://<host>:8080/otlp`. The dashboard runs on port 3000.
+`seed` prints one JSON line with two keys:
+- `api_key` (scope `ingest`): point an SDK at `http://<host>:8080/v1`, or an OpenTelemetry exporter at `http://<host>:8080/otlp`, with this key.
+- `read_key` (scope `read`): put it in `.env` as `APILENS_READ_KEY`, then `docker compose up -d console`. The v2 dashboard runs on port 3100 (`APILENS_CONSOLE_PORT`). It calls the API from its server, so the key never reaches browsers.
 
-Only two ports are published: ingest/API on 8080 and the dashboard on 3000. Postgres, ClickHouse and Valkey are reachable only on the compose network.
+Published ports: ingest/API on 8080, console on 3100, and the v1 dashboard on 3000 (until cutover). Postgres, ClickHouse and Valkey are reachable only on the compose network.
 
 ### Upgrading
 

@@ -1,0 +1,161 @@
+/* ════════════════════════════════════════════════════════════════════════
+   Copied verbatim from ui-foundation/src/styles/tokens.css (Aperture),
+   snapshot backup/wip-2026-10-22. Keep in sync with that file; do not
+   fork values here. Original header follows.
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════════════════════════════
+   Aperture tokens: the ONLY file in this project allowed to contain raw
+   color values. Everything else consumes these through Tailwind utilities
+   (bg-card, text-muted-foreground, shadow-control, …) or var(--ap-*).
+
+   Dark is the primary theme (:root). Light overrides it under
+   [data-theme="light"]. Every text/surface pair is contrast-checked by
+   `pnpm ui:contrast` (scripts/check-contrast.mjs): change a value here,
+   run it.
+
+   Neutrals are tinted toward hue 235 (cool blue-gray) so they sit with the
+   teal brand instead of reading as stock zinc/neutral. The brand teal and
+   the status hues are tuned values, deliberately NOT Tailwind defaults.
+   ════════════════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Surfaces: elevation = lightness. Higher surfaces are lighter. */
+  --ap-background: oklch(0.16 0.006 235); /* page / canvas            */
+  --ap-card: oklch(0.19 0.007 235); /* panels, tables            */
+  --ap-popover: oklch(0.215 0.008 235); /* menus, dialogs, tooltips */
+  --ap-muted: oklch(0.225 0.008 235); /* hover rows, wells         */
+  --ap-accent: oklch(0.26 0.009 235); /* selected / pressed        */
+  --ap-field: oklch(0.175 0.006 235); /* inputs: inset below card  */
+
+  /* Sidebar: a quieter frame one step below the canvas, with its own
+     hover/active steps so states stay visible on it in both themes. */
+  --ap-sidebar: oklch(0.145 0.006 235);
+  --ap-sidebar-hover: oklch(0.2 0.008 235);
+  --ap-sidebar-active: oklch(0.235 0.009 235);
+
+  /* Text: three steps only. */
+  --ap-foreground: oklch(0.955 0.004 235); /* primary text, ≥15:1      */
+  --ap-muted-foreground: oklch(0.76 0.008 235); /* secondary, ≥7.9:1  */
+  --ap-subtle-foreground: oklch(0.64 0.01 235); /* tertiary, ≥5:1    */
+
+  /* Lines: alpha so they adapt to whatever surface they sit on. */
+  --ap-border: oklch(1 0 0 / 0.085);
+  --ap-input: oklch(1 0 0 / 0.15);
+
+  /* Primary action = inverted neutral, not brand color. */
+  --ap-primary: oklch(0.955 0.004 235);
+  --ap-primary-foreground: oklch(0.18 0.008 235);
+
+  /* Brand teal: focus, selection, links, live, single-series charts. */
+  --ap-brand: oklch(0.76 0.115 186);
+  --ap-brand-text: oklch(0.8 0.11 186);
+  --ap-brand-foreground: oklch(0.18 0.02 190);
+  --ap-ring: oklch(0.76 0.115 186 / 0.35);
+
+  /* Status: text-safe on card (≥6:1) and usable as marks. */
+  --ap-success: oklch(0.76 0.14 155);
+  --ap-warning: oklch(0.83 0.135 80);
+  --ap-danger: oklch(0.7 0.17 25);
+  --ap-info: oklch(0.74 0.11 245);
+  --ap-destructive: oklch(0.58 0.19 27); /* solid danger button, white label 4.7:1 */
+  --ap-destructive-foreground: oklch(1 0 0);
+
+  /* Depth recipe: hairline drawn as inset shadow, top highlight, bottom
+     edge. On dark, highlights carry depth (drop shadows don't show). */
+  --ap-shadow-panel: inset 0 1px 0 oklch(1 0 0 / 0.03);
+  --ap-shadow-control:
+    inset 0 0 0 1px oklch(1 0 0 / 0.1), inset 0 1px 0 oklch(1 0 0 / 0.05),
+    0 1px 2px oklch(0 0 0 / 0.4);
+  --ap-shadow-control-primary:
+    inset 0 1px 0 oklch(1 0 0 / 0.5), inset 0 -1px 1px oklch(0 0 0 / 0.18),
+    0 1px 2px oklch(0 0 0 / 0.5);
+  --ap-shadow-control-destructive:
+    inset 0 1px 0 oklch(1 0 0 / 0.18), inset 0 -1px 1px oklch(0 0 0 / 0.25),
+    0 1px 2px oklch(0 0 0 / 0.5);
+  --ap-shadow-overlay:
+    0 0 0 1px oklch(1 0 0 / 0.09), inset 0 1px 0 oklch(1 0 0 / 0.04),
+    0 16px 32px -8px oklch(0 0 0 / 0.6), 0 4px 8px -4px oklch(0 0 0 / 0.4);
+
+  /* Charts: validated categorical palette (dataviz six checks, dark
+     surface = card). Assign in order, never cycle; >8 series → "Other". */
+  --ap-chart-1: #3987e5;
+  --ap-chart-2: #d95926;
+  --ap-chart-3: #199e70;
+  --ap-chart-4: #c98500;
+  --ap-chart-5: #d55181;
+  --ap-chart-6: #008300;
+  --ap-chart-7: #9085e9;
+  --ap-chart-8: #e66767;
+  --ap-chart-grid: oklch(1 0 0 / 0.06);
+  --ap-chart-axis: oklch(1 0 0 / 0.14);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --ap-background: oklch(0.982 0.002 235);
+  --ap-card: oklch(1 0 0);
+  --ap-popover: oklch(1 0 0);
+  --ap-muted: oklch(0.965 0.003 235);
+  --ap-accent: oklch(0.94 0.004 235);
+  --ap-field: oklch(1 0 0);
+
+  --ap-sidebar: oklch(0.97 0.003 235);
+  --ap-sidebar-hover: oklch(0.945 0.004 235);
+  --ap-sidebar-active: oklch(0.925 0.005 235);
+
+  --ap-foreground: oklch(0.2 0.015 245);
+  --ap-muted-foreground: oklch(0.45 0.014 245);
+  --ap-subtle-foreground: oklch(0.54 0.012 245);
+
+  --ap-border: oklch(0.25 0.02 245 / 0.11);
+  --ap-input: oklch(0.25 0.02 245 / 0.2);
+
+  --ap-primary: oklch(0.2 0.015 245);
+  --ap-primary-foreground: oklch(0.985 0.002 235);
+
+  --ap-brand: oklch(0.54 0.095 190);
+  --ap-brand-text: oklch(0.5 0.09 190);
+  --ap-brand-foreground: oklch(1 0 0);
+  --ap-ring: oklch(0.54 0.095 190 / 0.3);
+
+  --ap-success: oklch(0.5 0.12 155);
+  --ap-warning: oklch(0.56 0.115 75);
+  --ap-danger: oklch(0.53 0.19 27);
+  --ap-info: oklch(0.5 0.13 250);
+  --ap-destructive: oklch(0.55 0.2 27);
+  --ap-destructive-foreground: oklch(1 0 0);
+
+  --ap-shadow-panel: 0 1px 2px oklch(0.2 0.02 245 / 0.04);
+  --ap-shadow-control:
+    inset 0 0 0 1px oklch(0.25 0.02 245 / 0.16),
+    inset 0 -1px 1px oklch(0.2 0.02 245 / 0.06),
+    0 1px 2px oklch(0.2 0.02 245 / 0.06);
+  --ap-shadow-control-primary:
+    inset 0 1px 0 oklch(1 0 0 / 0.14), inset 0 -1px 1px oklch(0 0 0 / 0.3),
+    0 1px 2px oklch(0.2 0.02 245 / 0.16);
+  --ap-shadow-control-destructive:
+    inset 0 1px 0 oklch(1 0 0 / 0.2), inset 0 -1px 1px oklch(0 0 0 / 0.25),
+    0 1px 2px oklch(0.4 0.1 27 / 0.2);
+  --ap-shadow-overlay:
+    0 0 0 1px oklch(0.25 0.02 245 / 0.1),
+    0 12px 24px -6px oklch(0.2 0.02 245 / 0.14),
+    0 4px 8px -4px oklch(0.2 0.02 245 / 0.06);
+
+  /* Light surface = white card. Slots 3, 4, 5 sit below 3:1 on white:
+     charts using them MUST show direct labels or a table view. */
+  --ap-chart-1: #2a78d6;
+  --ap-chart-2: #eb6834;
+  --ap-chart-3: #1baf7a;
+  --ap-chart-4: #eda100;
+  --ap-chart-5: #e87ba4;
+  --ap-chart-6: #008300;
+  --ap-chart-7: #6250d6;
+  --ap-chart-8: #e34948;
+  --ap-chart-grid: oklch(0.25 0.02 245 / 0.07);
+  --ap-chart-axis: oklch(0.25 0.02 245 / 0.18);
+}

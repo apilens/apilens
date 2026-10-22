@@ -31,10 +31,11 @@ own signal (edge on RPS, writers on Kafka lag, query on latency).
 | Role | Status | Responsibility |
 |---|---|---|
 | `edge` | **M1** | v1 JSON ingest + OTLP/HTTP, auth, validation, backpressure |
+| `query` | **M1.5** (slice) | dashboard API over rollups/raw tables, read keys, mandatory tenant predicate; M3 adds the typed query compiler |
 | `all` | **M1** | every implemented role in one process |
 | `migrate` | **M1** | one-shot Postgres + ClickHouse migrations (also `apilens migrate`) |
 | `api`, `identity` | M2 | control plane (orgs/teams/projects/keys), OIDC provider, passkeys, TOTP |
-| `writer`, `processor`, `query` | M3 | Kafka consumers, endpoint discovery, error grouping, typed query compiler |
+| `writer`, `processor` | M3 | Kafka consumers, endpoint discovery, error grouping |
 | `worker`, `mcp` | M4 | alerts and integrations (River), MCP server |
 | `saml` | M5 | isolated SAML ACS |
 
@@ -76,6 +77,18 @@ packages never import feature modules, and only `cmd/` imports `internal/app`.
    (backpressure instead of unbounded memory).
 5. **OTLP**: resource `apilens.app` or `service.name` selects the app; records
    for unknown apps are rejected through OTLP partial success.
+
+## Read path and console (M1.5)
+
+`apps/console` is the v2 dashboard, built to the Aperture spec (dark-first,
+IBM Plex, one teal signal color, panels and dense tables, no decoration). It
+is server-rendered: pages call the `query` role from the Next.js server with
+a project **read key** (`APILENS_READ_KEY`), so no credential reaches the
+browser. Read keys carry scope `read`; ingest keys (`ingest`) cannot query and
+read keys cannot ingest. Every query derives the project from the key and
+filters on it first (`internal/query`), and an integration test proves two
+projects sharing a trace id never see each other's data. User sessions
+replace read keys in the console when identity lands (M2).
 
 ## Data model
 
