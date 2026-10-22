@@ -1,232 +1,109 @@
 # APILens
 
-API observability — track requests, see performance, get alerts when things break.
+Open-source API observability: request analytics, errors, traces and logs for
+your APIs, with SDKs for Python, TypeScript and Java and native
+OpenTelemetry ingest. MIT licensed, self-hostable, built to scale out.
 
-> Early-stage. APIs change, things break.
+> **v2 is under construction on the `v2` branch.** Milestone 1 (ingest
+> foundation) is done; the dashboard API, identity and AI features follow.
+> The previous Django stack is preserved at tag
+> [`legacy-v1`](https://github.com/apilens/apilens/tree/legacy-v1).
 
-## What's in the repo
+## Architecture in one picture
 
 ```
-apps/
-  api          Django + Ninja backend
-  web          Next.js frontend
-  docs         Mintlify docs
-packages/
-  logger             @apilens/logger — shared TS logger (pino)
-  sdk-python         PyPI: apilenss
-  sdk-typescript     npm:  apilens-js-sdk
-infra/
-  docker       Local databases (postgres, clickhouse, redis)
-  gcp          Production infra (Terraform)
-scripts/       Setup + dev helpers
-sidecar-testing/   Local SDK integration tests across frameworks
+SDKs / OpenTelemetry ──► edge ──► sink (direct | Kafka) ──► ClickHouse (rollups)
+Next.js dashboard ──► api · query · identity · mcp ──► Postgres · SpiceDB · Valkey
+AI/ML service (Python) ──► same API, with the user's permissions
 ```
 
-## Tech
+One Go binary runs any combination of roles (`apilens -target=edge,query`), so a
+self-hosted install is a single container while the SaaS scales each role
+independently. Read [docs/architecture/overview.md](docs/architecture/overview.md)
+and the [decision records](docs/adr/README.md).
 
-- **Backend**: Python 3.13, Django 5, Django Ninja
-- **Frontend**: Next.js 16, React 19, TypeScript
-- **Databases**: Postgres + ClickHouse + Redis
-- **Monorepo**: pnpm workspaces + turborepo (JS/TS only — Python uses uv)
+| Layer | Technology |
+|---|---|
+| Backend | Go 1.27 — one binary, role targets, Huma (OpenAPI 3.1), pgx + sqlc, clickhouse-go |
+| Data | ClickHouse 26.8 LTS · Postgres 17 · Valkey 9 · SpiceDB (M2) · Kafka 4 (optional, M3) |
+| Web | Next.js 16 (`apps/web`) |
+| AI/ML | Python 3.14, FastAPI, Pydantic AI, statsforecast (`apps/ai`, M4) |
+| Contracts | protobuf (buf) for internal events, OpenAPI for the API, v1 JSON + OTLP for ingest |
+| Delivery | GitHub Actions, multi-arch images on GHCR (SBOM, provenance, cosign), docker compose, Helm |
 
-## You'll need
+## Status
 
-- **Node 20+** — [nodejs.org](https://nodejs.org)
-- **pnpm 9** — see install instructions below
-- **Python 3.13** — [python.org](https://python.org)
-- **uv** — [astral.sh/uv](https://docs.astral.sh/uv/)
-- **Docker** — [docs.docker.com/get-docker](https://docs.docker.com/get-docker)
+| Milestone | Scope | State |
+|---|---|---|
+| M1 | Monorepo foundation, edge (v1 JSON + OTLP), ClickHouse schema + rollups, CI, images, compose, Helm skeleton | ✅ done |
+| M2 | Identity (OIDC, passkeys, TOTP), orgs/teams/projects API, SpiceDB, staging | next |
+| M3 | Query compiler, dashboard API parity, Kafka sink + writers, processors | planned |
+| M4 | GitHub/Slack/PagerDuty, alerts, MCP server, AI investigator, anomaly detection | planned |
+| M5 | SAML/SCIM, full Helm chart, releases, docs | planned |
+| M6 | Cutover from v1 | planned |
 
-### Installing pnpm
+## Self-host (quick start)
 
-pnpm is the package manager for all JS/TS workspaces. The recommended way is via Node's built-in corepack:
-
-```bash
-corepack enable
-corepack prepare pnpm@9 --activate
+```sh
+cd deploy/compose
+cp .env.example .env            # set the passwords and SESSION_SECRET
+docker compose up -d --wait
+docker compose run --rm --entrypoint /apilens apilens seed   # prints an ingest key
 ```
 
-Or install it globally with npm:
-
-```bash
-npm install -g pnpm@9
-```
-
-Verify it worked:
-
-```bash
-pnpm --version   # should print 9.x.x
-```
-
-> If you're using [nvm](https://github.com/nvm-sh/nvm) or [fnm](https://github.com/Schniz/fnm), run `corepack enable` after switching Node versions — corepack shims are per Node install.
-
-## Run it locally
-
-There are two commands you'll use. `setup` is one-time, `dev` is every day.
-
-### First time only
-
-After cloning the repo:
-
-```bash
-pnpm bootstrap
-```
-
-This is interactive — it checks your environment, asks before overwriting anything, and walks you through each step:
-
-1. **Pre-flight** — verifies node, pnpm, python, uv, and docker are installed
-2. **JS/TS deps** — runs `pnpm install` across all workspaces
-3. **Python venv** — creates `apps/api/.venv` and installs backend deps with `uv`
-4. **Environment files** — copies `.env.example` → `.env` with real secrets auto-generated (no copy-paste placeholders)
-5. **Databases** — starts postgres + clickhouse + redis + the OPA authz engine via Docker, detects port conflicts and offers to remap them
-6. **Migrations** — optionally runs Django migrations to get the DB schema ready
-
-Re-run `pnpm bootstrap` after pulling changes that touch dependencies, env templates, or Docker config. It skips steps that are already done.
-
-> **Why `bootstrap` and not `setup`?** `pnpm setup` is a built-in pnpm command (it adds pnpm to your PATH). Running it would silently do nothing instead of running our script.
-
-### Every day, while coding
-
-```bash
-pnpm dev
-```
-
-That's it. This starts the **whole local stack** in one terminal via `mprocs` — one tab per service: postgres, clickhouse, redis, authz (OPA), api (http://localhost:8000), ingest (http://localhost:8001), and web (http://localhost:3002). Each tab has its own live logs.
-
-Navigation: **`Ctrl+a`** toggles focus between the process list and the output pane; `q` quits (must be focused on the process list), `Q` force-quits, `r` restarts the selected proc.
-
-Magic links print to the `api` tab — copy the link from the logs to sign in.
-
-> Want just the app servers (frontend + Django) the old way, with the databases already up via `pnpm db:up`? Use `pnpm dev:apps` (turbo).
-
-### Once you're done
-
-Quitting `pnpm dev` (`q`) stops the **app servers** (api/ingest/web) instantly. The datastore containers keep running in the background — the same model as `pnpm db:up` — so the next `pnpm dev` starts fast. Stop them when you're fully done:
-
-```bash
-pnpm db:down       # stop postgres + clickhouse + redis + opa
-```
-
-## Common commands
-
-```bash
-pnpm dev                # run the full local stack (mprocs: db + authz + api + ingest + web)
-pnpm dev:apps           # run just the app servers (frontend + Django) via turbo
-pnpm stack              # alias of `pnpm dev`
-pnpm build              # build everything (turbo, cached)
-pnpm typecheck          # TS type-check
-pnpm lint               # lint JS/TS workspaces
-
-pnpm db:up              # start postgres + clickhouse + redis + opa (detached)
-pnpm db:down            # stop them
-pnpm db:logs            # tail their logs
-```
-
-Backend (from `apps/api/`):
-
-```bash
-.venv/bin/python manage.py runserver
-.venv/bin/python manage.py migrate                # apply Django migrations
-.venv/bin/python manage.py clickhouse_migrate     # apply ClickHouse migrations
-.venv/bin/python manage.py createsuperuser        # add an admin
-```
-
-## Python SDK (`packages/sdk-python`)
-
-Published to PyPI as **`apilenss`**. Install it in any app you want to observe:
-
-```bash
-pip install 'apilenss[fastapi]'   # or [flask], [django], [starlette], [all]
-```
-
-### Quick setup
+Point an SDK (or any OpenTelemetry exporter at `http://<host>:8080/otlp`) at
+the edge. See [deploy/README.md](deploy/README.md) for TLS, upgrades and Helm.
 
 ```python
-# FastAPI
 from apilens.fastapi import ApiLensMiddleware
-app.add_middleware(ApiLensMiddleware, api_key="apilens_xxx", app_id="my-app")
-
-# Flask
-from apilens import ApiLensClient, ApiLensConfig
-from apilens.flask import instrument_flask
-instrument_flask(app, ApiLensClient(ApiLensConfig(api_key="apilens_xxx")), app_id="my-app")
-
-# Django — add to MIDDLEWARE + two settings
-MIDDLEWARE = [..., "apilens.django.ApiLensDjangoMiddleware"]
-APILENS_API_KEY = "apilens_xxx"
-APILENS_APP_ID  = "my-django-app"
+app.add_middleware(ApiLensMiddleware, api_key="apl_live_…", app_id="default",
+                   base_url="http://localhost:8080/v1")
 ```
 
-### Consumer tracking
+Existing SDK releases work unchanged against v2: the edge keeps the v1 wire
+format byte-for-byte (checked in CI's end-to-end job).
 
-Identify who made each request so you can see per-user traffic in the dashboard.
-APILens never infers the consumer automatically — you attach it in your own code:
+## Develop
 
-```python
-# Flask — call from @app.before_request (no request arg needed)
-from apilens.flask import set_consumer
+You need Go 1.27, Node 22, pnpm 11, uv and Docker ([mise.toml](mise.toml)
+pins them).
 
-@app.before_request
-def identify_consumer():
-    if g.current_user:
-        set_consumer(
-            identifier=g.current_user["email"],   # required: stable id
-            name=g.current_user.get("name"),       # optional: display name
-            group=g.current_user.get("role"),      # optional: team / tier / org
-        )
-
-# FastAPI — inject via Depends
-from apilens.fastapi import set_consumer
-
-async def consumer_dep(request: Request):
-    user = getattr(request.state, "user", None)
-    if user:
-        set_consumer(request, identifier=user.id, name=user.username)
-
-@app.get("/orders")
-async def list_orders(_: None = Depends(consumer_dep)):
-    ...
-
-# Django — APILENS_GET_CONSUMER setting
-APILENS_GET_CONSUMER = lambda req: (
-    {"identifier": req.user.email, "name": req.user.get_full_name()}
-    if req.user.is_authenticated else None
-)
+```sh
+go -C tools install tool   # installs task, buf, golangci-lint into ./bin (or `task tools`)
+export PATH="$PWD/bin:$PATH"
+task bootstrap             # deps, dev datastores, migrations, seed
+task run                   # apilens -target=all against the dev datastores
+task dev                   # datastores + hot reload backend + web + AI (mprocs)
 ```
 
-Full framework examples (Starlette, Litestar, etc.) in [`packages/sdk-python/README.md`](packages/sdk-python/README.md).
+| Command | What it does |
+|---|---|
+| `task test` | Go unit tests |
+| `task test:integration` | Go tests against real Postgres/ClickHouse/Valkey (testcontainers) |
+| `task e2e:up && task test:e2e` | black-box tests against the compose stack |
+| `task lint` | golangci-lint, govulncheck, buf, ESLint/tsc, ruff/pyright |
+| `task gen` | regenerate protobuf, sqlc and OpenAPI (committed; CI checks for drift) |
+| `task loadgen -- -key … -rate 50000` | load test the edge ([baseline](docs/benchmarks/m1.md)) |
 
-### Publishing a new SDK version
+## Repository layout
 
-1. Bump `version` in `packages/sdk-python/pyproject.toml` and `__version__` in `apilens/__init__.py`
-2. Commit and push
-3. `git tag apilens-sdk-vX.Y.Z && git push origin apilens-sdk-vX.Y.Z`
-
-CI builds and publishes to PyPI on the `apilens-sdk-v*` tag pattern.
-
-### Local SDK dev
-
-```bash
-# Install the local copy into any sidecar venv
-pip install -e ./packages/sdk-python
-
-# Run the sidecar test apps (each has its own .env + .venv)
-cd sidecar-testing/flask   && .venv/bin/flask run
-cd sidecar-testing/fastapi && .venv/bin/uvicorn app.main:app --reload
+```
+cmd/apilens          the single binary
+internal/            app (composition root), platform, ingest, pipeline, controlplane, migrations, gen
+proto/ api/openapi/  contracts
+apps/web apps/ai apps/docs
+packages/sdk-python packages/sdk-typescript packages/sdk-java
+deploy/              docker, compose, helm
+docs/                architecture, ADRs, benchmarks
+test/e2e tools/      end-to-end tests, dev tooling and load generator
 ```
 
-Test consumer tracking:
-```bash
-curl -H "X-User-Email: alice@example.com" -H "X-User-Name: Alice" http://localhost:8012/v1/invoices/42
-```
+## Contributing and security
 
-## Repo conventions
+See [CONTRIBUTING.md](CONTRIBUTING.md) (Conventional Commits, DCO sign-off) and
+[GOVERNANCE.md](GOVERNANCE.md). Report vulnerabilities privately as described
+in [SECURITY.md](SECURITY.md).
 
-- pnpm workspaces are everything under `apps/*` and `packages/*` with a `package.json`.
-- Python apps (`apps/api`, `apps/ingest`, `apps/identity`) are workspace-invisible to pnpm — `uv` manages those.
-- CI runs only on the workspace you touched (path-filtered).
-- Each app has its own `.env` (start from `.env.example`).
+## License
 
-## Contributing
-
-Branch off `main`, open a PR. CI runs only on the workspaces you changed. The PR description should say what changed and why; a quick test plan helps.
+[MIT](LICENSE)
