@@ -1,0 +1,10 @@
+# Tool versions for contributors (https://mise.jdx.dev): `mise install`.
+# Go-based tools (task, buf, golangci-lint, govulncheck) are pinned in
+# tools/go.mod instead and installed with `go -C tools install tool`.
+[tools]
+go = "1.27.3"
+node = "22.22"
+pnpm = "11.28.7"
+python = "3.14"
+uv = "0.13.5"
+helm = "4.0.4"

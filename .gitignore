@@ -1,231 +1,58 @@
-# =============================================================================
-# Python
-# =============================================================================
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
+# Keep patterns anchored and specific: a bare `log/` or `migrations/` once
+# silently hid real source directories.
 
-
-#lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-
-# =============================================================================
-# Virtual Environments
-# =============================================================================
-.venv/
-venv/
-ENV/
-env/
-.uv/
-backend/uv.lock
-
-
-# =============================================================================
-# Django
-# =============================================================================
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-staticfiles/
-media/
-*.pot
-*.mo
-
-
-# =============================================================================
-# Node.js / Frontend
-# =============================================================================
-node_modules/
-static/node_modules/
-static/dist/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-.npm/
-
-# pnpm lockfile IS committed (single source of truth so local/CI/prod Docker
-# share resolved versions). Do not re-ignore it — CI + the web image build with
-# `pnpm install --frozen-lockfile`, which requires it to be present.
-
-# Turborepo
-.turbo/
-
-
-# =============================================================================
-# Environment Files
-# =============================================================================
-backend/.env
-.env.local
-.env.*.local
-.env.development
-.env.production
-!backend/.env.example
-
-
-# =============================================================================
-# IDE / Editor
-# =============================================================================
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.project
-.pydevproject
-.settings/
-*.sublime-workspace
-*.sublime-project
-
-
-# =============================================================================
-# OS Files
-# =============================================================================
+# OS / editors
 .DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
 
-# Accidentally generated/exported artifacts
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-desktop.ini
-
-
-# =============================================================================
-# Testing
-# =============================================================================
-.pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-.tox/
-.nox/
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-
-
-# =============================================================================
-# Type Checking
-# =============================================================================
-.mypy_cache/
-.dmypy.json
-dmypy.json
-.pytype/
-
-
-# =============================================================================
-# Build Artifacts
-# =============================================================================
-dist/
-build/
-*.manifest
-*.spec
-
-
-# =============================================================================
-# Logs
-# =============================================================================
-logs/
-*.log
-log/
-# But NOT Next.js API route directories that happen to be named "logs"
-!apps/web/src/app/api/**/logs/
-
-# =============================================================================
-# Docker (don't ignore Dockerfiles)
-# =============================================================================
-docker-compose.override.yml
-
-
-# =============================================================================
-# Celery
-# =============================================================================
-celerybeat-schedule
-celerybeat.pid
-
-
-# =============================================================================
-# Jupyter Notebooks
-# =============================================================================
-.ipynb_checkpoints/
-*.ipynb
-
-
-# =============================================================================
-# Secrets and Keys
-# =============================================================================
-*.pem
-*.key
-secrets/
-credentials.json
-
-
-# =============================================================================
-# Misc
-# =============================================================================
-.cache/
-*.bak
-*.tmp
-*.temp
-.cadence/
-# Sidecar testing apps are tracked, but their per-app virtualenvs, dotenvs,
-# and SQLite databases should not be.
-sidecar-testing/**/.env
-sidecar-testing/**/.venv/
-sidecar-testing/**/db.sqlite3
-
-
-# Next.js
-.next/
-out/
-
-
-# Environment
+# Secrets and local env (examples are committed)
 .env
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
+!deploy/compose/ci.env
 
+# Go
+/bin/
+/dist/
+/tmp/
+/coverage.out
+*.test
+*.prof
 
-# TypeScript
+# Node / Next.js / Turborepo
+node_modules/
+.next/
+.turbo/
 *.tsbuildinfo
 next-env.d.ts
+packages/sdk-typescript/dist/
+.pnpm-store/
 
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+packages/sdk-python/dist/
+packages/sdk-python/build/
 
-# Vercel
-.vercel
-.env*.local
+# Java SDK
+packages/sdk-java/target/
 
+# Helm
+deploy/helm/**/charts/*.tgz
 
-# ==============================
-# Migrations
-# ==============================
-
-# ==============================
-# Local agent / tooling artifacts
-# ==============================
-.claude/
+# Local agent / tool state
+.claude/settings.local.json
 .playwright-mcp/
+playwright-report/
+test-results/
+
+# go-task checksum cache
+.task/

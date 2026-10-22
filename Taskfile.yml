@@ -1,0 +1,174 @@
+# https://taskfile.dev — the one front door for local development and CI.
+#   go -C tools install tool   (or `task tools`) puts task/buf/golangci-lint in ./bin
+version: "3"
+
+vars:
+  BIN: "{{.ROOT_DIR}}/bin"
+  SQLC_IMAGE: sqlc/sqlc:1.31.1@sha256:70f53171d27b2424e9358869975455a6e955a5aa8e58a998a270a6e34e525537
+  DEV_COMPOSE: deploy/compose/compose.dev.yaml
+
+# Defaults matching deploy/compose/compose.dev.yaml (local only).
+env:
+  APILENS_POSTGRES__URL: '{{.APILENS_POSTGRES__URL | default "postgres://apilens:apilens@localhost:5432/apilens?sslmode=disable"}}'
+  APILENS_CLICKHOUSE__ADDR: '{{.APILENS_CLICKHOUSE__ADDR | default "localhost:9000"}}'
+  APILENS_CLICKHOUSE__PASSWORD: '{{.APILENS_CLICKHOUSE__PASSWORD | default "apilens"}}'
+  APILENS_VALKEY__ADDR: '{{.APILENS_VALKEY__ADDR | default "localhost:6379"}}'
+  APILENS_LOG__FORMAT: '{{.APILENS_LOG__FORMAT | default "text"}}'
+
+tasks:
+  default:
+    cmds: ["task --list"]
+    silent: true
+
+  tools:
+    desc: Install Go tools (task, buf, golangci-lint, govulncheck) into ./bin
+    sources: [tools/go.mod, tools/go.sum]
+    generates: ["{{.BIN}}/buf", "{{.BIN}}/golangci-lint"]
+    cmds:
+      - GOBIN={{.BIN}} go -C tools install tool
+
+  bootstrap:
+    desc: One-time setup — tools, JS/Python deps, dev datastores, schema, seed data
+    cmds:
+      - task: tools
+      - pnpm install
+      - uv sync --all-packages
+      - task: up
+      - task: migrate
+      - task: seed
+
+  # ---------------------------------------------------------------- codegen
+  gen:
+    desc: Regenerate everything committed as generated code
+    cmds:
+      - task: gen:proto
+      - task: gen:sqlc
+      - task: gen:openapi
+
+  gen:proto:
+    desc: protobuf -> internal/gen/pb (local plugins, no BSR)
+    deps: [tools]
+    sources: ["proto/**/*.proto", buf.yaml, buf.gen.yaml]
+    cmds:
+      - rm -rf internal/gen/pb
+      - "{{.BIN}}/buf generate"
+
+  gen:sqlc:
+    desc: SQL queries -> internal/controlplane/store/db
+    sources: ["internal/controlplane/store/queries/*.sql", "internal/migrations/postgres/*.sql", sqlc.yaml]
+    cmds:
+      - docker run --rm -u "$(id -u):$(id -g)" -v "{{.ROOT_DIR}}:/src" -w /src {{.SQLC_IMAGE}} generate
+
+  gen:openapi:
+    desc: Dump the Huma OpenAPI spec to api/openapi
+    cmds:
+      - mkdir -p api/openapi
+      - go run ./cmd/apilens openapi > api/openapi/apilens.v1.json
+
+  # ------------------------------------------------------------- quality
+  lint:
+    desc: All linters
+    cmds:
+      - task: lint:go
+      - task: lint:proto
+      - task: lint:web
+      - task: lint:ai
+
+  lint:go:
+    deps: [tools]
+    cmds:
+      - "{{.BIN}}/golangci-lint run ./..."
+      - "{{.BIN}}/govulncheck ./..."
+
+  lint:proto:
+    deps: [tools]
+    cmds:
+      - "{{.BIN}}/buf lint"
+      - "{{.BIN}}/buf format -d --exit-code"
+
+  lint:web:
+    cmds:
+      - pnpm --filter frontend lint
+      - pnpm --filter frontend exec tsc --noEmit
+
+  lint:ai:
+    dir: apps/ai
+    cmds:
+      - uv run ruff check
+      - uv run ruff format --check
+      - uv run pyright
+
+  test:
+    desc: Go unit tests
+    cmds:
+      - go test -race -count=1 ./...
+
+  test:integration:
+    desc: Go integration tests against real Postgres/ClickHouse/Valkey (needs Docker)
+    cmds:
+      - go test -race -count=1 -p 1 -tags=integration ./internal/...
+
+  test:e2e:
+    desc: Black-box tests against a running stack (task e2e:up first)
+    cmds:
+      - go test -count=1 -tags=e2e ./test/e2e/... {{.CLI_ARGS}}
+
+  e2e:up:
+    desc: Build images and start the self-host stack with CI settings
+    cmds:
+      - docker compose --env-file deploy/compose/ci.env -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml up -d --build --wait apilens
+
+  e2e:down:
+    cmds:
+      - docker compose --env-file deploy/compose/ci.env -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml down -v
+
+  # ------------------------------------------------------------- run
+  build:
+    desc: Build the apilens binary into ./bin
+    cmds:
+      - go build -trimpath -o {{.BIN}}/apilens ./cmd/apilens
+
+  docker:build:
+    desc: Build the apilens image
+    cmds:
+      - docker build -f deploy/docker/Dockerfile -t ghcr.io/apilens/apilens:dev .
+
+  up:
+    desc: Start dev datastores (Postgres, ClickHouse, Valkey) on localhost
+    cmds:
+      - docker compose -f {{.DEV_COMPOSE}} up -d --wait
+
+  down:
+    desc: Stop dev datastores
+    cmds:
+      - docker compose -f {{.DEV_COMPOSE}} down
+
+  migrate:
+    desc: Apply Postgres and ClickHouse migrations to the dev datastores
+    cmds:
+      - go run ./cmd/apilens migrate
+
+  seed:
+    desc: Create a dev org/project/app and print an ingest key
+    cmds:
+      - go run ./cmd/apilens seed {{.CLI_ARGS}}
+
+  run:
+    desc: Run all roles against the dev datastores
+    cmds:
+      - go run ./cmd/apilens -target=all
+
+  dev:
+    desc: Datastores + hot-reloading backend + web + AI (mprocs)
+    cmds:
+      - pnpm exec mprocs
+
+  loadgen:
+    desc: "Load test the edge, e.g. task loadgen -- -key apl_live_... -rate 5000"
+    cmds:
+      - go -C tools run ./loadgen {{.CLI_ARGS}}
+
+  helm:lint:
+    cmds:
+      - helm lint --strict deploy/helm/apilens
+      - helm template apilens deploy/helm/apilens > /dev/null

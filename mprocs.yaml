@@ -1,0 +1,16 @@
+# `task dev` — everything for local development in one terminal UI.
+procs:
+  datastores:
+    shell: docker compose -f deploy/compose/compose.dev.yaml up
+  backend:
+    shell: go run github.com/air-verse/air@v1.67.4 -c .air.toml
+    env:
+      APILENS_POSTGRES__URL: postgres://apilens:apilens@localhost:5432/apilens?sslmode=disable
+      APILENS_CLICKHOUSE__ADDR: localhost:9000
+      APILENS_CLICKHOUSE__PASSWORD: apilens
+      APILENS_VALKEY__ADDR: localhost:6379
+      APILENS_LOG__FORMAT: text
+  web:
+    shell: pnpm --filter frontend dev
+  ai:
+    shell: uv run --package apilens-ai uvicorn apilens_ai.main:app --reload --port 8000
