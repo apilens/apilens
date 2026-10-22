@@ -1,1 +1,0 @@
-# Base models (TenantModel, etc)
