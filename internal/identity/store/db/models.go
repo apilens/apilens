@@ -78,6 +78,16 @@ type Project struct {
 	DeletedAt *time.Time
 }
 
+type SigningKey struct {
+	Kid           string
+	Alg           string
+	PublicJwk     []byte
+	PrivateKeyEnc []byte
+	CreatedAt     time.Time
+	ActivatedAt   *time.Time
+	RetiredAt     *time.Time
+}
+
 type User struct {
 	ID              uuid.UUID
 	Email           string

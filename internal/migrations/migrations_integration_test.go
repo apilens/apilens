@@ -6,6 +6,7 @@ import (
 	"context"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -39,7 +40,7 @@ func TestMigrationsApplyAndAreIdempotent(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	for _, want := range []string{"api_keys", "apps", "audit_events", "environments", "organizations", "outbox", "projects", "users", "river_job", "river_migration", "river_queue"} {
+	for _, want := range []string{"api_keys", "apps", "audit_events", "environments", "organizations", "outbox", "projects", "signing_keys", "users", "river_job", "river_migration", "river_queue"} {
 		if !slices.Contains(tables, want) {
 			t.Errorf("postgres table %q missing (have %v)", want, tables)
 		}
@@ -130,6 +131,54 @@ func TestPostgresUsersMigrationRollsBack(t *testing.T) {
 	}
 	if !tableExists(t, pool, "users") {
 		t.Error("users missing after re-apply")
+	}
+}
+
+func TestPostgresSigningKeysMigrationRollsBack(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	insert := `INSERT INTO signing_keys (kid, alg, public_jwk, private_key_enc, activated_at, retired_at)
+		VALUES ($1, 'RS256', '{"kty":"RSA"}', '\x01', $2, $3)`
+	day := func(d int) *time.Time { ts := time.Date(2026, 1, d, 0, 0, 0, 0, time.UTC); return &ts }
+	if _, err := pool.Exec(ctx, insert, "k1", day(1), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insert, "k2", day(2), nil); err == nil {
+		t.Fatal("a second active key should violate signing_keys_one_active")
+	}
+	if _, err := pool.Exec(ctx, insert, "k3", nil, day(2)); err == nil {
+		t.Fatal("a retired key must have been activated")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO signing_keys (kid, alg, public_jwk, private_key_enc) VALUES ('k4', 'HS256', '{}', '\x01')`); err == nil {
+		t.Fatal("only RS256 keys are allowed")
+	}
+	if _, err := pool.Exec(ctx, insert, "k5", day(1), day(2)); err != nil {
+		t.Fatalf("retired keys do not count towards the one active key: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 2); err != nil {
+		t.Fatalf("roll back to 00002: %v", err)
+	}
+	if tableExists(t, pool, "signing_keys") {
+		t.Error("signing_keys should be dropped after rollback")
+	}
+	if !tableExists(t, pool, "users") {
+		t.Error("rollback of 00003 must not touch 00002")
+	}
+
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply after rollback: %v", err)
+	}
+	if !tableExists(t, pool, "signing_keys") {
+		t.Error("signing_keys missing after re-apply")
 	}
 }
 
