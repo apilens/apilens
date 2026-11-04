@@ -37,12 +37,15 @@ const (
 	SourceGoogle Source = "google"
 	SourceGitHub Source = "github"
 	SourceSSO    Source = "sso"
+	// SourceOperator is an account created by an operator from the CLI
+	// (`apilens seed`, `apilens user create`), not by a sign-in.
+	SourceOperator Source = "operator"
 )
 
 // Valid reports whether s is a known source.
 func (s Source) Valid() bool {
 	switch s {
-	case SourceEmail, SourceGoogle, SourceGitHub, SourceSSO:
+	case SourceEmail, SourceGoogle, SourceGitHub, SourceSSO, SourceOperator:
 		return true
 	}
 	return false

@@ -23,7 +23,34 @@ docker compose up -d --wait   # add --build to build the images from source
 
 Then open http://localhost:3000 and sign up. With the default `log` email provider nothing is sent: the sign-in code is in `docker compose logs apilens` (see [Email](#email) to deliver mail). Onboarding then creates your organization and project.
 
-For a scripted setup, `docker compose run --rm --entrypoint /apilens apilens seed` creates a dev org, project and app and prints one JSON line with an `api_key` (scope `ingest`) and a `read_key` (scope `read`). Point an SDK at `http://<host>:8080/v1`, or an OpenTelemetry exporter at `http://<host>:8080/otlp`, with the `api_key`.
+For a scripted setup, `docker compose run --rm --entrypoint /apilens apilens seed` creates a dev org, project and app and prints one JSON line with an `api_key` (scope `ingest`) and a `read_key` (scope `read`). Point an SDK at `http://<host>:8080/v1`, or an OpenTelemetry exporter at `http://<host>:8080/otlp`, with the `api_key`. Seed also makes `dev@apilens.local` owner of the org and prints a one-time `magic_link` to sign in as it (see [First sign-in](#first-sign-in)).
+
+### First sign-in
+
+A fresh install has no users and, with the default `log` email provider, sends no mail. Either sign up in the UI and copy the code from `docker compose logs apilens`, or bootstrap the first admin from the CLI, which needs no email at all. Every command prints one JSON line; `seed` and `user create|promote` are safe to re-run.
+
+```bash
+alias apilens='docker compose run --rm --entrypoint /apilens apilens'
+
+# Dev: seed the org "dev" with owner dev@apilens.local, then open the printed magic_link.
+apilens seed                      # -user-email=you@example.com to pick the address, -user-email= for none
+
+# Self-host: make yourself owner of an existing organization and sign in.
+apilens user create -email=you@example.com -org=acme -role=owner
+apilens user magic-link -email=you@example.com
+
+# Change the role of an existing user (default owner; owner, admin, member or viewer).
+apilens user promote -email=teammate@example.com -org=acme -role=admin
+```
+
+| Command | Does |
+|---|---|
+| `apilens seed` | creates or reuses the dev org/project/app, issues new keys, makes `dev@apilens.local` (or `-user-email`) an owner and prints its `magic_link` |
+| `apilens user create -email -org [-role=member]` | creates the user if no account has the address (its email counts as verified) and adds it to the organization, or changes its role |
+| `apilens user promote -email -org [-role=owner]` | the same for an existing user only; the last owner of an organization cannot be demoted |
+| `apilens user magic-link -email` | prints a sign-in link for an existing user without sending email |
+
+A magic link opens `APILENS_PUBLIC_URL/verify`, works once and expires after 15 minutes; printing a new one invalidates the previous one. Treat it like a password: it signs in as that user. The organization must already exist (create it in the UI or with `seed`). Membership changes are written to the outbox, so SpiceDB permissions follow, and audited as `member.added` / `member.role_changed` (`user.created` with method `operator`, and `login.requested` with method `cli` for links).
 
 Published ports: the API on 8080 and the dashboard on 3000. Postgres, ClickHouse, Valkey and SpiceDB are reachable only on the compose network.
 

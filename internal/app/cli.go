@@ -16,12 +16,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/apilens/apilens/authz"
 	authzclient "github.com/apilens/apilens/internal/authz"
 	controlplaneapi "github.com/apilens/apilens/internal/controlplane/api"
 	"github.com/apilens/apilens/internal/controlplane/bootstrap"
+	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/identity/oidcprovider"
@@ -45,7 +47,13 @@ Usage:
                                               apply Postgres (incl. River jobs) and ClickHouse
                                               migrations and the SpiceDB schema (when
                                               authz.endpoint is set)
-  apilens seed [flags]                        create a dev org/project/app and print an ingest key
+  apilens seed [flags]                        create a dev org/project/app and print an ingest key,
+                                              plus a dev owner (dev@apilens.local) and its magic link
+  apilens user create -email=... -org=... [-role=member]
+                                              create a user (if needed) and add it to an organization
+  apilens user promote -email=... -org=... [-role=owner]
+                                              give an existing user a role in an organization
+  apilens user magic-link -email=...          print a one-time sign-in link for a user (no email sent)
   apilens identity rotate-key                 activate a new token signing key; the previous
                                               one stays published until its tokens expire
   apilens authz reconcile [-dry-run]          repair drift between Postgres and SpiceDB now
@@ -79,6 +87,8 @@ func Main(args []string, stdout, stderr io.Writer, environ []string) int {
 		err = runMigrate(ctx, args, stderr, environ)
 	case "seed":
 		err = runSeed(ctx, args, stdout, stderr, environ)
+	case "user":
+		err = runUser(ctx, args, stdout, stderr, environ)
 	case "identity":
 		err = runIdentity(ctx, args, stdout, stderr, environ)
 	case "authz":
@@ -218,6 +228,7 @@ func runSeed(ctx context.Context, args []string, stdout, stderr io.Writer, envir
 	fs.StringVar(&o.AppSlug, "app-slug", "default", "app slug")
 	fs.StringVar(&o.Environment, "environment", "production", "environment name")
 	fs.StringVar(&o.KeyName, "key-name", "seed", "name of the issued API key")
+	userEmail := fs.String("user-email", bootstrap.DevUserEmail, "email of the dev user made owner of the organization (empty: none)")
 	cfg, _, err := loadConfig(fs, args, environ, stderr)
 	if err != nil {
 		return err
@@ -231,7 +242,106 @@ func runSeed(ctx context.Context, args []string, stdout, stderr io.Writer, envir
 	if err != nil {
 		return fmt.Errorf("seed: %w", err)
 	}
-	return json.NewEncoder(stdout).Encode(res) //nolint:gosec // G117: printing the new key once is the point of seed
+	out := seedOutput{Result: res}
+	if *userEmail != "" {
+		m, err := bootstrap.EnsureMember(ctx, pool, bootstrap.MemberOptions{
+			Email: *userEmail, OrgSlug: o.OrgSlug, Role: orgs.RoleOwner, Create: true,
+		})
+		if err != nil {
+			return fmt.Errorf("seed: dev user: %w", err)
+		}
+		link, err := bootstrap.MagicLink(ctx, pool, cfg.Identity.PublicUIURL, m.Email)
+		if err != nil {
+			return fmt.Errorf("seed: magic link: %w", err)
+		}
+		out.UserID, out.UserEmail, out.MagicLink = &m.UserID, m.Email, link.MagicLink
+	}
+	return json.NewEncoder(stdout).Encode(out) //nolint:gosec // G117: printing the new key once is the point of seed
+}
+
+// seedOutput is the line `apilens seed` prints: the seeded resources and
+// keys and, unless -user-email is empty, the dev owner and a one-time link
+// to sign in as them.
+type seedOutput struct {
+	bootstrap.Result
+	UserID    *uuid.UUID `json:"user_id,omitempty"`
+	UserEmail string     `json:"user_email,omitempty"`
+	MagicLink string     `json:"magic_link,omitempty"`
+}
+
+// runUser runs the `apilens user <command>` operator commands, for
+// bootstrapping a self-hosted install without email.
+func runUser(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) error {
+	sub := ""
+	if len(args) > 0 {
+		sub, args = args[0], args[1:]
+	}
+	switch sub {
+	case "create", "promote":
+		return runUserMember(ctx, sub, args, stdout, stderr, environ)
+	case "magic-link":
+		return runUserMagicLink(ctx, args, stdout, stderr, environ)
+	default:
+		return fmt.Errorf("user: unknown command %q (want create, promote or magic-link)", sub)
+	}
+}
+
+// runUserMember adds a user to an organization or changes their role.
+// create also creates the user; promote needs an existing one.
+func runUserMember(ctx context.Context, sub string, args []string, stdout, stderr io.Writer, environ []string) error {
+	fs := flag.NewFlagSet("apilens user "+sub, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	defaultRole := orgs.RoleMember
+	if sub == "promote" {
+		defaultRole = orgs.RoleOwner
+	}
+	email := fs.String("email", "", "the user's email address (required)")
+	org := fs.String("org", "", "organization slug (required)")
+	role := fs.String("role", defaultRole, "membership role: "+strings.Join(orgs.Roles, ", "))
+	cfg, _, err := loadConfig(fs, args, environ, stderr)
+	if err != nil {
+		return err
+	}
+	if *email == "" || *org == "" {
+		return fmt.Errorf("user %s: -email and -org are required", sub)
+	}
+	pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-user")
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	res, err := bootstrap.EnsureMember(ctx, pool, bootstrap.MemberOptions{
+		Email: *email, OrgSlug: *org, Role: *role, Create: sub == "create",
+	})
+	if err != nil {
+		return fmt.Errorf("user %s: %w", sub, err)
+	}
+	return json.NewEncoder(stdout).Encode(res)
+}
+
+// runUserMagicLink prints a one-time sign-in link for an existing user. No
+// email is sent: the operator hands the link over.
+func runUserMagicLink(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) error {
+	fs := flag.NewFlagSet("apilens user magic-link", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	email := fs.String("email", "", "the user's email address (required)")
+	cfg, _, err := loadConfig(fs, args, environ, stderr)
+	if err != nil {
+		return err
+	}
+	if *email == "" {
+		return errors.New("user magic-link: -email is required")
+	}
+	pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-user")
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	res, err := bootstrap.MagicLink(ctx, pool, cfg.Identity.PublicUIURL, *email)
+	if err != nil {
+		return fmt.Errorf("user magic-link: %w", err)
+	}
+	return json.NewEncoder(stdout).Encode(res) //nolint:gosec // G117: printing the link once is the point
 }
 
 // runIdentity runs the `apilens identity <command>` operator commands.
