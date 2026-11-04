@@ -63,3 +63,14 @@ SET deleted_at   = NULL,
     updated_at   = now()
 WHERE id = @id AND deleted_at IS NOT NULL
 RETURNING *;
+
+-- name: UpdateUserEmail :one
+-- Sets a new, verified email (an email change confirmed with a code sent to
+-- the new address). Fails with a unique violation on users_email_active if
+-- another active account has the address.
+UPDATE users
+SET email             = @email,
+    email_verified_at = now(),
+    updated_at        = now()
+WHERE id = @id AND deleted_at IS NULL
+RETURNING *;

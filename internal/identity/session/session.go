@@ -43,6 +43,9 @@ const (
 	ReasonReuse = "reuse_detected"
 	// ReasonUserDeleted marks a family ended because its user was deleted.
 	ReasonUserDeleted = "user_deleted"
+	// ReasonEmailChanged marks a family signed out because its user changed
+	// their email from another session.
+	ReasonEmailChanged = "email_changed"
 )
 
 // tokenBytes is the entropy of a refresh token (256 bits).

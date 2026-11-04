@@ -34,7 +34,8 @@ implements them, and that issue updates this page when it merges.
 | Passkeys (#261–#265), TOTP and recovery (#266–#270) | planned |
 | `GET/PATCH/DELETE /api/v1/users/me` (#245); the sole-owner check reads memberships once #276 lands | done |
 | Device labels, `GET /api/v1/users/me/sessions` (#271) | done |
-| Session revocation, new-device alerts, email change, purge (#272–#275) | planned |
+| Change email with verification of the new address (#274) | done |
+| Session revocation, new-device alerts, purge (#272, #273, #275) | planned |
 | Orgs, members, invitations, projects, API keys (#276–#287) | planned |
 | Outbox relay, reconciler, `authz.Require`, capabilities (#291–#296) | planned |
 | Per-org OIDC SSO (#297–#300), OIDC provider (#301) | planned |
@@ -258,6 +259,27 @@ Served by the identity role and authenticated with the session scheme
   It answers `owner_transfer_required` (409) while the user is the only owner
   of an organization. Audited as `user.deleted`.
 
+### Changing the email (`/api/v1/users/me/email`)
+
+Implemented by `internal/identity/email_change.go` and
+`internal/identity/emailchange`.
+
+1. `POST /api/v1/users/me/email/change` `{new_email}` answers `202` with the
+   pending address and `expires_at` after emailing a 6-digit `change_email`
+   code (the `email_change` template) to the new address. An older pending
+   change of the user stops working. It answers `invalid_request` when the
+   address is already the user's, and `email_taken` (409) when another active
+   account has it. This is the one place identity reveals that an address is
+   in use, and only to a signed-in user changing their own email.
+2. `POST /api/v1/users/me/email/confirm` `{code}` checks the code against the
+   user's pending change (`invalid_code`, `code_expired`,
+   `too_many_attempts` as for sign-in codes). On success it sets the new
+   email (verified), signs out every session except the current one (reason
+   `email_changed`), retires outstanding sign-in emails to the old address,
+   sends a `security_change` alert (`email_changed`) to the old address and
+   audits `email.changed`. It returns the updated user like `GET`. It answers
+   `email_taken` if the address was taken since the code was sent.
+
 ## Authorization: outbox and SpiceDB sync
 
 Postgres is the source of truth for organizations, memberships and projects;
@@ -397,6 +419,7 @@ Rules:
 | `owner_transfer_required` | 409 Conflict | You're the only owner of an organization. Transfer ownership or delete it before deleting your account. |
 | `already_enabled` | 409 Conflict | Two-factor authentication is already on. |
 | `reauth_required` | 403 Forbidden | For your security, sign in again to continue. |
+| `email_taken` | 409 Conflict | Another account already uses this email address. |
 | `forbidden` | 403 Forbidden | You don't have permission to do that. |
 | `internal_error` | 500 Internal Server Error | Something went wrong on our side. Please try again. |
 

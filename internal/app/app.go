@@ -27,6 +27,7 @@ import (
 	"github.com/apilens/apilens/internal/identity/account"
 	"github.com/apilens/apilens/internal/identity/audit"
 	"github.com/apilens/apilens/internal/identity/emailauth"
+	"github.com/apilens/apilens/internal/identity/emailchange"
 	"github.com/apilens/apilens/internal/identity/keys"
 	"github.com/apilens/apilens/internal/identity/session"
 	identitydb "github.com/apilens/apilens/internal/identity/store/db"
@@ -327,6 +328,8 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	identity.NewTwoFactor(twoFactor, a.logger).Register(a.server.API())
+	codes := emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{})
+	identity.NewEmailChange(emailchange.New(a.pool, codes, a.jobs), a.logger).Register(a.server.API())
 	return modules.ServiceFunc(signingKeys.Run), nil
 }
 

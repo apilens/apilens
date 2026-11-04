@@ -190,6 +190,42 @@ func (q *Queries) GetLatestUnconsumedEmailTokenForEmail(ctx context.Context, ema
 	return i, err
 }
 
+const getLatestUnconsumedEmailTokenForUser = `-- name: GetLatestUnconsumedEmailTokenForUser :one
+SELECT id, email, intent, user_id, link_token_hash, code_hash, attempts, next_path, ip, user_agent, created_at, expires_at, consumed_at FROM auth_email_tokens
+WHERE user_id = $1 AND intent = $2 AND consumed_at IS NULL
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+type GetLatestUnconsumedEmailTokenForUserParams struct {
+	UserID *uuid.UUID
+	Intent string
+}
+
+// The newest unconsumed row of one intent issued for a user, expired or not,
+// e.g. the pending email change whose code the user is confirming.
+// Returns pgx.ErrNoRows when there is none.
+func (q *Queries) GetLatestUnconsumedEmailTokenForUser(ctx context.Context, arg GetLatestUnconsumedEmailTokenForUserParams) (AuthEmailToken, error) {
+	row := q.db.QueryRow(ctx, getLatestUnconsumedEmailTokenForUser, arg.UserID, arg.Intent)
+	var i AuthEmailToken
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Intent,
+		&i.UserID,
+		&i.LinkTokenHash,
+		&i.CodeHash,
+		&i.Attempts,
+		&i.NextPath,
+		&i.Ip,
+		&i.UserAgent,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+	)
+	return i, err
+}
+
 const incrementEmailTokenAttempts = `-- name: IncrementEmailTokenAttempts :one
 UPDATE auth_email_tokens
 SET attempts = attempts + 1
@@ -216,6 +252,27 @@ WHERE email = $1 AND consumed_at IS NULL
 // email or once the address has signed in.
 func (q *Queries) InvalidateEmailTokensForEmail(ctx context.Context, email string) (int64, error) {
 	result, err := q.db.Exec(ctx, invalidateEmailTokensForEmail, email)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const invalidateEmailTokensForUser = `-- name: InvalidateEmailTokensForUser :execrows
+UPDATE auth_email_tokens
+SET consumed_at = now()
+WHERE user_id = $1 AND intent = $2 AND consumed_at IS NULL
+`
+
+type InvalidateEmailTokensForUserParams struct {
+	UserID *uuid.UUID
+	Intent string
+}
+
+// Retires every outstanding row of one intent issued for a user, e.g. an
+// older pending email change when a new one is requested.
+func (q *Queries) InvalidateEmailTokensForUser(ctx context.Context, arg InvalidateEmailTokensForUserParams) (int64, error) {
+	result, err := q.db.Exec(ctx, invalidateEmailTokensForUser, arg.UserID, arg.Intent)
 	if err != nil {
 		return 0, err
 	}

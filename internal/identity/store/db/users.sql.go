@@ -183,6 +183,43 @@ func (q *Queries) TouchLastLogin(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const updateUserEmail = `-- name: UpdateUserEmail :one
+UPDATE users
+SET email             = $1,
+    email_verified_at = now(),
+    updated_at        = now()
+WHERE id = $2 AND deleted_at IS NULL
+RETURNING id, email, email_verified_at, name, avatar_url, preferences, onboarding, last_login_at, created_at, updated_at, deleted_at, delete_after
+`
+
+type UpdateUserEmailParams struct {
+	Email string
+	ID    uuid.UUID
+}
+
+// Sets a new, verified email (an email change confirmed with a code sent to
+// the new address). Fails with a unique violation on users_email_active if
+// another active account has the address.
+func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserEmail, arg.Email, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.EmailVerifiedAt,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.Preferences,
+		&i.Onboarding,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DeleteAfter,
+	)
+	return i, err
+}
+
 const updateUserOnboarding = `-- name: UpdateUserOnboarding :one
 UPDATE users
 SET onboarding = onboarding || $1::jsonb,

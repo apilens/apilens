@@ -75,6 +75,9 @@ const (
 	// CodeReauthRequired: the action needs a recent sign-in and the session
 	// signed in too long ago; sign in again, then retry.
 	CodeReauthRequired ErrCode = "reauth_required"
+	// CodeEmailTaken: another account uses the address. Only answered to a
+	// signed-in user changing their own email, never on sign-in or sign-up.
+	CodeEmailTaken ErrCode = "email_taken"
 	// CodeForbidden: authenticated, but not allowed to perform the action.
 	CodeForbidden ErrCode = "forbidden"
 	// CodeInternal: an unexpected server failure. Details stay in the logs.
@@ -110,6 +113,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeOwnerTransferRequired: {http.StatusConflict, "Ownership transfer required", "Transfer ownership of your organizations before deleting your account."},
 	CodeAlreadyEnabled:        {http.StatusConflict, "Already enabled", "Two-factor authentication is already enabled."},
 	CodeReauthRequired:        {http.StatusForbidden, "Recent sign-in required", "Sign in again to continue."},
+	CodeEmailTaken:            {http.StatusConflict, "Email taken", "Another account already uses this email address."},
 	CodeForbidden:             {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
 	CodeInternal:              {http.StatusInternalServerError, "Internal error", "Something went wrong."},
 }

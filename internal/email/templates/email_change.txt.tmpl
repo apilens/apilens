@@ -1,0 +1,12 @@
+{{- /* Data: code (6 digits), expires_in ("15 minutes"). */ -}}
+{{define "subject"}}Confirm your new APILens email address with {{.code}}{{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+Enter this code in APILens to make this your account's email address:
+
+    {{.code}}
+
+The code expires in {{.expires_in}} and works once.
+
+If you did not ask to change your APILens email address, ignore this email. The address is not added without the code.
+{{- end}}

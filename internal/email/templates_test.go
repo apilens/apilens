@@ -21,6 +21,7 @@ const testUIURL = "https://app.example.com"
 var sampleData = map[string]map[string]any{
 	"auth_code":       {"code": "482913", "token": "tok_abc-123/xyz", "email": "ada+test@example.com", "expires_in": "15 minutes"},
 	"auth_no_account": {"email": "ada+test@example.com"},
+	"email_change":    {"code": "073518", "expires_in": "15 minutes"},
 	"new_signin": {
 		"device": "Firefox on macOS", "ip": "203.0.113.7", "time": "2026-11-04T09:30:00Z",
 	},
