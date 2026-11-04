@@ -66,6 +66,33 @@
         ],
         "type": "object"
       },
+      "AcceptedInvitation": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AcceptedInvitation.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "joined": {
+            "description": "Whether this call made the user a member; false when the invitation was already accepted or the user already belonged to the organization.",
+            "type": "boolean"
+          },
+          "org": {
+            "$ref": "#/components/schemas/Org",
+            "description": "The organization, with the user's role in it."
+          }
+        },
+        "required": [
+          "org",
+          "joined"
+        ],
+        "type": "object"
+      },
       "AddEnvironmentInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -1153,6 +1180,69 @@
           "created_at",
           "expires_at",
           "resent_at"
+        ],
+        "type": "object"
+      },
+      "InvitationOrg": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "slug"
+        ],
+        "type": "object"
+      },
+      "InvitationPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/InvitationPreview.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "email_masked": {
+            "description": "The invited address with most of its local part hidden (a***@example.com).",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "When the link stops working.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "inviter_name": {
+            "description": "Who sent the invitation (their name, or email when they have none); empty once their account is gone.",
+            "type": "string"
+          },
+          "org": {
+            "$ref": "#/components/schemas/InvitationOrg"
+          },
+          "role": {
+            "description": "The role the invitee joins with.",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "org",
+          "inviter_name",
+          "email_masked",
+          "role",
+          "expires_at"
         ],
         "type": "object"
       },
@@ -4442,6 +4532,224 @@
           }
         },
         "summary": "Redeem a one-time sign-in handoff code",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/invitations/{token}": {
+      "get": {
+        "description": "Public. The `/invite/{token}` page calls it before asking the invitee to sign in: it shows the organization, the inviter, the invited address (masked), the role and the expiry. An unknown token answers `invalid_token`; an expired, revoked or accepted invitation answers `invite_expired`. Rate-limited per client IP (429 `rate_limited` with Retry-After).",
+        "operationId": "get-invitation",
+        "parameters": [
+          {
+            "description": "The token of the invitation link (/invite/{token}).",
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "description": "The token of the invitation link (/invite/{token}).",
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationPreview"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `invalid_token`.",
+            "x-apilens-codes": [
+              "invalid_token"
+            ]
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Gone. Codes: `invite_expired`.",
+            "x-apilens-codes": [
+              "invite_expired"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "summary": "Look up an invitation by its link",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/invitations/{token}/accept": {
+      "post": {
+        "description": "Makes the signed-in user a member of the invitation's organization with its role and marks the invitation accepted. The user's verified email must be the invited address (403 `invite_email_mismatch`). A user who already belongs to the organization keeps their role. Accepting an invitation that the user already accepted answers the organization again (`joined` false). An unknown token answers `invalid_token`; an expired or revoked invitation answers `invite_expired`. Audited as `invitation.accepted`.",
+        "operationId": "accept-invitation",
+        "parameters": [
+          {
+            "description": "The token of the invitation link (/invite/{token}).",
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "description": "The token of the invitation link (/invite/{token}).",
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptedInvitation"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `invalid_token`, `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "invalid_token",
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `invite_email_mismatch`.",
+            "x-apilens-codes": [
+              "invite_email_mismatch"
+            ]
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Gone. Codes: `invite_expired`.",
+            "x-apilens-codes": [
+              "invite_expired"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Accept an invitation",
         "tags": [
           "Auth"
         ]
