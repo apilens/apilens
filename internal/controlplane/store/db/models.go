@@ -5,9 +5,11 @@
 package db
 
 import (
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type ApiKey struct {
@@ -31,6 +33,17 @@ type App struct {
 	Framework string
 	CreatedAt time.Time
 	DeletedAt *time.Time
+}
+
+type AuditEvent struct {
+	ID          int64
+	UserID      pgtype.UUID
+	ActorUserID pgtype.UUID
+	Event       string
+	Ip          *netip.Addr
+	UserAgent   string
+	Metadata    []byte
+	CreatedAt   time.Time
 }
 
 type Environment struct {
@@ -64,4 +77,19 @@ type Project struct {
 	Name      string
 	CreatedAt time.Time
 	DeletedAt *time.Time
+}
+
+type User struct {
+	ID              uuid.UUID
+	Email           string
+	EmailVerifiedAt *time.Time
+	Name            string
+	AvatarUrl       string
+	Preferences     []byte
+	Onboarding      []byte
+	LastLoginAt     *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
+	DeleteAfter     *time.Time
 }
