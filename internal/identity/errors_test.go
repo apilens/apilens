@@ -84,6 +84,29 @@ func TestRetryAfter(t *testing.T) {
 	}
 }
 
+func TestAccountDeleting(t *testing.T) {
+	at := time.Date(2026, 12, 4, 10, 0, 0, 0, time.FixedZone("x", 3600))
+	_, api := humatest.New(t)
+	huma.Get(api, "/fail", func(context.Context, *struct{}) (*struct{}, error) {
+		return nil, ErrAccountDeleting(at)
+	})
+	rec := api.Get("/fail")
+	var body struct {
+		Code        ErrCode   `json:"code"`
+		DeleteAfter time.Time `json:"delete_after"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusConflict || body.Code != CodeAccountDeleting || !body.DeleteAfter.Equal(at) {
+		t.Fatalf("got %d %s", rec.Code, rec.Body)
+	}
+	// Other problems carry no delete_after.
+	if b, _ := json.Marshal(Err(CodeInvalidCode)); strings.Contains(string(b), "delete_after") {
+		t.Fatalf("invalid_code body has delete_after: %s", b)
+	}
+}
+
 func TestUnknownCodeCollapsesToInternal(t *testing.T) {
 	p := Err("no_such_code")
 	if p.Code != CodeInternal || p.Status != http.StatusInternalServerError {

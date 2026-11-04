@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/apilens/apilens/internal/identity/audit"
 	"github.com/apilens/apilens/internal/identity/session"
@@ -206,6 +207,52 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) (Deletion, error) {
 	return out, nil
 }
 
+// PendingDeletion returns the account of email that is deleted but still
+// inside its grace period, or ErrNotFound. Sign-in calls it when no active
+// account matches: a hit answers account_deleting with the user's
+// DeleteAfter, so the UI can offer a restore. An address that signed up
+// again since has an active account, which wins.
+func (s *Service) PendingDeletion(ctx context.Context, email string) (db.User, error) {
+	u, err := s.q.GetPendingDeletionUserByEmail(ctx, email)
+	if err != nil {
+		return db.User{}, notFound(err, "pending deletion")
+	}
+	return u, nil
+}
+
+// Restore undoes the deletion of the account of email while it is inside
+// its grace period, and audits user.restored. The caller must already have
+// proven control of the address (a fresh email code). It returns
+// ErrNotFound when there is nothing to restore: no deleted account, the
+// grace period has passed, or the address belongs to an active account.
+func (s *Service) Restore(ctx context.Context, email string) (db.User, error) {
+	var user db.User
+	err := s.inTx(ctx, func(ctx context.Context, q *db.Queries) error {
+		pending, err := q.GetPendingDeletionUserByEmail(ctx, email)
+		if err != nil {
+			return notFound(err, "pending deletion")
+		}
+		user, err = q.RestoreUser(ctx, pending.ID)
+		if isUniqueViolation(err) {
+			// The address signed up again concurrently.
+			return ErrNotFound
+		}
+		if err != nil {
+			return notFound(err, "restore")
+		}
+		return s.audit.Record(ctx, audit.Event{
+			User:  &user.ID,
+			Actor: &user.ID,
+			Kind:  audit.UserRestored,
+			Meta:  map[string]any{"delete_after": pending.DeleteAfter.UTC().Format(time.RFC3339)},
+		})
+	})
+	if err != nil {
+		return db.User{}, err
+	}
+	return user, nil
+}
+
 // ValidatePreferences checks the known preference keys of a patch: `home`
 // must be one of Homes. Unknown keys are the caller's schema's concern.
 func ValidatePreferences(p map[string]any) error {
@@ -239,4 +286,12 @@ func notFound(err error, op string) error {
 		return ErrNotFound
 	}
 	return fmt.Errorf("account: %s: %w", op, err)
+}
+
+// uniqueViolation is Postgres' SQLSTATE for a unique constraint violation.
+const uniqueViolation = "23505"
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolation
 }

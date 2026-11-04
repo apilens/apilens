@@ -12,6 +12,28 @@ import (
 	"github.com/google/uuid"
 )
 
+const anonymizeAuditEventsForUsers = `-- name: AnonymizeAuditEventsForUsers :execrows
+UPDATE audit_events
+SET user_id       = CASE WHEN user_id = ANY($1::uuid[]) THEN NULL ELSE user_id END,
+    actor_user_id = CASE WHEN actor_user_id = ANY($1::uuid[]) THEN NULL ELSE actor_user_id END,
+    metadata      = CASE WHEN user_id = ANY($1::uuid[]) THEN '{}'::jsonb ELSE metadata END,
+    ip            = NULL,
+    user_agent    = ''
+WHERE user_id = ANY($1::uuid[]) OR actor_user_id = ANY($1::uuid[])
+`
+
+// Keeps the audit trail of purged users but strips what identifies them:
+// events about them lose user_id and metadata, events they acted in lose
+// actor_user_id, and both lose the client IP and user agent. Run before
+// PurgeUsers, whose cascade would otherwise delete the events.
+func (q *Queries) AnonymizeAuditEventsForUsers(ctx context.Context, ids []uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, anonymizeAuditEventsForUsers, ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (id, email, email_verified_at, name, avatar_url)
 VALUES ($1, $2, $3, $4, $5)
@@ -36,6 +58,43 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.Name,
 		arg.AvatarUrl,
 	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.EmailVerifiedAt,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.Preferences,
+		&i.Onboarding,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DeleteAfter,
+	)
+	return i, err
+}
+
+const getPendingDeletionUserByEmail = `-- name: GetPendingDeletionUserByEmail :one
+SELECT id, email, email_verified_at, name, avatar_url, preferences, onboarding, last_login_at, created_at, updated_at, deleted_at, delete_after FROM users u
+WHERE lower(u.email) = lower($1::text)
+  AND u.deleted_at IS NOT NULL
+  AND u.delete_after > now()
+  AND NOT EXISTS (
+      SELECT 1 FROM users a
+      WHERE lower(a.email) = lower(u.email) AND a.deleted_at IS NULL
+  )
+ORDER BY u.deleted_at DESC, u.id DESC
+LIMIT 1
+`
+
+// The soft-deleted account of an address that is still inside its grace
+// period, so sign-in can answer account_deleting and offer a restore. An
+// address that has since signed up again has an active account, which wins:
+// no row is returned for it.
+func (q *Queries) GetPendingDeletionUserByEmail(ctx context.Context, email string) (User, error) {
+	row := q.db.QueryRow(ctx, getPendingDeletionUserByEmail, email)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -105,6 +164,36 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 	return i, err
 }
 
+const listPurgeableUsers = `-- name: ListPurgeableUsers :many
+SELECT id FROM users
+WHERE deleted_at IS NOT NULL AND delete_after < now()
+ORDER BY delete_after, id
+LIMIT $1
+FOR UPDATE SKIP LOCKED
+`
+
+// Soft-deleted users whose grace period has passed, oldest first, locked so
+// concurrent purges skip each other's rows. Served by users_delete_after.
+func (q *Queries) ListPurgeableUsers(ctx context.Context, batchSize int32) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listPurgeableUsers, batchSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markUserEmailVerified = `-- name: MarkUserEmailVerified :one
 UPDATE users
 SET email_verified_at = COALESCE(email_verified_at, now()),
@@ -135,17 +224,33 @@ func (q *Queries) MarkUserEmailVerified(ctx context.Context, id uuid.UUID) (User
 	return i, err
 }
 
+const purgeUsers = `-- name: PurgeUsers :execrows
+DELETE FROM users
+WHERE id = ANY($1::uuid[]) AND deleted_at IS NOT NULL AND delete_after < now()
+`
+
+// Hard-deletes soft-deleted users whose grace period has passed. Sessions,
+// email tokens, OAuth identities, passkeys and TOTP rows cascade.
+func (q *Queries) PurgeUsers(ctx context.Context, ids []uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeUsers, ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const restoreUser = `-- name: RestoreUser :one
 UPDATE users
 SET deleted_at   = NULL,
     delete_after = NULL,
     updated_at   = now()
-WHERE id = $1 AND deleted_at IS NOT NULL
+WHERE id = $1 AND deleted_at IS NOT NULL AND delete_after > now()
 RETURNING id, email, email_verified_at, name, avatar_url, preferences, onboarding, last_login_at, created_at, updated_at, deleted_at, delete_after
 `
 
 // Undoes a soft delete inside the grace period. Fails with a unique
 // violation if the email has since been taken by a new active account.
+// Returns pgx.ErrNoRows once delete_after has passed.
 func (q *Queries) RestoreUser(ctx context.Context, id uuid.UUID) (User, error) {
 	row := q.db.QueryRow(ctx, restoreUser, id)
 	var i User

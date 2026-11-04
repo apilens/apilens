@@ -327,7 +327,8 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	}, limiter, a.logger).Register(a.server.API())
 	// Until memberships exist (#276) no user owns an organization, so
 	// nothing blocks a deletion.
-	identity.NewAccount(account.New(a.pool, account.NoMemberships{}), a.logger).Register(a.server.API())
+	accounts := account.New(a.pool, account.NoMemberships{})
+	identity.NewAccount(accounts, a.logger).Register(a.server.API())
 	kek, err := a.cfg.Identity.KEK()
 	if err != nil {
 		return nil, err
@@ -348,6 +349,10 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		Users:     identitydb.New(a.pool),
 		Jobs:      a.jobs,
 	}, a.logger).Register(a.server.API())
+	identity.NewRestore(a.cfg.Identity, accounts, codes, limiter, a.logger).Register(a.server.API())
+	// Deleted accounts are purged hourly once their grace period has passed.
+	jobs.Register(a.workers, account.NewPurgeWorker(a.pool, a.logger))
+	a.workers.Periodic(account.PurgeInterval, account.PurgeArgs{})
 	return modules.ServiceFunc(signingKeys.Run), nil
 }
 

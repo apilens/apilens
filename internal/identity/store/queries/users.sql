@@ -57,11 +57,12 @@ RETURNING *;
 -- name: RestoreUser :one
 -- Undoes a soft delete inside the grace period. Fails with a unique
 -- violation if the email has since been taken by a new active account.
+-- Returns pgx.ErrNoRows once delete_after has passed.
 UPDATE users
 SET deleted_at   = NULL,
     delete_after = NULL,
     updated_at   = now()
-WHERE id = @id AND deleted_at IS NOT NULL
+WHERE id = @id AND deleted_at IS NOT NULL AND delete_after > now()
 RETURNING *;
 
 -- name: UpdateUserEmail :one
@@ -83,3 +84,47 @@ SET email_verified_at = COALESCE(email_verified_at, now()),
     updated_at        = now()
 WHERE id = @id AND deleted_at IS NULL
 RETURNING *;
+
+-- name: GetPendingDeletionUserByEmail :one
+-- The soft-deleted account of an address that is still inside its grace
+-- period, so sign-in can answer account_deleting and offer a restore. An
+-- address that has since signed up again has an active account, which wins:
+-- no row is returned for it.
+SELECT * FROM users u
+WHERE lower(u.email) = lower(@email::text)
+  AND u.deleted_at IS NOT NULL
+  AND u.delete_after > now()
+  AND NOT EXISTS (
+      SELECT 1 FROM users a
+      WHERE lower(a.email) = lower(u.email) AND a.deleted_at IS NULL
+  )
+ORDER BY u.deleted_at DESC, u.id DESC
+LIMIT 1;
+
+-- name: ListPurgeableUsers :many
+-- Soft-deleted users whose grace period has passed, oldest first, locked so
+-- concurrent purges skip each other's rows. Served by users_delete_after.
+SELECT id FROM users
+WHERE deleted_at IS NOT NULL AND delete_after < now()
+ORDER BY delete_after, id
+LIMIT @batch_size
+FOR UPDATE SKIP LOCKED;
+
+-- name: AnonymizeAuditEventsForUsers :execrows
+-- Keeps the audit trail of purged users but strips what identifies them:
+-- events about them lose user_id and metadata, events they acted in lose
+-- actor_user_id, and both lose the client IP and user agent. Run before
+-- PurgeUsers, whose cascade would otherwise delete the events.
+UPDATE audit_events
+SET user_id       = CASE WHEN user_id = ANY(@ids::uuid[]) THEN NULL ELSE user_id END,
+    actor_user_id = CASE WHEN actor_user_id = ANY(@ids::uuid[]) THEN NULL ELSE actor_user_id END,
+    metadata      = CASE WHEN user_id = ANY(@ids::uuid[]) THEN '{}'::jsonb ELSE metadata END,
+    ip            = NULL,
+    user_agent    = ''
+WHERE user_id = ANY(@ids::uuid[]) OR actor_user_id = ANY(@ids::uuid[]);
+
+-- name: PurgeUsers :execrows
+-- Hard-deletes soft-deleted users whose grace period has passed. Sessions,
+-- email tokens, OAuth identities, passkeys and TOTP rows cascade.
+DELETE FROM users
+WHERE id = ANY(@ids::uuid[]) AND deleted_at IS NOT NULL AND delete_after < now();

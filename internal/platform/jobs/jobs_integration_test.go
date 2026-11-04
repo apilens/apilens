@@ -236,6 +236,28 @@ func TestShutdownCancelsJobsPastTimeout(t *testing.T) {
 	}
 }
 
+type tickArgs struct{}
+
+func (tickArgs) Kind() string { return "test.tick" }
+
+func TestPeriodicJobRunsOnStart(t *testing.T) {
+	pool := testutil.MigratedPostgres(t)
+	reg := jobs.NewRegistry()
+	ticks := make(chan struct{}, 4)
+	jobs.Register(reg, river.WorkFunc(func(context.Context, *river.Job[tickArgs]) error {
+		ticks <- struct{}{}
+		return nil
+	}))
+	reg.Periodic(time.Hour, tickArgs{})
+	c, _ := newClient(t, pool, enabled, reg, 10*time.Second)
+	run(t, c)
+	select {
+	case <-ticks:
+	case <-time.After(30 * time.Second):
+		t.Fatal("periodic job did not run on start")
+	}
+}
+
 func TestDisabledDoesNotWork(t *testing.T) {
 	ctx := context.Background()
 	pool := testutil.MigratedPostgres(t)

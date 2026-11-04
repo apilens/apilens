@@ -84,6 +84,12 @@ const (
 	// CodeEmailTaken: another account uses the address. Only answered to a
 	// signed-in user changing their own email, never on sign-in or sign-up.
 	CodeEmailTaken ErrCode = "email_taken"
+	// CodeAccountDeleting: the sign-in matched an account that was deleted
+	// and is waiting out its grace period. The problem carries
+	// `delete_after`; POST /api/v1/users/me/restore with a fresh email code
+	// restores it. Only sent after the caller proved control of the address,
+	// so it reveals nothing to a stranger.
+	CodeAccountDeleting ErrCode = "account_deleting"
 	// CodeForbidden: authenticated, but not allowed to perform the action.
 	CodeForbidden ErrCode = "forbidden"
 	// CodeInternal: an unexpected server failure. Details stay in the logs.
@@ -122,6 +128,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeNotEnabled:            {http.StatusConflict, "Not enabled", "Two-factor authentication is not enabled."},
 	CodeReauthRequired:        {http.StatusForbidden, "Recent sign-in required", "Sign in again to continue."},
 	CodeEmailTaken:            {http.StatusConflict, "Email taken", "Another account already uses this email address."},
+	CodeAccountDeleting:       {http.StatusConflict, "Account scheduled for deletion", "This account was deleted and will be removed for good after delete_after. Restore it with a new email code."},
 	CodeForbidden:             {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
 	CodeInternal:              {http.StatusInternalServerError, "Internal error", "Something went wrong."},
 }
@@ -144,6 +151,9 @@ type Problem struct {
 	// RetryAfter is the number of seconds to wait before retrying (rate
 	// limits and lockouts). It mirrors the Retry-After header.
 	RetryAfter int `json:"retry_after,omitempty" minimum:"1" doc:"Seconds to wait before retrying."`
+	// DeleteAfter is when a deleted account is removed for good
+	// (account_deleting only).
+	DeleteAfter *time.Time `json:"delete_after,omitempty" doc:"When the deleted account is removed for good (account_deleting only)."`
 }
 
 // GetHeaders sets Retry-After when the problem carries a retry delay.
@@ -165,6 +175,15 @@ func Err(code ErrCode) *Problem {
 		ErrorModel: huma.ErrorModel{Status: e.status, Title: e.title, Detail: e.detail},
 		Code:       code,
 	}
+}
+
+// ErrAccountDeleting builds the account_deleting problem for an account
+// that is removed for good at deleteAfter.
+func ErrAccountDeleting(deleteAfter time.Time) *Problem {
+	p := Err(CodeAccountDeleting)
+	t := deleteAfter.UTC()
+	p.DeleteAfter = &t
+	return p
 }
 
 // ErrRetryAfter builds the problem for code with a retry delay, rounded up to

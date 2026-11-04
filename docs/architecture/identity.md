@@ -281,6 +281,26 @@ Served by the identity role and authenticated with the session scheme
   `delete_after` is set 30 days out, after which a purge job removes the row.
   It answers `owner_transfer_required` (409) while the user is the only owner
   of an organization. Audited as `user.deleted`.
+- During the grace period, sign-in for the address must not create a new
+  account silently: once the email code (or provider) has proven control of
+  the address and no active account matches, sign-in calls
+  `account.Service.PendingDeletion` and, on a hit, answers
+  `identity.ErrAccountDeleting(delete_after)` (`account_deleting`, 409, with
+  `delete_after` in the problem body). An address that signed up again since
+  has an active account, which wins.
+- `POST /api/v1/users/me/restore` (public) takes `{email, code}` with a fresh
+  email code for the address and clears `deleted_at`/`delete_after`. It issues
+  no session: the user signs in again afterwards. A wrong code, an address
+  with nothing to restore, and an account past its grace period all answer
+  `invalid_code`; it shares the `code_verify_per_email` rate limit. Audited as
+  `user.restored`.
+- The purge job (`identity.purge_deleted_users`, a River periodic job, hourly
+  and on start, run by the identity role) hard-deletes users whose
+  `delete_after` has passed, 500 per transaction. Their sessions, email
+  tokens, OAuth identities, passkeys and TOTP rows cascade. Audit events are
+  kept but anonymised first: events about the user lose `user_id` and
+  `metadata`, events they acted in lose `actor_user_id`, and both lose the IP
+  and user agent.
 
 ### Changing the email (`/api/v1/users/me/email`)
 
@@ -453,6 +473,7 @@ Rules:
 | `not_enabled` | 409 Conflict | Two-factor authentication is off. |
 | `reauth_required` | 403 Forbidden | For your security, sign in again to continue. |
 | `email_taken` | 409 Conflict | Another account already uses this email address. |
+| `account_deleting` | 409 Conflict | This account is scheduled for deletion on {delete_after}. Restore it to keep using it. |
 | `forbidden` | 403 Forbidden | You don't have permission to do that. |
 | `internal_error` | 500 Internal Server Error | Something went wrong on our side. Please try again. |
 
