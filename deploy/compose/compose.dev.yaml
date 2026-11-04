@@ -9,11 +9,15 @@
 #   Valkey     127.0.0.1:6379 (no password)
 #   SpiceDB    gRPC 127.0.0.1:50051, preshared key apilens-dev-key (database
 #              `spicedb` on the Postgres above)
+#   Mailpit    SMTP 127.0.0.1:1025 (no auth, no TLS); UI and API on
+#              http://127.0.0.1:8025 — sign-in codes land here
 # Matching env for the binary:
 #   APILENS_CLICKHOUSE__PASSWORD=apilens APILENS_VALKEY__ADDR=127.0.0.1:6379
 #   APILENS_IDENTITY__KEY_ENCRYPTION_KEY=<openssl rand -base64 32> (Taskfile sets a dev key)
 #   APILENS_AUTHZ__ENDPOINT=127.0.0.1:50051 APILENS_AUTHZ__PRESHARED_KEY=apilens-dev-key
 #   APILENS_AUTHZ__INSECURE=true (Taskfile sets these)
+#   APILENS_EMAIL__PROVIDER=smtp APILENS_EMAIL__HOST=127.0.0.1 APILENS_EMAIL__PORT=1025
+#   APILENS_EMAIL__TLS=none APILENS_EMAIL__FROM='APILens <no-reply@apilens.local>'
 name: apilens-dev
 
 services:
@@ -111,6 +115,19 @@ services:
       interval: 3s
       timeout: 3s
       retries: 30
+
+  # SMTP sink for sign-in codes and invitations; read them in the web UI or
+  # through the HTTP API (/api/v1/messages).
+  mailpit:
+    image: axllent/mailpit:v1.27.10@sha256:b1f1be18af530d939a11ee8820b379e0c88eeec204d904bfad68862adced3a5a
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
 
   # M3: optional Kafka profile (Apache Kafka 4.x, KRaft) for the kafka sink.
   # kafka:

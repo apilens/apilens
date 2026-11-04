@@ -20,6 +20,12 @@ env:
   APILENS_AUTHZ__ENDPOINT: '{{.APILENS_AUTHZ__ENDPOINT | default "localhost:50051"}}'
   APILENS_AUTHZ__PRESHARED_KEY: '{{.APILENS_AUTHZ__PRESHARED_KEY | default "apilens-dev-key"}}'
   APILENS_AUTHZ__INSECURE: '{{.APILENS_AUTHZ__INSECURE | default "true"}}'
+  # Mail goes to the dev Mailpit (UI at http://localhost:8025).
+  APILENS_EMAIL__PROVIDER: '{{.APILENS_EMAIL__PROVIDER | default "smtp"}}'
+  APILENS_EMAIL__HOST: '{{.APILENS_EMAIL__HOST | default "localhost"}}'
+  APILENS_EMAIL__PORT: '{{.APILENS_EMAIL__PORT | default "1025"}}'
+  APILENS_EMAIL__TLS: '{{.APILENS_EMAIL__TLS | default "none"}}'
+  APILENS_EMAIL__FROM: '{{.APILENS_EMAIL__FROM | default "APILens <no-reply@apilens.local>"}}'
 
 tasks:
   default:
@@ -42,6 +48,10 @@ tasks:
       - task: up
       - task: migrate
       - task: seed
+      - cmd: |
+          echo
+          echo "Ready. Run 'task dev', then sign up at http://localhost:3200/sign-up, codes at http://localhost:8025"
+        silent: true
 
   # ---------------------------------------------------------------- codegen
   gen:
@@ -145,7 +155,7 @@ tasks:
       - docker build -f deploy/docker/Dockerfile -t ghcr.io/apilens/apilens:dev .
 
   up:
-    desc: Start dev datastores (Postgres, ClickHouse, Valkey, SpiceDB) on localhost
+    desc: Start dev datastores (Postgres, ClickHouse, Valkey, SpiceDB, Mailpit) on localhost
     cmds:
       - docker compose -f {{.DEV_COMPOSE}} up -d --wait
 
