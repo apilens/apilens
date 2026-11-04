@@ -87,6 +87,11 @@
 .ob-code6 input { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; cursor: text; }
 .ob-code6:focus-within span.cur { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
 .ob-code6 span.cur:not(:empty)::after { display: none; }
+.ob-code6.is-shake { animation: obShake 0.36s ease-in-out; }
+.ob-code6.is-locked span { opacity: 0.5; }
+.ob-code6 input:disabled { cursor: not-allowed; }
+@keyframes obShake { 0%, 100% { transform: none; } 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+@media (prefers-reduced-motion: reduce) { .ob-code6.is-shake { animation: none; } }
 .ob-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
 .ob-row button.ah-btn { font: inherit; }
 .ah-btn { font-family: var(--font-sans); }
