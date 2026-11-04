@@ -4,10 +4,11 @@ import { AccountSettings } from "@/components/account-settings";
 import { SessionsSettings } from "@/components/account-settings/sessions";
 import { AppShell } from "@/components/app-shell";
 import { ConnectedAccounts } from "@/components/connected-accounts";
+import { PasskeysCard } from "@/components/security/passkeys";
 import { getContext, getSession } from "@/lib/auth/server";
 import { ACCOUNT_SETTINGS, type AccountSection, accountSection, accountSectionHref } from "@/lib/account-settings";
 import { connectedNotice, providerRows } from "@/lib/connected-accounts";
-import { type ConnectedAccount, type SessionInfo, type UserContext, identity } from "@/lib/identity";
+import { type ConnectedAccount, type Passkey, type SessionInfo, type UserContext, identity, isApiError } from "@/lib/identity";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 import { signInMethods } from "@/lib/sign-in-providers";
 
@@ -30,6 +31,19 @@ async function loadSessions(next: string): Promise<SessionInfo[]> {
   }
 }
 
+/** `GET /users/me/passkeys`, or null when identity could not answer (the card says so). */
+async function loadPasskeys(next: string): Promise<Passkey[] | null> {
+  const session = await getSession();
+  try {
+    const { passkeys } = await session.call((o) => identity().listMyPasskeys(o));
+    return passkeys ?? [];
+  } catch (err) {
+    if (isSessionExpired(err)) redirectToRefresh(next);
+    if (isApiError(err)) return null;
+    throw err;
+  }
+}
+
 /** `GET /users/me/identities`: the Google and GitHub accounts connected to the user. */
 async function loadConnectedAccounts(next: string): Promise<ConnectedAccount[]> {
   const session = await getSession();
@@ -48,6 +62,9 @@ async function sectionContent(section: AccountSection, context: UserContext, sea
     const sessions = await loadSessions(next);
     // `now` is taken here so server and browser render the same "last active" text.
     return <SessionsSettings sessions={sessions} now={Date.now()} />;
+  }
+  if (section.slug === "security") {
+    return <PasskeysCard initial={await loadPasskeys(next)} />;
   }
   if (section.slug === "connected-accounts") {
     const [accounts, methods] = await Promise.all([loadConnectedAccounts(next), signInMethods()]);

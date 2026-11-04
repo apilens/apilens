@@ -402,6 +402,37 @@ export interface PasskeyLoginVerifyRequest {
   remember?: boolean;
 }
 
+/** `POST /auth/passkeys/register/options` (#263). `options` is WebAuthn `PublicKeyCredentialCreationOptions` JSON. */
+export interface PasskeyRegisterOptions {
+  challenge_id: string;
+  options: { publicKey: Record<string, unknown> } & Record<string, unknown>;
+}
+
+export interface PasskeyRegisterVerifyRequest {
+  challenge_id: string;
+  /** The browser's `PublicKeyCredential` from `navigator.credentials.create()`, serialised with `toJSON()`. */
+  response: Record<string, unknown>;
+  /** Label shown in Security settings (at most 64 characters); identity picks one when omitted. */
+  name?: string;
+}
+
+/** One of the signed-in user's passkeys (`Passkey` in the spec, #265). */
+export interface Passkey {
+  id: string;
+  name: string;
+  /** Authenticator model; all zeros when the authenticator did not say. */
+  aaguid: string;
+  /** Vendor or product of the AAGUID ("iCloud Keychain", "YubiKey 5"), or empty when unknown. */
+  authenticator: string;
+  transports: string[] | null;
+  /** Whether the passkey can be synced across devices. */
+  backup_eligible: boolean;
+  /** Whether the passkey is currently synced. */
+  backup_state: boolean;
+  created_at: string;
+  last_used_at: string | null;
+}
+
 /** `GET /auth/oidc/requests/{id}` (#301): a client of the built-in OpenID provider asks for a sign-in. */
 export interface OidcRequest {
   id: string;
@@ -600,6 +631,10 @@ export function createClient(config: ClientConfig) {
       request<PasskeyLoginOptions>("POST", "/auth/passkeys/login/options", { ...o, body }),
     passkeyLoginVerify: (body: PasskeyLoginVerifyRequest, o?: CallOptions) =>
       request<SessionBundle>("POST", "/auth/passkeys/login/verify", { ...o, body }),
+    passkeyRegisterOptions: (o: Authed) =>
+      request<PasskeyRegisterOptions>("POST", "/auth/passkeys/register/options", o),
+    passkeyRegisterVerify: (body: PasskeyRegisterVerifyRequest, o: Authed) =>
+      request<Passkey>("POST", "/auth/passkeys/register/verify", { ...o, body }),
 
     // identity: OpenID provider sign-in (#301) ---------------------------------------------
     oidcRequest: (id: string, o?: CallOptions) =>
@@ -645,6 +680,11 @@ export function createClient(config: ClientConfig) {
         query: { intent: "link", next },
         location: true,
       }),
+    // identity: the signed-in user's passkeys (#265) --------------------------------------
+    listMyPasskeys: (o: Authed) => request<{ passkeys: Passkey[] | null }>("GET", "/users/me/passkeys", o),
+    renameMyPasskey: (id: string, body: { name: string }, o: Authed) =>
+      request<Passkey>("PATCH", `/users/me/passkeys/${seg(id)}`, { ...o, body }),
+    deleteMyPasskey: (id: string, o: Authed) => request<void>("DELETE", `/users/me/passkeys/${seg(id)}`, o),
 
     // api: invitations --------------------------------------------------------------------
     invitationLookup: (token: string, o?: CallOptions) =>
