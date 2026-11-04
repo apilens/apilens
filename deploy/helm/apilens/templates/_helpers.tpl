@@ -77,6 +77,24 @@ app.kubernetes.io/component: {{ .component }}
 {{- printf "%s-%s" (include "apilens.fullname" .root) .role }}
 {{- end }}
 
+{{/* Backend base URL for the web UI: web.apiUrl, else the ingress.ingestRole Service. */}}
+{{- define "apilens.webApiUrl" -}}
+{{- if .Values.web.apiUrl }}
+{{- .Values.web.apiUrl }}
+{{- else }}
+{{- printf "http://%s:%v" (include "apilens.roleServiceName" (dict "root" . "role" .Values.ingress.ingestRole)) .Values.service.port }}
+{{- end }}
+{{- end }}
+
+{{/* Public dashboard origin: web.publicUrl, else derived from ingress.webHost. Empty when neither is set. */}}
+{{- define "apilens.webPublicUrl" -}}
+{{- if .Values.web.publicUrl }}
+{{- .Values.web.publicUrl }}
+{{- else if .Values.ingress.webHost }}
+{{- printf "%s://%s" (ternary "https" "http" (not (empty .Values.ingress.tls))) .Values.ingress.webHost }}
+{{- end }}
+{{- end }}
+
 {{/* Non-secret APILENS_* configuration shared by every role and the migrate job.
 Chart-managed keys first; entries in .Values.config override them. */}}
 {{- define "apilens.configData" -}}

@@ -14,7 +14,8 @@ Datastores are **not bundled**. Run Postgres, ClickHouse and Valkey with their o
    kubectl create secret generic apilens-creds \
      --from-literal=postgres-url='postgres://apilens:PASS@pg-rw:5432/apilens?sslmode=require' \
      --from-literal=clickhouse-password='...' \
-     --from-literal=valkey-password='...'
+     --from-literal=valkey-password='...' \
+     --from-literal=session-secret="$(openssl rand -hex 32)"
    ```
 
 2. Install the chart:
@@ -49,10 +50,12 @@ helm install apilens oci://ghcr.io/apilens/charts/apilens --version <x.y.z>
 | `config` | log, sink settings | Extra `APILENS_*` env vars (`__` = nesting); these override chart-managed keys |
 | `externalClickHouse.*` | `clickhouse:9000`, db `apilens` | Native protocol addresses, user, TLS, cluster name |
 | `externalValkey.addr` | `[]` (disabled) | API-key cache invalidation; when empty, falls back to TTL |
-| `secrets.existingSecret` | — | Keys: `postgres-url`, `clickhouse-password`, `valkey-password` (optional) |
+| `secrets.existingSecret` | — | Keys: `postgres-url`, `clickhouse-password`, `valkey-password` (optional), `session-secret` (web UI) |
 | `secrets.*` (inline) | — | Development only; renders a chart-managed Secret |
 | `migrations.enabled` | `true` | `pre-install`/`pre-upgrade` hook Job running `apilens migrate` |
 | `web.*` | enabled | Web UI (`apps/ui`) |
+| `web.apiUrl` | `ingress.ingestRole` Service | `APILENS_API_URL`: backend base URL the UI server calls |
+| `web.publicUrl` | from `ingress.webHost` | `APILENS_PUBLIC_URL`: origin users open the dashboard at; set it when not using the chart's ingress |
 | `ai.*` | disabled | Python AI/ML service (M4) |
 | `ingress.*` | disabled | `ingestHost` routes to the `ingress.ingestRole` Service; `webHost` routes to the dashboard |
 | `podDisruptionBudget` | `maxUnavailable: 1` | Created for roles with more than 1 replica, or with an HPA |

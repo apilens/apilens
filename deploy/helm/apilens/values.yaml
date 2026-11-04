@@ -91,13 +91,15 @@ externalValkey:
 
 secrets:
   # Name of an existing Secret with keys: postgres-url, clickhouse-password,
-  # valkey-password (optional).
+  # valkey-password (optional), session-secret (required when web is enabled).
   existingSecret: ""
   # Inline values for development ONLY (rendered into a chart-managed Secret
   # when existingSecret is empty).
   postgresUrl: ""
   clickhousePassword: ""
   valkeyPassword: ""
+  # Encrypts the dashboard session cookie (at least 32 characters).
+  sessionSecret: ""
 
 # Database migrations run as a Helm hook Job (pre-install, pre-upgrade).
 migrations:
@@ -129,6 +131,12 @@ web:
       memory: 192Mi
     limits:
       memory: 512Mi
+  # APILENS_API_URL: backend base URL the UI server calls. Empty = the
+  # in-cluster Service of `ingress.ingestRole`.
+  apiUrl: ""
+  # APILENS_PUBLIC_URL: origin users open the dashboard at. Empty = derived
+  # from `ingress.webHost` (https when `ingress.tls` is set).
+  publicUrl: ""
   extraEnv: []
 
 # AI/ML service (Python). Disabled until it ships real features (M4).
