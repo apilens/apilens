@@ -1,0 +1,7 @@
+{{template "layout" .}}
+{{- define "content" -}}
+<p style="margin:0 0 16px 0;">Someone asked to sign in to APILens with <strong>{{.email}}</strong>, but no APILens account uses this address.</p>
+<p style="margin:0 0 24px 0;"><a class="button" href="{{link "/sign-up" "email" .email}}" style="display:inline-block;padding:10px 20px;border-radius:6px;background:#5b4bff;color:#ffffff;font-weight:600;text-decoration:none;">Create an account</a></p>
+<p class="muted" style="margin:0 0 8px 0;color:#556070;">If you have an account under a different address, sign in with that one instead.</p>
+<p class="muted" style="margin:0;color:#556070;">If you did not try to sign in, ignore this email. No account was created.</p>
+{{- end}}

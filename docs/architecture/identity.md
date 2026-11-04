@@ -86,14 +86,15 @@ or, when the user has confirmed TOTP and the method was not a passkey, in
 
 1. `POST /api/v1/auth/email/start` `{email, intent: signin|signup, next?, remember?}`
    always answers `200 {sent: true, retry_after}`, whether or not the account
-   exists. Within the 30 s cooldown no new email is sent. Otherwise identity
+   exists. Within the 30 s cooldown (per address and intent) no new email is
+   sent and `retry_after` is the remaining wait. Otherwise identity
    issues a 6-digit code and a 256-bit link token (both stored as SHA-256,
    15 min, single use; a new issue invalidates older ones) and enqueues the
    `auth_code` email. For `intent=signin` with no account, the email says so
    and offers a sign-up link instead.
 2. The user either types the code on `/verify`, which posts
    `POST /api/v1/auth/email/verify` `{email, code, remember}`, or opens the link
-   `{public_ui_url}/verify?token=…`, which `web` exchanges server-side with
+   `{public_ui_url}/verify?token=…&email=…`, which `web` exchanges server-side with
    `POST /api/v1/auth/email/verify-link` `{token, remember}`.
    `GET /api/v1/auth/email/link?token=` redirects to the UI without consuming
    the token, for clients that hit identity directly.

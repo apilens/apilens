@@ -3,7 +3,7 @@
 <p style="margin:0 0 16px 0;">Use this code to sign in to APILens:</p>
 <p class="code" style="margin:0 0 24px 0;padding:12px 16px;border-radius:6px;background:#f2f2f5;color:#0d1117;text-align:center;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:28px;font-weight:700;letter-spacing:0.2em;">{{.code}}</p>
 <p style="margin:0 0 16px 0;">Or sign in on this device with one click:</p>
-<p style="margin:0 0 24px 0;"><a class="button" href="{{link "/verify" "token" .token}}" style="display:inline-block;padding:10px 20px;border-radius:6px;background:#5b4bff;color:#ffffff;font-weight:600;text-decoration:none;">Sign in to APILens</a></p>
+<p style="margin:0 0 24px 0;"><a class="button" href="{{link "/verify" "token" .token "email" .email}}" style="display:inline-block;padding:10px 20px;border-radius:6px;background:#5b4bff;color:#ffffff;font-weight:600;text-decoration:none;">Sign in to APILens</a></p>
 <p class="muted" style="margin:0 0 8px 0;color:#556070;">The code and the link expire in {{.expires_in}} and work once.</p>
 <p class="muted" style="margin:0;color:#556070;">If you did not try to sign in, ignore this email. Nobody can sign in without the code or the link.</p>
 {{- end}}

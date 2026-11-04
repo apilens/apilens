@@ -35,6 +35,7 @@ const (
 	UserDeleted          Kind = "user.deleted"
 	LoginSucceeded       Kind = "login.succeeded"
 	LoginFailed          Kind = "login.failed"
+	LoginRequested       Kind = "login.requested"
 	SessionRevoked       Kind = "session.revoked"
 	SessionReuseDetected Kind = "session.reuse_detected"
 	EmailChanged         Kind = "email.changed"
@@ -54,7 +55,7 @@ const (
 )
 
 var kinds = []Kind{
-	UserCreated, UserUpdated, UserDeleted, LoginSucceeded, LoginFailed, SessionRevoked, SessionReuseDetected,
+	UserCreated, UserUpdated, UserDeleted, LoginSucceeded, LoginFailed, LoginRequested, SessionRevoked, SessionReuseDetected,
 	EmailChanged, PasskeyAdded, PasskeyRemoved, TOTPEnabled, TOTPDisabled,
 	RecoveryRequested, RecoveryConfirmed, RecoveryCancelled, OAuthLinked, OAuthUnlinked,
 	OrgCreated, MemberRoleChanged, InvitationSent, InvitationAccepted,

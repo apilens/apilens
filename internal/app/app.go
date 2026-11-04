@@ -26,6 +26,7 @@ import (
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/identity/account"
 	"github.com/apilens/apilens/internal/identity/audit"
+	"github.com/apilens/apilens/internal/identity/emailauth"
 	"github.com/apilens/apilens/internal/identity/keys"
 	"github.com/apilens/apilens/internal/identity/session"
 	identitydb "github.com/apilens/apilens/internal/identity/store/db"
@@ -307,6 +308,12 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	identity.NewSessions(a.cfg.Identity, sessions, limiter, a.logger).Register(a.server.API())
+	identity.NewEmailStart(a.cfg.Identity, identity.EmailStartDeps{
+		Tokens: emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{}),
+		Users:  identitydb.New(a.pool),
+		Jobs:   a.jobs,
+		Audit:  audit.New(a.pool),
+	}, limiter, a.logger).Register(a.server.API())
 	// Until memberships exist (#276) no user owns an organization, so
 	// nothing blocks a deletion.
 	identity.NewAccount(account.New(a.pool, account.NoMemberships{}), a.logger).Register(a.server.API())

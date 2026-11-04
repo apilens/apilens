@@ -19,7 +19,8 @@ const testUIURL = "https://app.example.com"
 // sampleData is the job data for each built-in template. Times are strings,
 // as they arrive after the job's JSON round trip.
 var sampleData = map[string]map[string]any{
-	"auth_code": {"code": "482913", "token": "tok_abc-123/xyz", "expires_in": "10 minutes"},
+	"auth_code":       {"code": "482913", "token": "tok_abc-123/xyz", "email": "ada+test@example.com", "expires_in": "15 minutes"},
+	"auth_no_account": {"email": "ada+test@example.com"},
 	"new_signin": {
 		"device": "Firefox on macOS", "ip": "203.0.113.7", "time": "2026-11-04T09:30:00Z",
 	},
