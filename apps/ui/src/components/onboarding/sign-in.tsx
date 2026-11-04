@@ -2,30 +2,54 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { emailStartError, startEmailSignIn } from "@/lib/email-sign-in";
+import {
+  type RememberedAccount,
+  emailInitials,
+  forgetAccount,
+  readRememberedAccount,
+  relativeDay,
+} from "@/lib/remembered-account";
 import { type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
 import { AltLink } from "./alt-method";
 import { ObIcon, ObShell } from "./ob";
 
-const REMEMBERED = "amit@motadata.com";
 const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
 
 /**
- * Returning users: the remembered account first, a passkey as the primary action. `methods`
- * (from `GET /auth/providers`) decides which provider buttons sit next to the email code.
+ * Returning users: the remembered account first (from `localStorage`, when this device has one),
+ * a passkey as the primary action. `methods` (from `GET /auth/providers`) decides which provider
+ * buttons sit next to the email code; `next` is where to land after signing in.
  */
-export function SignIn({ methods }: { methods: SignInMethods }) {
+export function SignIn({ methods, next }: { methods: SignInMethods; next?: string }) {
   const router = useRouter();
   const alts = altMethods(methods, { email: true });
-  const [remembered, setRemembered] = useState(true);
+  // Read after mount: the server render (and a blocked store) shows the email field.
+  const [remembered, setRemembered] = useState<RememberedAccount | null>(null);
+  useEffect(() => setRemembered(readRememberedAccount()), []);
   const [email, setEmail] = useState("");
   const [touched, setTouched] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const bad = touched && !valid(email);
-  const target = remembered ? REMEMBERED : email.trim();
+  const target = remembered ? remembered.email : email.trim();
 
-  const emailCode = () => {
+  const notYou = () => {
+    forgetAccount();
+    setRemembered(null);
+    setError(null);
+  };
+
+  const emailCode = async () => {
+    if (sending) return;
     if (!remembered && !valid(email)) return setTouched(true);
-    router.push(`/verify?flow=signin&email=${encodeURIComponent(target)}`);
+    setSending(true);
+    setError(null);
+    const res = await startEmailSignIn({ email: target, next });
+    if (res.ok) return router.push(res.next);
+    setSending(false);
+    setError(emailStartError(res.code, res.retryAfter));
   };
 
   return (
@@ -50,12 +74,12 @@ export function SignIn({ methods }: { methods: SignInMethods }) {
       <div className="ob-f">
         {remembered ? (
           <div className="ob-row">
-            <span className="cp-av cp-av--sm">AM</span>
+            <span className="cp-av cp-av--sm">{emailInitials(remembered.email)}</span>
             <span className="t">
-              <b>{REMEMBERED}</b>
-              <small>Used on this device 3 days ago</small>
+              <b>{remembered.email}</b>
+              <small>Used on this device {relativeDay(remembered.at)}</small>
             </span>
-            <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={() => setRemembered(false)}>
+            <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={notYou}>
               Not you?
             </button>
           </div>
@@ -75,6 +99,11 @@ export function SignIn({ methods }: { methods: SignInMethods }) {
             ) : null}
           </>
         )}
+        {error ? (
+          <p className="ob-err" role="alert">
+            {error}
+          </p>
+        ) : null}
       </div>
       <div style={{ marginTop: 14 }}>
         <Link className="ah-btn ah-btn--primary au-btn-full" href="/platform/incidents">
@@ -86,7 +115,7 @@ export function SignIn({ methods }: { methods: SignInMethods }) {
       <div style={{ display: "grid", gridTemplateColumns: gridColumns(alts.length), gap: 10 }}>
         {alts.map((m) =>
           m === "email" ? (
-            <button key={m} type="button" className="ah-btn ah-btn--secondary" onClick={emailCode}>
+            <button key={m} type="button" className={`ah-btn ah-btn--secondary${sending ? " is-loading" : ""}`} onClick={emailCode} disabled={sending} aria-busy={sending}>
               <ObIcon name="mail" />
               Email code
             </button>

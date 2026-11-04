@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { rememberAccount } from "@/lib/remembered-account";
 import { BackNext, ObIcon, ObShell } from "./ob";
 
 /** Six boxes over one real input, so typing, paste, autofill and one-time-code all work. */
@@ -29,6 +30,8 @@ export function Verify() {
   const go = () => {
     if (!done) return;
     setSending(true);
+    const address = params.get("email");
+    if (signin && address) rememberAccount(address);
     router.push(signin ? "/platform/incidents" : "/onboarding/about");
   };
   const mail = (host: string) => `https://${host}`;
