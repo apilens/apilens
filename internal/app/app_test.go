@@ -60,6 +60,31 @@ func TestResolve(t *testing.T) {
 	}
 }
 
+// TestIdentityRoutesOnlyOnIdentityTargets pins where identity's routes (the
+// auth API and GET /.well-known/jwks.json) are served: the identity module
+// runs on the identity and all targets and on no other role.
+func TestIdentityRoutesOnlyOnIdentityTargets(t *testing.T) {
+	a := newTestApp()
+	for _, tc := range []struct {
+		target string
+		want   bool
+	}{
+		{TargetAll, true},
+		{TargetIdentity, true},
+		{TargetAPI, false},
+		{TargetQuery, false},
+		{TargetEdge, false},
+	} {
+		order, err := a.mgr.Resolve([]string{tc.target})
+		if err != nil {
+			t.Fatalf("Resolve(%s): %v", tc.target, err)
+		}
+		if got := slices.Contains(order, TargetIdentity); got != tc.want {
+			t.Errorf("Resolve(%s) includes identity = %t, want %t", tc.target, got, tc.want)
+		}
+	}
+}
+
 func TestWarnEmail(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

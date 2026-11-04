@@ -131,3 +131,31 @@ func rsaKey(signer crypto.Signer) (*rsa.PrivateKey, error) {
 	}
 	return priv, nil
 }
+
+// JWKSet is a JSON Web Key Set (RFC 7517 §5) of public signing keys.
+type JWKSet struct {
+	Keys []json.RawMessage `json:"keys"`
+}
+
+// PublicSet renders ks as a JWK Set for GET /.well-known/jwks.json. Each
+// key's stored JWK is decoded into the RSA public members only (kty, use,
+// alg, kid, n, e) and re-encoded, so private members can never be served
+// even if a stored JWK carried them.
+func PublicSet(ks []Key) (JWKSet, error) {
+	set := JWKSet{Keys: make([]json.RawMessage, 0, len(ks))}
+	for _, k := range ks {
+		var jwk rsaJWK
+		if err := json.Unmarshal(k.PublicJWK, &jwk); err != nil {
+			return JWKSet{}, fmt.Errorf("keys: key %s: public JWK: %w", k.KID, err)
+		}
+		if jwk.Kty != "RSA" || jwk.Kid != k.KID || jwk.N == "" || jwk.E == "" {
+			return JWKSet{}, fmt.Errorf("keys: key %s: public JWK is not an RSA key with its kid", k.KID)
+		}
+		b, err := json.Marshal(jwk)
+		if err != nil {
+			return JWKSet{}, fmt.Errorf("keys: key %s: public JWK: %w", k.KID, err)
+		}
+		set.Keys = append(set.Keys, b)
+	}
+	return set, nil
+}
