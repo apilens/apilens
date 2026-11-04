@@ -5,6 +5,7 @@ version: "3"
 vars:
   BIN: "{{.ROOT_DIR}}/bin"
   SQLC_IMAGE: sqlc/sqlc:1.31.1@sha256:70f53171d27b2424e9358869975455a6e955a5aa8e58a998a270a6e34e525537
+  ZED_IMAGE: ghcr.io/authzed/zed:v1.2.1@sha256:075810514ce2b5b494240b8015dd1ee686b47c00e238a5925eaf5f5fe3c8d02e
   DEV_COMPOSE: deploy/compose/compose.dev.yaml
 
 # Defaults matching deploy/compose/compose.dev.yaml (local only).
@@ -73,6 +74,7 @@ tasks:
       - task: lint:proto
       - task: lint:web
       - task: lint:ai
+      - task: lint:authz
 
   lint:go:
     deps: [tools]
@@ -89,6 +91,11 @@ tasks:
   lint:web:
     cmds:
       - pnpm --filter ui typecheck
+
+  lint:authz:
+    desc: Validate the SpiceDB schema against its assertions (zed validate)
+    cmds:
+      - docker run --rm -v "{{.ROOT_DIR}}/authz:/authz:ro" -w /authz {{.ZED_IMAGE}} validate schema.validation.yaml
 
   lint:ai:
     dir: apps/ai
