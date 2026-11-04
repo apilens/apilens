@@ -1,0 +1,23 @@
+/* "Invite your team" (#336): the shared chip input, the system's .ob-seg as a Member/Viewer
+   radio toggle and its .ob-inv list for the per-address results. Tokens from tokens.css only. */
+.it-role { margin-inline: 0; padding: 0; border: 0; min-width: 0; }
+.it-role > legend { width: 100%; padding: 0; }
+.it-seg label { position: relative; display: inline-flex; cursor: pointer; }
+.it-seg input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.it-seg label.on span { background: var(--surface-2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.it-seg label:has(input:focus-visible) span { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.it-seg label:has(input:disabled) { cursor: default; opacity: .6; }
+.it-role .ob-note { align-items: flex-start; }
+.it-role .ob-note .ob-ic { margin-top: 2px; }
+.it-notice { margin-top: 16px; }
+.it-h { margin: 0; font: inherit; color: inherit; }
+.it-list {margin: 0; padding: 0; list-style: none; }
+.it-list .row { grid-template-columns: 28px minmax(0, 1fr) auto; }
+.it-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.it-status { display: inline-flex; align-items: center; gap: 6px; font: 500 12.5px/18px var(--font-sans); white-space: nowrap; }
+.it-status .ob-ic { width: 14px; height: 14px; }
+.it-ok { color: var(--ok); }
+.it-muted { color: var(--ink-muted); }
+@media (max-width: 720px) {
+  .it-list .row { gap: 8px; padding: 10px; }
+}
