@@ -91,3 +91,42 @@ FROM organizations o
 JOIN memberships m ON m.org_id = o.id AND m.user_id = @user_id
 WHERE o.slug = @slug AND o.deleted_at IS NULL
 FOR UPDATE OF o;
+
+-- name: ListJoinableOrganizationsWithCounts :many
+-- ListJoinableOrganizations with the number of active projects and
+-- (non-deleted) members of each, and the display names (name, or email when
+-- the name is blank) of up to three members, owners first then oldest.
+SELECT o.id, o.slug, o.name, o.created_at,
+       (SELECT count(*) FROM projects p
+        WHERE p.org_id = o.id AND p.deleted_at IS NULL)::bigint AS project_count,
+       (SELECT count(*) FROM memberships mm
+        JOIN users u ON u.id = mm.user_id
+        WHERE mm.org_id = o.id AND u.deleted_at IS NULL)::bigint AS member_count,
+       coalesce((SELECT array_agg(f.display ORDER BY f.ord)
+                 FROM (SELECT coalesce(nullif(btrim(u.name), ''), u.email::text) AS display,
+                              row_number() OVER (ORDER BY mm.role = 'owner' DESC, mm.created_at, u.id) AS ord
+                       FROM memberships mm
+                       JOIN users u ON u.id = mm.user_id
+                       WHERE mm.org_id = o.id AND u.deleted_at IS NULL
+                       ORDER BY ord
+                       LIMIT 3) f), '{}')::text[] AS member_names
+FROM organizations o
+WHERE o.domain_join
+  AND o.deleted_at IS NULL
+  AND o.allowed_domains @> ARRAY[@domain::text]
+  AND NOT EXISTS (
+      SELECT 1 FROM memberships m WHERE m.org_id = o.id AND m.user_id = @user_id
+  )
+ORDER BY o.name, o.slug;
+
+-- name: LockOrganizationBySlug :one
+-- An active organization by slug, row-locked for the rest of the
+-- transaction.
+SELECT * FROM organizations
+WHERE slug = @slug AND deleted_at IS NULL
+FOR UPDATE;
+
+-- name: GetUserEmail :one
+-- The email of an active user and when it was verified (NULL when not).
+SELECT email::text AS email, email_verified_at FROM users
+WHERE id = @id AND deleted_at IS NULL;

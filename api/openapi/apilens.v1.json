@@ -649,6 +649,53 @@
         ],
         "type": "object"
       },
+      "JoinableOrg": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "member_count": {
+            "description": "Members of the organization.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "member_initials": {
+            "description": "Initials of up to three members, owners first.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "project_count": {
+            "description": "Active projects in the organization.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "member_count",
+          "project_count",
+          "member_initials"
+        ],
+        "type": "object"
+      },
       "ListMyPasskeysOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -5536,6 +5583,86 @@
         ]
       }
     },
+    "/api/v1/orgs/{slug}/join": {
+      "post": {
+        "description": "Makes the signed-in user a `member` of the organization when it has domain join on and lists the domain of the user's verified email among its allowed domains, and returns the organization with the user's role. Answers `forbidden` (403) otherwise, and for an organization that does not exist. Idempotent: a user who already belongs to it gets it back with their current role and nothing changes. Audited as `member.joined`.",
+        "operationId": "join-org",
+        "parameters": [
+          {
+            "description": "The organization's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The organization's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Org"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Join an organization by verified email domain",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
     "/api/v1/orgs/{slug}/leave": {
       "post": {
         "description": "Removes the signed-in user from the organization. The last owner cannot leave (`last_owner`): transfer ownership or delete the organization first. Audited as `member.removed`.",
@@ -6785,6 +6912,66 @@
         "summary": "Confirm the signed-in user's new email",
         "tags": [
           "Users"
+        ]
+      }
+    },
+    "/api/v1/users/me/joinable-orgs": {
+      "get": {
+        "description": "Lists the active organizations the signed-in user is not a member of that have domain join on and list the domain of the user's verified email among their allowed domains, ordered by name. An unverified email or one at a public email provider (gmail.com, outlook.com…) matches none.",
+        "operationId": "list-joinable-orgs",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/JoinableOrg"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List organizations I can join",
+        "tags": [
+          "Organizations"
         ]
       }
     },
