@@ -1,0 +1,21 @@
+/* "How do you want to instrument?" (#332): language tiles, runtime radios and method cards, built
+   on the system's .ob-tile, .ob-radio and .ob-opt. Buttons reset to the system's look here. */
+.ins-langs { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.ins-runtimes { margin: 0; }
+.ins-methods { gap: 8px; }
+.ins-tile, .ins-radio, .ins-opt { width: 100%; margin: 0; font-family: var(--font-sans); text-align: left; }
+.ins-tile .ins-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ins-soon { margin: 8px 0 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ins-tile:disabled { background: transparent; border-style: dashed; color: var(--ink-muted); }
+.ins-opt:disabled { background: transparent; border-style: dashed; }
+.ins-opt:disabled b { color: var(--ink-muted); }
+.ins-tx { min-width: 0; }
+.ins-tag { display: inline-flex; align-items: center; height: 18px; margin-left: 8px; padding: 0 6px; border-radius: 999px; background: var(--ok-soft); color: var(--accent-ink); font: 500 11px/1 var(--font-sans); vertical-align: 1px; }
+.ins-tag.muted { background: var(--surface-2); color: var(--ink-muted); }
+.ins-tile:focus-visible, .ins-radio:focus-visible, .ins-opt:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.ins-tile:not(:disabled):not(.on):hover, .ins-radio:not(.on):hover, .ins-opt:not(:disabled):not(.on):hover { border-color: var(--border-strong); }
+@media (max-width: 720px) {
+  .ins-langs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ins-runtimes { grid-template-columns: 1fr; }
+  .ins-tile, .ins-radio { height: 44px; }
+}
