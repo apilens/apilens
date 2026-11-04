@@ -93,7 +93,7 @@ func (f *passkeyFixture) verify(t *testing.T, auth, challengeID string, response
 	return f.api.Post(PasskeyRegisterPrefix+"/verify", auth, "User-Agent: "+chromeMacUA, body)
 }
 
-func problemCode(t *testing.T, r *httptest.ResponseRecorder) ErrCode {
+func passkeyProblemCode(t *testing.T, r *httptest.ResponseRecorder) ErrCode {
 	t.Helper()
 	var p Problem
 	if err := json.Unmarshal(r.Body.Bytes(), &p); err != nil {
@@ -173,7 +173,7 @@ func TestPasskeyRegisterIntegration(t *testing.T) {
 	}
 
 	// The challenge is single use.
-	if r := f.verify(t, auth, o.ChallengeID, resp, ""); r.Code != http.StatusUnauthorized || problemCode(t, r) != CodePasskeyFailed {
+	if r := f.verify(t, auth, o.ChallengeID, resp, ""); r.Code != http.StatusUnauthorized || passkeyProblemCode(t, r) != CodePasskeyFailed {
 		t.Fatalf("reused challenge: %d %s", r.Code, r.Body)
 	}
 
@@ -191,7 +191,7 @@ func TestPasskeyRegisterIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := f.verify(t, auth, o2.ChallengeID, dup, ""); r.Code != http.StatusConflict || problemCode(t, r) != CodePasskeyExists {
+	if r := f.verify(t, auth, o2.ChallengeID, dup, ""); r.Code != http.StatusConflict || passkeyProblemCode(t, r) != CodePasskeyExists {
 		t.Fatalf("duplicate: %d %s", r.Code, r.Body)
 	}
 	other, otherAuth := f.signIn(t, "other@example.com")
@@ -200,7 +200,7 @@ func TestPasskeyRegisterIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := f.verify(t, otherAuth, o3.ChallengeID, dup, ""); r.Code != http.StatusConflict || problemCode(t, r) != CodePasskeyExists {
+	if r := f.verify(t, otherAuth, o3.ChallengeID, dup, ""); r.Code != http.StatusConflict || passkeyProblemCode(t, r) != CodePasskeyExists {
 		t.Fatalf("duplicate for another user: %d %s", r.Code, r.Body)
 	}
 	if n, _ := f.q.CountPasskeyCredentialsForUser(f.ctx, other.ID); n != 0 {
@@ -244,7 +244,7 @@ func TestPasskeyRegisterRejectsIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := f.verify(t, otherAuth, o.ChallengeID, resp, ""); r.Code != http.StatusUnauthorized || problemCode(t, r) != CodePasskeyFailed {
+	if r := f.verify(t, otherAuth, o.ChallengeID, resp, ""); r.Code != http.StatusUnauthorized || passkeyProblemCode(t, r) != CodePasskeyFailed {
 		t.Fatalf("other user's challenge: %d %s", r.Code, r.Body)
 	}
 
@@ -254,7 +254,7 @@ func TestPasskeyRegisterRejectsIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := f.verify(t, auth, o.ChallengeID, resp, ""); r.Code != http.StatusUnauthorized || problemCode(t, r) != CodePasskeyFailed {
+	if r := f.verify(t, auth, o.ChallengeID, resp, ""); r.Code != http.StatusUnauthorized || passkeyProblemCode(t, r) != CodePasskeyFailed {
 		t.Fatalf("foreign origin: %d %s", r.Code, r.Body)
 	}
 
