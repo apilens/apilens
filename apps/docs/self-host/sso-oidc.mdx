@@ -1,0 +1,72 @@
+---
+title: "Self-host: SSO (OIDC)"
+description: "Connect an organization to Okta, Microsoft Entra ID, Google Workspace, Keycloak or any OpenID Connect provider."
+---
+
+<Info>
+Per-organization SSO ships with APILens v2 (milestone M2). It supports OpenID Connect; SAML is planned as a separate, later feature.
+</Info>
+
+Each organization can connect one OpenID Connect (OIDC) identity provider. People with an email on the connection's domains then sign in through that provider and join the organization automatically. SSO is configured per organization by its **owner**, in the dashboard, not in the server configuration.
+
+## How it works
+
+1. On the sign-in page, the user enters their email. APILens looks up the domain; if an organization has SSO for it, the page offers **Continue with SSO** (or goes straight there when SSO is enforced).
+2. APILens redirects to your provider with PKCE, a state and a nonce, and gets an `id_token` back.
+3. APILens verifies the token and requires its email to be on one of the connection's domains.
+4. The user is found or created, and added to the organization with the connection's **default role** if they are not a member yet (just-in-time provisioning).
+5. The session is marked as signed in with `sso`.
+
+Users are not removed automatically when you remove them from your provider. Remove them in **Organization settings → Members**; their sessions end within seconds.
+
+## Register APILens with your provider
+
+Create an OIDC **web application** (confidential client, authorization code flow) with:
+
+| Setting | Value |
+|---|---|
+| Redirect / callback URL | `<issuer>/api/v1/auth/sso/<org-slug>/callback` |
+| Scopes | `openid email profile` |
+| Grant type | Authorization code (PKCE is used) |
+| Sign-out URL | Not needed |
+
+`<issuer>` is `APILENS_IDENTITY__ISSUER`, the public URL of the APILens API, for example `https://api.apilens.example.com`. `<org-slug>` is your organization's slug, shown in **Organization settings → General**.
+
+Provider notes:
+
+- **Okta:** Applications → Create App Integration → OIDC → Web Application. Issuer: `https://<your-okta-domain>` (or your custom authorization server).
+- **Microsoft Entra ID:** App registrations → New registration → Web redirect URI. Issuer: `https://login.microsoftonline.com/<tenant-id>/v2.0`. Add the `email` optional claim, because Entra omits it by default.
+- **Google Workspace:** use a Google OAuth client as in [Google sign-in](/self-host/google-and-github), with audience *Internal*. Issuer: `https://accounts.google.com`.
+- **Keycloak:** Clients → Create client → OpenID Connect, client authentication on. Issuer: `https://<host>/realms/<realm>`.
+
+The provider must put a verified `email` in the `id_token` (or userinfo).
+
+## Configure the connection in APILens
+
+Open **Organization settings → SSO** (owners only) and fill in:
+
+| Field | Meaning |
+|---|---|
+| Issuer URL | The provider's issuer. APILens reads `<issuer>/.well-known/openid-configuration`. |
+| Client ID / Client secret | From the app you registered. The secret is encrypted at rest and never shown again. |
+| Domains | Email domains that use this connection, e.g. `example.com`. Public email domains are rejected. |
+| Default role | Role for people who join through SSO: admin, member or viewer. |
+| Enforce SSO | When on, people on these domains can only sign in with SSO. |
+
+Select **Test connection** to check discovery before saving.
+
+## Enforcing SSO
+
+With **Enforce SSO** on, email code, Google and GitHub sign-in for the connection's domains are refused with *sso_required*, and the sign-in page sends people to SSO instead.
+
+To avoid locking yourself out, APILens turns enforcement on only after you have signed in through SSO at least once with this connection. Keep a second owner, or an owner on a domain outside the connection, as a break-glass account.
+
+## Troubleshooting
+
+| Problem | Check |
+|---|---|
+| Test connection fails | The issuer URL is reachable from the APILens server and serves `/.well-known/openid-configuration`. No trailing path after the issuer. |
+| Provider says the redirect URI is invalid | It must be exactly `<issuer>/api/v1/auth/sso/<org-slug>/callback`. |
+| *Sign-in couldn't be completed* | The attempt took over 10 minutes or was replayed; start again. Clock skew over a few minutes between servers also breaks `id_token` validation. |
+| Users can sign in but are not added | Their email domain is not in the connection's domains. |
+| No email in the token | Add the `email` scope or claim at the provider. |

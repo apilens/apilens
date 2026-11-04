@@ -125,6 +125,13 @@ against the published JWKS; identity uses `token.Issuer.Verify`.
 Tokens carry no email, name or role: authorization looks those up by `sub`.
 Verification tolerates 30 s of clock skew on `exp` and `iat`.
 
+## Identity and authorization (M2)
+
+Sign-in flows (email code and magic link, Google/GitHub, passkeys, TOTP, SSO),
+access-token claims, sessions, the outbox relay to SpiceDB, the capabilities
+vocabulary and the error catalogue are documented in
+[`identity.md`](identity.md).
+
 ## Audit events (M2)
 
 Security-relevant account actions are written to the Postgres `audit_events`

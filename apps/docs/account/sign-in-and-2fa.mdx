@@ -1,0 +1,95 @@
+---
+title: "Sign in and 2FA"
+description: "Email codes, magic links, passkeys, Google and GitHub, two-factor authentication and sessions."
+---
+
+<Info>
+This page describes APILens v2 identity, which ships with milestone M2. On self-hosted v2 builds, some methods may not be available yet; the sign-in page only shows the methods your deployment offers.
+</Info>
+
+APILens has no passwords. You prove who you are with something you already control: your inbox, a passkey on your device, or an account with Google or GitHub.
+
+<Frame caption="The sign-in methods a deployment offers. Self-hosters choose which ones appear.">
+  <img src="/images/auth-sign-in-methods.png" alt="Sign-in buttons: Continue with a passkey, Email code, GitHub and Google" />
+</Frame>
+
+## Sign up
+
+Enter your work email and select **Continue**. APILens emails you a 6-digit code and a sign-in link. You can also sign up with GitHub or Google if your deployment has them turned on.
+
+<Frame caption="Creating an account takes an email address. There is no password.">
+  <img src="/images/auth-sign-up.png" alt="Create your APILens account form with a work email field, Continue button, and GitHub and Google buttons" />
+</Frame>
+
+After you verify your email, onboarding asks for your organization and first project. If someone invited you, you join their organization instead.
+
+## Email code or magic link
+
+<Steps>
+  <Step title="Enter your email">
+    Select **Email code** on the sign-in page and enter your address. APILens sends the same email whether or not an account exists, so the form never reveals who has an account.
+  </Step>
+  <Step title="Enter the code or open the link">
+    Type the 6-digit code, paste the whole code into the first box, or open the link in the email. Codes and links expire after 15 minutes and work once.
+  </Step>
+  <Step title="Stay signed in (optional)">
+    **Keep me signed in** keeps your session for 30 days. Without it, the session ends after 24 hours.
+  </Step>
+</Steps>
+
+<Frame caption="Enter the 6-digit code from the email, or open its link instead.">
+  <img src="/images/auth-verify.png" alt="Check your inbox screen with six code boxes, Open Gmail and Open Outlook buttons and a resend countdown" />
+</Frame>
+
+| What you see | What it means |
+|---|---|
+| *That code isn't right* | Check the code and try again. |
+| *Too many incorrect attempts* | After 5 wrong codes, request a new one. |
+| *That code has expired* | Codes last 15 minutes. Request a new one. |
+| *Resend in 0:30* | You can request another email after the countdown. |
+
+## Passkeys
+
+A passkey is a key stored by your device or password manager (Touch ID, Windows Hello, iCloud Keychain, 1Password, a security key). It cannot be phished, and it counts as two factors, so APILens never asks for a 2FA code after a passkey sign-in.
+
+- **Add one:** Settings → Security → Passkeys → **Add a passkey**, then follow your browser's prompt. Give it a name you will recognize.
+- **Use it:** select **Continue with a passkey** on the sign-in page. Your browser may also offer it when you focus the email field.
+- **Remove it:** Settings → Security → Passkeys. You can rename or remove any passkey.
+
+## Google and GitHub
+
+Select **Google** or **GitHub** and approve the request. APILens uses only your verified email address:
+
+- If an APILens account has that email, you sign in to it and the provider is linked.
+- Otherwise a new account is created.
+- If the provider has no verified email for you, sign-in stops with *Your account with this provider has no verified email*. Verify the address with the provider, or sign in with email.
+
+Link or unlink providers in Settings → Connected accounts.
+
+## Two-factor authentication
+
+Turn on two-factor authentication (TOTP) in Settings → Security → Two-factor:
+
+<Steps>
+  <Step title="Scan the QR code">
+    Use any authenticator app (1Password, Google Authenticator, Authy, Aegis).
+  </Step>
+  <Step title="Confirm with a code">
+    Enter the 6-digit code your app shows.
+  </Step>
+  <Step title="Save your backup codes">
+    APILens shows 10 backup codes once. Store them somewhere safe. Each works once.
+  </Step>
+</Steps>
+
+From then on, signing in with email, Google, GitHub or SSO asks for a code from your app, or a backup code. You have 5 minutes and 5 attempts to finish this step. Passkey sign-ins skip it.
+
+### Lost your authenticator?
+
+Use a backup code. If you have none, select **Lost your device?** on the two-factor step. APILens emails you, waits **24 hours**, then lets you finish recovery: two-factor is turned off and every other session is signed out. The email has a link to cancel if you did not ask for it. The delay means that someone who only has access to your inbox cannot take over your account.
+
+## Sessions
+
+Settings → Sessions lists every device signed in to your account, with its browser, IP address and last activity. You can sign out one session or every other session. A new device signing in triggers an email alert.
+
+Signing out takes effect within seconds everywhere, including for any API calls the session was making.
