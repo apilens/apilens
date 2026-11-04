@@ -1,0 +1,47 @@
+/* Account settings → Sessions (#343). Tokens from tokens.css only. */
+.ss { margin-top: var(--space-6); max-width: 960px; }
+.ss .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+.ss-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+.ss-count { margin: 0; font: 500 13px/20px var(--font-sans); color: var(--ink); }
+.ss-status { margin-right: auto; font: 400 13px/18px var(--font-sans); color: var(--ink-muted); }
+.ss-status.ok { color: var(--ok); }
+.ss-status.err { color: var(--error); }
+.ss .ah-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.ss .ah-btn--ghost.is-loading::after { border-color: var(--ink); border-right-color: transparent; }
+
+.ss-wrap { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); overflow: hidden; }
+.ss-table { width: 100%; border-collapse: collapse; font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.ss-table thead th { padding: 10px var(--space-4); border-bottom: 1px solid var(--border); background: var(--surface-2); text-align: left; font: 500 12px/16px var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
+.ss-table tbody th, .ss-table td { padding: 12px var(--space-4); border-top: 1px solid var(--border); text-align: left; vertical-align: middle; font-weight: 400; }
+.ss-table tbody tr:first-child > * { border-top: 0; }
+.ss-table tbody tr.current { background: color-mix(in srgb, var(--ok-soft) 45%, transparent); }
+.ss-table td { white-space: nowrap; color: var(--ink-muted); }
+
+.ss-device__name { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font: 500 13px/20px var(--font-sans); color: var(--ink); }
+.ss-sub { display: block; margin-top: 2px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.ss-badge { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border-radius: var(--radius-pill); background: var(--ok-soft); color: var(--ok); font: 500 11px/1 var(--font-sans); }
+.ss-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.ss-mono { font-family: var(--font-mono); font-size: 12.5px; }
+.ss-muted { font-family: var(--font-sans); color: var(--ink-muted); }
+.ss-act { width: 1%; text-align: right !important; }
+.ss-revoke { color: var(--error); }
+.ss-revoke:hover { background: var(--error-soft); color: var(--error); }
+
+.ss-empty { margin: 0; padding: var(--space-6); border: 1px dashed var(--border); border-radius: var(--radius-lg); text-align: center; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.ss-note { margin: var(--space-3) 0 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+
+/* Narrow: each session is a card; cells become label/value lines. */
+@media (max-width: 720px) {
+  .ss-bar .ah-btn { width: 100%; }
+  .ss-status { order: 3; width: 100%; }
+  .ss-table thead { display: none; }
+  .ss-table, .ss-table tbody, .ss-table tr { display: block; }
+  .ss-table tbody tr { position: relative; padding: 12px var(--space-4); border-top: 1px solid var(--border); }
+  .ss-table tbody tr:first-child { border-top: 0; }
+  .ss-table tbody th, .ss-table td { display: flex; justify-content: space-between; gap: var(--space-4); padding: 2px 0; border: 0; white-space: normal; }
+  .ss-table tbody th { display: block; padding: 0 88px 6px 0; }
+  .ss-table td[data-label]::before { content: attr(data-label); color: var(--ink-muted); font-family: var(--font-sans); font-size: 12px; }
+  .ss-table td[data-label] { color: var(--ink); }
+  .ss-act { position: absolute; top: 10px; right: var(--space-4); width: auto; padding: 0 !important; }
+}

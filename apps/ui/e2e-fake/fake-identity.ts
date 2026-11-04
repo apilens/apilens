@@ -1,5 +1,5 @@
 // A fake identity server plus a fake OAuth provider for the social sign-in (#317), two-factor
-// step (#320) and account settings (#339) browser tests.
+// step (#320), account settings (#339) and sessions (#343) browser tests.
 // It mirrors the real contract (internal/identity/oauth.go, oauth_callback.go, handoff_redeem.go):
 //
 //   GET  /api/v1/auth/providers                    google and github enabled
@@ -10,13 +10,16 @@
 //   POST /api/v1/auth/2fa/exchange                 spends a pre-auth token with a TOTP or backup code
 //   POST /api/v1/auth/logout                       204
 //   GET  /api/v1/users/me/context                  one org (acme) with one project (shop)
+//   GET  /api/v1/users/me/sessions                 the signed-in user's sessions: this one + two seeded
+//   DELETE /api/v1/users/me/sessions/{id}          204 (also for an unknown id)
+//   POST /api/v1/users/me/sessions/revoke-others   {revoked}
 //   POST /__fake/handoff {next, totp_secret?, backup_codes?}
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  with `totp_secret` (base32) it answers 2fa_required
 //
 // Nothing here sends mail or talks to a real provider. Run with
 // `node --experimental-strip-types e2e-fake/fake-identity.ts` (Playwright starts it).
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 
 const PORT = Number(process.env.FAKE_IDENTITY_PORT ?? 18080);
@@ -92,10 +95,53 @@ function safeNext(next: string): string | null {
   return next;
 }
 
+interface FakeSession {
+  id: string;
+  /** The access token of the browser holding this session; null for the seeded other devices. */
+  access: string | null;
+  device_label: string;
+  user_agent: string;
+  ip: string | null;
+  amr: string[];
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+}
+
+/** Sessions per fake user, and the user each access token belongs to. */
+const sessionsByUser = new Map<string, FakeSession[]>();
+const userByAccess = new Map<string, string>();
+
+const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+
+/** A new user signed in on this browser plus two older devices (documentation IPs). */
+function seedSessions(user: string, access: string) {
+  const expires = new Date(Date.now() + 30 * 24 * 3600_000).toISOString();
+  const s = (holder: string | null, device: string, ip: string | null, amr: string[], created: number, seen: number): FakeSession => ({
+    id: randomUUID(),
+    access: holder,
+    device_label: device,
+    user_agent: `${device} (fake)`,
+    ip,
+    amr,
+    created_at: ago(created),
+    last_seen_at: ago(seen),
+    expires_at: expires,
+  });
+  sessionsByUser.set(user, [
+    s(null, "Firefox on Windows", "198.51.100.23", ["google"], 9 * 24 * 60, 3 * 24 * 60),
+    s(access, "Chrome on macOS", "203.0.113.7", ["email"], 0, 0),
+    s(null, "Safari on iOS", null, ["passkey", "totp"], 2 * 24 * 60, 45),
+  ]);
+  userByAccess.set(access, user);
+}
+
 function bundle(next: string) {
   const id = `usr_${token().slice(0, 8)}`;
+  const access = `at_${token()}`;
+  seedSessions(id, access);
   return {
-    access_token: `at_${token()}`,
+    access_token: access,
     refresh_token: `rt_${token()}`,
     expires_in: 900,
     user: {
@@ -245,6 +291,31 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   if (req.method === "GET" && path === "/api/v1/users/me/context") {
     if (!req.headers.authorization?.startsWith("Bearer at_")) return problem(res, 401, "unauthenticated");
     return send(res, 200, CONTEXT);
+  }
+  const sessionPath = path.match(/^\/api\/v1\/users\/me\/sessions(?:\/([^/]+))?$/);
+  if (sessionPath) {
+    const access = req.headers.authorization?.replace(/^Bearer /, "") ?? "";
+    const user = userByAccess.get(access);
+    const all = user ? sessionsByUser.get(user) : undefined;
+    if (!user || !all) return problem(res, 401, "unauthenticated");
+    const sub = sessionPath[1];
+    if (req.method === "GET" && sub === undefined) {
+      const sessions = all
+        .map(({ access: holder, ...rest }) => ({ ...rest, current: holder === access }))
+        .sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at));
+      return send(res, 200, { sessions });
+    }
+    if (req.method === "POST" && sub === "revoke-others") {
+      const keep = all.filter((s) => s.access === access);
+      sessionsByUser.set(user, keep);
+      return send(res, 200, { revoked: all.length - keep.length });
+    }
+    if (req.method === "DELETE" && sub !== undefined) {
+      const gone = all.find((s) => s.id === sub);
+      sessionsByUser.set(user, all.filter((s) => s.id !== sub));
+      if (gone?.access) userByAccess.delete(gone.access);
+      return send(res, 204);
+    }
   }
   if (req.method === "POST" && path === "/__fake/handoff") {
     const { next, totp_secret: secret, backup_codes: backups } = await readBody(req);
