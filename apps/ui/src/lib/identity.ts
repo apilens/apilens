@@ -451,6 +451,23 @@ export interface UserContext {
   capabilities: Record<string, string[]>;
 }
 
+/** `GET /users/me/sessions` item (SessionInfo in the spec): one live sign-in of the user. */
+export interface SessionInfo {
+  /** Changes on every refresh. */
+  id: string;
+  /** Derived from the user agent at sign-in, e.g. "Chrome on macOS". */
+  device_label: string;
+  user_agent: string;
+  /** Client IP of the last sign-in or refresh; null when unknown. */
+  ip: string | null;
+  amr: AuthMethod[] | null;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  /** The session the request was made with. */
+  current: boolean;
+}
+
 /** `GET /orgs` item and `GET /orgs/{slug}` (#279). */
 export interface Org {
   id: string;
@@ -587,6 +604,12 @@ export function createClient(config: ClientConfig) {
     // identity / api: current user --------------------------------------------------------
     me: (o: Authed) => request<User>("GET", "/users/me", o),
     context: (o: Authed) => request<UserContext>("GET", "/users/me/context", o),
+
+    // identity: the signed-in user's sessions ---------------------------------------------
+    listSessions: (o: Authed) => request<{ sessions: SessionInfo[] }>("GET", "/users/me/sessions", o),
+    revokeSession: (id: string, o: Authed) => request<void>("DELETE", `/users/me/sessions/${seg(id)}`, o),
+    revokeOtherSessions: (o: Authed) =>
+      request<{ revoked: number }>("POST", "/users/me/sessions/revoke-others", o),
 
     // api: invitations --------------------------------------------------------------------
     invitationLookup: (token: string, o?: CallOptions) =>

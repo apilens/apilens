@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, type KeyboardEvent } from "react";
+import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import { ACCOUNT_SECTIONS, ACCOUNT_SETTINGS, type AccountSection, accountSectionHref } from "@/lib/account-settings";
 
 /**
  * The account section's frame: breadcrumb (Account / section), a section nav on the left (a row
  * of tabs below 860px) and the section's content. Tab moves through the links; the arrow keys,
- * Home and End move between them too.
+ * Home and End move between them too. `children` is the section's content, under its title.
  */
-export function AccountSettings({ section }: { section: AccountSection }) {
+export function AccountSettings({ section, children }: { section: AccountSection; children?: ReactNode }) {
   const nav = useRef<HTMLElement>(null);
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
@@ -54,6 +54,7 @@ export function AccountSettings({ section }: { section: AccountSection }) {
             {section.label}
           </h1>
           <p className="cp-sub">{section.summary}</p>
+          {children}
         </section>
       </div>
     </div>
