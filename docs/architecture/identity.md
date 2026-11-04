@@ -319,7 +319,15 @@ SpiceDB holds the derived relationships that permission checks read
 | `project.moved` | project id | `{project_id, from_org_id, to_org_id}` | `DELETE …#org@organization:{from}`, `TOUCH …#org@organization:{to}` |
 
 The topics and payloads above are the contract the outbox helper (#277) and
-the relay (#291) implement. Payloads carry ids and roles only, never emails or secrets. Topics are stable
+the relay (#291) implement. The helper is
+[`internal/controlplane/outbox`](../../internal/controlplane/outbox/outbox.go):
+`outbox.Emit(ctx, tx, topic, aggregateID, payload)` takes a typed topic
+constant and the matching payload struct (`OrgCreatedPayload`,
+`MembershipUpsertedPayload`, …), refuses a payload of another topic or an
+`aggregate_id` that is not the payload's org or project id, stores the payload
+as JSON in `outbox.payload` (UUIDs as strings, keys exactly as in the table)
+and sends `NOTIFY outbox`, which Postgres delivers only when the transaction
+commits. Payloads carry ids and roles only, never emails or secrets. Topics are stable
 once shipped; a new shape gets a new topic.
 
 ## Capabilities vocabulary
