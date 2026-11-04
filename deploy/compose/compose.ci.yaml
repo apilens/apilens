@@ -6,13 +6,35 @@
 #
 # Publishes the ClickHouse HTTP port on localhost so test/e2e can assert rows
 # (APILENS_E2E_CLICKHOUSE_HTTP=http://127.0.0.1:8123, user apilens /
-# password from ci.env). The dashboard is not needed for ingest e2e.
+# password from ci.env), and sends email over SMTP to a Mailpit sink whose
+# API test/e2e reads sign-in codes from
+# (APILENS_E2E_MAILPIT_URL=http://127.0.0.1:8025). Nothing leaves the host.
+# The dashboard is not needed for e2e.
 services:
   clickhouse:
     ports:
       - "127.0.0.1:8123:8123"
 
+  # SMTP sink: holds every email instead of delivering it.
+  mailpit:
+    image: axllent/mailpit:v1.27.10@sha256:b1f1be18af530d939a11ee8820b379e0c88eeec204d904bfad68862adced3a5a
+    ports:
+      - "127.0.0.1:${APILENS_E2E_MAILPIT_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   apilens:
     environment:
       # Flush quickly so tests don't wait on the batching interval.
       APILENS_SINK__FLUSH_INTERVAL: 100ms
+      APILENS_EMAIL__PROVIDER: smtp
+      APILENS_EMAIL__HOST: mailpit
+      APILENS_EMAIL__PORT: "1025"
+      APILENS_EMAIL__TLS: none
+      APILENS_EMAIL__FROM: APILens <no-reply@apilens.test>
+    depends_on:
+      mailpit:
+        condition: service_healthy

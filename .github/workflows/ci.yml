@@ -430,6 +430,7 @@ jobs:
           APILENS_E2E_CLICKHOUSE_HTTP: http://127.0.0.1:8123
           APILENS_E2E_CLICKHOUSE_USER: apilens
           APILENS_E2E_CLICKHOUSE_PASSWORD: ci-clickhouse
+          APILENS_E2E_MAILPIT_URL: http://127.0.0.1:8025
         run: go test -count=1 -tags=e2e ./test/e2e/...
       - name: Dump logs on failure
         if: failure()
