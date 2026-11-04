@@ -21,12 +21,19 @@ task bootstrap   # install tools, start dev datastores, migrate, seed a dev proj
 task dev         # run the Go binary, web dashboard and AI service together
 ```
 
+Then sign up at <http://localhost:3200/sign-up>. No mail leaves your machine:
+the dev stack delivers sign-in codes and invitations to
+[Mailpit](https://mailpit.axllent.org), so open <http://localhost:8025> to read
+them (tests can use its HTTP API at `http://localhost:8025/api/v1`).
+Authorization runs against a local SpiceDB (gRPC on `localhost:50051`, preshared
+key `apilens-dev-key`); `task migrate` writes the schema from `authz/`.
+
 Useful tasks (run `task --list` for everything):
 
 | Command | What it does |
 |---|---|
-| `task up` / `task down` | Start / stop the dev datastores (Postgres, ClickHouse, Valkey) |
-| `task migrate` | Apply Postgres and ClickHouse migrations |
+| `task up` / `task down` | Start / stop the dev datastores (Postgres, ClickHouse, Valkey, SpiceDB, Mailpit) |
+| `task migrate` | Apply Postgres and ClickHouse migrations and the SpiceDB schema |
 | `task seed` | Create a dev org, project, app and API key |
 | `task gen` | Regenerate protobuf, sqlc and OpenAPI output |
 | `task lint` | Run all linters |

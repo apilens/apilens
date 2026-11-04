@@ -14,6 +14,15 @@ procs:
       APILENS_IDENTITY__KEY_ENCRYPTION_KEY: ZGV2LW9ubHktaWRlbnRpdHkta2VrLTAxMjM0NTY3ODk=
       APILENS_IDENTITY__PUBLIC_UI_URL: http://localhost:3200
       APILENS_IDENTITY__WEBAUTHN__ORIGINS: http://localhost:3200
+      APILENS_AUTHZ__ENDPOINT: localhost:50051
+      APILENS_AUTHZ__PRESHARED_KEY: apilens-dev-key
+      APILENS_AUTHZ__INSECURE: "true"
+      # Sign-in codes and invitations land in Mailpit: http://localhost:8025
+      APILENS_EMAIL__PROVIDER: smtp
+      APILENS_EMAIL__HOST: localhost
+      APILENS_EMAIL__PORT: "1025"
+      APILENS_EMAIL__TLS: none
+      APILENS_EMAIL__FROM: APILens <no-reply@apilens.local>
   web:
     shell: pnpm --filter ui dev
     env:
