@@ -54,7 +54,7 @@ proto/                  protobuf contracts (buf)
 api/openapi/            committed OpenAPI 3.1 spec of the Huma API
 test/e2e/               black-box tests against a running stack
 tools/                  dev tool versions (separate go.mod) and the load generator
-apps/web, apps/ai, apps/docs, packages/sdk-*, deploy/
+apps/ui, apps/ai, apps/docs, packages/sdk-*, deploy/
 ```
 
 `depguard` (in `.golangci.yml`) enforces the direction of imports: platform
@@ -80,15 +80,14 @@ packages never import feature modules, and only `cmd/` imports `internal/app`.
 
 ## Read path and console (M1.5)
 
-`apps/console` is the v2 dashboard, built to the Aperture spec (dark-first,
-IBM Plex, one teal signal color, panels and dense tables, no decoration). It
-is server-rendered: pages call the `query` role from the Next.js server with
+`apps/ui` is the v2 web UI, built on the APILens design system
+(`apps/ui/design/tokens.json` compiled to `bundle.css`). It is server-rendered: pages call the `query` role from the Next.js server with
 a project **read key** (`APILENS_READ_KEY`), so no credential reaches the
 browser. Read keys carry scope `read`; ingest keys (`ingest`) cannot query and
 read keys cannot ingest. Every query derives the project from the key and
 filters on it first (`internal/query`), and an integration test proves two
 projects sharing a trace id never see each other's data. User sessions
-replace read keys in the console when identity lands (M2).
+replace read keys in the UI when identity lands (M2).
 
 ## Data model
 

@@ -11,12 +11,6 @@ procs:
       APILENS_VALKEY__ADDR: localhost:6379
       APILENS_LOG__FORMAT: text
   web:
-    shell: pnpm --filter frontend dev
-  console:
-    shell: pnpm --filter console dev
-    env:
-      APILENS_API_URL: http://localhost:8080
-      # Paste `read_key` from `task seed` here (or export it before `task dev`).
-      # APILENS_READ_KEY: apl_live_...
+    shell: pnpm --filter ui dev
   ai:
     shell: uv run --package apilens-ai uvicorn apilens_ai.main:app --reload --port 8000

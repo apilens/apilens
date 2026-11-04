@@ -1,6 +1,5 @@
 {{- if .Values.web.enabled }}
 {{- $ctx := dict "root" . "component" "web" }}
-{{- $apiUrl := .Values.web.apiUrl | default (printf "http://%s:%v/api/v1" (include "apilens.roleServiceName" (dict "root" . "role" "all")) .Values.service.port) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,7 +31,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      # The web image runs as UID/GID 65532 (see apps/web/Dockerfile).
+      # The web image runs as UID/GID 65532 (see apps/ui/Dockerfile).
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -48,21 +47,10 @@ spec:
             - name: http
               containerPort: 3000
               protocol: TCP
+          {{- with .Values.web.extraEnv }}
           env:
-            # The dashboard still speaks the legacy API contract; it is
-            # re-pointed at the v2 API in M3.
-            - name: DJANGO_API_URL
-              value: {{ $apiUrl | quote }}
-            - name: AUTH_API_URL
-              value: {{ $apiUrl | quote }}
-            - name: SESSION_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "apilens.secretName" . }}
-                  key: session-secret
-            {{- with .Values.web.extraEnv }}
             {{- toYaml . | nindent 12 }}
-            {{- end }}
+          {{- end }}
           livenessProbe:
             tcpSocket:
               port: http
@@ -79,7 +67,7 @@ spec:
             - name: tmp
               mountPath: /tmp
             - name: next-cache
-              mountPath: /app/apps/web/.next/cache
+              mountPath: /app/apps/ui/.next/cache
       volumes:
         - name: tmp
           emptyDir:

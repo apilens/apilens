@@ -160,21 +160,15 @@ services:
     image: ghcr.io/apilens/web:${APILENS_VERSION:-edge}
     build:
       context: ../..
-      dockerfile: apps/web/Dockerfile
+      dockerfile: apps/ui/Dockerfile
     restart: unless-stopped
     <<: *hardened
-    environment:
-      # NOTE: the dashboard still targets the legacy API contract; it is
-      # re-pointed at the v2 API in M3. Until then these are placeholders.
-      DJANGO_API_URL: http://apilens:8080/api/v1
-      AUTH_API_URL: http://apilens:8080/api/v1
-      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
     ports:
       - "${APILENS_WEB_PORT:-3000}:3000"
     tmpfs:
       - /tmp:size=64m
       # Next.js writes its image/fetch cache here; the web image runs as 65532.
-      - /app/apps/web/.next/cache:size=256m,uid=65532,gid=65532
+      - /app/apps/ui/.next/cache:size=256m,uid=65532,gid=65532
     depends_on:
       apilens:
         condition: service_healthy
@@ -182,34 +176,6 @@ services:
       resources:
         limits:
           memory: ${WEB_MEMORY_LIMIT:-512m}
-    logging: *logging
-
-  console:
-    image: ghcr.io/apilens/console:${APILENS_VERSION:-edge}
-    build:
-      context: ../..
-      dockerfile: apps/console/Dockerfile
-    restart: unless-stopped
-    <<: *hardened
-    environment:
-      # v2 dashboard: reads the query API with a project read key.
-      APILENS_API_URL: http://apilens:8080
-      # From `apilens seed` → read_key. Empty shows setup instructions.
-      APILENS_READ_KEY: ${APILENS_READ_KEY:-}
-      APILENS_PUBLIC_INGEST_URL: ${APILENS_PUBLIC_INGEST_URL:-http://localhost:8080}
-    ports:
-      - "${APILENS_CONSOLE_PORT:-3100}:3100"
-    tmpfs:
-      - /tmp:size=64m
-      # Next.js writes its fetch cache here; the console image runs as 65532.
-      - /app/apps/console/.next/cache:size=128m,uid=65532,gid=65532
-    depends_on:
-      apilens:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: ${CONSOLE_MEMORY_LIMIT:-384m}
     logging: *logging
 
 volumes:

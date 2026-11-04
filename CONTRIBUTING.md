@@ -42,7 +42,7 @@ Useful tasks (run `task --list` for everything):
 | `internal/` | All Go server code: `platform/` infrastructure plus one package per domain module |
 | `proto/` | Protobuf contracts (source of truth for event schemas) |
 | `api/openapi/` | Committed OpenAPI spec generated from the Go API |
-| `apps/web` | Next.js dashboard |
+| `apps/ui` | Next.js web UI |
 | `apps/ai` | Python AI/ML service |
 | `apps/docs` | Documentation site |
 | `packages/sdk-*` | Published SDKs (Python, TypeScript, Java), versioned independently |

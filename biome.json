@@ -13,7 +13,7 @@
       "!**/dist",
       "!**/.next",
       "!**/coverage",
-      "!apps/web",
+      "!apps/ui",
       "!apps/docs",
       "!internal/gen",
       "!packages/*/gen",

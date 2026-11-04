@@ -24,7 +24,7 @@ pre-commit:
     biome:
       glob: "*.{js,jsx,ts,tsx,json,jsonc}"
       exclude:
-        - "apps/web/**"
+        - "apps/ui/**"
         - "apps/docs/**"
         - "**/node_modules/**"
       run: pnpm exec biome check --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}

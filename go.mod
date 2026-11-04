@@ -7,7 +7,7 @@ toolchain go1.27.3
 // Keep the JS workspace out of `go ./...` package patterns.
 ignore (
 	./apps/docs
-	./apps/web/node_modules
+	./apps/ui/node_modules
 	./node_modules
 	./packages
 )

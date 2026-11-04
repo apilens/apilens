@@ -78,8 +78,7 @@ jobs:
               - Taskfile.yml
               - .github/workflows/ci.yml
             web:
-              - 'apps/web/**'
-              - 'apps/console/**'
+              - 'apps/ui/**'
               - package.json
               - 'pnpm-*.yaml'
               - turbo.json
@@ -106,8 +105,7 @@ jobs:
             compose:
               - 'deploy/compose/**'
               - 'deploy/docker/**'
-              - 'apps/web/Dockerfile'
-              - 'apps/console/Dockerfile'
+              - 'apps/ui/Dockerfile'
               - .github/workflows/ci.yml
             workflows:
               - '.github/**'
@@ -228,7 +226,7 @@ jobs:
           fi
 
   web:
-    name: Web and console (lint, typecheck, build)
+    name: Web UI (typecheck, build)
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-24.04
@@ -246,24 +244,10 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Lint
-        run: pnpm --filter frontend lint
       - name: Typecheck
-        run: pnpm --filter frontend exec tsc --noEmit
+        run: pnpm --filter ui typecheck
       - name: Build
-        run: pnpm --filter frontend build
-        env:
-          NEXT_TELEMETRY_DISABLED: "1"
-          # Build-time placeholders only; real values are injected at runtime.
-          SESSION_SECRET: ci-build-only-session-secret-0123456789
-          DJANGO_API_URL: http://localhost:8080/api/v1
-          AUTH_API_URL: http://localhost:8080/api/v1
-      - name: Console lint
-        run: pnpm --filter console lint
-      - name: Console typecheck
-        run: pnpm --filter console exec tsc --noEmit
-      - name: Console build
-        run: pnpm --filter console build
+        run: pnpm --filter ui build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
 

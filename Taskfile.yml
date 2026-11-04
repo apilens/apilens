@@ -88,8 +88,7 @@ tasks:
 
   lint:web:
     cmds:
-      - pnpm --filter frontend lint
-      - pnpm --filter frontend exec tsc --noEmit
+      - pnpm --filter ui typecheck
 
   lint:ai:
     dir: apps/ai

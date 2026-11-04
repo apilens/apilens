@@ -26,7 +26,7 @@ and the [decision records](docs/adr/README.md).
 |---|---|
 | Backend | Go 1.27 — one binary, role targets, Huma (OpenAPI 3.1), pgx + sqlc, clickhouse-go |
 | Data | ClickHouse 26.8 LTS · Postgres 17 · Valkey 9 · SpiceDB (M2) · Kafka 4 (optional, M3) |
-| Web | Next.js 16 — `apps/console` (v2 dashboard, Aperture design system), `apps/web` (v1 dashboard, retired at cutover) |
+| Web | Next.js 16 — `apps/ui` (web UI on the APILens design system: `design/tokens.json` + `bundle.css`) |
 | AI/ML | Python 3.14, FastAPI, Pydantic AI, statsforecast (`apps/ai`, M4) |
 | Contracts | protobuf (buf) for internal events, OpenAPI for the API, v1 JSON + OTLP for ingest |
 | Delivery | GitHub Actions, multi-arch images on GHCR (SBOM, provenance, cosign), docker compose, Helm |
@@ -36,7 +36,7 @@ and the [decision records](docs/adr/README.md).
 | Milestone | Scope | State |
 |---|---|---|
 | M1 | Monorepo foundation, edge (v1 JSON + OTLP), ClickHouse schema + rollups, CI, images, compose, Helm skeleton | ✅ done |
-| M1.5 | First read path: `query` role (read keys, tenant-scoped dashboard API) and the `apps/console` skeleton | ✅ done |
+| M1.5 | First read path: `query` role (read keys, tenant-scoped dashboard API) and the first web UI | ✅ done |
 | M2 | Identity (OIDC, passkeys, TOTP), orgs/teams/projects API, SpiceDB, staging | next |
 | M3 | Query compiler, dashboard API parity, Kafka sink + writers, processors | planned |
 | M4 | GitHub/Slack/PagerDuty, alerts, MCP server, AI investigator, anomaly detection | planned |
@@ -47,11 +47,10 @@ and the [decision records](docs/adr/README.md).
 
 ```sh
 cd deploy/compose
-cp .env.example .env            # set the passwords and SESSION_SECRET
+cp .env.example .env            # set the passwords
 docker compose up -d --wait
 docker compose run --rm --entrypoint /apilens apilens seed   # prints api_key (ingest) and read_key
-# put read_key into .env as APILENS_READ_KEY, then:
-docker compose up -d console    # dashboard on http://localhost:3100
+# web UI on http://localhost:3000
 ```
 
 Point an SDK (or any OpenTelemetry exporter at `http://<host>:8080/otlp`) at
@@ -94,7 +93,7 @@ task dev                   # datastores + hot reload backend + web + AI (mprocs)
 cmd/apilens          the single binary
 internal/            app (composition root), platform, ingest, pipeline, controlplane, migrations, gen
 proto/ api/openapi/  contracts
-apps/web apps/ai apps/docs
+apps/ui apps/ai apps/docs
 packages/sdk-python packages/sdk-typescript packages/sdk-java
 deploy/              docker, compose, helm
 docs/                architecture, ADRs, benchmarks

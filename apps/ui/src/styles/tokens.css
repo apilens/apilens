@@ -1,0 +1,61 @@
+/* APILens: generated from design/tokens.json by scripts/build-tokens.mjs. Do not edit. */
+:root, [data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0b0d;
+  --surface-1: #131316;
+  --surface-2: #1b1b1f;
+  --border: #27272c;
+  --border-strong: #5f5f69;
+  --grid: #1d1d21;
+  --ink: #ededf0;
+  --ink-muted: #9b9ba4;
+  --accent: #5b4bff;
+  --accent-ink: #aaa3ff;
+  --on-accent: #ffffff;
+  --ok: #a29cf0;
+  --warn: #e3a948;
+  --error: #f0675d;
+  --info: #8b93a7;
+  --ok-soft: #1d1c2c;
+  --warn-soft: #2b2415;
+  --error-soft: #311a1a;
+  --shadow-frame: 0 20px 48px rgba(0,0,0,0.55);
+}
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f7f9;
+  --surface-1: #ffffff;
+  --surface-2: #eef1f5;
+  --border: #dde2e9;
+  --border-strong: #8792a2;
+  --grid: #e6e9ee;
+  --ink: #0d1117;
+  --ink-muted: #556070;
+  --accent: #5b4bff;
+  --accent-ink: #4a3ae6;
+  --on-accent: #ffffff;
+  --ok: #4a3ae6;
+  --warn: #8a5a00;
+  --error: #c0362c;
+  --info: #1d6fd1;
+  --ok-soft: #eeecff;
+  --warn-soft: #fbf0d9;
+  --error-soft: #fbe5e2;
+  --shadow-frame: 0 24px 64px rgba(13,17,23,0.10);
+}
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --font-sans: var(--f-sans), "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--f-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}

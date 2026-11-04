@@ -91,14 +91,13 @@ externalValkey:
 
 secrets:
   # Name of an existing Secret with keys: postgres-url, clickhouse-password,
-  # valkey-password (optional), session-secret (web).
+  # valkey-password (optional).
   existingSecret: ""
   # Inline values for development ONLY (rendered into a chart-managed Secret
   # when existingSecret is empty).
   postgresUrl: ""
   clickhousePassword: ""
   valkeyPassword: ""
-  sessionSecret: ""
 
 # Database migrations run as a Helm hook Job (pre-install, pre-upgrade).
 migrations:
@@ -112,7 +111,7 @@ migrations:
     limits:
       memory: 256Mi
 
-# Dashboard (Next.js).
+# Web UI (Next.js, apps/ui).
 web:
   enabled: true
   replicas: 1
@@ -121,9 +120,6 @@ web:
     tag: ""
     digest: ""
     pullPolicy: IfNotPresent
-  # Base URL of the APILens API as seen from the web pods. Empty = the
-  # in-cluster service of the `all` role (or `api` once it exists).
-  apiUrl: ""
   service:
     type: ClusterIP
     port: 3000

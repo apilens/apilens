@@ -1,5 +1,5 @@
 # pnpm workspace: every directory under apps/ and packages/ with a
-# package.json (apps/web, packages/sdk-typescript). The Go backend
+# package.json (apps/ui, packages/sdk-typescript). The Go backend
 # (repo root go.mod) and Python services (uv workspace, root pyproject.toml)
 # live in the same repo but are invisible to pnpm.
 packages:

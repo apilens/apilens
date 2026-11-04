@@ -1,0 +1,10 @@
+# Dockerfile-specific ignore (BuildKit reads <Dockerfile>.dockerignore next to
+# the Dockerfile). Context is the repo root; send only what the UI needs.
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!apps/ui/**
+apps/ui/node_modules
+apps/ui/.next
+apps/ui/tsconfig.tsbuildinfo

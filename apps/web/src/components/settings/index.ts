@@ -1,8 +1,0 @@
-export { default as GeneralSection } from "./GeneralSection";
-export { default as ProfileSection } from "./ProfileSection";
-export { default as TimezoneSection } from "./TimezoneSection";
-export { default as LoginMethodsSection } from "./LoginMethodsSection";
-export { default as SessionsSection } from "./SessionsSection";
-export { default as DangerZoneSection } from "./DangerZoneSection";
-export { default as SettingsCard } from "./SettingsCard";
-export { default as ConfirmDialog } from "./ConfirmDialog";
