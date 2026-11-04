@@ -236,13 +236,9 @@ test("Name your organization checks the address live and creates the org", async
 
 /** Signs a new fake user in and creates organization `name`, landing on the project step. */
 async function toProjectStep(page: Page, name: string) {
-  await page.goto("/sign-in");
-  await githubButton(page).click();
-  await page.getByRole("link", { name: "Authorize" }).click();
-  await page.goto("/onboarding/about");
+  // Nothing to join (#329), so Continue skips the join step straight to creating the org.
+  await signIn(page, "/onboarding/about");
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/join");
-  await page.getByRole("link", { name: "Create a separate organization" }).click();
   await page.waitForURL((url) => url.pathname === "/onboarding/create");
   await page.getByLabel("Name", { exact: true }).fill(name);
   await expect(page.locator(".ob-in .r")).toHaveText("Available");
