@@ -7,7 +7,8 @@
 // `invite`, transferring ownership needs an owner.
 import { revalidatePath } from "next/cache";
 import { type InviteEntry, type InviteResult, type OrgRole, identity, isApiError } from "@/lib/identity";
-import { INVITE_ROLES, MAX_INVITES, MEMBER_ROLES, inviteSummary, isEmail, membersError } from "@/lib/org-members";
+import { INVITE_ROLES, MAX_INVITES, isEmail } from "@/lib/invite-input";
+import { MEMBER_ROLES, inviteSummary, membersError } from "@/lib/org-members";
 import { type ServerSession, withActionSession } from "@/lib/server-session";
 
 export type MembersActionResult = { ok: true; message: string } | { ok: false; error: string; code?: string };
@@ -61,13 +62,17 @@ export async function transferOwnership(slug: string, userId: string, name: stri
   return run(slug, (s) => s.call((o) => identity().transferOwnership(slug, userId, o)), `${who} is now an owner. You’re an admin.`, true);
 }
 
-/** Invites `emails`, each with `role`. */
-export async function inviteMembers(slug: string, emails: string[], role: string): Promise<MembersActionResult & { results?: InviteResult[] }> {
+/**
+ * Sends invitations: each entry is an address with its own role. Used by the invite dialog on
+ * the members and invitations pages (#345, #346).
+ */
+export async function inviteMembers(slug: string, entries: InviteEntry[]): Promise<MembersActionResult & { results?: InviteResult[] }> {
   if (typeof slug !== "string" || !SLUG.test(slug)) return invalid();
-  if (!INVITE_ROLES.includes(role as InviteEntry["role"])) return invalid();
-  if (!Array.isArray(emails) || emails.length === 0 || emails.length > MAX_INVITES) return invalid();
-  if (emails.some((e) => typeof e !== "string" || !isEmail(e))) return invalid();
-  const invites = emails.map((email) => ({ email, role: role as InviteEntry["role"] }));
+  if (!Array.isArray(entries) || entries.length === 0 || entries.length > MAX_INVITES) return invalid();
+  const ok = (e: unknown): e is InviteEntry =>
+    typeof e === "object" && e !== null && typeof (e as InviteEntry).email === "string" && isEmail((e as InviteEntry).email) && INVITE_ROLES.includes((e as InviteEntry).role);
+  if (!entries.every(ok)) return invalid();
+  const invites = entries.map(({ email, role }) => ({ email, role }));
   return withActionSession(async (session) => {
     try {
       const { results } = await session.call((o) => identity().createInvitations(slug, invites, o));

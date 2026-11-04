@@ -1,0 +1,15 @@
+/* Organization settings → Invitations (#346), on top of members.css. Tokens from tokens.css only. */
+.oi-email { font: 500 13px/20px var(--font-sans); color: var(--ink); overflow-wrap: anywhere; }
+.oi-expired { color: var(--error); }
+.oi-act { display: table-cell; }
+.oi-act > * + * { margin-left: var(--space-1); }
+.oi-resend { font-variant-numeric: tabular-nums; }
+.oi-empty { padding: var(--space-8) var(--space-6); text-align: center; }
+.oi-empty__t { margin: 0; font: 500 14px/20px var(--font-sans); color: var(--ink); }
+.oi-empty__p { max-width: 420px; margin: var(--space-1) auto 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+
+@media (max-width: 720px) {
+  .oi-table tbody th { padding-right: 0; }
+  .oi-act { position: static; display: flex !important; justify-content: flex-end; gap: var(--space-1); padding-top: 8px !important; }
+  .oi-act > * + * { margin-left: 0; }
+}

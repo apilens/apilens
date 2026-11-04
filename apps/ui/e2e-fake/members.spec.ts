@@ -77,11 +77,14 @@ test.describe("as an admin", () => {
     const dialog = page.getByRole("dialog", { name: "Invite people to Acme" });
     const emails = dialog.getByLabel("Email addresses");
     await emails.fill("new@example.com, not-an-address");
+    await emails.press("Enter");
+    await expect(dialog.getByRole("listitem")).toHaveText([/new@example.com/, /not-an-address\s*not an email/]);
     await dialog.getByRole("button", { name: "Send invitation" }).click();
-    await expect(dialog.getByRole("alert")).toHaveText("“not-an-address” isn’t an email address.");
+    await expect(dialog.getByRole("alert")).toHaveText("“not-an-address” isn’t an email address. Remove it or fix it.");
 
-    await emails.fill("new@example.com\nmax@example.com");
-    await dialog.getByLabel("Role").selectOption("viewer");
+    await dialog.getByRole("button", { name: "Remove not-an-address" }).click();
+    await dialog.getByLabel("Default role").selectOption("viewer");
+    await emails.fill("max@example.com");
     await dialog.getByRole("button", { name: "Send 2 invitations" }).click();
     await expect(dialog).toBeHidden();
     await expect(status(page)).toHaveText("Sent 1 invitation. max@example.com is already a member.");
@@ -126,10 +129,10 @@ test("as the only owner, transfers ownership and becomes an admin", async ({ pag
   await expect(page.getByRole("button", { name: "Transfer ownership" })).toBeDisabled();
 });
 
-test("the section tabs link General and Members", async ({ page }) => {
+test("the section tabs link General, Members and Invitations", async ({ page }) => {
   await signIn(page, "member");
   const tabs = page.getByRole("navigation", { name: "Organization settings" });
-  await expect(tabs.getByRole("link")).toHaveText(["General", "Members"]);
+  await expect(tabs.getByRole("link")).toHaveText(["General", "Members", "Invitations"]);
   await expect(tabs.getByRole("link", { name: "General" })).toHaveAttribute("href", "/orgs/acme/settings");
   await expect(tabs.getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
 });
@@ -153,6 +156,8 @@ test("screenshots", async ({ page }) => {
   await signIn(page, "admin");
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole("button", { name: "Invite people" }).click();
-  await page.getByLabel("Email addresses").fill("new@example.com, grace@example.com");
+  await page.getByLabel("Email addresses").fill("new@example.com, grace@example.com, oops");
+  await page.getByLabel("Email addresses").press("Enter");
+  await page.getByLabel("Role for grace@example.com").selectOption("admin");
   await page.screenshot({ path: `${dir}/members-invite-dialog.png` });
 });

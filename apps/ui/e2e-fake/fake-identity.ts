@@ -1,7 +1,8 @@
 // A fake identity server plus a fake OAuth provider and a fake OIDC identity provider for the
 // social sign-in (#317), two-factor step (#320), organization SSO (#323), account settings (#339),
 // profile (#340), sessions (#343), connected accounts (#344), Security → Passkeys (#341),
-// two-factor settings (#342), organization members (#345) and project API keys (#350) browser tests.
+// two-factor settings (#342), organization members (#345), invitations (#346) and project API keys (#350)
+// browser tests.
 // It mirrors the real contract (internal/identity/oauth.go, oauth_callback.go, handoff_redeem.go):
 //
 //   GET  /api/v1/auth/providers                    google and github enabled
@@ -47,7 +48,10 @@
 //   GET  /api/v1/orgs/acme/members                 the signed-in user plus seeded @example.com members
 //   PATCH/DELETE /api/v1/orgs/acme/members/{id}    role change / removal with the API's owner rules
 //   POST /api/v1/orgs/acme/transfer-ownership      owners only; the caller becomes an admin
-//   POST /api/v1/orgs/acme/invitations             records nothing, answers one result per address
+//   GET  /api/v1/orgs/acme/invitations             pending invitations (three seeded per user), newest first
+//   POST /api/v1/orgs/acme/invitations             records each new address, answers one result per address
+//   POST /api/v1/orgs/acme/invitations/{id}/resend 5-minute cooldown (429 rate_limited + retry_after)
+//   DELETE /api/v1/orgs/acme/invitations/{id}      revoke; 410 invite_expired when already gone
 //   GET|POST /api/v1/projects/shop/api-keys        list (newest first), create (raw key once);
 //   DELETE /api/v1/projects/shop/api-keys/{id}     revoke (204, or 410 api_key_gone). Creating and
 //                                                  revoking answer 403 without the capability
@@ -315,6 +319,40 @@ function seedMembers(id: string, role: Role) {
   membersByUser.set(id, all.sort((a, b) => a.joined_at.localeCompare(b.joined_at)));
 }
 
+interface FakeInvitation {
+  id: string;
+  email: string;
+  role: Exclude<Role, "owner">;
+  created_at: string;
+  expires_at: string;
+  resent_at: string | null;
+  invited_by?: { id: string; email: string; name: string };
+}
+
+/** Each fake user's own pending invitations to acme. */
+const invitationsByUser = new Map<string, FakeInvitation[]>();
+const INVITE_TTL_MS = 7 * 24 * 3600_000;
+const RESEND_COOLDOWN_MS = 5 * 60_000;
+
+/** Three pending invitations: one just sent (in its cooldown), one from days ago, one expired. */
+function seedInvitations(id: string) {
+  const me = { id, email: "you@example.com", name: "Fake User" };
+  const inv = (email: string, role: FakeInvitation["role"], minutes: number, by?: FakeInvitation["invited_by"]): FakeInvitation => ({
+    id: randomUUID(),
+    email,
+    role,
+    created_at: ago(minutes),
+    expires_at: new Date(Date.now() - minutes * 60_000 + INVITE_TTL_MS).toISOString(),
+    resent_at: null,
+    invited_by: by,
+  });
+  invitationsByUser.set(id, [
+    inv("new.hire@example.com", "member", 1, me),
+    inv("grace@example.com", "admin", 2 * 24 * 60, { id: randomUUID(), email: "ada@example.com", name: "Ada Admin" }),
+    inv("late@example.com", "viewer", 8 * 24 * 60),
+  ]);
+}
+
 /** The user's current role in acme (it changes on a transfer). */
 const roleOf = (id: string): Role => membersByUser.get(id)?.find((m) => m.user.id === id)?.role ?? "owner";
 
@@ -373,6 +411,7 @@ function bundle(next: string, seeds: Seeds = {}, role: Role = "owner") {
   const access = `at_${token()}`;
   seedSessions(id, access);
   seedMembers(id, role);
+  seedInvitations(id);
   passkeys.set(id, (seeds.passkeys ?? []).map(seedPasskey));
   if (seeds.capabilities) capabilities.set(id, seeds.capabilities);
   apiKeys.set(id, (seeds.apiKeys ?? []).map(seedApiKey));
@@ -682,8 +721,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (typeof body.sole_owner === "boolean") profile.soleOwner = body.sole_owner;
     return send(res, 200, { ok: true });
   }
-  const orgPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/(members|transfer-ownership|invitations)(?:\/([^/]+))?$/);
-  if (orgPath) return orgs(req, res, orgPath[1], orgPath[2], orgPath[3]);
+  const orgPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/(members|transfer-ownership|invitations)(?:\/([^/]+)(\/resend)?)?$/);
+  if (orgPath) return orgs(req, res, orgPath[1], orgPath[2], orgPath[3], orgPath[4] !== undefined);
   const keysPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/api-keys(?:\/([^/]+))?$/);
   if (keysPath) {
     const user = signedInUser(req);
@@ -939,7 +978,7 @@ async function twoFactor(req: IncomingMessage, res: ServerResponse, route: strin
 }
 
 /** The acme organization's member endpoints, with the API's rules (internal/controlplane/orgs/members.go). */
-async function orgs(req: IncomingMessage, res: ServerResponse, slug: string, what: string, sub: string | undefined) {
+async function orgs(req: IncomingMessage, res: ServerResponse, slug: string, what: string, sub: string | undefined, resend = false) {
   const user = userByAccess.get(req.headers.authorization?.replace(/^Bearer /, "") ?? "");
   const members = user ? membersByUser.get(user) : undefined;
   if (!user || !members) return problem(res, 401, "unauthenticated");
@@ -975,18 +1014,58 @@ async function orgs(req: IncomingMessage, res: ServerResponse, slug: string, wha
     if (self) self.role = "admin";
     return send(res, 204);
   }
+  const invitations = invitationsByUser.get(user) ?? [];
+  if (what === "invitations" && sub === undefined && req.method === "GET") {
+    if (!manage) return problem(res, 403, "forbidden");
+    return send(res, 200, [...invitations].sort((a, b) => b.created_at.localeCompare(a.created_at)));
+  }
   if (what === "invitations" && sub === undefined && req.method === "POST") {
     const { invites } = await readBody(req);
     if (!manage) return problem(res, 403, "forbidden");
     if (!Array.isArray(invites) || invites.length === 0 || invites.length > 50) return problem(res, 400, "invalid_request");
+    const self = members.find((m) => m.user.id === user);
     const seen = new Set<string>();
-    const results = invites.map((i: { email?: unknown }) => {
+    const results = invites.map((i: { email?: unknown; role?: unknown }) => {
       const email = String(i.email ?? "").toLowerCase();
-      const status = seen.has(email) ? "duplicate" : members.some((m) => m.user.email === email) ? "already_member" : "invited";
+      const role = String(i.role ?? "member") as FakeInvitation["role"];
+      if (seen.has(email)) return { email, status: "duplicate" };
       seen.add(email);
-      return { email, status };
+      if (members.some((m) => m.user.email === email)) return { email, status: "already_member" };
+      const list = invitationsByUser.get(user) ?? [];
+      const replaced = list.some((v) => v.email === email);
+      const now = Date.now();
+      const invitation: FakeInvitation = {
+        id: randomUUID(),
+        email,
+        role,
+        created_at: new Date(now).toISOString(),
+        expires_at: new Date(now + INVITE_TTL_MS).toISOString(),
+        resent_at: null,
+        invited_by: self ? { id: self.user.id, email: self.user.email, name: self.user.name } : undefined,
+      };
+      invitationsByUser.set(user, [...list.filter((v) => v.email !== email), invitation]);
+      return { email, status: replaced ? "replaced" : "invited", invitation };
     });
     return send(res, 200, { results });
+  }
+  if (what === "invitations" && sub !== undefined && ((resend && req.method === "POST") || (!resend && req.method === "DELETE"))) {
+    if (!manage) return problem(res, 403, "forbidden");
+    const inv = invitations.find((v) => v.id === sub);
+    if (!inv) return problem(res, 410, "invite_expired");
+    if (!resend) {
+      invitationsByUser.set(user, invitations.filter((v) => v !== inv));
+      return send(res, 204);
+    }
+    const wait = Date.parse(inv.resent_at ?? inv.created_at) + RESEND_COOLDOWN_MS - Date.now();
+    if (wait > 0) {
+      const retry = Math.max(1, Math.ceil(wait / 1000));
+      res.writeHead(429, { "content-type": "application/problem+json", "retry-after": String(retry), "cache-control": "no-store" });
+      return res.end(JSON.stringify({ status: 429, title: "rate_limited", code: "rate_limited", retry_after: retry }));
+    }
+    const now = Date.now();
+    inv.resent_at = new Date(now).toISOString();
+    inv.expires_at = new Date(now + INVITE_TTL_MS).toISOString();
+    return send(res, 200, inv);
   }
   return problem(res, 404, "not_found");
 }
