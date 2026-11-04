@@ -316,6 +316,34 @@
         ],
         "type": "object"
       },
+      "EmailVerifyLinkBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/EmailVerifyLinkBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "remember": {
+            "description": "Keep the session for identity.refresh_token_ttl (30 days) instead of identity.refresh_token_ttl_short (24 hours).",
+            "type": "boolean"
+          },
+          "token": {
+            "description": "The token from the magic link (its token query parameter).",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
       "Endpoint": {
         "additionalProperties": false,
         "properties": {
@@ -1706,6 +1734,75 @@
         ]
       }
     },
+    "/api/v1/auth/email/link": {
+      "get": {
+        "description": "Public browser navigation, for clients that open a magic link on identity rather than on the UI. Redirects (302) to `{public_ui_url}/verify?token=…` (with `email` when given) without checking or consuming the token; the UI then exchanges it at `POST /api/v1/auth/email/verify-link`.",
+        "operationId": "open-email-link",
+        "parameters": [
+          {
+            "description": "The token from the magic link.",
+            "explode": false,
+            "in": "query",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "description": "The token from the magic link.",
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The address the link was emailed to, passed on to the UI.",
+            "explode": false,
+            "in": "query",
+            "name": "email",
+            "schema": {
+              "description": "The address the link was emailed to, passed on to the UI.",
+              "maxLength": 254,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "description": "{public_ui_url}/verify with the token (and email) query parameters.",
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Open an emailed magic link",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/api/v1/auth/email/start": {
       "post": {
         "description": "Public. Emails a 6-digit code and a magic link (15 minutes, single use) to the address. Always answers 200 `{sent: true, retry_after}` whether or not the address has an account; for `intent=signin` with no account the email offers sign-up instead. Within 30 seconds of the previous email for the same address and intent no new email is sent and `retry_after` is the remaining wait. Rate-limited per client IP and per email address (429 `rate_limited` with Retry-After).",
@@ -1864,6 +1961,77 @@
           }
         },
         "summary": "Sign in with an emailed code",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/email/verify-link": {
+      "post": {
+        "description": "Public; called by the UI's server side with the token of a magic link it was opened with. Checks the token and consumes the email, so the link (and its code) work once. The user is found or, on first sign-in, created, and the address is marked verified. Answers the session bundle (`amr: [\"email\"]`; `remember` picks the session lifetime) or, when the user has two-factor authentication enabled, `{status: \"2fa_required\", pre_auth_token}`. Either answer carries the `next` path the email was requested with. An unknown, used or superseded link answers `invalid_token`; an expired one `code_expired`.",
+        "operationId": "verify-email-link",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailVerifyLinkBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `code_expired`.",
+            "x-apilens-codes": [
+              "code_expired"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `invalid_token`.",
+            "x-apilens-codes": [
+              "invalid_token"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "summary": "Sign in with an emailed magic link",
         "tags": [
           "Auth"
         ]

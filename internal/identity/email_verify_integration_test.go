@@ -3,12 +3,16 @@
 package identity
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -44,7 +48,9 @@ func TestEmailVerifyIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(vk.Close)
-	logger := testutil.Logger(t)
+	// Every log line is kept so the link-token test can grep it.
+	logs := &syncBuffer{}
+	logger := slog.New(slog.NewTextHandler(io.MultiWriter(logs, testLogWriter{t}), &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	priv, err := rsa.GenerateKey(rand.Reader, signingkeys.MinRSABits)
 	if err != nil {
@@ -80,7 +86,7 @@ func TestEmailVerifyIntegration(t *testing.T) {
 	}
 	codes := emailauth.New(emailauth.NewStore(pool), emailauth.Options{Now: clock})
 
-	cfg := config.IdentityConfig{PreAuthTTL: 5 * time.Minute}
+	cfg := config.IdentityConfig{PreAuthTTL: 5 * time.Minute, PublicUIURL: "http://localhost:3000"}
 	cfg.RateLimits.CodeVerifyPerEmail = config.RateLimit{Limit: 100, Window: time.Minute}
 	_, api := humatest.New(t)
 	NewEmailVerify(cfg, EmailVerifyDeps{
@@ -91,7 +97,7 @@ func TestEmailVerifyIntegration(t *testing.T) {
 		Audit:    audit.New(pool),
 	}, limiter, logger).Register(api)
 
-	issue := func(addr string, intent emailauth.Intent, next string) string {
+	issueFull := func(addr string, intent emailauth.Intent, next string) emailauth.Issued {
 		t.Helper()
 		opts := emailauth.IssueOptions{}
 		if next != "" {
@@ -101,7 +107,25 @@ func TestEmailVerifyIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return iss.Code
+		return iss
+	}
+	issue := func(addr string, intent emailauth.Intent, next string) string {
+		t.Helper()
+		return issueFull(addr, intent, next).Code
+	}
+	verifyLink := func(tok string, remember bool) (int, SignInResponse, Problem) {
+		t.Helper()
+		r := api.Post(AuthPrefix+"/email/verify-link", map[string]any{"token": tok, "remember": remember})
+		var ok SignInResponse
+		var p Problem
+		if r.Code == http.StatusOK {
+			if err := json.Unmarshal(r.Body.Bytes(), &ok); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := json.Unmarshal(r.Body.Bytes(), &p); err != nil {
+			t.Fatal(err)
+		}
+		return r.Code, ok, p
 	}
 	verify := func(addr, code string, remember bool) (int, SignInResponse, Problem) {
 		t.Helper()
@@ -281,4 +305,108 @@ func TestEmailVerifyIntegration(t *testing.T) {
 			t.Fatalf("sessions = %d (%v), want none before the second factor", n, err)
 		}
 	})
+
+	t.Run("magic link", func(t *testing.T) {
+		iss := issueFull("link@example.com", emailauth.IntentSignUp, "/from-link")
+
+		// The GET helper only redirects; the token still works afterwards.
+		r := api.Get(AuthPrefix + "/email/link?token=" + iss.LinkToken)
+		if r.Code != http.StatusFound || r.Header().Get("Location") != "http://localhost:3000/verify?token="+iss.LinkToken {
+			t.Fatalf("GET link: %d Location %q", r.Code, r.Header().Get("Location"))
+		}
+
+		status, body, p := verifyLink(iss.LinkToken, true)
+		if status != http.StatusOK {
+			t.Fatalf("status = %d %+v", status, p)
+		}
+		if body.AccessToken == "" || body.RefreshToken == "" || body.Next != "/from-link" {
+			t.Fatalf("body = %+v", body)
+		}
+		user, err := q.GetUserByEmail(ctx, "link@example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if user.EmailVerifiedAt == nil || body.User == nil || body.User.ID != user.ID.String() {
+			t.Fatalf("user = %+v, body user = %+v", user, body.User)
+		}
+		if events(user.ID, audit.UserCreated) != 1 || events(user.ID, audit.LoginSucceeded) != 1 {
+			t.Fatal("want user.created and login.succeeded audited once")
+		}
+		claims, sess := sessionOf(t, body)
+		if !slices.Equal(claims.AMR, []string{"email"}) || !sess.Remember {
+			t.Fatalf("amr = %v remember = %v", claims.AMR, sess.Remember)
+		}
+
+		// Reused link: invalid_token. The code of the same email is spent too.
+		if status, _, p := verifyLink(iss.LinkToken, true); status != http.StatusUnauthorized || p.Code != CodeInvalidToken {
+			t.Fatalf("reuse: %d %+v", status, p)
+		}
+		if status, _, p := verify("link@example.com", iss.Code, true); status != http.StatusBadRequest || p.Code != CodeInvalidCode {
+			t.Fatalf("code after link: %d %+v", status, p)
+		}
+
+		// A link superseded by a newer email: invalid_token.
+		old := issueFull("link@example.com", emailauth.IntentSignIn, "")
+		_ = issueFull("link@example.com", emailauth.IntentSignIn, "")
+		if status, _, p := verifyLink(old.LinkToken, false); status != http.StatusUnauthorized || p.Code != CodeInvalidToken {
+			t.Fatalf("superseded: %d %+v", status, p)
+		}
+
+		// A link sent to change an address does not sign in.
+		chg := issueFull("change@example.com", emailauth.IntentChangeEmail, "")
+		if status, _, p := verifyLink(chg.LinkToken, false); status != http.StatusUnauthorized || p.Code != CodeInvalidToken {
+			t.Fatalf("change_email link: %d %+v", status, p)
+		}
+
+		for _, tok := range []string{iss.LinkToken, old.LinkToken, chg.LinkToken} {
+			if strings.Contains(logs.String(), tok) {
+				t.Fatalf("link token logged: %s", logs.String())
+			}
+		}
+	})
+
+	t.Run("magic link expired", func(t *testing.T) {
+		iss := issueFull("late-link@example.com", emailauth.IntentSignIn, "")
+		mu.Lock()
+		skew = emailauth.TTL + time.Second
+		mu.Unlock()
+		t.Cleanup(func() { mu.Lock(); skew = 0; mu.Unlock() })
+		if status, _, p := verifyLink(iss.LinkToken, false); status != http.StatusBadRequest || p.Code != CodeCodeExpired {
+			t.Fatalf("expired link: %d %+v", status, p)
+		}
+		if _, err := q.GetUserByEmail(ctx, "late-link@example.com"); err == nil {
+			t.Fatal("user created from an expired link")
+		}
+		if strings.Contains(logs.String(), iss.LinkToken) {
+			t.Fatalf("link token logged: %s", logs.String())
+		}
+	})
+}
+
+// syncBuffer is a bytes.Buffer safe for concurrent log writes.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// testLogWriter echoes log lines to the test log under -v.
+type testLogWriter struct{ t *testing.T }
+
+func (w testLogWriter) Write(p []byte) (int, error) {
+	if testing.Verbose() {
+		w.t.Log(strings.TrimRight(string(p), "\n"))
+	}
+	return len(p), nil
 }

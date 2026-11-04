@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -23,9 +24,11 @@ import (
 // OpenAPI dump); config validation requires it in a running server.
 const defaultPreAuthTTL = 5 * time.Minute
 
-// EmailCodes verifies emailed sign-in codes; *emailauth.Service satisfies it.
+// EmailCodes verifies emailed sign-in codes and magic links;
+// *emailauth.Service satisfies it.
 type EmailCodes interface {
 	VerifyCode(ctx context.Context, email, code string) (db.AuthEmailToken, error)
+	VerifyLink(ctx context.Context, token string) (db.AuthEmailToken, error)
 }
 
 // SessionCreator starts sessions; *session.Service satisfies it.
@@ -59,9 +62,11 @@ type SignInOutput struct {
 	Body SignInResponse
 }
 
-// EmailVerify serves POST /api/v1/auth/email/verify.
+// EmailVerify serves POST /api/v1/auth/email/verify, POST
+// /api/v1/auth/email/verify-link and GET /api/v1/auth/email/link.
 type EmailVerify struct {
 	deps       EmailVerifyDeps
+	uiURL      string
 	limiter    *ratelimit.Limiter
 	perEmail   ratelimit.Rate
 	preAuthTTL time.Duration
@@ -78,6 +83,7 @@ func NewEmailVerify(cfg config.IdentityConfig, deps EmailVerifyDeps, limiter *ra
 	}
 	return &EmailVerify{
 		deps:       deps,
+		uiURL:      strings.TrimRight(cfg.PublicUIURL, "/"),
 		limiter:    limiter,
 		perEmail:   ratelimit.Rate(cfg.RateLimits.CodeVerifyPerEmail),
 		preAuthTTL: ttl,
@@ -86,7 +92,8 @@ func NewEmailVerify(cfg config.IdentityConfig, deps EmailVerifyDeps, limiter *ra
 	}
 }
 
-// Register mounts POST /api/v1/auth/email/verify.
+// Register mounts POST /api/v1/auth/email/verify, POST
+// /api/v1/auth/email/verify-link and GET /api/v1/auth/email/link.
 func (e *EmailVerify) Register(api huma.API) {
 	huma.Register(api, Operation(api, huma.Operation{
 		OperationID: "verify-email-code",
@@ -103,6 +110,7 @@ func (e *EmailVerify) Register(api huma.API) {
 			"Rate-limited per email address (429 `rate_limited` with Retry-After).",
 		Tags: []string{server.TagAuth},
 	}, CodeInvalidRequest, CodeInvalidCode, CodeCodeExpired, CodeTooManyAttempts, CodeRateLimited, CodeInternal), e.verify)
+	e.registerLink(api)
 }
 
 func (e *EmailVerify) verify(ctx context.Context, in *EmailVerifyInput) (*SignInOutput, error) {
@@ -135,9 +143,23 @@ func (e *EmailVerify) verify(ctx context.Context, in *EmailVerifyInput) (*SignIn
 	}
 	// Only sign-in and sign-up emails sign in; a code sent to verify or
 	// change an address does not.
-	if intent := emailauth.Intent(row.Intent); intent != emailauth.IntentSignIn && intent != emailauth.IntentSignUp {
+	if !signInIntent(row) {
 		return nil, e.fail(ctx, addr, CodeInvalidCode)
 	}
+	return e.signIn(ctx, addr, row, in.Body.Remember, "email verify")
+}
+
+// signInIntent reports whether the email row may sign in: only sign-in and
+// sign-up emails do, not one sent to verify or change an address.
+func signInIntent(row db.AuthEmailToken) bool {
+	intent := emailauth.Intent(row.Intent)
+	return intent == emailauth.IntentSignIn || intent == emailauth.IntentSignUp
+}
+
+// signIn finishes a sign-in from the consumed email row sent to addr: it
+// finds or creates the user of addr and answers the session bundle or
+// 2fa_required. op prefixes log messages.
+func (e *EmailVerify) signIn(ctx context.Context, addr string, row db.AuthEmailToken, remember bool, op string) (*SignInOutput, error) {
 	var next string
 	if row.NextPath != nil {
 		next = *row.NextPath
@@ -145,42 +167,42 @@ func (e *EmailVerify) verify(ctx context.Context, in *EmailVerifyInput) (*SignIn
 
 	user, _, err := e.deps.Users.FindOrCreateVerified(ctx, addr)
 	if err != nil {
-		e.logger.ErrorContext(ctx, "email verify: find or create user", "error", err)
+		e.logger.ErrorContext(ctx, op+": find or create user", "error", err)
 		return nil, Err(CodeInternal)
 	}
 	amr := []string{token.AMREmail}
 
 	twoFactor, err := e.deps.Users.TOTPConfirmed(ctx, user.ID)
 	if err != nil {
-		e.logger.ErrorContext(ctx, "email verify: load two-factor state", "error", err, "user_id", user.ID)
+		e.logger.ErrorContext(ctx, op+": load two-factor state", "error", err, "user_id", user.ID)
 		return nil, Err(CodeInternal)
 	}
 	if twoFactor {
-		pre, err := e.deps.PreAuth.Issue(ctx, PreAuth{UserID: user.ID, AMR: amr, Remember: in.Body.Remember, Next: next}, e.preAuthTTL)
+		pre, err := e.deps.PreAuth.Issue(ctx, PreAuth{UserID: user.ID, AMR: amr, Remember: remember, Next: next}, e.preAuthTTL)
 		if err != nil {
-			e.logger.ErrorContext(ctx, "email verify: issue pre-auth token", "error", err, "user_id", user.ID)
+			e.logger.ErrorContext(ctx, op+": issue pre-auth token", "error", err, "user_id", user.ID)
 			return nil, Err(CodeInternal)
 		}
 		return &SignInOutput{Body: NewSignInTwoFactor(pre, next)}, nil
 	}
 
-	t, err := e.deps.Sessions.Create(ctx, user, in.Body.Remember, session.Meta{AMR: amr})
+	t, err := e.deps.Sessions.Create(ctx, user, remember, session.Meta{AMR: amr})
 	if err != nil {
-		e.logger.ErrorContext(ctx, "email verify: create session", "error", err, "user_id", user.ID)
+		e.logger.ErrorContext(ctx, op+": create session", "error", err, "user_id", user.ID)
 		return nil, Err(CodeInternal)
 	}
 	// The session exists: bookkeeping failures below are logged, not
 	// returned.
 	if err := e.deps.Users.TouchLastLogin(ctx, user.ID); err != nil {
-		e.logger.ErrorContext(ctx, "email verify: touch last login", "error", err, "user_id", user.ID)
+		e.logger.ErrorContext(ctx, op+": touch last login", "error", err, "user_id", user.ID)
 	}
 	if err := e.deps.Audit.Record(ctx, audit.Event{
 		User:  &user.ID,
 		Actor: &user.ID,
 		Kind:  audit.LoginSucceeded,
-		Meta:  map[string]any{"method": "email", "session_id": t.Session.ID.String(), "remember": in.Body.Remember},
+		Meta:  map[string]any{"method": "email", "session_id": t.Session.ID.String(), "remember": remember},
 	}); err != nil {
-		e.logger.ErrorContext(ctx, "email verify: audit", "error", err, "user_id", user.ID)
+		e.logger.ErrorContext(ctx, op+": audit", "error", err, "user_id", user.ID)
 	}
 	return &SignInOutput{Body: NewSignInSession(t, next, e.now())}, nil
 }
