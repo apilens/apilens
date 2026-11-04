@@ -324,15 +324,12 @@ func (a *App) initEdge(context.Context) (modules.Service, error) {
 func (a *App) initQuery(context.Context) (modules.Service, error) {
 	api := a.server.API()
 	a.useSessionAuth()
-	// Session callers name the project with ?project= and need project.view.
-	checker := a.authz
-	if checker == nil {
-		// authz disabled: session reads fail closed; read keys still work.
-		checker = authz.New(nil, nil, authz.Options{}, a.logger, nil)
-	}
-	guard := authz.NewGuard(checker, authz.NewPGResolver(a.pool), authz.GuardOptions{}, a.logger)
+	// Session callers name the project with ?project= (or in the path) and
+	// need project.view. With authz disabled session reads fail closed; read
+	// keys still work on the ?project= operations.
+	guard := a.guard()
 	api.UseMiddleware(query.AuthMiddleware(api, a.verifier, guard))
-	query.Register(api, query.NewService(a.chConn, a.queries))
+	query.Register(api, query.NewService(a.chConn, a.queries), guard)
 	return nil, nil
 }
 
@@ -347,18 +344,13 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	orgService := orgs.New(a.pool, audit.New(a.pool))
-	checker := a.authz
-	if checker == nil {
-		// authz disabled: every check denies with authz_unavailable.
-		checker = authz.New(nil, nil, authz.Options{}, a.logger, nil)
-	}
 	controlplaneapi.Register(a.server.API(), controlplaneapi.Deps{
 		Orgs:     orgService,
 		Members:  orgService,
 		Projects: projects.New(a.pool),
 		APIKeys:  apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger),
-		Context:  usercontext.New(a.pool, checker),
-		Guard:    authz.NewGuard(checker, authz.NewPGResolver(a.pool), authz.GuardOptions{}, a.logger),
+		Context:  usercontext.New(a.pool, a.checker()),
+		Guard:    a.guard(),
 		Limiter:  limiter,
 		Limits:   a.cfg.Identity.RateLimits,
 		Logger:   a.logger,
@@ -382,6 +374,21 @@ func (a *App) invalidateAPIKey(ctx context.Context, hash string) error {
 		return nil
 	}
 	return cache.Publish(ctx, a.valkey, apikeys.InvalidateChannel, hash)
+}
+
+// checker returns the authz client permission checks go through. With authz
+// disabled it is a client whose every check denies with authz_unavailable.
+func (a *App) checker() *authz.Client {
+	if a.authz == nil {
+		return authz.New(nil, nil, authz.Options{}, a.logger, nil)
+	}
+	return a.authz
+}
+
+// guard returns the authz.Guard operations use to authorize requests on an
+// organization or project named in their path.
+func (a *App) guard() *authz.Guard {
+	return authz.NewGuard(a.checker(), authz.NewPGResolver(a.pool), authz.GuardOptions{}, a.logger)
 }
 
 func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
@@ -466,6 +473,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	// nothing blocks a deletion.
 	accounts := account.New(a.pool, account.NoMemberships{})
 	identity.NewAccount(accounts, a.logger).Register(a.server.API())
+	identity.NewOnboarding(accounts, a.logger).Register(a.server.API())
 	kek, err := a.cfg.Identity.KEK()
 	if err != nil {
 		return nil, err

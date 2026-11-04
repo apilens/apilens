@@ -114,6 +114,10 @@ func AddSecurityScheme(api huma.API) {
 // closed). Otherwise the bearer must be a read key, whose project is used;
 // a ?project= sent with a read key must name that same project. The key is
 // stored as an authn.Principal too.
+//
+// Operations naming the project in their path ({project}) authorize it
+// themselves with authz.Guard: a session is passed on untouched, and a read
+// key is scoped to its own project for the guard to compare.
 func AuthMiddleware(api huma.API, v Verifier, projects ProjectAuthorizer) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
 		if !authn.Declares(ctx.Operation(), SchemeReadKey) {
@@ -122,6 +126,12 @@ func AuthMiddleware(api huma.API, v Verifier, projects ProjectAuthorizer) func(h
 		}
 		slug := ctx.Query(ParamProject)
 		if p, ok := authn.FromContext(ctx.Context()); ok {
+			if ctx.Param(authz.ParamProject) != "" {
+				// The project is in the path: the operation's own
+				// authz.Guard middleware authorizes the session.
+				next(ctx)
+				return
+			}
 			if slug == "" {
 				_ = huma.WriteErr(api, ctx, http.StatusUnprocessableEntity, "the project query parameter is required with a session (?project=<slug>)")
 				return
