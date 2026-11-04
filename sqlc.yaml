@@ -22,3 +22,33 @@ sql:
             go_type:
               type: time.Time
               pointer: true
+  - engine: postgresql
+    # Identity keeps its own query set so only identity reads credential
+    # tables (ADR 0005).
+    schema: internal/migrations/postgres
+    queries: internal/identity/store/queries
+    gen:
+      go:
+        package: db
+        out: internal/identity/store/db
+        sql_package: pgx/v5
+        emit_interface: true
+        emit_pointers_for_null_types: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type:
+              import: github.com/google/uuid
+              type: UUID
+              pointer: true
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
