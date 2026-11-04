@@ -54,6 +54,12 @@ compromised host or privileged access you were already given, reports from
 automated scanners without a demonstrated impact, and issues in third-party
 dependencies that are already publicly known (please report those upstream).
 
+## Threat models
+
+- [Identity threat model and security checklist](docs/security/identity-threat-model.md):
+  sign-in flows, sessions, tokens, invitations, SSO and authorization. Changes
+  to identity code are reviewed against its checklist.
+
 ## Verifying releases
 
 Container images are signed with Sigstore cosign (keyless) and carry SLSA
