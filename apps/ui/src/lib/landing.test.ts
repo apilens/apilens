@@ -89,6 +89,10 @@ describe("landingFor", () => {
 });
 
 describe("onboardingPath", () => {
+  it.each(["about", "join", "create", "project"])("%s has a page", (step) => {
+    expect(onboardingPath(step)).toBe(`/onboarding/${step}`);
+  });
+
   it.each([null, undefined, "", "../evil", "instrument"])("%j falls back to the first step", (step) => {
     expect(onboardingPath(step)).toBe("/onboarding/about");
   });

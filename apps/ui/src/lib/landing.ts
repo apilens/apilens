@@ -6,7 +6,7 @@ import type { UserContext } from "./identity";
 import { findProject, orgHome } from "./scope";
 
 /** Onboarding steps that have a page at `/onboarding/<step>`. */
-const ONBOARDING_STEPS = new Set(["about", "join", "create"]);
+const ONBOARDING_STEPS = new Set(["about", "join", "create", "project"]);
 
 /** The onboarding page to resume on: the stored step when it has a page, else the first one. */
 export function onboardingPath(step: string | null | undefined): string {

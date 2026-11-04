@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SLUG_CHECK_DELAY_MS, checkableSlug, cleanSuggestions, createSlugChecker, parseAvailability, slugify } from "./org-slug";
+import { PROJECT_SLUG_CHECK_PATH, SLUG_CHECK_DELAY_MS, checkableSlug, cleanSuggestions, createSlugChecker, parseAvailability, slugify } from "./org-slug";
 
 describe("slugify", () => {
   it.each([
@@ -93,6 +93,14 @@ describe("createSlugChecker", () => {
     c.check("acme");
     await vi.advanceTimersByTimeAsync(SLUG_CHECK_DELAY_MS);
     expect(onResult).toHaveBeenCalledWith("acme", { kind: "unknown" });
+  });
+
+  it("asks the Route Handler it is given", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => json({ ok: true, available: true, suggestions: [] }));
+    const c = createSlugChecker({ fetch: fetcher, onResult: vi.fn(), path: PROJECT_SLUG_CHECK_PATH });
+    c.check("checkout");
+    await vi.advanceTimersByTimeAsync(SLUG_CHECK_DELAY_MS);
+    expect(fetcher.mock.calls[0][0]).toBe("/api/projects/slug-available?slug=checkout");
   });
 
   it("cancel stops a pending check", async () => {
