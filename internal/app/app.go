@@ -110,6 +110,9 @@ type App struct {
 	signingKeys *keys.Manager
 	// sessionAuth installs authn.Middleware once, for api, query and identity.
 	sessionAuth sync.Once
+	// denylist refuses access tokens of revoked sessions; set by
+	// useSessionAuth and written by identity on revocation.
+	denylist *authn.Denylist
 }
 
 // New registers all modules.
@@ -226,7 +229,7 @@ func (a *App) initClickHouse(ctx context.Context) (modules.Service, error) {
 
 func (a *App) initValkey(ctx context.Context) (modules.Service, error) {
 	if !a.cfg.Valkey.Enabled() {
-		a.logger.Warn("valkey disabled: api key revocations propagate via cache TTL only")
+		a.logger.Warn("valkey disabled: api key revocations propagate via cache TTL only, and revoked sessions' access tokens stay valid until they expire")
 		return nil, nil
 	}
 	client, err := cache.Connect(ctx, a.cfg.Valkey)
@@ -353,6 +356,8 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		RefreshTTL:      a.cfg.Identity.RefreshTokenTTL,
 		RefreshTTLShort: a.cfg.Identity.RefreshTokenTTLShort,
 		Jobs:            a.jobs,
+		AccessTTL:       a.cfg.Identity.AccessTokenTTL,
+		Denylist:        a.denylist,
 	}, a.logger)
 	if err != nil {
 		return nil, err
@@ -422,8 +427,12 @@ func (a *App) useSessionAuth() {
 		} else {
 			src = authn.NewJWKS(strings.TrimRight(a.cfg.Identity.Issuer, "/")+identity.JWKSPath, authn.JWKSOptions{})
 		}
+		// a.valkey is nil when Valkey is disabled: the denylist then
+		// covers only revocations made in this process.
+		a.denylist = authn.NewDenylist(a.valkey, a.cfg.Identity.AccessTokenTTL, a.logger)
 		api := a.server.API()
-		api.UseMiddleware(authn.Middleware(api, authn.NewSessionVerifier(src, a.cfg.Identity.Issuer, nil)))
+		verifier := authn.NewSessionVerifier(src, a.cfg.Identity.Issuer, nil).WithDenylist(a.denylist)
+		api.UseMiddleware(authn.Middleware(api, verifier))
 	})
 }
 

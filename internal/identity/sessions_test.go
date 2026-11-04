@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"strings"
 	"testing"
@@ -35,6 +36,24 @@ type fakeSessions struct {
 	list       []session.Active
 	listErr    error
 	listArgs   [2]uuid.UUID
+	revokeErr  error
+	revoked    int64
+	calls      []string
+}
+
+func (f *fakeSessions) Revoke(_ context.Context, user, id uuid.UUID) error {
+	f.calls = append(f.calls, "revoke "+user.String()+" "+id.String())
+	return f.revokeErr
+}
+
+func (f *fakeSessions) RevokeOthers(_ context.Context, user, sid uuid.UUID) (int64, error) {
+	f.calls = append(f.calls, "others "+user.String()+" "+sid.String())
+	return f.revoked, f.revokeErr
+}
+
+func (f *fakeSessions) LogoutAll(_ context.Context, user uuid.UUID) (int64, error) {
+	f.calls = append(f.calls, "all "+user.String())
+	return f.revoked, f.revokeErr
 }
 
 func (f *fakeSessions) List(_ context.Context, user, sid uuid.UUID) ([]session.Active, error) {
@@ -223,5 +242,81 @@ func TestListMySessionsEndpointErrors(t *testing.T) {
 	resp := api.Get(MySessionsPath)
 	if resp.Code != http.StatusInternalServerError || !strings.Contains(logs.String(), "db down") {
 		t.Fatalf("status = %d, logs %q", resp.Code, logs)
+	}
+}
+
+func TestRevokeEndpoints(t *testing.T) {
+	user, sid, target := uuid.New(), uuid.New(), uuid.New()
+	caller := &authn.Principal{Kind: authn.KindUser, UserID: user, SessionID: sid, AMR: []string{"email"}}
+
+	svc := &fakeSessions{revoked: 3}
+	api, _ := newTestSessionsAs(t, svc, caller)
+
+	resp := api.Delete(MySessionsPath + "/" + target.String())
+	if resp.Code != http.StatusNoContent || resp.Body.Len() != 0 {
+		t.Fatalf("delete: status = %d body %q", resp.Code, resp.Body)
+	}
+	resp = api.Post(MySessionsPath + "/revoke-others")
+	if resp.Code != http.StatusOK || strings.TrimSpace(resp.Body.String()) != `{"revoked":3}` {
+		t.Fatalf("revoke-others: status = %d body %s", resp.Code, resp.Body)
+	}
+	resp = api.Post(AuthPrefix + "/logout-all")
+	if resp.Code != http.StatusNoContent {
+		t.Fatalf("logout-all: status = %d body %s", resp.Code, resp.Body)
+	}
+	want := []string{
+		"revoke " + user.String() + " " + target.String(),
+		"others " + user.String() + " " + sid.String(),
+		"all " + user.String(),
+	}
+	if fmt.Sprint(svc.calls) != fmt.Sprint(want) {
+		t.Fatalf("calls = %v\nwant %v", svc.calls, want)
+	}
+
+	if resp := api.Delete(MySessionsPath + "/not-a-uuid"); resp.Code != http.StatusUnprocessableEntity || len(svc.calls) != 3 {
+		t.Fatalf("bad id: status = %d", resp.Code)
+	}
+}
+
+func TestRevokeEndpointsErrors(t *testing.T) {
+	requests := map[string]func(humatest.TestAPI) *httptest.ResponseRecorder{
+		"delete": func(api humatest.TestAPI) *httptest.ResponseRecorder {
+			return api.Delete(MySessionsPath + "/" + uuid.NewString())
+		},
+		"revoke-others": func(api humatest.TestAPI) *httptest.ResponseRecorder {
+			return api.Post(MySessionsPath + "/revoke-others")
+		},
+		"logout-all": func(api humatest.TestAPI) *httptest.ResponseRecorder { return api.Post(AuthPrefix + "/logout-all") },
+	}
+	problem := func(t *testing.T, resp *httptest.ResponseRecorder) Problem {
+		t.Helper()
+		var p Problem
+		_ = json.Unmarshal(resp.Body.Bytes(), &p)
+		return p
+	}
+	for name, do := range requests {
+		t.Run(name, func(t *testing.T) {
+			for _, p := range []*authn.Principal{nil, {Kind: authn.KindAPIKey, KeyID: uuid.New()}} {
+				svc := &fakeSessions{}
+				api, _ := newTestSessionsAs(t, svc, p)
+				resp := do(api)
+				if resp.Code != http.StatusUnauthorized || problem(t, resp).Code != CodeUnauthenticated || len(svc.calls) != 0 {
+					t.Fatalf("principal %v: status = %d calls %v", p, resp.Code, svc.calls)
+				}
+			}
+			caller := &authn.Principal{Kind: authn.KindUser, UserID: uuid.New(), SessionID: uuid.New()}
+			api, logs := newTestSessionsAs(t, &fakeSessions{revokeErr: errors.New("db down")}, caller)
+			resp := do(api)
+			if resp.Code != http.StatusInternalServerError || !strings.Contains(logs.String(), "db down") {
+				t.Fatalf("status = %d, logs %q", resp.Code, logs)
+			}
+		})
+	}
+
+	caller := &authn.Principal{Kind: authn.KindUser, UserID: uuid.New(), SessionID: uuid.New()}
+	api, _ := newTestSessionsAs(t, &fakeSessions{revokeErr: session.ErrExpired}, caller)
+	resp := api.Post(MySessionsPath + "/revoke-others")
+	if resp.Code != http.StatusUnauthorized || problem(t, resp).Code != CodeSessionExpired {
+		t.Fatalf("expired current session: status = %d %s", resp.Code, resp.Body)
 	}
 }

@@ -1315,6 +1315,30 @@
         ],
         "type": "object"
       },
+      "RevokeOtherSessionsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RevokeOtherSessionsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "revoked": {
+            "description": "How many sessions were signed out.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revoked"
+        ],
+        "type": "object"
+      },
       "SSOLookupResponse": {
         "additionalProperties": false,
         "properties": {
@@ -2651,6 +2675,52 @@
           }
         },
         "summary": "Sign out",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout-all": {
+      "post": {
+        "description": "Ends every session of the signed-in user, including the current one: refresh tokens stop working at once and access tokens within seconds. Audited as `session.revoked`.",
+        "operationId": "logout-all",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Sign out everywhere",
         "tags": [
           "Auth"
         ]
@@ -4397,6 +4467,132 @@
           }
         ],
         "summary": "List my sessions",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/me/sessions/revoke-others": {
+      "post": {
+        "description": "Ends every session of the signed-in user except the one the request was made with: their refresh tokens stop working at once and their access tokens within seconds. Audited as `session.revoked`.",
+        "operationId": "revoke-other-sessions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeOtherSessionsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Sign out other sessions",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/me/sessions/{id}": {
+      "delete": {
+        "description": "Ends one of the signed-in user's sessions (it may be the current one): its refresh token stops working at once and its access tokens within seconds. Audited as `session.revoked`. Answers 204 also for an unknown or already ended session.",
+        "operationId": "revoke-my-session",
+        "parameters": [
+          {
+            "description": "Session id from the sessions list.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Session id from the sessions list.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Sign out a session",
         "tags": [
           "Users"
         ]

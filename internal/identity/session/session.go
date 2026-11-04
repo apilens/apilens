@@ -12,6 +12,11 @@
 // A sign-in from a device the user has not used lately enqueues a new_signin
 // email (see Create).
 //
+// Ending a session (logout, revocation from the sessions list, "sign out
+// everywhere", reuse) also pushes the session ids whose access tokens may
+// still be unexpired into the access-token denylist (Options.Denylist), so
+// those tokens stop working within seconds instead of at their expiry.
+//
 // Raw refresh tokens never reach a log: Tokens redacts them in its LogValue,
 // and the service logs only session and family ids.
 package session
@@ -52,6 +57,11 @@ const (
 	// ReasonEmailChanged marks a family signed out because its user changed
 	// their email from another session.
 	ReasonEmailChanged = "email_changed"
+	// ReasonRevoked marks a family the user signed out from the sessions
+	// list (one session, or every other one).
+	ReasonRevoked = "revoked"
+	// ReasonLogoutAll marks a family ended by "sign out everywhere".
+	ReasonLogoutAll = "logout_all"
 )
 
 // tokenBytes is the entropy of a refresh token (256 bits).
@@ -87,6 +97,12 @@ type JobEnqueuer interface {
 	Insert(ctx context.Context, args river.JobArgs, opts *river.InsertOpts) (*rivertype.JobInsertResult, error)
 }
 
+// Denier refuses the access tokens of session ids before they expire;
+// *authn.Denylist satisfies it.
+type Denier interface {
+	Deny(ctx context.Context, sids ...uuid.UUID) error
+}
+
 // TxBeginner starts transactions; *pgxpool.Pool satisfies it.
 type TxBeginner interface {
 	db.DBTX
@@ -101,6 +117,13 @@ type Options struct {
 	// RefreshTTLShort is the lifetime without it:
 	// identity.refresh_token_ttl_short.
 	RefreshTTLShort time.Duration
+	// AccessTTL is the access-token lifetime: identity.access_token_ttl.
+	// Revocation denylists the session ids of tokens issued within it.
+	// Required with Denylist.
+	AccessTTL time.Duration
+	// Denylist receives the session ids of ended sessions. Nil means access
+	// tokens stay valid until they expire.
+	Denylist Denier
 	// Now returns the current time. Nil means time.Now.
 	Now func() time.Time
 	// Jobs enqueues the new_signin alert email. Nil sends no alerts.
@@ -121,6 +144,9 @@ type Service struct {
 func New(pool TxBeginner, issuer AccessIssuer, opts Options, logger *slog.Logger) (*Service, error) {
 	if opts.RefreshTTL <= 0 || opts.RefreshTTLShort <= 0 {
 		return nil, errors.New("session: refresh TTLs must be > 0")
+	}
+	if opts.Denylist != nil && opts.AccessTTL <= 0 {
+		return nil, errors.New("session: access TTL must be > 0 with a denylist")
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now
@@ -349,21 +375,147 @@ func (s *Service) Logout(ctx context.Context, raw string) error {
 		}
 		return nil
 	}
-	return s.inTx(ctx, func(ctx context.Context, q *db.Queries) error {
-		n, err := q.RevokeFamily(ctx, db.RevokeFamilyParams{Reason: ReasonLogout, FamilyID: sess.FamilyID})
+	return s.revokeFamily(ctx, sess, ReasonLogout)
+}
+
+// Revoke ends the session family of id, a session of user (any row of the
+// family, e.g. an id from the sessions list), audits session.revoked and
+// denylists its access tokens. An unknown id, another user's session or an
+// already ended one is not an error, so revoking is idempotent.
+func (s *Service) Revoke(ctx context.Context, user, id uuid.UUID) error {
+	sess, err := s.q.GetSessionForUser(ctx, db.GetSessionForUserParams{ID: id, UserID: user})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("session: load session to revoke: %w", err)
+	}
+	return s.revokeFamily(ctx, sess, ReasonRevoked)
+}
+
+// RevokeOthers ends every session of user except the family of currentSID
+// (the access token's sid), audits session.revoked and denylists their
+// access tokens. It returns how many sessions it ended, and ErrExpired when
+// currentSID is not a session of user.
+func (s *Service) RevokeOthers(ctx context.Context, user, currentSID uuid.UUID) (int64, error) {
+	cur, err := s.q.GetSessionForUser(ctx, db.GetSessionForUserParams{ID: currentSID, UserID: user})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrExpired
+	}
+	if err != nil {
+		return 0, fmt.Errorf("session: load current session: %w", err)
+	}
+	keep := cur.FamilyID
+	return s.revokeMany(ctx, user, ReasonRevoked, &keep, func(ctx context.Context, q *db.Queries) (int64, error) {
+		return q.RevokeOthersForUser(ctx, db.RevokeOthersForUserParams{Reason: ReasonRevoked, UserID: user, KeepFamilyID: keep})
+	})
+}
+
+// LogoutAll ends every session of user ("sign out everywhere"), audits
+// session.revoked and denylists their access tokens. It returns how many
+// sessions it ended.
+func (s *Service) LogoutAll(ctx context.Context, user uuid.UUID) (int64, error) {
+	return s.revokeMany(ctx, user, ReasonLogoutAll, nil, func(ctx context.Context, q *db.Queries) (int64, error) {
+		return q.RevokeAllForUser(ctx, db.RevokeAllForUserParams{Reason: ReasonLogoutAll, UserID: user})
+	})
+}
+
+// revokeFamily ends the family of sess with reason, audits session.revoked
+// and denylists the family's access tokens. A family already ended is left
+// alone.
+func (s *Service) revokeFamily(ctx context.Context, sess db.Session, reason string) error {
+	var sids []uuid.UUID
+	err := s.inTx(ctx, func(ctx context.Context, q *db.Queries) error {
+		n, err := q.RevokeFamily(ctx, db.RevokeFamilyParams{Reason: reason, FamilyID: sess.FamilyID})
 		if err != nil {
-			return fmt.Errorf("session: logout: %w", err)
+			return fmt.Errorf("session: revoke family: %w", err)
 		}
 		if n == 0 {
 			return nil
+		}
+		if sids, err = s.tokenSessionIDs(ctx, q, sess.UserID, &sess.FamilyID, nil); err != nil {
+			return err
 		}
 		return s.audit.Record(ctx, audit.Event{
 			User:  &sess.UserID,
 			Actor: &sess.UserID,
 			Kind:  audit.SessionRevoked,
-			Meta:  map[string]any{"session_id": sess.ID.String(), "family_id": sess.FamilyID.String(), "reason": ReasonLogout},
+			Meta:  map[string]any{"session_id": sess.ID.String(), "family_id": sess.FamilyID.String(), "reason": reason},
 		})
 	})
+	if err != nil {
+		return err
+	}
+	s.deny(ctx, sids)
+	return nil
+}
+
+// revokeMany runs revoke (a bulk revocation of user's sessions, sparing the
+// family keep when set), audits one session.revoked with the count and
+// denylists the access tokens of the ended sessions.
+func (s *Service) revokeMany(ctx context.Context, user uuid.UUID, reason string, keep *uuid.UUID,
+	revoke func(context.Context, *db.Queries) (int64, error),
+) (int64, error) {
+	var (
+		revoked int64
+		sids    []uuid.UUID
+	)
+	err := s.inTx(ctx, func(ctx context.Context, q *db.Queries) error {
+		n, err := revoke(ctx, q)
+		if err != nil {
+			return fmt.Errorf("session: revoke sessions: %w", err)
+		}
+		revoked = n
+		if n == 0 {
+			return nil
+		}
+		if sids, err = s.tokenSessionIDs(ctx, q, user, nil, keep); err != nil {
+			return err
+		}
+		return s.audit.Record(ctx, audit.Event{
+			User:  &user,
+			Actor: &user,
+			Kind:  audit.SessionRevoked,
+			Meta:  map[string]any{"reason": reason, "revoked": n},
+		})
+	})
+	if err != nil {
+		return 0, err
+	}
+	s.deny(ctx, sids)
+	return revoked, nil
+}
+
+// tokenSessionIDs lists the session ids of user (in family, or outside
+// except) whose access tokens may still be unexpired. Without a denylist it
+// returns nothing.
+func (s *Service) tokenSessionIDs(ctx context.Context, q *db.Queries, user uuid.UUID, family, except *uuid.UUID) ([]uuid.UUID, error) {
+	if s.opts.Denylist == nil {
+		return nil, nil
+	}
+	ids, err := q.ListTokenSessionIDs(ctx, db.ListTokenSessionIDsParams{
+		UserID:         user,
+		FamilyID:       family,
+		ExceptFamilyID: except,
+		Since:          s.opts.Now().Add(-s.opts.AccessTTL),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("session: list access token sessions: %w", err)
+	}
+	return ids, nil
+}
+
+// deny pushes sids into the denylist. The sessions are already ended in the
+// database, so a failure only delays the access tokens' refusal until they
+// expire: it is logged, not returned.
+func (s *Service) deny(ctx context.Context, sids []uuid.UUID) {
+	if s.opts.Denylist == nil || len(sids) == 0 {
+		return
+	}
+	if err := s.opts.Denylist.Deny(ctx, sids...); err != nil {
+		s.logger.ErrorContext(ctx, "denylist ended sessions; their access tokens stay valid until they expire",
+			"sessions", len(sids), "error", err)
+	}
 }
 
 // Active is a live session of a user as the sessions list shows it.
@@ -409,13 +561,19 @@ func (s *Service) List(ctx context.Context, user, currentSID uuid.UUID) ([]Activ
 // reuse revokes the family of a replayed rotated token, audits
 // session.reuse_detected and returns ErrReuseDetected.
 func (s *Service) reuse(ctx context.Context, sess db.Session) error {
-	var revoked int64
+	var (
+		revoked int64
+		sids    []uuid.UUID
+	)
 	err := s.inTx(ctx, func(ctx context.Context, q *db.Queries) error {
 		n, err := q.RevokeFamily(ctx, db.RevokeFamilyParams{Reason: ReasonReuse, FamilyID: sess.FamilyID})
 		if err != nil {
 			return fmt.Errorf("session: revoke family on reuse: %w", err)
 		}
 		revoked = n
+		if sids, err = s.tokenSessionIDs(ctx, q, sess.UserID, &sess.FamilyID, nil); err != nil {
+			return err
+		}
 		return s.audit.Record(ctx, audit.Event{
 			User: &sess.UserID,
 			Kind: audit.SessionReuseDetected,
@@ -425,6 +583,7 @@ func (s *Service) reuse(ctx context.Context, sess db.Session) error {
 	if err != nil {
 		return err
 	}
+	s.deny(ctx, sids)
 	s.logger.WarnContext(ctx, "refresh token reuse detected; session family revoked",
 		"user_id", sess.UserID, "session_id", sess.ID, "family_id", sess.FamilyID, "revoked", revoked)
 	return ErrReuseDetected

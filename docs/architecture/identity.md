@@ -35,7 +35,8 @@ implements them, and that issue updates this page when it merges.
 | `GET/PATCH/DELETE /api/v1/users/me` (#245); the sole-owner check reads memberships once #276 lands | done |
 | Device labels, `GET /api/v1/users/me/sessions` (#271) | done |
 | Change email with verification of the new address (#274) | done |
-| Session revocation, new-device alerts, purge (#272, #273, #275) | planned |
+| Session revocation and the access-token `sid` denylist (#272) | done |
+| New-device alerts, purge (#273, #275) | planned |
 | Orgs, members, invitations, projects, API keys (#276–#287) | planned |
 | Outbox relay, reconciler, `authz.Require`, capabilities (#291–#296) | planned |
 | Per-org OIDC SSO (#297–#300), OIDC provider (#301) | planned |
@@ -256,9 +257,18 @@ SHA-256 is stored. Lifetime is `identity.refresh_token_ttl` (30 days) with
   whole token family and audits `session.reuse_detected`.
 - `POST /api/v1/auth/logout` revokes the session;
   `POST /api/v1/auth/logout-all` revokes all of the user's sessions.
+  `DELETE /api/v1/users/me/sessions/{id}` signs out one session (idempotent,
+  204) and `POST /api/v1/users/me/sessions/revoke-others` every session but
+  the caller's (`{"revoked": n}`). Each audits `session.revoked`.
 - Revoking a session pushes its `sid` into a Valkey denylist for one access
   token TTL, so its access token stops working within seconds (verifiers
   cache the denylist for 5 s and fall back to TTL-only if Valkey is down).
+  Because the `sid` changes on every refresh, every row of the family whose
+  access token may still be unexpired is denylisted, not only the live one
+  (`authn.Denylist`, keys `authn:denied-sid:<sid>`). When Valkey is
+  unreachable the verifier logs, at most once a minute, and accepts the
+  token until it expires, as the API key verifier does; the revoking process
+  itself still refuses the token at once.
 - `web` refreshes server-side shortly before expiry and coalesces concurrent
   refreshes by token, so parallel requests never replay a rotated token.
 

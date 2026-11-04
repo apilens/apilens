@@ -179,6 +179,54 @@ func (q *Queries) ListActiveSessionsForUser(ctx context.Context, userID uuid.UUI
 	return items, nil
 }
 
+const listTokenSessionIDs = `-- name: ListTokenSessionIDs :many
+SELECT id FROM sessions
+WHERE user_id = $1
+  AND ($2::uuid IS NULL OR family_id = $2::uuid)
+  AND ($3::uuid IS NULL OR family_id <> $3::uuid)
+  AND (revoked_at IS NULL OR revoked_at > $4::timestamptz)
+  AND expires_at > $4::timestamptz
+ORDER BY id
+`
+
+type ListTokenSessionIDsParams struct {
+	UserID         uuid.UUID
+	FamilyID       *uuid.UUID
+	ExceptFamilyID *uuid.UUID
+	Since          time.Time
+}
+
+// The rows of a user whose access tokens may not have expired yet: an access
+// token's sid is the row it was issued with, so these are the rows still
+// live or ended after @since (now minus the access-token TTL), excluding
+// rows that expired before it. Optionally scoped to one family or to every
+// family but one. Revocation pushes these ids into the access-token
+// denylist.
+func (q *Queries) ListTokenSessionIDs(ctx context.Context, arg ListTokenSessionIDsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listTokenSessionIDs,
+		arg.UserID,
+		arg.FamilyID,
+		arg.ExceptFamilyID,
+		arg.Since,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const revokeAllForUser = `-- name: RevokeAllForUser :execrows
 UPDATE sessions
 SET revoked_at     = now(),
