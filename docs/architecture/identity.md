@@ -32,6 +32,7 @@ implements them, and that issue updates this page when it merges.
 | Email code and magic link (#248–#254) | planned |
 | OAuth callback and handoff (#255, #258–#260) | planned |
 | Passkeys (#261–#265), TOTP and recovery (#266–#270) | planned |
+| `GET/PATCH/DELETE /api/v1/users/me` (#245); the sole-owner check reads memberships once #276 lands | done |
 | Session management (#271–#275) | planned |
 | Orgs, members, invitations, projects, API keys (#276–#287) | planned |
 | Outbox relay, reconciler, `authz.Require`, capabilities (#291–#296) | planned |
@@ -225,6 +226,24 @@ SHA-256 is stored. Lifetime is `identity.refresh_token_ttl` (30 days) with
 Rate limits are sliding windows in Valkey shared by every replica
 (`identity.rate_limits.*`); they answer `429` with `Retry-After`.
 
+## Account (`/api/v1/users/me`)
+
+Served by the identity role and authenticated with the session scheme
+(`internal/identity/me.go`, `internal/identity/account`).
+
+- `GET` returns `id`, `email`, `email_verified`, `name`, `avatar_url`,
+  `preferences`, `onboarding`, `created_at` and the current session's `amr`.
+- `PATCH` accepts `name` (trimmed, at most 120 characters), `avatar_url` (an
+  http(s) URL, or empty to clear it) and `preferences`, which is merged into
+  the stored object; `preferences.home` is one of `endpoints`, `requests`,
+  `exceptions`. Unknown fields fail validation (`422`). Audited as
+  `user.updated` with the changed field names, never their values.
+- `DELETE` soft-deletes the account: it is hidden at once (the email can sign
+  up again), every session is revoked (reason `user_deleted`) and
+  `delete_after` is set 30 days out, after which a purge job removes the row.
+  It answers `owner_transfer_required` (409) while the user is the only owner
+  of an organization. Audited as `user.deleted`.
+
 ## Authorization: outbox and SpiceDB sync
 
 Postgres is the source of truth for organizations, memberships and projects;
@@ -361,6 +380,7 @@ Rules:
 | `oauth_email_unverified` | 403 Forbidden | Your account with this provider has no verified email. Verify it there, or sign in with email. |
 | `invite_expired` | 410 Gone | This invitation has expired. Ask for a new one. |
 | `invite_email_mismatch` | 403 Forbidden | This invitation was sent to a different email address. Sign in with that address. |
+| `owner_transfer_required` | 409 Conflict | You're the only owner of an organization. Transfer ownership or delete it before deleting your account. |
 | `forbidden` | 403 Forbidden | You don't have permission to do that. |
 | `internal_error` | 500 Internal Server Error | Something went wrong on our side. Please try again. |
 

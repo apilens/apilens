@@ -300,6 +300,7 @@ func runOpenAPI(stdout io.Writer) error {
 	identity.RegisterProviders(srv.API(), config.IdentityConfig{})
 	identity.NewOAuth(config.IdentityConfig{}, identity.NewValkeyOAuthStateStore(nil), nil, nil).Register(srv.API())
 	identity.NewSessions(config.IdentityConfig{}, nil, nil, nil).Register(srv.API())
+	identity.NewAccount(nil, nil).Register(srv.API())
 	controlplaneapi.Register(srv.API())
 	b, err := json.MarshalIndent(srv.API().OpenAPI(), "", "  ")
 	if err != nil {

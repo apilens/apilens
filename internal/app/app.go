@@ -24,6 +24,7 @@ import (
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/email"
 	"github.com/apilens/apilens/internal/identity"
+	"github.com/apilens/apilens/internal/identity/account"
 	"github.com/apilens/apilens/internal/identity/audit"
 	"github.com/apilens/apilens/internal/identity/keys"
 	"github.com/apilens/apilens/internal/identity/session"
@@ -94,7 +95,7 @@ type App struct {
 	jobs    *jobs.Client
 	// signingKeys holds identity's JWT signing keys (identity role only).
 	signingKeys *keys.Manager
-	// sessionAuth installs authn.Middleware once, for api and query alike.
+	// sessionAuth installs authn.Middleware once, for api, query and identity.
 	sessionAuth sync.Once
 }
 
@@ -303,6 +304,10 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	identity.NewSessions(a.cfg.Identity, sessions, limiter, a.logger).Register(a.server.API())
+	// /api/v1/users/me is session-authenticated. Until memberships exist
+	// (#276) no user owns an organization, so nothing blocks a deletion.
+	a.useSessionAuth()
+	identity.NewAccount(account.New(a.pool, account.NoMemberships{}), a.logger).Register(a.server.API())
 	return modules.ServiceFunc(signingKeys.Run), nil
 }
 
