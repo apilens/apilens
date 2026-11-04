@@ -1,0 +1,46 @@
+// Auth gate (Next 16 `proxy`, formerly middleware). Decrypts the session cookie on every
+// matched request: a cookie that is merely present but stale, tampered or malformed counts as
+// signed out. Routing rules live in `lib/auth-gate.ts`.
+import { type NextRequest, NextResponse } from "next/server";
+import { LAST_PROJECT_COOKIE, REFRESH_HEADER, decide } from "./lib/auth-gate";
+import { SESSION_COOKIE_NAME, open } from "./lib/session-edge";
+
+export async function proxy(request: NextRequest) {
+  const { pathname, search } = request.nextUrl;
+  const cookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  const session = cookie ? await open(cookie) : null;
+
+  const decision = decide({
+    pathname,
+    search,
+    session,
+    nowSeconds: Math.floor(Date.now() / 1000),
+    dev: process.env.NODE_ENV === "development",
+    lastProject: request.cookies.get(LAST_PROJECT_COOKIE)?.value,
+  });
+
+  let response: NextResponse;
+  if (decision.action === "redirect") {
+    // 302 (not Next's default 307): the target is always fetched with GET.
+    response = NextResponse.redirect(new URL(decision.location, request.url), 302);
+  } else if (decision.action === "unauthorized") {
+    response = NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  } else {
+    // Only the gate may set the refresh hint: drop any client-supplied copy.
+    const headers = new Headers(request.headers);
+    headers.delete(REFRESH_HEADER);
+    if (decision.refresh) headers.set(REFRESH_HEADER, "1");
+    response = NextResponse.next({ request: { headers } });
+  }
+
+  // A cookie that failed to open is useless; clear it so the browser stops sending it.
+  if (cookie && !session) response.cookies.delete(SESSION_COOKIE_NAME);
+  return response;
+}
+
+export const config = {
+  matcher: [
+    // Everything except Next internals and static files (any path with a file extension).
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.[A-Za-z0-9]+$).*)",
+  ],
+};
