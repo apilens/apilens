@@ -417,6 +417,7 @@ Rules:
 | `invalid_totp` | 401 Unauthorized | That authentication code isn't right. |
 | `passkey_unknown` | 401 Unauthorized | This passkey isn't registered with APILens. Sign in another way. |
 | `passkey_failed` | 401 Unauthorized | We couldn't verify your passkey. Try again. |
+| `passkey_already_registered` | 409 Conflict | This passkey is already registered. Use another authenticator. |
 | `oauth_state_mismatch` | 400 Bad Request | Sign-in couldn't be completed. Start again. |
 | `oauth_email_unverified` | 403 Forbidden | Your account with this provider has no verified email. Verify it there, or sign in with email. |
 | `invite_expired` | 410 Gone | This invitation has expired. Ask for a new one. |

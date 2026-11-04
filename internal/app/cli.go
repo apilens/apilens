@@ -305,6 +305,7 @@ func runOpenAPI(stdout io.Writer) error {
 	identity.NewTwoFactor(nil, nil).Register(srv.API())
 	identity.NewEmailChange(nil, nil).Register(srv.API())
 	identity.NewEmailVerify(config.IdentityConfig{}, identity.EmailVerifyDeps{}, nil, nil).Register(srv.API())
+	identity.NewPasskeys(identity.PasskeysDeps{}, nil).Register(srv.API())
 	controlplaneapi.Register(srv.API())
 	b, err := json.MarshalIndent(srv.API().OpenAPI(), "", "  ")
 	if err != nil {

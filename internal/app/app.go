@@ -29,6 +29,7 @@ import (
 	"github.com/apilens/apilens/internal/identity/emailauth"
 	"github.com/apilens/apilens/internal/identity/emailchange"
 	"github.com/apilens/apilens/internal/identity/keys"
+	"github.com/apilens/apilens/internal/identity/passkey"
 	"github.com/apilens/apilens/internal/identity/session"
 	identitydb "github.com/apilens/apilens/internal/identity/store/db"
 	"github.com/apilens/apilens/internal/identity/token"
@@ -338,6 +339,15 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	identity.NewTwoFactor(twoFactor, a.logger).Register(a.server.API())
 	codes := emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{})
 	identity.NewEmailChange(emailchange.New(a.pool, codes, a.jobs), a.logger).Register(a.server.API())
+	rp, err := passkey.NewRelyingParty(a.cfg.Identity.WebAuthn)
+	if err != nil {
+		return nil, err
+	}
+	identity.NewPasskeys(identity.PasskeysDeps{
+		Registrar: passkey.NewRegistration(rp, passkey.NewValkeyChallengeStore(a.valkey), a.pool),
+		Users:     identitydb.New(a.pool),
+		Jobs:      a.jobs,
+	}, a.logger).Register(a.server.API())
 	return modules.ServiceFunc(signingKeys.Run), nil
 }
 
