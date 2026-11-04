@@ -20,6 +20,7 @@ import (
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
 	"github.com/apilens/apilens/internal/controlplane/catalog"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
+	"github.com/apilens/apilens/internal/email"
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/identity/audit"
 	"github.com/apilens/apilens/internal/ingest"
@@ -254,11 +255,29 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 }
 
 func (a *App) initIdentity(context.Context) (modules.Service, error) {
+	if err := a.registerEmailWorker(); err != nil {
+		return nil, err
+	}
 	a.server.Use(identity.Middleware(a.cfg.Identity))
 	a.server.Use(audit.Middleware)
 	identity.Register(a.server.API())
 	identity.RegisterProviders(a.server.API(), a.cfg.Identity)
 	return nil, nil
+}
+
+// registerEmailWorker registers the email.send worker with the configured
+// provider. Other roles only enqueue.
+func (a *App) registerEmailWorker() error {
+	renderer, err := email.DefaultRenderer()
+	if err != nil {
+		return err
+	}
+	sender, err := email.NewSender(a.cfg.Email, a.logger)
+	if err != nil {
+		return err
+	}
+	jobs.Register(a.workers, email.NewWorker(renderer, sender, a.logger, email.NewMetrics(a.registry)))
+	return nil
 }
 
 // closer turns a cleanup func into a Service that runs it on shutdown, so
