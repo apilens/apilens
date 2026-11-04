@@ -21,7 +21,10 @@ image:
 
 imagePullSecrets: []
 
-# One Deployment per enabled role. Implemented in this release: all, edge.
+# One Deployment per enabled role. Implemented in this release: all, edge,
+# identity, api. `all` already runs every implemented role; enable `identity`
+# and `api` (with `all` disabled) to scale sign-in and the control-plane API
+# separately from `edge`.
 roles:
   all:
     enabled: true
@@ -57,8 +60,45 @@ roles:
     nodeSelector: {}
     tolerations: []
     affinity: {}
-  # Planned roles (M2+), not yet available in the binary:
-  # writer, processor, query, api, identity, saml, worker, mcp
+  # Sign-in, sessions, tokens, OAuth and the email worker (/api/v1/auth/*).
+  # Needs secrets key `identity-key-encryption-key`.
+  identity:
+    enabled: false
+    replicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    autoscaling:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  # Control-plane API (organizations, projects, apps, API keys).
+  api:
+    enabled: false
+    replicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    autoscaling:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 10
+      targetCPUUtilizationPercentage: 70
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  # Planned roles (M3+), not yet available in the binary:
+  # writer, processor, query, saml, worker, mcp
 
 # Extra APILENS_* environment variables rendered into the shared ConfigMap.
 # Nested keys use a double underscore (APILENS_SINK__BATCH_SIZE -> sink.batch_size).
@@ -88,6 +128,61 @@ externalValkey:
   # Empty disables Valkey (API-key cache invalidation falls back to TTL).
   addr: []
   username: ""
+
+# Identity role settings (rendered as APILENS_IDENTITY__*). Secrets (key
+# encryption key, OAuth client secrets) come from the `secrets` block. Other
+# identity.* keys (token TTLs, rate limits) can be set through `config`.
+identity:
+  # Token issuer (`iss`) and base of the OAuth callback URLs: the public URL
+  # browsers reach /api/v1/auth/* at. Empty = derived from
+  # `ingress.ingestHost` (https when `ingress.tls` is set), else the binary
+  # default (http://localhost:8080).
+  issuer: ""
+  # Origin of the dashboard, used for email links and OAuth redirects.
+  # Empty = `web.publicUrl` / `ingress.webHost`.
+  publicUiUrl: ""
+  # Session cookie domain; empty = host-only.
+  cookieDomain: ""
+  webauthn:
+    # Registrable domain users see (no scheme or port). Empty = the host of
+    # the dashboard origin.
+    rpId: ""
+    rpName: APILens
+    # Allowed origins; empty = the dashboard origin.
+    origins: []
+  # Browser origins allowed to call /api/v1/auth/* cross-origin. Leave empty:
+  # the dashboard calls identity server-side.
+  corsOrigins: []
+  # Reverse proxies (IPs/CIDRs) whose X-Forwarded-For is trusted for the
+  # client IP used by the auth rate limits; empty = the TCP peer. Set it to
+  # your ingress controller's pod CIDR.
+  trustedProxies: []
+  # Social sign-in. A provider is enabled when its client ID is set; its
+  # secret is read from `oauth-google-client-secret` /
+  # `oauth-github-client-secret`. Redirect URI to register:
+  # <issuer>/api/v1/auth/oauth/{google|github}/callback
+  oauth:
+    google:
+      clientId: ""
+    github:
+      clientId: ""
+
+# Transactional email: sign-in codes, invitations, security alerts (rendered as
+# APILENS_EMAIL__*). `log` writes each message to the identity (or all) pod log
+# instead of sending it. The SMTP password is read from the secret key
+# `smtp-password`.
+email:
+  # log | smtp
+  provider: log
+  host: ""
+  port: 587
+  username: ""
+  # Sender, e.g. `APILens <no-reply@example.com>`. Required for smtp.
+  from: ""
+  replyTo: ""
+  # starttls (587) | tls (implicit, 465) | none (local relays only)
+  tls: starttls
+  timeout: 10s
 
 # Authorization (SpiceDB, ADR 0006). Either point `authz.endpoint` at a
 # SpiceDB you operate, or set `spicedb.enabled` to run one in-chart. With
@@ -128,6 +223,8 @@ secrets:
   # Name of an existing Secret with keys: postgres-url, clickhouse-password,
   # valkey-password (optional), session-secret (required when web is enabled),
   # identity-key-encryption-key (required when the all or identity role runs),
+  # smtp-password (optional), oauth-google-client-secret and
+  # oauth-github-client-secret (required when that provider's clientId is set),
   # spicedb-preshared-key (required when authz is enabled),
   # spicedb-datastore-uri (required when spicedb.enabled).
   existingSecret: ""
@@ -141,6 +238,11 @@ secrets:
   # Identity key encryption key: 32 random bytes, base64
   # (openssl rand -base64 32). Encrypts signing keys and TOTP secrets at rest.
   identityKeyEncryptionKey: ""
+  # SMTP password (email.provider=smtp).
+  smtpPassword: ""
+  # OAuth client secrets (identity.oauth.*.clientId set).
+  oauthGoogleClientSecret: ""
+  oauthGithubClientSecret: ""
   # SpiceDB preshared key (openssl rand -hex 32).
   spicedbPresharedKey: ""
   # Postgres URI of SpiceDB's own database (spicedb.enabled only).
@@ -178,8 +280,9 @@ web:
       memory: 192Mi
     limits:
       memory: 512Mi
-  # APILENS_API_URL: backend base URL the UI server calls. Empty = the
-  # in-cluster Service of `ingress.ingestRole`.
+  # APILENS_API_URL: backend base URL the UI server calls (identity and the
+  # dashboard API). Empty = the in-cluster `identity` role Service when that
+  # role is enabled, else the Service of `ingress.ingestRole`.
   apiUrl: ""
   # APILENS_PUBLIC_URL: origin users open the dashboard at. Empty = derived
   # from `ingress.webHost` (https when `ingress.tls` is set).

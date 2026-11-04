@@ -1,4 +1,4 @@
-{{- $implemented := list "all" "edge" }}
+{{- $implemented := list "all" "edge" "identity" "api" }}
 {{- $configChecksum := include "apilens.configData" . | sha256sum }}
 {{- range $role, $spec := .Values.roles }}
 {{- if $spec.enabled }}

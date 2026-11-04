@@ -1,0 +1,46 @@
+# ct lint: split roles (edge + identity + api), ingress, SMTP, OAuth and the
+# in-chart SpiceDB. Dummy credentials only.
+roles:
+  all:
+    enabled: false
+  edge:
+    enabled: true
+  identity:
+    enabled: true
+    autoscaling:
+      enabled: true
+  api:
+    enabled: true
+
+ingress:
+  enabled: true
+  ingestRole: edge
+  ingestHost: api.example.com
+  webHost: app.example.com
+  tls:
+    - hosts: [api.example.com, app.example.com]
+      secretName: apilens-tls
+
+identity:
+  trustedProxies: [10.0.0.0/8]
+  oauth:
+    github:
+      clientId: ci-client-id
+
+email:
+  provider: smtp
+  host: smtp.example.com
+  from: "APILens <no-reply@example.com>"
+
+spicedb:
+  enabled: true
+
+secrets:
+  postgresUrl: postgres://apilens:ci@pg:5432/apilens?sslmode=disable
+  clickhousePassword: ci
+  sessionSecret: ci-session-secret-at-least-32-characters
+  identityKeyEncryptionKey: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+  smtpPassword: ci
+  oauthGithubClientSecret: ci
+  spicedbPresharedKey: ci
+  spicedbDatastoreUri: postgres://apilens:ci@pg:5432/spicedb?sslmode=disable
