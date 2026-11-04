@@ -119,6 +119,9 @@ type Querier interface {
 	// Resolves the rawId of a sign-in assertion to its credential (and so its
 	// user). Returns pgx.ErrNoRows when the credential is not registered.
 	GetPasskeyCredentialByCredentialID(ctx context.Context, credentialID []byte) (PasskeyCredential, error)
+	// One passkey of a user; scoped by user_id so a caller cannot read another
+	// user's passkey. Returns pgx.ErrNoRows when nothing matched.
+	GetPasskeyCredentialForUser(ctx context.Context, arg GetPasskeyCredentialForUserParams) (PasskeyCredential, error)
 	// The soft-deleted account of an address that is still inside its grace
 	// period, so sign-in can answer account_deleting and offer a restore. An
 	// address that has since signed up again has an active account, which wins:

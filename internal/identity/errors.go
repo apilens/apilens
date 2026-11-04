@@ -57,6 +57,9 @@ const (
 	// CodePasskeyExists: the passkey being registered is already registered
 	// (to this or another account).
 	CodePasskeyExists ErrCode = "passkey_already_registered"
+	// CodePasskeyGone: the signed-in user has no passkey with that id (it
+	// was removed, or never belonged to them).
+	CodePasskeyGone ErrCode = "passkey_gone"
 	// CodeOAuthStateMismatch: the OAuth/OIDC callback state or PKCE verifier
 	// does not match the login attempt.
 	CodeOAuthStateMismatch ErrCode = "oauth_state_mismatch"
@@ -119,6 +122,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodePasskeyUnknown:        {http.StatusUnauthorized, "Unknown passkey", "This passkey is not registered."},
 	CodePasskeyFailed:         {http.StatusUnauthorized, "Passkey verification failed", "The passkey could not be verified."},
 	CodePasskeyExists:         {http.StatusConflict, "Passkey already registered", "This passkey is already registered."},
+	CodePasskeyGone:           {http.StatusGone, "Passkey removed", "The passkey was removed or is not on this account."},
 	CodeOAuthStateMismatch:    {http.StatusBadRequest, "Sign-in state mismatch", "The sign-in attempt could not be matched. Start again."},
 	CodeOAuthEmailUnverified:  {http.StatusForbidden, "Email not verified", "The provider did not confirm a verified email address."},
 	CodeInviteExpired:         {http.StatusGone, "Invitation expired", "The invitation has expired or was revoked."},

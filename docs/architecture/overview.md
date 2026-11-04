@@ -182,6 +182,7 @@ shipped; a test checks that this table lists every one.
 | `email.changed` | the account email changes |
 | `passkey.added` | a passkey is registered |
 | `passkey.removed` | a passkey is deleted |
+| `passkey.renamed` | a passkey is renamed (metadata has the old and new name) |
 | `totp.enabled` | TOTP two-factor is turned on |
 | `totp.disabled` | TOTP two-factor is turned off |
 | `recovery.requested` | account recovery is requested |

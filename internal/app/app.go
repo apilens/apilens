@@ -346,6 +346,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	}
 	identity.NewPasskeys(identity.PasskeysDeps{
 		Registrar: passkey.NewRegistration(rp, passkey.NewValkeyChallengeStore(a.valkey), a.pool),
+		Manager:   passkey.NewManager(a.pool),
 		Users:     identitydb.New(a.pool),
 		Jobs:      a.jobs,
 	}, a.logger).Register(a.server.API())

@@ -26,6 +26,9 @@ import (
 // ceremony.
 const PasskeyRegisterPrefix = AuthPrefix + "/passkeys/register"
 
+// MyPasskeysPath is the passkey list of the signed-in user.
+const MyPasskeysPath = server.APIPrefix + "/users/me/passkeys"
+
 // maxPasskeyResponse bounds the JSON-encoded registration response. A real
 // attestation (certificate chain included) is a few KB.
 const maxPasskeyResponse = 64 << 10
@@ -37,14 +40,23 @@ type PasskeyRegistrar interface {
 	Verify(ctx context.Context, u db.User, in passkey.VerifyInput) (db.PasskeyCredential, error)
 }
 
+// PasskeyManager lists, renames and removes a user's passkeys;
+// *passkey.Manager satisfies it.
+type PasskeyManager interface {
+	List(ctx context.Context, user uuid.UUID) ([]db.PasskeyCredential, error)
+	Rename(ctx context.Context, user, id uuid.UUID, name string) (db.PasskeyCredential, error)
+	Delete(ctx context.Context, user, id uuid.UUID) (db.PasskeyCredential, error)
+}
+
 // UserGetter reads an active user by id; *db.Queries satisfies it.
 type UserGetter interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (db.User, error)
 }
 
-// PasskeysDeps are the collaborators of the passkey registration endpoints.
+// PasskeysDeps are the collaborators of the passkey endpoints.
 type PasskeysDeps struct {
 	Registrar PasskeyRegistrar
+	Manager   PasskeyManager
 	Users     UserGetter
 	Jobs      JobEnqueuer
 }
@@ -77,6 +89,7 @@ type Passkey struct {
 	ID             string     `json:"id" format:"uuid"`
 	Name           string     `json:"name"`
 	AAGUID         string     `json:"aaguid" format:"uuid" doc:"Authenticator model; all zeros when the authenticator did not say."`
+	Authenticator  string     `json:"authenticator" doc:"Vendor or product of the authenticator model (for example \"iCloud Keychain\" or \"YubiKey 5\"), or empty when the AAGUID is unknown."`
 	Transports     []string   `json:"transports" doc:"Transport hints the browser reported (usb, nfc, ble, internal, hybrid)."`
 	BackupEligible bool       `json:"backup_eligible" doc:"Whether the passkey can be synced across devices."`
 	BackupState    bool       `json:"backup_state" doc:"Whether the passkey is currently synced."`
@@ -90,6 +103,7 @@ func NewPasskey(c db.PasskeyCredential) Passkey {
 		ID:             c.ID.String(),
 		Name:           c.Name,
 		AAGUID:         c.Aaguid.String(),
+		Authenticator:  passkey.AuthenticatorName(c.Aaguid),
 		Transports:     c.Transports,
 		BackupEligible: c.BackupEligible,
 		BackupState:    c.BackupState,
@@ -110,21 +124,49 @@ type PasskeyVerifyOutput struct {
 	Body Passkey
 }
 
-// Passkeys serves the passkey registration endpoints.
+// ListMyPasskeysOutput is the response of GET /api/v1/users/me/passkeys.
+type ListMyPasskeysOutput struct {
+	Body struct {
+		Passkeys []Passkey `json:"passkeys" doc:"The user's passkeys, oldest first."`
+	}
+}
+
+// PasskeyIDInput names one passkey of the signed-in user.
+type PasskeyIDInput struct {
+	ID string `path:"id" format:"uuid" doc:"Passkey id."`
+}
+
+// PasskeyRenameBody is the request body of PATCH /api/v1/users/me/passkeys/{id}.
+type PasskeyRenameBody struct {
+	Name string `json:"name" minLength:"1" maxLength:"64" doc:"New label shown in Security settings; surrounding spaces are trimmed."`
+}
+
+// PasskeyRenameInput is the request of PATCH /api/v1/users/me/passkeys/{id}.
+type PasskeyRenameInput struct {
+	ID   string `path:"id" format:"uuid" doc:"Passkey id."`
+	Body PasskeyRenameBody
+}
+
+// PasskeyOutput is the response of PATCH /api/v1/users/me/passkeys/{id}.
+type PasskeyOutput struct {
+	Body Passkey
+}
+
+// Passkeys serves the passkey registration and management endpoints.
 type Passkeys struct {
 	deps   PasskeysDeps
 	logger *slog.Logger
 	now    func() time.Time
 }
 
-// NewPasskeys returns the passkey registration endpoints.
+// NewPasskeys returns the passkey registration and management endpoints.
 func NewPasskeys(deps PasskeysDeps, logger *slog.Logger) *Passkeys {
 	return &Passkeys{deps: deps, logger: logger, now: time.Now}
 }
 
-// Register mounts POST …/passkeys/register/options and …/register/verify.
-// They declare the session scheme, so authn.Middleware must be installed on
-// api before.
+// Register mounts POST …/passkeys/register/options and …/register/verify,
+// and GET, PATCH and DELETE under /api/v1/users/me/passkeys. They declare the
+// session scheme, so authn.Middleware must be installed on api before.
 func (p *Passkeys) Register(api huma.API) {
 	security := []map[string][]string{{authn.SchemeSession: {}}}
 	huma.Register(api, Operation(api, huma.Operation{
@@ -152,6 +194,40 @@ func (p *Passkeys) Register(api huma.API) {
 		Security:      security,
 		DefaultStatus: http.StatusCreated,
 	}, CodeInvalidRequest, CodeUnauthenticated, CodeSessionExpired, CodePasskeyFailed, CodePasskeyExists, CodeInternal), p.verify)
+
+	huma.Register(api, Operation(api, huma.Operation{
+		OperationID: "list-my-passkeys",
+		Method:      http.MethodGet,
+		Path:        MyPasskeysPath,
+		Summary:     "List my passkeys",
+		Description: "Lists the signed-in user's passkeys, oldest first, with name, authenticator vendor, backup state and when each was added and last used.",
+		Tags:        []string{server.TagUsers},
+		Security:    security,
+	}, CodeUnauthenticated, CodeSessionExpired, CodeInternal), p.list)
+
+	huma.Register(api, Operation(api, huma.Operation{
+		OperationID: "rename-my-passkey",
+		Method:      http.MethodPatch,
+		Path:        MyPasskeysPath + "/{id}",
+		Summary:     "Rename a passkey",
+		Description: "Renames one of the signed-in user's passkeys. Answers 400 `invalid_request` for a blank name and 410 " +
+			"`passkey_gone` for an id that is not one of the user's passkeys. Audited as `passkey.renamed`.",
+		Tags:     []string{server.TagUsers},
+		Security: security,
+	}, CodeInvalidRequest, CodeUnauthenticated, CodeSessionExpired, CodePasskeyGone, CodeInternal), p.rename)
+
+	huma.Register(api, Operation(api, huma.Operation{
+		OperationID: "delete-my-passkey",
+		Method:      http.MethodDelete,
+		Path:        MyPasskeysPath + "/{id}",
+		Summary:     "Remove a passkey",
+		Description: "Removes one of the signed-in user's passkeys; it can no longer be used to sign in. Answers 410 " +
+			"`passkey_gone` for an id that is not one of the user's passkeys. Audited as `passkey.removed`; " +
+			"the user is emailed a security alert.",
+		Tags:          []string{server.TagUsers},
+		Security:      security,
+		DefaultStatus: http.StatusNoContent,
+	}, CodeUnauthenticated, CodeSessionExpired, CodePasskeyGone, CodeInternal), p.remove)
 }
 
 func (p *Passkeys) options(ctx context.Context, _ *struct{}) (*PasskeyOptionsOutput, error) {
@@ -199,21 +275,93 @@ func (p *Passkeys) verify(ctx context.Context, in *PasskeyVerifyInput) (*Passkey
 		return nil, Err(CodeInternal)
 	}
 
+	// The passkey is stored; a failed alert is logged, not returned.
+	p.alert(ctx, u, email.SecurityChangePasskeyAdded)
+	return &PasskeyVerifyOutput{Body: NewPasskey(cred)}, nil
+}
+
+func (p *Passkeys) list(ctx context.Context, _ *struct{}) (*ListMyPasskeysOutput, error) {
+	u, err := p.user(ctx)
+	if err != nil {
+		return nil, err
+	}
+	creds, err := p.deps.Manager.List(ctx, u.ID)
+	if err != nil {
+		p.logger.ErrorContext(ctx, "list passkeys", "error", err)
+		return nil, Err(CodeInternal)
+	}
+	out := &ListMyPasskeysOutput{}
+	out.Body.Passkeys = make([]Passkey, len(creds))
+	for i, c := range creds {
+		out.Body.Passkeys[i] = NewPasskey(c)
+	}
+	return out, nil
+}
+
+func (p *Passkeys) rename(ctx context.Context, in *PasskeyRenameInput) (*PasskeyOutput, error) {
+	name := passkey.ClampName(in.Body.Name)
+	if name == "" {
+		return nil, Err(CodeInvalidRequest)
+	}
+	u, err := p.user(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(in.ID)
+	if err != nil {
+		return nil, Err(CodePasskeyGone)
+	}
+	cred, err := p.deps.Manager.Rename(ctx, u.ID, id, name)
+	switch {
+	case err == nil:
+		return &PasskeyOutput{Body: NewPasskey(cred)}, nil
+	case errors.Is(err, passkey.ErrNotFound):
+		return nil, Err(CodePasskeyGone)
+	default:
+		p.logger.ErrorContext(ctx, "rename passkey", "error", err)
+		return nil, Err(CodeInternal)
+	}
+}
+
+func (p *Passkeys) remove(ctx context.Context, in *PasskeyIDInput) (*struct{}, error) {
+	u, err := p.user(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(in.ID)
+	if err != nil {
+		return nil, Err(CodePasskeyGone)
+	}
+	switch _, err := p.deps.Manager.Delete(ctx, u.ID, id); {
+	case err == nil:
+	case errors.Is(err, passkey.ErrNotFound):
+		return nil, Err(CodePasskeyGone)
+	default:
+		p.logger.ErrorContext(ctx, "delete passkey", "error", err)
+		return nil, Err(CodeInternal)
+	}
+	// The passkey is removed; a failed alert is logged, not returned.
+	p.alert(ctx, u, email.SecurityChangePasskeyRemoved)
+	return nil, nil
+}
+
+// alert enqueues a security_change email of change to u. A failure is
+// logged: the change it reports is already committed.
+func (p *Passkeys) alert(ctx context.Context, u db.User, change string) {
+	req := audit.RequestFrom(ctx)
 	ip := "unknown"
 	if req.IP.IsValid() {
 		ip = req.IP.String()
 	}
 	job := email.SendArgs{To: u.Email, Template: email.TemplateSecurityChange, Data: map[string]any{
-		"change": email.SecurityChangePasskeyAdded,
+		"change": change,
 		"device": session.DeviceLabel(req.UserAgent),
 		"ip":     ip,
 		"time":   p.now().UTC(),
 	}}
-	// The passkey is stored; a failed alert is logged, not returned.
 	if _, err := p.deps.Jobs.Insert(ctx, job, nil); err != nil {
-		p.logger.ErrorContext(ctx, "passkey register verify: enqueue security alert", "error", err)
+		p.logger.ErrorContext(ctx, "passkey: enqueue security alert", "change", change, "error", err)
 	}
-	return &PasskeyVerifyOutput{Body: NewPasskey(cred)}, nil
 }
 
 // user loads the signed-in user. A user deleted while their access token is

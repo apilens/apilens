@@ -42,6 +42,7 @@ const (
 	EmailChanged         Kind = "email.changed"
 	PasskeyAdded         Kind = "passkey.added"
 	PasskeyRemoved       Kind = "passkey.removed"
+	PasskeyRenamed       Kind = "passkey.renamed"
 	TOTPEnabled          Kind = "totp.enabled"
 	TOTPDisabled         Kind = "totp.disabled"
 	RecoveryRequested    Kind = "recovery.requested"
@@ -57,7 +58,7 @@ const (
 
 var kinds = []Kind{
 	UserCreated, UserUpdated, UserDeleted, UserRestored, LoginSucceeded, LoginFailed, LoginRequested, SessionRevoked, SessionReuseDetected,
-	EmailChanged, PasskeyAdded, PasskeyRemoved, TOTPEnabled, TOTPDisabled,
+	EmailChanged, PasskeyAdded, PasskeyRemoved, PasskeyRenamed, TOTPEnabled, TOTPDisabled,
 	RecoveryRequested, RecoveryConfirmed, RecoveryCancelled, OAuthLinked, OAuthUnlinked,
 	OrgCreated, MemberRoleChanged, InvitationSent, InvitationAccepted,
 }

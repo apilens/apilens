@@ -144,6 +144,16 @@ A passkey is phishing-resistant and user-verifying, so it **skips** the TOTP
 step (`amr: ["passkey"]`). Registration (`…/register/options`, `…/register/verify`)
 requires a session.
 
+Security settings manage the signed-in user's passkeys
+(`internal/identity/passkeys.go`, `internal/identity/passkey/manage.go`):
+`GET /api/v1/users/me/passkeys` lists them oldest first (name, authenticator
+vendor from the AAGUID table, backup state, created and last used),
+`PATCH /api/v1/users/me/passkeys/{id}` `{name}` renames one (audited as
+`passkey.renamed`) and `DELETE /api/v1/users/me/passkeys/{id}` removes one
+(audited as `passkey.removed`; the user is emailed a `security_change`
+alert). Another user's passkey id answers `410 passkey_gone`, exactly like an
+unknown or already removed one.
+
 ### Two-factor (TOTP) and backup codes
 
 When TOTP is confirmed, email, social and SSO sign-ins answer `2fa_required`
@@ -464,6 +474,7 @@ Rules:
 | `passkey_unknown` | 401 Unauthorized | This passkey isn't registered with APILens. Sign in another way. |
 | `passkey_failed` | 401 Unauthorized | We couldn't verify your passkey. Try again. |
 | `passkey_already_registered` | 409 Conflict | This passkey is already registered. Use another authenticator. |
+| `passkey_gone` | 410 Gone | This passkey was already removed. Refresh the page. |
 | `oauth_state_mismatch` | 400 Bad Request | Sign-in couldn't be completed. Start again. |
 | `oauth_email_unverified` | 403 Forbidden | Your account with this provider has no verified email. Verify it there, or sign in with email. |
 | `invite_expired` | 410 Gone | This invitation has expired. Ask for a new one. |

@@ -134,6 +134,39 @@ func (q *Queries) GetPasskeyCredentialByCredentialID(ctx context.Context, creden
 	return i, err
 }
 
+const getPasskeyCredentialForUser = `-- name: GetPasskeyCredentialForUser :one
+SELECT id, user_id, credential_id, public_key, attestation_type, aaguid, sign_count, transports, backup_eligible, backup_state, name, created_at, last_used_at FROM passkey_credentials
+WHERE id = $1 AND user_id = $2
+`
+
+type GetPasskeyCredentialForUserParams struct {
+	ID     uuid.UUID
+	UserID uuid.UUID
+}
+
+// One passkey of a user; scoped by user_id so a caller cannot read another
+// user's passkey. Returns pgx.ErrNoRows when nothing matched.
+func (q *Queries) GetPasskeyCredentialForUser(ctx context.Context, arg GetPasskeyCredentialForUserParams) (PasskeyCredential, error) {
+	row := q.db.QueryRow(ctx, getPasskeyCredentialForUser, arg.ID, arg.UserID)
+	var i PasskeyCredential
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CredentialID,
+		&i.PublicKey,
+		&i.AttestationType,
+		&i.Aaguid,
+		&i.SignCount,
+		&i.Transports,
+		&i.BackupEligible,
+		&i.BackupState,
+		&i.Name,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+	)
+	return i, err
+}
+
 const listPasskeyCredentialsForUser = `-- name: ListPasskeyCredentialsForUser :many
 SELECT id, user_id, credential_id, public_key, attestation_type, aaguid, sign_count, transports, backup_eligible, backup_state, name, created_at, last_used_at FROM passkey_credentials
 WHERE user_id = $1
