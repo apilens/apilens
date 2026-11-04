@@ -1,6 +1,7 @@
 // Package twofactor turns TOTP two-factor authentication on for a user and
 // hands out backup codes. It backs POST /api/v1/auth/2fa/enable and
-// POST /api/v1/auth/2fa/verify.
+// POST /api/v1/auth/2fa/verify; manage.go backs status, disable and backup
+// code regeneration.
 //
 // Enabling is two steps:
 //

@@ -1555,6 +1555,32 @@
         ],
         "type": "object"
       },
+      "TwoFactorDisableInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/TwoFactorDisableInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "backup_code": {
+            "description": "An unused backup code (xxxx-xxxx; case, dashes and spaces are ignored). Send this or code, not both.",
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "code": {
+            "description": "Current 6-digit code from the authenticator app. Send this or backup_code, not both.",
+            "pattern": "^[0-9]{6}$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "TwoFactorEnableOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -1579,6 +1605,69 @@
         "required": [
           "secret",
           "otpauth_uri"
+        ],
+        "type": "object"
+      },
+      "TwoFactorRegenerateInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/TwoFactorRegenerateInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "code": {
+            "description": "Current 6-digit code from the authenticator app.",
+            "maxLength": 6,
+            "minLength": 6,
+            "pattern": "^[0-9]{6}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
+      "TwoFactorStatusOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/TwoFactorStatusOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "backup_codes_remaining": {
+            "description": "Unused backup codes left; 0 when two-factor authentication is off.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "confirmed_at": {
+            "description": "When two-factor authentication was turned on, or null when it is off.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "description": "Whether two-factor authentication is on. A secret pending confirmation counts as off.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "confirmed_at",
+          "backup_codes_remaining"
         ],
         "type": "object"
       },
@@ -1661,6 +1750,168 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/auth/2fa/backup-codes/regenerate": {
+      "post": {
+        "description": "Needs a fresh code from the authenticator app. Replaces the backup codes: every old code stops working and ten new single-use codes are returned, shown this once. A security alert is emailed. Answers `invalid_totp` for a wrong code and `not_enabled` when 2FA is off.",
+        "operationId": "regenerate-2fa-backup-codes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorRegenerateInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TwoFactorVerifyOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `invalid_totp`, `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "invalid_totp",
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `not_enabled`.",
+            "x-apilens-codes": [
+              "not_enabled"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Regenerate backup codes",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/2fa/disable": {
+      "post": {
+        "description": "Needs a fresh second factor: exactly one of a code from the authenticator app (`code`) or an unused backup code (`backup_code`), `invalid_request` otherwise. Deletes the TOTP secret and every backup code. Audited as `totp.disabled`; a security alert is emailed. Answers `invalid_totp` for a wrong code or a wrong or spent backup code and `not_enabled` when 2FA is off.",
+        "operationId": "disable-2fa",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorDisableInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `invalid_totp`, `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "invalid_totp",
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `not_enabled`.",
+            "x-apilens-codes": [
+              "not_enabled"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Turn off two-factor authentication",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/api/v1/auth/2fa/enable": {
       "post": {
         "description": "Generates a TOTP secret (issuer `APILens`, account the user's email) and stores it encrypted and unconfirmed; returns the secret and its `otpauth://` URI for a QR code. Calling it again before `/2fa/verify` replaces the pending secret. Needs a sign-in less than 10 minutes old (`reauth_required` otherwise); answers `already_enabled` when 2FA is on.",
@@ -1736,6 +1987,60 @@
           }
         ],
         "summary": "Start enabling two-factor authentication",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/2fa/status": {
+      "get": {
+        "description": "Whether two-factor authentication is on, since when, and how many unused backup codes are left. Needs a current session (`session_expired` when it was revoked or has expired).",
+        "operationId": "get-2fa-status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TwoFactorStatusOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Get two-factor authentication status",
         "tags": [
           "Auth"
         ]

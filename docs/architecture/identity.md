@@ -163,6 +163,21 @@ one period of skew, confirms the secret and returns `{backup_codes}`: 10
 audits `totp.enabled` and enqueues the `security_change` email in the same
 transaction. Both answer `already_enabled` once 2FA is on.
 
+**Managing** (same files, `internal/identity/twofactor/manage.go`). All three
+calls need the session to be current (not revoked or expired;
+`session_expired` otherwise). `GET /api/v1/auth/2fa/status` returns
+`{enabled, confirmed_at, backup_codes_remaining}` (a pending, unconfirmed
+secret counts as off). The two that weaken or reset the second factor always
+need a fresh one in the request, so a stolen session alone cannot touch 2FA:
+`POST /api/v1/auth/2fa/disable` `{code | backup_code}` (exactly one) deletes
+the secret and every backup code, audits `totp.disabled` (metadata `method`)
+and enqueues the `security_change` email (`totp_disabled`);
+`POST /api/v1/auth/2fa/backup-codes/regenerate` `{code}` replaces the backup
+codes with 10 new ones, returned once, and enqueues the `security_change`
+email (`backup_codes_regenerated`). Each runs in one transaction that locks
+the confirmed `user_totp` row. A wrong code or a wrong or spent backup code
+answers `invalid_totp`; `not_enabled` when 2FA is off.
+
 **Lost device.** `POST /api/v1/auth/recovery/request` emails a cancel link and
 starts a 24 h cooling-off period; `…/recovery/confirm` succeeds only after it,
 disables TOTP, revokes every session and emails a security alert.
@@ -432,6 +447,7 @@ Rules:
 | `invite_email_mismatch` | 403 Forbidden | This invitation was sent to a different email address. Sign in with that address. |
 | `owner_transfer_required` | 409 Conflict | You're the only owner of an organization. Transfer ownership or delete it before deleting your account. |
 | `already_enabled` | 409 Conflict | Two-factor authentication is already on. |
+| `not_enabled` | 409 Conflict | Two-factor authentication is off. |
 | `reauth_required` | 403 Forbidden | For your security, sign in again to continue. |
 | `email_taken` | 409 Conflict | Another account already uses this email address. |
 | `forbidden` | 403 Forbidden | You don't have permission to do that. |
