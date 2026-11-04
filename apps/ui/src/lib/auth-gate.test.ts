@@ -48,6 +48,19 @@ describe("decide: signed out", () => {
     });
   });
 
+  it("onboarding pages go to sign-up, then the first onboarding step", () => {
+    for (const p of ["/onboarding", "/onboarding/about", "/onboarding/create"]) {
+      expect(decide(req(p, { search: "?x=1" }))).toEqual({
+        action: "redirect",
+        location: `/sign-up?next=${encodeURIComponent("/onboarding/about")}`,
+      });
+    }
+    expect(decide(req("/onboardingx"))).toEqual({
+      action: "redirect",
+      location: `/sign-in?next=${encodeURIComponent("/onboardingx")}`,
+    });
+  });
+
   it("drops next when it is not a safe same-origin path", () => {
     expect(decide(req(`/${"a".repeat(600)}`))).toEqual({ action: "redirect", location: "/sign-in" });
   });

@@ -2,12 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { BackNext, ObIcon, ObShell } from "./ob";
+import { BackNext, ObIcon, ObShell, type StepProps } from "./ob";
 
 const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
 const TAKEN = ["apilens", "acme", "northwind", "admin"];
 
-export function CreateOrg() {
+export function CreateOrg({ step = 1, reached = step }: Partial<StepProps>) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -27,7 +27,8 @@ export function CreateOrg() {
         </>
       }
       progress={33.33}
-      step={1}
+      step={step}
+      reached={reached}
       badge="building"
       title="Name your organization"
       lead="Usually your company. It holds projects, people and billing."

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BackNext, ObShell } from "./ob";
+import { BackNext, ObShell, type StepProps } from "./ob";
 
 const PICKS = [
   { id: "endpoints", t: "Slow or failing endpoints", s: "Every API, with its latency and error rate" },
@@ -9,7 +9,7 @@ const PICKS = [
   { id: "exceptions", t: "Exceptions", s: "Grouped, with the request that caused each one" },
 ];
 
-export function About() {
+export function About({ step = 0, reached = step }: Partial<StepProps>) {
   const [pick, setPick] = useState("endpoints");
   return (
     <ObShell
@@ -22,7 +22,8 @@ export function About() {
         </>
       }
       progress={23.33}
-      step={0}
+      step={step}
+      reached={reached}
       badge="eye"
       title="What should you see first?"
       lead="This becomes your home screen. You can change it anytime."

@@ -48,14 +48,15 @@ const STEPS: { label: string; icon: ObIconName }[] = [
   { label: "Go live", icon: "live" },
 ];
 
-function Steps({ current }: { current: number }) {
+function Steps({ current, reached = current }: { current: number; reached?: number }) {
+  const upTo = Math.max(current, reached);
   return (
     <nav className="ob-steps" aria-label="Setup progress">
       {STEPS.map((s, i) => {
-        const state = i < current ? "done" : i === current ? "cur" : "todo";
+        const state = i === current ? "cur" : i < upTo ? "done" : "todo";
         return (
           <span key={s.label} style={{ display: "contents" }}>
-            {i > 0 ? <span className={`ob-sep${i <= current ? " done" : ""}`} /> : null}
+            {i > 0 ? <span className={`ob-sep${i <= upTo ? " done" : ""}`} /> : null}
             <span className={`ob-st ${state}`} aria-current={state === "cur" ? "step" : undefined}>
               <ObIcon name={state === "done" ? "done" : s.icon} />
               {s.label}
@@ -77,6 +78,8 @@ export interface ObProps {
   progress?: number;
   /** Index of the current setup step. Omit for sign in. */
   step?: number;
+  /** Index of the furthest saved setup step; earlier steps show as done. Defaults to `step`. */
+  reached?: number;
   badge: ObIconName;
   title: string;
   lead: ReactNode;
@@ -90,13 +93,13 @@ export interface ObProps {
  * comes first in the DOM (the grid puts the panel back on the left), so keyboard and screen-reader
  * order reach the form and its `h1` before the brand panel's `h2` and footer links.
  */
-export function ObShell({ eyebrow, headline, body, receipt, progress, step, badge, title, lead, children, footer, below }: ObProps) {
+export function ObShell({ eyebrow, headline, body, receipt, progress, step, reached, badge, title, lead, children, footer, below }: ObProps) {
   return (
     <div className="ah ob2">
       <main className="ob-fp">
         <div className="ob-ftop">
           <span className="ob-mlogo"><Logo height={34} /></span>
-          {step !== undefined ? <Steps current={step} /> : <span />}
+          {step !== undefined ? <Steps current={step} reached={reached} /> : <span />}
           <div className="ob-tr">
             <a className="ah-btn ah-btn--ghost ah-btn--sm" {...extLink(LINKS.docs)} title="Docs" aria-label="Docs">
               <ObIcon name="book" />
@@ -166,6 +169,12 @@ export function ObShell({ eyebrow, headline, body, receipt, progress, step, badg
       </aside>
     </div>
   );
+}
+
+/** Step bar state an onboarding page gets from its server guard (`requireOnboardingStep`). */
+export interface StepProps {
+  step: number;
+  reached: number;
 }
 
 export function BackNext({ back, next, nextLabel, disabled, onNext, loading }: { back?: string; next?: string; nextLabel: string; disabled?: boolean; onNext?: () => void; loading?: boolean }) {
