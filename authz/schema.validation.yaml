@@ -1,0 +1,110 @@
+# zed validate authz/schema.validation.yaml  (run via `task lint:authz`)
+#
+# Fixture: org "acme" with one user per org role, two projects, and
+# project-scoped roles on "web" only. A second org "globex" proves isolation.
+# Every row of the role → action table in authz/README.md is asserted here.
+schemaFile: ./schema.zed
+
+relationships: |-
+  organization:acme#owner@user:olivia
+  organization:acme#admin@user:adam
+  organization:acme#member@user:mia
+  organization:acme#viewer@user:vic
+  project:web#org@organization:acme
+  project:api#org@organization:acme
+  project:web#admin@user:paula
+  project:web#editor@user:ed
+  project:web#viewer@user:val
+  organization:globex#owner@user:gus
+  project:shop#org@organization:globex
+
+assertions:
+  assertTrue:
+    # org owner: everything
+    - organization:acme#manage@user:olivia
+    - organization:acme#manage_members@user:olivia
+    - organization:acme#invite@user:olivia
+    - organization:acme#manage_billing@user:olivia
+    - organization:acme#create_project@user:olivia
+    - organization:acme#view@user:olivia
+    - project:web#view@user:olivia
+    - project:web#edit@user:olivia
+    - project:web#manage_keys@user:olivia
+    - project:web#delete@user:olivia
+    - project:api#delete@user:olivia
+
+    # org admin: everything except billing
+    - organization:acme#manage@user:adam
+    - organization:acme#manage_members@user:adam
+    - organization:acme#invite@user:adam
+    - organization:acme#create_project@user:adam
+    - organization:acme#view@user:adam
+    - project:web#view@user:adam
+    - project:web#edit@user:adam
+    - project:web#manage_keys@user:adam
+    - project:web#delete@user:adam
+
+    # org member: create and work on projects
+    - organization:acme#create_project@user:mia
+    - organization:acme#view@user:mia
+    - project:web#view@user:mia
+    - project:web#edit@user:mia
+    - project:web#manage_keys@user:mia
+    - project:api#edit@user:mia
+
+    # org viewer: read only
+    - organization:acme#view@user:vic
+    - project:web#view@user:vic
+    - project:api#view@user:vic
+
+    # project admin (web only)
+    - project:web#view@user:paula
+    - project:web#edit@user:paula
+    - project:web#manage_keys@user:paula
+    - project:web#delete@user:paula
+
+    # project editor (web only)
+    - project:web#view@user:ed
+    - project:web#edit@user:ed
+    - project:web#manage_keys@user:ed
+
+    # project viewer (web only)
+    - project:web#view@user:val
+
+  assertFalse:
+    # org admin cannot touch billing
+    - organization:acme#manage_billing@user:adam
+
+    # org member cannot administer the org or delete projects
+    - organization:acme#manage@user:mia
+    - organization:acme#manage_members@user:mia
+    - organization:acme#invite@user:mia
+    - organization:acme#manage_billing@user:mia
+    - project:web#delete@user:mia
+
+    # org viewer cannot write anything
+    - organization:acme#manage@user:vic
+    - organization:acme#manage_members@user:vic
+    - organization:acme#invite@user:vic
+    - organization:acme#manage_billing@user:vic
+    - organization:acme#create_project@user:vic
+    - project:web#edit@user:vic
+    - project:web#manage_keys@user:vic
+    - project:web#delete@user:vic
+
+    # project-scoped roles stay on their project and never reach the org
+    - project:api#view@user:paula
+    - project:api#view@user:ed
+    - project:api#view@user:val
+    - organization:acme#view@user:paula
+    - organization:acme#create_project@user:paula
+    - organization:acme#invite@user:paula
+    - project:web#delete@user:ed
+    - project:web#edit@user:val
+    - project:web#manage_keys@user:val
+    - project:web#delete@user:val
+
+    # orgs are isolated from each other
+    - project:shop#view@user:olivia
+    - project:web#view@user:gus
+    - organization:acme#view@user:gus

@@ -1,0 +1,58 @@
+// SpiceDB schema for APILens (ADR 0006).
+//
+// Postgres is the source of truth; relationships reach SpiceDB through the
+// outbox relay. Roles are relations, actions are permissions. The role → action
+// mapping is documented in authz/README.md and asserted in
+// authz/schema.validation.yaml (`task lint:authz`).
+
+/** user is a signed-in human; agents act on a user's behalf (RFC 8693). */
+definition user {}
+
+/** organization owns projects and grants roles across all of them. */
+definition organization {
+	relation owner: user
+	relation admin: user
+	relation member: user
+	relation viewer: user
+
+	/** manage: org settings and project deletion (owner, admin). */
+	permission manage = owner + admin
+
+	/** manage_members: change roles and remove members (members.remove). */
+	permission manage_members = manage
+
+	/** invite: send invitations (members.invite). */
+	permission invite = manage
+
+	/** manage_billing: plans and invoices (billing.manage); owners only. */
+	permission manage_billing = owner
+
+	/** create_project: everyone who can write to projects in the org. */
+	permission create_project = member + manage
+
+	/** view: see the org and every project in it. */
+	permission view = viewer + create_project
+}
+
+/**
+ * project belongs to exactly one organization. Org roles flow down; the
+ * optional direct roles grant access to a single project (sharing).
+ */
+definition project {
+	relation org: organization
+	relation admin: user
+	relation editor: user
+	relation viewer: user
+
+	/** delete: project.delete. */
+	permission delete = admin + org->manage
+
+	/** manage_keys: api_keys.create, api_keys.revoke. */
+	permission manage_keys = admin + editor + org->create_project
+
+	/** edit: project.update. */
+	permission edit = admin + editor + org->create_project
+
+	/** view: project.read. */
+	permission view = viewer + edit + org->view
+}
