@@ -14,7 +14,10 @@ import { ObIcon } from "./ob";
 const TOAST_MS = 8000;
 const FAILED = "We couldn’t save your progress. Try again in a moment.";
 
-const ToastContext = createContext<(message: string) => void>(() => {});
+/** What a save answers, as far as Continue cares. */
+type Saved = { ok: true } | { ok: false; error: string };
+
+const ToastContext =createContext<(message: string) => void>(() => {});
 
 export function OnboardingProgress({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState<string | null>(null);
@@ -59,7 +62,9 @@ export function OnboardingProgress({ children }: { children: ReactNode }) {
  * saved step) the browser goes there at once and the save follows; otherwise the guard would
  * send it back until the save lands, so it waits for the save. A failed save shows a toast; a
  * screen that waited stays where it is, so Continue can be pressed again. It runs as a
- * transition, so an expired session's redirect to sign-in reaches the router.
+ * transition, so an expired session's redirect to sign-in reaches the router. `also` is another
+ * save the screen needs with it (the home preference, #328); it runs alongside, and Continue
+ * succeeds only when both do.
  */
 export function useOnboardingContinue(reached: number) {
   const router = useRouter();
@@ -67,13 +72,17 @@ export function useOnboardingContinue(reached: number) {
   const [pending, startTransition] = useTransition();
 
   const go = useCallback(
-    (step: string, href: string, answers: OnboardingAnswers = {}) =>
+    (step: string, href: string, answers: OnboardingAnswers = {}, also?: () => Promise<Saved>) =>
       startTransition(async () => {
-        const save = () =>
-          saveOnboarding(stepToSave(step, reached), answers).catch((err: unknown) => {
+        const guard = (p: Promise<Saved>) =>
+          p.catch((err: unknown): Saved => {
             unstable_rethrow(err);
-            return { ok: false as const, error: FAILED };
+            return { ok: false, error: FAILED };
           });
+        const save = async (): Promise<Saved> => {
+          const results = await Promise.all([guard(saveOnboarding(stepToSave(step, reached), answers)), ...(also ? [guard(also())] : [])]);
+          return results.find((r) => !r.ok) ?? { ok: true };
+        };
         if (href.startsWith("/onboarding/") && alreadyReached(step, reached)) {
           router.push(href);
           const result = await save();

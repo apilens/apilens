@@ -7,8 +7,8 @@ import { invitedOrg } from "@/lib/invitations";
 export const metadata: Metadata = { title: "Your home screen" };
 
 export default async function Page() {
-  const { step, reached } = await requireOnboardingStep("about");
+  const { step, reached, home } = await requireOnboardingStep("about");
   // Invited users (#337) skip the organization and project steps: Continue opens their project.
   const invited = invitedOrg(await getContext("/onboarding/about"));
-  return <About step={step} reached={reached} invitedOrg={invited?.name} />;
+  return <About step={step} reached={reached} home={home} invitedOrg={invited?.name} />;
 }

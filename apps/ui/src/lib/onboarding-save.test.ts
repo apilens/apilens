@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UserContext } from "./identity";
-import { parseOnboardingSave, saveError, savedAnswers } from "./onboarding-save";
+import { DEFAULT_HOME, parseHome, parseOnboardingSave, saveError, savedAnswers, savedHome } from "./onboarding-save";
 
 function ctx(answers?: unknown): UserContext {
   return {
@@ -73,6 +73,31 @@ describe("savedAnswers", () => {
 
   it.each([undefined, null, "acme", 3])("is empty when nothing usable is stored (%j)", (answers) => {
     expect(savedAnswers(ctx(answers))).toEqual({});
+  });
+});
+
+describe("parseHome", () => {
+  it.each(["endpoints", "requests", "exceptions"])("accepts %s", (home) => {
+    expect(parseHome(home)).toBe(home);
+  });
+
+  it.each(["dashboard", "Requests", "", null, undefined, 1])("refuses %j", (home) => {
+    expect(parseHome(home)).toBeNull();
+  });
+});
+
+describe("savedHome", () => {
+  function withHome(home: unknown): UserContext {
+    const c = ctx();
+    return { ...c, user: { ...c.user, preferences: { home } as never } };
+  }
+
+  it("reads the home screen saved on the user", () => {
+    expect(savedHome(withHome("requests"))).toBe("requests");
+  });
+
+  it.each([undefined, "dashboard", 3])("falls back to the default when none usable is saved (%j)", (home) => {
+    expect(savedHome(withHome(home))).toBe(DEFAULT_HOME);
   });
 });
 

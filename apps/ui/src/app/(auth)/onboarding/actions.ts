@@ -6,9 +6,9 @@
 // sentence to show, never a raw error. Invited users (#337) skip the organization and project
 // steps: the about step's Continue finishes onboarding instead (`finishInvitedOnboarding`).
 import { redirect } from "next/navigation";
-import { type Onboarding, type OnboardingAnswers, identity, isApiError } from "@/lib/identity";
+import { type HomeScreen, type Onboarding, type OnboardingAnswers, identity, isApiError } from "@/lib/identity";
 import { invitedLanding, invitedOrg } from "@/lib/invitations";
-import { parseOnboardingSave, saveError } from "@/lib/onboarding-save";
+import { parseHome, parseOnboardingSave, saveError } from "@/lib/onboarding-save";
 import { withActionSession } from "@/lib/server-session";
 
 export type SaveOnboardingResult = { ok: true; onboarding: Onboarding } | { ok: false; error: string; code?: string };
@@ -48,4 +48,24 @@ export async function finishInvitedOnboarding(): Promise<void> {
     return invitedLanding(ctx, org);
   });
   redirect(next);
+}
+
+export type SaveHomeResult = { ok: true; home: HomeScreen } | { ok: false; error: string; code?: string };
+
+/**
+ * Saves the "What should you see first?" pick (#328) as the user's home preference
+ * (`PATCH /users/me` `{preferences: {home}}`), which decides the view `/` opens a project on.
+ */
+export async function saveHome(home: HomeScreen): Promise<SaveHomeResult> {
+  const checked = parseHome(home);
+  if (!checked) return { ok: false, error: saveError("invalid_request"), code: "invalid_request" };
+  return withActionSession(async (session) => {
+    try {
+      const user = await session.call((o) => identity().updateMe({ preferences: { home: checked } }, o));
+      return { ok: true, home: parseHome(user.preferences?.home) ?? checked };
+    } catch (err) {
+      if (!isApiError(err)) throw err;
+      return { ok: false, error: saveError(err.code), code: err.code };
+    }
+  });
 }
