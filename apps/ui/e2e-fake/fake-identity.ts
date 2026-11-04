@@ -77,6 +77,10 @@
 //   POST /v1/requests                              the ingest edge's v1 endpoint (#334): an X-API-Key
 //                                                  created here records the requests on its project
 //                                                  ({accepted}); anything else answers 401
+//   GET  /api/v1/requests?project=                 query reads as the session (#335): the rows the fake
+//   GET  /api/v1/traffic/summary?project=          edge stored for shop or a project the user created,
+//   GET  /api/v1/traffic/endpoints?project=        newest first, and totals/p95 over them; 404 otherwise
+//   POST /__fake/query-down {project, down}        test hook: those reads answer 503 for `project`
 //   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?}
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  `role` is the user's role in acme (default owner);
@@ -422,6 +426,24 @@ const apiKeys = new Map<string, FakeApiKey[]>();
 const rawKeys = new Map<string, { project: string; id: string; user: string }>();
 /** Project slug → what the fake edge stored for it: `ingest-status` reads it (#334). */
 const ingested = new Map<string, { first_at: string; last_at: string; count: number }>();
+/** Project slug → the request rows the fake edge stored, newest first: the query reads serve them (#335). */
+const ingestedRows = new Map<
+  string,
+  {
+    timestamp: string;
+    method: string;
+    path: string;
+    raw_path: string;
+    status_code: number;
+    response_time_ms: number;
+    environment: string;
+    consumer_id: string;
+    consumer_name: string;
+    trace_id: string;
+  }[]
+>();
+/** Projects whose query reads answer 503, set by `/__fake/query-down` (#335). */
+const queryDown = new Set<string>();
 
 function seedApiKey(input: Record<string, unknown>): FakeApiKey {
   return {
@@ -1114,7 +1136,80 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const now = new Date().toISOString();
     const was = ingested.get(holder.project);
     ingested.set(holder.project, { first_at: was?.first_at ?? now, last_at: now, count: (was?.count ?? 0) + list.length });
+    const rows = ingestedRows.get(holder.project) ?? [];
+    for (const r of list) {
+      const raw = String(r.path);
+      rows.unshift({
+        timestamp: now,
+        method: String(r.method).toUpperCase(),
+        path: raw.split("?")[0].replace(/\/\d+(?=\/|$)/g, "/{id}"),
+        raw_path: raw,
+        status_code: typeof r.status_code === "number" ? r.status_code : 200,
+        response_time_ms: typeof r.response_time_ms === "number" ? r.response_time_ms : 0,
+        environment: typeof r.environment === "string" ? r.environment : "production",
+        consumer_id: "",
+        consumer_name: "",
+        trace_id: randomUUID().replaceAll("-", ""),
+      });
+    }
+    ingestedRows.set(holder.project, rows);
     return send(res, 200, { accepted: list.length });
+  }
+  // The query role's dashboard reads as a session (#295, #335): the project in `?project=`; a
+  // project the user cannot view answers 404, as internal/query does.
+  if (req.method === "GET" && (path === "/api/v1/requests" || path === "/api/v1/traffic/summary" || path === "/api/v1/traffic/endpoints")) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = url.searchParams.get("project") ?? "";
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+    if (queryDown.has(slug)) return problem(res, 503, "unavailable");
+    const rows = ingestedRows.get(slug) ?? [];
+    if (path === "/api/v1/requests") {
+      const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") ?? 100) || 100));
+      return send(res, 200, { requests: rows.slice(0, limit) });
+    }
+    const p95 = (list: typeof rows) => {
+      const sorted = list.map((r) => r.response_time_ms).sort((a, b) => a - b);
+      return sorted.length ? sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)] : 0;
+    };
+    const errs = (list: typeof rows, lo: number) => list.filter((r) => r.status_code >= lo && r.status_code < lo + 100).length;
+    if (path === "/api/v1/traffic/endpoints") {
+      const groups = new Map<string, typeof rows>();
+      for (const r of rows) groups.set(`${r.method} ${r.path}`, [...(groups.get(`${r.method} ${r.path}`) ?? []), r]);
+      const endpoints = [...groups.values()].map((g) => ({
+        method: g[0].method,
+        path: g[0].path,
+        requests: g.length,
+        client_errors: errs(g, 400),
+        server_errors: errs(g, 500),
+        error_rate: (errs(g, 400) + errs(g, 500)) / g.length,
+        p50_ms: p95(g),
+        p95_ms: p95(g),
+      }));
+      return send(res, 200, { endpoints });
+    }
+    const to = new Date();
+    const range = url.searchParams.get("range") ?? "24h";
+    return send(res, 200, {
+      range,
+      from: new Date(to.getTime() - 7 * 86_400_000).toISOString(),
+      to: to.toISOString(),
+      requests: rows.length,
+      client_errors: errs(rows, 400),
+      server_errors: errs(rows, 500),
+      error_rate: rows.length ? (errs(rows, 400) + errs(rows, 500)) / rows.length : 0,
+      p50_ms: p95(rows),
+      p95_ms: p95(rows),
+      p99_ms: p95(rows),
+      requests_per_minute: rows.length / (7 * 24 * 60),
+    });
+  }
+  if (req.method === "POST" && path === "/__fake/query-down") {
+    // Test hook: the query API answers 503 for `project` (#335's error state), or again normally.
+    const { project, down } = await readBody(req);
+    if (down) queryDown.add(String(project));
+    else queryDown.delete(String(project));
+    return send(res, 204);
   }
   const sessionPath = path.match(/^\/api\/v1\/users\/me\/sessions(?:\/([^/]+))?$/);
   if (sessionPath) {

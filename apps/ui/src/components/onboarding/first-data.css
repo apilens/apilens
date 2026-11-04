@@ -1,0 +1,40 @@
+/* "Your first requests" (#335): the facts on the system's .ob-live, the latest requests in an
+   .ob-card table. At phone width the "When" column goes and the path truncates, so the page never
+   scrolls sideways. */
+.fd-facts { margin-top: 16px; }
+.fd-facts .facts { margin: 0; }
+.fd-facts dt { font: 400 12.5px/18px var(--font-sans); color: var(--ink-muted); }
+.fd-facts dd { margin: 0; }
+.fd-latest { margin-top: 20px; }
+.fd-latest > .ob-l { margin: 0 0 8px; }
+.fd-card { overflow: hidden; }
+.fd-table { width: 100%; border-collapse: collapse; table-layout: fixed; font: 400 12.5px/18px var(--font-mono); color: var(--ink); }
+.fd-table th { padding: 9px 12px; border-bottom: 1px solid var(--border); text-align: left; font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
+.fd-table td { padding: 9px 12px; border-top: 1px solid var(--border); vertical-align: middle; }
+.fd-table tbody tr:first-child td { border-top: 0; }
+.fd-table th:nth-child(1) { width: 64px; }
+.fd-table th:nth-child(3) { width: 64px; }
+.fd-table th:nth-child(4) { width: 76px; }
+.fd-table th:nth-child(5) { width: 92px; }
+.fd-method { font-weight: 500; }
+.fd-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-num, .fd-when { text-align: right; white-space: nowrap; }
+.fd-table th.fd-num, .fd-table th.fd-when { text-align: right; }
+.fd-when { color: var(--ink-muted); }
+.fd-status { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+.fd-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.fd-ok { color: var(--ok); }
+.fd-warn { color: var(--warn); }
+.fd-error { color: var(--error); }
+.fd-empty { margin-top: 0; }
+.fd-failed { margin-top: 16px; }
+.fd-retry { padding: 0; border: 0; background: none; font: inherit; font-weight: 500; cursor: pointer; }
+.fd-retry:disabled { cursor: default; opacity: .6; }
+.fd-retry:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+@media (max-width: 720px) {
+  .fd-table .fd-when { display: none; }
+  .fd-table th, .fd-table td { padding: 9px 8px; }
+  .fd-table th:nth-child(1) { width: 52px; }
+  .ob-live.fd-facts .facts div { padding: 12px 12px; }
+  .ob-live.fd-facts .facts b { font-size: 18px; line-height: 24px; }
+}

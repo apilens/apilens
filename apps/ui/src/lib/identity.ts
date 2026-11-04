@@ -789,6 +789,55 @@ export interface IngestStatus {
   count_1h: number;
 }
 
+// Query role (internal/query, #295): with a session the project is the `project` query parameter
+// and the caller needs `project.view`. Shapes as in api/openapi/apilens.v1.json.
+
+/** Time range of the traffic operations, ending now. */
+export type QueryRange = "1h" | "6h" | "24h" | "7d";
+
+/** One row of `GET /requests`, newest first. */
+export interface RequestRow {
+  timestamp: string;
+  method: string;
+  /** Route template, e.g. `/orders/{id}`. */
+  path: string;
+  /** The URL as requested, e.g. `/orders/42?full=1`. */
+  raw_path: string;
+  status_code: number;
+  response_time_ms: number;
+  environment: string;
+  consumer_id: string;
+  consumer_name: string;
+  trace_id: string;
+}
+
+/** `GET /traffic/summary`. */
+export interface TrafficSummary {
+  range: string;
+  from: string;
+  to: string;
+  requests: number;
+  client_errors: number;
+  server_errors: number;
+  error_rate: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  requests_per_minute: number;
+}
+
+/** One row of `GET /traffic/endpoints`. */
+export interface EndpointTraffic {
+  method: string;
+  path: string;
+  requests: number;
+  client_errors: number;
+  server_errors: number;
+  error_rate: number;
+  p50_ms: number;
+  p95_ms: number;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Operations
 
@@ -948,6 +997,14 @@ export function createClient(config: ClientConfig) {
       request<SlugAvailability>("GET", "/projects/slug-available", { ...o, query: { slug } }),
     ingestStatus: (projectSlug: string, o: Authed) =>
       request<IngestStatus>("GET", `/projects/${seg(projectSlug)}/ingest-status`, o),
+
+    // query: dashboard reads as the signed-in user (#295) ----------------------------------
+    listRequests: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
+      request<{ requests: RequestRow[] | null }>("GET", "/requests", { ...o, query: { project: projectSlug, ...q } }),
+    trafficSummary: (projectSlug: string, range: QueryRange, o: Authed) =>
+      request<TrafficSummary>("GET", "/traffic/summary", { ...o, query: { project: projectSlug, range } }),
+    listEndpoints: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
+      request<{ endpoints: EndpointTraffic[] | null }>("GET", "/traffic/endpoints", { ...o, query: { project: projectSlug, ...q } }),
 
     // api: project API keys ---------------------------------------------------------------
     listApiKeys: (projectSlug: string, o: Authed) =>
