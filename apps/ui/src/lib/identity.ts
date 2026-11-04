@@ -396,7 +396,16 @@ export interface OidcRequest {
   callback_url: string;
 }
 
-export type OrgRole ="owner" | "admin" | "member" | "viewer";
+/** `GET /auth/recovery/status` (#270): where a lost-device recovery request stands. */
+export interface RecoveryStatus {
+  /** `cancelled` also covers a request replaced by a newer one. */
+  status: "pending" | "ready" | "confirmed" | "cancelled";
+  requested_at: string;
+  /** When the cooling-off period ends and the request can be confirmed. */
+  ready_at: string;
+}
+
+export type OrgRole = "owner" | "admin" | "member" | "viewer";
 
 export interface OrgRef {
   name: string;
@@ -549,6 +558,15 @@ export function createClient(config: ClientConfig) {
       request<OidcRequest>("GET", `/auth/oidc/requests/${seg(id)}`, o),
     oidcComplete: (id: string, o: Authed) =>
       request<{ redirect_to: string }>("POST", `/auth/oidc/requests/${seg(id)}/complete`, o),
+    // identity: account recovery (2FA device lost) -----------------------------------------
+    recoveryRequest: (body: { email: string }, o?: CallOptions) =>
+      request<{ sent: boolean }>("POST", "/auth/recovery/request", { ...o, body }),
+    recoveryStatus: (token: string, o?: CallOptions) =>
+      request<RecoveryStatus>("GET", "/auth/recovery/status", { ...o, query: { token } }),
+    recoveryConfirm: (body: { token: string }, o?: CallOptions) =>
+      request<SessionBundle>("POST", "/auth/recovery/confirm", { ...o, body }),
+    recoveryCancel: (body: { token: string }, o?: CallOptions) =>
+      request<void>("POST", "/auth/recovery/cancel", { ...o, body }),
 
     // identity: sessions ------------------------------------------------------------------
     refresh: (body: { refresh_token: string }, o?: CallOptions) =>
