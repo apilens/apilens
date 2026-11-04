@@ -47,3 +47,12 @@ one wire format (`src/lib/session-format.ts`) and one set of test vectors
 
 Change them together. `open()` returns `null` for any missing, tampered or
 unknown-version cookie and never throws on cookie input.
+
+## Backend client
+
+Server code calls identity and the dashboard API through `src/lib/identity.ts`
+(`identity().me({ accessToken })`, `identity().emailStart(...)`, ...). It is
+`server-only`, sends a `X-Request-Id` on every call (pass the incoming one via
+`contextFromHeaders(req.headers)`), and throws `ApiError { status, code,
+retryAfter, requestId }` parsed from the RFC 9457 problem body. Branch on
+`code`; `status` is `0` for network failures and timeouts.

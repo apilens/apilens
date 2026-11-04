@@ -1,0 +1,411 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
+
+const {
+  ApiError,
+  CLIENT_ERROR_CODES,
+  codeForStatus,
+  contextFromHeaders,
+  createClient,
+  errorFromResponse,
+  isTwoFactorRequired,
+  parseRetryAfter,
+} = await import("./identity");
+
+const BASE = "http://apilens.test:8080";
+
+function problem(status: number, body: unknown, headers: Record<string, string> = {}) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/problem+json", ...headers },
+  });
+}
+
+function json(body: unknown, status = 200, headers: Record<string, string> = {}) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json", ...headers },
+  });
+}
+
+interface Recorded {
+  url: string;
+  method: string;
+  headers: Headers;
+  body: unknown;
+}
+
+function recordingClient(respond: (req: Recorded) => Response | Promise<Response>) {
+  const calls: Recorded[] = [];
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req: Recorded = {
+      url: String(input),
+      method: init?.method ?? "GET",
+      headers: new Headers(init?.headers),
+      body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+    };
+    calls.push(req);
+    return respond(req);
+  });
+  const client = createClient({ baseUrl: BASE, fetch: fetchMock as unknown as typeof fetch });
+  return { client, calls };
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("parseRetryAfter", () => {
+  const now = Date.parse("2026-11-04T12:00:00Z");
+
+  it.each([
+    [null, null],
+    [undefined, null],
+    ["", null],
+    ["  ", null],
+    ["30", 30],
+    [" 0 ", 0],
+    ["soon", null],
+    ["-5", null],
+    ["Wed, 04 Nov 2026 12:00:45 GMT", 45],
+    ["Wed, 04 Nov 2026 11:59:00 GMT", 0],
+  ])("parses %j as %j", (input, expected) => {
+    expect(parseRetryAfter(input, now)).toBe(expected);
+  });
+});
+
+describe("codeForStatus", () => {
+  it.each([
+    [400, "bad_request"],
+    [401, "unauthorized"],
+    [403, "forbidden"],
+    [404, "not_found"],
+    [409, "conflict"],
+    [422, "validation_failed"],
+    [429, "rate_limited"],
+    [500, "server_error"],
+    [501, "server_error"],
+    [502, "unavailable"],
+    [503, "unavailable"],
+    [504, "unavailable"],
+    [418, "unknown_error"],
+  ])("maps %i to %s", (status, code) => {
+    expect(codeForStatus(status)).toBe(code);
+  });
+});
+
+describe("errorFromResponse", () => {
+  it("uses the problem's code, detail and retry_after", async () => {
+    const err = await errorFromResponse(
+      problem(400, {
+        title: "Bad Request",
+        status: 400,
+        detail: "That code is not valid.",
+        code: "invalid_code",
+        retry_after: 12,
+      }),
+    );
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(400);
+    expect(err.code).toBe("invalid_code");
+    expect(err.message).toBe("That code is not valid.");
+    expect(err.retryAfter).toBe(12);
+    expect(err.problem?.title).toBe("Bad Request");
+  });
+
+  it("prefers the Retry-After header over the body", async () => {
+    const err = await errorFromResponse(
+      problem(429, { status: 429, code: "rate_limited", retry_after: 5 }, { "retry-after": "60" }),
+    );
+    expect(err.code).toBe("rate_limited");
+    expect(err.retryAfter).toBe(60);
+  });
+
+  it("parses an HTTP-date Retry-After", async () => {
+    const now = Date.parse("2026-11-04T12:00:00Z");
+    const err = await errorFromResponse(
+      problem(503, {}, { "retry-after": "Wed, 04 Nov 2026 12:00:10 GMT" }),
+      null,
+      now,
+    );
+    expect(err.retryAfter).toBe(10);
+    expect(err.code).toBe("unavailable");
+  });
+
+  it("rounds a fractional retry_after up and ignores junk", async () => {
+    expect((await errorFromResponse(problem(429, { retry_after: 1.2 }))).retryAfter).toBe(2);
+    expect((await errorFromResponse(problem(429, { retry_after: "x" }))).retryAfter).toBeNull();
+  });
+
+  it("falls back to the status code when the problem has no code", async () => {
+    const err = await errorFromResponse(problem(401, { title: "Unauthorized", status: 401 }));
+    expect(err.code).toBe("unauthorized");
+    expect(err.message).toBe("Unauthorized");
+    expect(err.retryAfter).toBeNull();
+  });
+
+  it("treats a blank code as missing", async () => {
+    expect((await errorFromResponse(problem(404, { code: "  " }))).code).toBe("not_found");
+  });
+
+  it("handles a non-JSON error body", async () => {
+    const res = new Response("<html>bad gateway</html>", {
+      status: 502,
+      headers: { "content-type": "text/html" },
+    });
+    const err = await errorFromResponse(res);
+    expect(err.status).toBe(502);
+    expect(err.code).toBe("unavailable");
+    expect(err.problem).toBeNull();
+    expect(err.message).toBe("HTTP 502");
+  });
+
+  it("handles malformed JSON and non-object JSON", async () => {
+    const broken = new Response("{not json", {
+      status: 500,
+      headers: { "content-type": "application/problem+json" },
+    });
+    expect((await errorFromResponse(broken)).code).toBe("server_error");
+    expect((await errorFromResponse(problem(400, ["a"]))).problem).toBeNull();
+  });
+
+  it("takes the request id from the response, else the sent one", async () => {
+    const echoed = await errorFromResponse(problem(400, {}, { "x-request-id": "srv-1" }), "sent-1");
+    expect(echoed.requestId).toBe("srv-1");
+    expect((await errorFromResponse(problem(400, {}), "sent-1")).requestId).toBe("sent-1");
+  });
+
+  it("keeps every field of the spec's ErrorModel", async () => {
+    const spec = JSON.parse(
+      readFileSync(
+        fileURLToPath(new URL("../../../../api/openapi/apilens.v1.json", import.meta.url)),
+        "utf8",
+      ),
+    );
+    const model = spec.components.schemas.ErrorModel.properties as Record<string, unknown>;
+    const body: Record<string, unknown> = {
+      type: "about:blank",
+      title: "Conflict",
+      status: 409,
+      detail: "Slug is taken.",
+      instance: "/api/v1/orgs",
+      errors: [{ location: "body.slug", message: "taken", value: "acme" }],
+    };
+    const fields = Object.keys(model).filter((k) => k !== "$schema");
+    expect(fields.sort()).toEqual(Object.keys(body).sort());
+    const err = await errorFromResponse(problem(409, { ...body, code: "slug_taken" }));
+    expect(err.problem).toEqual({ ...body, code: "slug_taken" });
+  });
+});
+
+describe("request transport", () => {
+  it("sends JSON with a generated X-Request-Id and parses the body", async () => {
+    const { client, calls } = recordingClient(() => json({ sent: true, retry_after: 30 }));
+    const out = await client.emailStart({ email: "a@b.co", intent: "signup", remember: true });
+    expect(out).toEqual({ sent: true, retry_after: 30 });
+    const [call] = calls;
+    expect(call.url).toBe(`${BASE}/api/v1/auth/email/start`);
+    expect(call.method).toBe("POST");
+    expect(call.body).toEqual({ email: "a@b.co", intent: "signup", remember: true });
+    expect(call.headers.get("content-type")).toBe("application/json");
+    expect(call.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
+    expect(call.headers.get("authorization")).toBeNull();
+  });
+
+  it("propagates request id, client IP, user agent and bearer token", async () => {
+    const { client, calls } = recordingClient(() => json({ id: "u1" }));
+    await client.me({
+      accessToken: "jwt",
+      requestId: "req-42",
+      forwardedFor: "203.0.113.9",
+      userAgent: "Firefox",
+    });
+    const h = calls[0].headers;
+    expect(h.get("x-request-id")).toBe("req-42");
+    expect(h.get("x-forwarded-for")).toBe("203.0.113.9");
+    expect(h.get("user-agent")).toBe("Firefox");
+    expect(h.get("authorization")).toBe("Bearer jwt");
+    expect(calls[0].body).toBeUndefined();
+    expect(h.get("content-type")).toBeNull();
+  });
+
+  it("throws ApiError carrying the sent request id when the server does not echo one", async () => {
+    const { client } = recordingClient(() =>
+      problem(400, { code: "invalid_code", detail: "Wrong code" }),
+    );
+    const err = await client
+      .emailVerify({ email: "a@b.co", code: "000000" }, { requestId: "req-7" })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 400, code: "invalid_code", requestId: "req-7" });
+  });
+
+  it("maps a network failure to status 0 network_error", async () => {
+    const { client } = recordingClient(() => {
+      throw new TypeError("fetch failed");
+    });
+    const err = await client.providers({ requestId: "r" }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 0, code: CLIENT_ERROR_CODES.network, requestId: "r" });
+    expect((err as Error).cause).toBeInstanceOf(TypeError);
+  });
+
+  it("maps a timeout to status 0 timeout", async () => {
+    const fetchMock = vi.fn(
+      (_: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        }),
+    );
+    const client = createClient({
+      baseUrl: BASE,
+      fetch: fetchMock as unknown as typeof fetch,
+      timeoutMs: 5,
+    });
+    const err = await client.providers().catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 0, code: CLIENT_ERROR_CODES.timeout });
+  });
+
+  it("maps a caller abort to network_error, not timeout", async () => {
+    const controller = new AbortController();
+    const { client } = recordingClient(() => {
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    });
+    const err = await client.providers({ signal: controller.signal }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 0, code: CLIENT_ERROR_CODES.network });
+  });
+
+  it("returns undefined for 204 and empty bodies", async () => {
+    const { client } = recordingClient(() => new Response(null, { status: 204 }));
+    await expect(client.logout({ refresh_token: "r" })).resolves.toBeUndefined();
+  });
+
+  it("rejects a non-JSON success body", async () => {
+    const { client } = recordingClient(() => new Response("ok", { status: 200 }));
+    const err = await client.providers().catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 200, code: CLIENT_ERROR_CODES.unknown });
+  });
+
+  it("tolerates a trailing slash in the base URL", async () => {
+    const calls: string[] = [];
+    const client = createClient({
+      baseUrl: `${BASE}/`,
+      fetch: (async (input: RequestInfo | URL) => {
+        calls.push(String(input));
+        return json({});
+      }) as typeof fetch,
+    });
+    await client.providers();
+    expect(calls).toEqual([`${BASE}/api/v1/auth/providers`]);
+  });
+});
+
+describe("operations", () => {
+  const authed = { accessToken: "jwt" };
+  type Client = ReturnType<typeof createClient>;
+
+  // [method, path template under /api/v1, call]
+  const routes: [string, string, (c: Client) => Promise<unknown>][] = [
+    ["GET", "/auth/providers", (c) => c.providers()],
+    ["POST", "/auth/email/start", (c) => c.emailStart({ email: "a@b.co", intent: "signin" })],
+    ["POST", "/auth/email/verify", (c) => c.emailVerify({ email: "a@b.co", code: "123456" })],
+    ["POST", "/auth/email/verify-link", (c) => c.emailVerifyLink({ token: "t" })],
+    ["POST", "/auth/handoff", (c) => c.handoff({ code: "h" })],
+    ["POST", "/auth/2fa/exchange", (c) => c.twoFactorExchange({ pre_auth_token: "p", code: "1" })],
+    ["POST", "/auth/passkeys/login/options", (c) => c.passkeyLoginOptions()],
+    [
+      "POST",
+      "/auth/passkeys/login/verify",
+      (c) => c.passkeyLoginVerify({ challenge_id: "c", credential: {} }),
+    ],
+    ["POST", "/auth/refresh", (c) => c.refresh({ refresh_token: "r" })],
+    ["POST", "/auth/logout", (c) => c.logout({ refresh_token: "r" })],
+    ["GET", "/users/me", (c) => c.me(authed)],
+    ["GET", "/users/me/context", (c) => c.context(authed)],
+    ["GET", "/auth/invitations/{token}", (c) => c.invitationLookup("a/b?c")],
+    ["POST", "/auth/invitations/{token}/accept", (c) => c.invitationAccept("a/b?c", authed)],
+    ["GET", "/orgs", (c) => c.listOrgs(authed)],
+    ["POST", "/orgs", (c) => c.createOrg({ name: "Acme", slug: "acme" }, authed)],
+    ["GET", "/orgs/{slug}", (c) => c.getOrg("a/b?c", authed)],
+    ["GET", "/orgs/slug-available", (c) => c.orgSlugAvailable("acme", authed)],
+    ["GET", "/orgs/{slug}/projects", (c) => c.listProjects("a/b?c", authed)],
+    [
+      "POST",
+      "/orgs/{slug}/projects",
+      (c) => c.createProject("a/b?c", { name: "Web", slug: "web" }, authed),
+    ],
+    ["GET", "/projects/{slug}", (c) => c.getProject("a/b?c", authed)],
+    ["GET", "/projects/slug-available", (c) => c.projectSlugAvailable("web", authed)],
+    ["GET", "/projects/{slug}/ingest-status", (c) => c.ingestStatus("a/b?c", authed)],
+    ["GET", "/projects/{slug}/api-keys", (c) => c.listApiKeys("a/b?c", authed)],
+    [
+      "POST",
+      "/projects/{slug}/api-keys",
+      (c) => c.createApiKey("a/b?c", { name: "ingest", scopes: ["ingest"] }, authed),
+    ],
+    ["DELETE", "/projects/{slug}/api-keys/{id}", (c) => c.revokeApiKey("a/b?c", "a/b?c", authed)],
+  ];
+
+  it.each(routes)("%s %s", async (method, template, call) => {
+    const { client, calls } = recordingClient(() => json({}));
+    await call(client);
+    expect(calls).toHaveLength(1);
+    const url = new URL(calls[0].url);
+    expect(calls[0].method).toBe(method);
+    // Path parameters are encoded as a single segment.
+    expect(url.pathname).toBe(`/api/v1${template.replace(/\{[^}]+\}/g, "a%2Fb%3Fc")}`);
+  });
+
+  it("sends slug availability as a query parameter", async () => {
+    const { client, calls } = recordingClient(() => json({ available: true, suggestions: [] }));
+    await client.orgSlugAvailable("acme co", authed);
+    expect(new URL(calls[0].url).searchParams.get("slug")).toBe("acme co");
+  });
+
+  it("uses the method the committed OpenAPI spec declares for every path it already has", () => {
+    const spec = JSON.parse(
+      readFileSync(
+        fileURLToPath(new URL("../../../../api/openapi/apilens.v1.json", import.meta.url)),
+        "utf8",
+      ),
+    ) as { paths: Record<string, Record<string, unknown>> };
+    for (const [method, template] of routes) {
+      const item = spec.paths[`/api/v1${template}`];
+      if (item) expect(Object.keys(item)).toContain(method.toLowerCase());
+    }
+  });
+});
+
+describe("helpers", () => {
+  it("isTwoFactorRequired discriminates sign-in results", () => {
+    expect(isTwoFactorRequired({ status: "2fa_required", pre_auth_token: "p" })).toBe(true);
+    expect(
+      isTwoFactorRequired({
+        access_token: "a",
+        refresh_token: "r",
+        expires_in: 900,
+        user: {} as never,
+      }),
+    ).toBe(false);
+  });
+
+  it("contextFromHeaders picks only what it forwards", () => {
+    expect(
+      contextFromHeaders(
+        new Headers({
+          "x-request-id": "rid",
+          "x-forwarded-for": "198.51.100.1, 10.0.0.1",
+          "user-agent": "Safari",
+          cookie: "apilens_session=secret",
+        }),
+      ),
+    ).toEqual({ requestId: "rid", forwardedFor: "198.51.100.1, 10.0.0.1", userAgent: "Safari" });
+    expect(contextFromHeaders(new Headers({ "x-real-ip": "192.0.2.4" }))).toEqual({
+      forwardedFor: "192.0.2.4",
+    });
+    expect(contextFromHeaders(new Headers())).toEqual({});
+  });
+});
