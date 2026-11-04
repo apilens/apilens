@@ -27,6 +27,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/apilens/apilens/internal/controlplane/store/db"
+	"github.com/apilens/apilens/internal/platform/authn"
 )
 
 const (
@@ -62,6 +63,17 @@ func (p Principal) HasScope(scope string) bool {
 		}
 	}
 	return false
+}
+
+// Authn returns the key as the principal shared with session callers.
+func (p Principal) Authn() authn.Principal {
+	return authn.Principal{
+		Kind:      authn.KindAPIKey,
+		KeyID:     p.KeyID,
+		ProjectID: p.ProjectID,
+		OrgID:     p.OrgID,
+		Scopes:    p.Scopes,
+	}
 }
 
 // Generate returns a new raw key, its display prefix and its storage hash.
