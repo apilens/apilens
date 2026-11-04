@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Logo } from "@/components/logo";
+import { LINKS, extLink } from "@/lib/links";
 
 // 16px onboarding icons from the design system's Flow previews (1.5 stroke, set by .ob-ic).
 const P = {
@@ -112,9 +113,9 @@ export function ObShell({ eyebrow, headline, body, receipt, progress, step, badg
         ) : null}
         <div className="ob-bp-foot">
           <span>© 2026 APILens</span>
-          <a href="#">Privacy</a>
-          <a href="#">Terms</a>
-          <a href="#">Status</a>
+          <a {...extLink(LINKS.privacy)}>Privacy</a>
+          <a {...extLink(LINKS.terms)}>Terms</a>
+          <a {...extLink(LINKS.status)}>Status</a>
         </div>
       </aside>
 
@@ -123,11 +124,11 @@ export function ObShell({ eyebrow, headline, body, receipt, progress, step, badg
           <span className="ob-mlogo"><Logo height={34} /></span>
           {step !== undefined ? <Steps current={step} /> : <span />}
           <div className="ob-tr">
-            <a className="ah-btn ah-btn--ghost ah-btn--sm" href="#" title="Docs" aria-label="Docs">
+            <a className="ah-btn ah-btn--ghost ah-btn--sm" {...extLink(LINKS.docs)} title="Docs" aria-label="Docs">
               <ObIcon name="book" />
               Docs
             </a>
-            <a className="ah-btn ah-btn--ghost ah-btn--sm" href="#" title="Help" aria-label="Help">
+            <a className="ah-btn ah-btn--ghost ah-btn--sm" {...extLink(LINKS.help)} title="Help" aria-label="Help">
               <ObIcon name="help" />
               Help
             </a>

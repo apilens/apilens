@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { LINKS, extLink } from "@/lib/links";
 import { Brand, ObIcon, ObShell } from "./ob";
 
 const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
@@ -36,7 +37,7 @@ export function SignUp() {
       lead="Free for 3 services. No card needed."
       below={
         <>
-          Already have an account? <Link className="cp-link" href="/sign-in">Sign in</Link> · <a className="cp-link" href="#">Terms</a> · <a className="cp-link" href="#">Privacy</a>
+          Already have an account? <Link className="cp-link" href="/sign-in">Sign in</Link> · <a className="cp-link" {...extLink(LINKS.terms)}>Terms</a> · <a className="cp-link" {...extLink(LINKS.privacy)}>Privacy</a>
         </>
       }
     >
