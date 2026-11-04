@@ -372,6 +372,7 @@ func runOpenAPI(stdout io.Writer) error {
 	identity.NewPasskeyLogin(config.IdentityConfig{}, identity.PasskeyLoginDeps{}, nil, nil).Register(srv.API())
 	identity.NewRestore(config.IdentityConfig{}, nil, nil, nil, nil).Register(srv.API())
 	controlplaneapi.Register(srv.API(), controlplaneapi.Deps{})
+	identity.NewRecovery(config.IdentityConfig{}, nil, nil, nil, nil).Register(srv.API())
 	b, err := json.MarshalIndent(srv.API().OpenAPI(), "", "  ")
 	if err != nil {
 		return err

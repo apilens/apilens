@@ -34,6 +34,7 @@ import (
 	"github.com/apilens/apilens/internal/identity/emailchange"
 	"github.com/apilens/apilens/internal/identity/keys"
 	"github.com/apilens/apilens/internal/identity/passkey"
+	"github.com/apilens/apilens/internal/identity/recovery"
 	"github.com/apilens/apilens/internal/identity/session"
 	identitydb "github.com/apilens/apilens/internal/identity/store/db"
 	"github.com/apilens/apilens/internal/identity/token"
@@ -430,6 +431,8 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		Audit:    audit.New(a.pool),
 	}, limiter, a.logger).Register(a.server.API())
 	identity.NewRestore(a.cfg.Identity, accounts, codes, limiter, a.logger).Register(a.server.API())
+	recoverySvc := recovery.New(a.pool, a.jobs, recovery.Options{Delay: a.cfg.Identity.RecoveryDelay})
+	identity.NewRecovery(a.cfg.Identity, recoverySvc, sessions, limiter, a.logger).Register(a.server.API())
 	// Deleted accounts are purged hourly once their grace period has passed.
 	jobs.Register(a.workers, account.NewPurgeWorker(a.pool, a.logger))
 	a.workers.Periodic(account.PurgeInterval, account.PurgeArgs{})

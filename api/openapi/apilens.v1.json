@@ -1329,6 +1329,117 @@
         ],
         "type": "object"
       },
+      "RecoveryRequestInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RecoveryRequestInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "email": {
+            "description": "Address of the account whose two-factor device was lost.",
+            "format": "email",
+            "maxLength": 254,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "type": "object"
+      },
+      "RecoveryRequestOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RecoveryRequestOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "sent": {
+            "description": "Always true; the response never reveals whether an account exists or has two-factor authentication on.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sent"
+        ],
+        "type": "object"
+      },
+      "RecoveryStatusOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RecoveryStatusOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "ready_at": {
+            "description": "When the cooling-off period ends and recovery can be confirmed.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "requested_at": {
+            "description": "When recovery was requested.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "description": "pending: waiting out the cooling-off period; ready: it can be confirmed; confirmed: recovery completed; cancelled: cancelled or replaced by a newer request.",
+            "enum": [
+              "pending",
+              "ready",
+              "confirmed",
+              "cancelled"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "requested_at",
+          "ready_at"
+        ],
+        "type": "object"
+      },
+      "RecoveryTokenBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RecoveryTokenBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "token": {
+            "description": "Token from the recovery email's link.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
       "RefreshTokenBody": {
         "additionalProperties": false,
         "properties": {
@@ -3411,6 +3522,337 @@
           }
         },
         "summary": "Enabled sign-in methods",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/recovery/cancel": {
+      "post": {
+        "description": "Public; authenticated by the token from the recovery email. Cancels a pending request; cancelling one already cancelled also answers 204. Audited as `recovery.cancelled`. An unknown or already confirmed token answers `invalid_token`. Rate-limited per client IP.",
+        "operationId": "cancel-account-recovery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryTokenBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `invalid_token`.",
+            "x-apilens-codes": [
+              "invalid_token"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "summary": "Cancel account recovery",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/recovery/confirm": {
+      "post": {
+        "description": "Public; authenticated by the token from the recovery email. Allowed only once the cooling-off period has passed (`recovery_not_ready` with `retry_after` before). Turns two-factor authentication off (deletes the secret and every backup code), signs out every session and emails a `security_change` alert, then answers a fresh session (`amr: [\"email\"]`). Audited as `recovery.confirmed` and `totp.disabled`. An unknown, cancelled or already confirmed token answers `invalid_token`. Rate-limited per client IP.",
+        "operationId": "confirm-account-recovery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryTokenBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `invalid_token`.",
+            "x-apilens-codes": [
+              "invalid_token"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `recovery_not_ready`.",
+            "x-apilens-codes": [
+              "recovery_not_ready"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "summary": "Confirm account recovery",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/recovery/request": {
+      "post": {
+        "description": "Public. For an account whose two-factor device was lost: when the address has an active account with two-factor authentication on, starts a recovery request and emails `recovery_requested` with a cancel link. The request can be confirmed only after `identity.recovery_delay` (24 hours); a newer request replaces older pending ones. Always answers 200 `{sent: true}`, whether or not such an account exists. Audited as `recovery.requested`. Rate-limited per client IP and per email address (429 `rate_limited` with Retry-After).",
+        "operationId": "request-account-recovery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryRequestInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryRequestOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "summary": "Request account recovery",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/recovery/status": {
+      "get": {
+        "description": "Public; authenticated by the token from the recovery email. Answers the request's state and when it was requested and becomes ready. An unknown token answers `invalid_token`. Rate-limited per client IP.",
+        "operationId": "get-account-recovery-status",
+        "parameters": [
+          {
+            "description": "Token from the recovery email's link.",
+            "explode": false,
+            "in": "query",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "description": "Token from the recovery email's link.",
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryStatusOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `invalid_token`.",
+            "x-apilens-codes": [
+              "invalid_token"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "summary": "Get account recovery status",
         "tags": [
           "Auth"
         ]
