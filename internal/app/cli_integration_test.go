@@ -185,13 +185,13 @@ func TestSeedAndUserCommands(t *testing.T) {
 	}
 	var first seedOut
 	mustRun(&first, "seed")
-	if first.APIKey == "" || first.UserID == "" || first.UserEmail != "dev@apilens.local" {
+	if first.APIKey == "" || first.UserID == "" || first.UserEmail != "dev@example.com" {
 		t.Fatalf("seed = %+v", first)
 	}
-	if got := role("dev@apilens.local"); got != "owner" {
+	if got := role("dev@example.com"); got != "owner" {
 		t.Fatalf("dev user role = %q, want owner", got)
 	}
-	useLink(first.MagicLink, "dev@apilens.local")
+	useLink(first.MagicLink, "dev@example.com")
 	if auditCount("member.added") != 1 || auditCount("user.created") != 1 || auditCount("login.requested") != 1 {
 		t.Fatal("seed did not audit member.added, user.created and login.requested once each")
 	}
@@ -251,8 +251,8 @@ func TestSeedAndUserCommands(t *testing.T) {
 
 	// With two owners one may be demoted, but never the last one.
 	var demoted member
-	mustRun(&demoted, "user", "promote", "-email=dev@apilens.local", "-org=dev", "-role=member")
-	if demoted.PreviousRole != "owner" || role("dev@apilens.local") != "member" {
+	mustRun(&demoted, "user", "promote", "-email=dev@example.com", "-org=dev", "-role=member")
+	if demoted.PreviousRole != "owner" || role("dev@example.com") != "member" {
 		t.Fatalf("demote = %+v", demoted)
 	}
 	if _, stderr, code := run("user", "promote", "-email=ops@example.com", "-org=dev", "-role=viewer"); code == 0 || !strings.Contains(stderr, "last owner") {

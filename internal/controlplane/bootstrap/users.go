@@ -23,7 +23,7 @@ import (
 
 // DevUserEmail is the user `apilens seed` makes owner of the seeded
 // organization.
-const DevUserEmail = "dev@apilens.local"
+const DevUserEmail = "dev@example.com"
 
 // Errors of the operator user commands.
 var (

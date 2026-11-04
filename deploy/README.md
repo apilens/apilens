@@ -23,7 +23,7 @@ docker compose up -d --wait   # add --build to build the images from source
 
 Then open http://localhost:3000 and sign up. With the default `log` email provider nothing is sent: the sign-in code is in `docker compose logs apilens` (see [Email](#email) to deliver mail). Onboarding then creates your organization and project.
 
-For a scripted setup, `docker compose run --rm --entrypoint /apilens apilens seed` creates a dev org, project and app and prints one JSON line with an `api_key` (scope `ingest`) and a `read_key` (scope `read`). Point an SDK at `http://<host>:8080/v1`, or an OpenTelemetry exporter at `http://<host>:8080/otlp`, with the `api_key`. Seed also makes `dev@apilens.local` owner of the org and prints a one-time `magic_link` to sign in as it (see [First sign-in](#first-sign-in)).
+For a scripted setup, `docker compose run --rm --entrypoint /apilens apilens seed` creates a dev org, project and app and prints one JSON line with an `api_key` (scope `ingest`) and a `read_key` (scope `read`). Point an SDK at `http://<host>:8080/v1`, or an OpenTelemetry exporter at `http://<host>:8080/otlp`, with the `api_key`. Seed also makes `dev@example.com` owner of the org and prints a one-time `magic_link` to sign in as it (see [First sign-in](#first-sign-in)).
 
 ### First sign-in
 
@@ -32,7 +32,7 @@ A fresh install has no users and, with the default `log` email provider, sends n
 ```bash
 alias apilens='docker compose run --rm --entrypoint /apilens apilens'
 
-# Dev: seed the org "dev" with owner dev@apilens.local, then open the printed magic_link.
+# Dev: seed the org "dev" with owner dev@example.com, then open the printed magic_link.
 apilens seed                      # -user-email=you@example.com to pick the address, -user-email= for none
 
 # Self-host: make yourself owner of an existing organization and sign in.
@@ -45,7 +45,7 @@ apilens user promote -email=teammate@example.com -org=acme -role=admin
 
 | Command | Does |
 |---|---|
-| `apilens seed` | creates or reuses the dev org/project/app, issues new keys, makes `dev@apilens.local` (or `-user-email`) an owner and prints its `magic_link` |
+| `apilens seed` | creates or reuses the dev org/project/app, issues new keys, makes `dev@example.com` (or `-user-email`) an owner and prints its `magic_link` |
 | `apilens user create -email -org [-role=member]` | creates the user if no account has the address (its email counts as verified) and adds it to the organization, or changes its role |
 | `apilens user promote -email -org [-role=owner]` | the same for an existing user only; the last owner of an organization cannot be demoted |
 | `apilens user magic-link -email` | prints a sign-in link for an existing user without sending email |

@@ -48,7 +48,7 @@ Usage:
                                               migrations and the SpiceDB schema (when
                                               authz.endpoint is set)
   apilens seed [flags]                        create a dev org/project/app and print an ingest key,
-                                              plus a dev owner (dev@apilens.local) and its magic link
+                                              plus a dev owner (dev@example.com) and its magic link
   apilens user create -email=... -org=... [-role=member]
                                               create a user (if needed) and add it to an organization
   apilens user promote -email=... -org=... [-role=owner]
