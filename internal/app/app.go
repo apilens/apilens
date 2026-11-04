@@ -131,7 +131,20 @@ func (a *App) Run(ctx context.Context) error {
 				t, when, strings.Join(a.Targets(), ", "))
 		}
 	}
+	a.warnEmail()
 	return a.mgr.Run(ctx, a.cfg.Target)
+}
+
+// emailTargets are the roles that send transactional email.
+var emailTargets = []string{TargetAll, TargetAPI, TargetIdentity}
+
+// warnEmail flags, once at startup, that a role which sends email is running
+// with the log provider: messages are logged, not delivered.
+func (a *App) warnEmail() {
+	if !a.cfg.Email.LogOnly() || !slices.ContainsFunc(a.cfg.Target, func(t string) bool { return slices.Contains(emailTargets, t) }) {
+		return
+	}
+	a.logger.Warn("email provider is log: sign-in codes and invitations are written to the log, not delivered; set APILENS_EMAIL__PROVIDER=smtp (with APILENS_EMAIL__HOST and APILENS_EMAIL__FROM) to send them")
 }
 
 func (a *App) initTelemetry(ctx context.Context) (modules.Service, error) {
