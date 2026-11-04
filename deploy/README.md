@@ -23,6 +23,23 @@ docker compose run --rm --entrypoint /apilens apilens seed
 
 Published ports: ingest/API on 8080, console on 3100, and the v1 dashboard on 3000 (until cutover). Postgres, ClickHouse, Valkey and SpiceDB are reachable only on the compose network.
 
+### Email
+
+APILens sends sign-in codes, invitations and security alerts by email. Configure it with `APILENS_EMAIL__*` in `.env` (maps to `email.*` in the config file):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `APILENS_EMAIL__PROVIDER` | `log` | `smtp` delivers mail; `log` writes each rendered message to the apilens log and sends nothing |
+| `APILENS_EMAIL__HOST` | | SMTP relay host. Required for `smtp` |
+| `APILENS_EMAIL__PORT` | `587` | SMTP port |
+| `APILENS_EMAIL__USERNAME` / `APILENS_EMAIL__PASSWORD` | | SMTP credentials. Leave both empty for an unauthenticated relay |
+| `APILENS_EMAIL__FROM` | | Sender, e.g. `APILens <no-reply@example.com>`. Required for `smtp` |
+| `APILENS_EMAIL__REPLY_TO` | | Optional Reply-To address |
+| `APILENS_EMAIL__TLS` | `starttls` | `starttls` (587), `tls` (implicit, 465) or `none` (local relays only) |
+| `APILENS_EMAIL__TIMEOUT` | `10s` | Connect and send timeout |
+
+With the default `log` provider, the `all`, `api` and `identity` roles log a warning at startup. Users cannot receive sign-in codes until you switch to `smtp`. Read the codes from `docker compose logs apilens` while testing.
+
 ### Upgrading
 
 ```bash

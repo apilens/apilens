@@ -1,9 +1,11 @@
 package app
 
 import (
+	"bytes"
 	"io"
 	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/apilens/apilens/internal/platform/config"
@@ -55,5 +57,31 @@ func TestResolve(t *testing.T) {
 				t.Errorf("Resolve(%s) = %v: %q starts after %q", tc.target, order, name, modHTTP)
 			}
 		}
+	}
+}
+
+func TestWarnEmail(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		provider string
+		target   []string
+		want     bool
+	}{
+		{"log all", config.EmailProviderLog, []string{TargetAll}, true},
+		{"log identity", config.EmailProviderLog, []string{TargetIdentity}, true},
+		{"log api", config.EmailProviderLog, []string{TargetAPI}, true},
+		{"log edge only", config.EmailProviderLog, []string{TargetEdge}, false},
+		{"smtp all", config.EmailProviderSMTP, []string{TargetAll}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			cfg := &config.Config{Target: tc.target, Email: config.EmailConfig{Provider: tc.provider}}
+			a := New(cfg, slog.New(slog.NewTextHandler(&buf, nil)))
+			a.warnEmail()
+			got := strings.Contains(buf.String(), "level=WARN") && strings.Contains(buf.String(), "email provider is log")
+			if got != tc.want {
+				t.Fatalf("warned = %v, want %v (log: %q)", got, tc.want, buf.String())
+			}
+		})
 	}
 }

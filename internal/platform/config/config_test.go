@@ -385,3 +385,86 @@ func TestAuthzValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestEmailDefaults(t *testing.T) {
+	cfg, err := Load("", []string{kekEnv}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := cfg.Email
+	if e.Provider != EmailProviderLog || !e.LogOnly() {
+		t.Errorf("provider = %q, want log by default", e.Provider)
+	}
+	if e.Port != 587 || e.TLS != EmailTLSStartTLS || e.Timeout != 10*time.Second {
+		t.Errorf("defaults = port %d, tls %q, timeout %v", e.Port, e.TLS, e.Timeout)
+	}
+	if e.From != "" || e.Host != "" {
+		t.Errorf("from/host should be empty by default: %+v", e)
+	}
+}
+
+func TestEmailSMTPEnv(t *testing.T) {
+	env := []string{
+		kekEnv,
+		"APILENS_EMAIL__PROVIDER=smtp",
+		"APILENS_EMAIL__HOST=smtp.example.com",
+		"APILENS_EMAIL__PORT=465",
+		"APILENS_EMAIL__USERNAME=apikey",
+		"APILENS_EMAIL__PASSWORD=secret",
+		"APILENS_EMAIL__FROM=APILens <no-reply@example.com>",
+		"APILENS_EMAIL__REPLY_TO=support@example.com",
+		"APILENS_EMAIL__TLS=tls",
+		"APILENS_EMAIL__TIMEOUT=5s",
+	}
+	cfg, err := Load("", env, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := EmailConfig{
+		Provider: EmailProviderSMTP, Host: "smtp.example.com", Port: 465,
+		Username: "apikey", Password: "secret",
+		From: "APILens <no-reply@example.com>", ReplyTo: "support@example.com",
+		TLS: EmailTLSImplicit, Timeout: 5 * time.Second,
+	}
+	if cfg.Email != want {
+		t.Errorf("email = %+v, want %+v", cfg.Email, want)
+	}
+	if cfg.Email.LogOnly() {
+		t.Error("smtp provider reported as log-only")
+	}
+}
+
+func TestEmailValidation(t *testing.T) {
+	smtp := []string{"APILENS_EMAIL__PROVIDER=smtp", "APILENS_EMAIL__HOST=smtp.example.com", "APILENS_EMAIL__FROM=no-reply@example.com"}
+	with := func(extra ...string) []string { return append(slices.Clone(smtp), extra...) }
+	for _, tc := range []struct {
+		name string
+		env  []string
+		want string // empty: valid
+	}{
+		{"smtp ok", smtp, ""},
+		{"smtp without from", []string{"APILENS_EMAIL__PROVIDER=smtp", "APILENS_EMAIL__HOST=smtp.example.com"}, "email.from is required"},
+		{"smtp without host", []string{"APILENS_EMAIL__PROVIDER=smtp", "APILENS_EMAIL__FROM=a@example.com"}, "email.host is required"},
+		{"log without from", []string{"APILENS_EMAIL__PROVIDER=log"}, ""},
+		{"unknown provider", []string{"APILENS_EMAIL__PROVIDER=sendgrid"}, "email.provider"},
+		{"bad tls", with("APILENS_EMAIL__TLS=ssl"), "email.tls"},
+		{"tls none", with("APILENS_EMAIL__TLS=none", "APILENS_EMAIL__PORT=25"), ""},
+		{"bad port", with("APILENS_EMAIL__PORT=70000"), "email.port"},
+		{"zero timeout", with("APILENS_EMAIL__TIMEOUT=0s"), "email.timeout"},
+		{"bad from", []string{"APILENS_EMAIL__PROVIDER=smtp", "APILENS_EMAIL__HOST=h", "APILENS_EMAIL__FROM=not an address"}, "email.from"},
+		{"bad reply_to", with("APILENS_EMAIL__REPLY_TO=nope"), "email.reply_to"},
+		{"password without username", with("APILENS_EMAIL__PASSWORD=x"), "email.password"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load("", append([]string{kekEnv}, tc.env...), nil)
+			switch {
+			case tc.want == "" && err != nil:
+				t.Fatalf("unexpected error: %v", err)
+			case tc.want != "" && err == nil:
+				t.Fatalf("expected error containing %q", tc.want)
+			case tc.want != "" && !strings.Contains(err.Error(), tc.want):
+				t.Fatalf("error %q does not mention %q", err, tc.want)
+			}
+		})
+	}
+}

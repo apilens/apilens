@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/mail"
 	"net/netip"
 	"net/url"
 	"regexp"
@@ -41,6 +42,7 @@ type Config struct {
 	Identity   IdentityConfig   `koanf:"identity"`
 	Jobs       JobsConfig       `koanf:"jobs"`
 	Authz      AuthzConfig      `koanf:"authz"`
+	Email      EmailConfig      `koanf:"email"`
 }
 
 // ServerConfig configures the shared HTTP server.
@@ -231,6 +233,47 @@ func (c *Config) IdentityEnabled() bool {
 	return slices.Contains(c.Target, "identity") || slices.Contains(c.Target, "all")
 }
 
+// Email providers.
+const (
+	// EmailProviderSMTP delivers mail through an SMTP relay.
+	EmailProviderSMTP = "smtp"
+	// EmailProviderLog writes the rendered message to the logger instead of
+	// sending it. It needs no network and is the default.
+	EmailProviderLog = "log"
+)
+
+// Email transport security modes.
+const (
+	// EmailTLSStartTLS upgrades a plain connection with STARTTLS (port 587).
+	EmailTLSStartTLS = "starttls"
+	// EmailTLSImplicit connects over TLS from the start (port 465).
+	EmailTLSImplicit = "tls"
+	// EmailTLSNone sends in plain text. Only for local relays.
+	EmailTLSNone = "none"
+)
+
+// EmailConfig configures transactional email (sign-in codes, invitations,
+// security alerts).
+type EmailConfig struct {
+	// Provider is smtp or log. log (the default) prints messages to the
+	// logger and delivers nothing.
+	Provider string `koanf:"provider"`
+	Host     string `koanf:"host"`
+	Port     int    `koanf:"port"`
+	Username string `koanf:"username"`
+	Password string `koanf:"password"`
+	// From is the sender address, e.g. `APILens <no-reply@example.com>`.
+	// Required for smtp.
+	From    string `koanf:"from"`
+	ReplyTo string `koanf:"reply_to"`
+	// TLS is starttls, tls (implicit) or none.
+	TLS     string        `koanf:"tls"`
+	Timeout time.Duration `koanf:"timeout"`
+}
+
+// LogOnly reports whether email is written to the log instead of delivered.
+func (e EmailConfig) LogOnly() bool { return e.Provider == EmailProviderLog }
+
 // Defaults returns the built-in configuration. These are suitable for the
 // docker-compose all-in-one deployment.
 func Defaults() map[string]any {
@@ -306,6 +349,15 @@ func Defaults() map[string]any {
 		"authz.preshared_key": "",
 		"authz.insecure":      false,
 		"authz.cache_ttl":     "5s",
+		"email.provider":      EmailProviderLog,
+		"email.host":          "",
+		"email.port":          587,
+		"email.username":      "",
+		"email.password":      "",
+		"email.from":          "",
+		"email.reply_to":      "",
+		"email.tls":           EmailTLSStartTLS,
+		"email.timeout":       "10s",
 	}
 }
 
@@ -440,6 +492,7 @@ func (c *Config) Validate() error {
 	}
 	errs = append(errs, c.validateIdentity()...)
 	errs = append(errs, c.validateAuthz()...)
+	errs = append(errs, c.validateEmail()...)
 	if len(errs) > 0 {
 		return fmt.Errorf("config: %w", errors.Join(errs...))
 	}
@@ -537,6 +590,51 @@ func (c *Config) validateAuthz() []error {
 	}
 	if a.PresharedKey == "" {
 		errs = append(errs, errors.New("authz.preshared_key is required when authz.endpoint is set (set APILENS_AUTHZ__PRESHARED_KEY)"))
+	}
+	return errs
+}
+
+// validateEmail checks the email section. Addresses are checked whenever
+// set; host and from are required only for smtp.
+func (c *Config) validateEmail() []error {
+	var errs []error
+	e := c.Email
+	switch e.Provider {
+	case EmailProviderSMTP, EmailProviderLog:
+	default:
+		errs = append(errs, fmt.Errorf("email.provider %q: want smtp|log", e.Provider))
+	}
+	switch e.TLS {
+	case EmailTLSStartTLS, EmailTLSImplicit, EmailTLSNone:
+	default:
+		errs = append(errs, fmt.Errorf("email.tls %q: want starttls|tls|none", e.TLS))
+	}
+	if e.Timeout <= 0 {
+		errs = append(errs, errors.New("email.timeout must be > 0"))
+	}
+	if e.Port <= 0 || e.Port > 65535 {
+		errs = append(errs, fmt.Errorf("email.port %d: want 1-65535", e.Port))
+	}
+	if e.From != "" {
+		if _, err := mail.ParseAddress(e.From); err != nil {
+			errs = append(errs, fmt.Errorf("email.from %q: not a valid address: %w", e.From, err))
+		}
+	}
+	if e.ReplyTo != "" {
+		if _, err := mail.ParseAddress(e.ReplyTo); err != nil {
+			errs = append(errs, fmt.Errorf("email.reply_to %q: not a valid address: %w", e.ReplyTo, err))
+		}
+	}
+	if e.Password != "" && e.Username == "" {
+		errs = append(errs, errors.New("email.password is set without email.username"))
+	}
+	if e.Provider == EmailProviderSMTP {
+		if e.From == "" {
+			errs = append(errs, errors.New("email.from is required when email.provider is smtp (set APILENS_EMAIL__FROM)"))
+		}
+		if e.Host == "" {
+			errs = append(errs, errors.New("email.host is required when email.provider is smtp (set APILENS_EMAIL__HOST)"))
+		}
 	}
 	return errs
 }
