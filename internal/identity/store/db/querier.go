@@ -272,6 +272,9 @@ type Querier interface {
 	// row once delete_after has passed.
 	SoftDeleteUser(ctx context.Context, arg SoftDeleteUserParams) (User, error)
 	TouchLastLogin(ctx context.Context, id uuid.UUID) error
+	// Records a sign-in through an identity, refreshing what the provider reported
+	// this time (email may be NULL; profile replaces the stored one).
+	TouchOAuthIdentityLogin(ctx context.Context, arg TouchOAuthIdentityLoginParams) error
 	// Records a successful sign-in through an organization's connection.
 	TouchOrgSSOLastLogin(ctx context.Context, orgID uuid.UUID) error
 	// Records activity on a live session. A NULL ip keeps the stored one.

@@ -31,3 +31,10 @@ WHERE id = @id AND user_id = @user_id;
 -- Number of providers linked to a user.
 SELECT count(*) FROM oauth_identities
 WHERE user_id = @user_id;
+
+-- name: TouchOAuthIdentityLogin :exec
+-- Records a sign-in through an identity, refreshing what the provider reported
+-- this time (email may be NULL; profile replaces the stored one).
+UPDATE oauth_identities
+SET last_login_at = now(), email = sqlc.narg('email'), profile = @profile
+WHERE id = @id;

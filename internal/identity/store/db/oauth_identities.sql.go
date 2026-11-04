@@ -154,3 +154,22 @@ func (q *Queries) ListOAuthIdentitiesForUser(ctx context.Context, userID uuid.UU
 	}
 	return items, nil
 }
+
+const touchOAuthIdentityLogin = `-- name: TouchOAuthIdentityLogin :exec
+UPDATE oauth_identities
+SET last_login_at = now(), email = $1, profile = $2
+WHERE id = $3
+`
+
+type TouchOAuthIdentityLoginParams struct {
+	Email   *string
+	Profile []byte
+	ID      uuid.UUID
+}
+
+// Records a sign-in through an identity, refreshing what the provider reported
+// this time (email may be NULL; profile replaces the stored one).
+func (q *Queries) TouchOAuthIdentityLogin(ctx context.Context, arg TouchOAuthIdentityLoginParams) error {
+	_, err := q.db.Exec(ctx, touchOAuthIdentityLogin, arg.Email, arg.Profile, arg.ID)
+	return err
+}

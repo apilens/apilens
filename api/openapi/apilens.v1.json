@@ -3289,6 +3289,98 @@
         ]
       }
     },
+    "/api/v1/auth/oauth/{provider}/callback": {
+      "get": {
+        "description": "Public browser navigation; the provider redirects here. Takes the sign-in state (single use), exchanges the code with the PKCE verifier and reads a verified email: Google from the `id_token` (signature, audience, nonce and `email_verified` checked), GitHub from the primary verified address of `/user/emails`. The user is matched by (provider, subject), then by verified email (the identity is linked), else created. The session bundle (`amr: [provider]`), or the `2fa_required` answer when the user has two-factor authentication, is kept for 60 seconds under a one-time code and the browser is redirected (302) to `{public_ui_url}/auth/callback?code=…`, whose server side redeems it; tokens never appear in a URL. Failures redirect to `{public_ui_url}/sign-in?error=\u003ccode\u003e`: `oauth_state_mismatch` (unknown, expired, used or foreign state; rejected code or PKCE verifier; wrong nonce), `oauth_email_unverified` (no verified email), `oauth_denied` (consent declined), `account_deleting`, `invalid_request` or `internal_error`. A provider that is not configured answers 404.",
+        "operationId": "oauth-callback",
+        "parameters": [
+          {
+            "description": "Social sign-in provider.",
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "description": "Social sign-in provider.",
+              "enum": [
+                "google",
+                "github"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authorization code from the provider.",
+            "explode": false,
+            "in": "query",
+            "name": "code",
+            "schema": {
+              "description": "Authorization code from the provider.",
+              "maxLength": 2048,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The state the sign-in was started with.",
+            "explode": false,
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "description": "The state the sign-in was started with.",
+              "maxLength": 512,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Set by the provider when the user declined consent or the request failed (RFC 6749 §4.1.2.1).",
+            "explode": false,
+            "in": "query",
+            "name": "error",
+            "schema": {
+              "description": "Set by the provider when the user declined consent or the request failed (RFC 6749 §4.1.2.1).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "description": "{public_ui_url}/auth/callback?code=… on success, {public_ui_url}/sign-in?error=\u003ccode\u003e on failure.",
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Finish social sign-in",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/api/v1/auth/oauth/{provider}/start": {
       "get": {
         "description": "Public browser navigation. Starts an authorization-code flow with PKCE (and an OIDC nonce for Google), keeps the attempt server-side for 10 minutes keyed by a random state, and redirects (302) to the provider. Rate-limited per client IP. A provider that is not configured answers 404.",

@@ -370,7 +370,6 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	identity.NewOAuth(a.cfg.Identity, identity.NewValkeyOAuthStateStore(a.valkey), limiter, a.logger).Register(a.server.API())
 	issuer, err := token.New(signingKeys, token.Options{Issuer: a.cfg.Identity.Issuer, TTL: a.cfg.Identity.AccessTokenTTL})
 	if err != nil {
 		return nil, err
@@ -386,6 +385,14 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	identity.NewSessions(a.cfg.Identity, sessions, limiter, a.logger).Register(a.server.API())
+	identity.NewOAuth(a.cfg.Identity, identity.NewValkeyOAuthStateStore(a.valkey), limiter, a.logger).
+		WithSignIn(identity.OAuthSignInDeps{
+			Users:    identity.NewPGSignInUsers(a.pool),
+			Sessions: sessions,
+			PreAuth:  identity.NewValkeyPreAuthStore(a.valkey),
+			Handoff:  identity.NewValkeyHandoffStore(a.valkey),
+			Audit:    audit.New(a.pool),
+		}).Register(a.server.API())
 	identity.NewEmailStart(a.cfg.Identity, identity.EmailStartDeps{
 		Tokens: emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{}),
 		Users:  identitydb.New(a.pool),

@@ -27,6 +27,9 @@ import (
 // authorization and token endpoints and the JWKS.
 const GoogleIssuer = "https://accounts.google.com"
 
+// GitHubAPIURL is the base of GitHub's REST API.
+const GitHubAPIURL = "https://api.github.com"
+
 // Scopes requested from each provider.
 var (
 	googleScopes = []string{oidc.ScopeOpenID, "email", "profile"}
@@ -48,6 +51,9 @@ type OAuthProvider struct {
 	config oauth2.Config // Endpoint is filled by discovery for OIDC providers
 	// issuer is the OIDC issuer; empty for plain OAuth2 providers.
 	issuer string
+	// apiURL is the REST API base of a plain OAuth2 provider (GitHub), used
+	// to read the signed-in account and its emails.
+	apiURL string
 
 	mu   sync.Mutex
 	oidc *oidc.Provider
@@ -119,6 +125,7 @@ func OAuthProviders(cfg config.IdentityConfig) map[string]*OAuthProvider {
 				RedirectURL:  cfg.OAuthRedirectURI(config.OAuthProviderGitHub),
 				Scopes:       githubScopes,
 			},
+			apiURL: GitHubAPIURL,
 		}
 	}
 	return providers
@@ -135,18 +142,40 @@ type OAuth struct {
 	// intent=link. While nil (no bearer authentication yet), linking is
 	// refused as unauthenticated.
 	CurrentUser func(context.Context) (userID string, ok bool)
+
+	// The callback's collaborators and settings (oauth_callback.go).
+	signIn     OAuthSignInDeps
+	uiURL      string
+	preAuthTTL time.Duration
+	client     *http.Client
+	now        func() time.Time
 }
 
 // NewOAuth returns the OAuth endpoints for the providers enabled in cfg.
 // limiter enforces identity.rate_limits.oauth_start_per_ip on start.
+// The callback needs its collaborators set with WithSignIn.
 func NewOAuth(cfg config.IdentityConfig, states OAuthStateStore, limiter *ratelimit.Limiter, logger *slog.Logger) *OAuth {
-	return &OAuth{
-		providers: OAuthProviders(cfg),
-		states:    states,
-		limiter:   limiter,
-		limit:     ratelimit.Rate(cfg.RateLimits.OAuthStartPerIP),
-		logger:    logger,
+	ttl := cfg.PreAuthTTL
+	if ttl <= 0 {
+		ttl = defaultPreAuthTTL
 	}
+	return &OAuth{
+		providers:  OAuthProviders(cfg),
+		states:     states,
+		limiter:    limiter,
+		limit:      ratelimit.Rate(cfg.RateLimits.OAuthStartPerIP),
+		logger:     logger,
+		uiURL:      strings.TrimRight(cfg.PublicUIURL, "/"),
+		preAuthTTL: ttl,
+		client:     &http.Client{Timeout: providerTimeout},
+		now:        time.Now,
+	}
+}
+
+// WithSignIn sets the collaborators the callback signs users in with.
+func (o *OAuth) WithSignIn(deps OAuthSignInDeps) *OAuth {
+	o.signIn = deps
+	return o
 }
 
 // Provider returns the enabled provider name, or nil.
@@ -166,7 +195,8 @@ type OAuthStartOutput struct {
 	Location string `header:"Location" doc:"The provider's authorization URL."`
 }
 
-// Register mounts GET /api/v1/auth/oauth/{provider}/start.
+// Register mounts GET /api/v1/auth/oauth/{provider}/start and
+// …/callback.
 func (o *OAuth) Register(api huma.API) {
 	huma.Register(api, Operation(api, huma.Operation{
 		OperationID:   "start-oauth",
@@ -178,6 +208,7 @@ func (o *OAuth) Register(api huma.API) {
 		DefaultStatus: http.StatusFound,
 		Middlewares:   huma.Middlewares{o.limiter.Limit(api, "oauth_start", o.limit, ratelimit.Key{})},
 	}, CodeInvalidRequest, CodeUnauthenticated, CodeRateLimited, CodeInternal), o.start)
+	o.registerCallback(api)
 }
 
 func (o *OAuth) start(ctx context.Context, in *OAuthStartInput) (*OAuthStartOutput, error) {
