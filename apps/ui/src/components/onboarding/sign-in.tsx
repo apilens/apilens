@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  PASSKEY_CANCELLED,
+  type PasskeyResult,
+  conditionalMediationAvailable,
+  passkeyError,
+  passkeysSupported,
+  signInWithPasskey,
+} from "@/lib/auth/passkeys";
 import { emailStartError, startEmailSignIn } from "@/lib/email-sign-in";
 import {
   type RememberedAccount,
@@ -21,8 +29,10 @@ const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
 
 /**
  * Returning users: the remembered account first (from `localStorage`, when this device has one),
- * a passkey as the primary action. `methods` (from `GET /auth/providers`) decides which provider
- * buttons sit next to the email code; `next` is where to land after signing in; `notice` (from
+ * a passkey as the primary action: the button, plus passkeys in the email field's autofill while
+ * the field is shown (cancelled when another method is picked; leaving the page cancels it too).
+ * Both are hidden when the browser has no WebAuthn. `methods` (from `GET /auth/providers`) decides
+ * which provider buttons sit next to the email code; `next` is where to land after signing in; `notice` (from
  * `?error=`/`?reason=`) sits above the form.
  */
 export function SignIn({ methods, next, notice }: { methods: SignInMethods; next?: string; notice?: SignInNotice | null }) {
@@ -37,6 +47,57 @@ export function SignIn({ methods, next, notice }: { methods: SignInMethods; next
   const [error, setError] = useState<string | null>(null);
   const bad = touched && !valid(email);
   const target = remembered ? remembered.email : email.trim();
+  // Passkeys: shown until the browser proves it has no WebAuthn (most do, so no layout shift).
+  const [passkeys, setPasskeys] = useState(true);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  // The pending conditional (autofill) request; aborted when the user picks another method.
+  const autofill = useRef<AbortController | null>(null);
+  const [autofillRound, setAutofillRound] = useState(0);
+  const stopAutofill = () => {
+    autofill.current?.abort();
+    autofill.current = null;
+  };
+
+  const passkeyDone = (res: PasskeyResult) => {
+    if (res.ok) {
+      router.push(res.next);
+      return true;
+    }
+    setError(passkeyError(res.code));
+    return false;
+  };
+
+  // Offer passkeys in the email field's autofill while the field is on screen.
+  useEffect(() => {
+    if (!passkeysSupported()) {
+      setPasskeys(false);
+      return;
+    }
+    if (remembered) return;
+    const ctl = new AbortController();
+    autofill.current = ctl;
+    void (async () => {
+      if (!(await conditionalMediationAvailable()) || ctl.signal.aborted) return;
+      const res = await signInWithPasskey({ mediation: "conditional", signal: ctl.signal, next });
+      if (ctl.signal.aborted || (!res.ok && res.code === PASSKEY_CANCELLED)) return;
+      // A failed pick (e.g. an unknown passkey) shows its error and offers autofill again.
+      if (!passkeyDone(res)) setAutofillRound((n) => n + 1);
+    })();
+    return () => ctl.abort();
+    // passkeyDone only closes over setters and the router, so it is not a dependency.
+  }, [remembered, next, autofillRound]);
+
+  const passkey = async () => {
+    if (passkeyBusy) return;
+    stopAutofill();
+    setPasskeyBusy(true);
+    setError(null);
+    const hint = remembered ? remembered.email : valid(email) ? email.trim() : undefined;
+    const res = await signInWithPasskey({ mediation: "optional", email: hint, next });
+    if (passkeyDone(res)) return;
+    setPasskeyBusy(false);
+    setAutofillRound((n) => n + 1);
+  };
 
   const notYou = () => {
     forgetAccount();
@@ -47,12 +108,14 @@ export function SignIn({ methods, next, notice }: { methods: SignInMethods; next
   const emailCode = async () => {
     if (sending) return;
     if (!remembered && !valid(email)) return setTouched(true);
+    stopAutofill();
     setSending(true);
     setError(null);
     const res = await startEmailSignIn({ email: target, next });
     if (res.ok) return router.push(res.next);
     setSending(false);
     setError(emailStartError(res.code, res.retryAfter));
+    setAutofillRound((n) => n + 1);
   };
 
   return (
@@ -109,14 +172,18 @@ export function SignIn({ methods, next, notice }: { methods: SignInMethods; next
           </p>
         ) : null}
       </div>
-      <div style={{ marginTop: 14 }}>
-        <Link className="ah-btn ah-btn--primary au-btn-full" href="/platform/incidents">
-          <ObIcon name="finger" />
-          Continue with a passkey
-        </Link>
-      </div>
-      <div className="ob-or">or</div>
-      <div style={{ display: "grid", gridTemplateColumns: gridColumns(alts.length), gap: 10 }}>
+      {passkeys ? (
+        <>
+          <div style={{ marginTop: 14 }}>
+            <button type="button" className={`ah-btn ah-btn--primary au-btn-full${passkeyBusy ? " is-loading" : ""}`} onClick={passkey} disabled={passkeyBusy} aria-busy={passkeyBusy}>
+              <ObIcon name="finger" />
+              Continue with a passkey
+            </button>
+          </div>
+          <div className="ob-or">or</div>
+        </>
+      ) : null}
+      <div style={{ display: "grid", gridTemplateColumns: gridColumns(alts.length), gap: 10, marginTop: passkeys ? undefined : 14 }}>
         {alts.map((m) =>
           m === "email" ? (
             <button key={m} type="button" className={`ah-btn ah-btn--secondary${sending ? " is-loading" : ""}`} onClick={emailCode} disabled={sending} aria-busy={sending}>

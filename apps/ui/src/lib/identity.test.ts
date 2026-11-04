@@ -319,7 +319,7 @@ describe("operations", () => {
     [
       "POST",
       "/auth/passkeys/login/verify",
-      (c) => c.passkeyLoginVerify({ challenge_id: "c", credential: {} }),
+      (c) => c.passkeyLoginVerify({ challenge_id: "c", response: {} }),
     ],
     ["POST", "/auth/refresh", (c) => c.refresh({ refresh_token: "r" })],
     ["POST", "/auth/logout", (c) => c.logout({ refresh_token: "r" })],

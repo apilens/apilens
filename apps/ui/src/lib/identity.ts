@@ -376,8 +376,8 @@ export interface PasskeyLoginOptions {
 
 export interface PasskeyLoginVerifyRequest {
   challenge_id: string;
-  /** The browser's `PublicKeyCredential` serialised with `toJSON()`. */
-  credential: Record<string, unknown>;
+  /** The browser's `PublicKeyCredential` serialised with `toJSON()` (`PasskeyLoginVerifyBody.response`). */
+  response: Record<string, unknown>;
   remember?: boolean;
 }
 
