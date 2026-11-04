@@ -353,6 +353,124 @@
         ],
         "type": "object"
       },
+      "Me": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Me.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "amr": {
+            "description": "How the current session was authenticated (the access token's amr).",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "avatar_url": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "type": "string"
+          },
+          "email_verified": {
+            "type": "boolean"
+          },
+          "id": {
+            "description": "User id; the access token's sub.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "onboarding": {
+            "additionalProperties": {},
+            "description": "Onboarding progress, as stored by the onboarding flow.",
+            "type": "object"
+          },
+          "preferences": {
+            "$ref": "#/components/schemas/Preferences"
+          }
+        },
+        "required": [
+          "preferences",
+          "onboarding",
+          "created_at",
+          "amr",
+          "id",
+          "email",
+          "email_verified",
+          "name",
+          "avatar_url"
+        ],
+        "type": "object"
+      },
+      "MeDeleteOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/MeDeleteOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "delete_after": {
+            "description": "When the account is removed for good. Until then it can be restored.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "delete_after"
+        ],
+        "type": "object"
+      },
+      "MePatchBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/MePatchBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "avatar_url": {
+            "description": "An http(s) image URL, or empty to clear it.",
+            "maxLength": 2048,
+            "pattern": "^(https?://\\S+)?$",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name; surrounding whitespace is trimmed.",
+            "maxLength": 120,
+            "type": "string"
+          },
+          "preferences": {
+            "$ref": "#/components/schemas/PreferencesPatch"
+          }
+        },
+        "type": "object"
+      },
       "MetaOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -456,6 +574,36 @@
           "server_errors",
           "p95_ms"
         ],
+        "type": "object"
+      },
+      "Preferences": {
+        "additionalProperties": false,
+        "properties": {
+          "home": {
+            "description": "Screen a project opens on, chosen during onboarding.",
+            "enum": [
+              "endpoints",
+              "requests",
+              "exceptions"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PreferencesPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "home": {
+            "description": "Screen a project opens on.",
+            "enum": [
+              "endpoints",
+              "requests",
+              "exceptions"
+            ],
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "Problem": {
@@ -1771,6 +1919,200 @@
         "summary": "Requests and errors per time bucket",
         "tags": [
           "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/users/me": {
+      "delete": {
+        "description": "Deletes the account with a 30-day grace period: it is hidden at once, every session is revoked, and it is removed for good after `delete_after`. Refused with `owner_transfer_required` while the user is the only owner of an organization. Audited as `user.deleted`.",
+        "operationId": "delete-me",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeDeleteOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `owner_transfer_required`.",
+            "x-apilens-codes": [
+              "owner_transfer_required"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Delete the signed-in user",
+        "tags": [
+          "Users"
+        ]
+      },
+      "get": {
+        "description": "Returns the signed-in user's profile, preferences, onboarding state and how the current session was authenticated (`amr`).",
+        "operationId": "get-me",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Get the signed-in user",
+        "tags": [
+          "Users"
+        ]
+      },
+      "patch": {
+        "description": "Updates the name and avatar, and merges `preferences` into the stored ones (keys not sent stay unchanged). Audited as `user.updated`.",
+        "operationId": "update-me",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MePatchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Update the signed-in user",
+        "tags": [
+          "Users"
         ]
       }
     }

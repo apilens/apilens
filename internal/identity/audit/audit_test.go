@@ -154,7 +154,7 @@ func TestRecordRejectsUnknownKind(t *testing.T) {
 
 func TestCatalogue(t *testing.T) {
 	want := []string{
-		"user.created", "login.succeeded", "login.failed", "session.revoked", "session.reuse_detected",
+		"user.created", "user.updated", "user.deleted", "login.succeeded", "login.failed", "session.revoked", "session.reuse_detected",
 		"email.changed", "passkey.added", "passkey.removed", "totp.enabled", "totp.disabled",
 		"recovery.requested", "recovery.confirmed", "recovery.cancelled", "oauth.linked", "oauth.unlinked",
 		"org.created", "member.role_changed", "invitation.sent", "invitation.accepted",

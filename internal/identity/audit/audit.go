@@ -31,6 +31,8 @@ type Kind string
 // The audit event catalogue.
 const (
 	UserCreated          Kind = "user.created"
+	UserUpdated          Kind = "user.updated"
+	UserDeleted          Kind = "user.deleted"
 	LoginSucceeded       Kind = "login.succeeded"
 	LoginFailed          Kind = "login.failed"
 	SessionRevoked       Kind = "session.revoked"
@@ -52,7 +54,7 @@ const (
 )
 
 var kinds = []Kind{
-	UserCreated, LoginSucceeded, LoginFailed, SessionRevoked, SessionReuseDetected,
+	UserCreated, UserUpdated, UserDeleted, LoginSucceeded, LoginFailed, SessionRevoked, SessionReuseDetected,
 	EmailChanged, PasskeyAdded, PasskeyRemoved, TOTPEnabled, TOTPDisabled,
 	RecoveryRequested, RecoveryConfirmed, RecoveryCancelled, OAuthLinked, OAuthUnlinked,
 	OrgCreated, MemberRoleChanged, InvitationSent, InvitationAccepted,

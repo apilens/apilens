@@ -66,6 +66,9 @@ const (
 	// CodeInviteEmailMismatch: the signed-in user's email differs from the
 	// address the invitation was sent to.
 	CodeInviteEmailMismatch ErrCode = "invite_email_mismatch"
+	// CodeOwnerTransferRequired: the user is the only owner of an
+	// organization and must transfer ownership before deleting the account.
+	CodeOwnerTransferRequired ErrCode = "owner_transfer_required"
 	// CodeForbidden: authenticated, but not allowed to perform the action.
 	CodeForbidden ErrCode = "forbidden"
 	// CodeInternal: an unexpected server failure. Details stay in the logs.
@@ -82,24 +85,25 @@ type catalogueEntry struct {
 }
 
 var catalogue = map[ErrCode]catalogueEntry{
-	CodeInvalidRequest:       {http.StatusBadRequest, "Invalid request", "The request cannot be processed."},
-	CodeInvalidCode:          {http.StatusBadRequest, "Invalid code", "The code is incorrect."},
-	CodeCodeExpired:          {http.StatusBadRequest, "Code expired", "The code has expired. Request a new one."},
-	CodeTooManyAttempts:      {http.StatusTooManyRequests, "Too many attempts", "Too many incorrect attempts. Request a new code."},
-	CodeRateLimited:          {http.StatusTooManyRequests, "Rate limited", "Too many requests. Try again later."},
-	CodeUnauthenticated:      {http.StatusUnauthorized, "Unauthenticated", "Sign in to continue."},
-	CodeInvalidToken:         {http.StatusUnauthorized, "Invalid token", "The token is invalid or has been revoked."},
-	CodeSessionExpired:       {http.StatusUnauthorized, "Session expired", "The session has expired. Sign in again."},
-	CodeTwoFactorRequired:    {http.StatusUnauthorized, "Two-factor authentication required", "A second factor is required to finish signing in."},
-	CodeInvalidTOTP:          {http.StatusUnauthorized, "Invalid authentication code", "The authentication code is incorrect."},
-	CodePasskeyUnknown:       {http.StatusUnauthorized, "Unknown passkey", "This passkey is not registered."},
-	CodePasskeyFailed:        {http.StatusUnauthorized, "Passkey verification failed", "The passkey could not be verified."},
-	CodeOAuthStateMismatch:   {http.StatusBadRequest, "Sign-in state mismatch", "The sign-in attempt could not be matched. Start again."},
-	CodeOAuthEmailUnverified: {http.StatusForbidden, "Email not verified", "The provider did not confirm a verified email address."},
-	CodeInviteExpired:        {http.StatusGone, "Invitation expired", "The invitation has expired or was revoked."},
-	CodeInviteEmailMismatch:  {http.StatusForbidden, "Invitation email mismatch", "The invitation was sent to a different email address."},
-	CodeForbidden:            {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
-	CodeInternal:             {http.StatusInternalServerError, "Internal error", "Something went wrong."},
+	CodeInvalidRequest:        {http.StatusBadRequest, "Invalid request", "The request cannot be processed."},
+	CodeInvalidCode:           {http.StatusBadRequest, "Invalid code", "The code is incorrect."},
+	CodeCodeExpired:           {http.StatusBadRequest, "Code expired", "The code has expired. Request a new one."},
+	CodeTooManyAttempts:       {http.StatusTooManyRequests, "Too many attempts", "Too many incorrect attempts. Request a new code."},
+	CodeRateLimited:           {http.StatusTooManyRequests, "Rate limited", "Too many requests. Try again later."},
+	CodeUnauthenticated:       {http.StatusUnauthorized, "Unauthenticated", "Sign in to continue."},
+	CodeInvalidToken:          {http.StatusUnauthorized, "Invalid token", "The token is invalid or has been revoked."},
+	CodeSessionExpired:        {http.StatusUnauthorized, "Session expired", "The session has expired. Sign in again."},
+	CodeTwoFactorRequired:     {http.StatusUnauthorized, "Two-factor authentication required", "A second factor is required to finish signing in."},
+	CodeInvalidTOTP:           {http.StatusUnauthorized, "Invalid authentication code", "The authentication code is incorrect."},
+	CodePasskeyUnknown:        {http.StatusUnauthorized, "Unknown passkey", "This passkey is not registered."},
+	CodePasskeyFailed:         {http.StatusUnauthorized, "Passkey verification failed", "The passkey could not be verified."},
+	CodeOAuthStateMismatch:    {http.StatusBadRequest, "Sign-in state mismatch", "The sign-in attempt could not be matched. Start again."},
+	CodeOAuthEmailUnverified:  {http.StatusForbidden, "Email not verified", "The provider did not confirm a verified email address."},
+	CodeInviteExpired:         {http.StatusGone, "Invitation expired", "The invitation has expired or was revoked."},
+	CodeInviteEmailMismatch:   {http.StatusForbidden, "Invitation email mismatch", "The invitation was sent to a different email address."},
+	CodeOwnerTransferRequired: {http.StatusConflict, "Ownership transfer required", "Transfer ownership of your organizations before deleting your account."},
+	CodeForbidden:             {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
+	CodeInternal:              {http.StatusInternalServerError, "Internal error", "Something went wrong."},
 }
 
 // Status returns the HTTP status for code (500 for an unknown code).
