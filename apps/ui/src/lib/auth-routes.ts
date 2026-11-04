@@ -245,7 +245,7 @@ interface PreAuth {
   next: string;
 }
 
-function setPreAuthCookie(res: NextResponse, pre: PreAuth): void {
+export function setPreAuthCookie(res: NextResponse, pre: PreAuth): void {
   const value = toBase64Url(new TextEncoder().encode(JSON.stringify({ t: pre.token, r: pre.remember, n: pre.next })));
   res.cookies.set(PRE_AUTH_COOKIE_NAME, value, {
     ...sessionCookieOptions(pre.remember),
