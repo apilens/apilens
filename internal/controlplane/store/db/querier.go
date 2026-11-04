@@ -18,6 +18,8 @@ type Querier interface {
 	// The relay's batch: the oldest unprocessed rows, locked until its
 	// transaction ends.
 	ClaimPendingOutbox(ctx context.Context, batchSize int32) ([]ClaimPendingOutboxRow, error)
+	// Owners whose account is not deleted: a deleted owner cannot act for the
+	// organization, so it does not count towards the last-owner rule.
 	CountOrgOwners(ctx context.Context, orgID uuid.UUID) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
 	// token_hash is the SHA-256 of the emailed token, never the token itself.
@@ -43,6 +45,9 @@ type Querier interface {
 	// row when the organization does not exist or the user is not a member.
 	GetMemberOrganization(ctx context.Context, arg GetMemberOrganizationParams) (GetMemberOrganizationRow, error)
 	GetMembership(ctx context.Context, arg GetMembershipParams) (Membership, error)
+	// One member of an organization with their user; no row when the user is
+	// not a member or their account is deleted.
+	GetOrgMember(ctx context.Context, arg GetOrgMemberParams) (GetOrgMemberRow, error)
 	GetOrganizationBySlug(ctx context.Context, slug string) (Organization, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
 	// Transactional outbox (ADR 0006): called only through

@@ -15,6 +15,7 @@ import (
 // when only the OpenAPI document is read.
 type Deps struct {
 	Orgs    OrgService
+	Members MemberService
 	Limiter *ratelimit.Limiter
 	Limits  config.RateLimitsConfig
 	Logger  *slog.Logger
@@ -24,4 +25,5 @@ type Deps struct {
 // session scheme, so authn.Middleware must be installed on api before.
 func Register(api huma.API, d Deps) {
 	NewOrgs(d.Orgs, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
+	NewMembers(d.Members, d.Logger).Register(api)
 }
