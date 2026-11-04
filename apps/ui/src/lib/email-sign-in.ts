@@ -6,7 +6,8 @@
 
 export type EmailStartResult =
   | { ok: true; next: string; retryAfter: number | null }
-  | { ok: false; code: string; retryAfter: number | null };
+  /** `startUrl`: set for `sso_required`, the organization's SSO start (#323). */
+  | { ok: false; code: string; retryAfter: number | null; startUrl?: string };
 
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
@@ -40,6 +41,9 @@ export async function startEmailSignIn(
     return { ok: true, next: data.next, retryAfter };
   }
   const code = typeof data.code === "string" ? data.code : res.status >= 500 ? "server_error" : "unknown_error";
+  if (code === "sso_required" && typeof data.start_url === "string") {
+    return { ok: false, code, retryAfter, startUrl: data.start_url };
+  }
   return { ok: false, code, retryAfter };
 }
 
@@ -54,6 +58,8 @@ export function emailStartError(code: string, retryAfter: number | null): string
         : "Too many codes requested. Try again in a moment.";
     case "network_error":
       return "Couldn’t reach APILens. Check your connection and try again.";
+    case "sso_required":
+      return "Your organization requires single sign-on. Continue with SSO instead.";
     default:
       return "Couldn’t send a code right now. Try again in a moment.";
   }

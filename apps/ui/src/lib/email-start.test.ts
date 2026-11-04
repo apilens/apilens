@@ -40,6 +40,17 @@ describe("startEmail", () => {
     expect(res).toEqual({ kind: "sent", next: "/verify?flow=signup&email=a%40b.io&next=%2Forgs", retryAfter: null });
   });
 
+  it("carries the start URL of a sso_required refusal", async () => {
+    const start = "https://id.apilens.test/api/v1/auth/sso/acme/start?remember=true";
+    const fetcher = vi.fn<typeof fetch>(async () => json(403, { ok: false, code: "sso_required", start_url: start }));
+    expect(await startEmail({ email: "a@example.com", intent: "signup" }, fetcher)).toEqual({
+      kind: "error",
+      code: "sso_required",
+      startUrl: start,
+    });
+    expect(errorMessage("sso_required")).toMatch(/single sign-on/);
+  });
+
   it("maps 429 to rate_limited using retry_after from the body", async () => {
     const fetcher = vi.fn<typeof fetch>(async () => json(429, { ok: false, code: "rate_limited", retry_after: 17 }, { "Retry-After": "99" }));
     expect(await startEmail({ email: "a@b.io", intent: "signup" }, fetcher)).toEqual({ kind: "rate_limited", retryAfter: 17 });

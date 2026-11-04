@@ -32,6 +32,8 @@ export interface Problem {
   code?: string;
   /** Seconds to wait before retrying (rate limits, resend cooldowns). */
   retry_after?: number;
+  /** `sso_required` only: where the organization's single sign-on starts. */
+  start_url?: string;
 }
 
 /**
@@ -135,7 +137,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function asProblem(body: unknown): Problem | null {
   if (!isRecord(body)) return null;
   const p: Problem = {};
-  for (const key of ["type", "title", "detail", "instance", "code"] as const) {
+  for (const key of ["type", "title", "detail", "instance", "code", "start_url"] as const) {
     if (typeof body[key] === "string") p[key] = body[key] as string;
   }
   if (typeof body.status === "number") p.status = body.status;
@@ -302,6 +304,16 @@ export interface AuthProviders {
   google: boolean;
   github: boolean;
   sso: boolean;
+}
+
+/** `GET /auth/sso/lookup` (#299): whether the email's domain signs in through an organization's SSO. */
+export interface SSOLookup {
+  sso: boolean;
+  /** The organization requires SSO: skip the email code and send the browser to `start_url`. */
+  enforced: boolean;
+  org_name?: string;
+  /** Identity's `GET /auth/sso/{org}/start` (absolute); takes `next`, `remember` and `login_hint`. */
+  start_url?: string;
 }
 
 export type EmailIntent = "signin" | "signup";
@@ -660,6 +672,8 @@ export function createClient(config: ClientConfig) {
   return {
     // identity: sign-in -------------------------------------------------------------------
     providers: (o?: CallOptions) => request<AuthProviders>("GET", "/auth/providers", o),
+    ssoLookup: (email: string, o?: CallOptions) =>
+      request<SSOLookup>("GET", "/auth/sso/lookup", { ...o, query: { email } }),
     emailStart: (body: EmailStartRequest, o?: CallOptions) =>
       request<EmailStartResponse>("POST", "/auth/email/start", { ...o, body }),
     emailVerify: (body: { email: string; code: string; remember?: boolean }, o?: CallOptions) =>
