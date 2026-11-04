@@ -55,3 +55,19 @@ RETURNING *;
 UPDATE auth_email_tokens
 SET consumed_at = now()
 WHERE email = @email AND consumed_at IS NULL;
+
+-- name: GetLatestUnconsumedEmailTokenForUser :one
+-- The newest unconsumed row of one intent issued for a user, expired or not,
+-- e.g. the pending email change whose code the user is confirming.
+-- Returns pgx.ErrNoRows when there is none.
+SELECT * FROM auth_email_tokens
+WHERE user_id = @user_id AND intent = @intent AND consumed_at IS NULL
+ORDER BY created_at DESC, id DESC
+LIMIT 1;
+
+-- name: InvalidateEmailTokensForUser :execrows
+-- Retires every outstanding row of one intent issued for a user, e.g. an
+-- older pending email change when a new one is requested.
+UPDATE auth_email_tokens
+SET consumed_at = now()
+WHERE user_id = @user_id AND intent = @intent AND consumed_at IS NULL;

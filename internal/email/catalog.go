@@ -15,6 +15,9 @@ const (
 	// asks to sign in with an address that has no account; links to
 	// /sign-up?email=.
 	TemplateAuthNoAccount = "auth_no_account"
+	// TemplateEmailChange: code (6 digits), expires_in. Sent to the new
+	// address of an email change.
+	TemplateEmailChange = "email_change"
 	// TemplateNewSignin: device, ip, time. Links to the Sessions page.
 	TemplateNewSignin = "new_signin"
 	// TemplateInvitation: org, inviter, role, token (for /invite/{token}),

@@ -92,6 +92,10 @@ type Querier interface {
 	// invalidates older rows, so this is the address's latest email.
 	// Returns pgx.ErrNoRows when the address has no unconsumed token.
 	GetLatestUnconsumedEmailTokenForEmail(ctx context.Context, email string) (AuthEmailToken, error)
+	// The newest unconsumed row of one intent issued for a user, expired or not,
+	// e.g. the pending email change whose code the user is confirming.
+	// Returns pgx.ErrNoRows when there is none.
+	GetLatestUnconsumedEmailTokenForUser(ctx context.Context, arg GetLatestUnconsumedEmailTokenForUserParams) (AuthEmailToken, error)
 	// Resolves a provider callback to the linked identity (and so its user).
 	// Returns pgx.ErrNoRows when the provider account is not linked.
 	GetOAuthIdentityByProviderSubject(ctx context.Context, arg GetOAuthIdentityByProviderSubjectParams) (OauthIdentity, error)
@@ -125,6 +129,9 @@ type Querier interface {
 	// Retires every outstanding row of an address, e.g. before sending a new
 	// email or once the address has signed in.
 	InvalidateEmailTokensForEmail(ctx context.Context, email string) (int64, error)
+	// Retires every outstanding row of one intent issued for a user, e.g. an
+	// older pending email change when a new one is requested.
+	InvalidateEmailTokensForUser(ctx context.Context, arg InvalidateEmailTokensForUserParams) (int64, error)
 	// The settings "Sessions" list: live rows only (one per family), most
 	// recently used first.
 	ListActiveSessionsForUser(ctx context.Context, userID uuid.UUID) ([]Session, error)
@@ -174,6 +181,10 @@ type Querier interface {
 	// state (BS) and last_used_at. The caller rejects a counter that went
 	// backwards before calling this. Returns 0 when the credential is gone.
 	UpdatePasskeySignCount(ctx context.Context, arg UpdatePasskeySignCountParams) (int64, error)
+	// Sets a new, verified email (an email change confirmed with a code sent to
+	// the new address). Fails with a unique violation on users_email_active if
+	// another active account has the address.
+	UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) (User, error)
 	// Shallow-merges the patch object into the stored onboarding state.
 	UpdateUserOnboarding(ctx context.Context, arg UpdateUserOnboardingParams) (User, error)
 	// Shallow-merges the patch object into the stored preferences.
