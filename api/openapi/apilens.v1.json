@@ -754,6 +754,132 @@
         ],
         "type": "object"
       },
+      "Passkey": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Passkey.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "aaguid": {
+            "description": "Authenticator model; all zeros when the authenticator did not say.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "backup_eligible": {
+            "description": "Whether the passkey can be synced across devices.",
+            "type": "boolean"
+          },
+          "backup_state": {
+            "description": "Whether the passkey is currently synced.",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_used_at": {
+            "description": "Last sign-in with this passkey, or null.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "transports": {
+            "description": "Transport hints the browser reported (usb, nfc, ble, internal, hybrid).",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "aaguid",
+          "transports",
+          "backup_eligible",
+          "backup_state",
+          "created_at",
+          "last_used_at"
+        ],
+        "type": "object"
+      },
+      "PasskeyOptionsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/PasskeyOptionsResponse.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "challenge_id": {
+            "description": "Send back with the verify request. Valid for 5 minutes, once.",
+            "type": "string"
+          },
+          "options": {
+            "description": "CredentialCreationOptions ({publicKey: ...}) for navigator.credentials.create()."
+          }
+        },
+        "required": [
+          "challenge_id",
+          "options"
+        ],
+        "type": "object"
+      },
+      "PasskeyVerifyBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/PasskeyVerifyBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "challenge_id": {
+            "description": "The challenge_id from the options response.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "description": "Label shown in Security settings. Defaults to the authenticator's name (for example \"iCloud Keychain\") or the browser and OS.",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "response": {
+            "description": "The PublicKeyCredential from navigator.credentials.create(), JSON-encoded (PublicKeyCredential.toJSON())."
+          }
+        },
+        "required": [
+          "challenge_id",
+          "response"
+        ],
+        "type": "object"
+      },
       "Point": {
         "additionalProperties": false,
         "properties": {
@@ -2038,6 +2164,151 @@
           }
         },
         "summary": "Start social sign-in",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/passkeys/register/options": {
+      "post": {
+        "description": "Starts adding a passkey to the signed-in user. Returns a `challenge_id` (valid 5 minutes, once) and the `options` for `navigator.credentials.create()`. The user handle is the user id; the user's existing passkeys are excluded.",
+        "operationId": "passkey-register-options",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyOptionsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Start registering a passkey",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/passkeys/register/verify": {
+      "post": {
+        "description": "Verifies the authenticator's response to the options of `challenge_id` and stores the passkey. Without `name` it is named after the authenticator (or the browser and OS). Answers 401 `passkey_failed` when the challenge is unknown, expired or used, or the response does not verify, and 409 `passkey_already_registered` for a credential that is already registered. Audited as `passkey.added`; the user is emailed a security alert.",
+        "operationId": "passkey-register-verify",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasskeyVerifyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Passkey"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `passkey_failed`, `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "passkey_failed",
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `passkey_already_registered`.",
+            "x-apilens-codes": [
+              "passkey_already_registered"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Finish registering a passkey",
         "tags": [
           "Auth"
         ]

@@ -54,6 +54,9 @@ const (
 	// CodePasskeyFailed: the WebAuthn ceremony failed verification
 	// (challenge, origin, signature or counter).
 	CodePasskeyFailed ErrCode = "passkey_failed"
+	// CodePasskeyExists: the passkey being registered is already registered
+	// (to this or another account).
+	CodePasskeyExists ErrCode = "passkey_already_registered"
 	// CodeOAuthStateMismatch: the OAuth/OIDC callback state or PKCE verifier
 	// does not match the login attempt.
 	CodeOAuthStateMismatch ErrCode = "oauth_state_mismatch"
@@ -106,6 +109,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeInvalidTOTP:           {http.StatusUnauthorized, "Invalid authentication code", "The authentication code is incorrect."},
 	CodePasskeyUnknown:        {http.StatusUnauthorized, "Unknown passkey", "This passkey is not registered."},
 	CodePasskeyFailed:         {http.StatusUnauthorized, "Passkey verification failed", "The passkey could not be verified."},
+	CodePasskeyExists:         {http.StatusConflict, "Passkey already registered", "This passkey is already registered."},
 	CodeOAuthStateMismatch:    {http.StatusBadRequest, "Sign-in state mismatch", "The sign-in attempt could not be matched. Start again."},
 	CodeOAuthEmailUnverified:  {http.StatusForbidden, "Email not verified", "The provider did not confirm a verified email address."},
 	CodeInviteExpired:         {http.StatusGone, "Invitation expired", "The invitation has expired or was revoked."},
