@@ -34,6 +34,8 @@ export interface Problem {
   retry_after?: number;
   /** `sso_required` only: where the organization's single sign-on starts. */
   start_url?: string;
+  /** `slug_taken` only: up to three free alternative slugs. */
+  suggestions?: string[];
 }
 
 /**
@@ -145,6 +147,7 @@ function asProblem(body: unknown): Problem | null {
     p.retry_after = Math.max(0, Math.ceil(body.retry_after));
   }
   if (Array.isArray(body.errors)) p.errors = body.errors.filter(isRecord) as Problem["errors"];
+  if (Array.isArray(body.suggestions)) p.suggestions = body.suggestions.filter((s): s is string => typeof s === "string");
   return p;
 }
 

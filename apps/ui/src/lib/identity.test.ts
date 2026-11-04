@@ -124,6 +124,12 @@ describe("errorFromResponse", () => {
     expect(err.retryAfter).toBe(60);
   });
 
+  it("keeps slug_taken suggestions", async () => {
+    const err = await errorFromResponse(problem(409, { status: 409, code: "slug_taken", suggestions: ["acme-hq", 3, "acme-2"] }));
+    expect(err.code).toBe("slug_taken");
+    expect(err.problem?.suggestions).toEqual(["acme-hq", "acme-2"]);
+  });
+
   it("parses an HTTP-date Retry-After", async () => {
     const now = Date.parse("2026-11-04T12:00:00Z");
     const err = await errorFromResponse(

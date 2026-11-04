@@ -55,6 +55,11 @@ export function OnboardingProgress({ children }: { children: ReactNode }) {
   );
 }
 
+/** Shows a message in the onboarding error toast (for failures other than a save's). */
+export function useOnboardingToast() {
+  return useContext(ToastContext);
+}
+
 /**
  * Continue for an onboarding screen at step bar position `reached`: `go(step, href, answers)`
  * saves `step` (unless it is behind the progress already saved) and the answers, and opens

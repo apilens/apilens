@@ -17,6 +17,7 @@ vi.mock("next/navigation", () => ({
     throw new Redirect(location);
   },
 }));
+vi.mock("./env", () => ({ env: () => ({ publicUrl: "https://app.apilens.test" }) }));
 vi.mock("./auth/server", () => ({
   getSession: async () => ({ payload }),
   getContext: (next: string) => getContext(next),
@@ -177,10 +178,17 @@ describe("/onboarding/* pages", () => {
     const join = (await JoinPage()) as { props: Record<string, unknown> };
     expect(join.props).toEqual({ step: 1, reached: 1 });
     const create = (await CreatePage()) as { props: Record<string, unknown> };
-    // The organization screen starts from the saved address (#327).
-    expect(create.props).toEqual({ step: 1, reached: 1, answers: { org_slug: "example-co" } });
-    // About reads the context twice (guard, then the invited check); `cache()` makes it one call.
-    expect(getContext.mock.calls.map(([p]) => p)).toEqual(["/onboarding/about", "/onboarding/about", "/onboarding/join", "/onboarding/create"]);
+    // The organization screen starts from the saved address (#327), shows it under the public
+    // host and knows which addresses are the user's own (#330).
+    expect(create.props).toEqual({ step: 1, reached: 1, answers: { org_slug: "example-co" }, host: "app.apilens.test", owned: [] });
+    // About and create read the context twice (guard, then their own use); `cache()` makes it one call.
+    expect(getContext.mock.calls.map(([p]) => p)).toEqual([
+      "/onboarding/about",
+      "/onboarding/about",
+      "/onboarding/join",
+      "/onboarding/create",
+      "/onboarding/create",
+    ]);
   });
 
   it("about tells an invited user which organization Continue opens (#337)", async () => {

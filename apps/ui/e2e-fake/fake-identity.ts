@@ -37,7 +37,11 @@
 //   PATCH /api/v1/users/me/onboarding              saves the step, completed and merges the answers per user (#327);
 //                                                  the context reports them. An org_slug of
 //                                                  `unavailable` answers 503 unavailable
-//   POST /api/v1/users/me/email/change             `taken@example.com` answers email_taken
+//   GET  /api/v1/orgs/slug-available?slug=         acme, beta, globex, admin, apilens and created slugs are
+//                                                  taken (with free suggestions); `race-lost` is available
+//   POST /api/v1/orgs                              creates an org the user owns (in their context);
+//                                                  slug_taken + suggestions for taken slugs and `race-lost` (#330)
+//   POST /api/v1/users/me/email/change            `taken@example.com` answers email_taken
 //   POST /api/v1/users/me/email/confirm            code 123456 moves the email, anything else invalid_code
 //   DELETE /api/v1/users/me                        owner_transfer_required while the user is acme's only owner
 //   POST /__fake/profile {name?, email?, sole_owner?}
@@ -507,6 +511,17 @@ const joinedGlobex = new Set<string>();
 const preferencesByUser = new Map<string, Record<string, unknown>>();
 const preferencesOf = (id: string) => preferencesByUser.get(id) ?? {};
 const HOME_SCREENS = new Set(["endpoints", "requests", "exceptions"]);
+/** Organizations created through `POST /orgs` (#330), by slug; the creator owns each. */
+const createdOrgs = new Map<string, { id: string; slug: string; name: string; role: string; owner: string }>();
+const ORG_SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
+/** Slugs no new organization can use: the seeded organizations plus reserved words. */
+const TAKEN_ORG_SLUGS = new Set(["acme", "beta", "globex", "admin", "apilens"]);
+/** Answers available to the check but slug_taken to the create: someone took it in between. */
+const RACE_SLUG = "race-lost";
+const orgSlugTaken = (slug: string) => TAKEN_ORG_SLUGS.has(slug) || createdOrgs.has(slug) || slug === RACE_SLUG;
+const orgSlugSuggestions = (slug: string) => [`${slug}-hq`, `${slug}-2`, `${slug}-team`].filter((s) => !orgSlugTaken(s));
+const createdOrgsOf = (id: string) =>
+  [...createdOrgs.values()].filter((o) => o.owner === id).map(({ owner: _owner, ...o }) => ({ ...o, projects: [] }));
 
 /** `GET /users/me/context` for a signed-in fake user: one org with one project (plus globex once invited). */
 function context(id: string) {
@@ -532,6 +547,7 @@ function context(id: string) {
         projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"] }],
       },
       ...(joinedGlobex.has(id) ? [GLOBEX] : []),
+      ...createdOrgsOf(id),
     ],
     last_project_slug: "shop",
     // Every fake sign-in is a new user, so onboarding is still open: `/onboarding/*` shows (#326).
@@ -857,6 +873,26 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (typeof body.email === "string") profile.email = body.email;
     if (typeof body.sole_owner === "boolean") profile.soleOwner = body.sole_owner;
     return send(res, 200, { ok: true });
+  }
+  if (req.method === "GET" && path === "/api/v1/orgs/slug-available") {
+    if (!signedInUser(req)) return problem(res, 401, "unauthenticated");
+    const slug = q.get("slug") ?? "";
+    if (!ORG_SLUG.test(slug)) return problem(res, 422, "invalid_request");
+    const available = !orgSlugTaken(slug) || slug === RACE_SLUG;
+    return send(res, 200, { available, suggestions: available ? [] : orgSlugSuggestions(slug) });
+  }
+  if (req.method === "POST" && path === "/api/v1/orgs") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const { name, slug } = await readBody(req);
+    const label = typeof name === "string" ? name.trim() : "";
+    if (!label || label.length > 100 || typeof slug !== "string" || !ORG_SLUG.test(slug)) return problem(res, 422, "invalid_request");
+    if (orgSlugTaken(slug)) {
+      return send(res, 409, { status: 409, title: "slug_taken", code: "slug_taken", suggestions: orgSlugSuggestions(slug) }, "application/problem+json");
+    }
+    const org = { id: `org_${randomUUID()}`, slug, name: label, role: "owner", owner: user };
+    createdOrgs.set(slug, org);
+    return send(res, 201, { id: org.id, slug, name: label, role: "owner", created_at: new Date().toISOString() });
   }
   const ssoPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/sso(\/test)?$/);
   if (ssoPath) return orgSSO(req, res, ssoPath[1], ssoPath[2] !== undefined);
