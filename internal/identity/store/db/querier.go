@@ -11,9 +11,16 @@ import (
 )
 
 type Querier interface {
+	// Starts a new session family at sign-in: pass family_id = id. Only identity
+	// reads or writes sessions (ADR 0005); token_hash is the SHA-256 of the
+	// refresh token, never the token itself.
+	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	// Only the identity module reads or writes users (ADR 0005); every lookup
 	// and update below ignores soft-deleted rows.
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	// Returns the row whatever its state, so the caller can tell a live token
+	// from a revoked one (reuse) or an expired one.
+	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
 	// Case-insensitive; served by the users_email_active index on lower(email).
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
@@ -22,6 +29,9 @@ type Querier interface {
 	// Only identity reads or writes signing keys (ADR 0005). Pass
 	// activated_at = NULL to publish a key in JWKS before it signs.
 	InsertSigningKey(ctx context.Context, arg InsertSigningKeyParams) (SigningKey, error)
+	// The settings "Sessions" list: live rows only (one per family), most
+	// recently used first.
+	ListActiveSessionsForUser(ctx context.Context, userID uuid.UUID) ([]Session, error)
 	// Newest first, keyset-paginated: pass the last row's (created_at, id) as the
 	// cursor for the next page, or NULLs for the first page.
 	ListAuditEventsForUser(ctx context.Context, arg ListAuditEventsForUserParams) ([]AuditEvent, error)
@@ -34,10 +44,28 @@ type Querier interface {
 	RestoreUser(ctx context.Context, id uuid.UUID) (User, error)
 	// Stops a key from signing; it stays published for the retirement window.
 	RetireSigningKey(ctx context.Context, kid string) (SigningKey, error)
+	// "Sign out everywhere".
+	RevokeAllForUser(ctx context.Context, arg RevokeAllForUserParams) (int64, error)
+	// Revokes every live row of a family, e.g. on refresh-token reuse.
+	RevokeFamily(ctx context.Context, arg RevokeFamilyParams) (int64, error)
+	// "Sign out other sessions": revokes every live session of the user except
+	// the family of the current one.
+	RevokeOthersForUser(ctx context.Context, arg RevokeOthersForUserParams) (int64, error)
+	// Revokes one live session of a user (logout, or "sign out" in the sessions
+	// list). Scoped by user_id so a user can only revoke their own.
+	RevokeSession(ctx context.Context, arg RevokeSessionParams) (int64, error)
+	// Atomically revokes the live parent (reason 'rotated') and inserts its child
+	// in the same family with a new token. The child inherits user, family,
+	// remember, amr, device_label and created_at (the sign-in time). Returns
+	// pgx.ErrNoRows when the parent is not live (already rotated, revoked or
+	// expired); of two concurrent rotations of one parent only one succeeds.
+	RotateSession(ctx context.Context, arg RotateSessionParams) (Session, error)
 	// Hides the user and schedules the hard delete; the purge job removes the
 	// row once delete_after has passed.
 	SoftDeleteUser(ctx context.Context, arg SoftDeleteUserParams) (User, error)
 	TouchLastLogin(ctx context.Context, id uuid.UUID) error
+	// Records activity on a live session. A NULL ip keeps the stored one.
+	TouchSession(ctx context.Context, arg TouchSessionParams) (int64, error)
 	// Shallow-merges the patch object into the stored onboarding state.
 	UpdateUserOnboarding(ctx context.Context, arg UpdateUserOnboardingParams) (User, error)
 	// Shallow-merges the patch object into the stored preferences.
