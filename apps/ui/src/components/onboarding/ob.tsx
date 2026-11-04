@@ -27,6 +27,11 @@ const P = {
 } as const;
 export type ObIconName = keyof typeof P;
 
+/** An `aria-describedby` value from the ids that apply (falsy ones are skipped), or undefined. */
+export function describedBy(...ids: (string | false | null | undefined)[]): string | undefined {
+  return ids.filter(Boolean).join(" ") || undefined;
+}
+
 export function ObIcon({ name }: { name: ObIconName }) {
   return (
     <svg className="ob-ic" viewBox="0 0 16 16" aria-hidden="true">
@@ -80,45 +85,14 @@ export interface ObProps {
   below?: ReactNode;
 }
 
-/** The onboarding split layout: brand panel (560px) on the left, the form on the right. */
+/**
+ * The onboarding split layout: brand panel (560px) on the left, the form on the right. The form
+ * comes first in the DOM (the grid puts the panel back on the left), so keyboard and screen-reader
+ * order reach the form and its `h1` before the brand panel's `h2` and footer links.
+ */
 export function ObShell({ eyebrow, headline, body, receipt, progress, step, badge, title, lead, children, footer, below }: ObProps) {
   return (
     <div className="ah ob2">
-      <aside className="ob-bp">
-        <div className="ob-bp-top">
-          <Logo height={44} />
-        </div>
-        <div className="ob-bp-mid">
-          <div className="ob-eb">{eyebrow}</div>
-          <h2>
-            {headline.map((l, i) => (
-              <span key={i}>
-                {l}
-                {i < headline.length - 1 ? <br /> : null}
-              </span>
-            ))}
-          </h2>
-          <p>{body}</p>
-          <div className="ob-rc">{receipt}</div>
-        </div>
-        {progress !== undefined ? (
-          <div className="ob-tl" aria-hidden="true">
-            <span>02:14</span>
-            <span className="tr">
-              <span className="fill" style={{ width: `${progress}%` }} />
-              <span className="dot" style={{ left: `${progress}%` }} />
-            </span>
-            <span>02:44</span>
-          </div>
-        ) : null}
-        <div className="ob-bp-foot">
-          <span>© 2026 APILens</span>
-          <a {...extLink(LINKS.privacy)}>Privacy</a>
-          <a {...extLink(LINKS.terms)}>Terms</a>
-          <a {...extLink(LINKS.status)}>Status</a>
-        </div>
-      </aside>
-
       <main className="ob-fp">
         <div className="ob-ftop">
           <span className="ob-mlogo"><Logo height={34} /></span>
@@ -155,6 +129,41 @@ export function ObShell({ eyebrow, headline, body, receipt, progress, step, badg
           </div>
         ) : null}
       </main>
+
+      <aside className="ob-bp" aria-label="About APILens">
+        <div className="ob-bp-top">
+          <Logo height={44} />
+        </div>
+        <div className="ob-bp-mid">
+          <div className="ob-eb">{eyebrow}</div>
+          <h2>
+            {headline.map((l, i) => (
+              <span key={i}>
+                {l}
+                {i < headline.length - 1 ? <br /> : null}
+              </span>
+            ))}
+          </h2>
+          <p>{body}</p>
+          <div className="ob-rc">{receipt}</div>
+        </div>
+        {progress !== undefined ? (
+          <div className="ob-tl" aria-hidden="true">
+            <span>02:14</span>
+            <span className="tr">
+              <span className="fill" style={{ width: `${progress}%` }} />
+              <span className="dot" style={{ left: `${progress}%` }} />
+            </span>
+            <span>02:44</span>
+          </div>
+        ) : null}
+        <div className="ob-bp-foot">
+          <span>© 2026 APILens</span>
+          <a {...extLink(LINKS.privacy)}>Privacy</a>
+          <a {...extLink(LINKS.terms)}>Terms</a>
+          <a {...extLink(LINKS.status)}>Status</a>
+        </div>
+      </aside>
     </div>
   );
 }
@@ -185,6 +194,11 @@ export function BackNext({ back, next, nextLabel, disabled, onNext, loading }: {
   );
 }
 
-export const Brand = ({ src, label }: { src: string; label: string }) => (
-  <span className="al-brand" style={{ ["--src" as string]: `url(https://cdn.jsdelivr.net/npm/simple-icons@13.21.0/icons/${src}.svg)`, width: 16, height: 16 }} role="img" aria-label={label} />
+/** A provider logo. Without `label` it is decorative: the button around it already names it. */
+export const Brand = ({ src, label }: { src: string; label?: string }) => (
+  <span
+    className="al-brand"
+    style={{ ["--src" as string]: `url(https://cdn.jsdelivr.net/npm/simple-icons@13.21.0/icons/${src}.svg)`, width: 16, height: 16 }}
+    {...(label ? { role: "img", "aria-label": label } : { "aria-hidden": true })}
+  />
 );

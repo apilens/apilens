@@ -179,7 +179,7 @@ export function Verify() {
 
   const mail = (host: string) => `https://${host}`;
   const cell = (i: number) => (
-    <span key={i} className={i === code.length && !locked ? "cur" : undefined}>
+    <span key={i} className={i === code.length && !locked ? "cur" : undefined} aria-hidden="true">
       {code[i] ?? ""}
     </span>
   );
@@ -211,7 +211,7 @@ export function Verify() {
         onAnimationEnd={() => setShake(false)}
       >
         {[0, 1, 2].map(cell)}
-        <span className="gap" />
+        <span className="gap" aria-hidden="true" />
         {[3, 4, 5].map(cell)}
         <input
           ref={input}

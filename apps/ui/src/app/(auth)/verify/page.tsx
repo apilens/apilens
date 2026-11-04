@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { LinkProblem, SignedInAs } from "@/components/onboarding/link-landing";
 import { Verify } from "@/components/onboarding/verify";
 import { identity } from "@/lib/identity";
-import { type VerifyQuery, verifyLanding } from "@/lib/magic-link";
+import { type VerifyQuery, linkNext, verifyLanding } from "@/lib/magic-link";
 import { componentSession } from "@/lib/server-session";
 
 export const metadata: Metadata = { title: "Check your inbox", referrer: "no-referrer" };
@@ -26,6 +26,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<Ver
     case "problem":
       return <LinkProblem problem={landing.problem} email={landing.email} next={landing.next} />;
     default:
+      // No address to check a code against: start over, on the server so it works without JS.
+      if (!(typeof query.email === "string" && query.email.trim())) {
+        const next = linkNext(query.next);
+        redirect(next ? `/sign-in?${new URLSearchParams({ next })}` : "/sign-in");
+      }
       return (
         <Suspense>
           <Verify />

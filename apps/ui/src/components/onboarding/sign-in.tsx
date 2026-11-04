@@ -23,7 +23,7 @@ import { type OAuthLinks, type SignInMethods, altMethods, gridColumns } from "@/
 import { SIGN_IN_NOTICES, type SignInNotice } from "@/lib/sign-in-notice";
 import { ssoRequiredMatch } from "@/lib/sso";
 import { AltLink } from "./alt-method";
-import { ObIcon, ObShell } from "./ob";
+import { ObIcon, ObShell, describedBy } from "./ob";
 import { SignInNoticeBanner } from "./sign-in-notice";
 import { SSOButton, SSOLink, useSSOLookup } from "./sso";
 
@@ -210,7 +210,7 @@ export function SignIn({
             </label>
             <div className={`ob-in${bad ? " bad" : ""}`}>
               <ObIcon name="mail" />
-              <input id="si-email" type="email" autoComplete="email webauthn" autoFocus placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => setTouched(true)} onKeyDown={(e) => e.key === "Enter" && (enforced && sso.match ? window.location.assign(sso.match.startUrl) : emailCode())} aria-invalid={bad} aria-describedby={bad ? "si-err" : undefined} />
+              <input id="si-email" type="email" autoComplete="email webauthn" autoFocus placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => setTouched(true)} onKeyDown={(e) => e.key === "Enter" && (enforced && sso.match ? window.location.assign(sso.match.startUrl) : emailCode())} aria-invalid={bad} aria-describedby={describedBy(bad && "si-err", error && "si-problem")} />
             </div>
             {bad ? (
               <p id="si-err" className="ob-err">
@@ -220,7 +220,7 @@ export function SignIn({
           </>
         )}
         {error ? (
-          <p className="ob-err" role="alert">
+          <p id="si-problem" className="ob-err" role="alert">
             {error}
           </p>
         ) : null}

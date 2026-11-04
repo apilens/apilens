@@ -9,7 +9,7 @@ import { Brand, ObIcon } from "./ob";
 export function AltLink({ method, href }: { method: Exclude<AltMethod, "email">; href: string }) {
   const content = (
     <>
-      {method === "sso" ? <ObIcon name="lock" /> : <Brand src={method} label={method} />}
+      {method === "sso" ? <ObIcon name="lock" /> : <Brand src={method} />}
       {method === "github" ? "GitHub" : method === "google" ? "Google" : "SSO"}
     </>
   );

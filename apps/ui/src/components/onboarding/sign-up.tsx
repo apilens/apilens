@@ -8,7 +8,7 @@ import { LINKS, extLink } from "@/lib/links";
 import { type OAuthLinks, type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
 import { ssoRequiredMatch } from "@/lib/sso";
 import { AltLink } from "./alt-method";
-import { ObIcon, ObShell } from "./ob";
+import { ObIcon, ObShell, describedBy } from "./ob";
 import { SSOButton, SSOLink, useSSOLookup } from "./sso";
 
 const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
@@ -137,7 +137,7 @@ export function SignUp({ methods, oauth, next }: { methods: SignInMethods; oauth
           </label>
           <div className={`ob-in${bad ? " bad" : ""}`}>
             <ObIcon name="mail" />
-            <input id="su-email" type="email" autoComplete="email" autoFocus placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => email && setTouched(true)} aria-invalid={bad} aria-describedby={bad ? "su-err" : problemText ? "su-problem" : undefined} />
+            <input id="su-email" type="email" autoComplete="email" autoFocus placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => email && setTouched(true)} aria-invalid={bad} aria-describedby={describedBy(bad && "su-err", problemText && "su-problem")} />
           </div>
           {bad ? (
             <p id="su-err" className="ob-err">
