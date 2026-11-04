@@ -25,7 +25,7 @@ Org roles flow down to every project in the org. Direct project roles never gran
 
 ## Role → action mapping
 
-The UI gates on the `Action` vocabulary (`docs/architecture/identity.md`, mirrored in `apps/ui/src/lib/capabilities.ts`, both added by #294). Each action resolves to exactly one SpiceDB permission:
+The UI gates on the `Action` vocabulary (`docs/architecture/identity.md`, mirrored in `internal/controlplane/usercontext` (`Vocabulary`) and `apps/ui/src/lib/capabilities.ts`); `GET /api/v1/users/me/context` resolves it per project with one `CheckBulkPermissions` call. Each action resolves to exactly one SpiceDB permission:
 
 | UI action | SpiceDB permission | Org owner | Org admin | Org member | Org viewer | Project admin | Project editor | Project viewer |
 | --- | --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: |

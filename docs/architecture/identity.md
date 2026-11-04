@@ -602,17 +602,22 @@ needs: `user` (the `/users/me` body), `orgs` (each with the user's `role` and
 its projects with their environments), `last_project_slug` (the preference,
 or null when the user can no longer see that project), `onboarding`
 (`{step, completed}` read from the stored onboarding object) and
-`capabilities`. It is four indexed queries in one read-only snapshot whatever
-the number of organizations and projects (under 50 ms for 10 × 10, asserted
-by an integration test).
+`capabilities`. It is four indexed queries in one read-only snapshot plus one
+SpiceDB `CheckBulkPermissions` call whatever the number of organizations and
+projects (under 50 ms for 10 × 10, asserted by an integration test).
 
 The UI never derives permissions from a role. `GET /api/v1/users/me/context`
-returns, per project, the list of **actions** the user may perform, computed
-with one SpiceDB `CheckBulkPermissions` call (until #294 lands they are
-derived from the organization role with the table in `authz/README.md`); the UI gates buttons on them
-(`apps/ui/src/lib/capabilities.ts`, `useCan()`, `<Gated>`). The server still
-checks every request with `authz.Require`; capabilities only decide what the
-UI shows.
+returns, per project, the list of **actions** the user may perform, in the
+order of the table below. They are computed with one SpiceDB
+`CheckBulkPermissions` call per context read, whatever the number of
+projects: every distinct (permission, resource) pair is asked once, the
+project permissions per project and the organization permissions once per
+organization (`usercontext.Vocabulary`). A user with no projects causes no
+SpiceDB call. Capabilities are never partial: when SpiceDB cannot answer the
+call fails with 503 `authz_unavailable` (fail closed). The UI gates buttons on
+them (`apps/ui/src/lib/capabilities.ts` mirrors the vocabulary). The server
+still checks every request with `authz.Require`; capabilities only decide what
+the UI shows.
 
 ```json
 "capabilities": {
@@ -634,7 +639,8 @@ UI shows.
 Which roles hold each permission is the table in
 [`authz/README.md`](../../authz/README.md), asserted by
 `authz/schema.validation.yaml`. Actions are stable once shipped; add new ones
-here, in `capabilities.ts` and in the schema in the same change.
+here, in `usercontext.Vocabulary`, in `capabilities.ts` and in the schema in
+the same change.
 
 ## Errors
 
