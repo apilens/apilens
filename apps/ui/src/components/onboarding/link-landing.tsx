@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { NETWORK_MESSAGE, errorMessage, rateLimitMessage, startEmail } from "@/lib/email-start";
 import { emailInitials } from "@/lib/remembered-account";
-import { ObIcon, type ObIconName, ObShell } from "./ob";
+import { ObIcon, type ObIconName, ObShell, describedBy } from "./ob";
 
 const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
 
@@ -106,7 +106,7 @@ export function LinkProblem({ problem, email: initial, next }: { problem: "expir
             onChange={(e) => setEmail(e.target.value)}
             onBlur={() => setTouched(true)}
             aria-invalid={bad}
-            aria-describedby={bad ? "ml-err" : undefined}
+            aria-describedby={describedBy(bad && "ml-err", error && "ml-problem")}
           />
         </div>
         {bad ? (
@@ -115,7 +115,7 @@ export function LinkProblem({ problem, email: initial, next }: { problem: "expir
           </p>
         ) : null}
         {error ? (
-          <p className="ob-err" role="alert">
+          <p id="ml-problem" className="ob-err" role="alert">
             {error}
           </p>
         ) : null}

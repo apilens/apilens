@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { RECOVERY_PATH } from "@/lib/recovery-client";
 import {
@@ -30,10 +30,8 @@ type Problem = { kind: "invalid_code"; left: number } | { kind: "network" } | { 
  * answers per pending sign-in; the fifth, or a pending sign-in that has expired, goes back to
  * sign-in with a notice. "Lost your device?" starts account recovery.
  */
-export function TwoFactor() {
+export function TwoFactor({ next: asked }: { next?: string | null }) {
   const router = useRouter();
-  const params = useSearchParams();
-  const asked = params.get("next");
   const totpInput = useRef<HTMLInputElement>(null);
   const backupInput = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<Mode>("totp");
@@ -105,7 +103,7 @@ export function TwoFactor() {
   const clearable = problem?.kind === "invalid_code" || problem?.kind === "network" || problem?.kind === "error";
 
   const cell = (i: number) => (
-    <span key={i} className={i === code.length ? "cur" : undefined}>
+    <span key={i} className={i === code.length ? "cur" : undefined} aria-hidden="true">
       {code[i] ?? ""}
     </span>
   );
@@ -169,7 +167,7 @@ export function TwoFactor() {
       ) : (
         <div className={`ob-code6${shake ? " is-shake" : ""}`} onClick={() => totpInput.current?.focus()} onAnimationEnd={() => setShake(false)}>
           {[0, 1, 2].map(cell)}
-          <span className="gap" />
+          <span className="gap" aria-hidden="true" />
           {[3, 4, 5].map(cell)}
           <input
             ref={totpInput}

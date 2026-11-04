@@ -13,7 +13,7 @@ import {
   recoveryErrorMessage,
   waitMessage,
 } from "@/lib/recovery-client";
-import { ObIcon, type ObIconName, ObShell } from "./ob";
+import { ObIcon, type ObIconName, ObShell, describedBy } from "./ob";
 
 const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
 
@@ -151,7 +151,7 @@ export function RecoveryRequest({ email: initial }: { email?: string }) {
             onChange={(e) => setEmail(e.target.value)}
             onBlur={() => setTouched(true)}
             aria-invalid={bad}
-            aria-describedby={bad ? "rc-err" : undefined}
+            aria-describedby={describedBy(bad && "rc-err", error && "rc-problem")}
           />
         </div>
         {bad ? (
@@ -160,7 +160,7 @@ export function RecoveryRequest({ email: initial }: { email?: string }) {
           </p>
         ) : null}
         {error ? (
-          <p className="ob-err" role="alert">
+          <p id="rc-problem" className="ob-err" role="alert">
             {error}
           </p>
         ) : null}
