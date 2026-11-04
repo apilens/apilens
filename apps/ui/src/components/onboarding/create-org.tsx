@@ -15,7 +15,8 @@ const FAILED: CreateOrgResult = { ok: false, code: "unknown_error", error: creat
  * previous check aborted), Create calls `POST /orgs` and continues to the project step with the
  * address saved as `org_slug`. `answers` are the saved onboarding answers (#327): a refresh keeps
  * the address entered. `host` is the public UI host the address is shown under; `owned` the
- * slugs of organizations the user already owns (their own address is not "taken").
+ * slugs of organizations the user already owns (their own address is not "taken"). `back` is
+ * the previous screen: the join step, or about when there is nothing to join (#329).
  */
 export function CreateOrg({
   step = 1,
@@ -23,7 +24,8 @@ export function CreateOrg({
   answers = {},
   host = "",
   owned = [],
-}: Partial<StepProps> & { answers?: OnboardingAnswers; host?: string; owned?: string[] }) {
+  back = "/onboarding/join",
+}: Partial<StepProps> & { answers?: OnboardingAnswers; host?: string; owned?: string[]; back?: string }) {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState(answers.org_slug ?? "");
   const [edited, setEdited] = useState(Boolean(answers.org_slug));
@@ -91,7 +93,7 @@ export function CreateOrg({
       badge="building"
       title="Name your organization"
       lead="Usually your company. It holds projects, people and billing."
-      footer={<BackNext back="/onboarding/join" nextLabel="Create organization" disabled={!ok || busy} loading={busy} onNext={create} />}
+      footer={<BackNext back={back} nextLabel="Create organization" disabled={!ok || busy} loading={busy} onNext={create} />}
     >
       <div className="ob-f">
         <label className="ob-l" htmlFor="org-name">

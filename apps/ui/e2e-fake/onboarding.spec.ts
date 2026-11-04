@@ -8,6 +8,82 @@ function githubButton(page: Page) {
 }
 
 const ABOUT = "What should you see first?";
+const IDENTITY = process.env.FAKE_IDENTITY_URL ?? "http://localhost:18080";
+
+/** Signs in through the fake handoff, with the organizations the user may join (#329), and lands on `next`. */
+async function signIn(page: Page, next: string, joinable: Record<string, unknown>[] = []) {
+  const res = await fetch(`${IDENTITY}/__fake/handoff`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ next, joinable }),
+  });
+  const { code } = (await res.json()) as { code: string };
+  await page.goto(`/auth/callback?code=${code}`);
+  await page.waitForURL((url) => url.pathname === next);
+}
+
+const JOIN = "Join your team on APILens";
+const step = (page: Page) => page.locator('.ob-st[aria-current="step"]');
+
+// #329: the join step lists the organizations the user may join by verified email domain, and
+// is skipped when there are none.
+test("join: nothing to join skips straight to creating an organization", async ({ page }) => {
+  await signIn(page, "/onboarding/about");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.waitForURL((url) => url.pathname === "/onboarding/create");
+  await expect(page.getByRole("heading", { name: "Name your organization" })).toBeVisible();
+  // Back passes the skipped step.
+  await expect(page.getByRole("link", { name: "Back" })).toHaveAttribute("href", "/onboarding/about");
+
+  await page.goto("/onboarding/join");
+  await page.waitForURL((url) => url.pathname === "/onboarding/create");
+});
+
+test("join: one organization without projects joins and continues to project creation", async ({ page }) => {
+  await signIn(page, "/onboarding/about", [{ slug: "initech", name: "Initech", member_count: 4, member_initials: ["PG", "BL", "ML"] }]);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.waitForURL((url) => url.pathname === "/onboarding/join");
+  await expect(page.getByRole("heading", { name: JOIN })).toBeVisible();
+  await expect(step(page)).toHaveText("Organization");
+
+  const card = page.getByTestId("joinable-org");
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText("Initech");
+  await expect(card).toContainText("example.com verified");
+  await expect(card).toContainText("PGBLML");
+  await expect(card).toContainText("4members");
+  await expect(card).toContainText("0projects");
+  await expect(page.getByRole("link", { name: "Create a separate organization" })).toHaveAttribute("href", "/onboarding/create");
+
+  await page.getByRole("button", { name: "Join Initech" }).click();
+  await page.waitForURL((url) => url.pathname === "/onboarding/project");
+});
+
+test("join: several organizations, the chosen one with a project opens it and finishes onboarding", async ({ page }) => {
+  await signIn(page, "/onboarding/about", [
+    { slug: "hooli", name: "Hooli", member_count: 12, member_initials: ["GB", "DD", "JH"], projects: ["nucleus", "hooli-xyz"] },
+    { slug: "initech", name: "Initech", member_count: 1, member_initials: ["BL"] },
+    { slug: "pied-piper", name: "Pied Piper", member_count: 5, member_initials: ["RH", "BG", "DC"], projects: ["middle-out"] },
+  ]);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.waitForURL((url) => url.pathname === "/onboarding/join");
+  await expect(page.getByRole("heading", { name: JOIN })).toBeVisible();
+  await expect(page.getByText("3 organizations at example.com already use APILens.")).toBeVisible();
+  const choices = page.getByRole("radio");
+  await expect(choices).toHaveCount(3);
+  await expect(choices.nth(0)).toHaveAttribute("aria-checked", "true");
+  await expect(choices.nth(0)).toContainText("12 members · 2 projects");
+  await expect(choices.nth(1)).toContainText("1 member · 0 projects");
+
+  await page.getByRole("radio", { name: /Pied Piper/ }).click();
+  await expect(page.getByRole("radio", { name: /Pied Piper/ })).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("button", { name: "Join Pied Piper" }).click();
+  await page.waitForURL((url) => url.pathname.startsWith("/middle-out/"));
+
+  // Onboarding is finished: its pages send the user to their project now.
+  await page.goto("/onboarding/join");
+  await page.waitForURL((url) => !url.pathname.startsWith("/onboarding/"));
+});
 
 test("signed out → sign-up, then onboarding starts at the saved step", async ({ page }) => {
   await page.goto("/onboarding/create");
@@ -55,10 +131,8 @@ test("the home screen pick is saved and stays selected after a refresh", async (
 // #327: every Continue saves the step and answers (`PATCH /users/me/onboarding`), so a refresh
 // resumes on the saved step with what was entered; a failed save shows a toast.
 test("Continue saves progress, so a refresh resumes with the answers", async ({ page }) => {
-  await page.goto("/sign-in");
-  await githubButton(page).click();
-  await page.getByRole("link", { name: "Authorize" }).click();
-  await page.goto("/onboarding/about");
+  // One organization to join (#329), so the join step is shown rather than skipped.
+  await signIn(page, "/onboarding/about", [{ slug: "initech", name: "Initech" }]);
   await expect(page.getByRole("heading", { name: ABOUT })).toBeVisible();
 
   // About → join: saved before the guard is asked, so the page stays after a refresh.
@@ -100,13 +174,9 @@ test("Continue saves progress, so a refresh resumes with the answers", async ({ 
 // flight), a taken one offers the API's suggestions, Create calls `POST /orgs` (a slug taken in
 // between is reported on the field) and continues to the project step with `org_slug` saved.
 test("Name your organization checks the address live and creates the org", async ({ page }) => {
-  await page.goto("/sign-in");
-  await githubButton(page).click();
-  await page.getByRole("link", { name: "Authorize" }).click();
-  await page.goto("/onboarding/about");
+  // Nothing to join (#329), so Continue skips the join step straight to this screen.
+  await signIn(page, "/onboarding/about");
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/join");
-  await page.getByRole("link", { name: "Create a separate organization" }).click();
   await page.waitForURL((url) => url.pathname === "/onboarding/create");
 
   const address = page.getByRole("textbox", { name: /^Address/ });

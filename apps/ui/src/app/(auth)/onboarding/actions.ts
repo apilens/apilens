@@ -5,9 +5,11 @@
 // against the API's schema first (a Server Action is a public POST endpoint); failures answer a
 // sentence to show, never a raw error. Invited users (#337) skip the organization and project
 // steps: the about step's Continue finishes onboarding instead (`finishInvitedOnboarding`).
+// "Join your team" (#329) joins an organization by verified email domain (`joinTeam`).
 import { redirect } from "next/navigation";
 import { type HomeScreen, type Onboarding, type OnboardingAnswers, identity, isApiError } from "@/lib/identity";
 import { invitedLanding, invitedOrg } from "@/lib/invitations";
+import { joinError, joinOrganization } from "@/lib/join-org";
 import { parseHome, parseOnboardingSave, saveError } from "@/lib/onboarding-save";
 import { withActionSession } from "@/lib/server-session";
 
@@ -68,4 +70,33 @@ export async function saveHome(home: HomeScreen): Promise<SaveHomeResult> {
       return { ok: false, error: saveError(err.code), code: err.code };
     }
   });
+}
+
+export type JoinTeamResult = { ok: false; error: string; code: string };
+
+const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+/**
+ * "Join <org>" (#329): joins the organization `slug` (named `name` in messages) through the
+ * user's verified email domain and opens what comes next: the organization's first project
+ * (onboarding finished) or, when it has none, the project step. A failed join answers the
+ * sentence to show and stays on the screen.
+ */
+export async function joinTeam(slug: string, name: string): Promise<JoinTeamResult> {
+  const label = typeof name === "string" && name.trim() ? name.trim().slice(0, 100) : "this organization";
+  if (typeof slug !== "string" || !SLUG.test(slug)) return { ok: false, error: joinError("forbidden", label), code: "invalid_request" };
+  const next = await withActionSession(async (session) => {
+    try {
+      return await joinOrganization({
+        join: () => session.call((o) => identity().joinOrg(slug, o)),
+        context: () => session.call((o) => identity().context(o)),
+        updateOnboarding: (patch) => session.call((o) => identity().updateOnboarding(patch, o)),
+      });
+    } catch (err) {
+      if (!isApiError(err)) throw err;
+      return { ok: false as const, error: joinError(err.code, label), code: err.code };
+    }
+  });
+  if (typeof next !== "string") return next;
+  redirect(next);
 }

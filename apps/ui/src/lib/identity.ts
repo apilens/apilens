@@ -716,6 +716,17 @@ export interface InviteResult {
   invitation?: Invitation;
 }
 
+/** `GET /users/me/joinable-orgs` item (#283): an organization the user may join by verified email domain. */
+export interface JoinableOrg {
+  id: string;
+  slug: string;
+  name: string;
+  member_count: number;
+  project_count: number;
+  /** Initials of up to three members, owners first. */
+  member_initials: string[];
+}
+
 export interface CreateOrgRequest {
   name: string;
   slug: string;
@@ -895,6 +906,9 @@ export function createClient(config: ClientConfig) {
       request<Org>("POST", "/orgs", { ...o, body }),
     orgSlugAvailable: (slug: string, o: Authed) =>
       request<SlugAvailability>("GET", "/orgs/slug-available", { ...o, query: { slug } }),
+    // Verified-domain join (#283): `forbidden` when the organization is missing or not joinable.
+    listJoinableOrgs: (o: Authed) => request<JoinableOrg[] | null>("GET", "/users/me/joinable-orgs", o),
+    joinOrg: (slug: string, o: Authed) => request<Org>("POST", `/orgs/${seg(slug)}/join`, o),
 
     // api: organization SSO connection (#300) -----------------------------------------------
     getOrgSSO: (slug: string, o: Authed) => request<SSOConnection>("GET", `/orgs/${seg(slug)}/sso`, o),

@@ -10,17 +10,25 @@ class Redirect extends Error {
 
 let payload: object | null = null;
 const getContext = vi.fn();
+const listJoinableOrgs = vi.fn();
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/navigation", () => ({
   redirect: (location: string) => {
     throw new Redirect(location);
   },
+  unstable_rethrow: (err: unknown) => {
+    if (err instanceof Redirect) throw err;
+  },
 }));
 vi.mock("./env", () => ({ env: () => ({ publicUrl: "https://app.apilens.test" }) }));
 vi.mock("./auth/server", () => ({
-  getSession: async () => ({ payload }),
+  getSession: async () => ({ payload, call: <T,>(fn: (o: { accessToken: string }) => Promise<T>) => fn({ accessToken: "a" }) }),
   getContext: (next: string) => getContext(next),
+}));
+vi.mock("./identity", async (orig) => ({
+  ...(await orig<typeof import("./identity")>()),
+  identity: () => ({ listJoinableOrgs }),
 }));
 
 const { requireOnboardingStep } = await import("./auth/onboarding");
@@ -35,6 +43,8 @@ const ACME: ContextOrg = {
   role: "owner",
   projects: [{ id: "p1", slug: "shop", name: "shop", environments: ["production"] }],
 };
+
+const INITECH = { id: "o3", slug: "initech", name: "Initech", member_count: 3, project_count: 0, member_initials: ["PG"] };
 
 function ctx(onboarding: OnboardingState, orgs: ContextOrg[] = []): UserContext {
   return {
@@ -169,6 +179,7 @@ describe("/onboarding/* pages", () => {
   beforeEach(() => {
     payload = { access: "a", refresh: "r", exp: 0, remember: false, uid: "u1" };
     getContext.mockReset().mockResolvedValue(ctx({ step: "join", completed: false, answers: { org_slug: "example-co" } }));
+    listJoinableOrgs.mockReset().mockResolvedValue([INITECH]);
   });
 
   it("render with the real step bar state", async () => {
@@ -176,19 +187,35 @@ describe("/onboarding/* pages", () => {
     // The home screen pick starts from the saved preference (#328).
     expect(about.props).toEqual({ step: 0, reached: 1, home: "endpoints" });
     const join = (await JoinPage()) as { props: Record<string, unknown> };
-    expect(join.props).toEqual({ step: 1, reached: 1 });
+    // The organizations to join, and the verified domain they matched (#329).
+    expect(join.props).toEqual({ step: 1, reached: 1, orgs: [INITECH], domain: "example.com" });
     const create = (await CreatePage()) as { props: Record<string, unknown> };
     // The organization screen starts from the saved address (#327), shows it under the public
     // host and knows which addresses are the user's own (#330).
-    expect(create.props).toEqual({ step: 1, reached: 1, answers: { org_slug: "example-co" }, host: "app.apilens.test", owned: [] });
+    expect(create.props).toEqual({ step: 1, reached: 1, answers: { org_slug: "example-co" }, host: "app.apilens.test", owned: [], back: "/onboarding/join" });
     // About and create read the context twice (guard, then their own use); `cache()` makes it one call.
+    // Join reads it again for the email domain.
     expect(getContext.mock.calls.map(([p]) => p)).toEqual([
       "/onboarding/about",
       "/onboarding/about",
       "/onboarding/join",
+      "/onboarding/join",
       "/onboarding/create",
       "/onboarding/create",
     ]);
+  });
+
+  it("join is skipped without organizations to join, and create's Back passes it (#329)", async () => {
+    listJoinableOrgs.mockResolvedValue(null);
+    await expect(JoinPage()).rejects.toEqual(new Redirect("/onboarding/create"));
+    const create = (await CreatePage()) as { props: Record<string, unknown> };
+    expect(create.props).toMatchObject({ back: "/onboarding/about" });
+  });
+
+  it("create's Back stays on join when the list cannot be read", async () => {
+    listJoinableOrgs.mockRejectedValue(new Error("down"));
+    const create = (await CreatePage()) as { props: Record<string, unknown> };
+    expect(create.props).toMatchObject({ back: "/onboarding/join" });
   });
 
   it("about tells an invited user which organization Continue opens (#337)", async () => {
