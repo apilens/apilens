@@ -69,6 +69,12 @@ const (
 	// CodeOwnerTransferRequired: the user is the only owner of an
 	// organization and must transfer ownership before deleting the account.
 	CodeOwnerTransferRequired ErrCode = "owner_transfer_required"
+	// CodeAlreadyEnabled: two-factor authentication is already on; turn it
+	// off before enabling it again.
+	CodeAlreadyEnabled ErrCode = "already_enabled"
+	// CodeReauthRequired: the action needs a recent sign-in and the session
+	// signed in too long ago; sign in again, then retry.
+	CodeReauthRequired ErrCode = "reauth_required"
 	// CodeForbidden: authenticated, but not allowed to perform the action.
 	CodeForbidden ErrCode = "forbidden"
 	// CodeInternal: an unexpected server failure. Details stay in the logs.
@@ -102,6 +108,8 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeInviteExpired:         {http.StatusGone, "Invitation expired", "The invitation has expired or was revoked."},
 	CodeInviteEmailMismatch:   {http.StatusForbidden, "Invitation email mismatch", "The invitation was sent to a different email address."},
 	CodeOwnerTransferRequired: {http.StatusConflict, "Ownership transfer required", "Transfer ownership of your organizations before deleting your account."},
+	CodeAlreadyEnabled:        {http.StatusConflict, "Already enabled", "Two-factor authentication is already enabled."},
+	CodeReauthRequired:        {http.StatusForbidden, "Recent sign-in required", "Sign in again to continue."},
 	CodeForbidden:             {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
 	CodeInternal:              {http.StatusInternalServerError, "Internal error", "Something went wrong."},
 }
