@@ -68,7 +68,6 @@ var kinds = []Kind{
 	EmailChanged, PasskeyAdded, PasskeyRemoved, PasskeyRenamed, TOTPEnabled, TOTPDisabled,
 	RecoveryRequested, RecoveryConfirmed, RecoveryCancelled, OAuthLinked, OAuthUnlinked,
 	OrgCreated, OrgUpdated, OrgDeleted, MemberAdded, MemberRoleChanged, MemberRemoved, MemberJoined, InvitationSent, InvitationAccepted,
-	OrgCreated, OrgUpdated, OrgDeleted, MemberRoleChanged, MemberRemoved, MemberJoined, InvitationSent, InvitationAccepted,
 	APIKeyCreated, APIKeyRevoked,
 }
 

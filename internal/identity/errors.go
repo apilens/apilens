@@ -121,14 +121,11 @@ const (
 	// problem carries `start_url`; a browser callback redirects with
 	// ?error=sso_required instead.
 	CodeSSORequired ErrCode = "sso_required"
-	// CodeForbidden: authenticated and able to see the resource, but not
-	// allowed to perform the action.
 	// CodeAPIKeyGone: the project has no API key with that id. Only
 	// answered to members of the project's organization.
 	CodeAPIKeyGone ErrCode = "api_key_gone"
-	// CodeForbidden: authenticated, but not allowed to perform the action.
-	// Also answers for an organization that does not exist or that the
-	// caller is not a member of, so the two cannot be told apart.
+	// CodeForbidden: authenticated and able to see the resource, but not
+	// allowed to perform the action.
 	CodeForbidden ErrCode = "forbidden"
 	// CodeNotFound: the organization or project does not exist, or the
 	// caller cannot see it; the two cannot be told apart.
