@@ -40,7 +40,7 @@ func TestMigrationsApplyAndAreIdempotent(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	for _, want := range []string{"api_keys", "apps", "audit_events", "environments", "organizations", "outbox", "projects", "signing_keys", "users", "river_job", "river_migration", "river_queue"} {
+	for _, want := range []string{"api_keys", "apps", "audit_events", "environments", "organizations", "outbox", "projects", "sessions", "signing_keys", "users", "river_job", "river_migration", "river_queue"} {
 		if !slices.Contains(tables, want) {
 			t.Errorf("postgres table %q missing (have %v)", want, tables)
 		}
@@ -179,6 +179,71 @@ func TestPostgresSigningKeysMigrationRollsBack(t *testing.T) {
 	}
 	if !tableExists(t, pool, "signing_keys") {
 		t.Error("signing_keys missing after re-apply")
+	}
+}
+
+func TestPostgresSessionsMigrationRollsBack(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var userID string
+	if err := pool.QueryRow(ctx, `INSERT INTO users (id, email) VALUES (gen_random_uuid(), 'sess@example.com') RETURNING id`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	insert := `INSERT INTO sessions (id, user_id, family_id, token_hash, amr, ip, expires_at)
+		VALUES ($1, $2, $1, $3, '{otp}', '203.0.113.7', now() + interval '1 day')`
+	s1 := "00000000-0000-0000-0000-000000000001"
+	if _, err := pool.Exec(ctx, insert, s1, userID, "h1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insert, "00000000-0000-0000-0000-000000000002", userID, "h1"); err == nil {
+		t.Fatal("duplicate token_hash should violate the unique constraint")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE sessions SET revoked_at = now() WHERE id = $1`, s1); err == nil {
+		t.Fatal("revoked_at without revoked_reason should violate the check")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE sessions SET revoked_at = now(), revoked_reason = 'logout' WHERE id = $1`, s1); err != nil {
+		t.Fatal(err)
+	}
+	var remember bool
+	var userAgent, label string
+	if err := pool.QueryRow(ctx, `SELECT remember, user_agent, device_label FROM sessions WHERE id = $1`, s1).Scan(&remember, &userAgent, &label); err != nil {
+		t.Fatal(err)
+	}
+	if remember || userAgent != "" || label != "" {
+		t.Errorf("defaults = %v, %q, %q; want false, empty, empty", remember, userAgent, label)
+	}
+	// Deleting the user cascades to their sessions.
+	if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sessions`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("sessions after user delete = %d, %v; want 0", n, err)
+	}
+
+	if _, err := provider.DownTo(ctx, 3); err != nil {
+		t.Fatalf("roll back to 00003: %v", err)
+	}
+	if tableExists(t, pool, "sessions") {
+		t.Error("sessions should be dropped after rollback")
+	}
+	if !tableExists(t, pool, "signing_keys") || !tableExists(t, pool, "users") {
+		t.Error("rollback of 00004 must not touch earlier migrations")
+	}
+
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply after rollback: %v", err)
+	}
+	if !tableExists(t, pool, "sessions") {
+		t.Error("sessions missing after re-apply")
 	}
 }
 

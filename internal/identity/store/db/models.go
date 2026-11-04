@@ -78,6 +78,24 @@ type Project struct {
 	DeletedAt *time.Time
 }
 
+type Session struct {
+	ID            uuid.UUID
+	UserID        uuid.UUID
+	FamilyID      uuid.UUID
+	TokenHash     string
+	ParentID      *uuid.UUID
+	Remember      bool
+	Amr           []string
+	Ip            *netip.Addr
+	UserAgent     string
+	DeviceLabel   string
+	CreatedAt     time.Time
+	LastSeenAt    time.Time
+	ExpiresAt     time.Time
+	RevokedAt     *time.Time
+	RevokedReason *string
+}
+
 type SigningKey struct {
 	Kid           string
 	Alg           string
