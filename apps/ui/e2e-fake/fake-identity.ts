@@ -61,7 +61,9 @@
 //   PATCH/DELETE /api/v1/orgs/acme/members/{id}    role change / removal with the API's owner rules
 //   POST /api/v1/orgs/acme/transfer-ownership      owners only; the caller becomes an admin
 //   GET  /api/v1/orgs/acme/invitations             pending invitations (three seeded per user), newest first
-//   POST /api/v1/orgs/acme/invitations             records each new address, answers one result per address
+//   POST /api/v1/orgs/acme/invitations             records each new address, answers one result per address;
+//                                                  also on orgs the user created in onboarding (#336), where
+//                                                  they are the only member; down@example.com answers 503
 //   POST /api/v1/orgs/acme/invitations/{id}/resend 5-minute cooldown (429 rate_limited + retry_after)
 //   DELETE /api/v1/orgs/acme/invitations/{id}      revoke; 410 invite_expired when already gone
 //   GET|PUT|DELETE /api/v1/orgs/acme/sso           the signed-in user's own SSO connection (#348),
@@ -1433,7 +1435,13 @@ async function orgs(req: IncomingMessage, res: ServerResponse, slug: string, wha
   const user = userByAccess.get(req.headers.authorization?.replace(/^Bearer /, "") ?? "");
   const members = user ? membersByUser.get(user) : undefined;
   if (!user || !members) return problem(res, 401, "unauthenticated");
-  if (slug !== "acme") return problem(res, 404, "not_found");
+  if (slug !== "acme") {
+    // Onboarding's 'Invite your team' (#336) invites to the organization the user just created.
+    if (createdOrgs.get(slug)?.owner === user && what === "invitations" && sub === undefined && req.method === "POST") {
+      return inviteToCreatedOrg(req, res, user, slug, members.filter((m) => m.user.id === user));
+    }
+    return problem(res, 404, "not_found");
+  }
   const me = roleOf(user);
   const manage = me === "owner" || me === "admin";
   const owners = members.filter((m) => m.role === "owner").length;
@@ -1519,6 +1527,45 @@ async function orgs(req: IncomingMessage, res: ServerResponse, slug: string, wha
     return send(res, 200, inv);
   }
   return problem(res, 404, "not_found");
+}
+
+/** Invitations to the organizations users created in onboarding (#336), by org slug. */
+const createdOrgInvitations = new Map<string, Set<string>>();
+
+/**
+ * `POST /orgs/{slug}/invitations` on an organization the user created (#336), with the API's
+ * per-address results: the creator is its only member. Inviting `down@example.com` answers 503
+ * unavailable, for the error path.
+ */
+async function inviteToCreatedOrg(req: IncomingMessage, res: ServerResponse, user: string, slug: string, members: FakeMember[]) {
+  const { invites } = await readBody(req);
+  if (!Array.isArray(invites) || invites.length === 0 || invites.length > 50) return problem(res, 400, "invalid_request");
+  const emails = invites.map((i: { email?: unknown }) => String(i.email ?? "").toLowerCase());
+  if (emails.includes("down@example.com")) return problem(res, 503, "unavailable");
+  const pending = createdOrgInvitations.get(slug) ?? new Set<string>();
+  createdOrgInvitations.set(slug, pending);
+  const seen = new Set<string>();
+  const now = Date.now();
+  const self = members[0];
+  const results = invites.map((i: { email?: unknown; role?: unknown }) => {
+    const email = String(i.email ?? "").toLowerCase();
+    if (seen.has(email)) return { email, status: "duplicate" };
+    seen.add(email);
+    if (members.some((m) => m.user.email === email)) return { email, status: "already_member" };
+    const replaced = pending.has(email);
+    pending.add(email);
+    const invitation: FakeInvitation = {
+      id: randomUUID(),
+      email,
+      role: String(i.role ?? "member") as FakeInvitation["role"],
+      created_at: new Date(now).toISOString(),
+      expires_at: new Date(now + INVITE_TTL_MS).toISOString(),
+      resent_at: null,
+      invited_by: self ? { id: user, email: self.user.email, name: self.user.name } : undefined,
+    };
+    return { email, status: replaced ? "replaced" : "invited", invitation };
+  });
+  return send(res, 200, { results });
 }
 
 /** acme's SSO connection endpoints, with the API's rules (internal/controlplane/orgs/sso_connection.go). */
