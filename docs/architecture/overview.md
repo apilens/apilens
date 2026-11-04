@@ -173,6 +173,7 @@ shipped; a test checks that this table lists every one.
 | `user.created` | an account is created (sign-up or invitation) |
 | `user.updated` | the user changes their profile or preferences (metadata lists the changed field names, never values) |
 | `user.deleted` | the user deletes their account: it is hidden, every session is revoked and the purge is scheduled after a 30-day grace period |
+| `user.restored` | the user restores their deleted account inside the grace period with a fresh email code |
 | `login.succeeded` | a sign-in completes |
 | `login.failed` | a sign-in attempt fails (user is NULL for an unknown email) |
 | `login.requested` | a sign-in or sign-up email is requested (`intent`; user is NULL for an unknown email) |

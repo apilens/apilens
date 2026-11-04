@@ -11,6 +11,11 @@ import (
 )
 
 type Querier interface {
+	// Keeps the audit trail of purged users but strips what identifies them:
+	// events about them lose user_id and metadata, events they acted in lose
+	// actor_user_id, and both lose the client IP and user agent. Run before
+	// PurgeUsers, whose cascade would otherwise delete the events.
+	AnonymizeAuditEventsForUsers(ctx context.Context, ids []uuid.UUID) (int64, error)
 	// Cancels every pending request of a user, e.g. before a new request or
 	// once 2FA has been turned off another way.
 	CancelPendingRecoveryRequestsForUser(ctx context.Context, arg CancelPendingRecoveryRequestsForUserParams) (int64, error)
@@ -114,6 +119,11 @@ type Querier interface {
 	// Resolves the rawId of a sign-in assertion to its credential (and so its
 	// user). Returns pgx.ErrNoRows when the credential is not registered.
 	GetPasskeyCredentialByCredentialID(ctx context.Context, credentialID []byte) (PasskeyCredential, error)
+	// The soft-deleted account of an address that is still inside its grace
+	// period, so sign-in can answer account_deleting and offer a restore. An
+	// address that has since signed up again has an active account, which wins:
+	// no row is returned for it.
+	GetPendingDeletionUserByEmail(ctx context.Context, email string) (User, error)
 	// Returns the row whatever its state, so the caller can tell a pending
 	// request from a confirmed or cancelled one (status page).
 	GetRecoveryRequestByTokenHash(ctx context.Context, tokenHash string) (RecoveryRequest, error)
@@ -159,6 +169,9 @@ type Querier interface {
 	// than @retired_window_secs (identity.refresh_token_ttl) ago, measured on the
 	// database clock. Active key first.
 	ListPublishedSigningKeys(ctx context.Context, retiredWindowSecs float64) ([]SigningKey, error)
+	// Soft-deleted users whose grace period has passed, oldest first, locked so
+	// concurrent purges skip each other's rows. Served by users_delete_after.
+	ListPurgeableUsers(ctx context.Context, batchSize int32) ([]uuid.UUID, error)
 	// A user's confirmed TOTP row, locked until the transaction ends, so that
 	// disabling 2FA and regenerating backup codes do not interleave. Returns
 	// pgx.ErrNoRows when 2FA is not on (no row, or only a pending secret).
@@ -166,11 +179,15 @@ type Querier interface {
 	// Records that the user proved control of their address (an email code or
 	// link). An earlier verification time is kept.
 	MarkUserEmailVerified(ctx context.Context, id uuid.UUID) (User, error)
+	// Hard-deletes soft-deleted users whose grace period has passed. Sessions,
+	// email tokens, OAuth identities, passkeys and TOTP rows cascade.
+	PurgeUsers(ctx context.Context, ids []uuid.UUID) (int64, error)
 	// Renames one passkey of a user; scoped by user_id so a caller cannot rename
 	// another user's passkey. Returns 0 when nothing matched.
 	RenamePasskeyCredential(ctx context.Context, arg RenamePasskeyCredentialParams) (int64, error)
 	// Undoes a soft delete inside the grace period. Fails with a unique
 	// violation if the email has since been taken by a new active account.
+	// Returns pgx.ErrNoRows once delete_after has passed.
 	RestoreUser(ctx context.Context, id uuid.UUID) (User, error)
 	// Stops a key from signing; it stays published for the retirement window.
 	RetireSigningKey(ctx context.Context, kid string) (SigningKey, error)

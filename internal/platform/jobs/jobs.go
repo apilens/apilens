@@ -29,9 +29,10 @@ import (
 // Registry collects the workers a process can run. It is filled during module
 // init, before the Client starts.
 type Registry struct {
-	mu      sync.Mutex
-	workers *river.Workers
-	kinds   []string
+	mu       sync.Mutex
+	workers  *river.Workers
+	kinds    []string
+	periodic []*river.PeriodicJob
 }
 
 // NewRegistry returns an empty Registry.
@@ -45,6 +46,28 @@ func Register[T river.JobArgs](r *Registry, w river.Worker[T]) {
 	river.AddWorker(r.workers, w)
 	var args T
 	r.kinds = append(r.kinds, args.Kind())
+}
+
+// Periodic schedules a job with args every interval, and once when the
+// worker loop starts. River elects one leader among all processes running
+// workers, so only one of them inserts it; a job still queued from the same
+// period is not inserted again. Its worker must be registered with Register.
+func (r *Registry) Periodic(interval time.Duration, args river.JobArgs) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.periodic = append(r.periodic, river.NewPeriodicJob(
+		river.PeriodicInterval(interval),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return args, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByPeriod: interval}}
+		},
+		&river.PeriodicJobOpts{ID: args.Kind(), RunOnStart: true},
+	))
+}
+
+func (r *Registry) periodicJobs() []*river.PeriodicJob {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.periodic)
 }
 
 // Kinds returns the registered job kinds, sorted.
@@ -130,6 +153,11 @@ func (c *Client) Run(ctx context.Context) error {
 	// shutdown is driven by Stop below.
 	runCtx, cancelRun := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelRun()
+	if periodic := c.registry.periodicJobs(); len(periodic) > 0 {
+		if _, err := c.river.PeriodicJobs().AddManySafely(periodic); err != nil {
+			return fmt.Errorf("jobs: periodic jobs: %w", err)
+		}
+	}
 	if err := c.river.Start(runCtx); err != nil {
 		return fmt.Errorf("jobs: start: %w", err)
 	}

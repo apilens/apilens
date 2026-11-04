@@ -962,6 +962,11 @@
             "description": "Stable machine-readable error code; see docs/architecture/identity.md.",
             "type": "string"
           },
+          "delete_after": {
+            "description": "When the deleted account is removed for good (account_deleting only).",
+            "format": "date-time",
+            "type": "string"
+          },
           "detail": {
             "description": "A human-readable explanation specific to this occurrence of the problem.",
             "examples": [
@@ -1169,6 +1174,59 @@
         },
         "required": [
           "requests"
+        ],
+        "type": "object"
+      },
+      "RestoreBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RestoreBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "code": {
+            "description": "A fresh 6-digit code emailed to the address.",
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "email": {
+            "description": "Address of the deleted account.",
+            "format": "email",
+            "maxLength": 320,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "code"
+        ],
+        "type": "object"
+      },
+      "RestoreOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RestoreOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/AuthUser"
+          }
+        },
+        "required": [
+          "user"
         ],
         "type": "object"
       },
@@ -3631,6 +3689,88 @@
           }
         ],
         "summary": "Confirm the signed-in user's new email",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/me/restore": {
+      "post": {
+        "description": "Public; authenticated by a fresh email code sent to the account's address. Undoes `DELETE /api/v1/users/me` while the account is inside its grace period (sign-in answers `account_deleting` with `delete_after` until then). No session is issued: sign in again afterwards. Audited as `user.restored`. A wrong code, an address with nothing to restore, and an account past its grace period all answer `invalid_code`. Rate-limited per email address.",
+        "operationId": "restore-me",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `code_expired`, `invalid_code`.",
+            "x-apilens-codes": [
+              "code_expired",
+              "invalid_code"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`, `too_many_attempts`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited",
+              "too_many_attempts"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "summary": "Restore a deleted account",
         "tags": [
           "Users"
         ]
