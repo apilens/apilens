@@ -45,6 +45,22 @@ type AuditEvent struct {
 	CreatedAt   time.Time
 }
 
+type AuthEmailToken struct {
+	ID            uuid.UUID
+	Email         string
+	Intent        string
+	UserID        *uuid.UUID
+	LinkTokenHash string
+	CodeHash      string
+	Attempts      int32
+	NextPath      *string
+	Ip            *netip.Addr
+	UserAgent     string
+	CreatedAt     time.Time
+	ExpiresAt     time.Time
+	ConsumedAt    *time.Time
+}
+
 type Environment struct {
 	ID        uuid.UUID
 	ProjectID uuid.UUID

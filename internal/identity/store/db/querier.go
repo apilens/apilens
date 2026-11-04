@@ -11,6 +11,16 @@ import (
 )
 
 type Querier interface {
+	// Marks a live row used (by its link or its code). Returns pgx.ErrNoRows when
+	// the row is already consumed or expired; of two concurrent consumes only one
+	// succeeds.
+	ConsumeEmailToken(ctx context.Context, id uuid.UUID) (AuthEmailToken, error)
+	// Stores the row behind one sign-in email (magic link + 6-digit code). Only
+	// identity reads or writes auth_email_tokens (ADR 0005); link_token_hash and
+	// code_hash are hashes, never the secrets. next_path must be a relative path
+	// (the table check rejects anything else). Call InvalidateEmailTokensForEmail
+	// first so only the newest email works.
+	CreateEmailToken(ctx context.Context, arg CreateEmailTokenParams) (AuthEmailToken, error)
 	// Starts a new session family at sign-in: pass family_id = id. Only identity
 	// reads or writes sessions (ADR 0005); token_hash is the SHA-256 of the
 	// refresh token, never the token itself.
@@ -18,17 +28,29 @@ type Querier interface {
 	// Only the identity module reads or writes users (ADR 0005); every lookup
 	// and update below ignores soft-deleted rows.
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	// Returns the row whatever its state, so the caller can tell a live link from
+	// a consumed or expired one.
+	GetEmailTokenByLinkHash(ctx context.Context, linkTokenHash string) (AuthEmailToken, error)
+	// The newest live row for an address, used to check a typed 6-digit code.
+	// Returns pgx.ErrNoRows when the address has no live token.
+	GetLatestEmailTokenForEmail(ctx context.Context, email string) (AuthEmailToken, error)
 	// Returns the row whatever its state, so the caller can tell a live token
 	// from a revoked one (reuse) or an expired one.
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
 	// Case-insensitive; served by the users_email_active index on lower(email).
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
+	// Counts one wrong code guess on a live row and returns the new count.
+	// Returns pgx.ErrNoRows when the row is no longer live.
+	IncrementEmailTokenAttempts(ctx context.Context, id uuid.UUID) (int32, error)
 	// Records a security-relevant event about a user's account.
 	InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) (AuditEvent, error)
 	// Only identity reads or writes signing keys (ADR 0005). Pass
 	// activated_at = NULL to publish a key in JWKS before it signs.
 	InsertSigningKey(ctx context.Context, arg InsertSigningKeyParams) (SigningKey, error)
+	// Retires every outstanding row of an address, e.g. before sending a new
+	// email or once the address has signed in.
+	InvalidateEmailTokensForEmail(ctx context.Context, email string) (int64, error)
 	// The settings "Sessions" list: live rows only (one per family), most
 	// recently used first.
 	ListActiveSessionsForUser(ctx context.Context, userID uuid.UUID) ([]Session, error)

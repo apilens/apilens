@@ -4,7 +4,9 @@ package migrations_test
 
 import (
 	"context"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,7 +42,7 @@ func TestMigrationsApplyAndAreIdempotent(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	for _, want := range []string{"api_keys", "apps", "audit_events", "environments", "organizations", "outbox", "projects", "sessions", "signing_keys", "users", "river_job", "river_migration", "river_queue"} {
+	for _, want := range []string{"api_keys", "apps", "audit_events", "auth_email_tokens", "environments", "organizations", "outbox", "projects", "sessions", "signing_keys", "users", "river_job", "river_migration", "river_queue"} {
 		if !slices.Contains(tables, want) {
 			t.Errorf("postgres table %q missing (have %v)", want, tables)
 		}
@@ -244,6 +246,83 @@ func TestPostgresSessionsMigrationRollsBack(t *testing.T) {
 	}
 	if !tableExists(t, pool, "sessions") {
 		t.Error("sessions missing after re-apply")
+	}
+}
+
+func TestPostgresEmailTokensMigrationRollsBack(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var userID string
+	if err := pool.QueryRow(ctx, `INSERT INTO users (id, email) VALUES (gen_random_uuid(), 'tok@example.com') RETURNING id`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	insert := `INSERT INTO auth_email_tokens (id, email, intent, user_id, link_token_hash, code_hash, next_path, ip, expires_at)
+		VALUES (gen_random_uuid(), 'tok@example.com', $1, $2, $3, 'c', $4, '203.0.113.7', now() + interval '15 minutes')`
+	if _, err := pool.Exec(ctx, insert, "signin", userID, "l1", "/projects/x?tab=y"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insert, "signup", nil, "l2", nil); err != nil {
+		t.Fatalf("signup without a user or next_path: %v", err)
+	}
+	if _, err := pool.Exec(ctx, insert, "signin", nil, "l1", nil); err == nil {
+		t.Fatal("duplicate link_token_hash should violate the unique constraint")
+	}
+	if _, err := pool.Exec(ctx, insert, "reset_password", nil, "l3", nil); err == nil {
+		t.Fatal("unknown intent should violate the check")
+	}
+	for _, ok := range []string{"/", "/projects", "/a/b?c=d#e", "/" + strings.Repeat("a", 511)} {
+		if _, err := pool.Exec(ctx, insert, "verify_email", nil, "ok"+ok, ok); err != nil {
+			t.Errorf("next_path %q should be accepted: %v", ok, err)
+		}
+	}
+	for i, bad := range []string{
+		"", "projects", "https://evil.example", "//evil.example", "/\\evil.example",
+		"/a b", "/a\tb", "/a\nb", "javascript:alert(1)", "/" + strings.Repeat("a", 512),
+	} {
+		if _, err := pool.Exec(ctx, insert, "change_email", nil, fmt.Sprintf("bad%d", i), bad); err == nil {
+			t.Errorf("next_path %q should violate the check", bad)
+		}
+	}
+	var attempts int
+	var userAgent string
+	if err := pool.QueryRow(ctx, `SELECT attempts, user_agent FROM auth_email_tokens WHERE link_token_hash = 'l1'`).Scan(&attempts, &userAgent); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 0 || userAgent != "" {
+		t.Errorf("defaults = %d, %q; want 0, empty", attempts, userAgent)
+	}
+	// Deleting the user cascades to their tokens; tokens without a user stay.
+	if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM auth_email_tokens WHERE link_token_hash IN ('l1', 'l2')`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("tokens after user delete = %d, %v; want 1", n, err)
+	}
+
+	if _, err := provider.DownTo(ctx, 4); err != nil {
+		t.Fatalf("roll back to 00004: %v", err)
+	}
+	if tableExists(t, pool, "auth_email_tokens") {
+		t.Error("auth_email_tokens should be dropped after rollback")
+	}
+	if !tableExists(t, pool, "sessions") || !tableExists(t, pool, "users") {
+		t.Error("rollback of 00005 must not touch earlier migrations")
+	}
+
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply after rollback: %v", err)
+	}
+	if !tableExists(t, pool, "auth_email_tokens") {
+		t.Error("auth_email_tokens missing after re-apply")
 	}
 }
 
