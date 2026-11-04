@@ -4,11 +4,13 @@ package app
 
 import (
 	"context"
+	"crypto"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,6 +29,7 @@ import (
 	identitydb "github.com/apilens/apilens/internal/identity/store/db"
 	"github.com/apilens/apilens/internal/ingest"
 	"github.com/apilens/apilens/internal/pipeline"
+	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/cache"
 	"github.com/apilens/apilens/internal/platform/ch"
 	"github.com/apilens/apilens/internal/platform/config"
@@ -89,6 +92,8 @@ type App struct {
 	jobs    *jobs.Client
 	// signingKeys holds identity's JWT signing keys (identity role only).
 	signingKeys *keys.Manager
+	// sessionAuth installs authn.Middleware once, for api and query alike.
+	sessionAuth sync.Once
 }
 
 // New registers all modules.
@@ -249,12 +254,14 @@ func (a *App) initEdge(context.Context) (modules.Service, error) {
 
 func (a *App) initQuery(context.Context) (modules.Service, error) {
 	api := a.server.API()
+	a.useSessionAuth()
 	api.UseMiddleware(query.AuthMiddleware(api, a.verifier))
 	query.Register(api, query.NewService(a.chConn, a.queries))
 	return nil, nil
 }
 
 func (a *App) initAPI(context.Context) (modules.Service, error) {
+	a.useSessionAuth()
 	controlplaneapi.Register(a.server.API())
 	return nil, nil
 }
@@ -283,6 +290,39 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	}
 	identity.NewOAuth(a.cfg.Identity, identity.NewValkeyOAuthStateStore(a.valkey), limiter, a.logger).Register(a.server.API())
 	return modules.ServiceFunc(signingKeys.Run), nil
+}
+
+// useSessionAuth installs the user-session middleware on the typed API. With
+// identity in this process its keys are read in-process; otherwise they come
+// from identity's JWKS, fetched lazily and cached.
+func (a *App) useSessionAuth() {
+	a.sessionAuth.Do(func() {
+		var src authn.KeySource
+		if a.cfg.IdentityEnabled() {
+			// a.signingKeys is set by initIdentity, which runs before the
+			// listener starts serving requests.
+			src = authn.KeySourceFunc(func(ctx context.Context, kid string) (crypto.PublicKey, error) {
+				if a.signingKeys == nil {
+					return nil, authn.ErrUnavailable
+				}
+				return localPublicKey(a.signingKeys.All(), kid)
+			})
+		} else {
+			src = authn.NewJWKS(strings.TrimRight(a.cfg.Identity.Issuer, "/")+identity.JWKSPath, authn.JWKSOptions{})
+		}
+		api := a.server.API()
+		api.UseMiddleware(authn.Middleware(api, authn.NewSessionVerifier(src, a.cfg.Identity.Issuer, nil)))
+	})
+}
+
+// localPublicKey returns the public half of the published key named kid.
+func localPublicKey(published []keys.Key, kid string) (crypto.PublicKey, error) {
+	for _, k := range published {
+		if k.KID == kid && k.Alg == keys.AlgRS256 {
+			return k.Signer().Public(), nil
+		}
+	}
+	return nil, authn.ErrUnknownKey
 }
 
 // newKeyManager builds the signing key manager over pool, sealing private

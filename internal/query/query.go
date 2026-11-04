@@ -23,6 +23,7 @@ import (
 
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
+	"github.com/apilens/apilens/internal/platform/authn"
 )
 
 // Scope required on keys that read data.
@@ -61,8 +62,11 @@ func principalFrom(ctx context.Context) (apikeys.Principal, error) {
 	return p, nil
 }
 
+// SchemeReadKey is the OpenAPI security scheme of project read keys.
+const SchemeReadKey = "readKey"
+
 // security marks an operation as requiring a read key.
-var security = []map[string][]string{{"readKey": {}}}
+var security = []map[string][]string{{SchemeReadKey: {}}}
 
 // AddSecurityScheme documents read-key auth in the OpenAPI spec.
 func AddSecurityScheme(api huma.API) {
@@ -73,7 +77,7 @@ func AddSecurityScheme(api huma.API) {
 	if oa.Components.SecuritySchemes == nil {
 		oa.Components.SecuritySchemes = map[string]*huma.SecurityScheme{}
 	}
-	oa.Components.SecuritySchemes["readKey"] = &huma.SecurityScheme{
+	oa.Components.SecuritySchemes[SchemeReadKey] = &huma.SecurityScheme{
 		Type:        "http",
 		Scheme:      "bearer",
 		Description: "Project read key (scope `read`), printed by `apilens seed` as `read_key`.",
@@ -81,10 +85,16 @@ func AddSecurityScheme(api huma.API) {
 }
 
 // AuthMiddleware authenticates operations that declare the readKey scheme.
-// Install it before registering the operations it should guard.
+// Install it before registering the operations it should guard, and after
+// authn.Middleware: a request already authenticated by a session is passed
+// on. The key is stored both as an apikeys.Principal and an authn.Principal.
 func AuthMiddleware(api huma.API, v Verifier) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
-		if op := ctx.Operation(); op == nil || len(op.Security) == 0 {
+		if !authn.Declares(ctx.Operation(), SchemeReadKey) {
+			next(ctx)
+			return
+		}
+		if _, ok := authn.FromContext(ctx.Context()); ok {
 			next(ctx)
 			return
 		}
@@ -103,7 +113,7 @@ func AuthMiddleware(api huma.API, v Verifier) func(huma.Context, func(huma.Conte
 		case !p.HasScope(Scope):
 			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "this key cannot read data; use the read_key printed by `apilens seed`")
 		default:
-			next(huma.WithValue(ctx, principalKey{}, p))
+			next(huma.WithContext(ctx, authn.WithPrincipal(context.WithValue(ctx.Context(), principalKey{}, p), p.Authn())))
 		}
 	}
 }

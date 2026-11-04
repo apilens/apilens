@@ -55,3 +55,31 @@ func TestOpenAPISpecIsTaggedAndDescribed(t *testing.T) {
 		}
 	}
 }
+
+// TestOpenAPISpecSecuritySchemes guards that user sessions are documented
+// next to project read keys.
+func TestOpenAPISpecSecuritySchemes(t *testing.T) {
+	var buf bytes.Buffer
+	if err := runOpenAPI(&buf); err != nil {
+		t.Fatal(err)
+	}
+	var spec struct {
+		Components struct {
+			SecuritySchemes map[string]struct {
+				Type         string `json:"type"`
+				Scheme       string `json:"scheme"`
+				BearerFormat string `json:"bearerFormat"`
+			} `json:"securitySchemes"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &spec); err != nil {
+		t.Fatal(err)
+	}
+	schemes := spec.Components.SecuritySchemes
+	if s, ok := schemes["session"]; !ok || s.Type != "http" || s.Scheme != "bearer" || s.BearerFormat != "JWT" {
+		t.Errorf("session scheme = %+v (present %t)", s, ok)
+	}
+	if _, ok := schemes["readKey"]; !ok {
+		t.Error("readKey scheme missing")
+	}
+}

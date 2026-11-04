@@ -29,6 +29,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/buildinfo"
 	"github.com/apilens/apilens/internal/platform/config"
 )
@@ -122,6 +123,11 @@ func NewAPIConfig() huma.Config {
 	cfg.OpenAPIPath = APIPrefix + "/openapi"
 	cfg.SchemasPath = APIPrefix + "/schemas"
 	cfg.Tags = Tags()
+	// Every role verifies user sessions the same way (package authn).
+	if cfg.Components.SecuritySchemes == nil {
+		cfg.Components.SecuritySchemes = map[string]*huma.SecurityScheme{}
+	}
+	cfg.Components.SecuritySchemes[authn.SchemeSession] = authn.SecurityScheme()
 	// No bundled docs UI: it loads assets from a CDN, which self-hosted
 	// installs may not allow.
 	cfg.DocsPath = ""

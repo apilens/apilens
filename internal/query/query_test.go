@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
+	"github.com/apilens/apilens/internal/platform/authn"
 )
 
 func TestResolveWindowAlignsToBuckets(t *testing.T) {
@@ -128,5 +130,61 @@ func TestAuthMiddleware(t *testing.T) {
 				t.Fatalf("public op = %d", open.StatusCode)
 			}
 		})
+	}
+}
+
+// A request a session already authenticated (authn.Middleware runs first)
+// passes the read-key middleware, and a read key is also exposed as an
+// authn.Principal; operations without readKey are left alone.
+func TestAuthMiddlewareSharesPrincipal(t *testing.T) {
+	_, api := humatest.New(t)
+	user := uuid.New()
+	api.UseMiddleware(func(ctx huma.Context, next func(huma.Context)) {
+		if ctx.Header("X-Session") != "" {
+			ctx = huma.WithContext(ctx, authn.WithPrincipal(ctx.Context(), authn.Principal{Kind: authn.KindUser, UserID: user}))
+		}
+		next(ctx)
+	})
+	api.UseMiddleware(AuthMiddleware(api, stubVerifier{scopes: []string{"read"}}))
+	type kind struct {
+		Body struct {
+			Kind string `json:"kind"`
+		}
+	}
+	handler := func(ctx context.Context, _ *struct{}) (*kind, error) {
+		out := &kind{}
+		if p, ok := authn.FromContext(ctx); ok {
+			out.Body.Kind = string(p.Kind)
+		}
+		return out, nil
+	}
+	either := []map[string][]string{{authn.SchemeSession: {}}, {SchemeReadKey: {}}}
+	huma.Register(api, huma.Operation{OperationID: "either", Method: http.MethodGet, Path: "/either", Security: either}, handler)
+	huma.Register(api, huma.Operation{OperationID: "session", Method: http.MethodGet, Path: "/session",
+		Security: []map[string][]string{{authn.SchemeSession: {}}}}, handler)
+
+	cases := []struct {
+		path, header string
+		code         int
+		kind         string
+	}{
+		{"/either", "Authorization: Bearer good", http.StatusOK, string(authn.KindAPIKey)},
+		{"/either", "X-Session: 1", http.StatusOK, string(authn.KindUser)},
+		{"/either", "", http.StatusUnauthorized, ""},
+		// Not a readKey operation: guarding it is authn.Middleware's job.
+		{"/session", "Authorization: Bearer nope", http.StatusOK, ""},
+	}
+	for _, tc := range cases {
+		var args []any
+		if tc.header != "" {
+			args = append(args, tc.header)
+		}
+		resp := api.Get(tc.path, args...)
+		if resp.Code != tc.code {
+			t.Fatalf("%s %q: status = %d, want %d", tc.path, tc.header, resp.Code, tc.code)
+		}
+		if tc.code == http.StatusOK && !strings.Contains(resp.Body.String(), `"kind":"`+tc.kind+`"`) {
+			t.Errorf("%s %q: body = %s, want kind %q", tc.path, tc.header, resp.Body.String(), tc.kind)
+		}
 	}
 }

@@ -867,6 +867,12 @@
         "description": "Project read key (scope `read`), printed by `apilens seed` as `read_key`.",
         "scheme": "bearer",
         "type": "http"
+      },
+      "session": {
+        "bearerFormat": "JWT",
+        "description": "User access token: a 15-minute RS256 JWT issued by identity, verifiable against `/.well-known/jwks.json`.",
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
