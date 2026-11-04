@@ -275,6 +275,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	a.server.Use(identity.Middleware(a.cfg.Identity))
 	a.server.Use(audit.Middleware)
 	identity.Register(a.server.API())
+	identity.RegisterJWKS(a.server.Mux(), signingKeys, a.logger)
 	identity.RegisterProviders(a.server.API(), a.cfg.Identity)
 	limiter, err := ratelimit.New(a.valkey, a.logger, a.cfg.Identity.RateLimits.TrustedProxies)
 	if err != nil {
