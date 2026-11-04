@@ -394,6 +394,9 @@ describe("operations", () => {
       (c) => c.createApiKey("a/b?c", { name: "ingest", scopes: ["ingest"] }, authed),
     ],
     ["DELETE", "/projects/{slug}/api-keys/{id}", (c) => c.revokeApiKey("a/b?c", "a/b?c", authed)],
+    ["GET", "/requests", (c) => c.listRequests("web", { range: "7d", limit: 10 }, authed)],
+    ["GET", "/traffic/summary", (c) => c.trafficSummary("web", "7d", authed)],
+    ["GET", "/traffic/endpoints", (c) => c.listEndpoints("web", { range: "7d" }, authed)],
   ];
 
   it.each(routes)("%s %s", async (method, template, call) => {
@@ -416,6 +419,19 @@ describe("operations", () => {
     const { client, calls } = recordingClient(() => json({ available: true, suggestions: [] }));
     await client.orgSlugAvailable("acme co", authed);
     expect(new URL(calls[0].url).searchParams.get("slug")).toBe("acme co");
+  });
+
+  it("sends the query operations' project, range and limit as query parameters, as the user", async () => {
+    const { client, calls } = recordingClient(() => json({}));
+    await client.listRequests("my-api", { range: "7d", limit: 10 }, authed);
+    await client.trafficSummary("my-api", "24h", authed);
+    await client.listEndpoints("my-api", { range: "7d", limit: 500 }, authed);
+    expect(calls.map((c) => Object.fromEntries(new URL(c.url).searchParams))).toEqual([
+      { project: "my-api", range: "7d", limit: "10" },
+      { project: "my-api", range: "24h" },
+      { project: "my-api", range: "7d", limit: "500" },
+    ]);
+    expect(calls.every((c) => c.headers.get("authorization") === "Bearer jwt")).toBe(true);
   });
 
   it("starts a link flow as the user and answers the provider URL it redirects to", async () => {
