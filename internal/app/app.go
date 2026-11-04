@@ -317,6 +317,13 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		Jobs:   a.jobs,
 		Audit:  audit.New(a.pool),
 	}, limiter, a.logger).Register(a.server.API())
+	identity.NewEmailVerify(a.cfg.Identity, identity.EmailVerifyDeps{
+		Codes:    emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{}),
+		Users:    identity.NewPGSignInUsers(a.pool),
+		Sessions: sessions,
+		PreAuth:  identity.NewValkeyPreAuthStore(a.valkey),
+		Audit:    audit.New(a.pool),
+	}, limiter, a.logger).Register(a.server.API())
 	// Until memberships exist (#276) no user owns an organization, so
 	// nothing blocks a deletion.
 	identity.NewAccount(account.New(a.pool, account.NoMemberships{}), a.logger).Register(a.server.API())

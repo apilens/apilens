@@ -105,6 +105,36 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 	return i, err
 }
 
+const markUserEmailVerified = `-- name: MarkUserEmailVerified :one
+UPDATE users
+SET email_verified_at = COALESCE(email_verified_at, now()),
+    updated_at        = now()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, email, email_verified_at, name, avatar_url, preferences, onboarding, last_login_at, created_at, updated_at, deleted_at, delete_after
+`
+
+// Records that the user proved control of their address (an email code or
+// link). An earlier verification time is kept.
+func (q *Queries) MarkUserEmailVerified(ctx context.Context, id uuid.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, markUserEmailVerified, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.EmailVerifiedAt,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.Preferences,
+		&i.Onboarding,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DeleteAfter,
+	)
+	return i, err
+}
+
 const restoreUser = `-- name: RestoreUser :one
 UPDATE users
 SET deleted_at   = NULL,

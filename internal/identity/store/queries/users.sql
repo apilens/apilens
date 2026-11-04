@@ -74,3 +74,12 @@ SET email             = @email,
     updated_at        = now()
 WHERE id = @id AND deleted_at IS NULL
 RETURNING *;
+
+-- name: MarkUserEmailVerified :one
+-- Records that the user proved control of their address (an email code or
+-- link). An earlier verification time is kept.
+UPDATE users
+SET email_verified_at = COALESCE(email_verified_at, now()),
+    updated_at        = now()
+WHERE id = @id AND deleted_at IS NULL
+RETURNING *;

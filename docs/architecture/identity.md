@@ -101,7 +101,12 @@ or, when the user has confirmed TOTP and the method was not a passkey, in
    the token, for clients that hit identity directly.
 3. Five wrong codes lock the token (`too_many_attempts`). On success the user
    is found or created (`email_verified_at` set, `user.created` audited on
-   first sign-in) and gets a session with `amr: ["email"]`.
+   first sign-in) and gets a session with `amr: ["email"]` (`remember` picks
+   the 30-day or 24-hour lifetime), or `2fa_required` when TOTP is confirmed.
+   Either answer carries the `next` stored with the email. A wrong, expired or
+   unknown code is audited as `login.failed`; a session as `login.succeeded`.
+   Code checks are rate-limited per address
+   (`identity.rate_limits.code_verify_per_email`).
 
 ### Google and GitHub
 

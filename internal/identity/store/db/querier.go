@@ -147,6 +147,9 @@ type Querier interface {
 	// than @retired_window_secs (identity.refresh_token_ttl) ago, measured on the
 	// database clock. Active key first.
 	ListPublishedSigningKeys(ctx context.Context, retiredWindowSecs float64) ([]SigningKey, error)
+	// Records that the user proved control of their address (an email code or
+	// link). An earlier verification time is kept.
+	MarkUserEmailVerified(ctx context.Context, id uuid.UUID) (User, error)
 	// Renames one passkey of a user; scoped by user_id so a caller cannot rename
 	// another user's passkey. Returns 0 when nothing matched.
 	RenamePasskeyCredential(ctx context.Context, arg RenamePasskeyCredentialParams) (int64, error)
