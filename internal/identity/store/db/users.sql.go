@@ -269,6 +269,60 @@ func (q *Queries) MarkUserEmailVerified(ctx context.Context, id uuid.UUID) (User
 	return i, err
 }
 
+const mergeUserOnboarding = `-- name: MergeUserOnboarding :one
+UPDATE users
+SET onboarding = (CASE WHEN $1::boolean IS FALSE
+                       THEN onboarding - 'completed' - 'completed_at'
+                       ELSE onboarding END)
+                 || $2::jsonb
+                 || jsonb_build_object('answers',
+                        (CASE WHEN jsonb_typeof(onboarding -> 'answers') = 'object'
+                              THEN onboarding -> 'answers'
+                              ELSE '{}'::jsonb END) || $3::jsonb)
+                 || (CASE WHEN $1::boolean IS TRUE AND onboarding -> 'completed_at' IS NULL
+                          THEN jsonb_build_object('completed_at', now())
+                          ELSE '{}'::jsonb END),
+    updated_at = now()
+WHERE id = $4 AND deleted_at IS NULL
+RETURNING id, email, email_verified_at, name, avatar_url, preferences, onboarding, last_login_at, created_at, updated_at, deleted_at, delete_after
+`
+
+type MergeUserOnboardingParams struct {
+	Completed *bool
+	Patch     []byte
+	Answers   []byte
+	ID        uuid.UUID
+}
+
+// Merges an onboarding patch: top-level keys of @patch replace the stored
+// ones, @answers is merged into the stored `answers` object, and
+// @completed (when not null) finishes onboarding (stamps `completed_at`
+// once) or reopens it (drops `completed` and `completed_at`).
+func (q *Queries) MergeUserOnboarding(ctx context.Context, arg MergeUserOnboardingParams) (User, error) {
+	row := q.db.QueryRow(ctx, mergeUserOnboarding,
+		arg.Completed,
+		arg.Patch,
+		arg.Answers,
+		arg.ID,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.EmailVerifiedAt,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.Preferences,
+		&i.Onboarding,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DeleteAfter,
+	)
+	return i, err
+}
+
 const purgeUsers = `-- name: PurgeUsers :execrows
 DELETE FROM users
 WHERE id = ANY($1::uuid[]) AND deleted_at IS NOT NULL AND delete_after < now()

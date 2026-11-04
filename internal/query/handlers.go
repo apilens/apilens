@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/apilens/apilens/internal/platform/authn"
+	"github.com/apilens/apilens/internal/authz"
 )
 
 // The quantile levels stored in the rollups (see the ClickHouse migration).
@@ -36,6 +37,9 @@ type RangeInput struct {
 // OpenAPI document is needed.
 func Register(api huma.API, s *Service) {
 	authn.AddSecurityScheme(api)
+// OpenAPI document is needed. guard authorizes the operations addressed by
+// project slug; nil refuses them with authz_unavailable (fail closed).
+func Register(api huma.API, s *Service, guard *authz.Guard) {
 	AddSecurityScheme(api)
 	op := func(id, method, path, summary string) huma.Operation {
 		return huma.Operation{OperationID: id, Method: method, Path: path, Summary: summary, Tags: []string{"Dashboard"}, Security: security}
@@ -48,6 +52,7 @@ func Register(api huma.API, s *Service) {
 	huma.Register(api, op("list-errors", http.MethodGet, "/api/v1/errors", "Failed requests grouped by endpoint and status"), s.errors)
 	huma.Register(api, op("get-trace", http.MethodGet, "/api/v1/traces/{trace_id}", "Spans and correlated logs of one trace"), s.trace)
 	huma.Register(api, op("list-deploys", http.MethodGet, "/api/v1/deploys", "Deploy markers in a time range"), s.deploys)
+	registerIngestStatus(api, s, guard)
 }
 
 // ---------------------------------------------------------------- project

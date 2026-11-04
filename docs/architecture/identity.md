@@ -474,6 +474,14 @@ Served by the identity role and authenticated with the session scheme
   empty to clear it) that `/users/me/context` returns as
   `last_project_slug`. Unknown fields fail validation (`422`). Audited as
   `user.updated` with the changed field names, never their values.
+- `PATCH /api/v1/users/me/onboarding` (`internal/identity/onboarding.go`)
+  saves onboarding progress so a refresh resumes: `step` replaces the stored
+  step, `answers` (`org_slug`, `project_slug`, `language`, `runtime`,
+  `method`, `invited`; other keys fail validation) is merged key by key into
+  the stored `answers`, and `completed: true` stamps `completed_at` once
+  (`false` reopens onboarding). The merge is one `UPDATE`, so concurrent saves
+  never drop each other's answers. It returns
+  `{step, completed, completed_at, answers}`.
 - `DELETE` soft-deletes the account: it is hidden at once (the email can sign
   up again), every session is revoked (reason `user_deleted`) and
   `delete_after` is set 30 days out, after which a purge job removes the row.

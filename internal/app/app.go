@@ -154,6 +154,8 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	// query is the first slice of the M3 read path (fixed queries; user
 	// sessions authorized by SpiceDB, or read keys).
 	m.Register(TargetQuery, a.initQuery, modules.DependsOn(modServer, modPostgres, modClickHouse, modCatalog, modAuthz))
+	// query is the first slice of the M3 read path (fixed queries, read keys).
+	m.Register(TargetQuery, a.initQuery, modules.DependsOn(modServer, modClickHouse, modCatalog, modAuthz))
 	m.Register(TargetAPI, a.initAPI, modules.DependsOn(modServer, modPostgres, modValkey, modAuthz, modJobs))
 	// identity runs the M2 job workers (email, outbox relay, authz
 	// reconciler); the M4 worker role will too.
@@ -333,6 +335,8 @@ func (a *App) initQuery(context.Context) (modules.Service, error) {
 	guard := authz.NewGuard(checker, authz.NewPGResolver(a.pool), authz.GuardOptions{}, a.logger)
 	api.UseMiddleware(query.AuthMiddleware(api, a.verifier, guard))
 	query.Register(api, query.NewService(a.chConn, a.queries))
+	api.UseMiddleware(query.AuthMiddleware(api, a.verifier))
+	query.Register(api, query.NewService(a.chConn, a.queries), a.guard())
 	return nil, nil
 }
 
@@ -347,18 +351,13 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	orgService := orgs.New(a.pool, audit.New(a.pool))
-	checker := a.authz
-	if checker == nil {
-		// authz disabled: every check denies with authz_unavailable.
-		checker = authz.New(nil, nil, authz.Options{}, a.logger, nil)
-	}
 	controlplaneapi.Register(a.server.API(), controlplaneapi.Deps{
 		Orgs:     orgService,
 		Members:  orgService,
 		Projects: projects.New(a.pool),
 		APIKeys:  apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger),
 		Context:  usercontext.New(a.pool),
-		Guard:    authz.NewGuard(checker, authz.NewPGResolver(a.pool), authz.GuardOptions{}, a.logger),
+		Guard:    a.guard(),
 		Limiter:  limiter,
 		Limits:   a.cfg.Identity.RateLimits,
 		Logger:   a.logger,
@@ -382,6 +381,14 @@ func (a *App) invalidateAPIKey(ctx context.Context, hash string) error {
 		return nil
 	}
 	return cache.Publish(ctx, a.valkey, apikeys.InvalidateChannel, hash)
+// guard returns the authz.Guard operations use to authorize requests on an
+// organization or project named in their path.
+func (a *App) guard() *authz.Guard {
+	checker := a.authz
+	if checker == nil {
+		// authz disabled: every check denies with authz_unavailable.
+		checker = authz.New(nil, nil, authz.Options{}, a.logger, nil)
+	return authz.NewGuard(checker, authz.NewPGResolver(a.pool), authz.GuardOptions{}, a.logger)
 }
 
 func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
@@ -459,6 +466,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	// nothing blocks a deletion.
 	accounts := account.New(a.pool, account.NoMemberships{})
 	identity.NewAccount(accounts, a.logger).Register(a.server.API())
+	identity.NewOnboarding(accounts, a.logger).Register(a.server.API())
 	kek, err := a.cfg.Identity.KEK()
 	if err != nil {
 		return nil, err
