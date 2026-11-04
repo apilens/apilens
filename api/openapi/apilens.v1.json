@@ -1,6 +1,48 @@
 {
   "components": {
     "schemas": {
+      "AuthProviders": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AuthProviders.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "email": {
+            "description": "Email code / magic link sign-in. Always enabled.",
+            "type": "boolean"
+          },
+          "github": {
+            "description": "Sign in with GitHub (identity.oauth.github is configured).",
+            "type": "boolean"
+          },
+          "google": {
+            "description": "Sign in with Google (identity.oauth.google is configured).",
+            "type": "boolean"
+          },
+          "passkeys": {
+            "description": "Passkey (WebAuthn) sign-in. Always enabled.",
+            "type": "boolean"
+          },
+          "sso": {
+            "description": "Enterprise SSO (SAML/OIDC) is available.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "email",
+          "passkeys",
+          "google",
+          "github",
+          "sso"
+        ],
+        "type": "object"
+      },
       "DeployOut": {
         "additionalProperties": false,
         "properties": {
@@ -762,6 +804,38 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/auth/providers": {
+      "get": {
+        "description": "Public. Lists which sign-in methods this deployment offers so the sign-in page shows only working buttons.",
+        "operationId": "list-auth-providers",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthProviders"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Enabled sign-in methods",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/api/v1/deploys": {
       "get": {
         "operationId": "list-deploys",

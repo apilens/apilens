@@ -359,6 +359,68 @@ func TestAuthzEnv(t *testing.T) {
 	}
 }
 
+func TestIdentityOAuth(t *testing.T) {
+	cfg, err := Load("", []string{kekEnv}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Identity.OAuth.Google.Enabled() || cfg.Identity.OAuth.GitHub.Enabled() {
+		t.Fatalf("oauth providers should be disabled by default: %+v", cfg.Identity.OAuth)
+	}
+
+	cfg, err = Load("", []string{
+		kekEnv,
+		"APILENS_IDENTITY__ISSUER=https://api.example.com/",
+		"APILENS_IDENTITY__OAUTH__GOOGLE__CLIENT_ID=g-id",
+		"APILENS_IDENTITY__OAUTH__GOOGLE__CLIENT_SECRET=g-secret",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := cfg.Identity.OAuth.Google
+	if !g.Enabled() || g.ClientID != "g-id" || g.ClientSecret != "g-secret" {
+		t.Errorf("google = %+v", g)
+	}
+	if cfg.Identity.OAuth.GitHub.Enabled() {
+		t.Error("github should stay disabled")
+	}
+	for provider, want := range map[string]string{
+		OAuthProviderGoogle: "https://api.example.com/api/v1/auth/oauth/google/callback",
+		OAuthProviderGitHub: "https://api.example.com/api/v1/auth/oauth/github/callback",
+	} {
+		if got := cfg.Identity.OAuthRedirectURI(provider); got != want {
+			t.Errorf("redirect uri = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestIdentityOAuthValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     []string
+		wantErr string
+	}{
+		{name: "google id without secret", env: []string{"APILENS_IDENTITY__OAUTH__GOOGLE__CLIENT_ID=g-id"}, wantErr: "identity.oauth.google.client_secret is required"},
+		{name: "github id without secret", env: []string{"APILENS_IDENTITY__OAUTH__GITHUB__CLIENT_ID=gh-id"}, wantErr: "identity.oauth.github.client_secret is required"},
+		{name: "github secret without id", env: []string{"APILENS_IDENTITY__OAUTH__GITHUB__CLIENT_SECRET=s"}, wantErr: "identity.oauth.github.client_id is required"},
+		{name: "github complete", env: []string{"APILENS_IDENTITY__OAUTH__GITHUB__CLIENT_ID=gh-id", "APILENS_IDENTITY__OAUTH__GITHUB__CLIENT_SECRET=s"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load("", append([]string{kekEnv}, tt.env...), nil)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestAuthzValidation(t *testing.T) {
 	tests := []struct {
 		name    string
