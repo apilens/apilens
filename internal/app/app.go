@@ -425,6 +425,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	}
 	identity.NewSessions(a.cfg.Identity, sessions, limiter, a.logger).Register(a.server.API())
 	handoff := identity.NewValkeyHandoffStore(a.valkey)
+	ssoEnforcement := identity.NewSSOEnforcement(identitydb.New(a.pool), a.cfg.Identity.Issuer)
 	identity.NewOAuth(a.cfg.Identity, identity.NewValkeyOAuthStateStore(a.valkey), limiter, a.logger).
 		WithSignIn(identity.OAuthSignInDeps{
 			Users:    identity.NewPGSignInUsers(a.pool),
@@ -435,6 +436,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 
 			Identities: identity.NewPGOAuthIdentities(a.pool),
 			Jobs:       a.jobs,
+			SSO:        ssoEnforcement,
 		}).Register(a.server.API())
 	identity.NewHandoff(a.cfg.Identity, handoff, limiter, a.logger).Register(a.server.API())
 	identity.NewConnectedAccounts(identity.ConnectedAccountsDeps{
@@ -446,6 +448,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		Users:  identitydb.New(a.pool),
 		Jobs:   a.jobs,
 		Audit:  audit.New(a.pool),
+		SSO:    ssoEnforcement,
 	}, limiter, a.logger).Register(a.server.API())
 	identity.NewSSOLookup(a.cfg.Identity, identitydb.New(a.pool), limiter, a.logger).Register(a.server.API())
 	identity.NewEmailVerify(a.cfg.Identity, identity.EmailVerifyDeps{
@@ -468,6 +471,20 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	identity.NewTwoFactor(twoFactor, a.logger).Register(a.server.API())
+	sealer, err := keys.NewSealer(kek)
+	if err != nil {
+		return nil, err
+	}
+	identity.NewSSO(a.cfg.Identity, identity.NewValkeyOAuthStateStore(a.valkey), identity.SSODeps{
+		Connections: identitydb.New(a.pool),
+		Sealer:      sealer,
+		Users:       identity.NewPGSignInUsers(a.pool),
+		Memberships: orgs.New(a.pool, audit.New(a.pool)),
+		Sessions:    sessions,
+		PreAuth:     identity.NewValkeyPreAuthStore(a.valkey),
+		Handoff:     handoff,
+		Audit:       audit.New(a.pool),
+	}, limiter, a.logger).Register(a.server.API())
 	identity.NewTwoFactorExchange(identity.TwoFactorExchangeDeps{
 		PreAuth:   identity.NewValkeyPreAuthStore(a.valkey),
 		TwoFactor: twoFactor,

@@ -276,10 +276,26 @@ connection lists them. It is rate-limited per IP
 (`identity.rate_limits.sso_lookup_per_ip`, 60 / 15 min).
 `GET /api/v1/auth/sso/{org}/start` → IdP →
 `GET /api/v1/auth/sso/{org}/callback` uses the same state, PKCE, nonce and
-handoff mechanics as social sign-in. The `id_token` email must be in the
-connection's `domains`; the user joins the org with `default_role` if not
-already a member (just-in-time, through the outbox). With `enforce` on, email
-and social sign-in for those domains answer `sso_required`.
+handoff mechanics as social sign-in (`internal/identity/sso.go`). The
+provider's endpoints come from OIDC discovery on the connection's `issuer`
+(cached per issuer); the redirect URI registered with it is
+`{issuer}/api/v1/auth/sso/{org}/callback`. Start takes `next`, `remember`
+and `login_hint` (forwarded to the provider), is rate-limited per IP
+(`oauth_start_per_ip`) and answers 404 for an organization without a
+connection. The callback decrypts the client secret (AES-GCM under the
+identity key-encryption key, bound to the org id), verifies the `id_token`
+(signature, issuer, audience = client ID, expiry, nonce) and reads `email`:
+an explicit `email_verified: false` is `oauth_email_unverified`, and an email
+outside the connection's `domains` (or at a public mailbox provider) is
+`forbidden`. The user is found by email or created (`source: sso`) and joins
+the org with `default_role` if not already a member (just-in-time; the
+membership and its `membership.upserted` outbox row commit together). The
+session has `amr: ["sso"]` (or the sign-in answers `2fa_required`), the
+connection's `last_login_at` is set, and `login.succeeded` is audited with
+`method: sso`, `org_id` and `joined`. With `enforce` on, email sign-in for
+those domains (`POST /auth/email/start`) answers 403 `sso_required` with the
+org's `start_url`, and social sign-in redirects to
+`/sign-in?error=sso_required`.
 
 ### APILens as an OpenID provider (`/oauth/*`)
 
@@ -705,6 +721,7 @@ Rules:
 | `last_owner` | 409 Conflict | An organization needs at least one owner. Make someone else an owner first. |
 | `member_gone` | 410 Gone | This person is no longer a member. Refresh the page. |
 | `api_key_gone` | 410 Gone | This API key no longer exists. Refresh the page. |
+| `sso_required` | 403 Forbidden | Your organization requires single sign-on. Sign in through your company's identity provider. |
 | `forbidden` | 403 Forbidden | You don't have permission to do that. |
 | `not_found` | 404 Not Found | We couldn't find that, or you don't have access to it. |
 | `authz_unavailable` | 503 Service Unavailable | We couldn't check your permissions. Try again in {retry_after} seconds. |

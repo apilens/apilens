@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -35,6 +36,53 @@ func (q *Queries) GetOrgSSOConnection(ctx context.Context, orgID uuid.UUID) (Org
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLoginAt,
+	)
+	return i, err
+}
+
+const getOrgSSOConnectionBySlug = `-- name: GetOrgSSOConnectionBySlug :one
+SELECT c.org_id, c.issuer, c.client_id, c.client_secret_enc, c.domains, c.enforce, c.default_role, c.created_at, c.updated_at, c.last_login_at, o.slug, o.name AS org_name FROM org_sso_connections c
+JOIN organizations o ON o.id = c.org_id
+WHERE o.slug = $1
+  AND o.deleted_at IS NULL
+`
+
+type GetOrgSSOConnectionBySlugRow struct {
+	OrgID           uuid.UUID
+	Issuer          string
+	ClientID        string
+	ClientSecretEnc []byte
+	Domains         []string
+	Enforce         bool
+	DefaultRole     string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	LastLoginAt     *time.Time
+	Slug            string
+	OrgName         string
+}
+
+// The OIDC connection of the active organization slug with the
+// organization's display name, for the SSO start and callback
+// (/auth/sso/{org}/…). client_secret_enc is ciphertext, decrypt it with the
+// identity key-encryption key. Returns pgx.ErrNoRows when there is no such
+// active organization or it has no connection.
+func (q *Queries) GetOrgSSOConnectionBySlug(ctx context.Context, slug string) (GetOrgSSOConnectionBySlugRow, error) {
+	row := q.db.QueryRow(ctx, getOrgSSOConnectionBySlug, slug)
+	var i GetOrgSSOConnectionBySlugRow
+	err := row.Scan(
+		&i.OrgID,
+		&i.Issuer,
+		&i.ClientID,
+		&i.ClientSecretEnc,
+		&i.Domains,
+		&i.Enforce,
+		&i.DefaultRole,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastLoginAt,
+		&i.Slug,
+		&i.OrgName,
 	)
 	return i, err
 }

@@ -49,6 +49,9 @@ type OAuthState struct {
 	LinkUserID string `json:"link_user_id,omitempty"`
 	// Remember selects the long refresh-token lifetime.
 	Remember bool `json:"remember"`
+	// OrgID is the organization whose SSO connection the sign-in runs
+	// through (Provider SSOProvider only).
+	OrgID string `json:"org_id,omitempty"`
 }
 
 // OAuthStateStore keeps pending OAuth sign-ins for OAuthStateTTL.

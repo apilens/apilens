@@ -80,6 +80,9 @@ type OAuthSignInDeps struct {
 	// to the signed-in user and a security alert is emailed.
 	Identities OAuthIdentities
 	Jobs       JobEnqueuer
+	// SSO refuses addresses whose organization enforces single sign-on
+	// (?error=sso_required). Nil checks nothing.
+	SSO *SSOEnforcement
 }
 
 // OAuthCallbackInput is the request of GET
@@ -132,7 +135,7 @@ func (o *OAuth) registerCallback(api huma.API) {
 			"The session bundle (`amr: [provider]`), or the `2fa_required` answer when the user has two-factor authentication, is kept for 60 seconds under a one-time code " +
 			"and the browser is redirected (302) to `{public_ui_url}/auth/callback?code=…`, whose server side redeems it; tokens never appear in a URL. " +
 			"Failures redirect to `{public_ui_url}/sign-in?error=<code>`: `oauth_state_mismatch` (unknown, expired, used or foreign state; rejected code or PKCE verifier; wrong nonce), " +
-			"`oauth_email_unverified` (no verified email), `oauth_denied` (consent declined), `account_deleting`, `invalid_request` or `internal_error`. " +
+			"`oauth_email_unverified` (no verified email), `oauth_denied` (consent declined), `sso_required` (the email's organization enforces single sign-on), `account_deleting`, `invalid_request` or `internal_error`. " +
 			"A flow started with `intent=link` instead connects the provider account to the user who started it (audited as `oauth.linked`, security alert emailed) and redirects to `{public_ui_url}{next}` with `linked={provider}` added; " +
 			"a provider account already connected to another user fails with `oauth_identity_taken`. " +
 			"A provider that is not configured answers 404.",
@@ -362,6 +365,13 @@ func (o *OAuth) signInUser(ctx context.Context, ext ExternalIdentity, st OAuthSt
 	d := o.signIn
 	if d.Users == nil || d.Sessions == nil || d.PreAuth == nil || d.Handoff == nil || d.Audit == nil {
 		return nil, failure(CodeInternal, "not_configured", errors.New("oauth sign-in collaborators not set"))
+	}
+	_, ssoRequired, err := d.SSO.Required(ctx, ext.Email)
+	if err != nil {
+		return nil, failure(CodeInternal, "sso_enforcement", err)
+	}
+	if ssoRequired {
+		return nil, failure(CodeSSORequired, "sso_required", nil)
 	}
 	user, created, err := d.Users.FindOrCreateOAuth(ctx, ext)
 	switch {
