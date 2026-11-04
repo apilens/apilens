@@ -313,6 +313,10 @@ func TestMiddleware(t *testing.T) {
 		"either, bad jwt":      {srv, "/either", "Bearer " + expired, http.StatusUnauthorized},
 		"public":               {srv, "/open", "", http.StatusOK},
 		"other scheme only op": {srv, "/key", "Bearer " + valid, http.StatusOK},
+		"optional, anonymous":  {srv, "/optional", "", http.StatusOK},
+		"optional, session":    {srv, "/optional", "Bearer " + valid, http.StatusOK},
+		"optional, bad jwt":    {srv, "/optional", "Bearer " + expired, http.StatusUnauthorized},
+		"optional, basic":      {srv, "/optional", "Basic " + valid, http.StatusUnauthorized},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -334,6 +338,8 @@ func TestMiddleware(t *testing.T) {
 			huma.Register(api, huma.Operation{OperationID: "key", Method: http.MethodGet, Path: "/key",
 				Security: []map[string][]string{{"apiKey": {}}}}, handler)
 			huma.Register(api, huma.Operation{OperationID: "open", Method: http.MethodGet, Path: "/open"}, handler)
+			huma.Register(api, huma.Operation{OperationID: "optional", Method: http.MethodGet, Path: "/optional",
+				Security: []map[string][]string{{}, {SchemeSession: {}}}}, handler)
 
 			var args []any
 			if tc.header != "" {

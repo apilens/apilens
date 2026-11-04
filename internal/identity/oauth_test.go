@@ -19,6 +19,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/humatest"
 
+	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/config"
 	"github.com/apilens/apilens/internal/platform/ratelimit"
 )
@@ -392,8 +393,9 @@ func TestOAuthStartOperation(t *testing.T) {
 	if op == nil {
 		t.Fatal("GET /auth/oauth/{provider}/start not registered")
 	}
-	if len(op.Security) != 0 {
-		t.Errorf("security = %v, want none (public)", op.Security)
+	// Public, with an optional session (intent=link needs it).
+	if len(op.Security) != 2 || len(op.Security[0]) != 0 || op.Security[1][authn.SchemeSession] == nil {
+		t.Errorf("security = %v, want [{} {session}]", op.Security)
 	}
 	if _, ok := op.Responses["302"]; !ok {
 		t.Errorf("responses = %v, want 302", keys(op.Responses))

@@ -102,6 +102,65 @@
         ],
         "type": "object"
       },
+      "ConnectedAccount": {
+        "additionalProperties": false,
+        "properties": {
+          "avatar_url": {
+            "description": "Avatar at the provider, or empty.",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "When the account was connected.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "email": {
+            "description": "Address the provider reported, or null.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_login_at": {
+            "description": "Last sign-in through this account, or null.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Display name at the provider, or empty.",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "google",
+              "github"
+            ],
+            "type": "string"
+          },
+          "username": {
+            "description": "Login at the provider (GitHub), or empty.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "email",
+          "name",
+          "username",
+          "avatar_url",
+          "created_at",
+          "last_login_at"
+        ],
+        "type": "object"
+      },
       "CreateOrgInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -693,6 +752,34 @@
           "member_count",
           "project_count",
           "member_initials"
+        ],
+        "type": "object"
+      },
+      "ListMyIdentitiesOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ListMyIdentitiesOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "identities": {
+            "description": "The user's connected provider accounts, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/ConnectedAccount"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "identities"
         ],
         "type": "object"
       },
@@ -3694,7 +3781,7 @@
     },
     "/api/v1/auth/oauth/{provider}/callback": {
       "get": {
-        "description": "Public browser navigation; the provider redirects here. Takes the sign-in state (single use), exchanges the code with the PKCE verifier and reads a verified email: Google from the `id_token` (signature, audience, nonce and `email_verified` checked), GitHub from the primary verified address of `/user/emails`. The user is matched by (provider, subject), then by verified email (the identity is linked), else created. The session bundle (`amr: [provider]`), or the `2fa_required` answer when the user has two-factor authentication, is kept for 60 seconds under a one-time code and the browser is redirected (302) to `{public_ui_url}/auth/callback?code=…`, whose server side redeems it; tokens never appear in a URL. Failures redirect to `{public_ui_url}/sign-in?error=\u003ccode\u003e`: `oauth_state_mismatch` (unknown, expired, used or foreign state; rejected code or PKCE verifier; wrong nonce), `oauth_email_unverified` (no verified email), `oauth_denied` (consent declined), `account_deleting`, `invalid_request` or `internal_error`. A provider that is not configured answers 404.",
+        "description": "Public browser navigation; the provider redirects here. Takes the sign-in state (single use), exchanges the code with the PKCE verifier and reads a verified email: Google from the `id_token` (signature, audience, nonce and `email_verified` checked), GitHub from the primary verified address of `/user/emails`. The user is matched by (provider, subject), then by verified email (the identity is linked), else created. The session bundle (`amr: [provider]`), or the `2fa_required` answer when the user has two-factor authentication, is kept for 60 seconds under a one-time code and the browser is redirected (302) to `{public_ui_url}/auth/callback?code=…`, whose server side redeems it; tokens never appear in a URL. Failures redirect to `{public_ui_url}/sign-in?error=\u003ccode\u003e`: `oauth_state_mismatch` (unknown, expired, used or foreign state; rejected code or PKCE verifier; wrong nonce), `oauth_email_unverified` (no verified email), `oauth_denied` (consent declined), `account_deleting`, `invalid_request` or `internal_error`. A flow started with `intent=link` instead connects the provider account to the user who started it (audited as `oauth.linked`, security alert emailed) and redirects to `{public_ui_url}{next}` with `linked={provider}` added; a provider account already connected to another user fails with `oauth_identity_taken`. A provider that is not configured answers 404.",
         "operationId": "oauth-callback",
         "parameters": [
           {
@@ -3786,7 +3873,7 @@
     },
     "/api/v1/auth/oauth/{provider}/start": {
       "get": {
-        "description": "Public browser navigation. Starts an authorization-code flow with PKCE (and an OIDC nonce for Google), keeps the attempt server-side for 10 minutes keyed by a random state, and redirects (302) to the provider. Rate-limited per client IP. A provider that is not configured answers 404.",
+        "description": "Public browser navigation. Starts an authorization-code flow with PKCE (and an OIDC nonce for Google), keeps the attempt server-side for 10 minutes keyed by a random state, and redirects (302) to the provider. Rate-limited per client IP. A provider that is not configured answers 404. `intent=link` connects the provider account to the signed-in user instead of signing in: it needs the session (`Authorization: Bearer`), so the UI's server calls it and sends the browser to the returned `Location`; without one it answers 401 `unauthenticated`.",
         "operationId": "start-oauth",
         "parameters": [
           {
@@ -3914,6 +4001,12 @@
             ]
           }
         },
+        "security": [
+          {},
+          {
+            "session": []
+          }
+        ],
         "summary": "Start social sign-in",
         "tags": [
           "Auth"
@@ -6910,6 +7003,133 @@
           }
         ],
         "summary": "Confirm the signed-in user's new email",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/me/identities": {
+      "get": {
+        "description": "Lists the Google and GitHub accounts connected to the signed-in user, oldest first. Connect one with `GET /api/v1/auth/oauth/{provider}/start?intent=link`.",
+        "operationId": "list-my-identities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListMyIdentitiesOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List my connected accounts",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/me/identities/{id}": {
+      "delete": {
+        "description": "Disconnects one of the signed-in user's Google or GitHub accounts; it can no longer be used to sign in. Email always remains a sign-in method, so the last connected account can be disconnected too. Answers 410 `oauth_identity_gone` for an id that is not one of the user's connected accounts. Audited as `oauth.unlinked`; the user is emailed a security alert.",
+        "operationId": "delete-my-identity",
+        "parameters": [
+          {
+            "description": "Connected account id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Connected account id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Gone. Codes: `oauth_identity_gone`.",
+            "x-apilens-codes": [
+              "oauth_identity_gone"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Disconnect an account",
         "tags": [
           "Users"
         ]

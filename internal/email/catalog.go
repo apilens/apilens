@@ -43,6 +43,8 @@ const (
 	SecurityChangeBackupCodesReset  = "backup_codes_regenerated"
 	SecurityChangeEmailChanged      = "email_changed"
 	SecurityChangeRecoveryCompleted = "recovery_completed"
+	SecurityChangeOAuthLinked       = "oauth_linked"
+	SecurityChangeOAuthUnlinked     = "oauth_unlinked"
 )
 
 // securityChanges lists every SecurityChange value in display order.
@@ -50,6 +52,7 @@ var securityChanges = []string{
 	SecurityChangePasskeyAdded, SecurityChangePasskeyRemoved,
 	SecurityChangeTOTPEnabled, SecurityChangeTOTPDisabled, SecurityChangeBackupCodesReset,
 	SecurityChangeEmailChanged, SecurityChangeRecoveryCompleted,
+	SecurityChangeOAuthLinked, SecurityChangeOAuthUnlinked,
 }
 
 // SecurityCopy is the wording of one security_change email.
@@ -86,6 +89,14 @@ var securityCopy = map[string]SecurityCopy{
 	SecurityChangeRecoveryCompleted: {
 		"Your APILens account was recovered",
 		"Your APILens account was recovered: two-factor authentication was turned off and every other session was signed out.",
+	},
+	SecurityChangeOAuthLinked: {
+		"A sign-in provider was connected to your APILens account",
+		"A Google or GitHub account was connected to your APILens account. It can now be used to sign in.",
+	},
+	SecurityChangeOAuthUnlinked: {
+		"A sign-in provider was disconnected from your APILens account",
+		"A Google or GitHub account was disconnected from your APILens account. It can no longer be used to sign in.",
 	},
 }
 

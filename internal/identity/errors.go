@@ -66,6 +66,9 @@ const (
 	// CodeOAuthEmailUnverified: the external provider did not assert a
 	// verified email, so it cannot be linked to an account.
 	CodeOAuthEmailUnverified ErrCode = "oauth_email_unverified"
+	// CodeOAuthIdentityGone: the signed-in user has no connected provider
+	// account with that id (it was disconnected, or never belonged to them).
+	CodeOAuthIdentityGone ErrCode = "oauth_identity_gone"
 	// CodeInviteExpired: the invitation was valid but has expired or was
 	// revoked.
 	CodeInviteExpired ErrCode = "invite_expired"
@@ -147,6 +150,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodePasskeyGone:           {http.StatusGone, "Passkey removed", "The passkey was removed or is not on this account."},
 	CodeOAuthStateMismatch:    {http.StatusBadRequest, "Sign-in state mismatch", "The sign-in attempt could not be matched. Start again."},
 	CodeOAuthEmailUnverified:  {http.StatusForbidden, "Email not verified", "The provider did not confirm a verified email address."},
+	CodeOAuthIdentityGone:     {http.StatusGone, "Connected account removed", "The connected account was already removed or is not on this account."},
 	CodeInviteExpired:         {http.StatusGone, "Invitation expired", "The invitation has expired or was revoked."},
 	CodeInviteEmailMismatch:   {http.StatusForbidden, "Invitation email mismatch", "The invitation was sent to a different email address."},
 	CodeOwnerTransferRequired: {http.StatusConflict, "Ownership transfer required", "Transfer ownership of your organizations before deleting your account."},

@@ -395,8 +395,15 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 			PreAuth:  identity.NewValkeyPreAuthStore(a.valkey),
 			Handoff:  handoff,
 			Audit:    audit.New(a.pool),
+
+			Identities: identity.NewPGOAuthIdentities(a.pool),
+			Jobs:       a.jobs,
 		}).Register(a.server.API())
 	identity.NewHandoff(a.cfg.Identity, handoff, limiter, a.logger).Register(a.server.API())
+	identity.NewConnectedAccounts(identity.ConnectedAccountsDeps{
+		Identities: identity.NewPGOAuthIdentities(a.pool),
+		Jobs:       a.jobs,
+	}, a.logger).Register(a.server.API())
 	identity.NewEmailStart(a.cfg.Identity, identity.EmailStartDeps{
 		Tokens: emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{}),
 		Users:  identitydb.New(a.pool),
