@@ -47,27 +47,6 @@ SET onboarding = onboarding || @patch::jsonb,
 WHERE id = @id AND deleted_at IS NULL
 RETURNING *;
 
--- name: MergeUserOnboarding :one
--- Merges an onboarding patch: top-level keys of @patch replace the stored
--- ones, @answers is merged into the stored `answers` object, and
--- @completed (when not null) finishes onboarding (stamps `completed_at`
--- once) or reopens it (drops `completed` and `completed_at`).
-UPDATE users
-SET onboarding = (CASE WHEN sqlc.narg(completed)::boolean IS FALSE
-                       THEN onboarding - 'completed' - 'completed_at'
-                       ELSE onboarding END)
-                 || @patch::jsonb
-                 || jsonb_build_object('answers',
-                        (CASE WHEN jsonb_typeof(onboarding -> 'answers') = 'object'
-                              THEN onboarding -> 'answers'
-                              ELSE '{}'::jsonb END) || @answers::jsonb)
-                 || (CASE WHEN sqlc.narg(completed)::boolean IS TRUE AND onboarding -> 'completed_at' IS NULL
-                          THEN jsonb_build_object('completed_at', now())
-                          ELSE '{}'::jsonb END),
-    updated_at = now()
-WHERE id = @id AND deleted_at IS NULL
-RETURNING *;
-
 -- name: TouchLastLogin :exec
 UPDATE users
 SET last_login_at = now()

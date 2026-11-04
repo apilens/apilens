@@ -84,9 +84,7 @@ func setupMe(t *testing.T) *meFixture {
 	_, api := humatest.New(t)
 	authn.AddSecurityScheme(api)
 	api.UseMiddleware(authn.Middleware(api, authn.NewSessionVerifier(src, meIssuer, nil)))
-	accounts := account.New(pool, owners)
-	NewAccount(accounts, logger).Register(api)
-	NewOnboarding(accounts, logger).Register(api)
+	NewAccount(account.New(pool, owners), logger).Register(api)
 
 	ctx := audit.WithRequest(context.Background(), audit.Request{IP: netip.MustParseAddr("203.0.113.5"), UserAgent: "itest"})
 	return &meFixture{api: api, pool: pool, q: db.New(pool), sessions: sessions, owners: owners, ctx: ctx}

@@ -222,11 +222,6 @@ type Querier interface {
 	// Records that the user proved control of their address (an email code or
 	// link). An earlier verification time is kept.
 	MarkUserEmailVerified(ctx context.Context, id uuid.UUID) (User, error)
-	// Merges an onboarding patch: top-level keys of @patch replace the stored
-	// ones, @answers is merged into the stored `answers` object, and
-	// @completed (when not null) finishes onboarding (stamps `completed_at`
-	// once) or reopens it (drops `completed` and `completed_at`).
-	MergeUserOnboarding(ctx context.Context, arg MergeUserOnboardingParams) (User, error)
 	// Hard-deletes soft-deleted users whose grace period has passed. Sessions,
 	// email tokens, OAuth identities, passkeys and TOTP rows cascade.
 	PurgeUsers(ctx context.Context, ids []uuid.UUID) (int64, error)
