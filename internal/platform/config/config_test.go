@@ -104,6 +104,7 @@ func TestIdentityDefaults(t *testing.T) {
 		{"refresh_token_ttl_short", id.RefreshTokenTTLShort, 24 * time.Hour},
 		{"email_code_ttl", id.EmailCodeTTL, 15 * time.Minute},
 		{"pre_auth_ttl", id.PreAuthTTL, 5 * time.Minute},
+		{"recovery_delay", id.RecoveryDelay, 24 * time.Hour},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
@@ -329,6 +330,8 @@ func TestIdentityRateLimitDefaults(t *testing.T) {
 		{"sso_lookup_per_ip", rl.SSOLookupPerIP, RateLimit{60, 15 * time.Minute}},
 		{"passkey_login_per_ip", rl.PasskeyLoginPerIP, RateLimit{60, 15 * time.Minute}},
 		{"slug_check_per_user", rl.SlugCheckPerUser, RateLimit{60, time.Minute}},
+		{"recovery_request_per_email", rl.RecoveryRequestPerEmail, RateLimit{3, time.Hour}},
+		{"recovery_per_ip", rl.RecoveryPerIP, RateLimit{20, 15 * time.Minute}},
 	}
 	for _, c := range checks {
 		if c.got != c.want {

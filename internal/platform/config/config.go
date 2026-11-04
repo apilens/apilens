@@ -156,6 +156,9 @@ type IdentityConfig struct {
 	EmailCodeMaxAttempts int           `koanf:"email_code_max_attempts"`
 	// PreAuthTTL bounds the window between the first factor and MFA.
 	PreAuthTTL time.Duration `koanf:"pre_auth_ttl"`
+	// RecoveryDelay is the cooling-off period between requesting account
+	// recovery (2FA device lost) and being allowed to confirm it.
+	RecoveryDelay time.Duration `koanf:"recovery_delay"`
 	// KeyEncryptionKey is 32 bytes, base64-encoded. It encrypts signing keys
 	// and TOTP secrets at rest. Required when the identity role runs.
 	KeyEncryptionKey string           `koanf:"key_encryption_key"`
@@ -217,6 +220,11 @@ type RateLimitsConfig struct {
 	SSOLookupPerIP      RateLimit `koanf:"sso_lookup_per_ip"`
 	PasskeyLoginPerIP   RateLimit `koanf:"passkey_login_per_ip"` // passkey sign-in options and verify, each
 	SlugCheckPerUser    RateLimit `koanf:"slug_check_per_user"`  // slug availability checks
+	// RecoveryRequestPerEmail limits account recovery requests per address.
+	RecoveryRequestPerEmail RateLimit `koanf:"recovery_request_per_email"`
+	// RecoveryPerIP limits each recovery endpoint (request, status,
+	// confirm, cancel) per client IP.
+	RecoveryPerIP RateLimit `koanf:"recovery_per_ip"`
 }
 
 // RateLimit allows Limit requests per sliding Window.
@@ -401,6 +409,7 @@ func Defaults() map[string]any {
 		"identity.email_code_ttl":          "15m",
 		"identity.email_code_max_attempts": 5,
 		"identity.pre_auth_ttl":            "5m",
+		"identity.recovery_delay":          "24h",
 		"identity.key_encryption_key":      "",
 		"identity.webauthn.rp_id":          "localhost",
 		"identity.webauthn.rp_name":        "APILens",
@@ -415,25 +424,29 @@ func Defaults() map[string]any {
 		"identity.oauth.github.client_id":     "",
 		"identity.oauth.github.client_secret": "",
 
-		"identity.rate_limits.trusted_proxies":               []string{},
-		"identity.rate_limits.email_start_per_email.limit":   5,
-		"identity.rate_limits.email_start_per_email.window":  "15m",
-		"identity.rate_limits.email_start_per_ip.limit":      20,
-		"identity.rate_limits.email_start_per_ip.window":     "15m",
-		"identity.rate_limits.code_verify_per_email.limit":   10,
-		"identity.rate_limits.code_verify_per_email.window":  "15m",
-		"identity.rate_limits.refresh_per_ip.limit":          60,
-		"identity.rate_limits.refresh_per_ip.window":         "1m",
-		"identity.rate_limits.second_factor_per_user.limit":  10,
-		"identity.rate_limits.second_factor_per_user.window": "15m",
-		"identity.rate_limits.oauth_start_per_ip.limit":      30,
-		"identity.rate_limits.oauth_start_per_ip.window":     "15m",
-		"identity.rate_limits.sso_lookup_per_ip.limit":       60,
-		"identity.rate_limits.sso_lookup_per_ip.window":      "15m",
-		"identity.rate_limits.passkey_login_per_ip.limit":    60,
-		"identity.rate_limits.passkey_login_per_ip.window":   "15m",
-		"identity.rate_limits.slug_check_per_user.limit":     60,
-		"identity.rate_limits.slug_check_per_user.window":    "1m",
+		"identity.rate_limits.trusted_proxies":                   []string{},
+		"identity.rate_limits.email_start_per_email.limit":       5,
+		"identity.rate_limits.email_start_per_email.window":      "15m",
+		"identity.rate_limits.email_start_per_ip.limit":          20,
+		"identity.rate_limits.email_start_per_ip.window":         "15m",
+		"identity.rate_limits.code_verify_per_email.limit":       10,
+		"identity.rate_limits.code_verify_per_email.window":      "15m",
+		"identity.rate_limits.refresh_per_ip.limit":              60,
+		"identity.rate_limits.refresh_per_ip.window":             "1m",
+		"identity.rate_limits.second_factor_per_user.limit":      10,
+		"identity.rate_limits.second_factor_per_user.window":     "15m",
+		"identity.rate_limits.oauth_start_per_ip.limit":          30,
+		"identity.rate_limits.oauth_start_per_ip.window":         "15m",
+		"identity.rate_limits.sso_lookup_per_ip.limit":           60,
+		"identity.rate_limits.sso_lookup_per_ip.window":          "15m",
+		"identity.rate_limits.passkey_login_per_ip.limit":        60,
+		"identity.rate_limits.passkey_login_per_ip.window":       "15m",
+		"identity.rate_limits.slug_check_per_user.limit":         60,
+		"identity.rate_limits.slug_check_per_user.window":        "1m",
+		"identity.rate_limits.recovery_request_per_email.limit":  3,
+		"identity.rate_limits.recovery_request_per_email.window": "1h",
+		"identity.rate_limits.recovery_per_ip.limit":             20,
+		"identity.rate_limits.recovery_per_ip.window":            "15m",
 		"authz.endpoint":      "",
 		"authz.preshared_key": "",
 		"authz.insecure":      false,
@@ -626,8 +639,8 @@ func (c *Config) validateIdentity() []error {
 		errs = append(errs, id.WebAuthn.Validate()...)
 	}
 	if id.AccessTokenTTL <= 0 || id.RefreshTokenTTL <= 0 || id.RefreshTokenTTLShort <= 0 ||
-		id.EmailCodeTTL <= 0 || id.PreAuthTTL <= 0 {
-		errs = append(errs, errors.New("identity.access_token_ttl, refresh_token_ttl, refresh_token_ttl_short, email_code_ttl and pre_auth_ttl must be > 0"))
+		id.EmailCodeTTL <= 0 || id.PreAuthTTL <= 0 || id.RecoveryDelay <= 0 {
+		errs = append(errs, errors.New("identity.access_token_ttl, refresh_token_ttl, refresh_token_ttl_short, email_code_ttl, pre_auth_ttl and recovery_delay must be > 0"))
 	}
 	if id.RefreshTokenTTLShort > id.RefreshTokenTTL {
 		errs = append(errs, errors.New("identity.refresh_token_ttl_short must not exceed identity.refresh_token_ttl"))
@@ -684,6 +697,8 @@ func (r RateLimitsConfig) validate() []error {
 		{"sso_lookup_per_ip", r.SSOLookupPerIP},
 		{"passkey_login_per_ip", r.PasskeyLoginPerIP},
 		{"slug_check_per_user", r.SlugCheckPerUser},
+		{"recovery_request_per_email", r.RecoveryRequestPerEmail},
+		{"recovery_per_ip", r.RecoveryPerIP},
 	}
 	for _, l := range limits {
 		if l.l.Limit <= 0 || l.l.Window < time.Second {

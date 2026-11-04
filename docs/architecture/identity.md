@@ -202,10 +202,24 @@ email (`backup_codes_regenerated`). Each runs in one transaction that locks
 the confirmed `user_totp` row. A wrong code or a wrong or spent backup code
 answers `invalid_totp`; `not_enabled` when 2FA is off.
 
-**Lost device.** `POST /api/v1/auth/recovery/request` emails a cancel link and
-starts a 24 h cooling-off period; `…/recovery/confirm` succeeds only after it,
-disables TOTP, revokes every session and emails a security alert.
-`…/recovery/cancel` stops it.
+**Lost device.** `POST /api/v1/auth/recovery/request` `{email}` always answers
+200 `{sent: true}`. When the address has an active account with TOTP on, it
+stores a request (`recovery_requests`, token stored as SHA-256 only), cancels
+the user's older pending ones, audits `recovery.requested` and emails
+`recovery_requested` with a cancel link. The request is ready
+`identity.recovery_delay` (24 h) later. `GET …/recovery/status?token=` answers
+`{status: pending|ready|confirmed|cancelled, requested_at, ready_at}`.
+`POST …/recovery/confirm` `{token}` before `ready_at` answers
+`recovery_not_ready` (409, `retry_after`); after it, in one transaction, it
+deletes the TOTP secret and backup codes, revokes every session
+(`account_recovered`), audits `recovery.confirmed` and `totp.disabled`
+(metadata `method: recovery`) and enqueues the `security_change` email
+(`recovery_completed`), then answers a fresh session (`amr: ["email"]`).
+`POST …/recovery/cancel` `{token}` stops a pending request (audited
+`recovery.cancelled`; repeating it is a no-op). An unknown, used or cancelled
+token answers `invalid_token`. All four are rate-limited per IP
+(`recovery_per_ip`), and request per address (`recovery_request_per_email`)
+too (`internal/identity/recovery.go`, `internal/identity/recovery`).
 
 ### Per-org SSO (OIDC)
 
@@ -290,6 +304,7 @@ SHA-256 is stored. Lifetime is `identity.refresh_token_ttl` (30 days) with
 | `identity.refresh_token_ttl` / `refresh_token_ttl_short` | `720h` / `24h` |
 | `identity.email_code_ttl` / `email_code_max_attempts` | `15m` / `5` |
 | `identity.pre_auth_ttl` | `5m` |
+| `identity.recovery_delay` | `24h` |
 | OAuth state / handoff code | 10 min / 60 s |
 | Email start per email / per IP | 5 / 20 per 15 min |
 | Code verify per email | 10 per 15 min |
@@ -297,6 +312,8 @@ SHA-256 is stored. Lifetime is `identity.refresh_token_ttl` (30 days) with
 | Passkey and 2FA verify per user | 10 per 15 min |
 | OAuth start per IP | 30 per 15 min |
 | Passkey login options / verify per IP | 60 per 15 min each |
+| Recovery request per email | 3 per hour |
+| Recovery endpoints per IP | 20 per 15 min |
 
 Rate limits are sliding windows in Valkey shared by every replica
 (`identity.rate_limits.*`); they answer `429` with `Retry-After`.
@@ -526,6 +543,7 @@ Rules:
 | `email_taken` | 409 Conflict | Another account already uses this email address. |
 | `account_deleting` | 409 Conflict | This account is scheduled for deletion on {delete_after}. Restore it to keep using it. |
 | `slug_taken` | 409 Conflict | That URL is taken. Try one of the suggestions. |
+| `recovery_not_ready` | 409 Conflict | Account recovery is still in its waiting period. Try again in {retry_after} seconds, or cancel it if you didn't ask for it. |
 | `forbidden` | 403 Forbidden | You don't have permission to do that. |
 | `internal_error` | 500 Internal Server Error | Something went wrong on our side. Please try again. |
 

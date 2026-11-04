@@ -97,6 +97,10 @@ const (
 	// another active one. The problem carries up to three free
 	// `suggestions`.
 	CodeSlugTaken ErrCode = "slug_taken"
+	// CodeRecoveryNotReady: the account recovery request is still in its
+	// cooling-off period (identity.recovery_delay); retry_after says how long
+	// is left. It can still be cancelled.
+	CodeRecoveryNotReady ErrCode = "recovery_not_ready"
 	// CodeForbidden: authenticated, but not allowed to perform the action.
 	CodeForbidden ErrCode = "forbidden"
 	// CodeInternal: an unexpected server failure. Details stay in the logs.
@@ -138,6 +142,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeEmailTaken:            {http.StatusConflict, "Email taken", "Another account already uses this email address."},
 	CodeAccountDeleting:       {http.StatusConflict, "Account scheduled for deletion", "This account was deleted and will be removed for good after delete_after. Restore it with a new email code."},
 	CodeSlugTaken:             {http.StatusConflict, "Slug taken", "This slug is not available. Pick another one."},
+	CodeRecoveryNotReady:      {http.StatusConflict, "Recovery not ready", "Account recovery is still in its waiting period. Try again after it ends."},
 	CodeForbidden:             {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
 	CodeInternal:              {http.StatusInternalServerError, "Internal error", "Something went wrong."},
 }

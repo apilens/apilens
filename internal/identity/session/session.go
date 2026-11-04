@@ -62,6 +62,9 @@ const (
 	ReasonRevoked = "revoked"
 	// ReasonLogoutAll marks a family ended by "sign out everywhere".
 	ReasonLogoutAll = "logout_all"
+	// ReasonRecovered marks a family signed out because its user completed
+	// account recovery (2FA device lost).
+	ReasonRecovered = "account_recovered"
 )
 
 // tokenBytes is the entropy of a refresh token (256 bits).
