@@ -45,6 +45,9 @@ type PreAuth struct {
 	Remember bool `json:"remember"`
 	// Next is the validated relative path to land on after sign-in.
 	Next string `json:"next,omitempty"`
+	// OrgID is the organization of an SSO first factor, recorded on the
+	// login.succeeded audit event once the second factor passes.
+	OrgID string `json:"org_id,omitempty"`
 	// Attempts counts second-factor attempts made with the token, the
 	// current one included.
 	Attempts int `json:"attempts"`

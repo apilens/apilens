@@ -313,7 +313,8 @@ func TestSSOCallbackTwoFactor(t *testing.T) {
 	if res.Status != "2fa_required" || res.PreAuthToken != "pre-auth-token" || res.AccessToken != "" {
 		t.Fatalf("handoff = %+v", res)
 	}
-	if len(h.preAuth.issued) != 1 || !slices.Equal(h.preAuth.issued[0].AMR, []string{"sso"}) || h.preAuth.ttls[0] != 3*time.Minute {
+	if len(h.preAuth.issued) != 1 || !slices.Equal(h.preAuth.issued[0].AMR, []string{"sso"}) || h.preAuth.ttls[0] != 3*time.Minute ||
+		h.preAuth.issued[0].OrgID != h.org.String() {
 		t.Fatalf("pre-auth = %+v", h.preAuth.issued)
 	}
 	if len(h.sessions.metas) != 0 || h.members.joins != 1 {

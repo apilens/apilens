@@ -210,6 +210,8 @@ shipped; a test checks that this table lists every one.
 | `invitation.accepted` | an organization invitation is accepted |
 | `api_key.created` | a project API key is created (metadata has the project, key id, name, display prefix and scopes; never the key) |
 | `api_key.revoked` | a project API key is revoked |
+| `sso.updated` | an organization's SSO connection is created or changed (metadata has `created`, `enforce`, `secret_changed` and the changed `fields`; never the secret) |
+| `sso.deleted` | an organization's SSO connection is removed |
 
 ## Delivery
 

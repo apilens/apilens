@@ -25,6 +25,7 @@ import (
 	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/identity/audit"
+	idkeys "github.com/apilens/apilens/internal/identity/keys"
 	identitydb "github.com/apilens/apilens/internal/identity/store/db"
 	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/cache"
@@ -43,6 +44,8 @@ type orgsFixture struct {
 	ctx  context.Context
 	// authz is the SpiceDB-backed checker the guard uses.
 	authz *authz.Client
+	// sealer seals SSO client secrets (testKEK).
+	sealer *idkeys.Sealer
 }
 
 func setupOrgs(t *testing.T, slugCheck ratelimit.Rate) *orgsFixture {
@@ -91,7 +94,12 @@ func setupOrgs(t *testing.T, slugCheck ratelimit.Rate) *orgsFixture {
 	svc := orgs.New(pool, audit.New(pool))
 	NewOrgs(svc, guard, limiter, slugCheck, logger).Register(api)
 	NewMembers(svc, guard, logger).Register(api)
-	return &orgsFixture{api: api, pool: pool, ctx: context.Background(), authz: checker}
+	sealer, err := idkeys.NewSealer([]byte(testKEK))
+	if err != nil {
+		t.Fatal(err)
+	}
+	NewSSOConnections(orgs.NewSSOConnections(pool, audit.New(pool), sealer), guard, testIssuer, logger).Register(api)
+	return &orgsFixture{api: api, pool: pool, ctx: context.Background(), authz: checker, sealer: sealer}
 }
 
 func (f *orgsFixture) user(t *testing.T, email string) uuid.UUID {

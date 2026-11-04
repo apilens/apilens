@@ -144,6 +144,22 @@ func TestTwoFactorExchangeBackupCode(t *testing.T) {
 	if !slices.Equal(h.sessions.metas[0].AMR, []string{"email", "backup_code"}) {
 		t.Fatalf("amr = %v", h.sessions.metas[0].AMR)
 	}
+	if _, ok := h.audit.events[0].Meta["org_id"]; ok {
+		t.Fatalf("non-SSO sign-in audited an org: %v", h.audit.events[0].Meta)
+	}
+}
+
+func TestTwoFactorExchangeSSORecordsOrg(t *testing.T) {
+	h := newExchangeHarness(t)
+	org := uuid.New().String()
+	h.pre.tokens["pre"].AMR = []string{"sso"}
+	h.pre.tokens["pre"].OrgID = org
+	if status, body := h.exchange(t, map[string]any{"pre_auth_token": "pre", "code": "123456"}); status != http.StatusOK {
+		t.Fatalf("exchange: %d %v", status, body)
+	}
+	if m := h.audit.events[0].Meta; m["method"] != "sso" || m["org_id"] != org {
+		t.Fatalf("audit meta = %v", m)
+	}
 }
 
 func TestTwoFactorExchangeProofRequired(t *testing.T) {

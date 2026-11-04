@@ -2698,6 +2698,71 @@
         ],
         "type": "object"
       },
+      "PutSSOConnectionInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/PutSSOConnectionInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "client_id": {
+            "description": "The client registered with the identity provider.",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "client_secret": {
+            "description": "The client secret, stored encrypted and never returned. Required for a new connection; omit it (or send ********) to keep the stored one.",
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string",
+            "writeOnly": true
+          },
+          "default_role": {
+            "default": "member",
+            "description": "Role of a user who joins through their first SSO sign-in.",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "type": "string"
+          },
+          "domains": {
+            "description": "Email domains whose users sign in through this connection: lower-case hostnames, not public email providers (domain_not_allowed). Duplicates are dropped.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "enforce": {
+            "description": "Require users at the domains to sign in through SSO. Turning it on needs you to have signed in through this connection at least once (sso_untested).",
+            "type": "boolean"
+          },
+          "issuer": {
+            "description": "The identity provider's issuer URL, exactly as its discovery document states it: https (http only on a loopback host), no query or fragment.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "issuer",
+          "client_id",
+          "domains"
+        ],
+        "type": "object"
+      },
       "RecoveryRequestInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -2989,6 +3054,99 @@
         ],
         "type": "object"
       },
+      "SSOConnectionBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SSOConnectionBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "client_id": {
+            "description": "The client registered with the identity provider.",
+            "type": "string"
+          },
+          "client_secret": {
+            "description": "Always the mask ********: the secret is write-only. Sending the mask back on PUT keeps the stored secret.",
+            "enum": [
+              "********"
+            ],
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "default_role": {
+            "description": "Role of a user who joins the organization through their first SSO sign-in.",
+            "enum": [
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "type": "string"
+          },
+          "domains": {
+            "description": "Email domains (lower-case hostnames) whose users sign in through this connection.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "enforce": {
+            "description": "Whether users at the domains must sign in through SSO.",
+            "type": "boolean"
+          },
+          "issuer": {
+            "description": "The identity provider's issuer URL; discovery is at issuer/.well-known/openid-configuration.",
+            "format": "uri",
+            "type": "string"
+          },
+          "last_login_at": {
+            "description": "The last successful sign-in through the connection; null if none yet.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "redirect_uri": {
+            "description": "The redirect URI to register with the identity provider.",
+            "format": "uri",
+            "type": "string"
+          },
+          "start_url": {
+            "description": "Where an SSO sign-in to the organization starts.",
+            "format": "uri",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "issuer",
+          "client_id",
+          "client_secret",
+          "domains",
+          "enforce",
+          "default_role",
+          "redirect_uri",
+          "start_url",
+          "created_at",
+          "updated_at",
+          "last_login_at"
+        ],
+        "type": "object"
+      },
       "SSOLookupResponse": {
         "additionalProperties": false,
         "properties": {
@@ -3021,6 +3179,88 @@
         "required": [
           "sso",
           "enforced"
+        ],
+        "type": "object"
+      },
+      "SSOTestBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SSOTestBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "authorization_endpoint": {
+            "type": "string"
+          },
+          "error": {
+            "description": "Why the test failed (ok false only).",
+            "enum": [
+              "unreachable",
+              "bad_status",
+              "invalid_document",
+              "issuer_mismatch",
+              "missing_endpoints"
+            ],
+            "type": "string"
+          },
+          "http_status": {
+            "description": "Status of the discovery response (bad_status only).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id_token_signing_alg_values_supported": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "issuer": {
+            "description": "The issuer that was tested.",
+            "type": "string"
+          },
+          "jwks_uri": {
+            "type": "string"
+          },
+          "ok": {
+            "description": "Whether discovery succeeded and the document is usable for sign-in.",
+            "type": "boolean"
+          },
+          "response_types_supported": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "scopes_supported": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "token_endpoint": {
+            "type": "string"
+          },
+          "userinfo_endpoint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "issuer"
         ],
         "type": "object"
       },
@@ -3299,6 +3539,26 @@
           "p99_ms",
           "requests_per_minute"
         ],
+        "type": "object"
+      },
+      "TestSSOConnectionInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/TestSSOConnectionInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "issuer": {
+            "description": "Issuer URL to test before saving it; defaults to the saved connection's issuer.",
+            "maxLength": 2048,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "TimeseriesOutputBody": {
@@ -8378,6 +8638,514 @@
         "summary": "Create a project",
         "tags": [
           "Projects"
+        ]
+      }
+    },
+    "/api/v1/orgs/{slug}/sso": {
+      "delete": {
+        "description": "Removes the organization's OIDC connection; its members sign in by email, social or passkey again. Owners only (403 `forbidden` otherwise, 404 `not_found` for an organization the user cannot view). Answers `sso_not_configured` (409) when there is no connection. Audited as `sso.deleted`.",
+        "operationId": "delete-org-sso",
+        "parameters": [
+          {
+            "description": "The organization's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The organization's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `sso_not_configured`.",
+            "x-apilens-codes": [
+              "sso_not_configured"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Delete the organization's SSO connection",
+        "tags": [
+          "Organizations"
+        ]
+      },
+      "get": {
+        "description": "Returns the organization's OIDC connection with the redirect URI to register with the identity provider. The client secret is write-only and shows as `********`. Owners only (403 `forbidden` otherwise, 404 `not_found` for an organization the user cannot view). Answers `sso_not_configured` (409) when there is no connection.",
+        "operationId": "get-org-sso",
+        "parameters": [
+          {
+            "description": "The organization's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The organization's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOConnectionBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `sso_not_configured`.",
+            "x-apilens-codes": [
+              "sso_not_configured"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Get the organization's SSO connection",
+        "tags": [
+          "Organizations"
+        ]
+      },
+      "put": {
+        "description": "Saves the organization's OIDC connection. The client secret is stored encrypted; omit it (or send `********`) to keep the stored one, a new connection needs one (`invalid_request`). Owners only (403 `forbidden` otherwise, 404 `not_found` for an organization the user cannot view). Turning `enforce` on needs the caller to have signed in through this connection since it was created (`sso_untested`), and a domain another organization enforces SSO for answers `sso_domain_taken`. A public email domain answers `domain_not_allowed`. Audited as `sso.updated`.",
+        "operationId": "put-org-sso",
+        "parameters": [
+          {
+            "description": "The organization's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The organization's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutSSOConnectionInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOConnectionBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `domain_not_allowed`, `invalid_request`.",
+            "x-apilens-codes": [
+              "domain_not_allowed",
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `sso_domain_taken`, `sso_untested`.",
+            "x-apilens-codes": [
+              "sso_domain_taken",
+              "sso_untested"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Create or replace the organization's SSO connection",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/api/v1/orgs/{slug}/sso/test": {
+      "post": {
+        "description": "Runs OIDC discovery on `issuer` (default: the saved connection's) and reports the identity provider's metadata. A provider that cannot be reached or serves an unusable document answers 200 with `ok: false` and an `error`. Owners only (403 `forbidden` otherwise, 404 `not_found` for an organization the user cannot view). Answers `sso_not_configured` (409) without an `issuer` when there is no connection.",
+        "operationId": "test-org-sso",
+        "parameters": [
+          {
+            "description": "The organization's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The organization's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestSSOConnectionInputBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOTestBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `sso_not_configured`.",
+            "x-apilens-codes": [
+              "sso_not_configured"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Test the organization's SSO connection",
+        "tags": [
+          "Organizations"
         ]
       }
     },

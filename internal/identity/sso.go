@@ -443,7 +443,7 @@ func (s *SSO) signInUser(ctx context.Context, conn db.GetOrgSSOConnectionBySlugR
 		return nil, failure(CodeInternal, "load_two_factor", err)
 	}
 	if twoFactor {
-		pre, err := d.PreAuth.Issue(ctx, PreAuth{UserID: user.ID, AMR: amr, Remember: st.Remember, Next: next}, s.preAuthTTL)
+		pre, err := d.PreAuth.Issue(ctx, PreAuth{UserID: user.ID, AMR: amr, Remember: st.Remember, Next: next, OrgID: conn.OrgID.String()}, s.preAuthTTL)
 		if err != nil {
 			return nil, failure(CodeInternal, "issue_pre_auth", err)
 		}

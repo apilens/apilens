@@ -29,6 +29,11 @@ type Deps struct {
 
 	// Invitations may be nil when only the OpenAPI document is read.
 	Invitations InvitationService
+
+	// SSO manages organizations' SSO connections; Issuer is the identity
+	// issuer URL their redirect and start URLs are under.
+	SSO    SSOService
+	Issuer string
 }
 
 // Register mounts the control-plane operations on api. They declare the
@@ -40,4 +45,5 @@ func Register(api huma.API, d Deps) {
 	NewAPIKeys(d.APIKeys, d.Logger).Register(api)
 	NewContext(d.Context, d.Logger).Register(api)
 	NewInvitations(d.Invitations, d.Logger).Register(api)
+	NewSSOConnections(d.SSO, d.Guard, d.Issuer, d.Logger).Register(api)
 }
