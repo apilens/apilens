@@ -15,6 +15,8 @@ env:
   APILENS_CLICKHOUSE__PASSWORD: '{{.APILENS_CLICKHOUSE__PASSWORD | default "apilens"}}'
   APILENS_VALKEY__ADDR: '{{.APILENS_VALKEY__ADDR | default "localhost:6379"}}'
   APILENS_LOG__FORMAT: '{{.APILENS_LOG__FORMAT | default "text"}}'
+  # Development-only identity key, base64("dev-only-identity-kek-0123456789").
+  APILENS_IDENTITY__KEY_ENCRYPTION_KEY: '{{.APILENS_IDENTITY__KEY_ENCRYPTION_KEY | default "ZGV2LW9ubHktaWRlbnRpdHkta2VrLTAxMjM0NTY3ODk="}}'
 
 tasks:
   default:

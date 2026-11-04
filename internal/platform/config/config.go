@@ -6,9 +6,12 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,6 +36,7 @@ type Config struct {
 	Ingest     IngestConfig     `koanf:"ingest"`
 	Sink       SinkConfig       `koanf:"sink"`
 	OTel       OTelConfig       `koanf:"otel"`
+	Identity   IdentityConfig   `koanf:"identity"`
 }
 
 // ServerConfig configures the shared HTTP server.
@@ -112,48 +116,117 @@ type OTelConfig struct {
 	SampleRatio float64 `koanf:"sample_ratio"`
 }
 
+// KeyEncryptionKeySize is the required length of identity.key_encryption_key
+// once base64-decoded (AES-256).
+const KeyEncryptionKeySize = 32
+
+// IdentityConfig configures the identity role: token issuance, sessions,
+// email codes and WebAuthn.
+type IdentityConfig struct {
+	// Issuer is the `iss` of issued tokens and the base of the JWKS URL.
+	Issuer string `koanf:"issuer"`
+	// PublicUIURL is the origin users open the dashboard at; used for links
+	// in emails and OAuth redirects.
+	PublicUIURL string `koanf:"public_ui_url"`
+	// CookieDomain scopes session cookies. Empty means host-only.
+	CookieDomain    string        `koanf:"cookie_domain"`
+	AccessTokenTTL  time.Duration `koanf:"access_token_ttl"`
+	RefreshTokenTTL time.Duration `koanf:"refresh_token_ttl"`
+	// RefreshTokenTTLShort applies when "remember me" is off.
+	RefreshTokenTTLShort time.Duration `koanf:"refresh_token_ttl_short"`
+	EmailCodeTTL         time.Duration `koanf:"email_code_ttl"`
+	EmailCodeMaxAttempts int           `koanf:"email_code_max_attempts"`
+	// PreAuthTTL bounds the window between the first factor and MFA.
+	PreAuthTTL time.Duration `koanf:"pre_auth_ttl"`
+	// KeyEncryptionKey is 32 bytes, base64-encoded. It encrypts signing keys
+	// and TOTP secrets at rest. Required when the identity role runs.
+	KeyEncryptionKey string         `koanf:"key_encryption_key"`
+	WebAuthn         WebAuthnConfig `koanf:"webauthn"`
+}
+
+// WebAuthnConfig configures the WebAuthn relying party.
+type WebAuthnConfig struct {
+	RPID    string   `koanf:"rp_id"`
+	RPName  string   `koanf:"rp_name"`
+	Origins []string `koanf:"origins"`
+}
+
+// KEK returns the decoded key encryption key.
+func (i IdentityConfig) KEK() ([]byte, error) {
+	if i.KeyEncryptionKey == "" {
+		return nil, errors.New("identity.key_encryption_key is not set (generate one with: openssl rand -base64 32)")
+	}
+	b, err := base64.StdEncoding.DecodeString(strings.TrimSpace(i.KeyEncryptionKey))
+	if err != nil {
+		return nil, fmt.Errorf("identity.key_encryption_key is not valid base64 (generate one with: openssl rand -base64 32): %w", err)
+	}
+	if len(b) != KeyEncryptionKeySize {
+		return nil, fmt.Errorf("identity.key_encryption_key decodes to %d bytes, want %d (generate one with: openssl rand -base64 32)", len(b), KeyEncryptionKeySize)
+	}
+	return b, nil
+}
+
+// IdentityEnabled reports whether the identity role runs in this process
+// (targets "identity" or "all").
+func (c *Config) IdentityEnabled() bool {
+	return slices.Contains(c.Target, "identity") || slices.Contains(c.Target, "all")
+}
+
 // Defaults returns the built-in configuration. These are suitable for the
 // docker-compose all-in-one deployment.
 func Defaults() map[string]any {
 	return map[string]any{
-		"target":                         []string{"all"},
-		"server.addr":                    ":8080",
-		"server.admin_addr":              "",
-		"server.read_header_timeout":     "5s",
-		"server.read_timeout":            "30s",
-		"server.write_timeout":           "30s",
-		"server.idle_timeout":            "120s",
-		"server.shutdown_timeout":        "30s",
-		"log.level":                      "info",
-		"log.format":                     "json",
-		"postgres.url":                   "postgres://apilens@localhost:5432/apilens?sslmode=disable",
-		"postgres.max_conns":             20,
-		"clickhouse.addr":                []string{"localhost:9000"},
-		"clickhouse.database":            "apilens",
-		"clickhouse.username":            "apilens",
-		"clickhouse.password":            "",
-		"clickhouse.secure":              false,
-		"clickhouse.max_open_conns":      16,
-		"clickhouse.dial_timeout":        "5s",
-		"clickhouse.cluster":             "",
-		"valkey.addr":                    []string{},
-		"ingest.max_body_bytes":          int64(16 << 20),
-		"ingest.max_records_per_request": 1000,
-		"ingest.key_cache_size":          100_000,
-		"ingest.key_cache_ttl":           "60s",
-		"ingest.key_negative_ttl":        "10s",
-		"ingest.app_cache_ttl":           "60s",
-		"sink.mode":                      "direct",
-		"sink.ack":                       "flush",
-		"sink.batch_size":                10_000,
-		"sink.flush_interval":            "250ms",
-		"sink.queue_size":                1024,
-		"sink.insert_timeout":            "10s",
-		"sink.max_retries":               3,
-		"otel.endpoint":                  "",
-		"otel.insecure":                  false,
-		"otel.service_name":              "apilens",
-		"otel.sample_ratio":              0.05,
+		"target":                           []string{"all"},
+		"server.addr":                      ":8080",
+		"server.admin_addr":                "",
+		"server.read_header_timeout":       "5s",
+		"server.read_timeout":              "30s",
+		"server.write_timeout":             "30s",
+		"server.idle_timeout":              "120s",
+		"server.shutdown_timeout":          "30s",
+		"log.level":                        "info",
+		"log.format":                       "json",
+		"postgres.url":                     "postgres://apilens@localhost:5432/apilens?sslmode=disable",
+		"postgres.max_conns":               20,
+		"clickhouse.addr":                  []string{"localhost:9000"},
+		"clickhouse.database":              "apilens",
+		"clickhouse.username":              "apilens",
+		"clickhouse.password":              "",
+		"clickhouse.secure":                false,
+		"clickhouse.max_open_conns":        16,
+		"clickhouse.dial_timeout":          "5s",
+		"clickhouse.cluster":               "",
+		"valkey.addr":                      []string{},
+		"ingest.max_body_bytes":            int64(16 << 20),
+		"ingest.max_records_per_request":   1000,
+		"ingest.key_cache_size":            100_000,
+		"ingest.key_cache_ttl":             "60s",
+		"ingest.key_negative_ttl":          "10s",
+		"ingest.app_cache_ttl":             "60s",
+		"sink.mode":                        "direct",
+		"sink.ack":                         "flush",
+		"sink.batch_size":                  10_000,
+		"sink.flush_interval":              "250ms",
+		"sink.queue_size":                  1024,
+		"sink.insert_timeout":              "10s",
+		"sink.max_retries":                 3,
+		"otel.endpoint":                    "",
+		"otel.insecure":                    false,
+		"otel.service_name":                "apilens",
+		"otel.sample_ratio":                0.05,
+		"identity.issuer":                  "http://localhost:8080",
+		"identity.public_ui_url":           "http://localhost:3000",
+		"identity.cookie_domain":           "",
+		"identity.access_token_ttl":        "15m",
+		"identity.refresh_token_ttl":       "720h",
+		"identity.refresh_token_ttl_short": "24h",
+		"identity.email_code_ttl":          "15m",
+		"identity.email_code_max_attempts": 5,
+		"identity.pre_auth_ttl":            "5m",
+		"identity.key_encryption_key":      "",
+		"identity.webauthn.rp_id":          "localhost",
+		"identity.webauthn.rp_name":        "APILens",
+		"identity.webauthn.origins":        []string{"http://localhost:3000"},
 	}
 }
 
@@ -204,7 +277,9 @@ func Load(filePath string, environ []string, overrides map[string]any) (*Config,
 // identifierRE bounds names that end up in DDL (CREATE DATABASE).
 var identifierRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 
-var listKeys = map[string]bool{"target": true, "clickhouse.addr": true, "valkey.addr": true}
+var listKeys = map[string]bool{
+	"target": true, "clickhouse.addr": true, "valkey.addr": true, "identity.webauthn.origins": true,
+}
 
 func isListKey(key string) bool { return listKeys[key] }
 
@@ -276,8 +351,57 @@ func (c *Config) Validate() error {
 	if c.OTel.SampleRatio < 0 || c.OTel.SampleRatio > 1 {
 		errs = append(errs, errors.New("otel.sample_ratio must be within [0,1]"))
 	}
+	errs = append(errs, c.validateIdentity()...)
 	if len(errs) > 0 {
 		return fmt.Errorf("config: %w", errors.Join(errs...))
 	}
 	return nil
+}
+
+// validateIdentity checks the identity section. The key encryption key is
+// required only when the identity role runs, but is checked whenever set.
+func (c *Config) validateIdentity() []error {
+	var errs []error
+	id := c.Identity
+	if c.IdentityEnabled() || id.KeyEncryptionKey != "" {
+		if _, err := id.KEK(); err != nil {
+			if c.IdentityEnabled() && id.KeyEncryptionKey == "" {
+				err = fmt.Errorf("%w; it is required when target includes identity (set APILENS_IDENTITY__KEY_ENCRYPTION_KEY)", err)
+			}
+			errs = append(errs, err)
+		}
+	}
+	if !isHTTPURL(id.Issuer) {
+		errs = append(errs, fmt.Errorf("identity.issuer %q: want an absolute http(s) URL", id.Issuer))
+	}
+	if !isHTTPURL(id.PublicUIURL) {
+		errs = append(errs, fmt.Errorf("identity.public_ui_url %q: want an absolute http(s) URL", id.PublicUIURL))
+	}
+	for _, o := range id.WebAuthn.Origins {
+		if !isHTTPURL(o) {
+			errs = append(errs, fmt.Errorf("identity.webauthn.origins %q: want an absolute http(s) URL", o))
+		}
+	}
+	if len(id.WebAuthn.Origins) == 0 {
+		errs = append(errs, errors.New("identity.webauthn.origins must not be empty"))
+	}
+	if id.WebAuthn.RPID == "" || id.WebAuthn.RPName == "" {
+		errs = append(errs, errors.New("identity.webauthn.rp_id and identity.webauthn.rp_name must not be empty"))
+	}
+	if id.AccessTokenTTL <= 0 || id.RefreshTokenTTL <= 0 || id.RefreshTokenTTLShort <= 0 ||
+		id.EmailCodeTTL <= 0 || id.PreAuthTTL <= 0 {
+		errs = append(errs, errors.New("identity.access_token_ttl, refresh_token_ttl, refresh_token_ttl_short, email_code_ttl and pre_auth_ttl must be > 0"))
+	}
+	if id.RefreshTokenTTLShort > id.RefreshTokenTTL {
+		errs = append(errs, errors.New("identity.refresh_token_ttl_short must not exceed identity.refresh_token_ttl"))
+	}
+	if id.EmailCodeMaxAttempts <= 0 {
+		errs = append(errs, errors.New("identity.email_code_max_attempts must be > 0"))
+	}
+	return errs
+}
+
+func isHTTPURL(v string) bool {
+	u, err := url.Parse(v)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }

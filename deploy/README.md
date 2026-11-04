@@ -52,6 +52,7 @@ See [`helm/apilens/README.md`](helm/apilens/README.md). The chart expects extern
   - use a distroless base (no shell). The healthcheck is `apilens healthcheck`.
 - Valkey requires a password (`VALKEY_PASSWORD`) even on the internal network.
 - Keep `.env` out of version control (it is gitignored). Use hex secrets, because the Postgres password is embedded in a URL.
+- `APILENS_IDENTITY__KEY_ENCRYPTION_KEY` (32 bytes, base64: `openssl rand -base64 32`) encrypts token signing keys and TOTP secrets at rest. The `all` and `identity` roles refuse to start without it. Back it up: losing it makes those secrets unreadable.
 - Images are signed with cosign (keyless) and published with SBOM and provenance attestations. To verify one:
 
   ```bash

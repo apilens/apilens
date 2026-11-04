@@ -9,6 +9,7 @@
 #   Valkey     127.0.0.1:6379 (no password)
 # Matching env for the binary:
 #   APILENS_CLICKHOUSE__PASSWORD=apilens APILENS_VALKEY__ADDR=127.0.0.1:6379
+#   APILENS_IDENTITY__KEY_ENCRYPTION_KEY=<openssl rand -base64 32> (Taskfile sets a dev key)
 name: apilens-dev
 
 services:

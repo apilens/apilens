@@ -10,6 +10,10 @@ procs:
       APILENS_CLICKHOUSE__PASSWORD: apilens
       APILENS_VALKEY__ADDR: localhost:6379
       APILENS_LOG__FORMAT: text
+      # Development-only identity key; never reuse it anywhere else.
+      APILENS_IDENTITY__KEY_ENCRYPTION_KEY: ZGV2LW9ubHktaWRlbnRpdHkta2VrLTAxMjM0NTY3ODk=
+      APILENS_IDENTITY__PUBLIC_UI_URL: http://localhost:3200
+      APILENS_IDENTITY__WEBAUTHN__ORIGINS: http://localhost:3200
   web:
     shell: pnpm --filter ui dev
     env:
