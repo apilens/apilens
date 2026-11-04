@@ -42,7 +42,7 @@ func TestMigrationsApplyAndAreIdempotent(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	for _, want := range []string{"api_keys", "apps", "audit_events", "auth_email_tokens", "environments", "organizations", "outbox", "projects", "sessions", "signing_keys", "users", "river_job", "river_migration", "river_queue"} {
+	for _, want := range []string{"api_keys", "apps", "audit_events", "auth_email_tokens", "environments", "oauth_identities", "organizations", "outbox", "projects", "sessions", "signing_keys", "users", "river_job", "river_migration", "river_queue"} {
 		if !slices.Contains(tables, want) {
 			t.Errorf("postgres table %q missing (have %v)", want, tables)
 		}
@@ -323,6 +323,82 @@ func TestPostgresEmailTokensMigrationRollsBack(t *testing.T) {
 	}
 	if !tableExists(t, pool, "auth_email_tokens") {
 		t.Error("auth_email_tokens missing after re-apply")
+	}
+}
+
+func TestPostgresOAuthIdentitiesMigrationRollsBack(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var userID, otherID string
+	if err := pool.QueryRow(ctx, `INSERT INTO users (id, email) VALUES (gen_random_uuid(), 'oauth@example.com') RETURNING id`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO users (id, email) VALUES (gen_random_uuid(), 'other@example.com') RETURNING id`).Scan(&otherID); err != nil {
+		t.Fatal(err)
+	}
+	insert := `INSERT INTO oauth_identities (id, user_id, provider, subject, email) VALUES (gen_random_uuid(), $1, $2, $3, $4)`
+	if _, err := pool.Exec(ctx, insert, userID, "google", "g-1", "oauth@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insert, userID, "github", "1234", nil); err != nil {
+		t.Fatalf("second provider for the same user, without an email: %v", err)
+	}
+	if _, err := pool.Exec(ctx, insert, otherID, "github", "g-1", nil); err != nil {
+		t.Fatalf("same subject under another provider: %v", err)
+	}
+	if _, err := pool.Exec(ctx, insert, otherID, "google", "g-1", nil); err == nil {
+		t.Fatal("a (provider, subject) linked to another user should violate the unique constraint")
+	}
+	if _, err := pool.Exec(ctx, insert, userID, "gitlab", "x", nil); err == nil {
+		t.Fatal("unknown provider should violate the check")
+	}
+	if _, err := pool.Exec(ctx, insert, userID, "google", "", nil); err == nil {
+		t.Fatal("empty subject should violate the check")
+	}
+	var profile string
+	var lastLogin *time.Time
+	if err := pool.QueryRow(ctx, `SELECT profile::text, last_login_at FROM oauth_identities WHERE provider = 'google' AND subject = 'g-1'`).Scan(&profile, &lastLogin); err != nil {
+		t.Fatal(err)
+	}
+	if profile != "{}" || lastLogin != nil {
+		t.Errorf("defaults = %q, %v; want {}, NULL", profile, lastLogin)
+	}
+	var usesIndex bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'oauth_identities' AND indexname = 'oauth_identities_user')`).Scan(&usesIndex); err != nil || !usesIndex {
+		t.Errorf("oauth_identities_user index missing: %v", err)
+	}
+	// Deleting a user cascades to their identities only.
+	if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM oauth_identities`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("identities after user delete = %d, %v; want 1", n, err)
+	}
+
+	if _, err := provider.DownTo(ctx, 5); err != nil {
+		t.Fatalf("roll back to 00005: %v", err)
+	}
+	if tableExists(t, pool, "oauth_identities") {
+		t.Error("oauth_identities should be dropped after rollback")
+	}
+	if !tableExists(t, pool, "auth_email_tokens") || !tableExists(t, pool, "users") {
+		t.Error("rollback of 00006 must not touch earlier migrations")
+	}
+
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply after rollback: %v", err)
+	}
+	if !tableExists(t, pool, "oauth_identities") {
+		t.Error("oauth_identities missing after re-apply")
 	}
 }
 
