@@ -1,9 +1,11 @@
 // Package authn authenticates callers of the typed API and carries who they
 // are through the request context.
 //
-// Two kinds of callers exist: users, holding an access token (an RS256 JWT
-// issued by the identity role, verified here against its JWKS), and API
-// keys, verified by the control plane. Both end up as a Principal, so
+// Three kinds of callers exist: users, holding an access token (an RS256 JWT
+// issued by the identity role, verified here against its JWKS); OAuth
+// clients acting for themselves, holding a client_credentials access token
+// from identity's OIDC provider (same keys, `sub` = `client_id`); and API
+// keys, verified by the control plane. All end up as a Principal, so
 // handlers and authorization code read one type whatever the credential.
 //
 // Operations opt in through their OpenAPI security requirement: one naming
@@ -28,6 +30,7 @@ type Kind string
 // Principal kinds.
 const (
 	KindUser   Kind = "user"
+	KindClient Kind = "client"
 	KindAPIKey Kind = "apikey"
 )
 
@@ -39,6 +42,9 @@ type Principal struct {
 	UserID    uuid.UUID
 	SessionID uuid.UUID
 	AMR       []string
+
+	// OAuth client fields (KindClient): the token's `client_id` (= `sub`).
+	ClientID string
 
 	// API key fields (KindAPIKey).
 	KeyID     uuid.UUID

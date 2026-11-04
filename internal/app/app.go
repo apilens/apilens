@@ -33,6 +33,7 @@ import (
 	"github.com/apilens/apilens/internal/identity/emailauth"
 	"github.com/apilens/apilens/internal/identity/emailchange"
 	"github.com/apilens/apilens/internal/identity/keys"
+	"github.com/apilens/apilens/internal/identity/oidcprovider"
 	"github.com/apilens/apilens/internal/identity/passkey"
 	"github.com/apilens/apilens/internal/identity/recovery"
 	"github.com/apilens/apilens/internal/identity/session"
@@ -433,6 +434,11 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	identity.NewRestore(a.cfg.Identity, accounts, codes, limiter, a.logger).Register(a.server.API())
 	recoverySvc := recovery.New(a.pool, a.jobs, recovery.Options{Delay: a.cfg.Identity.RecoveryDelay})
 	identity.NewRecovery(a.cfg.Identity, recoverySvc, sessions, limiter, a.logger).Register(a.server.API())
+	if a.cfg.Identity.OIDCProvider.Enabled {
+		if err := a.mountOIDCProvider(signingKeys, kek); err != nil {
+			return nil, err
+		}
+	}
 	// Deleted accounts are purged hourly once their grace period has passed.
 	jobs.Register(a.workers, account.NewPurgeWorker(a.pool, a.logger))
 	a.workers.Periodic(account.PurgeInterval, account.PurgeArgs{})
@@ -451,6 +457,28 @@ func (a *App) rateLimiter() (*ratelimit.Limiter, error) {
 	}
 	a.limiter = l
 	return l, nil
+}
+
+// mountOIDCProvider serves identity as an OpenID provider (discovery,
+// /oauth/*) and the authorization-request endpoints the UI sign-in uses.
+func (a *App) mountOIDCProvider(signingKeys *keys.Manager, kek []byte) error {
+	storage, err := oidcprovider.NewStorage(a.pool, signingKeys, oidcprovider.Options{
+		Issuer:          a.cfg.Identity.Issuer,
+		PublicUIURL:     a.cfg.Identity.PublicUIURL,
+		AccessTokenTTL:  a.cfg.Identity.AccessTokenTTL,
+		RefreshTokenTTL: a.cfg.Identity.RefreshTokenTTL,
+		CryptoKey:       oidcprovider.DeriveCryptoKey(kek),
+	})
+	if err != nil {
+		return err
+	}
+	provider, err := oidcprovider.New(storage)
+	if err != nil {
+		return fmt.Errorf("identity: oidc provider: %w", err)
+	}
+	provider.Mount(a.server.Mux())
+	identity.NewOIDCRequests(storage, a.logger).Register(a.server.API())
+	return nil
 }
 
 // useSessionAuth installs the user-session middleware on the typed API. With

@@ -854,3 +854,100 @@ func tableExists(t *testing.T, pool *pgxpool.Pool, name string) bool {
 	}
 	return ok
 }
+
+func TestPostgresOAuthProviderMigrationRollsBack(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"oauth_clients", "oauth_auth_requests", "oauth_tokens"} {
+		if !tableExists(t, pool, name) {
+			t.Fatalf("table %s missing", name)
+		}
+	}
+
+	insertClient := `INSERT INTO oauth_clients (id, secret_hash, auth_method, grant_types) VALUES ($1, $2, $3, $4)`
+	if _, err := pool.Exec(ctx, insertClient, "web", "hash", "client_secret_basic", []string{"authorization_code", "refresh_token"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insertClient, "cli", nil, "none", []string{"authorization_code"}); err != nil {
+		t.Fatal(err)
+	}
+	for name, args := range map[string][]any{
+		"public with secret":       {"c1", "hash", "none", []string{}},
+		"confidential, no secret":  {"c2", nil, "client_secret_basic", []string{}},
+		"unknown grant":            {"c3", "hash", "client_secret_basic", []string{"password"}},
+		"unknown auth method":      {"c4", "hash", "private_key_jwt", []string{}},
+		"public client_credential": {"c5", nil, "none", []string{"client_credentials"}},
+	} {
+		if _, err := pool.Exec(ctx, insertClient, args...); err == nil {
+			t.Errorf("%s should violate a check", name)
+		}
+	}
+
+	var userID string
+	if err := pool.QueryRow(ctx, `INSERT INTO users (id, email) VALUES (gen_random_uuid(), 'ada@example.com') RETURNING id`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	insertReq := `INSERT INTO oauth_auth_requests (id, client_id, redirect_uri, response_type, expires_at, user_id, auth_time, code_hash)
+		VALUES (gen_random_uuid(), 'web', 'https://client.example.com/cb', 'code', now() + interval '10 minutes', $1, $2, $3)`
+	if _, err := pool.Exec(ctx, insertReq, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insertReq, userID, time.Now(), "code-hash"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insertReq, nil, nil, "other-hash"); err == nil {
+		t.Error("a code for a request nobody signed in to should violate a check")
+	}
+	if _, err := pool.Exec(ctx, insertReq, userID, nil, nil); err == nil {
+		t.Error("a user without auth_time should violate a check")
+	}
+
+	insertToken := `INSERT INTO oauth_tokens (id, client_id, user_id, expires_at, refresh_token_hash, refresh_expires_at)
+		VALUES (gen_random_uuid(), 'web', $1, now() + interval '15 minutes', $2, $3)`
+	if _, err := pool.Exec(ctx, insertToken, nil, nil, nil); err != nil {
+		t.Fatal("a client token:", err)
+	}
+	if _, err := pool.Exec(ctx, insertToken, userID, "rt", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insertToken, nil, "rt2", time.Now().Add(time.Hour)); err == nil {
+		t.Error("a refresh token without a user should violate a check")
+	}
+	if _, err := pool.Exec(ctx, insertToken, userID, "rt3", nil); err == nil {
+		t.Error("a refresh token without a lifetime should violate a check")
+	}
+
+	// Deleting a client cascades to its requests and tokens.
+	if _, err := pool.Exec(ctx, `DELETE FROM oauth_clients WHERE id = 'web'`); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM oauth_auth_requests) + (SELECT count(*) FROM oauth_tokens)`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("rows left after client delete = %d, %v; want 0", n, err)
+	}
+
+	if _, err := provider.DownTo(ctx, 10); err != nil {
+		t.Fatalf("roll back to 00010: %v", err)
+	}
+	for _, name := range []string{"oauth_clients", "oauth_auth_requests", "oauth_tokens"} {
+		if tableExists(t, pool, name) {
+			t.Errorf("table %s should be dropped after rollback", name)
+		}
+	}
+	if !tableExists(t, pool, "org_sso_connections") {
+		t.Error("rollback of 00011 must not touch earlier migrations")
+	}
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply after rollback: %v", err)
+	}
+	if !tableExists(t, pool, "oauth_tokens") {
+		t.Error("table oauth_tokens missing after re-apply")
+	}
+}
