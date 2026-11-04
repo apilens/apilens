@@ -99,6 +99,42 @@ replace read keys in the UI when identity lands (M2).
   materialized views. The tenant comes first in every `ORDER BY`, tables use
   daily partitions with part-level TTL, and heavy columns are ZSTD-compressed.
 
+## Audit events (M2)
+
+Security-relevant account actions are written to the Postgres `audit_events`
+table by `audit.Recorder.Record` (`internal/identity/audit`), for users (and
+later admins) to inspect. Each row holds whose account it is about
+(`user_id`), who did it (`actor_user_id`, NULL for the system or an anonymous
+caller), the event kind, event-specific metadata (never secrets), and the
+client IP and user agent. The IP and user agent come from the request
+context, captured by `audit.Middleware` from the connection's peer address
+and `User-Agent` header; forwarding headers are not trusted. When the caller
+runs in a transaction (`audit.WithTx`), the event is written in it, so it
+commits or rolls back with the change it describes. Kinds are stable once
+shipped; a test checks that this table lists every one.
+
+| Kind | Recorded when |
+|---|---|
+| `user.created` | an account is created (sign-up or invitation) |
+| `login.succeeded` | a sign-in completes |
+| `login.failed` | a sign-in attempt fails (user is NULL for an unknown email) |
+| `session.revoked` | a session is signed out or revoked |
+| `session.reuse_detected` | a rotated refresh token is replayed and its family is revoked |
+| `email.changed` | the account email changes |
+| `passkey.added` | a passkey is registered |
+| `passkey.removed` | a passkey is deleted |
+| `totp.enabled` | TOTP two-factor is turned on |
+| `totp.disabled` | TOTP two-factor is turned off |
+| `recovery.requested` | account recovery is requested |
+| `recovery.confirmed` | account recovery completes |
+| `recovery.cancelled` | a pending recovery is cancelled |
+| `oauth.linked` | an external OAuth/OIDC identity is linked |
+| `oauth.unlinked` | an external OAuth/OIDC identity is unlinked |
+| `org.created` | an organization is created |
+| `member.role_changed` | an organization member's role changes |
+| `invitation.sent` | an organization invitation is sent |
+| `invitation.accepted` | an organization invitation is accepted |
+
 ## Delivery
 
 - **CI** (`.github/workflows/ci.yml`): path-filtered jobs (Go, integration,

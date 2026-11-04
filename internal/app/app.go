@@ -21,6 +21,7 @@ import (
 	"github.com/apilens/apilens/internal/controlplane/catalog"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/identity"
+	"github.com/apilens/apilens/internal/identity/audit"
 	"github.com/apilens/apilens/internal/ingest"
 	"github.com/apilens/apilens/internal/pipeline"
 	"github.com/apilens/apilens/internal/platform/cache"
@@ -241,6 +242,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 
 func (a *App) initIdentity(context.Context) (modules.Service, error) {
 	a.server.Use(identity.Middleware(a.cfg.Identity))
+	a.server.Use(audit.Middleware)
 	identity.Register(a.server.API())
 	return nil, nil
 }
