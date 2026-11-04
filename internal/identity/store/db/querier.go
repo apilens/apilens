@@ -46,6 +46,11 @@ type Querier interface {
 	// The newest live row for an address, used to check a typed 6-digit code.
 	// Returns pgx.ErrNoRows when the address has no live token.
 	GetLatestEmailTokenForEmail(ctx context.Context, email string) (AuthEmailToken, error)
+	// The newest unconsumed row for an address, expired or not, so a typed code
+	// can be told apart as expired rather than wrong. Issuing a new email
+	// invalidates older rows, so this is the address's latest email.
+	// Returns pgx.ErrNoRows when the address has no unconsumed token.
+	GetLatestUnconsumedEmailTokenForEmail(ctx context.Context, email string) (AuthEmailToken, error)
 	// Resolves a provider callback to the linked identity (and so its user).
 	// Returns pgx.ErrNoRows when the provider account is not linked.
 	GetOAuthIdentityByProviderSubject(ctx context.Context, arg GetOAuthIdentityByProviderSubjectParams) (OauthIdentity, error)

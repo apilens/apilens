@@ -22,6 +22,16 @@ WHERE email = @email AND consumed_at IS NULL AND expires_at > now()
 ORDER BY created_at DESC, id DESC
 LIMIT 1;
 
+-- name: GetLatestUnconsumedEmailTokenForEmail :one
+-- The newest unconsumed row for an address, expired or not, so a typed code
+-- can be told apart as expired rather than wrong. Issuing a new email
+-- invalidates older rows, so this is the address's latest email.
+-- Returns pgx.ErrNoRows when the address has no unconsumed token.
+SELECT * FROM auth_email_tokens
+WHERE email = @email AND consumed_at IS NULL
+ORDER BY created_at DESC, id DESC
+LIMIT 1;
+
 -- name: IncrementEmailTokenAttempts :one
 -- Counts one wrong code guess on a live row and returns the new count.
 -- Returns pgx.ErrNoRows when the row is no longer live.

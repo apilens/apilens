@@ -158,6 +158,38 @@ func (q *Queries) GetLatestEmailTokenForEmail(ctx context.Context, email string)
 	return i, err
 }
 
+const getLatestUnconsumedEmailTokenForEmail = `-- name: GetLatestUnconsumedEmailTokenForEmail :one
+SELECT id, email, intent, user_id, link_token_hash, code_hash, attempts, next_path, ip, user_agent, created_at, expires_at, consumed_at FROM auth_email_tokens
+WHERE email = $1 AND consumed_at IS NULL
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+// The newest unconsumed row for an address, expired or not, so a typed code
+// can be told apart as expired rather than wrong. Issuing a new email
+// invalidates older rows, so this is the address's latest email.
+// Returns pgx.ErrNoRows when the address has no unconsumed token.
+func (q *Queries) GetLatestUnconsumedEmailTokenForEmail(ctx context.Context, email string) (AuthEmailToken, error) {
+	row := q.db.QueryRow(ctx, getLatestUnconsumedEmailTokenForEmail, email)
+	var i AuthEmailToken
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Intent,
+		&i.UserID,
+		&i.LinkTokenHash,
+		&i.CodeHash,
+		&i.Attempts,
+		&i.NextPath,
+		&i.Ip,
+		&i.UserAgent,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+	)
+	return i, err
+}
+
 const incrementEmailTokenAttempts = `-- name: IncrementEmailTokenAttempts :one
 UPDATE auth_email_tokens
 SET attempts = attempts + 1
