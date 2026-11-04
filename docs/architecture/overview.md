@@ -99,6 +99,32 @@ replace read keys in the UI when identity lands (M2).
   materialized views. The tenant comes first in every `ORDER BY`, tables use
   daily partitions with part-level TTL, and heavy columns are ZSTD-compressed.
 
+## Identity
+
+### Access tokens (M2)
+
+The identity role signs short-lived access tokens with `token.Issuer.Issue`
+(`internal/identity/token`): RS256 JWTs signed by the active signing key
+(`internal/identity/keys`). They live `identity.access_token_ttl` (15 minutes
+by default), so revoking a session takes effect within one TTL: the next
+refresh fails and no new access token is issued. Other roles verify them
+against the published JWKS; identity uses `token.Issuer.Verify`.
+
+| Where | Claim | Value |
+|---|---|---|
+| header | `alg` | always `RS256`; verifiers reject any other algorithm (including `none` and HMAC) |
+| header | `kid` | RFC 7638 thumbprint of the signing key; must name a published key (active, or retired within the retirement window) |
+| payload | `iss` | `identity.issuer` |
+| payload | `sub` | user id (UUID) |
+| payload | `aud` | `apilens` |
+| payload | `iat` | issue time (seconds) |
+| payload | `exp` | `iat` + `identity.access_token_ttl` |
+| payload | `sid` | session id (UUID) the token was issued for; authz uses it to tie a request to a revocable session |
+| payload | `amr` | how the user authenticated (RFC 8176 style), one or more of `email`, `google`, `github`, `passkey`, `totp`, `sso` |
+
+Tokens carry no email, name or role: authorization looks those up by `sub`.
+Verification tolerates 30 s of clock skew on `exp` and `iat`.
+
 ## Audit events (M2)
 
 Security-relevant account actions are written to the Postgres `audit_events`
