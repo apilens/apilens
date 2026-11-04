@@ -42,7 +42,7 @@ func TestMigrationsApplyAndAreIdempotent(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	for _, want := range []string{"api_keys", "apps", "audit_events", "auth_email_tokens", "environments", "oauth_identities", "organizations", "outbox", "passkey_credentials", "projects", "sessions", "signing_keys", "users", "river_job", "river_migration", "river_queue"} {
+	for _, want := range []string{"api_keys", "apps", "audit_events", "auth_email_tokens", "backup_codes", "environments", "oauth_identities", "organizations", "outbox", "passkey_credentials", "projects", "recovery_requests", "sessions", "signing_keys", "user_totp", "users", "river_job", "river_migration", "river_queue"} {
 		if !slices.Contains(tables, want) {
 			t.Errorf("postgres table %q missing (have %v)", want, tables)
 		}
@@ -497,6 +497,122 @@ func TestPostgresPasskeysMigrationRollsBack(t *testing.T) {
 	}
 	if !tableExists(t, pool, "passkey_credentials") {
 		t.Error("passkey_credentials missing after re-apply")
+	}
+}
+
+func TestPostgresTOTPMigrationRollsBack(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var userID, otherID string
+	if err := pool.QueryRow(ctx, `INSERT INTO users (id, email) VALUES (gen_random_uuid(), 'totp@example.com') RETURNING id`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO users (id, email) VALUES (gen_random_uuid(), 'other@example.com') RETURNING id`).Scan(&otherID); err != nil {
+		t.Fatal(err)
+	}
+
+	// user_totp: one row per user, ciphertext required.
+	insertTOTP := `INSERT INTO user_totp (user_id, secret_enc) VALUES ($1, $2)`
+	if _, err := pool.Exec(ctx, insertTOTP, userID, []byte{0x01, 0x02}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insertTOTP, userID, []byte{0x03}); err == nil {
+		t.Fatal("a second secret for the same user should violate the primary key")
+	}
+	if _, err := pool.Exec(ctx, insertTOTP, otherID, []byte{}); err == nil {
+		t.Fatal("empty secret_enc should violate the check")
+	}
+	if _, err := pool.Exec(ctx, insertTOTP, otherID, []byte{0x04}); err != nil {
+		t.Fatal(err)
+	}
+	var confirmed *time.Time
+	if err := pool.QueryRow(ctx, `SELECT confirmed_at FROM user_totp WHERE user_id = $1`, userID).Scan(&confirmed); err != nil || confirmed != nil {
+		t.Fatalf("confirmed_at default = %v, %v; want NULL", confirmed, err)
+	}
+
+	// backup_codes: a hash is unique per user, not globally.
+	insertCode := `INSERT INTO backup_codes (id, user_id, code_hash) VALUES (gen_random_uuid(), $1, $2)`
+	if _, err := pool.Exec(ctx, insertCode, userID, "h1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insertCode, userID, "h1"); err == nil {
+		t.Fatal("the same code_hash twice for one user should violate the unique constraint")
+	}
+	if _, err := pool.Exec(ctx, insertCode, otherID, "h1"); err != nil {
+		t.Fatalf("the same code_hash for another user: %v", err)
+	}
+	if _, err := pool.Exec(ctx, insertCode, userID, ""); err == nil {
+		t.Fatal("empty code_hash should violate the check")
+	}
+
+	// recovery_requests: unique token, cooling-off after the request, one end state.
+	insertReq := `INSERT INTO recovery_requests (id, user_id, token_hash, ready_at, ip) VALUES ($1, $2, $3, $4, '203.0.113.7')`
+	r1 := "00000000-0000-0000-0000-000000000001"
+	if _, err := pool.Exec(ctx, insertReq, r1, userID, "t1", time.Now().Add(24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insertReq, "00000000-0000-0000-0000-000000000002", otherID, "t1", time.Now().Add(24*time.Hour)); err == nil {
+		t.Fatal("duplicate token_hash should violate the unique constraint")
+	}
+	if _, err := pool.Exec(ctx, insertReq, "00000000-0000-0000-0000-000000000003", userID, "", time.Now().Add(24*time.Hour)); err == nil {
+		t.Fatal("empty token_hash should violate the check")
+	}
+	if _, err := pool.Exec(ctx, insertReq, "00000000-0000-0000-0000-000000000004", userID, "t4", time.Now().Add(-time.Hour)); err == nil {
+		t.Fatal("ready_at before requested_at should violate the check")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE recovery_requests SET confirmed_at = now(), cancelled_at = now() WHERE id = $1`, r1); err == nil {
+		t.Fatal("a request both confirmed and cancelled should violate the check")
+	}
+	if _, err := pool.Exec(ctx, insertReq, "00000000-0000-0000-0000-000000000005", otherID, "t5", time.Now().Add(24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	var userAgent string
+	if err := pool.QueryRow(ctx, `SELECT user_agent FROM recovery_requests WHERE id = $1`, r1).Scan(&userAgent); err != nil || userAgent != "" {
+		t.Fatalf("user_agent default = %q, %v; want empty", userAgent, err)
+	}
+	var hasIndex bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'recovery_requests' AND indexname = 'recovery_requests_user')`).Scan(&hasIndex); err != nil || !hasIndex {
+		t.Errorf("recovery_requests_user index missing: %v", err)
+	}
+
+	// Deleting a user cascades to their rows in all three tables only.
+	if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"user_totp", "backup_codes", "recovery_requests"} {
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM `+table).Scan(&n); err != nil || n != 1 {
+			t.Errorf("%s rows after user delete = %d, %v; want 1", table, n, err)
+		}
+	}
+
+	if _, err := provider.DownTo(ctx, 7); err != nil {
+		t.Fatalf("roll back to 00007: %v", err)
+	}
+	for _, table := range []string{"user_totp", "backup_codes", "recovery_requests"} {
+		if tableExists(t, pool, table) {
+			t.Errorf("table %q should be dropped after rollback", table)
+		}
+	}
+	if !tableExists(t, pool, "passkey_credentials") || !tableExists(t, pool, "users") {
+		t.Error("rollback of 00008 must not touch earlier migrations")
+	}
+
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply after rollback: %v", err)
+	}
+	for _, table := range []string{"user_totp", "backup_codes", "recovery_requests"} {
+		if !tableExists(t, pool, table) {
+			t.Errorf("table %q missing after re-apply", table)
+		}
 	}
 }
 
