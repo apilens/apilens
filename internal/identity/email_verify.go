@@ -15,6 +15,7 @@ import (
 	"github.com/apilens/apilens/internal/identity/session"
 	"github.com/apilens/apilens/internal/identity/store/db"
 	"github.com/apilens/apilens/internal/identity/token"
+	"github.com/apilens/apilens/internal/identity/users"
 	"github.com/apilens/apilens/internal/platform/config"
 	"github.com/apilens/apilens/internal/platform/ratelimit"
 	"github.com/apilens/apilens/internal/platform/server"
@@ -104,7 +105,7 @@ func (e *EmailVerify) Register(api huma.API) {
 			"The user is found or, on first sign-in, created, and the address is marked verified. " +
 			"Answers the session bundle (`amr: [\"email\"]`; `remember` picks the session lifetime) or, " +
 			"when the user has two-factor authentication enabled, `{status: \"2fa_required\", pre_auth_token}`. " +
-			"Either answer carries the `next` path the email was requested with. " +
+			"Either answer carries the `next` path the email was requested with; a new user who requested none gets `/onboarding/about`. " +
 			"A wrong code, an unknown address and an address with no outstanding email all answer `invalid_code`; " +
 			"the fifth wrong code locks the email (`too_many_attempts`) until a new one is requested. " +
 			"Rate-limited per email address (429 `rate_limited` with Retry-After).",
@@ -165,10 +166,14 @@ func (e *EmailVerify) signIn(ctx context.Context, addr string, row db.AuthEmailT
 		next = *row.NextPath
 	}
 
-	user, _, err := e.deps.Users.FindOrCreateVerified(ctx, addr)
+	user, created, err := e.deps.Users.FindOrCreateVerified(ctx, addr)
 	if err != nil {
 		e.logger.ErrorContext(ctx, op+": find or create user", "error", err)
 		return nil, Err(CodeInternal)
+	}
+	// A new user starts onboarding unless the sign-in asked to go elsewhere.
+	if created && next == "" {
+		next = users.OnboardingPath
 	}
 	amr := []string{token.AMREmail}
 

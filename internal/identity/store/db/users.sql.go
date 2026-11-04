@@ -34,6 +34,51 @@ func (q *Queries) AnonymizeAuditEventsForUsers(ctx context.Context, ids []uuid.U
 	return result.RowsAffected(), nil
 }
 
+const createFirstLoginUser = `-- name: CreateFirstLoginUser :one
+INSERT INTO users (id, email, email_verified_at, preferences, onboarding, last_login_at)
+VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6)
+RETURNING id, email, email_verified_at, name, avatar_url, preferences, onboarding, last_login_at, created_at, updated_at, deleted_at, delete_after
+`
+
+type CreateFirstLoginUserParams struct {
+	ID              uuid.UUID
+	Email           string
+	EmailVerifiedAt *time.Time
+	Preferences     []byte
+	Onboarding      []byte
+	LastLoginAt     *time.Time
+}
+
+// The first sign-in of a verified address (users.FindOrCreateByVerifiedEmail):
+// the user starts verified, signed in, and with the default preferences and
+// onboarding state.
+func (q *Queries) CreateFirstLoginUser(ctx context.Context, arg CreateFirstLoginUserParams) (User, error) {
+	row := q.db.QueryRow(ctx, createFirstLoginUser,
+		arg.ID,
+		arg.Email,
+		arg.EmailVerifiedAt,
+		arg.Preferences,
+		arg.Onboarding,
+		arg.LastLoginAt,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.EmailVerifiedAt,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.Preferences,
+		&i.Onboarding,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DeleteAfter,
+	)
+	return i, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (id, email, email_verified_at, name, avatar_url)
 VALUES ($1, $2, $3, $4, $5)
