@@ -1258,6 +1258,41 @@
         ],
         "type": "object"
       },
+      "SSOLookupResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SSOLookupResponse.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "enforced": {
+            "description": "That organization requires single sign-on: the sign-in page must skip the email code and send the user to start_url.",
+            "type": "boolean"
+          },
+          "org_name": {
+            "description": "Display name of the organization (only when sso is true).",
+            "type": "string"
+          },
+          "sso": {
+            "description": "An organization uses single sign-on for this email domain.",
+            "type": "boolean"
+          },
+          "start_url": {
+            "description": "Where to send the browser to sign in through the organization's identity provider (only when sso is true).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sso",
+          "enforced"
+        ],
+        "type": "object"
+      },
       "SessionInfo": {
         "additionalProperties": false,
         "properties": {
@@ -2953,6 +2988,91 @@
           }
         },
         "summary": "Refresh the session",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/sso/lookup": {
+      "get": {
+        "description": "Public. The sign-in page calls it with the typed email before sending a code: when `enforced` is true it must skip the email code and send the browser to `start_url`. Only the email's domain is looked up, never the account, so the answer reveals nothing about whether the address has an account; it reveals the display name of the organization that uses SSO for the domain, which that domain's sign-in page shows anyway. Public email providers (gmail.com, outlook.com, …) never match. Rate-limited per client IP (429 `rate_limited` with Retry-After).",
+        "operationId": "lookup-sso",
+        "parameters": [
+          {
+            "description": "Address typed on the sign-in page; only its domain is looked up.",
+            "explode": false,
+            "in": "query",
+            "name": "email",
+            "required": true,
+            "schema": {
+              "description": "Address typed on the sign-in page; only its domain is looked up.",
+              "maxLength": 254,
+              "minLength": 3,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOLookupResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "summary": "Is SSO used or enforced for an email's domain?",
         "tags": [
           "Auth"
         ]

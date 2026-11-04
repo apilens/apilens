@@ -214,6 +214,7 @@ type RateLimitsConfig struct {
 	RefreshPerIP        RateLimit `koanf:"refresh_per_ip"`
 	SecondFactorPerUser RateLimit `koanf:"second_factor_per_user"` // passkey and 2FA verify
 	OAuthStartPerIP     RateLimit `koanf:"oauth_start_per_ip"`
+	SSOLookupPerIP      RateLimit `koanf:"sso_lookup_per_ip"`
 }
 
 // RateLimit allows Limit requests per sliding Window.
@@ -425,6 +426,8 @@ func Defaults() map[string]any {
 		"identity.rate_limits.second_factor_per_user.window": "15m",
 		"identity.rate_limits.oauth_start_per_ip.limit":      30,
 		"identity.rate_limits.oauth_start_per_ip.window":     "15m",
+		"identity.rate_limits.sso_lookup_per_ip.limit":       60,
+		"identity.rate_limits.sso_lookup_per_ip.window":      "15m",
 		"authz.endpoint":      "",
 		"authz.preshared_key": "",
 		"authz.insecure":      false,
@@ -672,6 +675,7 @@ func (r RateLimitsConfig) validate() []error {
 		{"refresh_per_ip", r.RefreshPerIP},
 		{"second_factor_per_user", r.SecondFactorPerUser},
 		{"oauth_start_per_ip", r.OAuthStartPerIP},
+		{"sso_lookup_per_ip", r.SSOLookupPerIP},
 	}
 	for _, l := range limits {
 		if l.l.Limit <= 0 || l.l.Window < time.Second {

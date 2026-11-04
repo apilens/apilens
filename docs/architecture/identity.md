@@ -191,7 +191,13 @@ disables TOTP, revokes every session and emails a security alert.
 An org owner configures one OIDC connection (issuer, client ID, secret,
 domains, `enforce`, `default_role`). `GET /api/v1/auth/sso/lookup?email=`
 tells the sign-in page whether the email's domain has SSO and whether it is
-enforced. `GET /api/v1/auth/sso/{org}/start` → IdP →
+enforced: `{sso, enforced, org_name?, start_url?}`. It looks up only the
+domain, never the account, and reveals only the organization's display name
+(accepted: that domain's sign-in page shows it anyway). Public mailbox
+domains (gmail.com, outlook.com, yahoo.co.uk, …) never match, even if a
+connection lists them. It is rate-limited per IP
+(`identity.rate_limits.sso_lookup_per_ip`, 60 / 15 min).
+`GET /api/v1/auth/sso/{org}/start` → IdP →
 `GET /api/v1/auth/sso/{org}/callback` uses the same state, PKCE, nonce and
 handoff mechanics as social sign-in. The `id_token` email must be in the
 connection's `domains`; the user joins the org with `default_role` if not

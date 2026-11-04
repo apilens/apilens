@@ -176,6 +176,12 @@ type Querier interface {
 	// disabling 2FA and regenerating backup codes do not interleave. Returns
 	// pgx.ErrNoRows when 2FA is not on (no row, or only a pending secret).
 	LockConfirmedTOTP(ctx context.Context, userID uuid.UUID) (UserTotp, error)
+	// What the public SSO lookup at sign-in may reveal about the active
+	// organization that uses SSO for an email domain (lower-case, no "@"): its
+	// slug (for the start URL), display name and whether SSO is enforced. Same
+	// precedence as GetOrgSSOConnectionForDomain. Returns pgx.ErrNoRows when no
+	// organization uses SSO for the domain.
+	LookupOrgSSOForDomain(ctx context.Context, domain string) (LookupOrgSSOForDomainRow, error)
 	// Records that the user proved control of their address (an email code or
 	// link). An earlier verification time is kept.
 	MarkUserEmailVerified(ctx context.Context, id uuid.UUID) (User, error)

@@ -318,6 +318,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		Jobs:   a.jobs,
 		Audit:  audit.New(a.pool),
 	}, limiter, a.logger).Register(a.server.API())
+	identity.NewSSOLookup(a.cfg.Identity, identitydb.New(a.pool), limiter, a.logger).Register(a.server.API())
 	identity.NewEmailVerify(a.cfg.Identity, identity.EmailVerifyDeps{
 		Codes:    emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{}),
 		Users:    identity.NewPGSignInUsers(a.pool),

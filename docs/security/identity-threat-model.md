@@ -241,6 +241,7 @@ Shared across replicas in Valkey with a sliding window (#239). They answer
 | Code verify | 10 / 15 min per email |
 | Refresh | 60 / min per IP |
 | Passkey and 2FA verify | 10 / 15 min per user |
+| SSO lookup | 60 / 15 min per IP |
 | OAuth/SSO start, handoff, passkey login options, invitation lookup, recovery | Per IP (values set in their issues) |
 
 **Fail closed.** If Valkey is unreachable, rate-limited endpoints answer `503`
