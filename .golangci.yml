@@ -35,6 +35,8 @@ linters:
               desc: platform packages must not import feature modules
             - pkg: github.com/apilens/apilens/internal/controlplane
               desc: platform packages must not import feature modules
+            - pkg: github.com/apilens/apilens/internal/identity
+              desc: platform packages must not import feature modules
             - pkg: github.com/apilens/apilens/internal/app
               desc: platform packages must not import the composition root
         # Feature modules talk to each other through interfaces, not the root.
@@ -43,6 +45,7 @@ linters:
             - "**/internal/ingest/**"
             - "**/internal/pipeline/**"
             - "**/internal/controlplane/**"
+            - "**/internal/identity/**"
           deny:
             - pkg: github.com/apilens/apilens/internal/app
               desc: only cmd/ may import the composition root
