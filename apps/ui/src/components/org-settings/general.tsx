@@ -6,6 +6,7 @@ import type { Org } from "@/lib/identity";
 import { addDomains, canDeleteOrg, canManageOrg, checkOrgName, deleteConfirmed, MAX_ORG_NAME } from "@/lib/org-settings";
 import { roleLabel } from "@/lib/scope";
 import { ObIcon } from "../onboarding/ob";
+import { OrgSettingsNav } from "./nav";
 import "./org-settings.css";
 
 type Status = { tone: "ok" | "err"; text: string } | null;
@@ -34,6 +35,7 @@ export function OrgGeneralSettings({ org }: { org: Org }) {
       <header className="os-head">
         <p className="cp-h">Organization</p>
         <h1 className="cp-lede">Settings</h1>
+        <OrgSettingsNav org={org.slug} current="" />
       </header>
 
       {manage ? null : (

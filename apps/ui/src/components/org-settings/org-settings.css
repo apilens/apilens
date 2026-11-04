@@ -2,6 +2,14 @@
 .os { max-width: 760px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
 .os-head { margin-bottom: var(--space-8); }
 .os-head .cp-lede { margin-top: 2px; }
+
+/* Section tabs under the title (General, Members). */
+.os-tabs { display: flex; gap: var(--space-1); margin-top: var(--space-4); border-bottom: 1px solid var(--border); overflow-x: auto; }
+.os-tab { position: relative; padding: 8px 10px 10px; font: 500 13px/18px var(--font-sans); color: var(--ink-muted); text-decoration: none; white-space: nowrap; border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.os-tab:hover { color: var(--ink); }
+.os-tab.on { color: var(--ink); }
+.os-tab.on::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
+.os-tab:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
 .os-note { display: flex; gap: 10px; align-items: flex-start; margin-bottom: var(--space-6); padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 .os-note > .ob-ic { margin-top: 2px; color: var(--info); }
 

@@ -1,7 +1,7 @@
 // A fake identity server plus a fake OAuth provider and a fake OIDC identity provider for the
 // social sign-in (#317), two-factor step (#320), organization SSO (#323), account settings (#339),
-// profile (#340), sessions (#343), connected accounts (#344), Security → Passkeys (#341) and
-// two-factor settings (#342) browser tests.
+// profile (#340), sessions (#343), connected accounts (#344), Security → Passkeys (#341),
+// two-factor settings (#342) and organization members (#345) browser tests.
 // It mirrors the real contract (internal/identity/oauth.go, oauth_callback.go, handoff_redeem.go):
 //
 //   GET  /api/v1/auth/providers                    google and github enabled
@@ -15,7 +15,8 @@
 //   POST /api/v1/auth/handoff                      redeems a one-time code (session bundle or 2fa_required)
 //   POST /api/v1/auth/2fa/exchange                 spends a pre-auth token with a TOTP or backup code
 //   POST /api/v1/auth/logout                       204
-//   GET  /api/v1/users/me/context                  one org (acme) with one project (shop)
+//   GET  /api/v1/users/me/context                  one org (acme) with one project (shop); the
+//                                                  role and capabilities follow the fake user's role
 //   GET  /api/v1/users/me/sessions                 the signed-in user's sessions: this one + two seeded
 //   DELETE /api/v1/users/me/sessions/{id}          204 (also for an unknown id)
 //   POST /api/v1/users/me/sessions/revoke-others   {revoked}
@@ -42,8 +43,13 @@
 //   GET  /api/v1/auth/sso/{org}/callback           302 to {ui}/auth/callback?code=… or /sign-in?error=…
 //   POST /api/v1/auth/email/start                  403 sso_required (+ start_url) on an enforced
 //                                                  domain, else {sent: true} (never sends mail)
-//   POST /__fake/handoff {next, totp_secret?, backup_codes?, passkeys?, stale?}
+//   GET  /api/v1/orgs/acme/members                 the signed-in user plus seeded @example.com members
+//   PATCH/DELETE /api/v1/orgs/acme/members/{id}    role change / removal with the API's owner rules
+//   POST /api/v1/orgs/acme/transfer-ownership      owners only; the caller becomes an admin
+//   POST /api/v1/orgs/acme/invitations             records nothing, answers one result per address
+//   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, stale?}
 //                                                  test hook: a code whose bundle carries any `next`;
+//                                                  `role` is the user's role in acme (default owner);
 //                                                  with `totp_secret` (base32) it answers 2fa_required;
 //                                                  `passkeys` seeds the new user's passkey list;
 //                                                  `stale` makes /2fa/enable answer reauth_required
@@ -272,10 +278,54 @@ function seedPasskey(input: Record<string, unknown>): FakePasskey {
   };
 }
 
-function bundle(next: string, seeds: Record<string, unknown>[] = []) {
-  const id = `usr_${token().slice(0, 8)}`;
+type Role = "owner" | "admin" | "member" | "viewer";
+const ROLES = new Set<Role>(["owner", "admin", "member", "viewer"]);
+
+interface FakeMember {
+  user: { id: string; email: string; name: string; avatar_url: string };
+  role: Role;
+  joined_at: string;
+  last_login_at: string | null;
+}
+
+/** Each fake user's own copy of the acme organization's members, so tests never share state. */
+const membersByUser = new Map<string, FakeMember[]>();
+
+/** The signed-in user plus one seeded member per role (no second owner when they are the owner). */
+function seedMembers(id: string, role: Role) {
+  const m = (uid: string, name: string, email: string, r: Role, days: number): FakeMember => ({
+    user: { id: uid, email, name, avatar_url: "" },
+    role: r,
+    joined_at: ago(days * 24 * 60),
+    last_login_at: null,
+  });
+  const others = [
+    m(randomUUID(), "Olive Owner", "olive@example.com", "owner", 60),
+    m(randomUUID(), "Ada Admin", "ada@example.com", "admin", 20),
+    m(randomUUID(), "Max Member", "max@example.com", "member", 10),
+    m(randomUUID(), "Vera Viewer", "vera@example.com", "viewer", 2),
+  ].filter((o) => !(role === "owner" && o.role === "owner"));
+  const all = [m(id, "Fake User", "you@example.com", role, 30), ...others];
+  membersByUser.set(id, all.sort((a, b) => a.joined_at.localeCompare(b.joined_at)));
+}
+
+/** The user's current role in acme (it changes on a transfer). */
+const roleOf = (id: string): Role => membersByUser.get(id)?.find((m) => m.user.id === id)?.role ?? "owner";
+
+/** What `users/me/context` lists for the shop project, as SpiceDB would answer for `role`. */
+function capabilitiesFor(role: Role): string[] {
+  const all = ["project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "members.invite", "members.remove", "billing.manage"];
+  if (role === "owner") return all;
+  if (role === "admin") return all.filter((a) => a !== "project.delete" && a !== "billing.manage");
+  if (role === "member") return ["project.read", "project.update", "api_keys.create", "api_keys.revoke"];
+  return ["project.read"];
+}
+
+function bundle(next: string, seeds: Record<string, unknown>[] = [], role: Role = "owner") {
+  const id = randomUUID();
   const access = `at_${token()}`;
   seedSessions(id, access);
+  seedMembers(id, role);
   passkeys.set(id, seeds.map(seedPasskey));
   return {
     access_token: access,
@@ -299,22 +349,34 @@ function bundle(next: string, seeds: Record<string, unknown>[] = []) {
 const PROFILE_DEFAULTS = { name: "Fake User", email: "you@example.com", soleOwner: true };
 const profile = { ...PROFILE_DEFAULTS, pendingEmail: null as string | null };
 
-/** `GET /users/me/context` for any signed-in fake user: one org with one project. */
-const CONTEXT = {
-  user: bundle("/").user,
-  orgs: [
-    {
-      id: "org_fake",
-      slug: "acme",
-      name: "Acme",
-      role: "owner",
-      projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"] }],
+/** `GET /users/me/context` for a signed-in fake user: one org with one project. */
+function context(id: string) {
+  const role = roleOf(id);
+  return {
+    user: {
+      id,
+      email: profile.email,
+      email_verified: true,
+      name: profile.name,
+      avatar_url: null,
+      preferences: {},
+      onboarding: { step: null, completed: true },
+      created_at: new Date().toISOString(),
     },
-  ],
-  last_project_slug: "shop",
-  onboarding: { step: null, completed: true },
-  capabilities: {},
-};
+    orgs: [
+      {
+        id: "org_fake",
+        slug: "acme",
+        name: "Acme",
+        role,
+        projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"] }],
+      },
+    ],
+    last_project_slug: "shop",
+    onboarding: { step: null, completed: true },
+    capabilities: { shop: capabilitiesFor(role) },
+  };
+}
 
 function issueHandoff(
   next: string,
@@ -322,6 +384,7 @@ function issueHandoff(
   backupCodes: string[] = [],
   seeds: Record<string, unknown>[] = [],
   stale = false,
+  role: Role = "owner",
 ): string {
   const code = token();
   if (secret) {
@@ -334,7 +397,7 @@ function issueHandoff(
     });
     handoffs.set(code, { status: "2fa_required", pre_auth_token: pre, next });
   } else {
-    const b = bundle(next, seeds);
+    const b = bundle(next, seeds, role);
     totps.set(b.access_token, { pending: null, secret: null, confirmedAt: null, backupCodes: new Set(), stale });
     handoffs.set(code, b);
   }
@@ -526,11 +589,13 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   if (req.method === "POST" && path === "/api/v1/auth/logout") return send(res, 204);
   if (req.method === "GET" && path === "/api/v1/users/me/context") {
     if (!req.headers.authorization?.startsWith("Bearer at_")) return problem(res, 401, "unauthenticated");
-    return send(res, 200, { ...CONTEXT, user: { ...CONTEXT.user, name: profile.name, email: profile.email } });
+    // An access token whose session was revoked still reads a context here (as an owner).
+    const user = userByAccess.get(req.headers.authorization.slice("Bearer ".length));
+    return send(res, 200, context(user ?? randomUUID()));
   }
   if (path === "/api/v1/users/me" || path.startsWith("/api/v1/users/me/email/")) {
     if (!req.headers.authorization?.startsWith("Bearer at_")) return problem(res, 401, "unauthenticated");
-    const me = () => ({ ...CONTEXT.user, name: profile.name, email: profile.email });
+    const me = () => context(signedInUser(req) ?? randomUUID()).user;
     if (req.method === "GET" && path === "/api/v1/users/me") return send(res, 200, me());
     if (req.method === "PATCH" && path === "/api/v1/users/me") {
       const { name } = await readBody(req);
@@ -567,6 +632,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (typeof body.sole_owner === "boolean") profile.soleOwner = body.sole_owner;
     return send(res, 200, { ok: true });
   }
+  const orgPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/(members|transfer-ownership|invitations)(?:\/([^/]+))?$/);
+  if (orgPath) return orgs(req, res, orgPath[1], orgPath[2], orgPath[3]);
   const sessionPath = path.match(/^\/api\/v1\/users\/me\/sessions(?:\/([^/]+))?$/);
   if (sessionPath) {
     const access = req.headers.authorization?.replace(/^Bearer /, "") ?? "";
@@ -699,10 +766,11 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     return twoFactor(req, res, path.slice("/api/v1/auth/2fa".length), t);
   }
   if (req.method === "POST" && path === "/__fake/handoff") {
-    const { next, totp_secret: secret, backup_codes: backups, passkeys: seeds, stale } = await readBody(req);
+    const { next, role, totp_secret: secret, backup_codes: backups, passkeys: seeds, stale } = await readBody(req);
     const codes = Array.isArray(backups) ? backups.map(String) : [];
     const seeded = Array.isArray(seeds) ? (seeds as Record<string, unknown>[]) : [];
-    const code = issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded, stale === true);
+    const r = ROLES.has(role as Role) ? (role as Role) : "owner";
+    const code = issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded, stale === true, r);
     return send(res, 200, { code });
   }
   return problem(res, 404, "not_found");
@@ -762,6 +830,59 @@ async function twoFactor(req: IncomingMessage, res: ServerResponse, route: strin
     const codes = newBackupCodes();
     t.backupCodes = new Set(codes.map(normalizeBackup));
     return send(res, 200, { backup_codes: codes });
+  }
+  return problem(res, 404, "not_found");
+}
+
+/** The acme organization's member endpoints, with the API's rules (internal/controlplane/orgs/members.go). */
+async function orgs(req: IncomingMessage, res: ServerResponse, slug: string, what: string, sub: string | undefined) {
+  const user = userByAccess.get(req.headers.authorization?.replace(/^Bearer /, "") ?? "");
+  const members = user ? membersByUser.get(user) : undefined;
+  if (!user || !members) return problem(res, 401, "unauthenticated");
+  if (slug !== "acme") return problem(res, 404, "not_found");
+  const me = roleOf(user);
+  const manage = me === "owner" || me === "admin";
+  const owners = members.filter((m) => m.role === "owner").length;
+  const target = sub ? members.find((m) => m.user.id === sub) : undefined;
+
+  if (what === "members" && sub === undefined && req.method === "GET") return send(res, 200, members);
+  if (what === "members" && sub !== undefined && (req.method === "PATCH" || req.method === "DELETE")) {
+    const role = req.method === "PATCH" ? ((await readBody(req)).role as Role) : undefined;
+    if (req.method === "PATCH" && !ROLES.has(role as Role)) return problem(res, 400, "invalid_request");
+    if (!manage) return problem(res, 403, "forbidden");
+    if (!target) return problem(res, 410, "member_gone");
+    if ((target.role === "owner" || role === "owner") && me !== "owner") return problem(res, 403, "forbidden");
+    if (target.role === "owner" && role !== "owner" && owners <= 1) return problem(res, 409, "last_owner");
+    if (role === undefined) {
+      membersByUser.set(user, members.filter((m) => m !== target));
+      return send(res, 204);
+    }
+    target.role = role;
+    return send(res, 200, target);
+  }
+  if (what === "transfer-ownership" && sub === undefined && req.method === "POST") {
+    const { user_id: to } = await readBody(req);
+    if (me !== "owner") return problem(res, 403, "forbidden");
+    if (to === user) return problem(res, 400, "invalid_request");
+    const next = members.find((m) => m.user.id === to);
+    if (!next) return problem(res, 410, "member_gone");
+    next.role = "owner";
+    const self = members.find((m) => m.user.id === user);
+    if (self) self.role = "admin";
+    return send(res, 204);
+  }
+  if (what === "invitations" && sub === undefined && req.method === "POST") {
+    const { invites } = await readBody(req);
+    if (!manage) return problem(res, 403, "forbidden");
+    if (!Array.isArray(invites) || invites.length === 0 || invites.length > 50) return problem(res, 400, "invalid_request");
+    const seen = new Set<string>();
+    const results = invites.map((i: { email?: unknown }) => {
+      const email = String(i.email ?? "").toLowerCase();
+      const status = seen.has(email) ? "duplicate" : members.some((m) => m.user.email === email) ? "already_member" : "invited";
+      seen.add(email);
+      return { email, status };
+    });
+    return send(res, 200, { results });
   }
   return problem(res, 404, "not_found");
 }
