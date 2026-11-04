@@ -64,6 +64,8 @@
 .ob2 > .ob-bp { grid-column: 1; grid-row: 1; }
 .ob2 > .ob-fp { grid-column: 2; grid-row: 1; }
 .ob-fp { overflow-y: auto; }
+/* A screen taller than the window scrolls instead of overflowing under the top bar and footer. */
+.ob-fbody { flex: 1 0 auto; }
 /* Steps still to come read muted by colour alone; the system's extra fade fails AA contrast. */
 .ob-st.todo { opacity: 1; }
 .ob-mlogo { display: none; }
