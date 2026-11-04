@@ -21,6 +21,45 @@ Dashboard:
 
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "apilens.fullname" . }}-web 3000:{{ .Values.web.service.port }}
 {{- end }}
+{{- $identityRole := include "apilens.identityRole" . }}
+{{- if and .Values.web.enabled $identityRole }}
+
+First sign-in:
+
+  1. Open the dashboard ({{ default "http://localhost:3000 via the port-forward above" (include "apilens.webPublicUrl" .) }})
+     and sign up with your email address.
+{{- if eq .Values.email.provider "log" }}
+  2. Email delivery is off (email.provider=log), so read the sign-in code from
+     the {{ $identityRole }} pod log:
+
+       kubectl -n {{ .Release.Namespace }} logs --tail=-1 --prefix \
+         -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component={{ $identityRole }} \
+         | grep "email (log provider"
+
+     Set email.provider=smtp (plus email.host, email.from and the
+     smtp-password secret key) to deliver sign-in codes by email.
+{{- else }}
+  2. Enter the sign-in code emailed to you from {{ .Values.email.from }}.
+{{- end }}
+  3. Create your organization and project; the onboarding flow issues the
+     ingest API key for your SDK.
+{{- if or .Values.identity.oauth.google.clientId .Values.identity.oauth.github.clientId }}
+
+  OAuth redirect URI(s) to register with the provider:
+{{- $issuer := default "http://localhost:8080" (include "apilens.identityIssuer" .) }}
+{{- if .Values.identity.oauth.google.clientId }}
+    {{ $issuer }}/api/v1/auth/oauth/google/callback
+{{- end }}
+{{- if .Values.identity.oauth.github.clientId }}
+    {{ $issuer }}/api/v1/auth/oauth/github/callback
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and $identityRole (not .Values.secrets.existingSecret) (not .Values.secrets.identityKeyEncryptionKey) }}
+
+WARNING: secrets.identityKeyEncryptionKey is empty; the {{ $identityRole }} role
+refuses to start without it (generate one with: openssl rand -base64 32).
+{{- end }}
 {{- if and (not .Values.secrets.existingSecret) (not .Values.secrets.postgresUrl) }}
 
 WARNING: no credentials configured. Set secrets.existingSecret (recommended)

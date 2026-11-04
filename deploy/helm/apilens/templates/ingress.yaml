@@ -25,6 +25,16 @@ spec:
     - host: {{ .Values.ingress.ingestHost | quote }}
       http:
         paths:
+          {{- if and (dig "identity" "enabled" false .Values.roles) (ne .Values.ingress.ingestRole "identity") }}
+          # Sign-in, token refresh and OAuth callbacks go to the identity role.
+          - path: /api/v1/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "apilens.roleServiceName" (dict "root" . "role" "identity") }}
+                port:
+                  name: http
+          {{- end }}
           - path: /
             pathType: Prefix
             backend:

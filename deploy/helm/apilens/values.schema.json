@@ -50,7 +50,7 @@
     "imagePullSecrets": { "type": "array" },
     "roles": {
       "type": "object",
-      "description": "One Deployment per enabled role. Implemented: all, edge. Others are reserved for upcoming releases.",
+      "description": "One Deployment per enabled role. Implemented: all, edge, identity, api. Others are reserved for upcoming releases.",
       "propertyNames": {
         "enum": ["all", "edge", "writer", "processor", "query", "api", "identity", "saml", "worker", "mcp"]
       },
@@ -93,9 +93,62 @@
         "valkeyPassword": { "type": "string" },
         "sessionSecret": { "type": "string" },
         "identityKeyEncryptionKey": { "type": "string" },
+        "smtpPassword": { "type": "string" },
+        "oauthGoogleClientSecret": { "type": "string" },
+        "oauthGithubClientSecret": { "type": "string" },
         "spicedbPresharedKey": { "type": "string" },
         "spicedbDatastoreUri": { "type": "string" }
       }
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "issuer": { "type": "string", "pattern": "^(https?://.+)?$" },
+        "publicUiUrl": { "type": "string", "pattern": "^(https?://.+)?$" },
+        "cookieDomain": { "type": "string" },
+        "webauthn": {
+          "type": "object",
+          "properties": {
+            "rpId": { "type": "string", "pattern": "^[^:/]*$" },
+            "rpName": { "type": "string" },
+            "origins": { "type": "array", "items": { "type": "string", "pattern": "^https?://.+" } }
+          },
+          "additionalProperties": false
+        },
+        "corsOrigins": { "type": "array", "items": { "type": "string", "pattern": "^https?://.+" } },
+        "trustedProxies": { "type": "array", "items": { "type": "string" } },
+        "oauth": {
+          "type": "object",
+          "properties": {
+            "google": {
+              "type": "object",
+              "properties": { "clientId": { "type": "string" } },
+              "additionalProperties": false
+            },
+            "github": {
+              "type": "object",
+              "properties": { "clientId": { "type": "string" } },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "email": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string", "enum": ["log", "smtp"] },
+        "host": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "username": { "type": "string" },
+        "from": { "type": "string" },
+        "replyTo": { "type": "string" },
+        "tls": { "type": "string", "enum": ["starttls", "tls", "none"] },
+        "timeout": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$" }
+      },
+      "additionalProperties": false
     },
     "authz": {
       "type": "object",

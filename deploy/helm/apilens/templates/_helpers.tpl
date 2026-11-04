@@ -77,10 +77,12 @@ app.kubernetes.io/component: {{ .component }}
 {{- printf "%s-%s" (include "apilens.fullname" .root) .role }}
 {{- end }}
 
-{{/* Backend base URL for the web UI: web.apiUrl, else the ingress.ingestRole Service. */}}
+{{/* Backend base URL for the web UI: web.apiUrl, else the identity role Service when enabled, else the ingress.ingestRole Service. */}}
 {{- define "apilens.webApiUrl" -}}
 {{- if .Values.web.apiUrl }}
 {{- .Values.web.apiUrl }}
+{{- else if (dig "identity" "enabled" false .Values.roles) }}
+{{- printf "http://%s:%v" (include "apilens.roleServiceName" (dict "root" . "role" "identity")) .Values.service.port }}
 {{- else }}
 {{- printf "http://%s:%v" (include "apilens.roleServiceName" (dict "root" . "role" .Values.ingress.ingestRole)) .Values.service.port }}
 {{- end }}
@@ -93,6 +95,80 @@ app.kubernetes.io/component: {{ .component }}
 {{- else if .Values.ingress.webHost }}
 {{- printf "%s://%s" (ternary "https" "http" (not (empty .Values.ingress.tls))) .Values.ingress.webHost }}
 {{- end }}
+{{- end }}
+
+{{/* Role that serves sign-in (identity, else all). Empty when neither is enabled. */}}
+{{- define "apilens.identityRole" -}}
+{{- if (dig "identity" "enabled" false .Values.roles) }}identity
+{{- else if (dig "all" "enabled" false .Values.roles) }}all
+{{- end }}
+{{- end }}
+
+{{/* Token issuer: identity.issuer, else derived from ingress.ingestHost. Empty = binary default. */}}
+{{- define "apilens.identityIssuer" -}}
+{{- if .Values.identity.issuer }}
+{{- .Values.identity.issuer }}
+{{- else if .Values.ingress.ingestHost }}
+{{- printf "%s://%s" (ternary "https" "http" (not (empty .Values.ingress.tls))) .Values.ingress.ingestHost }}
+{{- end }}
+{{- end }}
+
+{{/* Dashboard origin for identity: identity.publicUiUrl, else the web public URL. */}}
+{{- define "apilens.identityPublicUiUrl" -}}
+{{- default (include "apilens.webPublicUrl" .) .Values.identity.publicUiUrl }}
+{{- end }}
+
+{{/* Identity and email settings (APILENS_IDENTITY__*, APILENS_EMAIL__*) as a dict in YAML.
+Keys whose value is empty are left out so the binary defaults apply. */}}
+{{- define "apilens.identityConfig" -}}
+{{- $id := .Values.identity }}
+{{- $email := .Values.email }}
+{{- if and (eq $email.provider "smtp") (or (not $email.host) (not $email.from)) }}
+{{- fail "email.provider=smtp requires email.host and email.from" }}
+{{- end }}
+{{- if not .Values.secrets.existingSecret }}
+{{- if and $id.oauth.google.clientId (not .Values.secrets.oauthGoogleClientSecret) }}
+{{- fail "identity.oauth.google.clientId is set: set secrets.oauthGoogleClientSecret (or the oauth-google-client-secret key of secrets.existingSecret)" }}
+{{- end }}
+{{- if and $id.oauth.github.clientId (not .Values.secrets.oauthGithubClientSecret) }}
+{{- fail "identity.oauth.github.clientId is set: set secrets.oauthGithubClientSecret (or the oauth-github-client-secret key of secrets.existingSecret)" }}
+{{- end }}
+{{- end }}
+{{- $ui := include "apilens.identityPublicUiUrl" . }}
+{{- $origins := $id.webauthn.origins }}
+{{- if and (not $origins) $ui }}
+{{- $origins = list $ui }}
+{{- end }}
+{{- $rpId := $id.webauthn.rpId }}
+{{- if and (not $rpId) $ui }}
+{{- $rpId = (urlParse $ui).host | splitList ":" | first }}
+{{- end }}
+{{- $all := dict
+  "APILENS_IDENTITY__ISSUER" (include "apilens.identityIssuer" .)
+  "APILENS_IDENTITY__PUBLIC_UI_URL" $ui
+  "APILENS_IDENTITY__COOKIE_DOMAIN" $id.cookieDomain
+  "APILENS_IDENTITY__WEBAUTHN__RP_ID" $rpId
+  "APILENS_IDENTITY__WEBAUTHN__RP_NAME" $id.webauthn.rpName
+  "APILENS_IDENTITY__WEBAUTHN__ORIGINS" (join "," $origins)
+  "APILENS_IDENTITY__CORS_ORIGINS" (join "," $id.corsOrigins)
+  "APILENS_IDENTITY__RATE_LIMITS__TRUSTED_PROXIES" (join "," $id.trustedProxies)
+  "APILENS_IDENTITY__OAUTH__GOOGLE__CLIENT_ID" $id.oauth.google.clientId
+  "APILENS_IDENTITY__OAUTH__GITHUB__CLIENT_ID" $id.oauth.github.clientId
+  "APILENS_EMAIL__PROVIDER" $email.provider
+  "APILENS_EMAIL__HOST" $email.host
+  "APILENS_EMAIL__PORT" (toString $email.port)
+  "APILENS_EMAIL__USERNAME" $email.username
+  "APILENS_EMAIL__FROM" $email.from
+  "APILENS_EMAIL__REPLY_TO" $email.replyTo
+  "APILENS_EMAIL__TLS" $email.tls
+  "APILENS_EMAIL__TIMEOUT" (toString $email.timeout) }}
+{{- $out := dict }}
+{{- range $k, $v := $all }}
+{{- if $v }}
+{{- $_ := set $out $k $v }}
+{{- end }}
+{{- end }}
+{{- toYaml $out }}
 {{- end }}
 
 {{/* SpiceDB gRPC address: the in-chart Service when spicedb.enabled, else authz.endpoint (empty = authz disabled). */}}
@@ -123,6 +199,9 @@ Chart-managed keys first; entries in .Values.config override them. */}}
   "APILENS_AUTHZ__ENDPOINT" (include "apilens.authzEndpoint" .)
   "APILENS_AUTHZ__INSECURE" (toString (or .Values.spicedb.enabled .Values.authz.insecure))
   "APILENS_AUTHZ__CACHE_TTL" (toString .Values.authz.cacheTTL) }}
+{{- range $k, $v := (include "apilens.identityConfig" . | fromYaml) }}
+{{- $_ := set $base $k (toString $v) }}
+{{- end }}
 {{- range $k, $v := .Values.config }}
 {{- $_ := set $base $k (toString $v) }}
 {{- end }}
@@ -154,6 +233,24 @@ Chart-managed keys first; entries in .Values.config override them. */}}
     secretKeyRef:
       name: {{ .secretName }}
       key: identity-key-encryption-key
+      optional: true
+- name: APILENS_EMAIL__PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .secretName }}
+      key: smtp-password
+      optional: true
+- name: APILENS_IDENTITY__OAUTH__GOOGLE__CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ .secretName }}
+      key: oauth-google-client-secret
+      optional: true
+- name: APILENS_IDENTITY__OAUTH__GITHUB__CLIENT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ .secretName }}
+      key: oauth-github-client-secret
       optional: true
 - name: APILENS_AUTHZ__PRESHARED_KEY
   valueFrom:
