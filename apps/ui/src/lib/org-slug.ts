@@ -49,21 +49,25 @@ export function parseAvailability(body: unknown): SlugStatus {
 
 /** Milliseconds of quiet typing before the address is checked. */
 export const SLUG_CHECK_DELAY_MS = 300;
-/** Where the browser asks. */
+/** Where the browser asks about an organization address. */
 export const SLUG_CHECK_PATH = "/api/orgs/slug-available";
+/** Where the browser asks about a project address (#331). */
+export const PROJECT_SLUG_CHECK_PATH = "/api/projects/slug-available";
 
 export interface SlugCheckerOptions {
   /** Receives every answer, for the slug most recently passed to `check`. */
   onResult: (slug: string, status: SlugStatus) => void;
   fetch?: typeof fetch;
   delayMs?: number;
+  /** The Route Handler asked; organization addresses by default (projects use `PROJECT_SLUG_CHECK_PATH`). */
+  path?: string;
 }
 
 /**
  * Debounced availability checks. Every `check` (one per keystroke) cancels the pending timer and
  * aborts the request still in flight, so only the latest address is ever answered.
  */
-export function createSlugChecker({ onResult, fetch: doFetch = (...a) => fetch(...a), delayMs = SLUG_CHECK_DELAY_MS }: SlugCheckerOptions) {
+export function createSlugChecker({ onResult, fetch: doFetch = (...a) => fetch(...a), delayMs = SLUG_CHECK_DELAY_MS, path = SLUG_CHECK_PATH }: SlugCheckerOptions) {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let inFlight: AbortController | null = null;
 
@@ -83,7 +87,7 @@ export function createSlugChecker({ onResult, fetch: doFetch = (...a) => fetch(.
       inFlight = ctl;
       let status: SlugStatus;
       try {
-        const res = await doFetch(`${SLUG_CHECK_PATH}?${new URLSearchParams({ slug })}`, {
+        const res = await doFetch(`${path}?${new URLSearchParams({ slug })}`, {
           signal: ctl.signal,
           headers: { Accept: "application/json" },
           cache: "no-store",

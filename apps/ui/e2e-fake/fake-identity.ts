@@ -41,6 +41,10 @@
 //                                                  taken (with free suggestions); `race-lost` is available
 //   POST /api/v1/orgs                              creates an org the user owns (in their context);
 //                                                  slug_taken + suggestions for taken slugs and `race-lost` (#330)
+//   GET  /api/v1/projects/slug-available?slug=     shop, storefront, admin and created project slugs are
+//                                                  taken (with free suggestions); `race-lost` is available
+//   POST /api/v1/orgs/{slug}/projects              creates a project in an org the user belongs to (in their
+//                                                  context; viewers 403); slug_taken as for orgs (#331)
 //   POST /api/v1/users/me/email/change            `taken@example.com` answers email_taken
 //   POST /api/v1/users/me/email/confirm            code 123456 moves the email, anything else invalid_code
 //   DELETE /api/v1/users/me                        owner_transfer_required while the user is acme's only owner
@@ -567,8 +571,20 @@ const TAKEN_ORG_SLUGS = new Set(["acme", "beta", "globex", "admin", "apilens"]);
 const RACE_SLUG = "race-lost";
 const orgSlugTaken = (slug: string) => TAKEN_ORG_SLUGS.has(slug) || createdOrgs.has(slug) || slug === RACE_SLUG;
 const orgSlugSuggestions = (slug: string) => [`${slug}-hq`, `${slug}-2`, `${slug}-team`].filter((s) => !orgSlugTaken(s));
+/** Projects created through `POST /orgs/{slug}/projects` (#331), by slug. */
+const createdProjects = new Map<string, { id: string; slug: string; name: string; environments: string[]; org: string; owner: string }>();
+/** Slugs no new project can use: the seeded projects plus a reserved word. */
+const TAKEN_PROJECT_SLUGS = new Set(["shop", "storefront", "admin"]);
+const projectSlugTaken = (slug: string) => TAKEN_PROJECT_SLUGS.has(slug) || createdProjects.has(slug) || slug === RACE_SLUG;
+const projectSlugSuggestions = (slug: string) => [`${slug}-api`, `${slug}-2`, `${slug}-app`].filter((s) => !projectSlugTaken(s));
+const ENV_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+/** The projects user `id` created in organization `org`, as the context lists them. */
+const createdProjectsOf = (id: string, org: string) =>
+  [...createdProjects.values()]
+    .filter((p) => p.owner === id && p.org === org)
+    .map(({ id: pid, slug, name, environments }) => ({ id: pid, slug, name, environments }));
 const createdOrgsOf = (id: string) =>
-  [...createdOrgs.values()].filter((o) => o.owner === id).map(({ owner: _owner, ...o }) => ({ ...o, projects: [] }));
+  [...createdOrgs.values()].filter((o) => o.owner === id).map(({ owner: _owner, ...o }) => ({ ...o, projects: createdProjectsOf(id, o.slug) }));
 
 /** `GET /users/me/context` for a signed-in fake user: one org with one project (plus globex once invited). */
 function context(id: string) {
@@ -591,7 +607,7 @@ function context(id: string) {
         slug: "acme",
         name: "Acme",
         role,
-        projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"] }],
+        projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"] }, ...createdProjectsOf(id, "acme")],
       },
       ...(joinedGlobex.has(id) ? [GLOBEX] : []),
       ...createdOrgsOf(id),
@@ -972,6 +988,49 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const org = { id: `org_${randomUUID()}`, slug, name: label, role: "owner", owner: user };
     createdOrgs.set(slug, org);
     return send(res, 201, { id: org.id, slug, name: label, role: "owner", created_at: new Date().toISOString() });
+  }
+  if (req.method === "GET" && path === "/api/v1/projects/slug-available") {
+    if (!signedInUser(req)) return problem(res, 401, "unauthenticated");
+    const slug = q.get("slug") ?? "";
+    if (!ORG_SLUG.test(slug)) return problem(res, 422, "invalid_request");
+    const available = !projectSlugTaken(slug) || slug === RACE_SLUG;
+    return send(res, 200, { available, suggestions: available ? [] : projectSlugSuggestions(slug) });
+  }
+  const orgProjects = req.method === "POST" ? path.match(/^\/api\/v1\/orgs\/([^/]+)\/projects$/) : null;
+  if (orgProjects) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const org = context(user).orgs.find((o) => o.slug === orgProjects[1]);
+    if (!org || org.role === "viewer") return problem(res, 403, "forbidden");
+    const { name, slug, environments = ["production"] } = await readBody(req);
+    const label = typeof name === "string" ? name.trim() : "";
+    const envs = Array.isArray(environments) ? [...new Set(environments)] : null;
+    if (
+      !label ||
+      label.length > 100 ||
+      typeof slug !== "string" ||
+      !ORG_SLUG.test(slug) ||
+      !envs ||
+      envs.length > 20 ||
+      !envs.every((e) => typeof e === "string" && ENV_NAME.test(e))
+    ) {
+      return problem(res, 422, "invalid_request");
+    }
+    if (projectSlugTaken(slug)) {
+      return send(res, 409, { status: 409, title: "slug_taken", code: "slug_taken", suggestions: projectSlugSuggestions(slug) }, "application/problem+json");
+    }
+    const project = { id: `prj_${randomUUID()}`, slug, name: label, environments: (envs as string[]).toSorted(), org: org.slug, owner: user };
+    createdProjects.set(slug, project);
+    return send(res, 201, {
+      id: project.id,
+      slug,
+      name: label,
+      org_id: org.id,
+      org_slug: org.slug,
+      role: org.role,
+      environments: project.environments,
+      created_at: new Date().toISOString(),
+    });
   }
   const ssoPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/sso(\/test)?$/);
   if (ssoPath) return orgSSO(req, res, ssoPath[1], ssoPath[2] !== undefined);
