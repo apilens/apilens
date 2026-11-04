@@ -50,6 +50,8 @@ type Querier interface {
 	GetOrgMember(ctx context.Context, arg GetOrgMemberParams) (GetOrgMemberRow, error)
 	GetOrganizationBySlug(ctx context.Context, slug string) (Organization, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
+	// The email of an active user and when it was verified (NULL when not).
+	GetUserEmail(ctx context.Context, id uuid.UUID) (GetUserEmailRow, error)
 	// Transactional outbox (ADR 0006): called only through
 	// internal/controlplane/outbox.Emit, in the same transaction as the change
 	// the row describes. The relay (#291) reads rows in id order.
@@ -57,6 +59,10 @@ type Querier interface {
 	// Active organizations with domain join on for the (lower-case) email
 	// domain that the user is not already a member of.
 	ListJoinableOrganizations(ctx context.Context, arg ListJoinableOrganizationsParams) ([]ListJoinableOrganizationsRow, error)
+	// ListJoinableOrganizations with the number of active projects and
+	// (non-deleted) members of each, and the display names (name, or email when
+	// the name is blank) of up to three members, owners first then oldest.
+	ListJoinableOrganizationsWithCounts(ctx context.Context, arg ListJoinableOrganizationsWithCountsParams) ([]ListJoinableOrganizationsWithCountsRow, error)
 	ListOrgMembers(ctx context.Context, orgID uuid.UUID) ([]ListOrgMembersRow, error)
 	ListPendingInvitations(ctx context.Context, orgID uuid.UUID) ([]Invitation, error)
 	ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppsRow, error)
@@ -78,6 +84,9 @@ type Querier interface {
 	// Membership writes that could remove the last owner take this lock first,
 	// then check CountOrgOwners (the last-owner rule lives in the service layer).
 	LockOrganization(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	// An active organization by slug, row-locked for the rest of the
+	// transaction.
+	LockOrganizationBySlug(ctx context.Context, slug string) (Organization, error)
 	// Serialises relay passes across processes for the rest of the transaction,
 	// so rows are applied to SpiceDB strictly in id order.
 	LockOutboxRelay(ctx context.Context, lockKey int64) error

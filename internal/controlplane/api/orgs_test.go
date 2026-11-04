@@ -58,6 +58,17 @@ func (f *fakeOrgs) Update(ctx context.Context, user uuid.UUID, slug string, u or
 
 func (f *fakeOrgs) Delete(context.Context, uuid.UUID, string) error { return f.err }
 
+func (f *fakeOrgs) Joinable(context.Context, uuid.UUID) ([]orgs.Joinable, error) {
+	return nil, f.err
+}
+
+func (f *fakeOrgs) Join(_ context.Context, _ uuid.UUID, slug string) (orgs.Org, bool, error) {
+	if f.err != nil {
+		return orgs.Org{}, false, f.err
+	}
+	return orgs.Org{ID: uuid.New(), Slug: slug, Name: "Acme", Role: orgs.RoleMember, CreatedAt: time.Now()}, true, nil
+}
+
 func newOrgsAPI(t *testing.T, svc OrgService, user uuid.UUID) humatest.TestAPI {
 	t.Helper()
 	_, api := humatest.New(t)
@@ -154,6 +165,7 @@ func TestOrgErrors(t *testing.T) {
 			api.Get(OrgsPath + "/acme"),
 			api.Patch(OrgsPath+"/acme", map[string]any{"name": "Acme"}),
 			api.Delete(OrgsPath + "/acme"),
+			api.Post(OrgsPath + "/acme/join"),
 		} {
 			var p struct {
 				Code string `json:"code"`
@@ -196,9 +208,30 @@ func TestOrgOpsRequireUser(t *testing.T) {
 		api.Get(OrgsPath + "/acme"),
 		api.Patch(OrgsPath+"/acme", map[string]any{"name": "Acme"}),
 		api.Delete(OrgsPath + "/acme"),
+		api.Get(JoinableOrgsPath),
+		api.Post(OrgsPath + "/acme/join"),
 	} {
 		if resp.Code != http.StatusUnauthorized {
 			t.Errorf("status = %d: %s", resp.Code, resp.Body)
 		}
+	}
+}
+
+func TestJoinableOrgsEmptyIsArray(t *testing.T) {
+	resp := newOrgsAPI(t, &fakeOrgs{}, uuid.New()).Get(JoinableOrgsPath)
+	if resp.Code != http.StatusOK || strings.TrimSpace(resp.Body.String()) != "[]" {
+		t.Fatalf("joinable: %d %s", resp.Code, resp.Body)
+	}
+	resp = newOrgsAPI(t, &fakeOrgs{err: orgs.ErrUserGone}, uuid.New()).Get(JoinableOrgsPath)
+	if resp.Code != http.StatusUnauthorized || !strings.Contains(resp.Body.String(), "session_expired") {
+		t.Fatalf("user gone: %d %s", resp.Code, resp.Body)
+	}
+}
+
+func TestJoinOrgReturnsOrg(t *testing.T) {
+	resp := newOrgsAPI(t, &fakeOrgs{}, uuid.New()).Post(OrgsPath + "/acme/join")
+	var o Org
+	if err := json.Unmarshal(resp.Body.Bytes(), &o); resp.Code != http.StatusOK || err != nil || o.Slug != "acme" || o.Role != "member" {
+		t.Fatalf("join: %d %s", resp.Code, resp.Body)
 	}
 }

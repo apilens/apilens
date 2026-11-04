@@ -70,3 +70,44 @@ func TestCanManage(t *testing.T) {
 		}
 	}
 }
+
+func TestJoinDomain(t *testing.T) {
+	for email, want := range map[string]string{
+		"ada@acme.com":        "acme.com",
+		"Ada@EU.Acme.co.uk":   "eu.acme.co.uk",
+		"a@b@acme.io":         "acme.io",
+		"ada@gmail.com":       "",
+		"ada@outlook.com":     "",
+		"ada@googlemail.com":  "",
+		"ada@yahoo.co.uk":     "",
+		"ada@acme":            "",
+		"ada":                 "",
+		"ada@":                "",
+		"ada@acme.com.":       "acme.com",
+		"ada@[203.0.113.7]":   "",
+		"ada@proton.me":       "",
+		"ada@example.com":     "example.com",
+		"ada@sub.example.com": "sub.example.com",
+	} {
+		if got := JoinDomain(email); got != want {
+			t.Errorf("JoinDomain(%q) = %q, want %q", email, got, want)
+		}
+	}
+}
+
+func TestInitials(t *testing.T) {
+	for in, want := range map[string]string{
+		"Ada Lovelace":          "AL",
+		"ada":                   "A",
+		"Grace Brewster Hopper": "GH",
+		"  émile   zola ":       "ÉZ",
+		"ada.lovelace@acme.com": "AL",
+		"bob@acme.com":          "B",
+		"":                      "",
+		"--":                    "",
+	} {
+		if got := Initials(in); got != want {
+			t.Errorf("Initials(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

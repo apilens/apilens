@@ -107,6 +107,24 @@ func (q *Queries) GetOrganizationBySlug(ctx context.Context, slug string) (Organ
 	return i, err
 }
 
+const getUserEmail = `-- name: GetUserEmail :one
+SELECT email::text AS email, email_verified_at FROM users
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+type GetUserEmailRow struct {
+	Email           string
+	EmailVerifiedAt *time.Time
+}
+
+// The email of an active user and when it was verified (NULL when not).
+func (q *Queries) GetUserEmail(ctx context.Context, id uuid.UUID) (GetUserEmailRow, error) {
+	row := q.db.QueryRow(ctx, getUserEmail, id)
+	var i GetUserEmailRow
+	err := row.Scan(&i.Email, &i.EmailVerifiedAt)
+	return i, err
+}
+
 const listJoinableOrganizations = `-- name: ListJoinableOrganizations :many
 SELECT o.id, o.slug, o.name, o.created_at
 FROM organizations o
@@ -147,6 +165,77 @@ func (q *Queries) ListJoinableOrganizations(ctx context.Context, arg ListJoinabl
 			&i.Slug,
 			&i.Name,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listJoinableOrganizationsWithCounts = `-- name: ListJoinableOrganizationsWithCounts :many
+SELECT o.id, o.slug, o.name, o.created_at,
+       (SELECT count(*) FROM projects p
+        WHERE p.org_id = o.id AND p.deleted_at IS NULL)::bigint AS project_count,
+       (SELECT count(*) FROM memberships mm
+        JOIN users u ON u.id = mm.user_id
+        WHERE mm.org_id = o.id AND u.deleted_at IS NULL)::bigint AS member_count,
+       coalesce((SELECT array_agg(f.display ORDER BY f.ord)
+                 FROM (SELECT coalesce(nullif(btrim(u.name), ''), u.email::text) AS display,
+                              row_number() OVER (ORDER BY mm.role = 'owner' DESC, mm.created_at, u.id) AS ord
+                       FROM memberships mm
+                       JOIN users u ON u.id = mm.user_id
+                       WHERE mm.org_id = o.id AND u.deleted_at IS NULL
+                       ORDER BY ord
+                       LIMIT 3) f), '{}')::text[] AS member_names
+FROM organizations o
+WHERE o.domain_join
+  AND o.deleted_at IS NULL
+  AND o.allowed_domains @> ARRAY[$1::text]
+  AND NOT EXISTS (
+      SELECT 1 FROM memberships m WHERE m.org_id = o.id AND m.user_id = $2
+  )
+ORDER BY o.name, o.slug
+`
+
+type ListJoinableOrganizationsWithCountsParams struct {
+	Domain string
+	UserID uuid.UUID
+}
+
+type ListJoinableOrganizationsWithCountsRow struct {
+	ID           uuid.UUID
+	Slug         string
+	Name         string
+	CreatedAt    time.Time
+	ProjectCount int64
+	MemberCount  int64
+	MemberNames  []string
+}
+
+// ListJoinableOrganizations with the number of active projects and
+// (non-deleted) members of each, and the display names (name, or email when
+// the name is blank) of up to three members, owners first then oldest.
+func (q *Queries) ListJoinableOrganizationsWithCounts(ctx context.Context, arg ListJoinableOrganizationsWithCountsParams) ([]ListJoinableOrganizationsWithCountsRow, error) {
+	rows, err := q.db.Query(ctx, listJoinableOrganizationsWithCounts, arg.Domain, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListJoinableOrganizationsWithCountsRow{}
+	for rows.Next() {
+		var i ListJoinableOrganizationsWithCountsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.CreatedAt,
+			&i.ProjectCount,
+			&i.MemberCount,
+			&i.MemberNames,
 		); err != nil {
 			return nil, err
 		}
@@ -308,6 +397,30 @@ func (q *Queries) LockOrganization(ctx context.Context, id uuid.UUID) (uuid.UUID
 	var id_2 uuid.UUID
 	err := row.Scan(&id_2)
 	return id_2, err
+}
+
+const lockOrganizationBySlug = `-- name: LockOrganizationBySlug :one
+SELECT id, slug, name, created_at, deleted_at, allowed_domains, domain_join, created_by FROM organizations
+WHERE slug = $1 AND deleted_at IS NULL
+FOR UPDATE
+`
+
+// An active organization by slug, row-locked for the rest of the
+// transaction.
+func (q *Queries) LockOrganizationBySlug(ctx context.Context, slug string) (Organization, error) {
+	row := q.db.QueryRow(ctx, lockOrganizationBySlug, slug)
+	var i Organization
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.CreatedAt,
+		&i.DeletedAt,
+		&i.AllowedDomains,
+		&i.DomainJoin,
+		&i.CreatedBy,
+	)
+	return i, err
 }
 
 const organizationSlugTaken = `-- name: OrganizationSlugTaken :one

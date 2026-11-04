@@ -22,6 +22,8 @@ const (
 	OrgsPath          = server.APIPrefix + "/orgs"
 	SlugAvailablePath = OrgsPath + "/slug-available"
 	OrgPath           = OrgsPath + "/{slug}"
+	JoinOrgPath       = OrgPath + "/join"
+	JoinableOrgsPath  = server.APIPrefix + "/users/me/joinable-orgs"
 )
 
 // OrgService creates, reads, updates and deletes organizations and checks
@@ -33,6 +35,8 @@ type OrgService interface {
 	Get(ctx context.Context, user uuid.UUID, slug string) (orgs.Detail, error)
 	Update(ctx context.Context, user uuid.UUID, slug string, u orgs.Update) (orgs.Detail, error)
 	Delete(ctx context.Context, user uuid.UUID, slug string) error
+	Joinable(ctx context.Context, user uuid.UUID) ([]orgs.Joinable, error)
+	Join(ctx context.Context, user uuid.UUID, slug string) (orgs.Org, bool, error)
 }
 
 // Org is an organization as seen by the signed-in user.
@@ -86,6 +90,30 @@ type UpdateOrgInput struct {
 		AllowedDomains *[]string `json:"allowed_domains,omitempty" maxItems:"50" doc:"Replaces the allowed email domains: lower-case hostnames, not public email providers (domain_not_allowed). Duplicates are dropped."`
 		DomainJoin     *bool     `json:"domain_join,omitempty" doc:"Whether users with a verified email at an allowed domain may join without an invitation."`
 	}
+}
+
+// JoinableOrg is an item of GET /api/v1/users/me/joinable-orgs.
+type JoinableOrg struct {
+	ID             string   `json:"id" format:"uuid"`
+	Slug           string   `json:"slug"`
+	Name           string   `json:"name"`
+	MemberCount    int64    `json:"member_count" minimum:"0" doc:"Members of the organization."`
+	ProjectCount   int64    `json:"project_count" minimum:"0" doc:"Active projects in the organization."`
+	MemberInitials []string `json:"member_initials" maxItems:"3" doc:"Initials of up to three members, owners first."`
+}
+
+// ListJoinableOrgsInput is the request of GET /api/v1/users/me/joinable-orgs.
+type ListJoinableOrgsInput struct{}
+
+// ListJoinableOrgsOutput is the response of GET
+// /api/v1/users/me/joinable-orgs.
+type ListJoinableOrgsOutput struct {
+	Body []JoinableOrg
+}
+
+// JoinOrgOutput is the response of POST /api/v1/orgs/{slug}/join.
+type JoinOrgOutput struct {
+	Body Org
 }
 
 // CreateOrgInput is the request of POST /api/v1/orgs.
@@ -196,6 +224,28 @@ func (o *Orgs) Register(api huma.API) {
 		Tags:          []string{server.TagOrganizations},
 		Security:      security,
 	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), o.delete)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "list-joinable-orgs",
+		Method:      http.MethodGet,
+		Path:        JoinableOrgsPath,
+		Summary:     "List organizations I can join",
+		Description: "Lists the active organizations the signed-in user is not a member of that have domain join on and list the domain of the user's verified email among their allowed domains, ordered by name. " +
+			"An unverified email or one at a public email provider (gmail.com, outlook.com…) matches none.",
+		Tags:     []string{server.TagOrganizations},
+		Security: security,
+	}, identity.CodeUnauthenticated, identity.CodeSessionExpired, identity.CodeInternal), o.joinable)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "join-org",
+		Method:      http.MethodPost,
+		Path:        JoinOrgPath,
+		Summary:     "Join an organization by verified email domain",
+		Description: "Makes the signed-in user a `member` of the organization when it has domain join on and lists the domain of the user's verified email among its allowed domains, and returns the organization with the user's role. " +
+			"Answers `forbidden` (403) otherwise, and for an organization that does not exist. Idempotent: a user who already belongs to it gets it back with their current role and nothing changes. Audited as `member.joined`.",
+		Tags:     []string{server.TagOrganizations},
+		Security: security,
+	}, identity.CodeUnauthenticated, identity.CodeSessionExpired, identity.CodeForbidden, identity.CodeInternal), o.join)
 }
 
 // userKey keys a per-user rate limit by the signed-in user.
@@ -267,6 +317,8 @@ func (o *Orgs) orgProblem(ctx context.Context, op string, err error) error {
 		return identity.Err(identity.CodeDomainNotAllowed)
 	case errors.Is(err, orgs.ErrInvalid):
 		return identity.Err(identity.CodeInvalidRequest)
+	case errors.Is(err, orgs.ErrUserGone):
+		return identity.Err(identity.CodeSessionExpired)
 	default:
 		o.logger.ErrorContext(ctx, op, "error", err)
 		return identity.Err(identity.CodeInternal)
@@ -327,6 +379,41 @@ func (o *Orgs) delete(ctx context.Context, in *OrgSlugInput) (*struct{}, error) 
 		return nil, o.orgProblem(ctx, "delete organization", err)
 	}
 	return nil, nil
+}
+
+func (o *Orgs) joinable(ctx context.Context, _ *ListJoinableOrgsInput) (*ListJoinableOrgsOutput, error) {
+	uid, err := signedInUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	list, err := o.svc.Joinable(ctx, uid)
+	if err != nil {
+		return nil, o.orgProblem(ctx, "list joinable organizations", err)
+	}
+	out := &ListJoinableOrgsOutput{Body: make([]JoinableOrg, 0, len(list))}
+	for _, j := range list {
+		initials := j.MemberInitials
+		if initials == nil {
+			initials = []string{}
+		}
+		out.Body = append(out.Body, JoinableOrg{
+			ID: j.ID.String(), Slug: j.Slug, Name: j.Name,
+			MemberCount: j.MemberCount, ProjectCount: j.ProjectCount, MemberInitials: initials,
+		})
+	}
+	return out, nil
+}
+
+func (o *Orgs) join(ctx context.Context, in *OrgSlugInput) (*JoinOrgOutput, error) {
+	uid, err := signedInUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	org, _, err := o.svc.Join(ctx, uid, in.Slug)
+	if err != nil {
+		return nil, o.orgProblem(ctx, "join organization", err)
+	}
+	return &JoinOrgOutput{Body: toOrg(org)}, nil
 }
 
 func (o *Orgs) slugAvailable(ctx context.Context, in *SlugAvailableInput) (*SlugAvailableOutput, error) {
