@@ -1,0 +1,16 @@
+Subject: Account recovery was requested for your APILens account
+
+APILens
+
+Someone asked to recover your APILens account because they lost access to their two-factor device.
+
+IP address: 198.51.100.4
+Time: Wed, 4 Nov 2026 09:30 UTC
+
+For your safety, recovery waits until Thu, 5 Nov 2026 09:30 UTC. After that, we will email you a link to turn off two-factor authentication and sign in.
+
+If you did not ask for this, cancel the request now:
+https://app.example.com/auth/recovery/cancel?token=rec_1a2b3c
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.

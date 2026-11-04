@@ -1,0 +1,15 @@
+{{- /* Data: code (6 digits), token (magic link token), expires_in ("10 minutes"). */ -}}
+{{define "subject"}}Your APILens sign-in code is {{.code}}{{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+Use this code to sign in to APILens:
+
+    {{.code}}
+
+Or open this link to sign in on this device:
+{{link "/verify" "token" .token}}
+
+The code and the link expire in {{.expires_in}} and work once.
+
+If you did not try to sign in, ignore this email. Nobody can sign in without the code or the link.
+{{- end}}

@@ -1,0 +1,17 @@
+Subject: New sign-in to your APILens account
+
+APILens
+
+Your APILens account was signed in to from a device we have not seen before.
+
+Device: Firefox on macOS
+IP address: 203.0.113.7
+Time: Wed, 4 Nov 2026 09:30 UTC
+
+If this was you, there is nothing to do.
+
+Not you? Sign out that session and check your security settings:
+https://app.example.com/settings/sessions
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.

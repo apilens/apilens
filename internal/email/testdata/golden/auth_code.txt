@@ -1,0 +1,17 @@
+Subject: Your APILens sign-in code is 482913
+
+APILens
+
+Use this code to sign in to APILens:
+
+    482913
+
+Or open this link to sign in on this device:
+https://app.example.com/verify?token=tok_abc-123%2Fxyz
+
+The code and the link expire in 10 minutes and work once.
+
+If you did not try to sign in, ignore this email. Nobody can sign in without the code or the link.
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.

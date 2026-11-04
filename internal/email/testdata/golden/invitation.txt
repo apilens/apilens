@@ -1,0 +1,15 @@
+Subject: Ada Lovelace invited you to join Acme <Labs> on APILens
+
+APILens
+
+Ada Lovelace invited you to join the Acme <Labs> organization on APILens with the member role.
+
+Accept the invitation:
+https://app.example.com/invite/inv_9f8e7d
+
+The invitation expires on 11 November 2026.
+
+If you were not expecting this invitation, you can ignore this email.
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.

@@ -1,0 +1,13 @@
+{{- /* Data: org, inviter, role, token, expires_at. */ -}}
+{{define "subject"}}{{.inviter}} invited you to join {{.org}} on APILens{{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+{{.inviter}} invited you to join the {{.org}} organization on APILens with the {{.role}} role.
+
+Accept the invitation:
+{{link (print "/invite/" (seg .token))}}
+
+The invitation expires on {{date .expires_at}}.
+
+If you were not expecting this invitation, you can ignore this email.
+{{- end}}

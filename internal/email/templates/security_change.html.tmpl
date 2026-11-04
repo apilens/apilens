@@ -1,0 +1,12 @@
+{{template "layout" .}}
+{{- define "content" -}}
+<p style="margin:0 0 16px 0;">{{(security .change).Summary}}</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Device</td><td style="padding:2px 0;">{{.device}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">IP address</td><td style="padding:2px 0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">{{.ip}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Time</td><td style="padding:2px 0;">{{datetime .time}}</td></tr>
+</table>
+<p style="margin:0 0 16px 0;">If you made this change, there is nothing to do.</p>
+<p style="margin:0 0 24px 0;"><strong>Not you?</strong> Sign out every session and review your security settings now.</p>
+<p style="margin:0;"><a class="button" href="{{link "/settings/security"}}" style="display:inline-block;padding:10px 20px;border-radius:6px;background:#5b4bff;color:#ffffff;font-weight:600;text-decoration:none;">Review security settings</a></p>
+{{- end}}

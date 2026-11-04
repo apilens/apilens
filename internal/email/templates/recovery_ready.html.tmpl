@@ -1,0 +1,7 @@
+{{template "layout" .}}
+{{- define "content" -}}
+<p style="margin:0 0 24px 0;">The waiting period for your account recovery has ended. You can now turn off two-factor authentication and sign in.</p>
+<p style="margin:0 0 24px 0;"><a class="button" href="{{link "/auth/recovery/status" "token" .token}}" style="display:inline-block;padding:10px 20px;border-radius:6px;background:#5b4bff;color:#ffffff;font-weight:600;text-decoration:none;">Finish recovery</a></p>
+<p class="muted" style="margin:0 0 16px 0;color:#556070;">Completing recovery signs out every other session. Set up two-factor authentication again afterwards.</p>
+<p style="margin:0;"><strong>Did not ask for this?</strong> <a href="{{link "/auth/recovery/cancel" "token" .token}}" style="color:#4a3ae6;">Cancel the request</a>.</p>
+{{- end}}

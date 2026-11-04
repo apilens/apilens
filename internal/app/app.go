@@ -302,7 +302,7 @@ func newKeyManager(pool *pgxpool.Pool, cfg *config.Config, logger *slog.Logger) 
 // registerEmailWorker registers the email.send worker with the configured
 // provider. Other roles only enqueue.
 func (a *App) registerEmailWorker() error {
-	renderer, err := email.DefaultRenderer()
+	renderer, err := email.DefaultRenderer(email.WithPublicUIURL(a.cfg.Identity.PublicUIURL))
 	if err != nil {
 		return err
 	}

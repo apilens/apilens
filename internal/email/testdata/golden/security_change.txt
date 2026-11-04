@@ -1,0 +1,17 @@
+Subject: A passkey was added to your APILens account
+
+APILens
+
+A new passkey was added to your APILens account. It can now be used to sign in.
+
+Device: Safari on iOS
+IP address: 2001:db8::1
+Time: Wed, 4 Nov 2026 09:30 UTC
+
+If you made this change, there is nothing to do.
+
+Not you? Sign out every session and review your security settings now:
+https://app.example.com/settings/security
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.
