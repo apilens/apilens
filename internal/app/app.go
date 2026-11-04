@@ -25,6 +25,7 @@ import (
 	"github.com/apilens/apilens/internal/controlplane/catalog"
 	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/controlplane/outbox"
+	"github.com/apilens/apilens/internal/controlplane/projects"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/email"
 	"github.com/apilens/apilens/internal/identity"
@@ -338,11 +339,12 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 	}
 	orgService := orgs.New(a.pool, audit.New(a.pool))
 	controlplaneapi.Register(a.server.API(), controlplaneapi.Deps{
-		Orgs:    orgService,
-		Members: orgService,
-		Limiter: limiter,
-		Limits:  a.cfg.Identity.RateLimits,
-		Logger:  a.logger,
+		Orgs:     orgService,
+		Members:  orgService,
+		Projects: projects.New(a.pool),
+		Limiter:  limiter,
+		Limits:   a.cfg.Identity.RateLimits,
+		Logger:   a.logger,
 	})
 	return nil, nil
 }

@@ -193,12 +193,23 @@ func (s *Service) Available(ctx context.Context, slug string) (bool, []string, e
 // random suffixes. A suggestion can still be taken by the time it is used;
 // Create answers that with fresh suggestions.
 func (s *Service) Suggest(ctx context.Context, slug string) ([]string, error) {
-	q := db.New(s.pool)
+	out, err := SuggestSlugs(ctx, slug, db.New(s.pool).TakenOrganizationSlugs)
+	if err != nil {
+		return nil, fmt.Errorf("orgs: suggest slugs: %w", err)
+	}
+	return out, nil
+}
+
+// SuggestSlugs returns up to MaxSuggestions valid, unreserved slugs derived
+// from slug that used does not report as taken: slug-2, slug-3, … first,
+// then random suffixes. used returns which of the candidates are in use.
+// Projects share it with organizations.
+func SuggestSlugs(ctx context.Context, slug string, used func(context.Context, []string) ([]string, error)) ([]string, error) {
 	out := []string{}
 	for _, candidates := range [][]string{numbered(slug), randomized(slug)} {
-		taken, err := q.TakenOrganizationSlugs(ctx, candidates)
+		taken, err := used(ctx, candidates)
 		if err != nil {
-			return nil, fmt.Errorf("orgs: suggest slugs: %w", err)
+			return nil, err
 		}
 		for _, c := range candidates {
 			if len(out) == MaxSuggestions {
