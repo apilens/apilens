@@ -5768,7 +5768,7 @@
     },
     "/api/v1/orgs/{slug}": {
       "delete": {
-        "description": "Soft-deletes the organization; its members lose access to it and its projects, and its slug becomes free. Owners only (403 `forbidden` otherwise, and for an organization the user is not a member of). Audited as `org.deleted`.",
+        "description": "Soft-deletes the organization; its members lose access to it and its projects, and its slug becomes free. Owners only (403 `forbidden` otherwise, 404 `not_found` for an organization the user cannot view). Audited as `org.deleted`.",
         "operationId": "delete-org",
         "parameters": [
           {
@@ -5813,6 +5813,19 @@
               "forbidden"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -5824,6 +5837,19 @@
             "description": "Internal Server Error. Codes: `internal_error`.",
             "x-apilens-codes": [
               "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
             ]
           }
         },
@@ -5838,7 +5864,7 @@
         ]
       },
       "get": {
-        "description": "Returns the organization and the signed-in user's role in it. Answers `forbidden` (403) when it does not exist or the user is not a member, so the two cannot be told apart.",
+        "description": "Returns the organization and the signed-in user's role in it. Needs `view`; answers `not_found` (404) when it does not exist or the user cannot view it, so the two cannot be told apart.",
         "operationId": "get-org",
         "parameters": [
           {
@@ -5877,7 +5903,7 @@
               "unauthenticated"
             ]
           },
-          "403": {
+          "404": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -5885,9 +5911,9 @@
                 }
               }
             },
-            "description": "Forbidden. Codes: `forbidden`.",
+            "description": "Not Found. Codes: `not_found`.",
             "x-apilens-codes": [
-              "forbidden"
+              "not_found"
             ]
           },
           "500": {
@@ -5902,6 +5928,19 @@
             "x-apilens-codes": [
               "internal_error"
             ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
           }
         },
         "security": [
@@ -5915,7 +5954,7 @@
         ]
       },
       "patch": {
-        "description": "Changes the name, allowed email domains or domain join of the organization. Owners and admins only (403 `forbidden` otherwise, and for an organization the user is not a member of). A public email domain answers `domain_not_allowed`; a slug other than the current one answers `slug_immutable`. Audited as `org.updated`.",
+        "description": "Changes the name, allowed email domains or domain join of the organization. Needs `manage` (owners and admins; 403 `forbidden` otherwise, 404 `not_found` for an organization the user cannot view). A public email domain answers `domain_not_allowed`; a slug other than the current one answers `slug_immutable`. Audited as `org.updated`.",
         "operationId": "update-org",
         "parameters": [
           {
@@ -5991,6 +6030,19 @@
               "forbidden"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "409": {
             "content": {
               "application/problem+json": {
@@ -6015,6 +6067,19 @@
             "description": "Internal Server Error. Codes: `internal_error`.",
             "x-apilens-codes": [
               "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
             ]
           }
         },
@@ -6111,7 +6176,7 @@
     },
     "/api/v1/orgs/{slug}/leave": {
       "post": {
-        "description": "Removes the signed-in user from the organization. The last owner cannot leave (`last_owner`): transfer ownership or delete the organization first. Audited as `member.removed`.",
+        "description": "Removes the signed-in user from the organization. Needs `view` (any member; 404 `not_found` otherwise). The last owner cannot leave (`last_owner`): transfer ownership or delete the organization first. Audited as `member.removed`.",
         "operationId": "leave-org",
         "parameters": [
           {
@@ -6143,7 +6208,7 @@
               "unauthenticated"
             ]
           },
-          "403": {
+          "404": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -6151,9 +6216,9 @@
                 }
               }
             },
-            "description": "Forbidden. Codes: `forbidden`.",
+            "description": "Not Found. Codes: `not_found`.",
             "x-apilens-codes": [
-              "forbidden"
+              "not_found"
             ]
           },
           "409": {
@@ -6181,6 +6246,19 @@
             "x-apilens-codes": [
               "internal_error"
             ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
           }
         },
         "security": [
@@ -6196,7 +6274,7 @@
     },
     "/api/v1/orgs/{slug}/members": {
       "get": {
-        "description": "Lists the members of the organization with their user, role, when they joined and when they last signed in, oldest member first. Any member may list them; 403 `forbidden` for an organization the user is not a member of.",
+        "description": "Lists the members of the organization with their user, role, when they joined and when they last signed in, oldest member first. Needs `view` (any member); 404 `not_found` for an organization the user cannot view.",
         "operationId": "list-org-members",
         "parameters": [
           {
@@ -6241,7 +6319,7 @@
               "unauthenticated"
             ]
           },
-          "403": {
+          "404": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -6249,9 +6327,9 @@
                 }
               }
             },
-            "description": "Forbidden. Codes: `forbidden`.",
+            "description": "Not Found. Codes: `not_found`.",
             "x-apilens-codes": [
-              "forbidden"
+              "not_found"
             ]
           },
           "500": {
@@ -6265,6 +6343,19 @@
             "description": "Internal Server Error. Codes: `internal_error`.",
             "x-apilens-codes": [
               "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
             ]
           }
         },
@@ -6281,7 +6372,7 @@
     },
     "/api/v1/orgs/{slug}/members/{user_id}": {
       "delete": {
-        "description": "Removes the member from the organization. Owners and admins only; only owners can remove an owner (403 `forbidden`). Removing the last owner answers `last_owner`; a user who is not a member answers `member_gone`. Audited as `member.removed`.",
+        "description": "Removes the member from the organization. Needs `manage_members` (owners and admins); only owners can remove an owner (403 `forbidden`). Removing the last owner answers `last_owner`; a user who is not a member answers `member_gone`. Audited as `member.removed`.",
         "operationId": "remove-org-member",
         "parameters": [
           {
@@ -6337,6 +6428,19 @@
               "forbidden"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "409": {
             "content": {
               "application/problem+json": {
@@ -6375,6 +6479,19 @@
             "x-apilens-codes": [
               "internal_error"
             ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
           }
         },
         "security": [
@@ -6388,7 +6505,7 @@
         ]
       },
       "patch": {
-        "description": "Sets the member's role. Owners and admins only; only owners can make someone an owner or change an owner's role (403 `forbidden`). Demoting the last owner answers `last_owner`; a user who is not a member answers `member_gone`. Audited as `member.role_changed`.",
+        "description": "Sets the member's role. Needs `manage_members` (owners and admins); only owners can make someone an owner or change an owner's role (403 `forbidden`). Demoting the last owner answers `last_owner`; a user who is not a member answers `member_gone`. Audited as `member.role_changed`.",
         "operationId": "change-org-member-role",
         "parameters": [
           {
@@ -6461,6 +6578,19 @@
               "forbidden"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "409": {
             "content": {
               "application/problem+json": {
@@ -6498,6 +6628,19 @@
             "description": "Internal Server Error. Codes: `internal_error`.",
             "x-apilens-codes": [
               "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
             ]
           }
         },
@@ -6712,7 +6855,7 @@
     },
     "/api/v1/orgs/{slug}/transfer-ownership": {
       "post": {
-        "description": "Makes the member an owner and the signed-in owner an admin, in one step. Owners only (403 `forbidden`). A user who is not a member answers `member_gone`; transferring to oneself answers `invalid_request`. Audited as `member.role_changed` for each member whose role changes.",
+        "description": "Makes the member an owner and the signed-in owner an admin, in one step. Owners only (403 `forbidden`; 404 `not_found` for an organization the user cannot view). A user who is not a member answers `member_gone`; transferring to oneself answers `invalid_request`. Audited as `member.role_changed` for each member whose role changes.",
         "operationId": "transfer-org-ownership",
         "parameters": [
           {
@@ -6780,6 +6923,19 @@
               "forbidden"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "410": {
             "content": {
               "application/problem+json": {
@@ -6804,6 +6960,19 @@
             "description": "Internal Server Error. Codes: `internal_error`.",
             "x-apilens-codes": [
               "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
             ]
           }
         },

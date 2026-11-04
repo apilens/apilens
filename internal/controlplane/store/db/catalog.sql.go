@@ -75,6 +75,27 @@ func (q *Queries) ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]L
 	return items, nil
 }
 
+const resolveProjectSlug = `-- name: ResolveProjectSlug :one
+SELECT p.id, p.org_id
+FROM projects p
+JOIN organizations o ON o.id = p.org_id
+WHERE p.slug = $1 AND p.deleted_at IS NULL AND o.deleted_at IS NULL
+`
+
+type ResolveProjectSlugRow struct {
+	ID    uuid.UUID
+	OrgID uuid.UUID
+}
+
+// Resolves an active project slug (globally unique) to its id and its
+// active organization, for authorization of /…/{project} paths.
+func (q *Queries) ResolveProjectSlug(ctx context.Context, slug string) (ResolveProjectSlugRow, error) {
+	row := q.db.QueryRow(ctx, resolveProjectSlug, slug)
+	var i ResolveProjectSlugRow
+	err := row.Scan(&i.ID, &i.OrgID)
+	return i, err
+}
+
 const upsertApp = `-- name: UpsertApp :one
 INSERT INTO apps (id, project_id, slug, name, framework)
 VALUES ($1, $2, $3, $4, $5)

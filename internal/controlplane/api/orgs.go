@@ -10,6 +10,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 
+	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/platform/authn"
@@ -145,15 +146,17 @@ type SlugAvailableOutput struct {
 // Orgs serves the organization endpoints.
 type Orgs struct {
 	svc       OrgService
+	guard     *authz.Guard
 	limiter   *ratelimit.Limiter
 	slugCheck ratelimit.Rate
 	logger    *slog.Logger
 }
 
-// NewOrgs returns the organization endpoints over svc. limiter enforces
-// slugCheck per user on the slug availability check.
-func NewOrgs(svc OrgService, limiter *ratelimit.Limiter, slugCheck ratelimit.Rate, logger *slog.Logger) *Orgs {
-	return &Orgs{svc: svc, limiter: limiter, slugCheck: slugCheck, logger: logger}
+// NewOrgs returns the organization endpoints over svc. guard authorizes the
+// operations on one organization; limiter enforces slugCheck per user on the
+// slug availability check.
+func NewOrgs(svc OrgService, guard *authz.Guard, limiter *ratelimit.Limiter, slugCheck ratelimit.Rate, logger *slog.Logger) *Orgs {
+	return &Orgs{svc: svc, guard: guard, limiter: limiter, slugCheck: slugCheck, logger: logger}
 }
 
 // Register mounts the organization operations. They declare the session
@@ -197,22 +200,24 @@ func (o *Orgs) Register(api huma.API) {
 		Method:      http.MethodGet,
 		Path:        OrgPath,
 		Summary:     "Get an organization",
-		Description: "Returns the organization and the signed-in user's role in it. Answers `forbidden` (403) when it does not exist or the user is not a member, so the two cannot be told apart.",
+		Description: "Returns the organization and the signed-in user's role in it. Needs `view`; answers `not_found` (404) when it does not exist or the user cannot view it, so the two cannot be told apart.",
 		Tags:        []string{server.TagOrganizations},
 		Security:    security,
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), o.get)
+		Middlewares: huma.Middlewares{o.guard.RequireOrg(api, authz.OrgView)},
+	}, identity.CodeUnauthenticated, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), o.get)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "update-org",
 		Method:      http.MethodPatch,
 		Path:        OrgPath,
 		Summary:     "Update an organization",
-		Description: "Changes the name, allowed email domains or domain join of the organization. Owners and admins only (403 `forbidden` otherwise, and for an organization the user is not a member of). " +
+		Description: "Changes the name, allowed email domains or domain join of the organization. Needs `manage` (owners and admins; 403 `forbidden` otherwise, 404 `not_found` for an organization the user cannot view). " +
 			"A public email domain answers `domain_not_allowed`; a slug other than the current one answers `slug_immutable`. Audited as `org.updated`.",
-		Tags:     []string{server.TagOrganizations},
-		Security: security,
+		Tags:        []string{server.TagOrganizations},
+		Security:    security,
+		Middlewares: huma.Middlewares{o.guard.RequireOrg(api, authz.OrgManage)},
 	}, identity.CodeInvalidRequest, identity.CodeDomainNotAllowed, identity.CodeUnauthenticated, identity.CodeForbidden,
-		identity.CodeSlugImmutable, identity.CodeInternal), o.update)
+		identity.CodeNotFound, identity.CodeSlugImmutable, identity.CodeAuthzUnavailable, identity.CodeInternal), o.update)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID:   "delete-org",
@@ -220,10 +225,11 @@ func (o *Orgs) Register(api huma.API) {
 		Path:          OrgPath,
 		DefaultStatus: http.StatusNoContent,
 		Summary:       "Delete an organization",
-		Description:   "Soft-deletes the organization; its members lose access to it and its projects, and its slug becomes free. Owners only (403 `forbidden` otherwise, and for an organization the user is not a member of). Audited as `org.deleted`.",
+		Description:   "Soft-deletes the organization; its members lose access to it and its projects, and its slug becomes free. Owners only (403 `forbidden` otherwise, 404 `not_found` for an organization the user cannot view). Audited as `org.deleted`.",
 		Tags:          []string{server.TagOrganizations},
 		Security:      security,
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), o.delete)
+		Middlewares:   huma.Middlewares{o.guard.RequireOrg(api, authz.OrgManage)},
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), o.delete)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "list-joinable-orgs",
@@ -309,7 +315,9 @@ func signedInUser(ctx context.Context) (uuid.UUID, error) {
 func (o *Orgs) orgProblem(ctx context.Context, op string, err error) error {
 	var notAllowed *orgs.DomainNotAllowedError
 	switch {
-	case errors.Is(err, orgs.ErrNotFound), errors.Is(err, orgs.ErrForbidden):
+	case errors.Is(err, orgs.ErrNotFound):
+		return identity.Err(identity.CodeNotFound)
+	case errors.Is(err, orgs.ErrForbidden):
 		return identity.Err(identity.CodeForbidden)
 	case errors.Is(err, orgs.ErrSlugImmutable):
 		return identity.Err(identity.CodeSlugImmutable)
@@ -410,6 +418,10 @@ func (o *Orgs) join(ctx context.Context, in *OrgSlugInput) (*JoinOrgOutput, erro
 		return nil, err
 	}
 	org, _, err := o.svc.Join(ctx, uid, in.Slug)
+	if errors.Is(err, orgs.ErrNotFound) {
+		// Not joinable and missing look the same: forbidden, as documented.
+		return nil, identity.Err(identity.CodeForbidden)
+	}
 	if err != nil {
 		return nil, o.orgProblem(ctx, "join organization", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 
+	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/platform/authn"
@@ -86,12 +87,14 @@ type TransferOwnershipInput struct {
 // Members serves the organization member endpoints.
 type Members struct {
 	svc    MemberService
+	guard  *authz.Guard
 	logger *slog.Logger
 }
 
-// NewMembers returns the organization member endpoints over svc.
-func NewMembers(svc MemberService, logger *slog.Logger) *Members {
-	return &Members{svc: svc, logger: logger}
+// NewMembers returns the organization member endpoints over svc; guard
+// authorizes each of them.
+func NewMembers(svc MemberService, guard *authz.Guard, logger *slog.Logger) *Members {
+	return &Members{svc: svc, guard: guard, logger: logger}
 }
 
 // Register mounts the member operations. They declare the session scheme,
@@ -103,21 +106,24 @@ func (m *Members) Register(api huma.API) {
 		Method:      http.MethodGet,
 		Path:        MembersPath,
 		Summary:     "List organization members",
-		Description: "Lists the members of the organization with their user, role, when they joined and when they last signed in, oldest member first. Any member may list them; 403 `forbidden` for an organization the user is not a member of.",
+		Description: "Lists the members of the organization with their user, role, when they joined and when they last signed in, oldest member first. Needs `view` (any member); 404 `not_found` for an organization the user cannot view.",
 		Tags:        []string{server.TagOrganizations},
 		Security:    security,
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), m.list)
+		Middlewares: huma.Middlewares{m.guard.RequireOrg(api, authz.OrgView)},
+	}, identity.CodeUnauthenticated, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), m.list)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "change-org-member-role",
 		Method:      http.MethodPatch,
 		Path:        MemberPath,
 		Summary:     "Change a member's role",
-		Description: "Sets the member's role. Owners and admins only; only owners can make someone an owner or change an owner's role (403 `forbidden`). " +
+		Description: "Sets the member's role. Needs `manage_members` (owners and admins); only owners can make someone an owner or change an owner's role (403 `forbidden`). " +
 			"Demoting the last owner answers `last_owner`; a user who is not a member answers `member_gone`. Audited as `member.role_changed`.",
-		Tags:     []string{server.TagOrganizations},
-		Security: security,
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeMemberGone, identity.CodeLastOwner, identity.CodeInternal), m.changeRole)
+		Tags:        []string{server.TagOrganizations},
+		Security:    security,
+		Middlewares: huma.Middlewares{m.guard.RequireOrg(api, authz.OrgManageMembers)},
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeMemberGone, identity.CodeLastOwner,
+		identity.CodeAuthzUnavailable, identity.CodeInternal), m.changeRole)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID:   "remove-org-member",
@@ -125,11 +131,13 @@ func (m *Members) Register(api huma.API) {
 		Path:          MemberPath,
 		DefaultStatus: http.StatusNoContent,
 		Summary:       "Remove a member",
-		Description: "Removes the member from the organization. Owners and admins only; only owners can remove an owner (403 `forbidden`). " +
+		Description: "Removes the member from the organization. Needs `manage_members` (owners and admins); only owners can remove an owner (403 `forbidden`). " +
 			"Removing the last owner answers `last_owner`; a user who is not a member answers `member_gone`. Audited as `member.removed`.",
-		Tags:     []string{server.TagOrganizations},
-		Security: security,
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeMemberGone, identity.CodeLastOwner, identity.CodeInternal), m.remove)
+		Tags:        []string{server.TagOrganizations},
+		Security:    security,
+		Middlewares: huma.Middlewares{m.guard.RequireOrg(api, authz.OrgManageMembers)},
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeMemberGone, identity.CodeLastOwner,
+		identity.CodeAuthzUnavailable, identity.CodeInternal), m.remove)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID:   "leave-org",
@@ -137,10 +145,11 @@ func (m *Members) Register(api huma.API) {
 		Path:          LeaveOrgPath,
 		DefaultStatus: http.StatusNoContent,
 		Summary:       "Leave an organization",
-		Description:   "Removes the signed-in user from the organization. The last owner cannot leave (`last_owner`): transfer ownership or delete the organization first. Audited as `member.removed`.",
+		Description:   "Removes the signed-in user from the organization. Needs `view` (any member; 404 `not_found` otherwise). The last owner cannot leave (`last_owner`): transfer ownership or delete the organization first. Audited as `member.removed`.",
 		Tags:          []string{server.TagOrganizations},
 		Security:      security,
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeLastOwner, identity.CodeInternal), m.leave)
+		Middlewares:   huma.Middlewares{m.guard.RequireOrg(api, authz.OrgView)},
+	}, identity.CodeUnauthenticated, identity.CodeNotFound, identity.CodeLastOwner, identity.CodeAuthzUnavailable, identity.CodeInternal), m.leave)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID:   "transfer-org-ownership",
@@ -148,17 +157,21 @@ func (m *Members) Register(api huma.API) {
 		Path:          TransferOwnershipPath,
 		DefaultStatus: http.StatusNoContent,
 		Summary:       "Transfer ownership",
-		Description: "Makes the member an owner and the signed-in owner an admin, in one step. Owners only (403 `forbidden`). " +
+		Description: "Makes the member an owner and the signed-in owner an admin, in one step. Owners only (403 `forbidden`; 404 `not_found` for an organization the user cannot view). " +
 			"A user who is not a member answers `member_gone`; transferring to oneself answers `invalid_request`. Audited as `member.role_changed` for each member whose role changes.",
-		Tags:     []string{server.TagOrganizations},
-		Security: security,
-	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeMemberGone, identity.CodeInternal), m.transfer)
+		Tags:        []string{server.TagOrganizations},
+		Security:    security,
+		Middlewares: huma.Middlewares{m.guard.RequireOrg(api, authz.OrgManageMembers)},
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeMemberGone,
+		identity.CodeAuthzUnavailable, identity.CodeInternal), m.transfer)
 }
 
 // problem maps an error of a member operation to a problem.
 func (m *Members) problem(ctx context.Context, op string, err error) error {
 	switch {
-	case errors.Is(err, orgs.ErrNotFound), errors.Is(err, orgs.ErrForbidden):
+	case errors.Is(err, orgs.ErrNotFound):
+		return identity.Err(identity.CodeNotFound)
+	case errors.Is(err, orgs.ErrForbidden):
 		return identity.Err(identity.CodeForbidden)
 	case errors.Is(err, orgs.ErrMemberNotFound):
 		return identity.Err(identity.CodeMemberGone)

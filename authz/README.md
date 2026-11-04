@@ -46,6 +46,19 @@ The org-level permissions are not part of the UI vocabulary. They gate the org s
 | `organization#create_project` | ✓ | ✓ | ✓ | |
 | `organization#view` | ✓ | ✓ | ✓ | ✓ |
 
+## Enforcement in the API
+
+Typed API operations on one organization or project declare their permission with an `authz.Guard` middleware (`internal/authz/require.go`): `guard.RequireOrg(api, authz.OrgManage)` or `guard.RequireProject(api, authz.ProjectEdit)`. The guard reads the resource from the path (`{org}`, else `{slug}`, for the organization; `{project}`, else `{slug}` under `{org}`, for the project), resolves the slug to an id through a short-lived cache, and asks SpiceDB. The answers are stable:
+
+| Situation | Answer |
+| --- | --- |
+| No active organization/project with that slug | 404 `not_found` |
+| The caller cannot `view` it | 404 `not_found` (identical body, so existence never leaks) |
+| The caller can view it but lacks the permission | 403 `forbidden` |
+| SpiceDB cannot answer | 503 `authz_unavailable` with `Retry-After` (fail closed) |
+
+API keys only ever satisfy `project#view` on their own project; OAuth clients hold no grants. Handlers read the resolved ids with `authz.TargetFromContext`.
+
 ## Changing the schema
 
 1. Edit `schema.zed`.

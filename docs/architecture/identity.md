@@ -696,6 +696,8 @@ Rules:
 | `last_owner` | 409 Conflict | An organization needs at least one owner. Make someone else an owner first. |
 | `member_gone` | 410 Gone | This person is no longer a member. Refresh the page. |
 | `forbidden` | 403 Forbidden | You don't have permission to do that. |
+| `not_found` | 404 Not Found | We couldn't find that, or you don't have access to it. |
+| `authz_unavailable` | 503 Service Unavailable | We couldn't check your permissions. Try again in {retry_after} seconds. |
 | `internal_error` | 500 Internal Server Error | Something went wrong on our side. Please try again. |
 
 `internal/identity/errors_test.go` checks that this table lists every code

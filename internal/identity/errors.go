@@ -116,10 +116,16 @@ const (
 	// CodeMemberGone: the user is not a member of the organization (they
 	// left or were removed). Only answered to members of the organization.
 	CodeMemberGone ErrCode = "member_gone"
-	// CodeForbidden: authenticated, but not allowed to perform the action.
-	// Also answers for an organization that does not exist or that the
-	// caller is not a member of, so the two cannot be told apart.
+	// CodeForbidden: authenticated and able to see the resource, but not
+	// allowed to perform the action.
 	CodeForbidden ErrCode = "forbidden"
+	// CodeNotFound: the organization or project does not exist, or the
+	// caller cannot see it; the two cannot be told apart.
+	CodeNotFound ErrCode = "not_found"
+	// CodeAuthzUnavailable: permissions could not be checked (SpiceDB is
+	// down or unreachable), so the request was refused (fail closed).
+	// retry_after says when to try again.
+	CodeAuthzUnavailable ErrCode = "authz_unavailable"
 	// CodeInternal: an unexpected server failure. Details stay in the logs.
 	CodeInternal ErrCode = "internal_error"
 )
@@ -166,6 +172,8 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeLastOwner:             {http.StatusConflict, "Last owner", "An organization must keep at least one owner."},
 	CodeMemberGone:            {http.StatusGone, "Member gone", "The user is not a member of this organization."},
 	CodeForbidden:             {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
+	CodeNotFound:              {http.StatusNotFound, "Not found", "The resource does not exist or you do not have access to it."},
+	CodeAuthzUnavailable:      {http.StatusServiceUnavailable, "Authorization unavailable", "Permissions could not be checked. Try again shortly."},
 	CodeInternal:              {http.StatusInternalServerError, "Internal error", "Something went wrong."},
 }
 

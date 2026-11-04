@@ -37,3 +37,11 @@ SELECT p.id, p.slug, p.name, o.id AS org_id, o.slug AS org_slug, o.name AS org_n
 FROM projects p
 JOIN organizations o ON o.id = p.org_id
 WHERE p.id = @id AND p.deleted_at IS NULL;
+
+-- name: ResolveProjectSlug :one
+-- Resolves an active project slug (globally unique) to its id and its
+-- active organization, for authorization of /…/{project} paths.
+SELECT p.id, p.org_id
+FROM projects p
+JOIN organizations o ON o.id = p.org_id
+WHERE p.slug = @slug AND p.deleted_at IS NULL AND o.deleted_at IS NULL;

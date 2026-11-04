@@ -153,7 +153,7 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	m.Register(TargetEdge, a.initEdge, modules.DependsOn(modServer, modCatalog, modSink))
 	// query is the first slice of the M3 read path (fixed queries, read keys).
 	m.Register(TargetQuery, a.initQuery, modules.DependsOn(modServer, modClickHouse, modCatalog))
-	m.Register(TargetAPI, a.initAPI, modules.DependsOn(modServer, modPostgres, modValkey))
+	m.Register(TargetAPI, a.initAPI, modules.DependsOn(modServer, modPostgres, modValkey, modAuthz))
 	// identity runs the M2 job workers (email, outbox relay, authz
 	// reconciler); the M4 worker role will too.
 	m.Register(TargetIdentity, a.initIdentity, modules.DependsOn(modServer, modPostgres, modValkey, modJobs, modRelay))
@@ -339,11 +339,17 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	orgService := orgs.New(a.pool, audit.New(a.pool))
+	checker := a.authz
+	if checker == nil {
+		// authz disabled: every check denies with authz_unavailable.
+		checker = authz.New(nil, nil, authz.Options{}, a.logger, nil)
+	}
 	controlplaneapi.Register(a.server.API(), controlplaneapi.Deps{
 		Orgs:     orgService,
 		Members:  orgService,
 		Projects: projects.New(a.pool),
 		Context:  usercontext.New(a.pool),
+		Guard:    authz.NewGuard(checker, authz.NewPGResolver(a.pool), authz.GuardOptions{}, a.logger),
 		Limiter:  limiter,
 		Limits:   a.cfg.Identity.RateLimits,
 		Logger:   a.logger,

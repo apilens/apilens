@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/platform/config"
 	"github.com/apilens/apilens/internal/platform/ratelimit"
 )
@@ -18,16 +19,19 @@ type Deps struct {
 	Members  MemberService
 	Projects ProjectService
 	Context  ContextService
-	Limiter  *ratelimit.Limiter
-	Limits   config.RateLimitsConfig
-	Logger   *slog.Logger
+	// Guard authorizes every operation on an organization (authz.Require);
+	// nil refuses them with authz_unavailable (fail closed).
+	Guard   *authz.Guard
+	Limiter *ratelimit.Limiter
+	Limits  config.RateLimitsConfig
+	Logger  *slog.Logger
 }
 
 // Register mounts the control-plane operations on api. They declare the
 // session scheme, so authn.Middleware must be installed on api before.
 func Register(api huma.API, d Deps) {
-	NewOrgs(d.Orgs, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
-	NewMembers(d.Members, d.Logger).Register(api)
+	NewOrgs(d.Orgs, d.Guard, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
+	NewMembers(d.Members, d.Guard, d.Logger).Register(api)
 	NewProjects(d.Projects, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
 	NewContext(d.Context, d.Logger).Register(api)
 }

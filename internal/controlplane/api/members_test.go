@@ -44,7 +44,7 @@ func newMembersAPI(t *testing.T, svc MemberService, user uuid.UUID) humatest.Tes
 		}
 		next(ctx)
 	})
-	NewMembers(svc, slog.New(slog.NewTextHandler(io.Discard, nil))).Register(api)
+	NewMembers(svc, allowAll(), slog.New(slog.NewTextHandler(io.Discard, nil))).Register(api)
 	return api
 }
 
@@ -55,7 +55,7 @@ func TestMemberErrors(t *testing.T) {
 		status int
 		code   string
 	}{
-		{orgs.ErrNotFound, http.StatusForbidden, "forbidden"},
+		{orgs.ErrNotFound, http.StatusNotFound, "not_found"},
 		{orgs.ErrForbidden, http.StatusForbidden, "forbidden"},
 		{orgs.ErrMemberNotFound, http.StatusGone, "member_gone"},
 		{orgs.ErrLastOwner, http.StatusConflict, "last_owner"},

@@ -128,6 +128,11 @@ func TestNoEnumerationLeak(t *testing.T) {
 		t.Fatalf("invalid_code bodies differ: %s vs %s", ja, jb)
 	}
 	for code, e := range catalogue {
+		if code == CodeNotFound {
+			// not_found answers alike for a missing organization or project
+			// and one the caller cannot see, so it reveals nothing.
+			continue
+		}
 		for _, word := range []string{"exist", "not found", "no account", "unknown email", "registered email"} {
 			if strings.Contains(strings.ToLower(e.title+" "+e.detail), word) {
 				t.Errorf("%s copy %q hints at account existence", code, e.detail)

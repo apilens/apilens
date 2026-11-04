@@ -20,12 +20,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	schema "github.com/apilens/apilens/authz"
+	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/orgs"
+	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/identity/audit"
 	identitydb "github.com/apilens/apilens/internal/identity/store/db"
 	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/cache"
 	"github.com/apilens/apilens/internal/platform/ratelimit"
+	"github.com/apilens/apilens/internal/platform/spicedb"
 	"github.com/apilens/apilens/internal/testutil"
 )
 
@@ -52,9 +56,27 @@ func setupOrgs(t *testing.T, slugCheck ratelimit.Rate) *orgsFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Authorization runs against a real SpiceDB, fed from the outbox by the
+	// relay, which is drained before every request so each one sees every
+	// committed change.
+	sdb, err := spicedb.Connect(testutil.SpiceDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sdb.Close() })
+	if err := spicedb.ApplySchema(context.Background(), sdb, schema.Schema, logger); err != nil {
+		t.Fatal(err)
+	}
+	checker := authz.New(sdb, authz.NewValkeyTokens(client), authz.Options{}, logger, nil)
+	relay := outbox.NewRelay(pool, sdb, checker, outbox.RelayOptions{}, logger, nil)
+	guard := authz.NewGuard(checker, authz.NewPGResolver(pool), authz.GuardOptions{}, logger)
+
 	_, api := humatest.New(t)
 	authn.AddSecurityScheme(api)
 	api.UseMiddleware(func(ctx huma.Context, next func(huma.Context)) {
+		if _, err := relay.Drain(ctx.Context()); err != nil {
+			t.Errorf("relay: %v", err)
+		}
 		id, err := uuid.Parse(ctx.Header(testUserHeader))
 		if err != nil {
 			next(ctx)
@@ -65,8 +87,8 @@ func setupOrgs(t *testing.T, slugCheck ratelimit.Rate) *orgsFixture {
 		next(huma.WithContext(ctx, c))
 	})
 	svc := orgs.New(pool, audit.New(pool))
-	NewOrgs(svc, limiter, slugCheck, logger).Register(api)
-	NewMembers(svc, logger).Register(api)
+	NewOrgs(svc, guard, limiter, slugCheck, logger).Register(api)
+	NewMembers(svc, guard, logger).Register(api)
 	return &orgsFixture{api: api, pool: pool, ctx: context.Background()}
 }
 

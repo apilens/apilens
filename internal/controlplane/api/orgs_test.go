@@ -79,7 +79,7 @@ func newOrgsAPI(t *testing.T, svc OrgService, user uuid.UUID) humatest.TestAPI {
 		}
 		next(ctx)
 	})
-	NewOrgs(svc, nil, ratelimit.Rate{}, slog.New(slog.NewTextHandler(io.Discard, nil))).Register(api)
+	NewOrgs(svc, allowAll(), nil, ratelimit.Rate{}, slog.New(slog.NewTextHandler(io.Discard, nil))).Register(api)
 	return api
 }
 
@@ -153,7 +153,7 @@ func TestOrgErrors(t *testing.T) {
 		status int
 		code   string
 	}{
-		{orgs.ErrNotFound, http.StatusForbidden, "forbidden"},
+		{orgs.ErrNotFound, http.StatusNotFound, "not_found"},
 		{orgs.ErrForbidden, http.StatusForbidden, "forbidden"},
 		{orgs.ErrSlugImmutable, http.StatusConflict, "slug_immutable"},
 		{&orgs.DomainNotAllowedError{Domain: "gmail.com"}, http.StatusBadRequest, "domain_not_allowed"},
@@ -161,7 +161,7 @@ func TestOrgErrors(t *testing.T) {
 		{errors.New("boom"), http.StatusInternalServerError, "internal_error"},
 	} {
 		api := newOrgsAPI(t, &fakeOrgs{err: tc.err}, uuid.New())
-		for _, resp := range []*httptest.ResponseRecorder{
+		for i, resp := range []*httptest.ResponseRecorder{
 			api.Get(OrgsPath + "/acme"),
 			api.Patch(OrgsPath+"/acme", map[string]any{"name": "Acme"}),
 			api.Delete(OrgsPath + "/acme"),
@@ -171,7 +171,12 @@ func TestOrgErrors(t *testing.T) {
 				Code string `json:"code"`
 			}
 			_ = json.Unmarshal(resp.Body.Bytes(), &p)
-			if resp.Code != tc.status || p.Code != tc.code {
+			status, code := tc.status, tc.code
+			if i == 3 && errors.Is(tc.err, orgs.ErrNotFound) {
+				// join: a missing or non-joinable organization is forbidden.
+				status, code = http.StatusForbidden, "forbidden"
+			}
+			if resp.Code != status || p.Code != code {
 				t.Errorf("%v: %d %s", tc.err, resp.Code, resp.Body)
 			}
 		}
