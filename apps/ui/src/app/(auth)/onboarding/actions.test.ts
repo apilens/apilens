@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError } from "@/lib/identity";
+import { ApiError, type ContextOrg, type UserContext } from "@/lib/identity";
 
+const context = vi.fn();
 const updateOnboarding = vi.fn();
 let expired = false;
 
@@ -18,7 +19,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/identity", async (orig) => ({
   ...(await orig<typeof import("@/lib/identity")>()),
-  identity: () => ({ updateOnboarding }),
+  identity: () => ({ context, updateOnboarding }),
 }));
 vi.mock("@/lib/server-session", async (orig) => {
   const real = await orig<typeof import("@/lib/server-session")>();
@@ -42,9 +43,28 @@ vi.mock("@/lib/server-session", async (orig) => {
   };
 });
 
-const { saveOnboarding } = await import("./actions");
+const { finishInvitedOnboarding, saveOnboarding } = await import("./actions");
 
 const saved = { step: "create", completed: false, completed_at: null, answers: { org_slug: "example-co" } };
+
+const GLOBEX: ContextOrg = {
+  id: "o2",
+  slug: "globex",
+  name: "Globex",
+  role: "member",
+  projects: [{ id: "p2", slug: "storefront", name: "storefront", environments: ["production"] }],
+};
+
+function ctx(answers: Record<string, unknown>, orgs: ContextOrg[]): UserContext {
+  const onboarding = { step: "about", completed: false, answers };
+  return {
+    user: { id: "u1", email: "grace@example.com", email_verified: true, name: null, avatar_url: null, preferences: {}, onboarding, created_at: "2026-11-01T00:00:00Z" },
+    orgs,
+    last_project_slug: null,
+    onboarding: { step: "about", completed: false },
+    capabilities: {},
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -97,5 +117,25 @@ describe("saveOnboarding", () => {
   it("does not swallow unexpected errors", async () => {
     updateOnboarding.mockRejectedValue(new TypeError("boom"));
     await expect(saveOnboarding("join")).rejects.toThrow("boom");
+  });
+});
+
+describe("finishInvitedOnboarding", () => {
+  it("finishes onboarding and opens the invited organization's first project", async () => {
+    context.mockResolvedValue(ctx({ org_slug: "globex" }, [GLOBEX]));
+    updateOnboarding.mockResolvedValue({});
+    await expect(finishInvitedOnboarding()).rejects.toEqual(new Redirect("/storefront/incidents"));
+    expect(updateOnboarding).toHaveBeenCalledWith({ completed: true }, { accessToken: "a" });
+  });
+
+  it("someone who was not invited continues to the organization step", async () => {
+    context.mockResolvedValue(ctx({}, []));
+    await expect(finishInvitedOnboarding()).rejects.toEqual(new Redirect("/onboarding/join"));
+    expect(updateOnboarding).not.toHaveBeenCalled();
+  });
+
+  it("an expired session signs in again", async () => {
+    expired = true;
+    await expect(finishInvitedOnboarding()).rejects.toEqual(new Redirect("/sign-in?reason=session_expired"));
   });
 });

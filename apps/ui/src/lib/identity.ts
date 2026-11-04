@@ -553,9 +553,12 @@ export interface InvitationPreview {
   expires_at: string;
 }
 
+/** `POST /auth/invitations/{token}/accept` (#282). */
 export interface InvitationAccepted {
-  org: OrgRef;
-  role: OrgRole;
+  /** The organization, with the user's role in it. */
+  org: Org;
+  /** False when the invitation was already accepted or the user already belonged to the org. */
+  joined: boolean;
 }
 
 export interface ContextProject {
