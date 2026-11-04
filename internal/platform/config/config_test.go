@@ -237,3 +237,31 @@ func TestIdentityCORSOrigins(t *testing.T) {
 		}
 	}
 }
+
+func TestJobsConfig(t *testing.T) {
+	cfg, err := Load("", []string{kekEnv}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Jobs.Enabled || cfg.Jobs.MaxWorkers != 10 || cfg.Jobs.MetricsInterval != 15*time.Second {
+		t.Errorf("jobs defaults = %+v", cfg.Jobs)
+	}
+
+	cfg, err = Load("", []string{kekEnv, "APILENS_JOBS__ENABLED=false", "APILENS_JOBS__MAX_WORKERS=3"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Jobs.Enabled || cfg.Jobs.MaxWorkers != 3 {
+		t.Errorf("jobs from env = %+v", cfg.Jobs)
+	}
+
+	_, err = Load("", []string{kekEnv, "APILENS_JOBS__MAX_WORKERS=0", "APILENS_JOBS__METRICS_INTERVAL=0s"}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	for _, want := range []string{"jobs.max_workers", "jobs.metrics_interval"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err, want)
+		}
+	}
+}

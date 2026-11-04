@@ -26,6 +26,7 @@ import (
 	"github.com/apilens/apilens/internal/platform/cache"
 	"github.com/apilens/apilens/internal/platform/ch"
 	"github.com/apilens/apilens/internal/platform/config"
+	"github.com/apilens/apilens/internal/platform/jobs"
 	"github.com/apilens/apilens/internal/platform/modules"
 	"github.com/apilens/apilens/internal/platform/otel"
 	"github.com/apilens/apilens/internal/platform/pg"
@@ -49,6 +50,7 @@ const (
 	modValkey     = "valkey"
 	modCatalog    = "catalog"
 	modSink       = "sink"
+	modJobs       = "jobs"
 )
 
 // PlannedTargets are roles of the target architecture that later milestones
@@ -77,13 +79,16 @@ type App struct {
 	verifier   *apikeys.Verifier
 	apps       *catalog.AppResolver
 	sink       *pipeline.DirectSink
+	// workers is filled by modules during init; jobs runs them afterwards.
+	workers *jobs.Registry
+	jobs    *jobs.Client
 }
 
 // New registers all modules.
 func New(cfg *config.Config, logger *slog.Logger) *App {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-	a := &App{cfg: cfg, logger: logger, registry: reg, mgr: modules.New(logger, cfg.Server.ShutdownTimeout)}
+	a := &App{cfg: cfg, logger: logger, registry: reg, mgr: modules.New(logger, cfg.Server.ShutdownTimeout), workers: jobs.NewRegistry()}
 
 	m := a.mgr
 	m.Register(modTelemetry, a.initTelemetry, modules.Invisible())
@@ -98,12 +103,16 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	m.Register(modValkey, a.initValkey, modules.Invisible(), modules.DependsOn(modServer))
 	m.Register(modCatalog, a.initCatalog, modules.Invisible(), modules.DependsOn(modPostgres, modValkey))
 	m.Register(modSink, a.initSink, modules.Invisible(), modules.DependsOn(modClickHouse))
+	// River client; its worker loop starts once every module has registered
+	// workers and stops (draining in-flight jobs) after the HTTP listener.
+	m.Register(modJobs, a.initJobs, modules.Invisible(), modules.DependsOn(modPostgres))
 
 	m.Register(TargetEdge, a.initEdge, modules.DependsOn(modServer, modCatalog, modSink))
 	// query is the first slice of the M3 read path (fixed queries, read keys).
 	m.Register(TargetQuery, a.initQuery, modules.DependsOn(modServer, modClickHouse, modCatalog))
 	m.Register(TargetAPI, a.initAPI, modules.DependsOn(modServer, modPostgres, modValkey))
-	m.Register(TargetIdentity, a.initIdentity, modules.DependsOn(modServer, modPostgres, modValkey))
+	// identity runs the M2 job workers (email); the M4 worker role will too.
+	m.Register(TargetIdentity, a.initIdentity, modules.DependsOn(modServer, modPostgres, modValkey, modJobs))
 	m.Register(TargetAll, func(context.Context) (modules.Service, error) { return nil, nil },
 		modules.DependsOn(TargetEdge, TargetQuery, TargetAPI, TargetIdentity))
 	return a
@@ -202,6 +211,15 @@ func (a *App) initCatalog(context.Context) (modules.Service, error) {
 func (a *App) initSink(context.Context) (modules.Service, error) {
 	a.sink = pipeline.NewDirectSink(a.cfg.Sink, pipeline.ClickHouseInserters(a.chConn), a.logger, pipeline.NewMetrics(a.registry))
 	return a.sink, nil
+}
+
+func (a *App) initJobs(context.Context) (modules.Service, error) {
+	client, err := jobs.New(a.pool, a.cfg.Jobs, a.workers, a.cfg.Server.ShutdownTimeout, a.logger, a.registry)
+	if err != nil {
+		return nil, err
+	}
+	a.jobs = client
+	return client, nil
 }
 
 func (a *App) initEdge(context.Context) (modules.Service, error) {

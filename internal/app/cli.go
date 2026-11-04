@@ -34,7 +34,7 @@ const usage = `apilens — API observability platform (one binary, many roles)
 
 Usage:
   apilens [-target=all] [-config.file=path]   run roles (comma-separated targets)
-  apilens migrate                             apply Postgres and ClickHouse migrations
+  apilens migrate                             apply Postgres (incl. River jobs) and ClickHouse migrations
   apilens seed [flags]                        create a dev org/project/app and print an ingest key
   apilens healthcheck [-url=...]              exit 0 if the readiness endpoint answers 200
   apilens openapi                             print the OpenAPI 3.1 document
@@ -148,6 +148,9 @@ func migrate(ctx context.Context, cfg *config.Config, logger *slog.Logger) error
 	}
 	defer pool.Close()
 	if err := migrations.UpPostgres(ctx, pool, logger); err != nil {
+		return err
+	}
+	if err := migrations.UpRiver(ctx, pool, logger); err != nil {
 		return err
 	}
 	return migrations.UpClickHouse(ctx, cfg.ClickHouse, logger)

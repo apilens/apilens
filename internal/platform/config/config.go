@@ -37,6 +37,7 @@ type Config struct {
 	Sink       SinkConfig       `koanf:"sink"`
 	OTel       OTelConfig       `koanf:"otel"`
 	Identity   IdentityConfig   `koanf:"identity"`
+	Jobs       JobsConfig       `koanf:"jobs"`
 }
 
 // ServerConfig configures the shared HTTP server.
@@ -114,6 +115,17 @@ type OTelConfig struct {
 	Insecure    bool    `koanf:"insecure"`
 	ServiceName string  `koanf:"service_name"`
 	SampleRatio float64 `koanf:"sample_ratio"`
+}
+
+// JobsConfig configures the River background-job client. Roles that run
+// workers (identity in M2, worker later) start the worker loop only when
+// Enabled; otherwise the client can still enqueue jobs.
+type JobsConfig struct {
+	Enabled bool `koanf:"enabled"`
+	// MaxWorkers bounds concurrently running jobs on the default queue.
+	MaxWorkers int `koanf:"max_workers"`
+	// MetricsInterval is how often queue depth is sampled for /metrics.
+	MetricsInterval time.Duration `koanf:"metrics_interval"`
 }
 
 // KeyEncryptionKeySize is the required length of identity.key_encryption_key
@@ -232,6 +244,9 @@ func Defaults() map[string]any {
 		"identity.webauthn.rp_name":        "APILens",
 		"identity.webauthn.origins":        []string{"http://localhost:3000"},
 		"identity.cors_origins":            []string{},
+		"jobs.enabled":                     true,
+		"jobs.max_workers":                 10,
+		"jobs.metrics_interval":            "15s",
 	}
 }
 
@@ -356,6 +371,12 @@ func (c *Config) Validate() error {
 	}
 	if c.OTel.SampleRatio < 0 || c.OTel.SampleRatio > 1 {
 		errs = append(errs, errors.New("otel.sample_ratio must be within [0,1]"))
+	}
+	if c.Jobs.MaxWorkers <= 0 || c.Jobs.MaxWorkers > 10_000 {
+		errs = append(errs, errors.New("jobs.max_workers must be within [1,10000]"))
+	}
+	if c.Jobs.MetricsInterval <= 0 {
+		errs = append(errs, errors.New("jobs.metrics_interval must be > 0"))
 	}
 	errs = append(errs, c.validateIdentity()...)
 	if len(errs) > 0 {
