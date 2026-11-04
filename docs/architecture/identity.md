@@ -704,6 +704,7 @@ Rules:
 | `domain_not_allowed` | 400 Bad Request | Public email domains like gmail.com can't be added. Use your company's domain. |
 | `last_owner` | 409 Conflict | An organization needs at least one owner. Make someone else an owner first. |
 | `member_gone` | 410 Gone | This person is no longer a member. Refresh the page. |
+| `api_key_gone` | 410 Gone | This API key no longer exists. Refresh the page. |
 | `forbidden` | 403 Forbidden | You don't have permission to do that. |
 | `not_found` | 404 Not Found | We couldn't find that, or you don't have access to it. |
 | `authz_unavailable` | 503 Service Unavailable | We couldn't check your permissions. Try again in {retry_after} seconds. |

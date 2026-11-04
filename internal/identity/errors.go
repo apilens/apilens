@@ -118,6 +118,12 @@ const (
 	CodeMemberGone ErrCode = "member_gone"
 	// CodeForbidden: authenticated and able to see the resource, but not
 	// allowed to perform the action.
+	// CodeAPIKeyGone: the project has no API key with that id. Only
+	// answered to members of the project's organization.
+	CodeAPIKeyGone ErrCode = "api_key_gone"
+	// CodeForbidden: authenticated, but not allowed to perform the action.
+	// Also answers for an organization that does not exist or that the
+	// caller is not a member of, so the two cannot be told apart.
 	CodeForbidden ErrCode = "forbidden"
 	// CodeNotFound: the organization or project does not exist, or the
 	// caller cannot see it; the two cannot be told apart.
@@ -171,6 +177,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeDomainNotAllowed:      {http.StatusBadRequest, "Domain not allowed", "Public email domains cannot be claimed by an organization."},
 	CodeLastOwner:             {http.StatusConflict, "Last owner", "An organization must keep at least one owner."},
 	CodeMemberGone:            {http.StatusGone, "Member gone", "The user is not a member of this organization."},
+	CodeAPIKeyGone:            {http.StatusGone, "API key gone", "The project has no such API key."},
 	CodeForbidden:             {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
 	CodeNotFound:              {http.StatusNotFound, "Not found", "The resource does not exist or you do not have access to it."},
 	CodeAuthzUnavailable:      {http.StatusServiceUnavailable, "Authorization unavailable", "Permissions could not be checked. Try again shortly."},

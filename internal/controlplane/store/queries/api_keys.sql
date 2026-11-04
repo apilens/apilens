@@ -21,3 +21,17 @@ UPDATE api_keys SET last_used_at = now() WHERE id = @id;
 UPDATE api_keys SET revoked_at = now()
 WHERE id = @id AND revoked_at IS NULL
 RETURNING key_hash;
+
+-- name: ListProjectAPIKeys :many
+-- Every key of the project, revoked ones included, newest first.
+SELECT id, name, prefix, scopes, created_at, expires_at, revoked_at, last_used_at
+FROM api_keys
+WHERE project_id = @project_id
+ORDER BY created_at DESC, id;
+
+-- name: LockProjectAPIKey :one
+-- A key of the project, row-locked for the rest of the transaction.
+SELECT id, name, prefix, scopes, key_hash, revoked_at
+FROM api_keys
+WHERE id = @id AND project_id = @project_id
+FOR UPDATE;

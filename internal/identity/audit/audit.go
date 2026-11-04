@@ -59,6 +59,8 @@ const (
 	MemberJoined         Kind = "member.joined"
 	InvitationSent       Kind = "invitation.sent"
 	InvitationAccepted   Kind = "invitation.accepted"
+	APIKeyCreated        Kind = "api_key.created"
+	APIKeyRevoked        Kind = "api_key.revoked"
 )
 
 var kinds = []Kind{
@@ -66,6 +68,8 @@ var kinds = []Kind{
 	EmailChanged, PasskeyAdded, PasskeyRemoved, PasskeyRenamed, TOTPEnabled, TOTPDisabled,
 	RecoveryRequested, RecoveryConfirmed, RecoveryCancelled, OAuthLinked, OAuthUnlinked,
 	OrgCreated, OrgUpdated, OrgDeleted, MemberAdded, MemberRoleChanged, MemberRemoved, MemberJoined, InvitationSent, InvitationAccepted,
+	OrgCreated, OrgUpdated, OrgDeleted, MemberRoleChanged, MemberRemoved, MemberJoined, InvitationSent, InvitationAccepted,
+	APIKeyCreated, APIKeyRevoked,
 }
 
 // Kinds returns every known event kind, in catalogue order.
