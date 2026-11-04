@@ -12,7 +12,11 @@ export function Verify() {
   const signin = params.get("flow") === "signin";
   const input = useRef<HTMLInputElement>(null);
   const [code, setCode] = useState("");
-  const [left, setLeft] = useState(42);
+  // The resend cooldown starts where `/api/auth/email/start` said (`retry_after`, #313).
+  const [left, setLeft] = useState(() => {
+    const n = Number(params.get("retry_after"));
+    return Number.isFinite(n) && n > 0 ? Math.min(Math.ceil(n), 3600) : 42;
+  });
   const [sending, setSending] = useState(false);
 
   useEffect(() => {

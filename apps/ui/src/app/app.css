@@ -70,6 +70,7 @@
 .ob-pick { width: 100%; text-align: left; font: inherit; color: inherit; }
 .ob-pick:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 .ob-err { margin-top: 8px; font: 400 13px/18px var(--font-sans); color: var(--error); }
+.ob-err button.cp-link { padding: 0; border: 0; background: none; font: inherit; font-weight: 500; cursor: pointer; }
 .ob-code6 { position: relative; }
 .ob-code6 input { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; cursor: text; }
 .ob-code6:focus-within span.cur { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
