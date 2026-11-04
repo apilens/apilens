@@ -389,6 +389,29 @@ export type TwoFactorExchangeRequest =
   | { pre_auth_token: string; code: string }
   | { pre_auth_token: string; backup_code: string };
 
+/** `POST /auth/2fa/enable`: a pending TOTP secret, confirmed by `POST /auth/2fa/verify`. */
+export interface TwoFactorEnrollment {
+  /** Base32, for typing into an authenticator app. */
+  secret: string;
+  /** `otpauth://totp/...` key URI, for a QR code. */
+  otpauth_uri: string;
+}
+
+/** `GET /auth/2fa/status`. */
+export interface TwoFactorStatus {
+  enabled: boolean;
+  confirmed_at: string | null;
+  backup_codes_remaining: number;
+}
+
+/** `POST /auth/2fa/verify` and `/auth/2fa/backup-codes/regenerate`: shown once. */
+export interface BackupCodes {
+  backup_codes: string[];
+}
+
+/** `POST /auth/2fa/disable`: exactly one of an authenticator code or a backup code. */
+export type TwoFactorDisableRequest = { code: string } | { backup_code: string };
+
 /** `POST /auth/passkeys/login/options` (#264). `options` is WebAuthn `PublicKeyCredentialRequestOptions` JSON. */
 export interface PasskeyLoginOptions {
   challenge_id: string;
@@ -650,6 +673,16 @@ export function createClient(config: ClientConfig) {
       request<SessionBundle>("POST", "/auth/recovery/confirm", { ...o, body }),
     recoveryCancel: (body: { token: string }, o?: CallOptions) =>
       request<void>("POST", "/auth/recovery/cancel", { ...o, body }),
+
+    // identity: two-factor settings (#342) ------------------------------------------------
+    twoFactorStatus: (o: Authed) => request<TwoFactorStatus>("GET", "/auth/2fa/status", o),
+    twoFactorEnable: (o: Authed) => request<TwoFactorEnrollment>("POST", "/auth/2fa/enable", o),
+    twoFactorVerify: (body: { code: string }, o: Authed) =>
+      request<BackupCodes>("POST", "/auth/2fa/verify", { ...o, body }),
+    twoFactorDisable: (body: TwoFactorDisableRequest, o: Authed) =>
+      request<void>("POST", "/auth/2fa/disable", { ...o, body }),
+    twoFactorRegenerate: (body: { code: string }, o: Authed) =>
+      request<BackupCodes>("POST", "/auth/2fa/backup-codes/regenerate", { ...o, body }),
 
     // identity: sessions ------------------------------------------------------------------
     refresh: (body: { refresh_token: string }, o?: CallOptions) =>

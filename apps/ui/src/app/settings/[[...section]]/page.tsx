@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AccountSettings } from "@/components/account-settings";
 import { SessionsSettings } from "@/components/account-settings/sessions";
+import { TwoFactorSettings } from "@/components/account/two-factor-settings";
 import { AppShell } from "@/components/app-shell";
 import { ConnectedAccounts } from "@/components/connected-accounts";
 import { PasskeysCard } from "@/components/security/passkeys";
 import { getContext, getSession } from "@/lib/auth/server";
 import { ACCOUNT_SETTINGS, type AccountSection, accountSection, accountSectionHref } from "@/lib/account-settings";
 import { connectedNotice, providerRows } from "@/lib/connected-accounts";
-import { type ConnectedAccount, type Passkey, type SessionInfo, type UserContext, identity, isApiError } from "@/lib/identity";
+import { type ConnectedAccount, type Passkey, type SessionInfo, type TwoFactorStatus, type UserContext, identity, isApiError } from "@/lib/identity";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 import { signInMethods } from "@/lib/sign-in-providers";
 
@@ -25,6 +26,17 @@ async function loadSessions(next: string): Promise<SessionInfo[]> {
   const session = await getSession();
   try {
     return (await session.call((o) => identity().listSessions(o))).sessions;
+  } catch (err) {
+    if (isSessionExpired(err)) redirectToRefresh(next);
+    throw err;
+  }
+}
+
+/** `GET /auth/2fa/status` for the Security section (#342). */
+async function loadTwoFactor(next: string): Promise<TwoFactorStatus> {
+  const session = await getSession();
+  try {
+    return await session.call((o) => identity().twoFactorStatus(o));
   } catch (err) {
     if (isSessionExpired(err)) redirectToRefresh(next);
     throw err;
@@ -64,7 +76,15 @@ async function sectionContent(section: AccountSection, context: UserContext, sea
     return <SessionsSettings sessions={sessions} now={Date.now()} />;
   }
   if (section.slug === "security") {
-    return <PasskeysCard initial={await loadPasskeys(next)} />;
+    // One after the other: each call may refresh the session, and refreshes must not race.
+    const twoFactor = await loadTwoFactor(next);
+    const passkeys = await loadPasskeys(next);
+    return (
+      <>
+        <TwoFactorSettings initial={twoFactor} email={context.user.email ?? null} />
+        <PasskeysCard initial={passkeys} />
+      </>
+    );
   }
   if (section.slug === "connected-accounts") {
     const [accounts, methods] = await Promise.all([loadConnectedAccounts(next), signInMethods()]);

@@ -1,0 +1,76 @@
+/* Security → Two-factor (#342). Tokens from tokens.css only; the code entry reuses .ob-code6,
+   inputs .ob-in, the checkbox .ob-keep. */
+.tf-card { max-width: 760px; margin-top: var(--space-6); padding: var(--space-4) var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
+.tf-card__row { display: flex; align-items: flex-start; gap: var(--space-4); }
+.tf-card__ic { display: inline-grid; place-items: center; flex: none; width: 36px; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); color: var(--ink-muted); }
+.tf-card__t { flex: 1; min-width: 0; }
+.tf-card__t h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font: 600 15px/22px var(--font-sans); color: var(--ink); }
+.tf-card__t h2 .ah-badge.tf-off { background: var(--surface-2); color: var(--ink-muted); }
+.tf-card__t h2 .ah-badge.tf-off::before { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+.tf-card__t p { margin: 2px 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.tf-low { color: var(--warn); font-weight: 500; }
+.tf-card__act { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); flex: none; }
+.tf-warn { display: flex; gap: 10px; align-items: flex-start; margin: var(--space-4) 0 0; padding: 10px 12px; border: 1px solid var(--warn); border-radius: var(--radius-md); background: var(--warn-soft); font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.tf-warn > .ob-ic { margin-top: 2px; color: var(--warn); }
+.tf-notice { margin: 0; font: 400 13px/18px var(--font-sans); color: var(--ok); }
+.tf-notice:not(:empty) { margin-top: var(--space-3); }
+
+.tf-btn-danger { background: var(--error); border-color: var(--error); color: #fff; }
+.tf-btn-danger:hover { filter: brightness(1.08); }
+.tf-btn-outline-danger { background: transparent; border-color: color-mix(in srgb, var(--error) 55%, var(--border)); color: var(--error); }
+.tf-btn-outline-danger:hover { background: var(--error-soft); }
+.tf-card .ah-btn:disabled, .tf-dialog .ah-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; filter: none; }
+
+/* Modal dialog */
+.tf-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); color: var(--ink); box-shadow: 0 24px 64px rgb(0 0 0 / .28); }
+.tf-dialog::backdrop { background: color-mix(in srgb, var(--bg) 72%, transparent); }
+.tf-dialog__head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-6) 0; }
+.tf-dialog__head h2 { flex: 1; margin: 0; font: 600 16px/24px var(--font-sans); }
+.tf-x { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink-muted); cursor: pointer; }
+.tf-x:hover { background: var(--surface-2); color: var(--ink); }
+.tf-x:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.tf-x svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.tf-dialog__body { padding: var(--space-3) var(--space-6) var(--space-6); }
+.tf-dialog__foot { display: flex; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-2); }
+.tf-lead { margin: 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); }
+.tf-loading { display: flex; align-items: center; gap: var(--space-3); min-height: 120px; font: 400 14px/20px var(--font-sans); color: var(--ink-muted); }
+.tf-spin { width: 16px; height: 16px; border: 2px solid var(--border-strong); border-right-color: transparent; border-radius: 50%; animation: tfSpin .8s linear infinite; }
+@keyframes tfSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .tf-spin { animation: none; } }
+
+.tf-steps { display: grid; gap: var(--space-6); margin: 0; padding: 0 0 0 20px; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); }
+.tf-steps b { color: var(--ink); font-weight: 600; }
+.tf-enroll { display: flex; align-items: center; gap: var(--space-4); margin-top: var(--space-3); }
+.tf-qr { flex: none; width: 168px; height: 168px; border-radius: var(--radius-md); border: 1px solid var(--border); }
+.tf-secret { display: grid; justify-items: start; gap: 6px; min-width: 0; }
+.tf-secret .ob-l { margin: 0; }
+.tf-secret code { padding: 6px 8px; border-radius: var(--radius-sm); background: var(--surface-2); font: 500 13px/20px var(--font-mono); color: var(--ink); overflow-wrap: anywhere; user-select: all; }
+.tf-secret .ah-btn { margin-left: -12px; }
+
+.tf-dialog .ob-code6 { margin-top: var(--space-3); }
+.tf-dialog .ob-code6 span { width: 52px; height: 60px; border-radius: 10px; font-size: 26px; }
+.tf-dialog .ob-code6.bad span { border-color: var(--error); }
+.tf-dialog .ob-f { margin-top: var(--space-4); }
+.tf-dialog .ob-in { height: 40px; font-size: 14px; }
+.tf-switch { margin-top: var(--space-4); padding: 0; border: 0; background: none; font: 500 13px/18px var(--font-sans); cursor: pointer; }
+
+.tf-once { display: flex; gap: 8px; align-items: flex-start; margin: var(--space-3) 0 0; font: 500 13px/20px var(--font-sans); color: var(--warn); }
+.tf-once > .ob-ic { margin-top: 2px; }
+.tf-codes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px var(--space-6); margin: var(--space-4) 0 0; padding: var(--space-4) var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg); list-style: none; font: 500 15px/24px var(--font-mono); color: var(--ink); letter-spacing: .04em; }
+.tf-codes li { text-align: center; }
+.tf-codes__act { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.tf-saved { margin-top: var(--space-4); font-size: 13px; }
+
+@media (max-width: 860px) {
+  .tf-card { padding: var(--space-4); }
+  .tf-card__row { flex-wrap: wrap; }
+  .tf-card__act { width: 100%; justify-content: flex-start; }
+}
+@media (max-width: 520px) {
+  .tf-dialog__head, .tf-dialog__body, .tf-dialog__foot { padding-left: var(--space-4); padding-right: var(--space-4); }
+  .tf-enroll { flex-direction: column; align-items: flex-start; }
+  .tf-dialog .ob-code6 { gap: 6px; }
+  .tf-dialog .ob-code6 span { width: calc((100% - 30px) / 6); height: 52px; }
+  .tf-dialog .ob-code6 .gap { display: none; }
+  .tf-codes { padding: var(--space-3); gap: 6px var(--space-3); font-size: 14px; }
+}
