@@ -62,6 +62,14 @@ type AuthEmailToken struct {
 	ConsumedAt    *time.Time
 }
 
+type BackupCode struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	CodeHash  string
+	UsedAt    *time.Time
+	CreatedAt time.Time
+}
+
 type Environment struct {
 	ID        uuid.UUID
 	ProjectID uuid.UUID
@@ -122,6 +130,18 @@ type Project struct {
 	DeletedAt *time.Time
 }
 
+type RecoveryRequest struct {
+	ID          uuid.UUID
+	UserID      uuid.UUID
+	TokenHash   string
+	RequestedAt time.Time
+	ReadyAt     time.Time
+	ConfirmedAt *time.Time
+	CancelledAt *time.Time
+	Ip          *netip.Addr
+	UserAgent   string
+}
+
 type Session struct {
 	ID            uuid.UUID
 	UserID        uuid.UUID
@@ -163,4 +183,11 @@ type User struct {
 	UpdatedAt       time.Time
 	DeletedAt       *time.Time
 	DeleteAfter     *time.Time
+}
+
+type UserTotp struct {
+	UserID      uuid.UUID
+	SecretEnc   []byte
+	ConfirmedAt *time.Time
+	CreatedAt   time.Time
 }

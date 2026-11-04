@@ -11,6 +11,20 @@ import (
 )
 
 type Querier interface {
+	// Cancels every pending request of a user, e.g. before a new request or
+	// once 2FA has been turned off another way.
+	CancelPendingRecoveryRequestsForUser(ctx context.Context, arg CancelPendingRecoveryRequestsForUserParams) (int64, error)
+	// Cancels a pending request (the link in the request email). Returns
+	// pgx.ErrNoRows when it is already confirmed or cancelled.
+	CancelRecoveryRequest(ctx context.Context, arg CancelRecoveryRequestParams) (RecoveryRequest, error)
+	// Completes a pending request whose cooling-off period has passed at now
+	// (the caller's clock). Returns pgx.ErrNoRows when the request is not
+	// pending or not ready yet; of two concurrent confirms only one succeeds.
+	ConfirmRecoveryRequest(ctx context.Context, arg ConfirmRecoveryRequestParams) (RecoveryRequest, error)
+	// Marks a pending secret confirmed after the first valid code (enable step
+	// 2). Returns pgx.ErrNoRows when there is no pending secret (none at all, or
+	// already confirmed); of two concurrent confirms only one succeeds.
+	ConfirmTOTP(ctx context.Context, userID uuid.UUID) (UserTotp, error)
 	// Marks a live row used (by its link or its code). Returns pgx.ErrNoRows when
 	// the row is already consumed or expired; of two concurrent consumes only one
 	// succeeds.
@@ -19,6 +33,13 @@ type Querier interface {
 	CountOAuthIdentitiesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	// Number of passkeys registered to a user.
 	CountPasskeyCredentialsForUser(ctx context.Context, userID uuid.UUID) (int64, error)
+	// Number of backup codes a user can still spend (2FA status).
+	CountUnusedBackupCodesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
+	// Stores a fresh set of backup codes for a user: ids[i] pairs with
+	// code_hashes[i]. Only identity reads or writes backup_codes (ADR 0005);
+	// code_hash is a hash of the code, never the code itself. Call
+	// DeleteBackupCodesForUser first (same transaction) when regenerating.
+	CreateBackupCodes(ctx context.Context, arg CreateBackupCodesParams) (int64, error)
 	// Stores the row behind one sign-in email (magic link + 6-digit code). Only
 	// identity reads or writes auth_email_tokens (ADR 0005); link_token_hash and
 	// code_hash are hashes, never the secrets. next_path must be a relative path
@@ -35,6 +56,12 @@ type Querier interface {
 	// reads or writes passkey_credentials (ADR 0005). A credential_id already
 	// registered (to any user) violates the unique constraint.
 	CreatePasskeyCredential(ctx context.Context, arg CreatePasskeyCredentialParams) (PasskeyCredential, error)
+	// Stores a request to turn 2FA off by email. Only identity reads or writes
+	// recovery_requests (ADR 0005); token_hash is the SHA-256 of the emailed
+	// token, never the token itself. The caller passes requested_at and ready_at
+	// (requested_at + the cooling-off delay) from its clock. Call
+	// CancelPendingRecoveryRequestsForUser first so only the newest request works.
+	CreateRecoveryRequest(ctx context.Context, arg CreateRecoveryRequestParams) (RecoveryRequest, error)
 	// Starts a new session family at sign-in: pass family_id = id. Only identity
 	// reads or writes sessions (ADR 0005); token_hash is the SHA-256 of the
 	// refresh token, never the token itself.
@@ -42,6 +69,8 @@ type Querier interface {
 	// Only the identity module reads or writes users (ADR 0005); every lookup
 	// and update below ignores soft-deleted rows.
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	// Removes all of a user's backup codes, used or not (regenerate, disable).
+	DeleteBackupCodesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	// Unlinks one identity of a user; scoped by user_id so a caller cannot unlink
 	// another user's identity. Returns 0 when nothing matched. Check
 	// CountOAuthIdentitiesForUser first so a user keeps a way to sign in.
@@ -49,6 +78,9 @@ type Querier interface {
 	// Removes one passkey of a user; scoped by user_id so a caller cannot remove
 	// another user's passkey. Returns 0 when nothing matched.
 	DeletePasskeyCredential(ctx context.Context, arg DeletePasskeyCredentialParams) (int64, error)
+	// Turns 2FA off for a user (disable, recovery). Delete the user's backup
+	// codes in the same transaction. Returns 0 when the user had no secret.
+	DeleteTOTP(ctx context.Context, userID uuid.UUID) (int64, error)
 	// Returns the row whatever its state, so the caller can tell a live link from
 	// a consumed or expired one.
 	GetEmailTokenByLinkHash(ctx context.Context, linkTokenHash string) (AuthEmailToken, error)
@@ -66,9 +98,15 @@ type Querier interface {
 	// Resolves the rawId of a sign-in assertion to its credential (and so its
 	// user). Returns pgx.ErrNoRows when the credential is not registered.
 	GetPasskeyCredentialByCredentialID(ctx context.Context, credentialID []byte) (PasskeyCredential, error)
+	// Returns the row whatever its state, so the caller can tell a pending
+	// request from a confirmed or cancelled one (status page).
+	GetRecoveryRequestByTokenHash(ctx context.Context, tokenHash string) (RecoveryRequest, error)
 	// Returns the row whatever its state, so the caller can tell a live token
 	// from a revoked one (reuse) or an expired one.
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
+	// A user's TOTP row, confirmed or not. Returns pgx.ErrNoRows when the user
+	// has never started enabling 2FA (or has turned it off).
+	GetTOTPForUser(ctx context.Context, userID uuid.UUID) (UserTotp, error)
 	// Case-insensitive; served by the users_email_active index on lower(email).
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
@@ -138,6 +176,14 @@ type Querier interface {
 	UpdateUserPreferences(ctx context.Context, arg UpdateUserPreferencesParams) (User, error)
 	// NULL arguments leave the column unchanged.
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error)
+	// Stores a new, unconfirmed TOTP secret for a user (enable step 1). Only
+	// identity reads or writes user_totp (ADR 0005); secret_enc is ciphertext,
+	// never the secret itself. A pending secret is replaced; a confirmed one is
+	// kept, and then this returns pgx.ErrNoRows (2FA is already enabled).
+	UpsertPendingTOTP(ctx context.Context, arg UpsertPendingTOTPParams) (UserTotp, error)
+	// Spends one unused backup code of a user. Returns pgx.ErrNoRows when the
+	// code is wrong or already used; of two concurrent uses only one succeeds.
+	UseBackupCode(ctx context.Context, arg UseBackupCodeParams) (BackupCode, error)
 }
 
 var _ Querier = (*Queries)(nil)
