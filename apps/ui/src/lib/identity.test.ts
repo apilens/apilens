@@ -373,7 +373,7 @@ describe("operations", () => {
       ),
     ) as { paths: Record<string, Record<string, unknown>> };
     // Operations on a path the spec already has but that are not built yet.
-    const pending = new Set(["GET /orgs"]); // #279
+    const pending = new Set<string>();
     for (const [method, template] of routes) {
       const item = spec.paths[`/api/v1${template}`];
       if (item && !pending.has(`${method} ${template}`) && !(method.toLowerCase() in item)) {

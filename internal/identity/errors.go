@@ -101,7 +101,15 @@ const (
 	// cooling-off period (identity.recovery_delay); retry_after says how long
 	// is left. It can still be cancelled.
 	CodeRecoveryNotReady ErrCode = "recovery_not_ready"
+	// CodeSlugImmutable: the update asks for a different organization slug;
+	// slugs cannot be changed yet.
+	CodeSlugImmutable ErrCode = "slug_immutable"
+	// CodeDomainNotAllowed: an allowed domain is a public email provider
+	// (gmail.com, outlook.com, …) that anyone can hold an address at.
+	CodeDomainNotAllowed ErrCode = "domain_not_allowed"
 	// CodeForbidden: authenticated, but not allowed to perform the action.
+	// Also answers for an organization that does not exist or that the
+	// caller is not a member of, so the two cannot be told apart.
 	CodeForbidden ErrCode = "forbidden"
 	// CodeInternal: an unexpected server failure. Details stay in the logs.
 	CodeInternal ErrCode = "internal_error"
@@ -143,6 +151,8 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeAccountDeleting:       {http.StatusConflict, "Account scheduled for deletion", "This account was deleted and will be removed for good after delete_after. Restore it with a new email code."},
 	CodeSlugTaken:             {http.StatusConflict, "Slug taken", "This slug is not available. Pick another one."},
 	CodeRecoveryNotReady:      {http.StatusConflict, "Recovery not ready", "Account recovery is still in its waiting period. Try again after it ends."},
+	CodeSlugImmutable:         {http.StatusConflict, "Slug cannot be changed", "An organization's slug cannot be changed."},
+	CodeDomainNotAllowed:      {http.StatusBadRequest, "Domain not allowed", "Public email domains cannot be claimed by an organization."},
 	CodeForbidden:             {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
 	CodeInternal:              {http.StatusInternalServerError, "Internal error", "Something went wrong."},
 }

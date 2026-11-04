@@ -886,6 +886,119 @@
         ],
         "type": "object"
       },
+      "OrgDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/OrgDetail.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "allowed_domains": {
+            "description": "Email domains (lower-case hostnames) whose users may join when domain_join is on.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "domain_join": {
+            "description": "Whether users with a verified email at one of allowed_domains may join without an invitation.",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "description": "The signed-in user's role in the organization.",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "allowed_domains",
+          "domain_join",
+          "id",
+          "slug",
+          "name",
+          "role",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "OrgSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "member_count": {
+            "description": "Members of the organization.",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project_count": {
+            "description": "Active projects in the organization.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "role": {
+            "description": "The signed-in user's role in the organization.",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_count",
+          "member_count",
+          "id",
+          "slug",
+          "name",
+          "role",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "Passkey": {
         "additionalProperties": false,
         "properties": {
@@ -2239,6 +2352,44 @@
         "required": [
           "backup_codes"
         ],
+        "type": "object"
+      },
+      "UpdateOrgInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/UpdateOrgInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "allowed_domains": {
+            "description": "Replaces the allowed email domains: lower-case hostnames, not public email providers (domain_not_allowed). Duplicates are dropped.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "domain_join": {
+            "description": "Whether users with a verified email at an allowed domain may join without an invitation.",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Display name; surrounding spaces are trimmed.",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "slug": {
+            "description": "Must equal the current slug: slugs cannot be changed yet (slug_immutable).",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string"
+          }
+        },
         "type": "object"
       }
     },
@@ -4188,6 +4339,63 @@
       }
     },
     "/api/v1/orgs": {
+      "get": {
+        "description": "Lists the active organizations the signed-in user is a member of, with their role and the number of projects and members of each, ordered by name.",
+        "operationId": "list-orgs",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OrgSummary"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List my organizations",
+        "tags": [
+          "Organizations"
+        ]
+      },
       "post": {
         "description": "Creates an organization owned by the signed-in user. Answers `slug_taken` (409) with up to three free `suggestions` when the slug is reserved or used by another organization. Audited as `org.created`.",
         "operationId": "create-org",
@@ -4361,6 +4569,269 @@
           }
         ],
         "summary": "Check whether an organization slug is free",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/api/v1/orgs/{slug}": {
+      "delete": {
+        "description": "Soft-deletes the organization; its members lose access to it and its projects, and its slug becomes free. Owners only (403 `forbidden` otherwise, and for an organization the user is not a member of). Audited as `org.deleted`.",
+        "operationId": "delete-org",
+        "parameters": [
+          {
+            "description": "The organization's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The organization's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Delete an organization",
+        "tags": [
+          "Organizations"
+        ]
+      },
+      "get": {
+        "description": "Returns the organization and the signed-in user's role in it. Answers `forbidden` (403) when it does not exist or the user is not a member, so the two cannot be told apart.",
+        "operationId": "get-org",
+        "parameters": [
+          {
+            "description": "The organization's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The organization's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgDetail"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Get an organization",
+        "tags": [
+          "Organizations"
+        ]
+      },
+      "patch": {
+        "description": "Changes the name, allowed email domains or domain join of the organization. Owners and admins only (403 `forbidden` otherwise, and for an organization the user is not a member of). A public email domain answers `domain_not_allowed`; a slug other than the current one answers `slug_immutable`. Audited as `org.updated`.",
+        "operationId": "update-org",
+        "parameters": [
+          {
+            "description": "The organization's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The organization's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrgInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgDetail"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `domain_not_allowed`, `invalid_request`.",
+            "x-apilens-codes": [
+              "domain_not_allowed",
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `slug_immutable`.",
+            "x-apilens-codes": [
+              "slug_immutable"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Update an organization",
         "tags": [
           "Organizations"
         ]

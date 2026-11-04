@@ -60,3 +60,34 @@ ORDER BY o.name, o.slug;
 -- Which of the given slugs active organizations already use.
 SELECT slug FROM organizations
 WHERE slug = ANY(@slugs::text[]) AND deleted_at IS NULL;
+
+-- name: ListUserOrganizationsWithCounts :many
+-- The active organizations a user belongs to, with their role and the
+-- number of active projects and (non-deleted) members of each.
+SELECT o.id, o.slug, o.name, o.created_at, m.role,
+       (SELECT count(*) FROM projects p
+        WHERE p.org_id = o.id AND p.deleted_at IS NULL)::bigint AS project_count,
+       (SELECT count(*) FROM memberships mm
+        JOIN users u ON u.id = mm.user_id
+        WHERE mm.org_id = o.id AND u.deleted_at IS NULL)::bigint AS member_count
+FROM memberships m
+JOIN organizations o ON o.id = m.org_id
+WHERE m.user_id = @user_id AND o.deleted_at IS NULL
+ORDER BY o.name, o.slug;
+
+-- name: GetMemberOrganization :one
+-- An active organization by slug together with the user's role in it; no
+-- row when the organization does not exist or the user is not a member.
+SELECT o.id, o.slug, o.name, o.created_at, o.allowed_domains, o.domain_join, m.role
+FROM organizations o
+JOIN memberships m ON m.org_id = o.id AND m.user_id = @user_id
+WHERE o.slug = @slug AND o.deleted_at IS NULL;
+
+-- name: LockMemberOrganization :one
+-- GetMemberOrganization, row-locking the organization (not the membership)
+-- for the rest of the transaction.
+SELECT o.id, o.slug, o.name, o.created_at, o.allowed_domains, o.domain_join, m.role
+FROM organizations o
+JOIN memberships m ON m.org_id = o.id AND m.user_id = @user_id
+WHERE o.slug = @slug AND o.deleted_at IS NULL
+FOR UPDATE OF o;

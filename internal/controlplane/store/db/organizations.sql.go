@@ -47,6 +47,45 @@ func (q *Queries) CreateOrganization(ctx context.Context, arg CreateOrganization
 	return i, err
 }
 
+const getMemberOrganization = `-- name: GetMemberOrganization :one
+SELECT o.id, o.slug, o.name, o.created_at, o.allowed_domains, o.domain_join, m.role
+FROM organizations o
+JOIN memberships m ON m.org_id = o.id AND m.user_id = $1
+WHERE o.slug = $2 AND o.deleted_at IS NULL
+`
+
+type GetMemberOrganizationParams struct {
+	UserID uuid.UUID
+	Slug   string
+}
+
+type GetMemberOrganizationRow struct {
+	ID             uuid.UUID
+	Slug           string
+	Name           string
+	CreatedAt      time.Time
+	AllowedDomains []string
+	DomainJoin     bool
+	Role           string
+}
+
+// An active organization by slug together with the user's role in it; no
+// row when the organization does not exist or the user is not a member.
+func (q *Queries) GetMemberOrganization(ctx context.Context, arg GetMemberOrganizationParams) (GetMemberOrganizationRow, error) {
+	row := q.db.QueryRow(ctx, getMemberOrganization, arg.UserID, arg.Slug)
+	var i GetMemberOrganizationRow
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.CreatedAt,
+		&i.AllowedDomains,
+		&i.DomainJoin,
+		&i.Role,
+	)
+	return i, err
+}
+
 const getOrganizationBySlug = `-- name: GetOrganizationBySlug :one
 SELECT id, slug, name, created_at, deleted_at, allowed_domains, domain_join, created_by FROM organizations
 WHERE slug = $1 AND deleted_at IS NULL
@@ -160,6 +199,99 @@ func (q *Queries) ListUserOrganizations(ctx context.Context, userID uuid.UUID) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const listUserOrganizationsWithCounts = `-- name: ListUserOrganizationsWithCounts :many
+SELECT o.id, o.slug, o.name, o.created_at, m.role,
+       (SELECT count(*) FROM projects p
+        WHERE p.org_id = o.id AND p.deleted_at IS NULL)::bigint AS project_count,
+       (SELECT count(*) FROM memberships mm
+        JOIN users u ON u.id = mm.user_id
+        WHERE mm.org_id = o.id AND u.deleted_at IS NULL)::bigint AS member_count
+FROM memberships m
+JOIN organizations o ON o.id = m.org_id
+WHERE m.user_id = $1 AND o.deleted_at IS NULL
+ORDER BY o.name, o.slug
+`
+
+type ListUserOrganizationsWithCountsRow struct {
+	ID           uuid.UUID
+	Slug         string
+	Name         string
+	CreatedAt    time.Time
+	Role         string
+	ProjectCount int64
+	MemberCount  int64
+}
+
+// The active organizations a user belongs to, with their role and the
+// number of active projects and (non-deleted) members of each.
+func (q *Queries) ListUserOrganizationsWithCounts(ctx context.Context, userID uuid.UUID) ([]ListUserOrganizationsWithCountsRow, error) {
+	rows, err := q.db.Query(ctx, listUserOrganizationsWithCounts, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserOrganizationsWithCountsRow{}
+	for rows.Next() {
+		var i ListUserOrganizationsWithCountsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.CreatedAt,
+			&i.Role,
+			&i.ProjectCount,
+			&i.MemberCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockMemberOrganization = `-- name: LockMemberOrganization :one
+SELECT o.id, o.slug, o.name, o.created_at, o.allowed_domains, o.domain_join, m.role
+FROM organizations o
+JOIN memberships m ON m.org_id = o.id AND m.user_id = $1
+WHERE o.slug = $2 AND o.deleted_at IS NULL
+FOR UPDATE OF o
+`
+
+type LockMemberOrganizationParams struct {
+	UserID uuid.UUID
+	Slug   string
+}
+
+type LockMemberOrganizationRow struct {
+	ID             uuid.UUID
+	Slug           string
+	Name           string
+	CreatedAt      time.Time
+	AllowedDomains []string
+	DomainJoin     bool
+	Role           string
+}
+
+// GetMemberOrganization, row-locking the organization (not the membership)
+// for the rest of the transaction.
+func (q *Queries) LockMemberOrganization(ctx context.Context, arg LockMemberOrganizationParams) (LockMemberOrganizationRow, error) {
+	row := q.db.QueryRow(ctx, lockMemberOrganization, arg.UserID, arg.Slug)
+	var i LockMemberOrganizationRow
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.CreatedAt,
+		&i.AllowedDomains,
+		&i.DomainJoin,
+		&i.Role,
+	)
+	return i, err
 }
 
 const lockOrganization = `-- name: LockOrganization :one
