@@ -4,6 +4,7 @@ import { ApiError, type ContextOrg, type UserContext } from "@/lib/identity";
 const context = vi.fn();
 const updateOnboarding = vi.fn();
 const updateMe = vi.fn();
+const joinOrg = vi.fn();
 let expired = false;
 
 class Redirect extends Error {
@@ -20,7 +21,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/identity", async (orig) => ({
   ...(await orig<typeof import("@/lib/identity")>()),
-  identity: () => ({ context, updateOnboarding, updateMe }),
+  identity: () => ({ context, updateOnboarding, updateMe, joinOrg }),
 }));
 vi.mock("@/lib/server-session", async (orig) => {
   const real = await orig<typeof import("@/lib/server-session")>();
@@ -44,7 +45,7 @@ vi.mock("@/lib/server-session", async (orig) => {
   };
 });
 
-const { finishInvitedOnboarding, saveHome, saveOnboarding } = await import("./actions");
+const { finishInvitedOnboarding, joinTeam, saveHome, saveOnboarding } = await import("./actions");
 
 const saved = { step: "create", completed: false, completed_at: null, answers: { org_slug: "example-co" } };
 
@@ -178,5 +179,46 @@ describe("saveHome", () => {
   it("does not swallow unexpected errors", async () => {
     updateMe.mockRejectedValue(new TypeError("boom"));
     await expect(saveHome("requests")).rejects.toThrow("boom");
+  });
+});
+
+describe("joinTeam", () => {
+  const joined = { id: "o2", slug: "globex", name: "Globex", role: "member" };
+
+  it("joins, finishes onboarding and opens the organization's first project", async () => {
+    joinOrg.mockResolvedValue(joined);
+    context.mockResolvedValue(ctx({}, [GLOBEX]));
+    updateOnboarding.mockResolvedValue({});
+    await expect(joinTeam("globex", "Globex")).rejects.toEqual(new Redirect("/storefront/incidents"));
+    expect(joinOrg).toHaveBeenCalledWith("globex", { accessToken: "a" });
+    expect(updateOnboarding).toHaveBeenCalledWith({ completed: true, answers: { org_slug: "globex" } }, { accessToken: "a" });
+  });
+
+  it("an organization without projects continues to the project step", async () => {
+    joinOrg.mockResolvedValue(joined);
+    context.mockResolvedValue(ctx({}, [{ ...GLOBEX, projects: [] }]));
+    updateOnboarding.mockResolvedValue({});
+    await expect(joinTeam("globex", "Globex")).rejects.toEqual(new Redirect("/onboarding/project"));
+    expect(updateOnboarding).toHaveBeenCalledWith({ step: "project", answers: { org_slug: "globex" } }, { accessToken: "a" });
+  });
+
+  it("answers a sentence when the organization is no longer joinable", async () => {
+    joinOrg.mockRejectedValue(new ApiError({ status: 403, code: "forbidden" }));
+    await expect(joinTeam("globex", "Globex")).resolves.toEqual({
+      ok: false,
+      error: "You can no longer join Globex. Its owners may have turned off joining by email domain.",
+      code: "forbidden",
+    });
+    expect(updateOnboarding).not.toHaveBeenCalled();
+  });
+
+  it("refuses a malformed slug without calling the API", async () => {
+    await expect(joinTeam("Not A Slug", "X")).resolves.toMatchObject({ ok: false, code: "invalid_request" });
+    expect(joinOrg).not.toHaveBeenCalled();
+  });
+
+  it("an expired session signs in again", async () => {
+    expired = true;
+    await expect(joinTeam("globex", "Globex")).rejects.toEqual(new Redirect("/sign-in?reason=session_expired"));
   });
 });

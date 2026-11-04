@@ -75,13 +75,19 @@
 //                                                  `capabilities` their actions on shop, `api_keys`
 //                                                  shop's keys as that user sees them;
 //                                                  `sso` seeds acme's SSO connection (fields of the read),
-//                                                  `stale` makes /2fa/enable answer reauth_required
+//                                                  `stale` makes /2fa/enable answer reauth_required;
+//                                                  `joinable` [{slug, name, member_initials?, member_count?,
+//                                                  projects?: [slug]}] seeds the orgs they may join (#329)
 //   POST /__fake/identities {identities}          test hook: replaces the connected accounts
 //   GET  /api/v1/auth/invitations/{token}          invitation landing (#337): inv_globex (for
 //                                                  you@example.com), inv_other (another address),
 //                                                  inv_expired (invite_expired); else invalid_token
 //   POST /api/v1/auth/invitations/{token}/accept   joins globex (project storefront) as a member;
 //                                                  invite_email_mismatch for inv_other
+//   GET  /api/v1/users/me/joinable-orgs            the organizations seeded as `joinable` for the user (#329),
+//                                                  minus those joined; none unless seeded
+//   POST /api/v1/orgs/{slug}/join                  joins a seeded joinable org as a member (it then shows in
+//                                                  the context with its projects); 403 forbidden otherwise
 //
 // Nothing here sends mail or talks to a real provider. Run with
 // `node --experimental-strip-types e2e-fake/fake-identity.ts` (Playwright starts it).
@@ -420,6 +426,46 @@ interface Seeds {
   capabilities?: string[];
   apiKeys?: Record<string, unknown>[];
   sso?: Record<string, unknown>;
+  joinable?: Record<string, unknown>[];
+}
+
+/** An organization a fake user may join by verified email domain (#329). */
+interface FakeJoinable {
+  id: string;
+  slug: string;
+  name: string;
+  member_count: number;
+  member_initials: string[];
+  projects: string[];
+}
+/** User id → the organizations they may join; user id → the slugs they joined. */
+const joinableByUser = new Map<string, FakeJoinable[]>();
+const joinedByUser = new Map<string, Set<string>>();
+
+function seedJoinable(input: Record<string, unknown>): FakeJoinable {
+  const slug = String(input.slug);
+  return {
+    id: `org_${slug}`,
+    slug,
+    name: String(input.name ?? slug),
+    member_count: Number(input.member_count ?? 3),
+    member_initials: Array.isArray(input.member_initials) ? input.member_initials.map(String) : [],
+    projects: Array.isArray(input.projects) ? input.projects.map(String) : [],
+  };
+}
+
+/** The organizations `id` joined by domain, as the context lists them. */
+function joinedOrgs(id: string) {
+  const joined = joinedByUser.get(id) ?? new Set<string>();
+  return (joinableByUser.get(id) ?? [])
+    .filter((o) => joined.has(o.slug))
+    .map((o) => ({
+      id: o.id,
+      slug: o.slug,
+      name: o.name,
+      role: "member",
+      projects: o.projects.map((p) => ({ id: `prj_${p}`, slug: p, name: p, environments: ["production"] })),
+    }));
 }
 
 /** User id → acme's SSO connection as that user sees it (absent: none configured). */
@@ -456,6 +502,7 @@ function bundle(next: string, seeds: Seeds = {}, role: Role = "owner") {
   if (seeds.capabilities) capabilities.set(id, seeds.capabilities);
   apiKeys.set(id, (seeds.apiKeys ?? []).map(seedApiKey));
   if (seeds.sso) ssoByUser.set(id, ssoConnection(seeds.sso));
+  joinableByUser.set(id, (seeds.joinable ?? []).map(seedJoinable));
   return {
     access_token: access,
     refresh_token: `rt_${token()}`,
@@ -548,6 +595,7 @@ function context(id: string) {
       },
       ...(joinedGlobex.has(id) ? [GLOBEX] : []),
       ...createdOrgsOf(id),
+      ...joinedOrgs(id),
     ],
     last_project_slug: "shop",
     // Every fake sign-in is a new user, so onboarding is still open: `/onboarding/*` shows (#326).
@@ -555,6 +603,7 @@ function context(id: string) {
     capabilities: {
       [PROJECT]: capabilitiesOf(id),
       ...(joinedGlobex.has(id) ? { storefront: capabilitiesFor("member") } : {}),
+      ...Object.fromEntries(joinedOrgs(id).flatMap((o) => o.projects.map((p) => [p.slug, capabilitiesFor("member")]))),
     },
   };
 }
@@ -798,6 +847,36 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
       });
     }
+  }
+  if (req.method === "GET" && path === "/api/v1/users/me/joinable-orgs") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const joined = joinedByUser.get(user) ?? new Set<string>();
+    return send(
+      res,
+      200,
+      (joinableByUser.get(user) ?? [])
+        .filter((o) => !joined.has(o.slug))
+        .map((o) => ({
+          id: o.id,
+          slug: o.slug,
+          name: o.name,
+          member_count: o.member_count,
+          project_count: o.projects.length,
+          member_initials: o.member_initials,
+        })),
+    );
+  }
+  const joinPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/join$/);
+  if (req.method === "POST" && joinPath) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const org = (joinableByUser.get(user) ?? []).find((o) => o.slug === decodeURIComponent(joinPath[1]));
+    if (!org) return problem(res, 403, "forbidden");
+    const joined = joinedByUser.get(user) ?? new Set<string>();
+    joined.add(org.slug);
+    joinedByUser.set(user, joined);
+    return send(res, 200, { id: org.id, slug: org.slug, name: org.name, role: "member", created_at: new Date().toISOString() });
   }
   if (req.method === "PATCH" && path === "/api/v1/users/me/onboarding") {
     const user = signedInUser(req);
@@ -1081,6 +1160,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       api_keys: keys,
       sso,
       stale,
+      joinable,
     } = await readBody(req);
     const codes = Array.isArray(backups) ? backups.map(String) : [];
     const seeded: Seeds = {
@@ -1088,6 +1168,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       capabilities: Array.isArray(caps) ? caps.map(String) : undefined,
       apiKeys: Array.isArray(keys) ? (keys as Record<string, unknown>[]) : [],
       sso: typeof sso === "object" && sso !== null && !Array.isArray(sso) ? (sso as Record<string, unknown>) : undefined,
+      joinable: Array.isArray(joinable) ? (joinable as Record<string, unknown>[]) : [],
     };
     const r = ROLES.has(role as Role) ? (role as Role) : "owner";
     const code = issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded, stale === true, r);
