@@ -3,14 +3,20 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Brand, ObIcon, ObShell } from "./ob";
+import { type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
+import { AltLink } from "./alt-method";
+import { ObIcon, ObShell } from "./ob";
 
 const REMEMBERED = "amit@motadata.com";
 const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
 
-/** Returning users: the remembered account first, a passkey as the primary action. */
-export function SignIn() {
+/**
+ * Returning users: the remembered account first, a passkey as the primary action. `methods`
+ * (from `GET /auth/providers`) decides which provider buttons sit next to the email code.
+ */
+export function SignIn({ methods }: { methods: SignInMethods }) {
   const router = useRouter();
+  const alts = altMethods(methods, { email: true });
   const [remembered, setRemembered] = useState(true);
   const [email, setEmail] = useState("");
   const [touched, setTouched] = useState(false);
@@ -77,19 +83,17 @@ export function SignIn() {
         </Link>
       </div>
       <div className="ob-or">or</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-        <button type="button" className="ah-btn ah-btn--secondary" onClick={emailCode}>
-          <ObIcon name="mail" />
-          Email code
-        </button>
-        <Link className="ah-btn ah-btn--secondary" href="/platform/incidents">
-          <Brand src="github" label="github" />
-          GitHub
-        </Link>
-        <Link className="ah-btn ah-btn--secondary" href="/platform/incidents">
-          <Brand src="google" label="google" />
-          Google
-        </Link>
+      <div style={{ display: "grid", gridTemplateColumns: gridColumns(alts.length), gap: 10 }}>
+        {alts.map((m) =>
+          m === "email" ? (
+            <button key={m} type="button" className="ah-btn ah-btn--secondary" onClick={emailCode}>
+              <ObIcon name="mail" />
+              Email code
+            </button>
+          ) : (
+            <AltLink key={m} method={m} href="/platform/incidents" />
+          ),
+        )}
       </div>
     </ObShell>
   );
