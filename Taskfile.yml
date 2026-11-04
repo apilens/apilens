@@ -57,8 +57,8 @@ tasks:
       - "{{.BIN}}/buf generate"
 
   gen:sqlc:
-    desc: SQL queries -> internal/controlplane/store/db
-    sources: ["internal/controlplane/store/queries/*.sql", "internal/migrations/postgres/*.sql", sqlc.yaml]
+    desc: SQL queries -> internal/controlplane/store/db, internal/identity/store/db
+    sources: ["internal/controlplane/store/queries/*.sql", "internal/identity/store/queries/*.sql","internal/migrations/postgres/*.sql", sqlc.yaml]
     cmds:
       - docker run --rm -u "$(id -u):$(id -g)" -v "{{.ROOT_DIR}}:/src" -w /src {{.SQLC_IMAGE}} generate
 
