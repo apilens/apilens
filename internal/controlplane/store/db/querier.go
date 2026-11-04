@@ -39,6 +39,10 @@ type Querier interface {
 	GetMembership(ctx context.Context, arg GetMembershipParams) (Membership, error)
 	GetOrganizationBySlug(ctx context.Context, slug string) (Organization, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
+	// Transactional outbox (ADR 0006): called only through
+	// internal/controlplane/outbox.Emit, in the same transaction as the change
+	// the row describes. The relay (#291) reads rows in id order.
+	InsertOutbox(ctx context.Context, arg InsertOutboxParams) (int64, error)
 	// Active organizations with domain join on for the (lower-case) email
 	// domain that the user is not already a member of.
 	ListJoinableOrganizations(ctx context.Context, arg ListJoinableOrganizationsParams) ([]ListJoinableOrganizationsRow, error)
@@ -51,6 +55,9 @@ type Querier interface {
 	// Membership writes that could remove the last owner take this lock first,
 	// then check CountOrgOwners (the last-owner rule lives in the service layer).
 	LockOrganization(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	// Wakes the relay. A NOTIFY sent inside a transaction is delivered on commit
+	// only, and never on rollback.
+	NotifyOutbox(ctx context.Context) error
 	OrganizationSlugTaken(ctx context.Context, slug string) (bool, error)
 	// Rotates the token and extends the expiry of a pending invitation.
 	ResendInvitation(ctx context.Context, arg ResendInvitationParams) (Invitation, error)
