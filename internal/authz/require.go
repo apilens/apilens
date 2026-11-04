@@ -206,23 +206,59 @@ func (g *Guard) authorize(ctx huma.Context, p authn.Principal, typ string, perm 
 	if err != nil {
 		return target{}, err
 	}
-	t, cached, err := g.resolve(ctx.Context(), typ, key, orgSlug)
+	return g.authorizeKey(ctx.Context(), p, typ, perm, key, orgSlug)
+}
+
+// authorizeKey is authorize on an already-built cache key.
+func (g *Guard) authorizeKey(ctx context.Context, p authn.Principal, typ string, perm Permission, key, orgSlug string) (target, error) {
+	t, cached, err := g.resolve(ctx, typ, key, orgSlug)
 	if err != nil {
 		return t, err
 	}
-	err = g.decide(ctx.Context(), p, typ, perm, t)
+	err = g.decide(ctx, p, typ, perm, t)
 	if err == nil || !cached || errors.Is(err, ErrUnavailable) {
 		return t, err
 	}
 	g.slugs.Remove(key)
-	fresh, _, rerr := g.resolve(ctx.Context(), typ, key, orgSlug)
+	fresh, _, rerr := g.resolve(ctx, typ, key, orgSlug)
 	if rerr != nil {
 		return fresh, rerr
 	}
 	if fresh == t {
 		return t, err
 	}
-	return fresh, g.decide(ctx.Context(), p, typ, perm, fresh)
+	return fresh, g.decide(ctx, p, typ, perm, fresh)
+}
+
+// ErrForbidden is returned by AuthorizeProject when the caller can view the
+// project but lacks the permission asked for.
+var ErrForbidden = errors.New("authz: forbidden")
+
+// AuthorizeProject is Require for a project named outside the path (for
+// example a query parameter): it resolves slug and checks permission for p
+// with the same rules. It returns ErrNoResource when the project does not
+// exist or p cannot view it (indistinguishable on purpose), ErrForbidden
+// when p can view it but lacks permission, and an error wrapping
+// ErrUnavailable when SpiceDB cannot answer (fail closed). A nil Guard
+// answers ErrUnavailable.
+func (g *Guard) AuthorizeProject(ctx context.Context, p authn.Principal, slug string, permission Permission) (Target, error) {
+	if g == nil {
+		return Target{}, ErrUnavailable
+	}
+	if slug == "" {
+		return Target{}, ErrNoResource
+	}
+	t, err := g.authorizeKey(ctx, p, TypeProject, permission, TypeProject+":"+slug, "")
+	switch {
+	case err == nil:
+		return Target{OrgID: t.org, ProjectID: t.project}, nil
+	case errors.Is(err, errHidden):
+		return Target{}, ErrNoResource
+	case errors.Is(err, errForbidden):
+		return Target{}, ErrForbidden
+	default:
+		return Target{}, err
+	}
 }
 
 // slugKey reads the resource's slug from the path. It returns the cache

@@ -1,10 +1,12 @@
 // Package query is the read side of APILens: the dashboard API.
 //
 // This is the first slice of the M3 query role: fixed, parameterised queries
-// over the rollups and raw tables. Every query takes the project from the
-// caller's read key and filters on it first; there is no way to name a
-// project in a request. M3 replaces the fixed queries with the typed query
-// compiler (ADR 0004) and M2 replaces read keys with user sessions.
+// over the rollups and raw tables. Callers are either signed-in users, who
+// name the project with `?project=<slug>` and must hold project.view on it
+// (checked against SpiceDB, failing closed), or scripts holding a project
+// read key, whose project is the key's. Either way every query filters on
+// the resolved project first. M3 replaces the fixed queries with the typed
+// query compiler (ADR 0004).
 package query
 
 import (
@@ -21,6 +23,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 
+	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/platform/authn"
@@ -52,12 +55,28 @@ func NewService(ch driver.Conn, catalog Catalog) *Service {
 	return &Service{ch: ch, catalog: catalog, now: time.Now}
 }
 
+// ProjectAuthorizer decides whether a principal may use the project a slug
+// names; *authz.Guard satisfies it. It returns authz.ErrNoResource for a
+// project that does not exist or that the principal cannot view, and an
+// error wrapping authz.ErrUnavailable when it cannot answer.
+type ProjectAuthorizer interface {
+	AuthorizeProject(ctx context.Context, p authn.Principal, slug string, permission authz.Permission) (authz.Target, error)
+}
+
+// ParamProject is the query parameter naming the project.
+const ParamProject = "project"
+
+// scope is the project every query of a request is filtered on.
+type scope struct {
+	ProjectID uuid.UUID
+}
+
 type principalKey struct{}
 
-func principalFrom(ctx context.Context) (apikeys.Principal, error) {
-	p, ok := ctx.Value(principalKey{}).(apikeys.Principal)
+func principalFrom(ctx context.Context) (scope, error) {
+	p, ok := ctx.Value(principalKey{}).(scope)
 	if !ok {
-		return apikeys.Principal{}, huma.Error401Unauthorized("a read key is required")
+		return scope{}, huma.Error401Unauthorized("a session or read key is required")
 	}
 	return p, nil
 }
@@ -65,8 +84,8 @@ func principalFrom(ctx context.Context) (apikeys.Principal, error) {
 // SchemeReadKey is the OpenAPI security scheme of project read keys.
 const SchemeReadKey = "readKey"
 
-// security marks an operation as requiring a read key.
-var security = []map[string][]string{{SchemeReadKey: {}}}
+// security marks an operation as accepting a user session or a read key.
+var security = []map[string][]string{{authn.SchemeSession: {}}, {SchemeReadKey: {}}}
 
 // AddSecurityScheme documents read-key auth in the OpenAPI spec.
 func AddSecurityScheme(api huma.API) {
@@ -84,18 +103,30 @@ func AddSecurityScheme(api huma.API) {
 	}
 }
 
-// AuthMiddleware authenticates operations that declare the readKey scheme.
-// Install it before registering the operations it should guard, and after
-// authn.Middleware: a request already authenticated by a session is passed
-// on. The key is stored both as an apikeys.Principal and an authn.Principal.
-func AuthMiddleware(api huma.API, v Verifier) func(huma.Context, func(huma.Context)) {
+// AuthMiddleware authenticates and scopes operations that declare the
+// readKey scheme. Install it before registering the operations it should
+// guard, and after authn.Middleware.
+//
+// A request already authenticated by a session must name the project with
+// ?project=<slug> (422 without it) and is let through only when projects
+// grants project.view on it: 404 when the project does not exist or is not
+// visible to the caller, 503 when authorization cannot be answered (fail
+// closed). Otherwise the bearer must be a read key, whose project is used;
+// a ?project= sent with a read key must name that same project. The key is
+// stored as an authn.Principal too.
+func AuthMiddleware(api huma.API, v Verifier, projects ProjectAuthorizer) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
 		if !authn.Declares(ctx.Operation(), SchemeReadKey) {
 			next(ctx)
 			return
 		}
-		if _, ok := authn.FromContext(ctx.Context()); ok {
-			next(ctx)
+		slug := ctx.Query(ParamProject)
+		if p, ok := authn.FromContext(ctx.Context()); ok {
+			if slug == "" {
+				_ = huma.WriteErr(api, ctx, http.StatusUnprocessableEntity, "the project query parameter is required with a session (?project=<slug>)")
+				return
+			}
+			authorizeProject(api, ctx, projects, p, slug, next)
 			return
 		}
 		raw := ""
@@ -106,15 +137,42 @@ func AuthMiddleware(api huma.API, v Verifier) func(huma.Context, func(huma.Conte
 		switch {
 		case raw == "" || errors.Is(err, apikeys.ErrInvalidKey):
 			ctx.SetHeader("WWW-Authenticate", `Bearer realm="apilens"`)
-			_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "a valid read key is required (Authorization: Bearer <read_key>)")
+			_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "a valid read key or session is required (Authorization: Bearer <read_key|access_token>)")
 		case err != nil:
 			ctx.SetHeader("Retry-After", "1")
 			_ = huma.WriteErr(api, ctx, http.StatusServiceUnavailable, "authentication backend unavailable, retry later")
 		case !p.HasScope(Scope):
 			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "this key cannot read data; use the read_key printed by `apilens seed`")
+		case slug != "":
+			authorizeProject(api, ctx, projects, p.Authn(), slug, next)
 		default:
-			next(huma.WithContext(ctx, authn.WithPrincipal(context.WithValue(ctx.Context(), principalKey{}, p), p.Authn())))
+			c := context.WithValue(ctx.Context(), principalKey{}, scope{ProjectID: p.ProjectID})
+			next(huma.WithContext(ctx, authn.WithPrincipal(c, p.Authn())))
 		}
+	}
+}
+
+// authorizeProject lets the request through scoped to the project slug names
+// when p may view it.
+func authorizeProject(api huma.API, ctx huma.Context, projects ProjectAuthorizer, p authn.Principal, slug string, next func(huma.Context)) {
+	var (
+		t   authz.Target
+		err = authz.ErrUnavailable
+	)
+	if projects != nil {
+		t, err = projects.AuthorizeProject(ctx.Context(), p, slug, authz.ProjectView)
+	}
+	switch {
+	case err == nil:
+		c := context.WithValue(ctx.Context(), principalKey{}, scope{ProjectID: t.ProjectID})
+		next(huma.WithContext(ctx, authn.WithPrincipal(c, p)))
+	case errors.Is(err, authz.ErrNoResource), errors.Is(err, authz.ErrForbidden):
+		_ = huma.WriteErr(api, ctx, http.StatusNotFound, "project not found")
+	case errors.Is(err, authz.ErrUnavailable):
+		ctx.SetHeader("Retry-After", "1")
+		_ = huma.WriteErr(api, ctx, http.StatusServiceUnavailable, "authorization backend unavailable, retry later")
+	default:
+		_ = huma.WriteErr(api, ctx, http.StatusInternalServerError, "authorization failed")
 	}
 }
 

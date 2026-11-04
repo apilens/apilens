@@ -10,13 +10,24 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/apilens/apilens/internal/platform/authn"
 )
 
 // The quantile levels stored in the rollups (see the ClickHouse migration).
 // Merges must use the same parameters; index 0 = p50, 3 = p95, 4 = p99.
 const quantiles = "quantilesTDigestMerge(0.5, 0.75, 0.9, 0.95, 0.99)(latency)"
 
-type rangeInput struct {
+// ProjectInput documents the project query parameter; AuthMiddleware reads
+// and authorizes it before the handler runs.
+type ProjectInput struct {
+	Project string `query:"project" maxLength:"63" doc:"Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project."`
+}
+
+// RangeInput is the time range and environment shared by the traffic
+// operations. It is exported so Huma reads the fields of types embedding it.
+type RangeInput struct {
+	ProjectInput
 	Range string `query:"range" enum:"1h,6h,24h,7d" default:"24h" doc:"Time range ending now."`
 	Env   string `query:"env" maxLength:"64" doc:"Environment name; empty means all."`
 }
@@ -24,11 +35,12 @@ type rangeInput struct {
 // Register mounts the dashboard operations on api. s may be nil when only the
 // OpenAPI document is needed.
 func Register(api huma.API, s *Service) {
+	authn.AddSecurityScheme(api)
 	AddSecurityScheme(api)
 	op := func(id, method, path, summary string) huma.Operation {
 		return huma.Operation{OperationID: id, Method: method, Path: path, Summary: summary, Tags: []string{"Dashboard"}, Security: security}
 	}
-	huma.Register(api, op("get-project", http.MethodGet, "/api/v1/project", "Project, apps and environments of the read key"), s.project)
+	huma.Register(api, op("get-project", http.MethodGet, "/api/v1/project", "Project, apps and environments"), s.project)
 	huma.Register(api, op("get-traffic-summary", http.MethodGet, "/api/v1/traffic/summary", "Request totals, error split and latency percentiles"), s.summary)
 	huma.Register(api, op("get-traffic-timeseries", http.MethodGet, "/api/v1/traffic/timeseries", "Requests and errors per time bucket"), s.timeseries)
 	huma.Register(api, op("list-endpoints", http.MethodGet, "/api/v1/traffic/endpoints", "Per-endpoint traffic, errors and latency"), s.endpoints)
@@ -55,7 +67,7 @@ type projectOutput struct {
 	}
 }
 
-func (s *Service) project(ctx context.Context, _ *struct{}) (*projectOutput, error) {
+func (s *Service) project(ctx context.Context, _ *ProjectInput) (*projectOutput, error) {
 	p, err := principalFrom(ctx)
 	if err != nil {
 		return nil, err
@@ -116,7 +128,7 @@ type summaryOutput struct {
 	}
 }
 
-func (s *Service) summary(ctx context.Context, in *rangeInput) (*summaryOutput, error) {
+func (s *Service) summary(ctx context.Context, in *RangeInput) (*summaryOutput, error) {
 	p, err := principalFrom(ctx)
 	if err != nil {
 		return nil, err
@@ -169,7 +181,7 @@ type timeseriesOutput struct {
 	}
 }
 
-func (s *Service) timeseries(ctx context.Context, in *rangeInput) (*timeseriesOutput, error) {
+func (s *Service) timeseries(ctx context.Context, in *RangeInput) (*timeseriesOutput, error) {
 	p, err := principalFrom(ctx)
 	if err != nil {
 		return nil, err
@@ -223,7 +235,7 @@ func (s *Service) timeseries(ctx context.Context, in *rangeInput) (*timeseriesOu
 // ---------------------------------------------------------------- endpoints
 
 type endpointsInput struct {
-	rangeInput
+	RangeInput
 	Limit int `query:"limit" minimum:"1" maximum:"500" default:"100"`
 }
 
@@ -287,7 +299,7 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 // ---------------------------------------------------------------- requests
 
 type requestsInput struct {
-	rangeInput
+	RangeInput
 	Status string `query:"status" enum:"all,2xx,3xx,4xx,5xx" default:"all"`
 	Path   string `query:"path" maxLength:"1024" doc:"Route template, e.g. /orders/{id}."`
 	Limit  int    `query:"limit" minimum:"1" maximum:"500" default:"100"`
@@ -374,7 +386,7 @@ type errorsOutput struct {
 	}
 }
 
-func (s *Service) errors(ctx context.Context, in *rangeInput) (*errorsOutput, error) {
+func (s *Service) errors(ctx context.Context, in *RangeInput) (*errorsOutput, error) {
 	p, err := principalFrom(ctx)
 	if err != nil {
 		return nil, err
@@ -409,6 +421,7 @@ func (s *Service) errors(ctx context.Context, in *rangeInput) (*errorsOutput, er
 // ---------------------------------------------------------------- trace
 
 type traceInput struct {
+	ProjectInput
 	TraceID string `path:"trace_id" pattern:"^[0-9a-f]{32}$" doc:"W3C trace id (32 lowercase hex characters)."`
 }
 
@@ -504,7 +517,7 @@ type deploysOutput struct {
 	}
 }
 
-func (s *Service) deploys(ctx context.Context, in *rangeInput) (*deploysOutput, error) {
+func (s *Service) deploys(ctx context.Context, in *RangeInput) (*deploysOutput, error) {
 	p, err := principalFrom(ctx)
 	if err != nil {
 		return nil, err

@@ -3,6 +3,7 @@ package authz_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -375,4 +376,46 @@ func TestRequireUnknownResourceTypePanics(t *testing.T) {
 	}()
 	_, api := humatest.New(t)
 	authz.NewGuard(&schemaChecker{}, &mapResolver{}, authz.GuardOptions{}, nil).Require(api, authz.TypeUser, authz.OrgView)
+}
+
+// AuthorizeProject applies Require's rules to a project named outside the
+// path (the query role's ?project=).
+func TestAuthorizeProject(t *testing.T) {
+	e := newEnv(t, defaultGuard)
+	ctx := context.Background()
+	cases := []struct {
+		who, slug string
+		perm      authz.Permission
+		want      error
+	}{
+		{"viewer", "web", authz.ProjectView, nil},
+		{"viewer", "web", authz.ProjectEdit, authz.ErrForbidden},
+		{"stranger", "web", authz.ProjectView, authz.ErrNoResource},
+		{"owner", "other", authz.ProjectView, authz.ErrNoResource},
+		{"owner", "missing", authz.ProjectView, authz.ErrNoResource},
+		{"owner", "", authz.ProjectView, authz.ErrNoResource},
+		{"key:web", "web", authz.ProjectView, nil},
+		{"key:web", "other", authz.ProjectView, authz.ErrNoResource},
+		{"client", "web", authz.ProjectView, authz.ErrNoResource},
+	}
+	for _, tc := range cases {
+		p, _ := e.principal(tc.who)
+		got, err := e.guard.AuthorizeProject(ctx, p, tc.slug, tc.perm)
+		if (tc.want == nil && err != nil) || (tc.want != nil && !errors.Is(err, tc.want)) {
+			t.Errorf("%s on %q %s: err = %v, want %v", tc.who, tc.slug, tc.perm, err, tc.want)
+		}
+		if tc.want == nil && (got.ProjectID != e.web.id || got.OrgID != e.acme) {
+			t.Errorf("%s on %q: target = %+v", tc.who, tc.slug, got)
+		}
+	}
+
+	e.checker.down = true
+	p, _ := e.principal("owner")
+	if _, err := e.guard.AuthorizeProject(ctx, p, "web", authz.ProjectView); !errors.Is(err, authz.ErrUnavailable) {
+		t.Fatalf("spicedb down: err = %v, want ErrUnavailable", err)
+	}
+	var nilGuard *authz.Guard
+	if _, err := nilGuard.AuthorizeProject(ctx, p, "web", authz.ProjectView); !errors.Is(err, authz.ErrUnavailable) {
+		t.Fatalf("nil guard: err = %v, want ErrUnavailable", err)
+	}
 }
