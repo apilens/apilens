@@ -43,6 +43,14 @@ Rules:
   `internal_error`.
 - Request-schema validation failures are Huma's own `422` problems and carry
   no `code`; the UI shows its generic form error for them.
+- **Documented in the spec.** Identity and control-plane operations register
+  through `identity.Operation(api, op, codes...)`
+  (`internal/identity/openapi.go`). It requires an `OperationID`, `Summary`
+  and a tag (`Auth`, `Users`, `Organizations` or `Projects`, declared with
+  descriptions in `server.NewAPIConfig`), and adds one
+  `application/problem+json` response per status with the `Problem` schema
+  and an `x-apilens-codes` list of the codes it can carry. Regenerate the
+  committed spec with `task gen:openapi`.
 
 ## Error catalogue
 
