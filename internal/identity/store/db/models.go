@@ -76,6 +76,28 @@ type Environment struct {
 	CreatedAt time.Time
 }
 
+type Invitation struct {
+	ID         uuid.UUID
+	OrgID      uuid.UUID
+	Email      string
+	Role       string
+	TokenHash  string
+	InvitedBy  *uuid.UUID
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	AcceptedAt *time.Time
+	RevokedAt  *time.Time
+	ResentAt   *time.Time
+}
+
+type Membership struct {
+	OrgID     uuid.UUID
+	UserID    uuid.UUID
+	Role      string
+	InvitedBy *uuid.UUID
+	CreatedAt time.Time
+}
+
 type OauthIdentity struct {
 	ID          uuid.UUID
 	UserID      uuid.UUID
@@ -88,11 +110,14 @@ type OauthIdentity struct {
 }
 
 type Organization struct {
-	ID        uuid.UUID
-	Slug      string
-	Name      string
-	CreatedAt time.Time
-	DeletedAt *time.Time
+	ID             uuid.UUID
+	Slug           string
+	Name           string
+	CreatedAt      time.Time
+	DeletedAt      *time.Time
+	AllowedDomains []string
+	DomainJoin     bool
+	CreatedBy      *uuid.UUID
 }
 
 type Outbox struct {

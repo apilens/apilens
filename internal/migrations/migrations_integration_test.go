@@ -42,7 +42,7 @@ func TestMigrationsApplyAndAreIdempotent(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	for _, want := range []string{"api_keys", "apps", "audit_events", "auth_email_tokens", "backup_codes", "environments", "oauth_identities", "organizations", "outbox", "passkey_credentials", "projects", "recovery_requests", "sessions", "signing_keys", "user_totp", "users", "river_job", "river_migration", "river_queue"} {
+	for _, want := range []string{"api_keys", "apps", "audit_events", "auth_email_tokens", "backup_codes", "environments", "invitations", "memberships", "oauth_identities", "organizations", "outbox", "passkey_credentials", "projects", "recovery_requests", "sessions", "signing_keys", "user_totp", "users", "river_job", "river_migration", "river_queue"} {
 		if !slices.Contains(tables, want) {
 			t.Errorf("postgres table %q missing (have %v)", want, tables)
 		}
@@ -610,6 +610,139 @@ func TestPostgresTOTPMigrationRollsBack(t *testing.T) {
 		t.Fatalf("re-apply after rollback: %v", err)
 	}
 	for _, table := range []string{"user_totp", "backup_codes", "recovery_requests"} {
+		if !tableExists(t, pool, table) {
+			t.Errorf("table %q missing after re-apply", table)
+		}
+	}
+}
+
+func TestPostgresMembershipsMigrationRollsBack(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var userID, otherID string
+	if err := pool.QueryRow(ctx, `INSERT INTO users (id, email) VALUES (gen_random_uuid(), 'owner@example.com') RETURNING id`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO users (id, email) VALUES (gen_random_uuid(), 'other@example.com') RETURNING id`).Scan(&otherID); err != nil {
+		t.Fatal(err)
+	}
+
+	// organizations: new columns with defaults; allowed_domains lower-case only.
+	var orgID string
+	if err := pool.QueryRow(ctx, `INSERT INTO organizations (id, slug, name, created_by) VALUES (gen_random_uuid(), 'acme', 'Acme', $1) RETURNING id`, userID).Scan(&orgID); err != nil {
+		t.Fatal(err)
+	}
+	var domains []string
+	var domainJoin bool
+	if err := pool.QueryRow(ctx, `SELECT allowed_domains, domain_join FROM organizations WHERE id = $1`, orgID).Scan(&domains, &domainJoin); err != nil {
+		t.Fatal(err)
+	}
+	if len(domains) != 0 || domainJoin {
+		t.Errorf("defaults = %v, %v; want {}, false", domains, domainJoin)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE organizations SET allowed_domains = '{acme.com,acme.io}', domain_join = true WHERE id = $1`, orgID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE organizations SET allowed_domains = '{Acme.com}' WHERE id = $1`, orgID); err == nil {
+		t.Fatal("an upper-case allowed domain should violate the check")
+	}
+
+	// memberships: one row per (org, user), known roles only.
+	insertMember := `INSERT INTO memberships (org_id, user_id, role, invited_by) VALUES ($1, $2, $3, $4)`
+	if _, err := pool.Exec(ctx, insertMember, orgID, userID, "owner", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insertMember, orgID, userID, "admin", nil); err == nil {
+		t.Fatal("a second membership for the same (org, user) should violate the primary key")
+	}
+	if _, err := pool.Exec(ctx, insertMember, orgID, otherID, "superuser", nil); err == nil {
+		t.Fatal("unknown role should violate the check")
+	}
+	if _, err := pool.Exec(ctx, insertMember, orgID, otherID, "viewer", userID); err != nil {
+		t.Fatal(err)
+	}
+	// The database does not guard the last owner; that is the service layer's job.
+	if _, err := pool.Exec(ctx, `UPDATE memberships SET role = 'member' WHERE org_id = $1 AND user_id = $2`, orgID, userID); err != nil {
+		t.Fatalf("demoting the last owner is a service-layer rule, not SQL: %v", err)
+	}
+
+	// invitations: one pending per (org, email) case-insensitively, 7-day default expiry.
+	insertInvite := `INSERT INTO invitations (id, org_id, email, role, token_hash, invited_by) VALUES ($1, $2, $3, $4, $5, $6)`
+	i1 := "00000000-0000-0000-0000-000000000001"
+	if _, err := pool.Exec(ctx, insertInvite, i1, orgID, "New@Example.com", "member", "t1", userID); err != nil {
+		t.Fatal(err)
+	}
+	var ttlSeconds int64
+	if err := pool.QueryRow(ctx, `SELECT extract(epoch FROM expires_at - created_at)::bigint FROM invitations WHERE id = $1`, i1).Scan(&ttlSeconds); err != nil {
+		t.Fatal(err)
+	}
+	if ttl := time.Duration(ttlSeconds) * time.Second; ttl != 7*24*time.Hour {
+		t.Errorf("default expiry = %v after creation; want 7 days", ttl)
+	}
+	if _, err := pool.Exec(ctx, insertInvite, "00000000-0000-0000-0000-000000000002", orgID, "new@example.com", "admin", "t2", nil); err == nil {
+		t.Fatal("a second pending invitation for the same address should violate invitations_org_email_pending")
+	}
+	if _, err := pool.Exec(ctx, insertInvite, "00000000-0000-0000-0000-000000000003", orgID, "x@example.com", "member", "t1", nil); err == nil {
+		t.Fatal("duplicate token_hash should violate the unique constraint")
+	}
+	if _, err := pool.Exec(ctx, insertInvite, "00000000-0000-0000-0000-000000000004", orgID, "y@example.com", "root", "t4", nil); err == nil {
+		t.Fatal("unknown role should violate the check")
+	}
+	if _, err := pool.Exec(ctx, insertInvite, "00000000-0000-0000-0000-000000000005", orgID, "z@example.com", "member", "", nil); err == nil {
+		t.Fatal("empty token_hash should violate the check")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE invitations SET accepted_at = now(), revoked_at = now() WHERE id = $1`, i1); err == nil {
+		t.Fatal("an invitation both accepted and revoked should violate the check")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE invitations SET revoked_at = now() WHERE id = $1`, i1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insertInvite, "00000000-0000-0000-0000-000000000006", orgID, "new@example.com", "admin", "t6", nil); err != nil {
+		t.Fatalf("a revoked invitation frees the address for a new one: %v", err)
+	}
+
+	// Deleting a user cascades to their memberships and nulls invited_by/created_by.
+	if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		t.Fatal(err)
+	}
+	var members, invitedBy int
+	if err := pool.QueryRow(ctx, `SELECT count(*), count(invited_by) FROM memberships`).Scan(&members, &invitedBy); err != nil || members != 1 || invitedBy != 0 {
+		t.Fatalf("memberships after user delete = %d (invited_by set %d), %v; want 1 (0)", members, invitedBy, err)
+	}
+	var createdBy *string
+	if err := pool.QueryRow(ctx, `SELECT created_by::text FROM organizations WHERE id = $1`, orgID).Scan(&createdBy); err != nil || createdBy != nil {
+		t.Fatalf("created_by after user delete = %v, %v; want NULL", createdBy, err)
+	}
+
+	if _, err := provider.DownTo(ctx, 8); err != nil {
+		t.Fatalf("roll back to 00008: %v", err)
+	}
+	for _, table := range []string{"memberships", "invitations"} {
+		if tableExists(t, pool, table) {
+			t.Errorf("table %q should be dropped after rollback", table)
+		}
+	}
+	var cols int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns
+		WHERE table_name = 'organizations' AND column_name IN ('allowed_domains', 'domain_join', 'created_by')`).Scan(&cols); err != nil || cols != 0 {
+		t.Errorf("organizations domain-join columns after rollback = %d, %v; want 0", cols, err)
+	}
+	if !tableExists(t, pool, "organizations") || !tableExists(t, pool, "user_totp") {
+		t.Error("rollback of 00009 must not touch earlier migrations")
+	}
+
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply after rollback: %v", err)
+	}
+	for _, table := range []string{"memberships", "invitations"} {
 		if !tableExists(t, pool, table) {
 			t.Errorf("table %q missing after re-apply", table)
 		}
