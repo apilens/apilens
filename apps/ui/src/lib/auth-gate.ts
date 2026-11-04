@@ -10,6 +10,8 @@ import type { SessionPayload } from "./session-format";
 export const SIGN_IN_PATH = "/sign-in";
 /** First onboarding page, for a signed-in user without an organization (see `lib/landing.ts`). */
 export const ONBOARDING_PATH = "/onboarding/about";
+/** Where signed-out visitors to `/onboarding/*` are sent: sign up, then start onboarding. */
+export const ONBOARDING_SIGN_UP_PATH = `/sign-up?${new URLSearchParams({ next: ONBOARDING_PATH })}`;
 
 /**
  * Request header the gate sets when the access token is within {@link REFRESH_WINDOW_SECONDS}
@@ -81,6 +83,8 @@ export function decide(req: GateRequest): GateDecision {
   // API callers get a 401 rather than an HTML sign-in page.
   if (underPrefix(pathname, "/api")) return { action: "unauthorized" };
   if (pathname === "/") return { action: "redirect", location: SIGN_IN_PATH };
+  // Onboarding is for new accounts: sign up, then start at its first step (#326).
+  if (underPrefix(pathname, "/onboarding")) return { action: "redirect", location: ONBOARDING_SIGN_UP_PATH };
   const next = safeNext(pathname + search, "");
   return {
     action: "redirect",

@@ -422,7 +422,8 @@ function context(id: string) {
       },
     ],
     last_project_slug: "shop",
-    onboarding: { step: null, completed: true },
+    // Every fake sign-in is a new user, so onboarding is still open: `/onboarding/*` shows (#326).
+    onboarding: { step: null, completed: false },
     capabilities: { [PROJECT]: capabilitiesOf(id) },
   };
 }

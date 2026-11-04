@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BackNext, ObIcon, ObShell } from "./ob";
+import { BackNext, ObIcon, ObShell, type StepProps } from "./ob";
 
 const stat = (n: string, l: string, border: boolean) => (
   <div style={{ padding: "12px 16px", borderLeft: border ? "1px solid var(--border)" : undefined }}>
@@ -9,7 +9,7 @@ const stat = (n: string, l: string, border: boolean) => (
 );
 
 /** Branch: the email domain already has an organization. */
-export function JoinOrg() {
+export function JoinOrg({ step = 1, reached = step }: Partial<StepProps>) {
   return (
     <ObShell
       eyebrow="02:22 AM"
@@ -21,7 +21,8 @@ export function JoinOrg() {
         </>
       }
       progress={26.67}
-      step={1}
+      step={step}
+      reached={reached}
       badge="team"
       title="Join your team on APILens"
       lead="Motadata already has an organization. You can join it now."
