@@ -83,3 +83,54 @@ func TestOpenAPISpecSecuritySchemes(t *testing.T) {
 		t.Error("readKey scheme missing")
 	}
 }
+
+// TestOpenAPIDashboardAcceptsSessionsAndReadKeys guards that every dashboard
+// (query) operation documents both a user session and a read key, and the
+// project query parameter session callers must send.
+func TestOpenAPIDashboardAcceptsSessionsAndReadKeys(t *testing.T) {
+	var buf bytes.Buffer
+	if err := runOpenAPI(&buf); err != nil {
+		t.Fatal(err)
+	}
+	var spec struct {
+		Paths map[string]map[string]struct {
+			Tags       []string              `json:"tags"`
+			Security   []map[string][]string `json:"security"`
+			Parameters []struct {
+				Name string `json:"name"`
+				In   string `json:"in"`
+			} `json:"parameters"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &spec); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for path, ops := range spec.Paths {
+		for method, op := range ops {
+			if len(op.Tags) == 0 || op.Tags[0] != "Dashboard" {
+				continue
+			}
+			n++
+			has := map[string]bool{}
+			for _, req := range op.Security {
+				for name := range req {
+					has[name] = true
+				}
+			}
+			if !has["session"] || !has["readKey"] {
+				t.Errorf("%s %s: security = %v, want session and readKey", method, path, op.Security)
+			}
+			project := false
+			for _, p := range op.Parameters {
+				project = project || (p.Name == "project" && p.In == "query")
+			}
+			if !project {
+				t.Errorf("%s %s: no project query parameter", method, path)
+			}
+		}
+	}
+	if n == 0 {
+		t.Fatal("no Dashboard operations in the spec")
+	}
+}

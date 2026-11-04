@@ -151,8 +151,9 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	m.Register(modRelay, a.initRelay, modules.Invisible(), modules.DependsOn(modPostgres, modJobs, modAuthz))
 
 	m.Register(TargetEdge, a.initEdge, modules.DependsOn(modServer, modCatalog, modSink))
-	// query is the first slice of the M3 read path (fixed queries, read keys).
-	m.Register(TargetQuery, a.initQuery, modules.DependsOn(modServer, modClickHouse, modCatalog))
+	// query is the first slice of the M3 read path (fixed queries; user
+	// sessions authorized by SpiceDB, or read keys).
+	m.Register(TargetQuery, a.initQuery, modules.DependsOn(modServer, modPostgres, modClickHouse, modCatalog, modAuthz))
 	m.Register(TargetAPI, a.initAPI, modules.DependsOn(modServer, modPostgres, modValkey, modAuthz, modJobs))
 	// identity runs the M2 job workers (email, outbox relay, authz
 	// reconciler); the M4 worker role will too.
@@ -323,7 +324,14 @@ func (a *App) initEdge(context.Context) (modules.Service, error) {
 func (a *App) initQuery(context.Context) (modules.Service, error) {
 	api := a.server.API()
 	a.useSessionAuth()
-	api.UseMiddleware(query.AuthMiddleware(api, a.verifier))
+	// Session callers name the project with ?project= and need project.view.
+	checker := a.authz
+	if checker == nil {
+		// authz disabled: session reads fail closed; read keys still work.
+		checker = authz.New(nil, nil, authz.Options{}, a.logger, nil)
+	}
+	guard := authz.NewGuard(checker, authz.NewPGResolver(a.pool), authz.GuardOptions{}, a.logger)
+	api.UseMiddleware(query.AuthMiddleware(api, a.verifier, guard))
 	query.Register(api, query.NewService(a.chConn, a.queries))
 	return nil, nil
 }

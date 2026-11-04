@@ -81,13 +81,16 @@ packages never import feature modules, and only `cmd/` imports `internal/app`.
 ## Read path and console (M1.5)
 
 `apps/ui` is the v2 web UI, built on the APILens design system
-(`apps/ui/design/tokens.json` compiled to `bundle.css`). It is server-rendered: pages call the `query` role from the Next.js server with
-a project **read key** (`APILENS_READ_KEY`), so no credential reaches the
-browser. Read keys carry scope `read`; ingest keys (`ingest`) cannot query and
-read keys cannot ingest. Every query derives the project from the key and
-filters on it first (`internal/query`), and an integration test proves two
-projects sharing a trace id never see each other's data. User sessions
-replace read keys in the UI when identity lands (M2).
+(`apps/ui/design/tokens.json` compiled to `bundle.css`). The `query` role
+accepts two credentials. The UI sends the signed-in **user session** and names
+the project with `?project=<slug>`; the request is let through only when
+SpiceDB grants `project.view` on it (404 otherwise, 503 when SpiceDB cannot
+answer: fail closed). Scripts and self-hosters can still use a project **read
+key** (scope `read`), whose project is the key's; ingest keys (`ingest`) cannot
+query and read keys cannot ingest. Either way every query filters on the
+resolved project first (`internal/query`), and integration tests prove two
+projects sharing a trace id never see each other's data and that a user cannot
+read another organization's project.
 
 ## Data model
 

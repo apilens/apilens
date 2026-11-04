@@ -9,20 +9,27 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 
+	schema "github.com/apilens/apilens/authz"
+	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
 	"github.com/apilens/apilens/internal/controlplane/bootstrap"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/migrations"
 	"github.com/apilens/apilens/internal/pipeline"
+	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/ch"
 	"github.com/apilens/apilens/internal/platform/config"
 	"github.com/apilens/apilens/internal/platform/server"
+	"github.com/apilens/apilens/internal/platform/spicedb"
 	"github.com/apilens/apilens/internal/query"
 	"github.com/apilens/apilens/internal/testutil"
 )
@@ -85,7 +92,7 @@ func TestDashboardQueriesAreTenantScoped(t *testing.T) {
 	srv := server.New(config.ServerConfig{}, slog.New(slog.NewTextHandler(io.Discard, nil)), prometheus.NewRegistry())
 	q := db.New(pool)
 	verifier := apikeys.NewVerifier(q, apikeys.Options{Size: 100, TTL: time.Minute, NegativeTTL: time.Minute}, logger, nil)
-	srv.API().UseMiddleware(query.AuthMiddleware(srv.API(), verifier))
+	srv.API().UseMiddleware(query.AuthMiddleware(srv.API(), verifier, nil))
 	query.Register(srv.API(), query.NewService(conn, q))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -203,4 +210,149 @@ func TestDashboardQueriesAreTenantScoped(t *testing.T) {
 	if code := get(theirs.ReadKey, "/api/v1/traffic/summary?range=1h", &summary); code != 200 || summary.R != 3 || summary.S != 2 {
 		t.Fatalf("other project summary = %d %+v", code, summary)
 	}
+}
+
+// TestDashboardQueriesAcceptSessions authorizes session callers against a
+// real SpiceDB: a member of org A reads A's project by ?project= and gets
+// 404 for org B's project, while read keys keep working.
+func TestDashboardQueriesAcceptSessions(t *testing.T) {
+	ctx := context.Background()
+	logger := testutil.Logger(t)
+	pool := testutil.MigratedPostgres(t)
+	chCfg := testutil.ClickHouse(t)
+	if err := migrations.UpClickHouse(ctx, chCfg, logger); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := ch.Connect(ctx, chCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	sdb, err := spicedb.Connect(testutil.SpiceDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sdb.Close() }()
+	if err := spicedb.ApplySchema(ctx, sdb, schema.Schema, logger); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := bootstrap.Seed(ctx, pool, bootstrap.Options{OrgSlug: "org-a", ProjectSlug: "shop-a", AppSlug: "web", Environment: "production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := bootstrap.Seed(ctx, pool, bootstrap.Options{OrgSlug: "org-b", ProjectSlug: "shop-b", AppSlug: "web", Environment: "production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice := uuid.New() // member of org A only
+
+	client := authz.New(sdb, nil, authz.Options{}, logger, nil)
+	for _, w := range []struct {
+		org     uuid.UUID
+		updates []*v1.RelationshipUpdate
+	}{
+		{a.OrgID, []*v1.RelationshipUpdate{
+			touch("project", a.ProjectID.String(), "org", "organization", a.OrgID.String()),
+			touch("organization", a.OrgID.String(), "member", "user", alice.String()),
+		}},
+		{b.OrgID, []*v1.RelationshipUpdate{touch("project", b.ProjectID.String(), "org", "organization", b.OrgID.String())}},
+	} {
+		if _, err := client.WriteRelationships(ctx, w.org.String(), w.updates); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ins := pipeline.ClickHouseInserters(conn)
+	now := time.Now().UTC()
+	var rows []pipeline.RequestRow
+	for _, s := range []struct {
+		project, app uuid.UUID
+		n            int
+	}{{a.ProjectID, a.AppID, 2}, {b.ProjectID, b.AppID, 5}} {
+		for i := range s.n {
+			rows = append(rows, pipeline.RequestRow{
+				ProjectID: s.project, AppID: s.app, Environment: "production", Timestamp: now.Add(-time.Duration(i+1) * time.Minute),
+				Method: "GET", Path: "/", RawPath: "/", StatusCode: 200, ResponseTimeMs: 5,
+			})
+		}
+	}
+	if err := ins.Requests(ctx, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := server.New(config.ServerConfig{}, slog.New(slog.NewTextHandler(io.Discard, nil)), prometheus.NewRegistry())
+	api := srv.API()
+	// Stands in for authn.Middleware, which verifies the session itself.
+	api.UseMiddleware(func(hctx huma.Context, next func(huma.Context)) {
+		if id := hctx.Header("X-Test-User"); id != "" {
+			hctx = huma.WithContext(hctx, authn.WithPrincipal(hctx.Context(), authn.Principal{Kind: authn.KindUser, UserID: uuid.MustParse(id)}))
+		}
+		next(hctx)
+	})
+	q := db.New(pool)
+	verifier := apikeys.NewVerifier(q, apikeys.Options{Size: 100, TTL: time.Minute, NegativeTTL: time.Minute}, logger, nil)
+	guard := authz.NewGuard(client, authz.NewPGResolver(pool), authz.GuardOptions{}, logger)
+	api.UseMiddleware(query.AuthMiddleware(api, verifier, guard))
+	query.Register(api, query.NewService(conn, q))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	summary := func(header, path string) (int, uint64) {
+		t.Helper()
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+path, nil)
+		k, v, _ := strings.Cut(header, ": ")
+		req.Header.Set(k, v)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		var out struct {
+			Requests uint64 `json:"requests"`
+		}
+		if resp.StatusCode == http.StatusOK {
+			if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return resp.StatusCode, out.Requests
+	}
+	user := "X-Test-User: " + alice.String()
+	if code, n := summary(user, "/api/v1/traffic/summary?range=1h&project=shop-a"); code != http.StatusOK || n != 2 {
+		t.Fatalf("own project = %d requests=%d, want 200 with 2", code, n)
+	}
+	if code, _ := summary(user, "/api/v1/traffic/summary?range=1h&project=shop-b"); code != http.StatusNotFound {
+		t.Fatalf("other org's project = %d, want 404", code)
+	}
+	if code, _ := summary(user, "/api/v1/traffic/summary?range=1h&project=missing"); code != http.StatusNotFound {
+		t.Fatalf("unknown project = %d, want 404", code)
+	}
+	if code, _ := summary(user, "/api/v1/traffic/summary?range=1h"); code != http.StatusUnprocessableEntity {
+		t.Fatalf("session without project = %d, want 422", code)
+	}
+	if code, _ := summary("X-Test-User: "+uuid.NewString(), "/api/v1/traffic/summary?range=1h&project=shop-a"); code != http.StatusNotFound {
+		t.Fatalf("stranger = %d, want 404", code)
+	}
+	// Read keys still work without ?project=, and only for their project.
+	if code, n := summary("Authorization: Bearer "+b.ReadKey, "/api/v1/traffic/summary?range=1h"); code != http.StatusOK || n != 5 {
+		t.Fatalf("read key = %d requests=%d, want 200 with 5", code, n)
+	}
+	if code, _ := summary("Authorization: Bearer "+b.ReadKey, "/api/v1/traffic/summary?range=1h&project=shop-a"); code != http.StatusNotFound {
+		t.Fatalf("read key on another project = %d, want 404", code)
+	}
+
+	// SpiceDB gone: session reads fail closed.
+	_ = sdb.Close()
+	if code, _ := summary(user, "/api/v1/traffic/summary?range=1h&project=shop-a"); code != http.StatusServiceUnavailable {
+		t.Fatalf("spicedb down = %d, want 503", code)
+	}
+}
+
+func touch(resType, resID, relation, subjType, subjID string) *v1.RelationshipUpdate {
+	return &v1.RelationshipUpdate{Operation: v1.RelationshipUpdate_OPERATION_TOUCH, Relationship: &v1.Relationship{
+		Resource: &v1.ObjectReference{ObjectType: resType, ObjectId: resID},
+		Relation: relation,
+		Subject:  &v1.SubjectReference{Object: &v1.ObjectReference{ObjectType: subjType, ObjectId: subjID}},
+	}}
 }

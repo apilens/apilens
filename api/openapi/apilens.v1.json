@@ -5754,6 +5754,17 @@
         "operationId": "list-deploys",
         "parameters": [
           {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
             "description": "Time range ending now.",
             "explode": false,
             "in": "query",
@@ -5806,6 +5817,9 @@
         },
         "security": [
           {
+            "session": []
+          },
+          {
             "readKey": []
           }
         ],
@@ -5819,6 +5833,17 @@
       "get": {
         "operationId": "list-errors",
         "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
           {
             "description": "Time range ending now.",
             "explode": false,
@@ -5871,6 +5896,9 @@
           }
         },
         "security": [
+          {
+            "session": []
+          },
           {
             "readKey": []
           }
@@ -7804,6 +7832,19 @@
     "/api/v1/project": {
       "get": {
         "operationId": "get-project",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -7828,10 +7869,13 @@
         },
         "security": [
           {
+            "session": []
+          },
+          {
             "readKey": []
           }
         ],
-        "summary": "Project, apps and environments of the read key",
+        "summary": "Project, apps and environments",
         "tags": [
           "Dashboard"
         ]
@@ -8679,6 +8723,45 @@
         "operationId": "list-requests",
         "parameters": [
           {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
             "explode": false,
             "in": "query",
             "name": "status",
@@ -8742,6 +8825,9 @@
         },
         "security": [
           {
+            "session": []
+          },
+          {
             "readKey": []
           }
         ],
@@ -8755,6 +8841,17 @@
       "get": {
         "operationId": "get-trace",
         "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
           {
             "description": "W3C trace id (32 lowercase hex characters).",
             "in": "path",
@@ -8791,6 +8888,9 @@
         },
         "security": [
           {
+            "session": []
+          },
+          {
             "readKey": []
           }
         ],
@@ -8804,6 +8904,45 @@
       "get": {
         "operationId": "list-endpoints",
         "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
           {
             "explode": false,
             "in": "query",
@@ -8841,6 +8980,9 @@
         },
         "security": [
           {
+            "session": []
+          },
+          {
             "readKey": []
           }
         ],
@@ -8854,6 +8996,17 @@
       "get": {
         "operationId": "get-traffic-summary",
         "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
           {
             "description": "Time range ending now.",
             "explode": false,
@@ -8907,6 +9060,9 @@
         },
         "security": [
           {
+            "session": []
+          },
+          {
             "readKey": []
           }
         ],
@@ -8920,6 +9076,17 @@
       "get": {
         "operationId": "get-traffic-timeseries",
         "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
           {
             "description": "Time range ending now.",
             "explode": false,
@@ -8972,6 +9139,9 @@
           }
         },
         "security": [
+          {
+            "session": []
+          },
           {
             "readKey": []
           }
