@@ -85,7 +85,7 @@ func TestListMembers(t *testing.T) {
 	}
 
 	a, b := f.api.Get(orgPath(MembersPath, "acme"), as(stranger)), f.api.Get(orgPath(MembersPath, "missing"), as(stranger))
-	if a.Code != http.StatusForbidden || a.Body.String() != b.Body.String() {
+	if a.Code != http.StatusNotFound || a.Body.String() != b.Body.String() {
 		t.Fatalf("stranger: %d %s / %d %s", a.Code, a.Body, b.Code, b.Body)
 	}
 }
@@ -115,7 +115,7 @@ func TestChangeMemberRole(t *testing.T) {
 		t.Fatalf("member = %+v", m)
 	}
 	var payload map[string]string
-	if err := f.pool.QueryRow(f.ctx, `SELECT payload FROM outbox WHERE topic = 'membership.upserted' AND payload->>'user_id' = $1`, member.String()).Scan(&payload); err != nil {
+	if err := f.pool.QueryRow(f.ctx, `SELECT payload FROM outbox WHERE topic = 'membership.upserted' AND payload->>'user_id' = $1 ORDER BY id DESC LIMIT 1`, member.String()).Scan(&payload); err != nil {
 		t.Fatal(err)
 	}
 	if payload["org_id"] != org.ID || payload["role"] != "viewer" {
@@ -146,7 +146,7 @@ func TestChangeMemberRole(t *testing.T) {
 		code           string
 	}{
 		{"member changes a role", viewer, member, "member", http.StatusForbidden, "forbidden"},
-		{"stranger", stranger, member, "member", http.StatusForbidden, "forbidden"},
+		{"stranger", stranger, member, "member", http.StatusNotFound, "not_found"},
 		{"admin grants owner", admin, member, "owner", http.StatusForbidden, "forbidden"},
 		{"admin demotes owner", admin, owner, "admin", http.StatusForbidden, "forbidden"},
 		{"not a member", owner, stranger, "member", http.StatusGone, "member_gone"},
@@ -198,7 +198,7 @@ func TestRemoveMember(t *testing.T) {
 	}
 
 	expectProblem(t, "member removes", del(member, viewer), http.StatusForbidden, "forbidden")
-	expectProblem(t, "stranger removes", del(stranger, viewer), http.StatusForbidden, "forbidden")
+	expectProblem(t, "stranger removes", del(stranger, viewer), http.StatusNotFound, "not_found")
 	expectProblem(t, "admin removes owner", del(admin, owner), http.StatusForbidden, "forbidden")
 	expectProblem(t, "not a member", del(admin, stranger), http.StatusGone, "member_gone")
 	expectProblem(t, "last owner removes self", del(owner, owner), http.StatusConflict, "last_owner")
@@ -227,7 +227,7 @@ func TestRemoveMember(t *testing.T) {
 	expectProblem(t, "removed twice", del(admin, viewer), http.StatusGone, "member_gone")
 
 	// The removed member loses access.
-	if resp := f.api.Get(orgPath(MembersPath, "acme"), as(viewer)); resp.Code != http.StatusForbidden {
+	if resp := f.api.Get(orgPath(MembersPath, "acme"), as(viewer)); resp.Code != http.StatusNotFound {
 		t.Fatalf("removed member lists: %d", resp.Code)
 	}
 
@@ -262,8 +262,8 @@ func TestLeaveOrg(t *testing.T) {
 	if n := f.count(t, `SELECT count(*) FROM audit_events WHERE event = 'member.removed' AND user_id = $1 AND actor_user_id = $1 AND metadata->>'left' = 'true'`, viewer); n != 1 {
 		t.Fatalf("member.removed events = %d", n)
 	}
-	expectProblem(t, "left twice", leave(viewer), http.StatusForbidden, "forbidden")
-	expectProblem(t, "stranger", leave(stranger), http.StatusForbidden, "forbidden")
+	expectProblem(t, "left twice", leave(viewer), http.StatusNotFound, "not_found")
+	expectProblem(t, "stranger", leave(stranger), http.StatusNotFound, "not_found")
 	expectProblem(t, "last owner", leave(owner), http.StatusConflict, "last_owner")
 
 	// With a second owner the first may leave.
@@ -288,12 +288,14 @@ func TestTransferOwnership(t *testing.T) {
 	transfer := func(caller, target uuid.UUID) *httptest.ResponseRecorder {
 		return f.api.Post(orgPath(TransferOwnershipPath, "acme"), as(caller), map[string]any{"user_id": target.String()})
 	}
+	// The rows join emitted to grant the fixture's roles.
+	seeded := f.count(t, `SELECT count(*) FROM outbox WHERE topic = 'membership.upserted'`)
 
 	expectProblem(t, "admin transfers", transfer(admin, member), http.StatusForbidden, "forbidden")
-	expectProblem(t, "stranger transfers", transfer(stranger, member), http.StatusForbidden, "forbidden")
+	expectProblem(t, "stranger transfers", transfer(stranger, member), http.StatusNotFound, "not_found")
 	expectProblem(t, "to a non-member", transfer(owner, stranger), http.StatusGone, "member_gone")
 	expectProblem(t, "to self", transfer(owner, owner), http.StatusBadRequest, "invalid_request")
-	if n := f.count(t, `SELECT count(*) FROM outbox WHERE topic = 'membership.upserted'`); n != 0 {
+	if n := f.count(t, `SELECT count(*) FROM outbox WHERE topic = 'membership.upserted'`) - seeded; n != 0 {
 		t.Fatalf("refused transfers emitted %d outbox rows", n)
 	}
 
@@ -303,7 +305,7 @@ func TestTransferOwnership(t *testing.T) {
 	if f.role(t, "acme", member) != "owner" || f.role(t, "acme", owner) != "admin" {
 		t.Fatalf("roles = %s / %s", f.role(t, "acme", member), f.role(t, "acme", owner))
 	}
-	rows, err := f.pool.Query(f.ctx, `SELECT aggregate_id, payload->>'user_id', payload->>'role' FROM outbox WHERE topic = 'membership.upserted' ORDER BY id`)
+	rows, err := f.pool.Query(f.ctx, `SELECT aggregate_id, payload->>'user_id', payload->>'role' FROM outbox WHERE topic = 'membership.upserted' ORDER BY id OFFSET $1`, seeded)
 	if err != nil {
 		t.Fatal(err)
 	}

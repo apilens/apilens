@@ -11,13 +11,27 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/platform/ratelimit"
 )
 
-// join adds user to the organization slug with role.
+// join adds user to the organization slug with role, with the outbox row
+// that grants it in SpiceDB.
 func (f *orgsFixture) join(t *testing.T, slug string, user uuid.UUID, role string) {
 	t.Helper()
-	if _, err := f.pool.Exec(f.ctx, `INSERT INTO memberships (org_id, user_id, role) SELECT id, $2, $3 FROM organizations WHERE slug = $1 AND deleted_at IS NULL`, slug, user, role); err != nil {
+	tx, err := f.pool.Begin(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(f.ctx) }()
+	var org uuid.UUID
+	if err := tx.QueryRow(f.ctx, `INSERT INTO memberships (org_id, user_id, role) SELECT id, $2, $3 FROM organizations WHERE slug = $1 AND deleted_at IS NULL RETURNING org_id`, slug, user, role).Scan(&org); err != nil {
+		t.Fatal(err)
+	}
+	if err := outbox.Emit(f.ctx, tx, outbox.MembershipUpserted, org, outbox.MembershipUpsertedPayload{OrgID: org, UserID: user, Role: role}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(f.ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -95,7 +109,7 @@ func TestGetOrg(t *testing.T) {
 
 	// A stranger cannot tell an existing organization from a missing one.
 	a, b := f.api.Get(OrgsPath+"/acme", as(stranger)), f.api.Get(OrgsPath+"/missing", as(stranger))
-	if a.Code != http.StatusForbidden || decode[problem](t, a).Code != "forbidden" || a.Code != b.Code || a.Body.String() != b.Body.String() {
+	if a.Code != http.StatusNotFound || decode[problem](t, a).Code != "not_found" || a.Code != b.Code || a.Body.String() != b.Body.String() {
 		t.Fatalf("stranger: %d %s / %d %s", a.Code, a.Body, b.Code, b.Body)
 	}
 }
@@ -149,7 +163,7 @@ func TestUpdateOrg(t *testing.T) {
 	}{
 		{"member", member, map[string]any{"name": "Nope"}, http.StatusForbidden, "forbidden"},
 		{"viewer", viewer, map[string]any{"name": "Nope"}, http.StatusForbidden, "forbidden"},
-		{"stranger", stranger, map[string]any{"name": "Nope"}, http.StatusForbidden, "forbidden"},
+		{"stranger", stranger, map[string]any{"name": "Nope"}, http.StatusNotFound, "not_found"},
 		{"slug change", owner, map[string]any{"slug": "acme-new"}, http.StatusConflict, "slug_immutable"},
 		{"public domain", owner, map[string]any{"allowed_domains": []string{"acme.com", "gmail.com"}}, http.StatusBadRequest, "domain_not_allowed"},
 		{"public domain outlook", admin, map[string]any{"allowed_domains": []string{"outlook.com"}}, http.StatusBadRequest, "domain_not_allowed"},
@@ -190,10 +204,11 @@ func TestDeleteOrg(t *testing.T) {
 	org := f.mustCreate(t, owner, "Doomed", "doomed")
 	f.join(t, "doomed", admin, "admin")
 
-	for _, u := range []uuid.UUID{admin, stranger} {
-		if resp := f.api.Delete(OrgsPath+"/doomed", as(u)); resp.Code != http.StatusForbidden || decode[problem](t, resp).Code != "forbidden" {
-			t.Fatalf("non-owner delete: %d %s", resp.Code, resp.Body)
-		}
+	if resp := f.api.Delete(OrgsPath+"/doomed", as(admin)); resp.Code != http.StatusForbidden || decode[problem](t, resp).Code != "forbidden" {
+		t.Fatalf("admin delete: %d %s", resp.Code, resp.Body)
+	}
+	if resp := f.api.Delete(OrgsPath+"/doomed", as(stranger)); resp.Code != http.StatusNotFound || decode[problem](t, resp).Code != "not_found" {
+		t.Fatalf("stranger delete: %d %s", resp.Code, resp.Body)
 	}
 	if n := f.count(t, `SELECT count(*) FROM outbox WHERE topic = 'org.deleted'`); n != 0 {
 		t.Fatalf("refused delete emitted %d outbox rows", n)
@@ -220,14 +235,14 @@ func TestDeleteOrg(t *testing.T) {
 
 	// Gone for everyone; the slug is free again.
 	for _, u := range []uuid.UUID{owner, admin} {
-		if resp := f.api.Get(OrgsPath+"/doomed", as(u)); resp.Code != http.StatusForbidden {
+		if resp := f.api.Get(OrgsPath+"/doomed", as(u)); resp.Code != http.StatusNotFound {
 			t.Fatalf("get deleted: %d", resp.Code)
 		}
 		if list := decode[[]OrgSummary](t, f.api.Get(OrgsPath, as(u))); len(list) != 0 {
 			t.Fatalf("list after delete = %+v", list)
 		}
 	}
-	if resp := f.api.Delete(OrgsPath+"/doomed", as(owner)); resp.Code != http.StatusForbidden {
+	if resp := f.api.Delete(OrgsPath+"/doomed", as(owner)); resp.Code != http.StatusNotFound {
 		t.Fatalf("second delete: %d", resp.Code)
 	}
 	if a := decode[availability](t, f.api.Get(SlugAvailablePath+"?slug=doomed", as(owner))); !a.Available {

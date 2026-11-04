@@ -125,6 +125,9 @@ type Querier interface {
 	ProjectSlugTaken(ctx context.Context, slug string) (bool, error)
 	// Rotates the token and extends the expiry of a pending invitation.
 	ResendInvitation(ctx context.Context, arg ResendInvitationParams) (Invitation, error)
+	// Resolves an active project slug (globally unique) to its id and its
+	// active organization, for authorization of /…/{project} paths.
+	ResolveProjectSlug(ctx context.Context, slug string) (ResolveProjectSlugRow, error)
 	RevokeAPIKey(ctx context.Context, id uuid.UUID) (string, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (Invitation, error)
 	SoftDeleteOrganization(ctx context.Context, id uuid.UUID) (int64, error)
