@@ -97,6 +97,22 @@ type Outbox struct {
 	ProcessedAt *time.Time
 }
 
+type PasskeyCredential struct {
+	ID              uuid.UUID
+	UserID          uuid.UUID
+	CredentialID    []byte
+	PublicKey       []byte
+	AttestationType string
+	Aaguid          uuid.UUID
+	SignCount       int64
+	Transports      []string
+	BackupEligible  bool
+	BackupState     bool
+	Name            string
+	CreatedAt       time.Time
+	LastUsedAt      *time.Time
+}
+
 type Project struct {
 	ID        uuid.UUID
 	OrgID     uuid.UUID

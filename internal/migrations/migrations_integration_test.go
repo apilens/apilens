@@ -42,7 +42,7 @@ func TestMigrationsApplyAndAreIdempotent(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	for _, want := range []string{"api_keys", "apps", "audit_events", "auth_email_tokens", "environments", "oauth_identities", "organizations", "outbox", "projects", "sessions", "signing_keys", "users", "river_job", "river_migration", "river_queue"} {
+	for _, want := range []string{"api_keys", "apps", "audit_events", "auth_email_tokens", "environments", "oauth_identities", "organizations", "outbox", "passkey_credentials", "projects", "sessions", "signing_keys", "users", "river_job", "river_migration", "river_queue"} {
 		if !slices.Contains(tables, want) {
 			t.Errorf("postgres table %q missing (have %v)", want, tables)
 		}
@@ -399,6 +399,104 @@ func TestPostgresOAuthIdentitiesMigrationRollsBack(t *testing.T) {
 	}
 	if !tableExists(t, pool, "oauth_identities") {
 		t.Error("oauth_identities missing after re-apply")
+	}
+}
+
+func TestPostgresPasskeysMigrationRollsBack(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var userID, otherID string
+	if err := pool.QueryRow(ctx, `INSERT INTO users (id, email) VALUES (gen_random_uuid(), 'passkey@example.com') RETURNING id`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO users (id, email) VALUES (gen_random_uuid(), 'other@example.com') RETURNING id`).Scan(&otherID); err != nil {
+		t.Fatal(err)
+	}
+	insert := `INSERT INTO passkey_credentials (id, user_id, credential_id, public_key, name) VALUES (gen_random_uuid(), $1, $2, $3, $4)`
+	key := []byte{0xa5, 0x01, 0x02}
+	if _, err := pool.Exec(ctx, insert, userID, []byte("cred-1"), key, "MacBook"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insert, userID, []byte("cred-2"), key, "iPhone"); err != nil {
+		t.Fatalf("second passkey for the same user: %v", err)
+	}
+	if _, err := pool.Exec(ctx, insert, otherID, []byte("cred-1"), key, "Stolen"); err == nil {
+		t.Fatal("a credential_id registered to another user should violate the unique constraint")
+	}
+	if _, err := pool.Exec(ctx, insert, userID, []byte{}, key, "Empty"); err == nil {
+		t.Fatal("empty credential_id should violate the check")
+	}
+	if _, err := pool.Exec(ctx, insert, userID, []byte("cred-3"), []byte{}, "No key"); err == nil {
+		t.Fatal("empty public_key should violate the check")
+	}
+	if _, err := pool.Exec(ctx, insert, userID, []byte("cred-3"), key, ""); err == nil {
+		t.Fatal("empty name should violate the check")
+	}
+	if _, err := pool.Exec(ctx, insert, userID, []byte("cred-3"), key, strings.Repeat("n", 65)); err == nil {
+		t.Fatal("a name over 64 characters should violate the check")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE passkey_credentials SET sign_count = -1 WHERE credential_id = 'cred-1'`); err == nil {
+		t.Fatal("negative sign_count should violate the check")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE passkey_credentials SET sign_count = 4294967296 WHERE credential_id = 'cred-1'`); err == nil {
+		t.Fatal("sign_count above uint32 should violate the check")
+	}
+	if _, err := pool.Exec(ctx, `UPDATE passkey_credentials SET backup_state = true WHERE credential_id = 'cred-1'`); err == nil {
+		t.Fatal("backup_state without backup_eligible should violate the check")
+	}
+	var (
+		attestation, aaguid string
+		signCount           int64
+		transports          []string
+		be, bs              bool
+		lastUsed            *time.Time
+	)
+	if err := pool.QueryRow(ctx, `SELECT attestation_type, aaguid::text, sign_count, transports, backup_eligible, backup_state, last_used_at
+		FROM passkey_credentials WHERE credential_id = 'cred-1'`).Scan(&attestation, &aaguid, &signCount, &transports, &be, &bs, &lastUsed); err != nil {
+		t.Fatal(err)
+	}
+	if attestation != "" || aaguid != "00000000-0000-0000-0000-000000000000" || signCount != 0 || len(transports) != 0 || be || bs || lastUsed != nil {
+		t.Errorf("defaults = %q %q %d %v %v %v %v", attestation, aaguid, signCount, transports, be, bs, lastUsed)
+	}
+	var hasIndex bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'passkey_credentials' AND indexname = 'passkey_credentials_user')`).Scan(&hasIndex); err != nil || !hasIndex {
+		t.Errorf("passkey_credentials_user index missing: %v", err)
+	}
+	if _, err := pool.Exec(ctx, insert, otherID, []byte("cred-9"), key, "YubiKey"); err != nil {
+		t.Fatal(err)
+	}
+	// Deleting a user cascades to their passkeys only.
+	if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM passkey_credentials`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("passkeys after user delete = %d, %v; want 1", n, err)
+	}
+
+	if _, err := provider.DownTo(ctx, 6); err != nil {
+		t.Fatalf("roll back to 00006: %v", err)
+	}
+	if tableExists(t, pool, "passkey_credentials") {
+		t.Error("passkey_credentials should be dropped after rollback")
+	}
+	if !tableExists(t, pool, "oauth_identities") || !tableExists(t, pool, "users") {
+		t.Error("rollback of 00007 must not touch earlier migrations")
+	}
+
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply after rollback: %v", err)
+	}
+	if !tableExists(t, pool, "passkey_credentials") {
+		t.Error("passkey_credentials missing after re-apply")
 	}
 }
 
