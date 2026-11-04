@@ -1,5 +1,5 @@
 // A fake identity server plus a fake OAuth provider for the social sign-in (#317), two-factor
-// step (#320), account settings (#339), sessions (#343), connected accounts (#344),
+// step (#320), account settings (#339), profile (#340), sessions (#343), connected accounts (#344),
 // Security → Passkeys (#341) and two-factor settings (#342) browser tests.
 // It mirrors the real contract (internal/identity/oauth.go, oauth_callback.go, handoff_redeem.go):
 //
@@ -28,6 +28,12 @@
 //   POST /api/v1/auth/2fa/verify                   internal/identity/twofactor.go
 //   POST /api/v1/auth/2fa/disable
 //   POST /api/v1/auth/2fa/backup-codes/regenerate
+//   GET|PATCH /api/v1/users/me                     the fake user; PATCH renames it
+//   POST /api/v1/users/me/email/change             `taken@example.com` answers email_taken
+//   POST /api/v1/users/me/email/confirm            code 123456 moves the email, anything else invalid_code
+//   DELETE /api/v1/users/me                        owner_transfer_required while the user is acme's only owner
+//   POST /__fake/profile {name?, email?, sole_owner?}
+//                                                  test hook: resets the fake user's profile state
 //   POST /__fake/handoff {next, totp_secret?, backup_codes?, passkeys?, stale?}
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  with `totp_secret` (base32) it answers 2fa_required;
@@ -266,6 +272,10 @@ function bundle(next: string, seeds: Record<string, unknown>[] = []) {
   };
 }
 
+/** The fake user's profile (#340): what `PATCH /users/me` and the email change move. */
+const PROFILE_DEFAULTS = { name: "Fake User", email: "you@example.com", soleOwner: true };
+const profile = { ...PROFILE_DEFAULTS, pendingEmail: null as string | null };
+
 /** `GET /users/me/context` for any signed-in fake user: one org with one project. */
 const CONTEXT = {
   user: bundle("/").user,
@@ -433,7 +443,46 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   if (req.method === "POST" && path === "/api/v1/auth/logout") return send(res, 204);
   if (req.method === "GET" && path === "/api/v1/users/me/context") {
     if (!req.headers.authorization?.startsWith("Bearer at_")) return problem(res, 401, "unauthenticated");
-    return send(res, 200, CONTEXT);
+    return send(res, 200, { ...CONTEXT, user: { ...CONTEXT.user, name: profile.name, email: profile.email } });
+  }
+  if (path === "/api/v1/users/me" || path.startsWith("/api/v1/users/me/email/")) {
+    if (!req.headers.authorization?.startsWith("Bearer at_")) return problem(res, 401, "unauthenticated");
+    const me = () => ({ ...CONTEXT.user, name: profile.name, email: profile.email });
+    if (req.method === "GET" && path === "/api/v1/users/me") return send(res, 200, me());
+    if (req.method === "PATCH" && path === "/api/v1/users/me") {
+      const { name } = await readBody(req);
+      if (typeof name !== "string" || name.trim().length > 120) return problem(res, 400, "invalid_request");
+      profile.name = name.trim();
+      return send(res, 200, me());
+    }
+    if (req.method === "DELETE" && path === "/api/v1/users/me") {
+      if (profile.soleOwner) return problem(res, 409, "owner_transfer_required");
+      return send(res, 200, { delete_after: new Date(Date.now() + 30 * 86_400_000).toISOString() });
+    }
+    if (req.method === "POST" && path === "/api/v1/users/me/email/change") {
+      const { new_email: email } = await readBody(req);
+      if (typeof email !== "string" || !email.includes("@") || email.toLowerCase() === profile.email) {
+        return problem(res, 400, "invalid_request");
+      }
+      if (email.toLowerCase() === "taken@example.com") return problem(res, 409, "email_taken");
+      profile.pendingEmail = email.toLowerCase();
+      return send(res, 202, { pending_email: profile.pendingEmail, expires_at: new Date(Date.now() + 900_000).toISOString() });
+    }
+    if (req.method === "POST" && path === "/api/v1/users/me/email/confirm") {
+      const { code } = await readBody(req);
+      if (!profile.pendingEmail || code !== "123456") return problem(res, 400, "invalid_code");
+      profile.email = profile.pendingEmail;
+      profile.pendingEmail = null;
+      return send(res, 200, me());
+    }
+  }
+  if (req.method === "POST" && path === "/__fake/profile") {
+    const body = await readBody(req);
+    Object.assign(profile, PROFILE_DEFAULTS, { pendingEmail: null });
+    if (typeof body.name === "string") profile.name = body.name;
+    if (typeof body.email === "string") profile.email = body.email;
+    if (typeof body.sole_owner === "boolean") profile.soleOwner = body.sole_owner;
+    return send(res, 200, { ok: true });
   }
   const sessionPath = path.match(/^\/api\/v1\/users\/me\/sessions(?:\/([^/]+))?$/);
   if (sessionPath) {
