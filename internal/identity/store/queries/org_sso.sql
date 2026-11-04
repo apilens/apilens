@@ -38,3 +38,14 @@ WHERE c.domains @> ARRAY[@domain::text]
   AND o.deleted_at IS NULL
 ORDER BY c.enforce DESC, c.created_at, c.org_id
 LIMIT 1;
+
+-- name: GetOrgSSOConnectionBySlug :one
+-- The OIDC connection of the active organization slug with the
+-- organization's display name, for the SSO start and callback
+-- (/auth/sso/{org}/…). client_secret_enc is ciphertext, decrypt it with the
+-- identity key-encryption key. Returns pgx.ErrNoRows when there is no such
+-- active organization or it has no connection.
+SELECT c.*, o.slug, o.name AS org_name FROM org_sso_connections c
+JOIN organizations o ON o.id = c.org_id
+WHERE o.slug = @slug
+  AND o.deleted_at IS NULL;

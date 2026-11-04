@@ -65,6 +65,9 @@ type EmailStartDeps struct {
 	Users  UserLookup
 	Jobs   JobEnqueuer
 	Audit  AuditRecorder
+	// SSO refuses addresses whose organization enforces single sign-on
+	// (sso_required). Nil checks nothing.
+	SSO *SSOEnforcement
 }
 
 // EmailStartBody is the request body of POST /api/v1/auth/email/start.
@@ -126,10 +129,11 @@ func (e *EmailStart) Register(api huma.API) {
 			"Always answers 200 `{sent: true, retry_after}` whether or not the address has an account; " +
 			"for `intent=signin` with no account the email offers sign-up instead. " +
 			"Within 30 seconds of the previous email for the same address and intent no new email is sent and `retry_after` is the remaining wait. " +
+			"An address at a domain whose organization enforces single sign-on gets 403 `sso_required` with the organization's `start_url` and no email (decided by the domain alone, so it reveals nothing about the account). " +
 			"Rate-limited per client IP and per email address (429 `rate_limited` with Retry-After).",
 		Tags:        []string{server.TagAuth},
 		Middlewares: huma.Middlewares{e.limiter.Limit(api, "email_start", e.perIP, ratelimit.Key{})},
-	}, CodeInvalidRequest, CodeRateLimited, CodeInternal), e.start)
+	}, CodeInvalidRequest, CodeSSORequired, CodeRateLimited, CodeInternal), e.start)
 }
 
 func (e *EmailStart) start(ctx context.Context, in *EmailStartInput) (*EmailStartOutput, error) {
@@ -148,6 +152,15 @@ func (e *EmailStart) start(ctx context.Context, in *EmailStartInput) (*EmailStar
 			return nil, Err(CodeInvalidRequest)
 		}
 		next = &n
+	}
+
+	startURL, required, err := e.deps.SSO.Required(ctx, addr)
+	if err != nil {
+		e.logger.ErrorContext(ctx, "email start: sso enforcement", "error", err)
+		return nil, Err(CodeInternal)
+	}
+	if required {
+		return nil, ErrSSORequired(startURL)
 	}
 
 	res, err := e.limiter.Allow(ctx, "email_start:email", addr, e.perEmail)

@@ -2261,6 +2261,10 @@
             "minimum": 1,
             "type": "integer"
           },
+          "start_url": {
+            "description": "Where to send the browser to sign in through the organization's identity provider (sso_required only).",
+            "type": "string"
+          },
           "status": {
             "description": "HTTP status code",
             "examples": [
@@ -4118,7 +4122,7 @@
     },
     "/api/v1/auth/email/start": {
       "post": {
-        "description": "Public. Emails a 6-digit code and a magic link (15 minutes, single use) to the address. Always answers 200 `{sent: true, retry_after}` whether or not the address has an account; for `intent=signin` with no account the email offers sign-up instead. Within 30 seconds of the previous email for the same address and intent no new email is sent and `retry_after` is the remaining wait. Rate-limited per client IP and per email address (429 `rate_limited` with Retry-After).",
+        "description": "Public. Emails a 6-digit code and a magic link (15 minutes, single use) to the address. Always answers 200 `{sent: true, retry_after}` whether or not the address has an account; for `intent=signin` with no account the email offers sign-up instead. Within 30 seconds of the previous email for the same address and intent no new email is sent and `retry_after` is the remaining wait. An address at a domain whose organization enforces single sign-on gets 403 `sso_required` with the organization's `start_url` and no email (decided by the domain alone, so it reveals nothing about the account). Rate-limited per client IP and per email address (429 `rate_limited` with Retry-After).",
         "operationId": "start-email-sign-in",
         "requestBody": {
           "content": {
@@ -4152,6 +4156,19 @@
             "description": "Bad Request. Codes: `invalid_request`.",
             "x-apilens-codes": [
               "invalid_request"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `sso_required`.",
+            "x-apilens-codes": [
+              "sso_required"
             ]
           },
           "429": {
@@ -4516,7 +4533,7 @@
     },
     "/api/v1/auth/oauth/{provider}/callback": {
       "get": {
-        "description": "Public browser navigation; the provider redirects here. Takes the sign-in state (single use), exchanges the code with the PKCE verifier and reads a verified email: Google from the `id_token` (signature, audience, nonce and `email_verified` checked), GitHub from the primary verified address of `/user/emails`. The user is matched by (provider, subject), then by verified email (the identity is linked), else created. The session bundle (`amr: [provider]`), or the `2fa_required` answer when the user has two-factor authentication, is kept for 60 seconds under a one-time code and the browser is redirected (302) to `{public_ui_url}/auth/callback?code=…`, whose server side redeems it; tokens never appear in a URL. Failures redirect to `{public_ui_url}/sign-in?error=\u003ccode\u003e`: `oauth_state_mismatch` (unknown, expired, used or foreign state; rejected code or PKCE verifier; wrong nonce), `oauth_email_unverified` (no verified email), `oauth_denied` (consent declined), `account_deleting`, `invalid_request` or `internal_error`. A flow started with `intent=link` instead connects the provider account to the user who started it (audited as `oauth.linked`, security alert emailed) and redirects to `{public_ui_url}{next}` with `linked={provider}` added; a provider account already connected to another user fails with `oauth_identity_taken`. A provider that is not configured answers 404.",
+        "description": "Public browser navigation; the provider redirects here. Takes the sign-in state (single use), exchanges the code with the PKCE verifier and reads a verified email: Google from the `id_token` (signature, audience, nonce and `email_verified` checked), GitHub from the primary verified address of `/user/emails`. The user is matched by (provider, subject), then by verified email (the identity is linked), else created. The session bundle (`amr: [provider]`), or the `2fa_required` answer when the user has two-factor authentication, is kept for 60 seconds under a one-time code and the browser is redirected (302) to `{public_ui_url}/auth/callback?code=…`, whose server side redeems it; tokens never appear in a URL. Failures redirect to `{public_ui_url}/sign-in?error=\u003ccode\u003e`: `oauth_state_mismatch` (unknown, expired, used or foreign state; rejected code or PKCE verifier; wrong nonce), `oauth_email_unverified` (no verified email), `oauth_denied` (consent declined), `sso_required` (the email's organization enforces single sign-on), `account_deleting`, `invalid_request` or `internal_error`. A flow started with `intent=link` instead connects the provider account to the user who started it (audited as `oauth.linked`, security alert emailed) and redirects to `{public_ui_url}{next}` with `linked={provider}` added; a provider account already connected to another user fails with `oauth_identity_taken`. A provider that is not configured answers 404.",
         "operationId": "oauth-callback",
         "parameters": [
           {
@@ -5744,6 +5761,211 @@
           }
         },
         "summary": "Is SSO used or enforced for an email's domain?",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/sso/{org}/callback": {
+      "get": {
+        "description": "Public browser navigation; the organization's identity provider redirects here. Takes the sign-in state (single use), exchanges the code with the PKCE verifier and verifies the `id_token` (signature, issuer, audience, expiry, nonce). Its `email` must be at one of the connection's domains (an `email_verified: false` claim is refused). The user is found by email or created, and joins the organization with the connection's `default_role` if not yet a member. The session bundle (`amr: [\"sso\"]`), or the `2fa_required` answer, is kept for 60 seconds under a one-time code and the browser is redirected (302) to `{public_ui_url}/auth/callback?code=…`. Failures redirect to `{public_ui_url}/sign-in?error=\u003ccode\u003e`: `oauth_state_mismatch`, `oauth_email_unverified`, `oauth_denied`, `forbidden` (email outside the connection's domains), `invalid_request` or `internal_error`. An organization that does not exist or has no SSO connection answers 404.",
+        "operationId": "sso-callback",
+        "parameters": [
+          {
+            "description": "Organization slug.",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "Organization slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authorization code from the identity provider.",
+            "explode": false,
+            "in": "query",
+            "name": "code",
+            "schema": {
+              "description": "Authorization code from the identity provider.",
+              "maxLength": 2048,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The state the sign-in was started with.",
+            "explode": false,
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "description": "The state the sign-in was started with.",
+              "maxLength": 512,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Set by the identity provider when the user declined or the request failed (RFC 6749 §4.1.2.1).",
+            "explode": false,
+            "in": "query",
+            "name": "error",
+            "schema": {
+              "description": "Set by the identity provider when the user declined or the request failed (RFC 6749 §4.1.2.1).",
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "schema": {
+                  "description": "{public_ui_url}/auth/callback?code=… on success, {public_ui_url}/sign-in?error=\u003ccode\u003e on failure.",
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Finish organization single sign-on",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/sso/{org}/start": {
+      "get": {
+        "description": "Public browser navigation; `start_url` of the SSO lookup points here. Starts an authorization-code flow with PKCE and an OIDC nonce against the identity provider of the organization's connection (endpoints from its OIDC discovery), keeps the attempt server-side for 10 minutes keyed by a random state, and redirects (302) to the provider. Rate-limited per client IP. An organization that does not exist or has no SSO connection answers 404.",
+        "operationId": "start-sso",
+        "parameters": [
+          {
+            "description": "Organization slug.",
+            "in": "path",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "description": "Organization slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Relative path (starting with a single /) to open after sign-in. Defaults to /.",
+            "explode": false,
+            "in": "query",
+            "name": "next",
+            "schema": {
+              "description": "Relative path (starting with a single /) to open after sign-in. Defaults to /.",
+              "maxLength": 2048,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Keep the session for the long refresh-token lifetime.",
+            "explode": false,
+            "in": "query",
+            "name": "remember",
+            "schema": {
+              "description": "Keep the session for the long refresh-token lifetime.",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Email typed on the sign-in page, passed to the identity provider as login_hint.",
+            "explode": false,
+            "in": "query",
+            "name": "login_hint",
+            "schema": {
+              "description": "Email typed on the sign-in page, passed to the identity provider as login_hint.",
+              "maxLength": 254,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "description": "The provider's authorization URL.",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "summary": "Start organization single sign-on",
         "tags": [
           "Auth"
         ]

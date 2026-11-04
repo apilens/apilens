@@ -116,6 +116,11 @@ const (
 	// CodeMemberGone: the user is not a member of the organization (they
 	// left or were removed). Only answered to members of the organization.
 	CodeMemberGone ErrCode = "member_gone"
+	// CodeSSORequired: the email's domain belongs to an organization that
+	// enforces single sign-on, so email and social sign-in are refused. The
+	// problem carries `start_url`; a browser callback redirects with
+	// ?error=sso_required instead.
+	CodeSSORequired ErrCode = "sso_required"
 	// CodeForbidden: authenticated and able to see the resource, but not
 	// allowed to perform the action.
 	// CodeAPIKeyGone: the project has no API key with that id. Only
@@ -178,6 +183,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeLastOwner:             {http.StatusConflict, "Last owner", "An organization must keep at least one owner."},
 	CodeMemberGone:            {http.StatusGone, "Member gone", "The user is not a member of this organization."},
 	CodeAPIKeyGone:            {http.StatusGone, "API key gone", "The project has no such API key."},
+	CodeSSORequired:           {http.StatusForbidden, "Single sign-on required", "This organization requires single sign-on. Sign in through its identity provider."},
 	CodeForbidden:             {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
 	CodeNotFound:              {http.StatusNotFound, "Not found", "The resource does not exist or you do not have access to it."},
 	CodeAuthzUnavailable:      {http.StatusServiceUnavailable, "Authorization unavailable", "Permissions could not be checked. Try again shortly."},
@@ -207,6 +213,9 @@ type Problem struct {
 	DeleteAfter *time.Time `json:"delete_after,omitempty" doc:"When the deleted account is removed for good (account_deleting only)."`
 	// Suggestions are free alternative slugs (slug_taken only).
 	Suggestions []string `json:"suggestions,omitempty" maxItems:"3" doc:"Free alternative slugs (slug_taken only)."`
+	// StartURL is where to start the SSO sign-in of the organization that
+	// enforces it (sso_required only).
+	StartURL string `json:"start_url,omitempty" doc:"Where to send the browser to sign in through the organization's identity provider (sso_required only)."`
 }
 
 // GetHeaders sets Retry-After when the problem carries a retry delay.
@@ -243,6 +252,14 @@ func ErrAccountDeleting(deleteAfter time.Time) *Problem {
 func ErrSlugTaken(suggestions []string) *Problem {
 	p := Err(CodeSlugTaken)
 	p.Suggestions = suggestions
+	return p
+}
+
+// ErrSSORequired builds the sso_required problem pointing at startURL, the
+// SSO start of the organization that enforces it.
+func ErrSSORequired(startURL string) *Problem {
+	p := Err(CodeSSORequired)
+	p.StartURL = startURL
 	return p
 }
 

@@ -137,6 +137,12 @@ type Querier interface {
 	// key-encryption key. Returns pgx.ErrNoRows when the organization has no
 	// connection.
 	GetOrgSSOConnection(ctx context.Context, orgID uuid.UUID) (OrgSsoConnection, error)
+	// The OIDC connection of the active organization slug with the
+	// organization's display name, for the SSO start and callback
+	// (/auth/sso/{org}/…). client_secret_enc is ciphertext, decrypt it with the
+	// identity key-encryption key. Returns pgx.ErrNoRows when there is no such
+	// active organization or it has no connection.
+	GetOrgSSOConnectionBySlug(ctx context.Context, slug string) (GetOrgSSOConnectionBySlugRow, error)
 	// The connection of an active organization that lists an email domain
 	// (lower-case, no "@"), for the SSO lookup at sign-in. An enforcing
 	// connection wins over non-enforcing ones; the service layer keeps a domain
