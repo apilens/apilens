@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/humatest"
 	"github.com/google/uuid"
 
+	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/controlplane/usercontext"
 	"github.com/apilens/apilens/internal/platform/authn"
@@ -132,6 +134,7 @@ func TestGetUserContextErrors(t *testing.T) {
 		"no session":   {nil, nil, http.StatusUnauthorized, "unauthenticated"},
 		"user deleted": {p, usercontext.ErrNotFound, http.StatusUnauthorized, "session_expired"},
 		"store down":   {p, errors.New("boom"), http.StatusInternalServerError, "internal_error"},
+		"authz down":   {p, fmt.Errorf("usercontext: capabilities: %w", authz.ErrUnavailable), http.StatusServiceUnavailable, "authz_unavailable"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			resp := newTestContext(t, &fakeContext{err: tc.err}, tc.principal).Get(UserContextPath)
