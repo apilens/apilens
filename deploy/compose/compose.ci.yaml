@@ -2,14 +2,15 @@
 #
 #   docker compose --env-file deploy/compose/ci.env \
 #     -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml \
-#     up -d --build --wait apilens
+#     up -d --build --wait apilens web
 #
 # Publishes the ClickHouse HTTP port on localhost so test/e2e can assert rows
 # (APILENS_E2E_CLICKHOUSE_HTTP=http://127.0.0.1:8123, user apilens /
 # password from ci.env), and sends email over SMTP to a Mailpit sink whose
-# API test/e2e reads sign-in codes from
+# API test/e2e and apps/ui/e2e read sign-in codes and invitations from
 # (APILENS_E2E_MAILPIT_URL=http://127.0.0.1:8025). Nothing leaves the host.
-# The dashboard is not needed for e2e.
+# The dashboard (web, http://localhost:3000) is for the browser e2e
+# (apps/ui/e2e/onboarding.spec.ts).
 services:
   clickhouse:
     ports:

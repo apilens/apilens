@@ -137,7 +137,7 @@ tasks:
   e2e:up:
     desc: Build images and start the self-host stack with CI settings
     cmds:
-      - docker compose --env-file deploy/compose/ci.env -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml up -d --build --wait apilens
+      - docker compose --env-file deploy/compose/ci.env -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml up -d --build --wait apilens web
 
   e2e:down:
     cmds:
