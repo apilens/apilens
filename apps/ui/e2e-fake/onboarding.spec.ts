@@ -95,3 +95,70 @@ test("Continue saves progress, so a refresh resumes with the answers", async ({ 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Join your team on APILens" })).toBeVisible();
 });
+
+// #330: the address is checked as the user types (debounced; a new keystroke aborts the check in
+// flight), a taken one offers the API's suggestions, Create calls `POST /orgs` (a slug taken in
+// between is reported on the field) and continues to the project step with `org_slug` saved.
+test("Name your organization checks the address live and creates the org", async ({ page }) => {
+  await page.goto("/sign-in");
+  await githubButton(page).click();
+  await page.getByRole("link", { name: "Authorize" }).click();
+  await page.goto("/onboarding/about");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.waitForURL((url) => url.pathname === "/onboarding/join");
+  await page.getByRole("link", { name: "Create a separate organization" }).click();
+  await page.waitForURL((url) => url.pathname === "/onboarding/create");
+
+  const address = page.getByRole("textbox", { name: /^Address/ });
+  const indicator = page.locator(".ob-in .r");
+  const create = page.getByRole("button", { name: "Create organization" });
+  // The address is shown under the real public host.
+  await expect(page.locator(".ob-in .pre")).toHaveText("localhost:3210/");
+
+  // A taken address (from the name) says so and offers suggestions; Create stays disabled.
+  await page.getByLabel("Name", { exact: true }).fill("Globex");
+  await expect(address).toHaveValue("globex");
+  await expect(page.locator("#slug-err")).toContainText("That address is taken.");
+  await expect(address).toHaveAttribute("aria-invalid", "true");
+  await expect(create).toBeDisabled();
+
+  // A suggestion fills the address, which is then available.
+  await page.getByRole("button", { name: "globex-hq" }).click();
+  await expect(address).toHaveValue("globex-hq");
+  await expect(indicator).toHaveText("Available");
+  await expect(create).toBeEnabled();
+
+  // Each keystroke aborts the check still in flight: hold every check so a later key lands first.
+  const aborted: string[] = [];
+  page.on("requestfailed", (r) => {
+    if (r.url().includes("/api/orgs/slug-available")) aborted.push(new URL(r.url()).searchParams.get("slug") ?? "");
+  });
+  await page.route("**/api/orgs/slug-available*", async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.continue().catch(() => {});
+  });
+  const checked = page.waitForRequest((r) => r.url().includes("slug-available?slug=globex-hqa"));
+  await address.press("End");
+  await address.press("a");
+  await checked;
+  await address.press("b");
+  await expect.poll(() => aborted).toContain("globex-hqa");
+  await page.unroute("**/api/orgs/slug-available*");
+  await expect(indicator).toHaveText("Available");
+
+  // Taken between the check and Create: reported on the field, the screen stays.
+  await address.fill("race-lost");
+  await expect(indicator).toHaveText("Available");
+  await create.click();
+  await expect(page.locator("#slug-err")).toContainText("Someone just took that address.");
+  expect(new URL(page.url()).pathname).toBe("/onboarding/create");
+
+  // Created: on to the project step, with the address saved.
+  await page.getByRole("button", { name: "race-lost-hq" }).click();
+  await expect(indicator).toHaveText("Available");
+  await create.click();
+  await page.waitForURL((url) => url.pathname === "/onboarding/project");
+  await page.goto("/onboarding/create");
+  await expect(address).toHaveValue("race-lost-hq");
+  await expect(indicator).toHaveText("Yours");
+});
