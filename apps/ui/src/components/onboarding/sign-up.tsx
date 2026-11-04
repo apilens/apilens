@@ -4,12 +4,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { LINKS, extLink } from "@/lib/links";
-import { Brand, ObIcon, ObShell } from "./ob";
+import { type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
+import { AltLink } from "./alt-method";
+import { ObIcon, ObShell } from "./ob";
 
 const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
 
-export function SignUp() {
+/** The email form is always shown; `methods` adds the provider row under it when any are on. */
+export function SignUp({ methods }: { methods: SignInMethods }) {
   const router = useRouter();
+  const alts = altMethods(methods, { email: false });
   const [email, setEmail] = useState("");
   const [touched, setTouched] = useState(false);
   const bad = touched && !valid(email);
@@ -67,17 +71,14 @@ export function SignUp() {
           </button>
         </div>
       </form>
-      <div className="ob-or">or</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Link className="ah-btn ah-btn--secondary" href="/onboarding/about">
-          <Brand src="github" label="github" />
-          GitHub
-        </Link>
-        <Link className="ah-btn ah-btn--secondary" href="/onboarding/about">
-          <Brand src="google" label="google" />
-          Google
-        </Link>
-      </div>
+      {alts.length > 0 ? (
+        <>
+          <div className="ob-or">or</div>
+          <div style={{ display: "grid", gridTemplateColumns: gridColumns(alts.length), gap: 10 }}>
+            {alts.map((m) => (m === "email" ? null : <AltLink key={m} method={m} href="/onboarding/about" />))}
+          </div>
+        </>
+      ) : null}
     </ObShell>
   );
 }
