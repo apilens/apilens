@@ -64,7 +64,9 @@ func setupOrgs(t *testing.T, slugCheck ratelimit.Rate) *orgsFixture {
 		c = audit.WithRequest(c, audit.Request{IP: netip.MustParseAddr("203.0.113.7"), UserAgent: "itest"})
 		next(huma.WithContext(ctx, c))
 	})
-	NewOrgs(orgs.New(pool, audit.New(pool)), limiter, slugCheck, logger).Register(api)
+	svc := orgs.New(pool, audit.New(pool))
+	NewOrgs(svc, limiter, slugCheck, logger).Register(api)
+	NewMembers(svc, logger).Register(api)
 	return &orgsFixture{api: api, pool: pool, ctx: context.Background()}
 }
 

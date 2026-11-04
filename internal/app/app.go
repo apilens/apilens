@@ -336,8 +336,10 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	orgService := orgs.New(a.pool, audit.New(a.pool))
 	controlplaneapi.Register(a.server.API(), controlplaneapi.Deps{
-		Orgs:    orgs.New(a.pool, audit.New(a.pool)),
+		Orgs:    orgService,
+		Members: orgService,
 		Limiter: limiter,
 		Limits:  a.cfg.Identity.RateLimits,
 		Logger:  a.logger,

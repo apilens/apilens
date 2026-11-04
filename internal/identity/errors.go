@@ -107,6 +107,12 @@ const (
 	// CodeDomainNotAllowed: an allowed domain is a public email provider
 	// (gmail.com, outlook.com, …) that anyone can hold an address at.
 	CodeDomainNotAllowed ErrCode = "domain_not_allowed"
+	// CodeLastOwner: the change would leave the organization without an
+	// owner; make someone else an owner first.
+	CodeLastOwner ErrCode = "last_owner"
+	// CodeMemberGone: the user is not a member of the organization (they
+	// left or were removed). Only answered to members of the organization.
+	CodeMemberGone ErrCode = "member_gone"
 	// CodeForbidden: authenticated, but not allowed to perform the action.
 	// Also answers for an organization that does not exist or that the
 	// caller is not a member of, so the two cannot be told apart.
@@ -153,6 +159,8 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeRecoveryNotReady:      {http.StatusConflict, "Recovery not ready", "Account recovery is still in its waiting period. Try again after it ends."},
 	CodeSlugImmutable:         {http.StatusConflict, "Slug cannot be changed", "An organization's slug cannot be changed."},
 	CodeDomainNotAllowed:      {http.StatusBadRequest, "Domain not allowed", "Public email domains cannot be claimed by an organization."},
+	CodeLastOwner:             {http.StatusConflict, "Last owner", "An organization must keep at least one owner."},
+	CodeMemberGone:            {http.StatusGone, "Member gone", "The user is not a member of this organization."},
 	CodeForbidden:             {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
 	CodeInternal:              {http.StatusInternalServerError, "Internal error", "Something went wrong."},
 }

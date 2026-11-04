@@ -13,10 +13,13 @@ import (
 )
 
 const countOrgOwners = `-- name: CountOrgOwners :one
-SELECT count(*) FROM memberships
-WHERE org_id = $1 AND role = 'owner'
+SELECT count(*) FROM memberships m
+JOIN users u ON u.id = m.user_id
+WHERE m.org_id = $1 AND m.role = 'owner' AND u.deleted_at IS NULL
 `
 
+// Owners whose account is not deleted: a deleted owner cannot act for the
+// organization, so it does not count towards the last-owner rule.
 func (q *Queries) CountOrgOwners(ctx context.Context, orgID uuid.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countOrgOwners, orgID)
 	var count int64
@@ -100,8 +103,49 @@ func (q *Queries) GetMembership(ctx context.Context, arg GetMembershipParams) (M
 	return i, err
 }
 
+const getOrgMember = `-- name: GetOrgMember :one
+SELECT m.user_id, m.role, m.invited_by, m.created_at, u.email, u.name, u.avatar_url, u.last_login_at
+FROM memberships m
+JOIN users u ON u.id = m.user_id
+WHERE m.org_id = $1 AND m.user_id = $2 AND u.deleted_at IS NULL
+`
+
+type GetOrgMemberParams struct {
+	OrgID  uuid.UUID
+	UserID uuid.UUID
+}
+
+type GetOrgMemberRow struct {
+	UserID      uuid.UUID
+	Role        string
+	InvitedBy   *uuid.UUID
+	CreatedAt   time.Time
+	Email       string
+	Name        string
+	AvatarUrl   string
+	LastLoginAt *time.Time
+}
+
+// One member of an organization with their user; no row when the user is
+// not a member or their account is deleted.
+func (q *Queries) GetOrgMember(ctx context.Context, arg GetOrgMemberParams) (GetOrgMemberRow, error) {
+	row := q.db.QueryRow(ctx, getOrgMember, arg.OrgID, arg.UserID)
+	var i GetOrgMemberRow
+	err := row.Scan(
+		&i.UserID,
+		&i.Role,
+		&i.InvitedBy,
+		&i.CreatedAt,
+		&i.Email,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.LastLoginAt,
+	)
+	return i, err
+}
+
 const listOrgMembers = `-- name: ListOrgMembers :many
-SELECT m.user_id, m.role, m.invited_by, m.created_at, u.email, u.name, u.avatar_url
+SELECT m.user_id, m.role, m.invited_by, m.created_at, u.email, u.name, u.avatar_url, u.last_login_at
 FROM memberships m
 JOIN users u ON u.id = m.user_id
 WHERE m.org_id = $1 AND u.deleted_at IS NULL
@@ -109,13 +153,14 @@ ORDER BY m.created_at, u.email
 `
 
 type ListOrgMembersRow struct {
-	UserID    uuid.UUID
-	Role      string
-	InvitedBy *uuid.UUID
-	CreatedAt time.Time
-	Email     string
-	Name      string
-	AvatarUrl string
+	UserID      uuid.UUID
+	Role        string
+	InvitedBy   *uuid.UUID
+	CreatedAt   time.Time
+	Email       string
+	Name        string
+	AvatarUrl   string
+	LastLoginAt *time.Time
 }
 
 func (q *Queries) ListOrgMembers(ctx context.Context, orgID uuid.UUID) ([]ListOrgMembersRow, error) {
@@ -135,6 +180,7 @@ func (q *Queries) ListOrgMembers(ctx context.Context, orgID uuid.UUID) ([]ListOr
 			&i.Email,
 			&i.Name,
 			&i.AvatarUrl,
+			&i.LastLoginAt,
 		); err != nil {
 			return nil, err
 		}

@@ -199,7 +199,8 @@ shipped; a test checks that this table lists every one.
 | `org.created` | an organization is created |
 | `org.updated` | an organization's name, allowed domains or domain join change (metadata lists the `fields`) |
 | `org.deleted` | an organization is deleted |
-| `member.role_changed` | an organization member's role changes |
+| `member.role_changed` | an organization member's role changes (metadata has `from` and `to`; ownership transfer records one per member) |
+| `member.removed` | a member is removed from an organization, or leaves it (metadata `left`) |
 | `invitation.sent` | an organization invitation is sent |
 | `invitation.accepted` | an organization invitation is accepted |
 
