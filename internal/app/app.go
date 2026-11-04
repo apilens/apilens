@@ -27,6 +27,7 @@ import (
 	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/controlplane/projects"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
+	"github.com/apilens/apilens/internal/controlplane/usercontext"
 	"github.com/apilens/apilens/internal/email"
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/identity/account"
@@ -342,6 +343,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Orgs:     orgService,
 		Members:  orgService,
 		Projects: projects.New(a.pool),
+		Context:  usercontext.New(a.pool),
 		Limiter:  limiter,
 		Limits:   a.cfg.Identity.RateLimits,
 		Logger:   a.logger,

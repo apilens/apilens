@@ -32,13 +32,15 @@ type AccountService interface {
 
 // Preferences are the user's UI preferences.
 type Preferences struct {
-	Home string `json:"home,omitempty" enum:"endpoints,requests,exceptions" doc:"Screen a project opens on, chosen during onboarding."`
+	Home            string `json:"home,omitempty" enum:"endpoints,requests,exceptions" doc:"Screen a project opens on, chosen during onboarding."`
+	LastProjectSlug string `json:"last_project_slug,omitempty" doc:"Slug of the project the user last opened."`
 }
 
 // PreferencesPatch is merged into the stored preferences; omitted keys stay
 // unchanged.
 type PreferencesPatch struct {
-	Home *string `json:"home,omitempty" enum:"endpoints,requests,exceptions" doc:"Screen a project opens on."`
+	Home            *string `json:"home,omitempty" enum:"endpoints,requests,exceptions" doc:"Screen a project opens on."`
+	LastProjectSlug *string `json:"last_project_slug,omitempty" pattern:"^([a-z0-9][a-z0-9-]{0,62})?$" doc:"Slug of the project the user last opened, or empty to clear it. It is not checked against the user's projects; /users/me/context drops one they cannot see."`
 }
 
 // Me is the signed-in user as returned by /api/v1/users/me.
@@ -143,8 +145,14 @@ func (a *Account) update(ctx context.Context, in *MePatchInput) (*MeOutput, erro
 		name := strings.TrimSpace(*in.Body.Name)
 		patch.Name = &name
 	}
-	if pp := in.Body.Preferences; pp != nil && pp.Home != nil {
-		patch.Preferences = map[string]any{"home": *pp.Home}
+	if pp := in.Body.Preferences; pp != nil {
+		patch.Preferences = map[string]any{}
+		if pp.Home != nil {
+			patch.Preferences[account.PreferenceHome] = *pp.Home
+		}
+		if pp.LastProjectSlug != nil {
+			patch.Preferences[account.PreferenceLastProject] = *pp.LastProjectSlug
+		}
 	}
 	u, err := a.svc.Update(ctx, p.UserID, patch)
 	if err != nil {
@@ -196,7 +204,10 @@ func NewMe(u db.User, amr []string) Me {
 		m.AMR = []string{}
 	}
 	var prefs Preferences
-	if json.Unmarshal(u.Preferences, &prefs) == nil && slices.Contains(account.Homes, prefs.Home) {
+	if json.Unmarshal(u.Preferences, &prefs) == nil {
+		if !slices.Contains(account.Homes, prefs.Home) {
+			prefs.Home = ""
+		}
 		m.Preferences = prefs
 	}
 	_ = json.Unmarshal(u.Onboarding, &m.Onboarding)

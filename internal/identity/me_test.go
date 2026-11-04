@@ -70,7 +70,7 @@ func TestGetMe(t *testing.T) {
 	created := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	svc := &fakeAccount{user: db.User{
 		ID: p.UserID, Email: "ada@example.com", Name: "Ada", CreatedAt: created,
-		Preferences: []byte(`{"home":"requests","theme":"dark"}`),
+		Preferences: []byte(`{"home":"requests","theme":"dark","last_project_slug":"checkout"}`),
 		Onboarding:  []byte(`{"step":"about"}`),
 	}}
 	api, _ := newTestAccount(t, svc, p)
@@ -85,7 +85,7 @@ func TestGetMe(t *testing.T) {
 	}
 	want := map[string]any{
 		"id": p.UserID.String(), "email": "ada@example.com", "email_verified": false, "name": "Ada", "avatar_url": "",
-		"preferences": map[string]any{"home": "requests"},
+		"preferences": map[string]any{"home": "requests", "last_project_slug": "checkout"},
 		"onboarding":  map[string]any{"step": "about"},
 		"created_at":  "2026-01-02T03:04:05Z",
 		"amr":         []any{"passkey"},
@@ -124,17 +124,26 @@ func TestPatchMeBuildsPatch(t *testing.T) {
 		t.Fatalf("patch = %+v", got)
 	}
 
+	resp = api.Patch(MePath, map[string]any{"preferences": map[string]any{"last_project_slug": "checkout"}})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("last project: status = %d: %s", resp.Code, resp.Body)
+	}
+	if got := svc.patches[2]; len(got.Preferences) != 1 || got.Preferences["last_project_slug"] != "checkout" {
+		t.Fatalf("patch = %+v", got)
+	}
+
 	for name, body := range map[string]map[string]any{
-		"bad home":     {"preferences": map[string]any{"home": "dashboard"}},
-		"unknown pref": {"preferences": map[string]any{"colour": "red"}},
-		"bad avatar":   {"avatar_url": "ftp://x"},
-		"long name":    {"name": strings.Repeat("a", 121)},
+		"bad home":         {"preferences": map[string]any{"home": "dashboard"}},
+		"bad last project": {"preferences": map[string]any{"last_project_slug": "Not A Slug"}},
+		"unknown pref":     {"preferences": map[string]any{"colour": "red"}},
+		"bad avatar":       {"avatar_url": "ftp://x"},
+		"long name":        {"name": strings.Repeat("a", 121)},
 	} {
 		if resp := api.Patch(MePath, body); resp.Code != http.StatusUnprocessableEntity {
 			t.Errorf("%s: status = %d", name, resp.Code)
 		}
 	}
-	if len(svc.patches) != 2 {
+	if len(svc.patches) != 3 {
 		t.Fatalf("invalid bodies reached the service: %d calls", len(svc.patches))
 	}
 }

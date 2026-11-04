@@ -461,7 +461,9 @@ Served by the identity role and authenticated with the session scheme
 - `PATCH` accepts `name` (trimmed, at most 120 characters), `avatar_url` (an
   http(s) URL, or empty to clear it) and `preferences`, which is merged into
   the stored object; `preferences.home` is one of `endpoints`, `requests`,
-  `exceptions`. Unknown fields fail validation (`422`). Audited as
+  `exceptions`, and `preferences.last_project_slug` is a project slug (or
+  empty to clear it) that `/users/me/context` returns as
+  `last_project_slug`. Unknown fields fail validation (`422`). Audited as
   `user.updated` with the changed field names, never their values.
 - `DELETE` soft-deletes the account: it is hidden at once (the email can sign
   up again), every session is revoked (reason `user_deleted`) and
@@ -569,9 +571,20 @@ once shipped; a new shape gets a new topic.
 
 ## Capabilities vocabulary
 
+`GET /api/v1/users/me/context` (api role, `internal/controlplane/api/context.go`,
+`internal/controlplane/usercontext`) returns in one call what the app shell
+needs: `user` (the `/users/me` body), `orgs` (each with the user's `role` and
+its projects with their environments), `last_project_slug` (the preference,
+or null when the user can no longer see that project), `onboarding`
+(`{step, completed}` read from the stored onboarding object) and
+`capabilities`. It is four indexed queries in one read-only snapshot whatever
+the number of organizations and projects (under 50 ms for 10 × 10, asserted
+by an integration test).
+
 The UI never derives permissions from a role. `GET /api/v1/users/me/context`
 returns, per project, the list of **actions** the user may perform, computed
-with one SpiceDB `CheckBulkPermissions` call; the UI gates buttons on them
+with one SpiceDB `CheckBulkPermissions` call (until #294 lands they are
+derived from the organization role with the table in `authz/README.md`); the UI gates buttons on them
 (`apps/ui/src/lib/capabilities.ts`, `useCan()`, `<Gated>`). The server still
 checks every request with `authz.Require`; capabilities only decide what the
 UI shows.
