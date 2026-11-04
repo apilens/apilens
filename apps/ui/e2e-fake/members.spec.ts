@@ -129,10 +129,10 @@ test("as the only owner, transfers ownership and becomes an admin", async ({ pag
   await expect(page.getByRole("button", { name: "Transfer ownership" })).toBeDisabled();
 });
 
-test("the section tabs link General, Members and Invitations", async ({ page }) => {
+test("the section tabs link General, Members, Invitations and Single sign-on", async ({ page }) => {
   await signIn(page, "member");
   const tabs = page.getByRole("navigation", { name: "Organization settings" });
-  await expect(tabs.getByRole("link")).toHaveText(["General", "Members", "Invitations"]);
+  await expect(tabs.getByRole("link")).toHaveText(["General", "Members", "Invitations", "Single sign-on"]);
   await expect(tabs.getByRole("link", { name: "General" })).toHaveAttribute("href", "/orgs/acme/settings");
   await expect(tabs.getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
 });

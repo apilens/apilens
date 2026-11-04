@@ -212,7 +212,7 @@ export interface ClientConfig {
 const API_PREFIX = "/api/v1";
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-type Method = "GET" | "POST" | "PATCH" | "DELETE";
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 type Query = Record<string, string | number | boolean | undefined>;
 
 /** Encodes one path segment (slugs, tokens, ids). */
@@ -598,6 +598,53 @@ export interface UpdateOrgRequest {
   domain_join?: boolean;
 }
 
+/** Role a user gets when they join through their first SSO sign-in. */
+export type SSODefaultRole = Exclude<OrgRole, "owner">;
+
+/** `GET`/`PUT /orgs/{slug}/sso` (#300): the organization's OIDC connection. */
+export interface SSOConnection {
+  issuer: string;
+  client_id: string;
+  /** Always the mask `********`: the secret is write-only. */
+  client_secret: string;
+  domains: string[] | null;
+  enforce: boolean;
+  default_role: SSODefaultRole;
+  /** The redirect URI to register with the identity provider. */
+  redirect_uri: string;
+  /** Where an SSO sign-in to the organization starts. */
+  start_url: string;
+  created_at: string;
+  updated_at: string;
+  /** The last successful sign-in through the connection; null if none yet. */
+  last_login_at: string | null;
+}
+
+/** `PUT /orgs/{slug}/sso` (#300). Omit `client_secret` (or send the mask) to keep the stored one. */
+export interface PutSSORequest {
+  issuer: string;
+  client_id: string;
+  client_secret?: string;
+  domains: string[];
+  enforce?: boolean;
+  default_role?: SSODefaultRole;
+}
+
+/** `POST /orgs/{slug}/sso/test` (#300): the OIDC discovery outcome; `ok: false` carries `error`. */
+export interface SSOTestResult {
+  ok: boolean;
+  issuer: string;
+  error?: "unreachable" | "bad_status" | "invalid_document" | "issuer_mismatch" | "missing_endpoints";
+  http_status?: number;
+  authorization_endpoint?: string;
+  token_endpoint?: string;
+  userinfo_endpoint?: string;
+  jwks_uri?: string;
+  scopes_supported?: string[];
+  response_types_supported?: string[];
+  id_token_signing_alg_values_supported?: string[];
+}
+
 /** `GET /orgs/{slug}/members` item (#280): a member with their user, role and dates. */
 export interface Member {
   user: { id: string; email: string; name: string; avatar_url: string };
@@ -815,6 +862,14 @@ export function createClient(config: ClientConfig) {
       request<Org>("POST", "/orgs", { ...o, body }),
     orgSlugAvailable: (slug: string, o: Authed) =>
       request<SlugAvailability>("GET", "/orgs/slug-available", { ...o, query: { slug } }),
+
+    // api: organization SSO connection (#300) -----------------------------------------------
+    getOrgSSO: (slug: string, o: Authed) => request<SSOConnection>("GET", `/orgs/${seg(slug)}/sso`, o),
+    putOrgSSO: (slug: string, body: PutSSORequest, o: Authed) =>
+      request<SSOConnection>("PUT", `/orgs/${seg(slug)}/sso`, { ...o, body }),
+    deleteOrgSSO: (slug: string, o: Authed) => request<void>("DELETE", `/orgs/${seg(slug)}/sso`, o),
+    testOrgSSO: (slug: string, issuer: string | undefined, o: Authed) =>
+      request<SSOTestResult>("POST", `/orgs/${seg(slug)}/sso/test`, { ...o, body: issuer ? { issuer } : {} }),
 
     // api: organization members (#280) and invitations (#281) ---------------------------------
     listMembers: (slug: string, o: Authed) =>

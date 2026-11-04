@@ -129,6 +129,7 @@ export const ORG_SETTINGS_SECTIONS: readonly OrgSettingsSection[] = [
   { slug: "", label: "General" },
   { slug: "members", label: "Members" },
   { slug: "invitations", label: "Invitations" },
+  { slug: "sso", label: "Single sign-on" },
 ];
 
 /** `/orgs/<org>/settings` or `/orgs/<org>/settings/<slug>`. */

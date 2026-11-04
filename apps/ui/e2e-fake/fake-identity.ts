@@ -52,16 +52,21 @@
 //   POST /api/v1/orgs/acme/invitations             records each new address, answers one result per address
 //   POST /api/v1/orgs/acme/invitations/{id}/resend 5-minute cooldown (429 rate_limited + retry_after)
 //   DELETE /api/v1/orgs/acme/invitations/{id}      revoke; 410 invite_expired when already gone
+//   GET|PUT|DELETE /api/v1/orgs/acme/sso           the signed-in user's own SSO connection (#348),
+//                                                  owners only; enforce needs `last_login_at` (sso_untested)
+//   POST /api/v1/orgs/acme/sso/test                discovery: an issuer containing "broken" is
+//                                                  unreachable, any other one answers its endpoints
 //   GET|POST /api/v1/projects/shop/api-keys        list (newest first), create (raw key once);
 //   DELETE /api/v1/projects/shop/api-keys/{id}     revoke (204, or 410 api_key_gone). Creating and
 //                                                  revoking answer 403 without the capability
-//   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, stale?}
+//   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?}
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  `role` is the user's role in acme (default owner);
 //                                                  with `totp_secret` (base32) it answers 2fa_required;
 //                                                  `passkeys` seeds the new user's passkey list,
 //                                                  `capabilities` their actions on shop, `api_keys`
 //                                                  shop's keys as that user sees them;
+//                                                  `sso` seeds acme's SSO connection (fields of the read),
 //                                                  `stale` makes /2fa/enable answer reauth_required
 //   POST /__fake/identities {identities}          test hook: replaces the connected accounts
 //
@@ -401,6 +406,28 @@ interface Seeds {
   passkeys?: Record<string, unknown>[];
   capabilities?: string[];
   apiKeys?: Record<string, unknown>[];
+  sso?: Record<string, unknown>;
+}
+
+/** User id → acme's SSO connection as that user sees it (absent: none configured). */
+const ssoByUser = new Map<string, Record<string, unknown>>();
+
+function ssoConnection(fields: Record<string, unknown>): Record<string, unknown> {
+  const now = new Date().toISOString();
+  return {
+    issuer: "https://idp.example.com",
+    client_id: "apilens",
+    domains: ["example.com"],
+    enforce: false,
+    default_role: "member",
+    created_at: now,
+    updated_at: now,
+    last_login_at: null,
+    ...fields,
+    client_secret: "********",
+    redirect_uri: `${SELF}/api/v1/auth/sso/acme/callback`,
+    start_url: `${SELF}/api/v1/auth/sso/acme/start`,
+  };
 }
 
 /** The user's actions on shop: seeded ones, else what their role allows. */
@@ -415,6 +442,7 @@ function bundle(next: string, seeds: Seeds = {}, role: Role = "owner") {
   passkeys.set(id, (seeds.passkeys ?? []).map(seedPasskey));
   if (seeds.capabilities) capabilities.set(id, seeds.capabilities);
   apiKeys.set(id, (seeds.apiKeys ?? []).map(seedApiKey));
+  if (seeds.sso) ssoByUser.set(id, ssoConnection(seeds.sso));
   return {
     access_token: access,
     refresh_token: `rt_${token()}`,
@@ -721,6 +749,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (typeof body.sole_owner === "boolean") profile.soleOwner = body.sole_owner;
     return send(res, 200, { ok: true });
   }
+  const ssoPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/sso(\/test)?$/);
+  if (ssoPath) return orgSSO(req, res, ssoPath[1], ssoPath[2] !== undefined);
   const orgPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/(members|transfer-ownership|invitations)(?:\/([^/]+)(\/resend)?)?$/);
   if (orgPath) return orgs(req, res, orgPath[1], orgPath[2], orgPath[3], orgPath[4] !== undefined);
   const keysPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/api-keys(?:\/([^/]+))?$/);
@@ -904,6 +934,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       passkeys: seeds,
       capabilities: caps,
       api_keys: keys,
+      sso,
       stale,
     } = await readBody(req);
     const codes = Array.isArray(backups) ? backups.map(String) : [];
@@ -911,6 +942,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       passkeys: Array.isArray(seeds) ? (seeds as Record<string, unknown>[]) : [],
       capabilities: Array.isArray(caps) ? caps.map(String) : undefined,
       apiKeys: Array.isArray(keys) ? (keys as Record<string, unknown>[]) : [],
+      sso: typeof sso === "object" && sso !== null && !Array.isArray(sso) ? (sso as Record<string, unknown>) : undefined,
     };
     const r = ROLES.has(role as Role) ? (role as Role) : "owner";
     const code = issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded, stale === true, r);
@@ -1066,6 +1098,64 @@ async function orgs(req: IncomingMessage, res: ServerResponse, slug: string, wha
     inv.resent_at = new Date(now).toISOString();
     inv.expires_at = new Date(now + INVITE_TTL_MS).toISOString();
     return send(res, 200, inv);
+  }
+  return problem(res, 404, "not_found");
+}
+
+/** acme's SSO connection endpoints, with the API's rules (internal/controlplane/orgs/sso_connection.go). */
+async function orgSSO(req: IncomingMessage, res: ServerResponse, slug: string, test: boolean) {
+  const user = signedInUser(req);
+  if (!user || !membersByUser.has(user)) return problem(res, 401, "unauthenticated");
+  if (slug !== "acme") return problem(res, 404, "not_found");
+  if (roleOf(user) !== "owner") return problem(res, 403, "forbidden");
+  const cur = ssoByUser.get(user);
+
+  if (test && req.method === "POST") {
+    const body = await readBody(req);
+    const issuer = typeof body.issuer === "string" && body.issuer ? body.issuer : (cur?.issuer as string | undefined);
+    if (!issuer) return problem(res, 409, "sso_not_configured");
+    if (issuer.includes("broken")) return send(res, 200, { ok: false, issuer, error: "unreachable" });
+    const base = issuer.replace(/\/+$/, "");
+    return send(res, 200, {
+      ok: true,
+      issuer,
+      authorization_endpoint: `${base}/authorize`,
+      token_endpoint: `${base}/token`,
+      userinfo_endpoint: `${base}/userinfo`,
+      jwks_uri: `${base}/jwks`,
+      scopes_supported: ["openid", "email", "profile"],
+      response_types_supported: ["code"],
+      id_token_signing_alg_values_supported: ["RS256"],
+    });
+  }
+  if (test) return problem(res, 404, "not_found");
+  if (req.method === "GET") return cur ? send(res, 200, cur) : problem(res, 409, "sso_not_configured");
+  if (req.method === "DELETE") {
+    if (!cur) return problem(res, 409, "sso_not_configured");
+    ssoByUser.delete(user);
+    return send(res, 204);
+  }
+  if (req.method === "PUT") {
+    const body = await readBody(req);
+    const secret = typeof body.client_secret === "string" && body.client_secret !== "********" ? body.client_secret : "";
+    const domains = Array.isArray(body.domains) ? body.domains.map(String) : [];
+    if (typeof body.issuer !== "string" || !body.issuer || typeof body.client_id !== "string" || !body.client_id || domains.length === 0) {
+      return problem(res, 400, "invalid_request");
+    }
+    if (!cur && !secret) return problem(res, 400, "invalid_request");
+    if (domains.some((d: string) => d === "gmail.com" || d === "outlook.com")) return problem(res, 422, "domain_not_allowed");
+    if (body.enforce === true && !(cur?.enforce === true) && !cur?.last_login_at) return problem(res, 409, "sso_untested");
+    const next = ssoConnection({
+      ...(cur ?? {}),
+      issuer: body.issuer,
+      client_id: body.client_id,
+      domains,
+      enforce: body.enforce === true,
+      default_role: typeof body.default_role === "string" ? body.default_role : "member",
+      updated_at: new Date().toISOString(),
+    });
+    ssoByUser.set(user, next);
+    return send(res, 200, next);
   }
   return problem(res, 404, "not_found");
 }

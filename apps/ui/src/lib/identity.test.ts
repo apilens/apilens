@@ -361,6 +361,14 @@ describe("operations", () => {
     ["GET", "/orgs/{slug}/invitations", (c) => c.listInvitations("a/b?c", authed)],
     ["POST", "/orgs/{slug}/invitations/{id}/resend", (c) => c.resendInvitation("a/b?c", "a/b?c", authed)],
     ["DELETE", "/orgs/{slug}/invitations/{id}", (c) => c.revokeInvitation("a/b?c", "a/b?c", authed)],
+    ["GET", "/orgs/{slug}/sso", (c) => c.getOrgSSO("a/b?c", authed)],
+    [
+      "PUT",
+      "/orgs/{slug}/sso",
+      (c) => c.putOrgSSO("a/b?c", { issuer: "https://idp.example.com", client_id: "c", domains: ["example.com"] }, authed),
+    ],
+    ["DELETE", "/orgs/{slug}/sso", (c) => c.deleteOrgSSO("a/b?c", authed)],
+    ["POST", "/orgs/{slug}/sso/test", (c) => c.testOrgSSO("a/b?c", undefined, authed)],
     ["GET", "/orgs/{slug}/projects", (c) => c.listProjects("a/b?c", authed)],
     [
       "POST",
