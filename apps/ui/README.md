@@ -33,3 +33,17 @@ Where they are set:
 Only server code may read configuration: import `env()` from `@/lib/env`.
 The module imports `server-only`, so importing it from a Client Component fails
 the build and the secret never reaches the browser.
+
+## Session cookie
+
+The signed-in session lives in one encrypted httpOnly cookie, `apilens_session`
+(AES-256-GCM, key derived from `SESSION_SECRET` with HKDF-SHA256, base64url
+value, leading version byte for future rotation). Two implementations share
+one wire format (`src/lib/session-format.ts`) and one set of test vectors
+(`src/lib/session.vectors.json`):
+
+- `@/lib/session` uses `node:crypto` (Route Handlers, Server Actions, Server Components).
+- `@/lib/session-edge` uses Web Crypto (edge runtime, proxy).
+
+Change them together. `open()` returns `null` for any missing, tampered or
+unknown-version cookie and never throws on cookie input.

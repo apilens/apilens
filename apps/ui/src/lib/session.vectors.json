@@ -1,0 +1,29 @@
+{
+  "secret": "test-only-session-secret-0123456789abcdef",
+  "vectors": [
+    {
+      "name": "remember me",
+      "iv": "000102030405060708090a0b",
+      "payload": {
+        "access": "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c3JfMDEifQ.c2ln",
+        "refresh": "rt_7f3c9a1e5b2d4086",
+        "exp": 1793836800,
+        "remember": true,
+        "uid": "usr_01JBX4K9W2"
+      },
+      "cookie": "AQABAgMEBQYHCAkKC3_c8AeGxULgeiLjH4eS3KcGIRPPKSflR1AwwPCS_bPRBGROSujpOUlFlKOfB3KJLn1oC9BWmsItTsre9WjSBscwKnmeaumD4ffXjZJXKCC9gGjSxSr6qK9I-oBH6-oWItIJDyPuRwwZyjdgMTxWkRCwQuwxFwHmuwI5gdo0tJWZ6WB_0_IickQGMGHgge4fHzlzKZMlK6GenytqCSLExAXRoUtKOg"
+    },
+    {
+      "name": "browser session, non-ASCII uid",
+      "iv": "ffeeddccbbaa998877665544",
+      "payload": {
+        "access": "a",
+        "refresh": "r",
+        "exp": 0,
+        "remember": false,
+        "uid": "üsér-ü+/="
+      },
+      "cookie": "Af_u3cy7qpmId2ZVRM-xRzta3CZPuuHE4S0MHVMXFeLjy4WKyr0I7R9KlRgsS25mo-o5d4cRjnCPnCjisyYDhVD7te95pSGBYepDeaZJ37ulvSKXpdjw8ccAwlV_K8Jpr7eNT3OTNQ"
+    }
+  ]
+}
