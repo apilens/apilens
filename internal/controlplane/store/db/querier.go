@@ -44,6 +44,12 @@ type Querier interface {
 	// Resolves an ingest key to its project. Revoked, expired and keys of
 	// deleted projects never match.
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error)
+	// Queries behind GET /api/v1/users/me/context: the signed-in user and every
+	// organization and project they can see, read in a fixed number of round
+	// trips whatever the number of organizations and projects.
+	// The active user. The control plane only reads the profile columns of
+	// users (ADR 0005); identity owns every write.
+	GetContextUser(ctx context.Context, id uuid.UUID) (User, error)
 	GetInvitation(ctx context.Context, arg GetInvitationParams) (Invitation, error)
 	// Returns the row whatever its state, with its organization, so the caller
 	// can tell a pending invitation from an accepted, revoked or expired one.
@@ -91,6 +97,9 @@ type Querier interface {
 	// The active organizations a user belongs to, with their role and the
 	// number of active projects and (non-deleted) members of each.
 	ListUserOrganizationsWithCounts(ctx context.Context, userID uuid.UUID) ([]ListUserOrganizationsWithCountsRow, error)
+	// The active projects of every active organization the user belongs to
+	// (memberships_user, then projects_org), by organization then name.
+	ListUserProjects(ctx context.Context, userID uuid.UUID) ([]ListUserProjectsRow, error)
 	// GetMemberOrganization, row-locking the organization (not the membership)
 	// for the rest of the transaction.
 	LockMemberOrganization(ctx context.Context, arg LockMemberOrganizationParams) (LockMemberOrganizationRow, error)

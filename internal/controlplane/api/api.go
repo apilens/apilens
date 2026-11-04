@@ -17,6 +17,7 @@ type Deps struct {
 	Orgs     OrgService
 	Members  MemberService
 	Projects ProjectService
+	Context  ContextService
 	Limiter  *ratelimit.Limiter
 	Limits   config.RateLimitsConfig
 	Logger   *slog.Logger
@@ -28,4 +29,5 @@ func Register(api huma.API, d Deps) {
 	NewOrgs(d.Orgs, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
 	NewMembers(d.Members, d.Logger).Register(api)
 	NewProjects(d.Projects, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
+	NewContext(d.Context, d.Logger).Register(api)
 }

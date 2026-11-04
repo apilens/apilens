@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"time"
 
@@ -38,6 +39,18 @@ const (
 
 // Homes lists the valid `home` preference values.
 var Homes = []string{HomeEndpoints, HomeRequests, HomeExceptions}
+
+// Preference keys with a validated value.
+const (
+	PreferenceHome = "home"
+	// PreferenceLastProject is the slug of the project the user last
+	// opened; GET /api/v1/users/me/context returns it as
+	// last_project_slug. Empty clears it.
+	PreferenceLastProject = "last_project_slug"
+)
+
+// lastProjectRE is the project slug rule (projects.slug), or empty.
+var lastProjectRE = regexp.MustCompile(`^([a-z0-9][a-z0-9-]{0,62})?$`)
 
 var (
 	// ErrNotFound means the user does not exist or is already deleted.
@@ -254,9 +267,16 @@ func (s *Service) Restore(ctx context.Context, email string) (db.User, error) {
 }
 
 // ValidatePreferences checks the known preference keys of a patch: `home`
-// must be one of Homes. Unknown keys are the caller's schema's concern.
+// must be one of Homes and `last_project_slug` a project slug or empty.
+// Unknown keys are the caller's schema's concern.
 func ValidatePreferences(p map[string]any) error {
-	if v, ok := p["home"]; ok {
+	if v, ok := p[PreferenceLastProject]; ok {
+		s, isString := v.(string)
+		if !isString || !lastProjectRE.MatchString(s) {
+			return fmt.Errorf("%w: last_project_slug must be a project slug or empty", ErrInvalidPreference)
+		}
+	}
+	if v, ok := p[PreferenceHome]; ok {
 		h, isString := v.(string)
 		if !isString || !slices.Contains(Homes, h) {
 			return fmt.Errorf("%w: home must be one of %v", ErrInvalidPreference, Homes)

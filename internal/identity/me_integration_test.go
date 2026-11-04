@@ -208,18 +208,25 @@ func TestMePatch(t *testing.T) {
 		t.Fatalf("status = %d, me = %+v", resp.Code, m)
 	}
 
+	// last_project_slug is stored next to home.
+	resp = f.api.Patch(MePath, auth, map[string]any{"preferences": map[string]any{"last_project_slug": "checkout"}})
+	if m := decodeMe(t, resp.Body.Bytes()); resp.Code != http.StatusOK || m.Preferences.Home != "requests" || m.Preferences.LastProjectSlug != "checkout" {
+		t.Fatalf("status = %d, me = %+v", resp.Code, m)
+	}
+
 	for name, body := range map[string]map[string]any{
-		"bad home":      {"preferences": map[string]any{"home": "dashboard"}},
-		"unknown pref":  {"preferences": map[string]any{"colour": "red"}},
-		"bad avatar":    {"avatar_url": "javascript:alert(1)"},
-		"unknown field": {"email": "x@example.com"},
+		"bad last project": {"preferences": map[string]any{"last_project_slug": "-x"}},
+		"bad home":         {"preferences": map[string]any{"home": "dashboard"}},
+		"unknown pref":     {"preferences": map[string]any{"colour": "red"}},
+		"bad avatar":       {"avatar_url": "javascript:alert(1)"},
+		"unknown field":    {"email": "x@example.com"},
 	} {
 		if resp := f.api.Patch(MePath, auth, body); resp.Code != http.StatusUnprocessableEntity {
 			t.Errorf("%s: status = %d: %s", name, resp.Code, resp.Body)
 		}
 	}
-	if n := len(f.events(t, u.ID, audit.UserUpdated)); n != 2 {
-		t.Fatalf("user.updated events = %d, want 2", n)
+	if n := len(f.events(t, u.ID, audit.UserUpdated)); n != 3 {
+		t.Fatalf("user.updated events = %d, want 3", n)
 	}
 }
 
