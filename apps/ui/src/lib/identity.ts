@@ -381,7 +381,22 @@ export interface PasskeyLoginVerifyRequest {
   remember?: boolean;
 }
 
-export type OrgRole = "owner" | "admin" | "member" | "viewer";
+/** `GET /auth/oidc/requests/{id}` (#301): a client of the built-in OpenID provider asks for a sign-in. */
+export interface OidcRequest {
+  id: string;
+  client_id: string;
+  client_name: string;
+  scopes: string[];
+  /** With "none" no sign-in may be shown. */
+  prompt: string[];
+  max_age?: number;
+  login_hint?: string;
+  expires_at: string;
+  /** Identity's callback; append `error=login_required` to end the request unsigned. */
+  callback_url: string;
+}
+
+export type OrgRole ="owner" | "admin" | "member" | "viewer";
 
 export interface OrgRef {
   name: string;
@@ -528,6 +543,12 @@ export function createClient(config: ClientConfig) {
       request<PasskeyLoginOptions>("POST", "/auth/passkeys/login/options", { ...o, body }),
     passkeyLoginVerify: (body: PasskeyLoginVerifyRequest, o?: CallOptions) =>
       request<SessionBundle>("POST", "/auth/passkeys/login/verify", { ...o, body }),
+
+    // identity: OpenID provider sign-in (#301) ---------------------------------------------
+    oidcRequest: (id: string, o?: CallOptions) =>
+      request<OidcRequest>("GET", `/auth/oidc/requests/${seg(id)}`, o),
+    oidcComplete: (id: string, o: Authed) =>
+      request<{ redirect_to: string }>("POST", `/auth/oidc/requests/${seg(id)}/complete`, o),
 
     // identity: sessions ------------------------------------------------------------------
     refresh: (body: { refresh_token: string }, o?: CallOptions) =>

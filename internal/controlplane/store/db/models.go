@@ -98,6 +98,41 @@ type Membership struct {
 	CreatedAt time.Time
 }
 
+type OauthAuthRequest struct {
+	ID                  uuid.UUID
+	ClientID            string
+	RedirectUri         string
+	Scopes              []string
+	ResponseType        string
+	ResponseMode        string
+	State               string
+	Nonce               string
+	CodeChallenge       string
+	CodeChallengeMethod string
+	Prompt              []string
+	MaxAgeSeconds       *int32
+	LoginHint           string
+	UserID              *uuid.UUID
+	Amr                 []string
+	AuthTime            *time.Time
+	CodeHash            *string
+	CreatedAt           time.Time
+	ExpiresAt           time.Time
+}
+
+type OauthClient struct {
+	ID              string
+	Name            string
+	SecretHash      *string
+	AuthMethod      string
+	ApplicationType string
+	RedirectUris    []string
+	GrantTypes      []string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	RevokedAt       *time.Time
+}
+
 type OauthIdentity struct {
 	ID          uuid.UUID
 	UserID      uuid.UUID
@@ -107,6 +142,21 @@ type OauthIdentity struct {
 	Profile     []byte
 	CreatedAt   time.Time
 	LastLoginAt *time.Time
+}
+
+type OauthToken struct {
+	ID               uuid.UUID
+	ClientID         string
+	UserID           *uuid.UUID
+	Scopes           []string
+	Audience         []string
+	Amr              []string
+	AuthTime         *time.Time
+	ExpiresAt        time.Time
+	RefreshTokenHash *string
+	RefreshExpiresAt *time.Time
+	CreatedAt        time.Time
+	RevokedAt        *time.Time
 }
 
 type OrgSsoConnection struct {

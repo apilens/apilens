@@ -170,6 +170,17 @@ type IdentityConfig struct {
 	CORSOrigins []string `koanf:"cors_origins"`
 	// OAuth configures the optional social sign-in providers.
 	OAuth OAuthConfig `koanf:"oauth"`
+	// OIDCProvider configures APILens as an OpenID Connect provider and
+	// OAuth 2.0 authorization server for MCP clients, agents and service
+	// accounts (ADR 0005).
+	OIDCProvider OIDCProviderConfig `koanf:"oidc_provider"`
+}
+
+// OIDCProviderConfig configures the built-in OpenID Connect provider.
+type OIDCProviderConfig struct {
+	// Enabled mounts /.well-known/openid-configuration and /oauth/* on the
+	// identity role. Off by default.
+	Enabled bool `koanf:"enabled"`
 }
 
 // OAuth provider names, as they appear in config keys and callback paths.
@@ -415,6 +426,7 @@ func Defaults() map[string]any {
 		"identity.webauthn.rp_name":        "APILens",
 		"identity.webauthn.origins":        []string{"http://localhost:3000"},
 		"identity.cors_origins":            []string{},
+		"identity.oidc_provider.enabled":   false,
 		"jobs.enabled":                     true,
 		"jobs.max_workers":                 10,
 		"jobs.metrics_interval":            "15s",

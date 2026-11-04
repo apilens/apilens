@@ -39,7 +39,8 @@ implements them, and that issue updates this page when it merges.
 | New-device alerts, purge (#273, #275) | planned |
 | Orgs, members, invitations, projects, API keys (#276–#287) | planned |
 | Outbox relay, reconciler, `authz.Require`, capabilities (#291–#296) | planned |
-| Per-org OIDC SSO (#297–#300), OIDC provider (#301) | planned |
+| Per-org OIDC SSO (#297–#300) | planned |
+| OIDC provider skeleton: discovery, authorize, token, userinfo, client credentials (#301), behind `identity.oidc_provider.enabled` | done |
 | First-admin CLI `apilens user create` / `user magic-link` (#353) | planned |
 
 ## Components
@@ -238,6 +239,97 @@ handoff mechanics as social sign-in. The `id_token` email must be in the
 connection's `domains`; the user joins the org with `default_role` if not
 already a member (just-in-time, through the outbox). With `enforce` on, email
 and social sign-in for those domains answer `sso_required`.
+
+### APILens as an OpenID provider (`/oauth/*`)
+
+Identity is also an OpenID Connect provider and OAuth 2.0 authorization
+server, for MCP clients, agents and service accounts (ADR 0005). It is built
+on `zitadel/oidc` (`internal/identity/oidcprovider`) and is off unless
+`identity.oidc_provider.enabled` (`APILENS_IDENTITY__OIDC_PROVIDER__ENABLED`)
+is set. M2 ships the storage and the standard endpoints; M4 adds client
+registration (CIMD/DCR), API scopes and token exchange (RFC 8693).
+
+| Endpoint | |
+|---|---|
+| `GET /.well-known/openid-configuration` | discovery; `jwks_uri` is the existing `/.well-known/jwks.json` |
+| `GET /oauth/authorize` | authorization code flow only (`response_type=code`); PKCE `S256` (required for public clients, `plain` refused) |
+| `GET /oauth/authorize/callback?id=` | where the UI sends the browser back; issues the code |
+| `POST /oauth/token` | `authorization_code`, `refresh_token` (rotating), `client_credentials`; `client_secret_basic` or `client_secret_post` |
+| `GET /oauth/userinfo` | `sub`, plus `name`/`picture` (`profile`) and `email`/`email_verified` (`email`) |
+| `POST /oauth/revoke`, `POST /oauth/introspect` | RFC 7009 / RFC 7662 |
+
+**Sign-in reuses the UI.** Identity sets no cookies, so `/oauth/authorize`
+stores the request (`oauth_auth_requests`, 10 minutes) and redirects to
+`{public_ui_url}/auth/oidc?request_id=`. That Route Handler sends a
+signed-out user through the normal sign-in (and back), then calls
+`POST /api/v1/auth/oidc/requests/{id}/complete` with the user's session and
+navigates to the returned callback URL. `GET /api/v1/auth/oidc/requests/{id}`
+(public; the id is the capability) tells the UI the client, scopes, `prompt`
+and `max_age`. With `prompt=none` and no session the UI ends the request with
+`…/callback?id=…&error=login_required`. `auth_time` is the session's sign-in
+time; when it is older than `max_age` (`prompt=login` is `max_age=0`)
+`complete` answers `reauth_required` and the UI answers the client with
+`login_required`.
+
+**Tokens.** ID and access tokens are RS256 JWTs signed with the same active
+key as session tokens; every access token has an `oauth_tokens` row (its
+`jti`) that userinfo, refresh, revocation and introspection check.
+
+| Grant | `sub` | `aud` | Accepted by the API |
+|---|---|---|---|
+| `client_credentials` | the client id (= `client_id`) | `apilens` | yes, as an `authn.KindClient` principal |
+| `authorization_code` / `refresh_token` | the user id | the client id | no (only `/oauth/userinfo` until M4 defines delegated scopes) |
+
+Refresh tokens (only with `offline_access` and a client registered for
+`refresh_token`) are 32 random bytes, stored as SHA-256, rotate on every use
+and keep the family's absolute lifetime (`identity.refresh_token_ttl`).
+Authorization codes are single-use (redeeming deletes the request, even if
+the client then fails authentication or PKCE) and live 2 minutes. Client
+secrets are 32 random bytes, stored as SHA-256 and compared in constant
+time.
+
+**Clients** live in `oauth_clients` (`00011_oauth_provider.sql`). Until M4
+adds dynamic registration an operator registers them:
+
+```sh
+apilens identity create-client -name="My app" \
+  -redirect-uris=https://app.example.com/callback \
+  -grant-types=authorization_code,refresh_token
+apilens identity create-client -name="CI agent" -grant-types=client_credentials
+apilens identity create-client -name="CLI" -public -native \
+  -redirect-uris=http://127.0.0.1/callback
+```
+
+Each prints `client_id` and, for confidential clients, `client_secret`
+(shown once). A public client has no secret, must use PKCE, and cannot use
+`client_credentials`.
+
+#### Running the OpenID conformance suite locally
+
+The [OpenID conformance suite](https://gitlab.com/openid/conformance-suite)
+runs as containers; test the **Basic OP** profile
+(`oidcc-basic-certification-test-plan`) against a local stack:
+
+1. Start APILens with the provider on and an HTTPS issuer the suite's
+   containers can reach, e.g. behind a tunnel or Caddy with a local CA:
+   `APILENS_IDENTITY__OIDC_PROVIDER__ENABLED=true`,
+   `APILENS_IDENTITY__ISSUER=https://id.apilens.localhost`,
+   `APILENS_IDENTITY__PUBLIC_UI_URL=https://app.apilens.localhost`. Keep the
+   `log` email provider (or Mailpit) and sign in with an `@example.com`
+   address.
+2. Register the suite's client (two are needed for some tests):
+   `apilens identity create-client -name=conformance -redirect-uris=https://localhost.emobix.co.uk:8443/test/a/apilens/callback -grant-types=authorization_code,refresh_token`
+   (repeat with `-name=conformance-2`).
+3. Start the suite: `git clone https://gitlab.com/openid/conformance-suite && cd conformance-suite && mvn clean package -DskipTests && docker compose up`,
+   open `https://localhost.emobix.co.uk:8443`, create a plan
+   *OpenID Connect Core: Basic Certification Profile Authorization server
+   test*, server metadata *discovery*, client registration *static*, alias
+   `apilens`, and paste the discovery URL and both clients' ids and secrets.
+4. Run the plan; sign in through the APILens UI when a test opens it.
+
+Known gaps of the skeleton: `prompt=login` and a too-old `max_age` answer
+`login_required` instead of forcing a fresh sign-in, and there is no consent
+screen (`prompt=consent` is ignored); both land with the M4 UI.
 
 ### Invitations
 

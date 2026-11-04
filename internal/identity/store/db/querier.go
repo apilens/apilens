@@ -22,6 +22,9 @@ type Querier interface {
 	// Cancels a pending request (the link in the request email). Returns
 	// pgx.ErrNoRows when it is already confirmed or cancelled.
 	CancelRecoveryRequest(ctx context.Context, arg CancelRecoveryRequestParams) (RecoveryRequest, error)
+	// Binds the signed-in user to an unexpired request that has no user yet.
+	// Returns pgx.ErrNoRows if the request is unknown, expired or already done.
+	CompleteOAuthAuthRequest(ctx context.Context, arg CompleteOAuthAuthRequestParams) (OauthAuthRequest, error)
 	// Completes a pending request whose cooling-off period has passed at now
 	// (the caller's clock). Returns pgx.ErrNoRows when the request is not
 	// pending or not ready yet; of two concurrent confirms only one succeeds.
@@ -34,6 +37,10 @@ type Querier interface {
 	// the row is already consumed or expired; of two concurrent consumes only one
 	// succeeds.
 	ConsumeEmailToken(ctx context.Context, id uuid.UUID) (AuthEmailToken, error)
+	// Redeems an authorization code: deletes and returns its request, so a code
+	// is accepted at most once even under concurrent redemption. Returns
+	// pgx.ErrNoRows for an unknown, used or expired code.
+	ConsumeOAuthAuthCode(ctx context.Context, codeHash *string) (OauthAuthRequest, error)
 	// Number of providers linked to a user.
 	CountOAuthIdentitiesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	// Number of passkeys registered to a user.
@@ -55,12 +62,17 @@ type Querier interface {
 	// the user starts verified, signed in, and with the default preferences and
 	// onboarding state.
 	CreateFirstLoginUser(ctx context.Context, arg CreateFirstLoginUserParams) (User, error)
+	CreateOAuthAuthRequest(ctx context.Context, arg CreateOAuthAuthRequestParams) (OauthAuthRequest, error)
+	// Registers a client. secret_hash is the SHA-256 (hex) of the client secret,
+	// NULL for a public client (auth_method 'none').
+	CreateOAuthClient(ctx context.Context, arg CreateOAuthClientParams) (OauthClient, error)
 	// Links a provider account to a user. Only identity reads or writes
 	// oauth_identities (ADR 0005). provider is 'google' or 'github' (the table
 	// check rejects anything else); a (provider, subject) already linked to any
 	// user violates the unique constraint. Pass last_login_at when the link is
 	// made by a sign-in, NULL when it is made from settings.
 	CreateOAuthIdentity(ctx context.Context, arg CreateOAuthIdentityParams) (OauthIdentity, error)
+	CreateOAuthToken(ctx context.Context, arg CreateOAuthTokenParams) (OauthToken, error)
 	// Stores a credential after a verified registration ceremony. Only identity
 	// reads or writes passkey_credentials (ADR 0005). A credential_id already
 	// registered (to any user) violates the unique constraint.
@@ -80,6 +92,7 @@ type Querier interface {
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	// Removes all of a user's backup codes, used or not (regenerate, disable).
 	DeleteBackupCodesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
+	DeleteOAuthAuthRequest(ctx context.Context, id uuid.UUID) error
 	// Unlinks one identity of a user; scoped by user_id so a caller cannot unlink
 	// another user's identity. Returns 0 when nothing matched. Check
 	// CountOAuthIdentitiesForUser first so a user keeps a way to sign in.
@@ -90,6 +103,9 @@ type Querier interface {
 	// Turns 2FA off for a user (disable, recovery). Delete the user's backup
 	// codes in the same transaction. Returns 0 when the user had no secret.
 	DeleteTOTP(ctx context.Context, userID uuid.UUID) (int64, error)
+	// An access token that is neither revoked nor expired. Returns pgx.ErrNoRows
+	// otherwise.
+	GetActiveOAuthToken(ctx context.Context, id uuid.UUID) (OauthToken, error)
 	// Returns the row whatever its state, so the caller can tell a live link from
 	// a consumed or expired one.
 	GetEmailTokenByLinkHash(ctx context.Context, linkTokenHash string) (AuthEmailToken, error)
@@ -105,9 +121,16 @@ type Querier interface {
 	// e.g. the pending email change whose code the user is confirming.
 	// Returns pgx.ErrNoRows when there is none.
 	GetLatestUnconsumedEmailTokenForUser(ctx context.Context, arg GetLatestUnconsumedEmailTokenForUserParams) (AuthEmailToken, error)
+	// An unexpired authorization request. Returns pgx.ErrNoRows otherwise.
+	GetOAuthAuthRequest(ctx context.Context, id uuid.UUID) (OauthAuthRequest, error)
+	// An active (not revoked) client. Returns pgx.ErrNoRows otherwise.
+	GetOAuthClient(ctx context.Context, id string) (OauthClient, error)
 	// Resolves a provider callback to the linked identity (and so its user).
 	// Returns pgx.ErrNoRows when the provider account is not linked.
 	GetOAuthIdentityByProviderSubject(ctx context.Context, arg GetOAuthIdentityByProviderSubjectParams) (OauthIdentity, error)
+	// The live row holding a refresh token. Returns pgx.ErrNoRows for an
+	// unknown, revoked (rotated) or expired refresh token.
+	GetOAuthTokenByRefreshHash(ctx context.Context, refreshTokenHash *string) (OauthToken, error)
 	// An organization's OIDC connection, for the SSO start and callback. Only
 	// identity and the api role touch org_sso_connections (ADR 0005);
 	// client_secret_enc is ciphertext, decrypt it with the identity
@@ -215,6 +238,13 @@ type Querier interface {
 	RevokeAllForUser(ctx context.Context, arg RevokeAllForUserParams) (int64, error)
 	// Revokes every live row of a family, e.g. on refresh-token reuse.
 	RevokeFamily(ctx context.Context, arg RevokeFamilyParams) (int64, error)
+	// Rotates a refresh token out: revokes its live row and returns it. Of two
+	// concurrent refreshes with the same token only one gets the row.
+	RevokeOAuthRefreshToken(ctx context.Context, refreshTokenHash *string) (OauthToken, error)
+	// Revokes one token row (and the refresh token it carries) of a client.
+	RevokeOAuthToken(ctx context.Context, arg RevokeOAuthTokenParams) (int64, error)
+	// Signs a user out of one client: revokes every token it holds for them.
+	RevokeOAuthTokensForUserClient(ctx context.Context, arg RevokeOAuthTokensForUserClientParams) (int64, error)
 	// "Sign out other sessions": revokes every live session of the user except
 	// the family of the current one.
 	RevokeOthersForUser(ctx context.Context, arg RevokeOthersForUserParams) (int64, error)
@@ -227,6 +257,10 @@ type Querier interface {
 	// pgx.ErrNoRows when the parent is not live (already rotated, revoked or
 	// expired); of two concurrent rotations of one parent only one succeeds.
 	RotateSession(ctx context.Context, arg RotateSessionParams) (Session, error)
+	// Records the code issued for a done request. A request gets one code: a
+	// second callback for the same request matches no row. The code expires
+	// with the request, which is shortened to code_expires_at.
+	SaveOAuthAuthCode(ctx context.Context, arg SaveOAuthAuthCodeParams) (int64, error)
 	// Run before a sign-in creates its session. has_sessions is false for the
 	// user's very first sign-in (no session row at all). known_device is true
 	// when a live session, or one revoked since revoked_since (rotated rows

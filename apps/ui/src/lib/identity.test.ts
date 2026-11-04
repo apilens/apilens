@@ -321,6 +321,8 @@ describe("operations", () => {
       "/auth/passkeys/login/verify",
       (c) => c.passkeyLoginVerify({ challenge_id: "c", credential: {} }),
     ],
+    ["GET", "/auth/oidc/requests/{id}", (c) => c.oidcRequest("a/b?c")],
+    ["POST", "/auth/oidc/requests/{id}/complete", (c) => c.oidcComplete("a/b?c", authed)],
     ["POST", "/auth/refresh", (c) => c.refresh({ refresh_token: "r" })],
     ["POST", "/auth/logout", (c) => c.logout({ refresh_token: "r" })],
     ["GET", "/users/me", (c) => c.me(authed)],

@@ -24,6 +24,8 @@ import (
 	"github.com/apilens/apilens/internal/controlplane/bootstrap"
 	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/identity"
+	"github.com/apilens/apilens/internal/identity/oidcprovider"
+	identitydb "github.com/apilens/apilens/internal/identity/store/db"
 	"github.com/apilens/apilens/internal/migrations"
 	"github.com/apilens/apilens/internal/platform/buildinfo"
 	"github.com/apilens/apilens/internal/platform/cache"
@@ -48,6 +50,8 @@ Usage:
                                               one stays published until its tokens expire
   apilens authz reconcile [-dry-run]          repair drift between Postgres and SpiceDB now
                                               (the identity role also runs it hourly)
+  apilens identity create-client [flags]      register a client of the built-in OIDC provider
+                                              and print its id and secret
   apilens healthcheck [-url=...]              exit 0 if the readiness endpoint answers 200
   apilens openapi                             print the OpenAPI 3.1 document
   apilens version                             print build information
@@ -239,9 +243,41 @@ func runIdentity(ctx context.Context, args []string, stdout, stderr io.Writer, e
 	switch sub {
 	case "rotate-key":
 		return runRotateKey(ctx, args, stdout, stderr, environ)
+	case "create-client":
+		return runCreateClient(ctx, args, stdout, stderr, environ)
 	default:
-		return fmt.Errorf("identity: unknown command %q (want rotate-key)", sub)
+		return fmt.Errorf("identity: unknown command %q (want rotate-key or create-client)", sub)
 	}
+}
+
+// runCreateClient registers an OAuth/OIDC client of the built-in provider
+// and prints its id and secret (shown once).
+func runCreateClient(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) error {
+	fs := flag.NewFlagSet("apilens identity create-client", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	name := fs.String("name", "", "display name shown on the sign-in page")
+	redirects := fs.String("redirect-uris", "", "comma-separated redirect URIs (required for authorization_code)")
+	grants := fs.String("grant-types", "authorization_code", "comma-separated: authorization_code, refresh_token, client_credentials")
+	public := fs.Bool("public", false, "public client (no secret, PKCE required), e.g. a CLI")
+	native := fs.Bool("native", false, "native application (loopback redirect URIs)")
+	method := fs.String("auth-method", "", "client_secret_basic (default) or client_secret_post")
+	cfg, _, err := loadConfig(fs, args, environ, stderr)
+	if err != nil {
+		return err
+	}
+	pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-identity")
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	c, err := oidcprovider.RegisterClient(ctx, identitydb.New(pool), oidcprovider.NewClient{
+		Name: *name, Public: *public, Native: *native, AuthMethod: *method,
+		RedirectURIs: splitComma(*redirects), GrantTypes: splitComma(*grants),
+	})
+	if err != nil {
+		return fmt.Errorf("create-client: %w", err)
+	}
+	return json.NewEncoder(stdout).Encode(c) //nolint:gosec // G117: printing the new secret once is the point
 }
 
 // runRotateKey retires the active signing key and activates a new one. The
@@ -373,6 +409,7 @@ func runOpenAPI(stdout io.Writer) error {
 	identity.NewRestore(config.IdentityConfig{}, nil, nil, nil, nil).Register(srv.API())
 	controlplaneapi.Register(srv.API(), controlplaneapi.Deps{})
 	identity.NewRecovery(config.IdentityConfig{}, nil, nil, nil, nil).Register(srv.API())
+	identity.NewOIDCRequests(nil, nil).Register(srv.API())
 	b, err := json.MarshalIndent(srv.API().OpenAPI(), "", "  ")
 	if err != nil {
 		return err

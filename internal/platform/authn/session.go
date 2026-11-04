@@ -29,10 +29,11 @@ var (
 )
 
 // claims mirrors the access token claims (docs/architecture/overview.md,
-// "Identity").
+// "Identity"). ClientID is set only by identity's OIDC provider.
 type claims struct {
 	SessionID string   `json:"sid"`
 	AMR       []string `json:"amr"`
+	ClientID  string   `json:"client_id"`
 	jwt.RegisteredClaims
 }
 
@@ -64,6 +65,11 @@ func (v *SessionVerifier) WithDenylist(d *Denylist) *SessionVerifier {
 // `sub`, `sid` and `amr` claims, then the denylist. It fails with
 // ErrExpired, ErrUnavailable (keys could not be loaded), ErrRevoked or
 // ErrInvalidToken.
+//
+// A token carrying `client_id` comes from identity's OIDC provider. It is
+// accepted only as a client acting for itself (client_credentials: `sub` =
+// `client_id`, no `sid` or `amr`) and yields a KindClient principal; tokens
+// a client holds on a user's behalf are not accepted by the API yet.
 func (v *SessionVerifier) Verify(ctx context.Context, raw string) (Principal, error) {
 	var c claims
 	_, err := jwt.ParseWithClaims(raw, &c, func(t *jwt.Token) (any, error) {
@@ -89,6 +95,12 @@ func (v *SessionVerifier) Verify(ctx context.Context, raw string) (Principal, er
 		return Principal{}, ErrExpired
 	default:
 		return Principal{}, fmt.Errorf("%w: %w", ErrInvalidToken, err)
+	}
+	if c.ClientID != "" {
+		if c.Subject != c.ClientID || c.SessionID != "" || len(c.AMR) != 0 {
+			return Principal{}, fmt.Errorf("%w: delegated OAuth tokens are not accepted", ErrInvalidToken)
+		}
+		return Principal{Kind: KindClient, ClientID: c.ClientID}, nil
 	}
 	user, err := uuid.Parse(c.Subject)
 	if err != nil {

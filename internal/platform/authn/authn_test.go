@@ -106,6 +106,8 @@ type tokenOpts struct {
 	amr    []string
 	iat    time.Time
 	ttl    time.Duration
+	// clientID is the `client_id` of a token from the OIDC provider.
+	clientID string
 }
 
 func sign(t *testing.T, k signingKey, now time.Time, mod func(*tokenOpts)) string {
@@ -117,6 +119,7 @@ func sign(t *testing.T, k signingKey, now time.Time, mod func(*tokenOpts)) strin
 	c := claims{
 		SessionID: o.sid,
 		AMR:       o.amr,
+		ClientID:  o.clientID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    o.issuer,
 			Subject:   o.sub,
@@ -354,6 +357,42 @@ func TestMiddleware(t *testing.T) {
 				if wantUser != (body.User == user.String()) {
 					t.Errorf("user = %q, want user set: %t", body.User, wantUser)
 				}
+			}
+		})
+	}
+}
+
+// A client_credentials token from identity's OIDC provider (sub = client_id,
+// no sid or amr) authenticates the client itself.
+func TestVerifyClientCredentialsToken(t *testing.T) {
+	k := newSigningKey(t, "k1")
+	srv := newJWKSServer(t, k)
+	clk := newClock()
+	v, _ := newVerifier(srv, clk)
+	now := clk.Now()
+
+	client := func(o *tokenOpts) { o.sub, o.clientID, o.sid, o.amr = "cli_123", "cli_123", "", nil }
+	p, err := v.Verify(context.Background(), sign(t, k, now, client))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != KindClient || p.ClientID != "cli_123" || p.UserID != uuid.Nil {
+		t.Errorf("principal = %+v", p)
+	}
+
+	user := uuid.NewString()
+	cases := map[string]func(*tokenOpts){
+		// A token a client holds on a user's behalf is not an API credential yet.
+		"delegated":        func(o *tokenOpts) { o.sub, o.clientID, o.sid, o.amr = user, "cli_123", "", nil },
+		"with sid":         func(o *tokenOpts) { client(o); o.sid = uuid.NewString() },
+		"with amr":         func(o *tokenOpts) { client(o); o.amr = []string{"email"} },
+		"wrong aud":        func(o *tokenOpts) { client(o); o.aud = "cli_123" },
+		"session+clientid": func(o *tokenOpts) { o.clientID = "cli_123" },
+	}
+	for name, mod := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := v.Verify(context.Background(), sign(t, k, now, mod)); !errors.Is(err, ErrInvalidToken) {
+				t.Errorf("err = %v, want ErrInvalidToken", err)
 			}
 		})
 	}
