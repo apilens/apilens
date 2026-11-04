@@ -2,16 +2,12 @@ import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { config, proxy } from "../proxy";
 import {
-  LAST_PROJECT_COOKIE,
-  ONBOARDING_PATH,
   REFRESH_HEADER,
   REFRESH_WINDOW_SECONDS,
   type GateRequest,
   decide,
-  homeFor,
   isPublicPath,
 } from "./auth-gate";
-import { HOME_VIEW } from "./data";
 import { SESSION_COOKIE_NAME, type SessionPayload, sealWithIv } from "./session-edge";
 
 const NOW = 1_800_000_000;
@@ -76,16 +72,8 @@ describe("decide: signed out", () => {
 describe("decide: signed in", () => {
   const signedIn = (pathname: string, over: Partial<GateRequest> = {}) => req(pathname, { session: SESSION, ...over });
 
-  it("/ goes to the last project", () => {
-    expect(decide(signedIn("/", { lastProject: "checkout-api" }))).toEqual({
-      action: "redirect",
-      location: `/checkout-api/${HOME_VIEW}`,
-    });
-  });
-
-  it("/ goes to onboarding without a (valid) last project", () => {
-    expect(decide(signedIn("/"))).toEqual({ action: "redirect", location: ONBOARDING_PATH });
-    expect(decide(signedIn("/", { lastProject: "../evil" }))).toEqual({ action: "redirect", location: ONBOARDING_PATH });
+  it("/ passes through to the page, which routes by the user's context", () => {
+    expect(decide(signedIn("/"))).toEqual({ action: "next", refresh: false });
   });
 
   it("/sign-in and /sign-up bounce to next or /", () => {
@@ -118,13 +106,6 @@ describe("decide: signed in", () => {
     expect(decide(signedIn("/verify"))).toEqual({ action: "next", refresh: false });
     expect(decide(signedIn("/invite/t0k"))).toEqual({ action: "next", refresh: false });
   });
-});
-
-describe("homeFor", () => {
-  it.each([undefined, "", "-x", "x-", "A", "a/b", "a".repeat(65)])("%j falls back to onboarding", (slug) => {
-    expect(homeFor(slug)).toBe(ONBOARDING_PATH);
-  });
-  it("accepts a project slug", () => expect(homeFor("acme")).toBe(`/acme/${HOME_VIEW}`));
 });
 
 describe("matcher", () => {
@@ -171,12 +152,11 @@ describe("proxy", () => {
     expect(res.headers.get("set-cookie")).toMatch(new RegExp(`^${SESSION_COOKIE_NAME}=;`));
   });
 
-  it("logged in at / goes to the last project, else onboarding", async () => {
+  it("logged in at / reaches the page (no proxy redirect)", async () => {
     const value = await cookieFor({ ...SESSION, exp: now() + 900 });
-    let res = await proxy(request("/", { [SESSION_COOKIE_NAME]: value, [LAST_PROJECT_COOKIE]: "acme" }));
-    expect(res.headers.get("location")).toBe(`http://ui.test/acme/${HOME_VIEW}`);
-    res = await proxy(request("/", { [SESSION_COOKIE_NAME]: value }));
-    expect(res.headers.get("location")).toBe(`http://ui.test${ONBOARDING_PATH}`);
+    const res = await proxy(request("/", { [SESSION_COOKIE_NAME]: value }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("location")).toBeNull();
   });
 
   it("sets the refresh header near expiry and strips a forged one otherwise", async () => {

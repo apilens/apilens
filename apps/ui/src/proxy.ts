@@ -2,7 +2,7 @@
 // matched request: a cookie that is merely present but stale, tampered or malformed counts as
 // signed out. Routing rules live in `lib/auth-gate.ts`.
 import { type NextRequest, NextResponse } from "next/server";
-import { LAST_PROJECT_COOKIE, REFRESH_HEADER, decide } from "./lib/auth-gate";
+import { REFRESH_HEADER, decide } from "./lib/auth-gate";
 import { SESSION_COOKIE_NAME, open } from "./lib/session-edge";
 
 export async function proxy(request: NextRequest) {
@@ -16,7 +16,6 @@ export async function proxy(request: NextRequest) {
     session,
     nowSeconds: Math.floor(Date.now() / 1000),
     dev: process.env.NODE_ENV === "development",
-    lastProject: request.cookies.get(LAST_PROJECT_COOKIE)?.value,
   });
 
   let response: NextResponse;
