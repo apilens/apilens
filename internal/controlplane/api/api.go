@@ -25,6 +25,9 @@ type Deps struct {
 	Limiter *ratelimit.Limiter
 	Limits  config.RateLimitsConfig
 	Logger  *slog.Logger
+
+	// Invitations may be nil when only the OpenAPI document is read.
+	Invitations InvitationService
 }
 
 // Register mounts the control-plane operations on api. They declare the
@@ -34,4 +37,5 @@ func Register(api huma.API, d Deps) {
 	NewMembers(d.Members, d.Guard, d.Logger).Register(api)
 	NewProjects(d.Projects, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
 	NewContext(d.Context, d.Logger).Register(api)
+	NewInvitations(d.Invitations, d.Logger).Register(api)
 }

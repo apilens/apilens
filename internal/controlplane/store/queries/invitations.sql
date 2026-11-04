@@ -27,14 +27,35 @@ WHERE org_id = @org_id AND accepted_at IS NULL AND revoked_at IS NULL
 ORDER BY created_at DESC;
 
 -- name: ResendInvitation :one
--- Rotates the token and extends the expiry of a pending invitation.
+-- Rotates the token and extends the expiry of a pending invitation. With
+-- sent_before set, only an invitation last sent (created or resent) at or
+-- before it is resent, so concurrent resends respect a cooldown.
 UPDATE invitations
 SET token_hash = @token_hash,
     expires_at = @expires_at,
     resent_at  = now()
 WHERE id = @id AND org_id = @org_id
   AND accepted_at IS NULL AND revoked_at IS NULL
+  AND (sqlc.narg(sent_before)::timestamptz IS NULL
+       OR coalesce(resent_at, created_at) <= sqlc.narg(sent_before)::timestamptz)
 RETURNING *;
+
+-- name: ListPendingInvitationsWithInviter :many
+-- ListPendingInvitations with the inviting user's email and name (NULL when
+-- the inviter's account is gone).
+SELECT i.id, i.email, i.role, i.invited_by, i.created_at, i.expires_at, i.resent_at,
+       u.email AS inviter_email, u.name AS inviter_name
+FROM invitations i
+LEFT JOIN users u ON u.id = i.invited_by AND u.deleted_at IS NULL
+WHERE i.org_id = @org_id AND i.accepted_at IS NULL AND i.revoked_at IS NULL
+ORDER BY i.created_at DESC, i.email;
+
+-- name: RevokePendingInvitationByEmail :execrows
+-- Revokes the address's pending invitation to the organization, if any, so
+-- a new one can replace it.
+UPDATE invitations SET revoked_at = now()
+WHERE org_id = @org_id AND email = @email
+  AND accepted_at IS NULL AND revoked_at IS NULL;
 
 -- name: RevokeInvitation :one
 UPDATE invitations SET revoked_at = now()
@@ -51,3 +72,9 @@ WHERE id = @id
   AND accepted_at IS NULL AND revoked_at IS NULL
   AND expires_at > now()
 RETURNING *;
+
+-- name: GetInviter :one
+-- The email and name of an invitation's inviting user; no row once their
+-- account is deleted.
+SELECT email, name FROM users
+WHERE id = @id AND deleted_at IS NULL;

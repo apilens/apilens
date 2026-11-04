@@ -192,6 +192,28 @@ func (q *Queries) ListOrgMembers(ctx context.Context, orgID uuid.UUID) ([]ListOr
 	return items, nil
 }
 
+const orgMemberEmailExists = `-- name: OrgMemberEmailExists :one
+SELECT EXISTS (
+    SELECT 1 FROM memberships m
+    JOIN users u ON u.id = m.user_id
+    WHERE m.org_id = $1 AND u.email = $2 AND u.deleted_at IS NULL
+)
+`
+
+type OrgMemberEmailExistsParams struct {
+	OrgID uuid.UUID
+	Email string
+}
+
+// Whether a member of the organization (with an account that is not
+// deleted) uses the address; citext compares it case-insensitively.
+func (q *Queries) OrgMemberEmailExists(ctx context.Context, arg OrgMemberEmailExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, orgMemberEmailExists, arg.OrgID, arg.Email)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const updateMembershipRole = `-- name: UpdateMembershipRole :one
 UPDATE memberships SET role = $1
 WHERE org_id = $2 AND user_id = $3
