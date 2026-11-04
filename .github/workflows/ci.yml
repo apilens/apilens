@@ -246,6 +246,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Typecheck
         run: pnpm --filter ui typecheck
+      - name: Test
+        run: pnpm --filter ui test
       - name: Build
         run: pnpm --filter ui build
         env:
