@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { firstProjectOf, orgBySlug, orgOf, projectBySlug } from "@/lib/data";
+import { type UserContext, findOrg, findProject } from "@/lib/scope";
 import { Icon } from "./icons";
 import { ScopeSwitcher } from "./scope-switcher";
 import { Sidebar } from "./sidebar";
@@ -9,12 +9,15 @@ import { Sidebar } from "./sidebar";
 /**
  * One sidebar (organization, project, pages, account) and the page. No top bar on desktop; below
  * 860px a slim bar with the menu button opens the sidebar as a drawer. `[` collapses the sidebar
- * to a rail (remembered). ⌘K opens the scope switcher.
+ * to a rail (remembered). ⌘K opens the scope switcher. `context` is the signed-in user's
+ * `GET /users/me/context`; the page has already checked that `project` or `org` is in it.
  */
-export function AppShell({ project: projectSlug, org: orgSlug, view, children }: { project?: string; org?: string; view: string; children?: ReactNode }) {
-  const project = projectSlug ? projectBySlug(projectSlug)! : undefined;
-  const org = project ? orgOf(project) : orgBySlug(orgSlug!);
-  const navProject = project ?? firstProjectOf(org.slug);
+export function AppShell({ context, project: projectSlug, org: orgSlug, view, children }: { context: UserContext; project?: string; org?: string; view: string; children?: ReactNode }) {
+  const found = projectSlug ? findProject(context, projectSlug) : undefined;
+  const project = found?.project;
+  const org = found?.org ?? findOrg(context, orgSlug ?? "") ?? context.orgs[0];
+  // Org scope keeps the project nav, pointed at the org's first project (when it has one).
+  const navProject = project ?? org.projects[0];
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [switcher, setSwitcher] = useState(false);
@@ -24,7 +27,7 @@ export function AppShell({ project: projectSlug, org: orgSlug, view, children }:
       setCollapsed(localStorage.getItem("apilens.sidebar") === "1");
     } catch {}
   }, []);
-  useEffect(() => setDrawer(false), [navProject.slug, view]);
+  useEffect(() => setDrawer(false), [navProject?.slug, view]);
 
   const toggle = useCallback(() => {
     setCollapsed((c) => {
@@ -52,7 +55,7 @@ export function AppShell({ project: projectSlug, org: orgSlug, view, children }:
   return (
     <div className={`ah app${drawer ? " is-open" : ""}`}>
       <div className="app-side">
-        <Sidebar org={org} project={navProject} view={project ? view : ""} orgScope={!project} collapsed={collapsed && !drawer} drawer={drawer} onCollapse={drawer ? () => setDrawer(false) : toggle} />
+        <Sidebar user={context.user} orgs={context.orgs} org={org} project={navProject} view={project ? view : ""} orgScope={!project} collapsed={collapsed && !drawer} drawer={drawer} onCollapse={drawer ? () => setDrawer(false) : toggle} />
       </div>
       <div className="app-scrim" onClick={() => setDrawer(false)} />
 
@@ -65,7 +68,7 @@ export function AppShell({ project: projectSlug, org: orgSlug, view, children }:
         <main className="app-main">{children}</main>
       </div>
 
-      <ScopeSwitcher open={switcher} onClose={() => setSwitcher(false)} orgSlug={org.slug} projectSlug={navProject.slug} />
+      <ScopeSwitcher orgs={context.orgs} open={switcher} onClose={() => setSwitcher(false)} orgSlug={org.slug} projectSlug={navProject?.slug} />
     </div>
   );
 }

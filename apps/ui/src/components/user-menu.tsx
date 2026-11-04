@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
-import { USER } from "@/lib/data";
+import type { User } from "@/lib/identity";
+import { userLabel } from "@/lib/scope";
 import { Icon, type IconName } from "./icons";
 import { PopMenu } from "./pop-menu";
 
@@ -13,7 +14,8 @@ const THEMES: { value: "dark" | "light"; label: string; icon: IconName }[] = [
 ];
 
 /** Account, at the foot of the sidebar: you, account settings, appearance, sign out. Opens upward. */
-export function UserMenu({ collapsed = false }: { collapsed?: boolean }) {
+export function UserMenu({ user, collapsed = false }: { user: Pick<User, "name" | "email">; collapsed?: boolean }) {
+  const me = userLabel(user);
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
@@ -33,11 +35,11 @@ export function UserMenu({ collapsed = false }: { collapsed?: boolean }) {
 
   return (
     <>
-      <button ref={trigger} type="button" className={`me-btn${open ? " is-open" : ""}`} aria-haspopup="menu" aria-expanded={open} aria-label={`Account menu, ${USER.name}`} data-tip={collapsed && !open ? USER.name : undefined} onClick={() => setOpen((o) => !o)}>
-        <span className="cp-av">{USER.initials}</span>
+      <button ref={trigger} type="button" className={`me-btn${open ? " is-open" : ""}`} aria-haspopup="menu" aria-expanded={open} aria-label={`Account menu, ${me.name}`} data-tip={collapsed && !open ? me.name : undefined} onClick={() => setOpen((o) => !o)}>
+        <span className="cp-av">{me.initials}</span>
         <span className="me-txt">
-          <b>{USER.name}</b>
-          <small>{USER.email}</small>
+          <b>{me.name}</b>
+          <small>{me.email}</small>
         </span>
       </button>
       <PopMenu open={open} onClose={close} triggerRef={trigger} label="Account" align={collapsed ? "side-up" : "up"}>

@@ -51,10 +51,10 @@ export function MiniSidebar({ variant }: { variant: VariantId }) {
         })}
       </nav>
       <div className="nvx-foot">
-        <span className="cp-av">AM</span>
+        <span className="cp-av">YO</span>
         <span className="nvx-me">
-          <b>Amit</b>
-          <small>amit@motadata.com</small>
+          <b>You</b>
+          <small>you@example.com</small>
         </span>
         <Icon name="panelClose" />
       </div>
