@@ -94,6 +94,8 @@ func TestDashboardQueriesAreTenantScoped(t *testing.T) {
 	verifier := apikeys.NewVerifier(q, apikeys.Options{Size: 100, TTL: time.Minute, NegativeTTL: time.Minute}, logger, nil)
 	srv.API().UseMiddleware(query.AuthMiddleware(srv.API(), verifier, nil))
 	query.Register(srv.API(), query.NewService(conn, q))
+	srv.API().UseMiddleware(query.AuthMiddleware(srv.API(), verifier))
+	query.Register(srv.API(), query.NewService(conn, q), nil)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
