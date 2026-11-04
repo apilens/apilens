@@ -134,6 +134,12 @@ Chart-managed keys first; entries in .Values.config override them. */}}
       name: {{ .secretName }}
       key: valkey-password
       optional: true
+- name: APILENS_IDENTITY__KEY_ENCRYPTION_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .secretName }}
+      key: identity-key-encryption-key
+      optional: true
 {{- end }}
 
 {{/* Topology spread for a component. Call with (dict "root" $ "component" "edge"). */}}

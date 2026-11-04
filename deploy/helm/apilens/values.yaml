@@ -91,7 +91,8 @@ externalValkey:
 
 secrets:
   # Name of an existing Secret with keys: postgres-url, clickhouse-password,
-  # valkey-password (optional), session-secret (required when web is enabled).
+  # valkey-password (optional), session-secret (required when web is enabled),
+  # identity-key-encryption-key (required when the all or identity role runs).
   existingSecret: ""
   # Inline values for development ONLY (rendered into a chart-managed Secret
   # when existingSecret is empty).
@@ -100,6 +101,9 @@ secrets:
   valkeyPassword: ""
   # Encrypts the dashboard session cookie (at least 32 characters).
   sessionSecret: ""
+  # Identity key encryption key: 32 random bytes, base64
+  # (openssl rand -base64 32). Encrypts signing keys and TOTP secrets at rest.
+  identityKeyEncryptionKey: ""
 
 # Database migrations run as a Helm hook Job (pre-install, pre-upgrade).
 migrations:

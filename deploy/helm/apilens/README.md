@@ -15,7 +15,8 @@ Datastores are **not bundled**. Run Postgres, ClickHouse and Valkey with their o
      --from-literal=postgres-url='postgres://apilens:PASS@pg-rw:5432/apilens?sslmode=require' \
      --from-literal=clickhouse-password='...' \
      --from-literal=valkey-password='...' \
-     --from-literal=session-secret="$(openssl rand -hex 32)"
+     --from-literal=session-secret="$(openssl rand -hex 32)" \
+     --from-literal=identity-key-encryption-key="$(openssl rand -base64 32)"
    ```
 
 2. Install the chart:
@@ -50,7 +51,7 @@ helm install apilens oci://ghcr.io/apilens/charts/apilens --version <x.y.z>
 | `config` | log, sink settings | Extra `APILENS_*` env vars (`__` = nesting); these override chart-managed keys |
 | `externalClickHouse.*` | `clickhouse:9000`, db `apilens` | Native protocol addresses, user, TLS, cluster name |
 | `externalValkey.addr` | `[]` (disabled) | API-key cache invalidation; when empty, falls back to TTL |
-| `secrets.existingSecret` | — | Keys: `postgres-url`, `clickhouse-password`, `valkey-password` (optional), `session-secret` (web UI) |
+| `secrets.existingSecret` | — | Keys: `postgres-url`, `clickhouse-password`, `valkey-password` (optional), `session-secret` (web UI), `identity-key-encryption-key` (32 bytes, base64; required by the `all` and `identity` roles) |
 | `secrets.*` (inline) | — | Development only; renders a chart-managed Secret |
 | `migrations.enabled` | `true` | `pre-install`/`pre-upgrade` hook Job running `apilens migrate` |
 | `web.*` | enabled | Web UI (`apps/ui`) |
