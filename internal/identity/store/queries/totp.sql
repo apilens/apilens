@@ -31,3 +31,11 @@ RETURNING *;
 -- codes in the same transaction. Returns 0 when the user had no secret.
 DELETE FROM user_totp
 WHERE user_id = @user_id;
+
+-- name: LockConfirmedTOTP :one
+-- A user's confirmed TOTP row, locked until the transaction ends, so that
+-- disabling 2FA and regenerating backup codes do not interleave. Returns
+-- pgx.ErrNoRows when 2FA is not on (no row, or only a pending secret).
+SELECT * FROM user_totp
+WHERE user_id = @user_id AND confirmed_at IS NOT NULL
+FOR UPDATE;

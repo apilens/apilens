@@ -147,6 +147,10 @@ type Querier interface {
 	// than @retired_window_secs (identity.refresh_token_ttl) ago, measured on the
 	// database clock. Active key first.
 	ListPublishedSigningKeys(ctx context.Context, retiredWindowSecs float64) ([]SigningKey, error)
+	// A user's confirmed TOTP row, locked until the transaction ends, so that
+	// disabling 2FA and regenerating backup codes do not interleave. Returns
+	// pgx.ErrNoRows when 2FA is not on (no row, or only a pending secret).
+	LockConfirmedTOTP(ctx context.Context, userID uuid.UUID) (UserTotp, error)
 	// Records that the user proved control of their address (an email code or
 	// link). An earlier verification time is kept.
 	MarkUserEmailVerified(ctx context.Context, id uuid.UUID) (User, error)

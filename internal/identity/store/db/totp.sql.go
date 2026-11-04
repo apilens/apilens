@@ -67,6 +67,27 @@ func (q *Queries) GetTOTPForUser(ctx context.Context, userID uuid.UUID) (UserTot
 	return i, err
 }
 
+const lockConfirmedTOTP = `-- name: LockConfirmedTOTP :one
+SELECT user_id, secret_enc, confirmed_at, created_at FROM user_totp
+WHERE user_id = $1 AND confirmed_at IS NOT NULL
+FOR UPDATE
+`
+
+// A user's confirmed TOTP row, locked until the transaction ends, so that
+// disabling 2FA and regenerating backup codes do not interleave. Returns
+// pgx.ErrNoRows when 2FA is not on (no row, or only a pending secret).
+func (q *Queries) LockConfirmedTOTP(ctx context.Context, userID uuid.UUID) (UserTotp, error) {
+	row := q.db.QueryRow(ctx, lockConfirmedTOTP, userID)
+	var i UserTotp
+	err := row.Scan(
+		&i.UserID,
+		&i.SecretEnc,
+		&i.ConfirmedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const upsertPendingTOTP = `-- name: UpsertPendingTOTP :one
 INSERT INTO user_totp (user_id, secret_enc)
 VALUES ($1, $2)

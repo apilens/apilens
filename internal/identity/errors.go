@@ -72,6 +72,9 @@ const (
 	// CodeAlreadyEnabled: two-factor authentication is already on; turn it
 	// off before enabling it again.
 	CodeAlreadyEnabled ErrCode = "already_enabled"
+	// CodeNotEnabled: two-factor authentication is off, so there is nothing
+	// to disable and no backup codes to regenerate.
+	CodeNotEnabled ErrCode = "not_enabled"
 	// CodeReauthRequired: the action needs a recent sign-in and the session
 	// signed in too long ago; sign in again, then retry.
 	CodeReauthRequired ErrCode = "reauth_required"
@@ -112,6 +115,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeInviteEmailMismatch:   {http.StatusForbidden, "Invitation email mismatch", "The invitation was sent to a different email address."},
 	CodeOwnerTransferRequired: {http.StatusConflict, "Ownership transfer required", "Transfer ownership of your organizations before deleting your account."},
 	CodeAlreadyEnabled:        {http.StatusConflict, "Already enabled", "Two-factor authentication is already enabled."},
+	CodeNotEnabled:            {http.StatusConflict, "Not enabled", "Two-factor authentication is not enabled."},
 	CodeReauthRequired:        {http.StatusForbidden, "Recent sign-in required", "Sign in again to continue."},
 	CodeEmailTaken:            {http.StatusConflict, "Email taken", "Another account already uses this email address."},
 	CodeForbidden:             {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
