@@ -41,6 +41,10 @@ type Querier interface {
 	CreateProject(ctx context.Context, arg CreateProjectParams) (CreateProjectRow, error)
 	DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentParams) (int64, error)
 	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) (int64, error)
+	DeleteOrgSSOConnection(ctx context.Context, orgID uuid.UUID) (int64, error)
+	// The domains among @domains that another active organization enforces SSO
+	// for. A domain is enforced by at most one organization.
+	EnforcedSSODomainsOfOtherOrgs(ctx context.Context, arg EnforcedSSODomainsOfOtherOrgsParams) ([]string, error)
 	// Resolves an ingest key to its project. Revoked, expired and keys of
 	// deleted projects never match.
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error)
@@ -68,10 +72,19 @@ type Querier interface {
 	// One member of an organization with their user; no row when the user is
 	// not a member or their account is deleted.
 	GetOrgMember(ctx context.Context, arg GetOrgMemberParams) (GetOrgMemberRow, error)
+	// An organization's OIDC connection, for its settings (GET, PUT and DELETE
+	// /api/v1/orgs/{slug}/sso). client_secret_enc is ciphertext sealed with the
+	// identity key-encryption key and is never returned by the API. Returns
+	// pgx.ErrNoRows when the organization has no connection.
+	GetOrgSSOConnection(ctx context.Context, orgID uuid.UUID) (OrgSsoConnection, error)
 	GetOrganizationBySlug(ctx context.Context, slug string) (Organization, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
 	// The email of an active user and when it was verified (NULL when not).
 	GetUserEmail(ctx context.Context, id uuid.UUID) (GetUserEmailRow, error)
+	// Whether user signed in through organization org's SSO connection (a
+	// login.succeeded audit event with method sso for the organization) at or
+	// after since.
+	HasSSOSignInSince(ctx context.Context, arg HasSSOSignInSinceParams) (bool, error)
 	// Transactional outbox (ADR 0006): called only through
 	// internal/controlplane/outbox.Emit, in the same transaction as the change
 	// the row describes. The relay (#291) reads rows in id order.
@@ -125,6 +138,9 @@ type Querier interface {
 	LockOutboxRelay(ctx context.Context, lockKey int64) error
 	// A key of the project, row-locked for the rest of the transaction.
 	LockProjectAPIKey(ctx context.Context, arg LockProjectAPIKeyParams) (LockProjectAPIKeyRow, error)
+	// Serializes the transactions that save an enforcing connection, so two
+	// organizations cannot both start enforcing one domain.
+	LockSSOEnforcement(ctx context.Context) error
 	MarkOutboxProcessed(ctx context.Context, id int64) error
 	// Wakes the relay. A NOTIFY sent inside a transaction is delivered on commit
 	// only, and never on rollback.
@@ -162,6 +178,9 @@ type Querier interface {
 	UpdateProjectName(ctx context.Context, arg UpdateProjectNameParams) (UpdateProjectNameRow, error)
 	UpsertApp(ctx context.Context, arg UpsertAppParams) (UpsertAppRow, error)
 	UpsertEnvironment(ctx context.Context, arg UpsertEnvironmentParams) (Environment, error)
+	// Creates or replaces an organization's OIDC connection. created_at and
+	// last_login_at survive a replace.
+	UpsertOrgSSOConnection(ctx context.Context, arg UpsertOrgSSOConnectionParams) (OrgSsoConnection, error)
 	UpsertOrganization(ctx context.Context, arg UpsertOrganizationParams) (UpsertOrganizationRow, error)
 	UpsertProject(ctx context.Context, arg UpsertProjectParams) (UpsertProjectRow, error)
 }

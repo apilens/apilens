@@ -297,6 +297,20 @@ those domains (`POST /auth/email/start`) answers 403 `sso_required` with the
 org's `start_url`, and social sign-in redirects to
 `/sign-in?error=sso_required`.
 
+Owners manage the connection with `GET/PUT/DELETE /api/v1/orgs/{slug}/sso`
+(api role, `internal/controlplane/api/sso.go`, `orgs.SSOConnections`). The
+client secret is write-only: it is sealed under the identity KEK on save, a
+read shows `********`, and a PUT that omits it (or sends the mask) keeps it.
+Reads also return the `redirect_uri` to register with the provider and the
+`start_url`. Turning `enforce` on needs the caller to have signed in through
+the connection since it was created (a `login.succeeded` with `method: sso`
+and the org's `org_id`, also after a second factor) or it answers
+`sso_untested`; a domain another organization already enforces answers
+`sso_domain_taken`. `POST …/sso/test` runs discovery on a given `issuer` (or
+the saved one) and reports the provider's metadata, or `ok: false` with
+`unreachable`, `bad_status`, `invalid_document`, `issuer_mismatch` or
+`missing_endpoints`. Changes are audited as `sso.updated` / `sso.deleted`.
+
 ### APILens as an OpenID provider (`/oauth/*`)
 
 Identity is also an OpenID Connect provider and OAuth 2.0 authorization
@@ -743,6 +757,9 @@ Rules:
 | `member_gone` | 410 Gone | This person is no longer a member. Refresh the page. |
 | `api_key_gone` | 410 Gone | This API key no longer exists. Refresh the page. |
 | `sso_required` | 403 Forbidden | Your organization requires single sign-on. Sign in through your company's identity provider. |
+| `sso_not_configured` | 409 Conflict | Single sign-on isn't set up for this organization yet. |
+| `sso_untested` | 409 Conflict | Sign in through single sign-on at least once before you enforce it, so nobody gets locked out. |
+| `sso_domain_taken` | 409 Conflict | Another organization already requires single sign-on for this domain. |
 | `forbidden` | 403 Forbidden | You don't have permission to do that. |
 | `not_found` | 404 Not Found | We couldn't find that, or you don't have access to it. |
 | `authz_unavailable` | 503 Service Unavailable | We couldn't check your permissions. Try again in {retry_after} seconds. |

@@ -141,17 +141,22 @@ func (x *TwoFactorExchange) exchange(ctx context.Context, in *TwoFactorExchangeI
 	if err := x.deps.Users.TouchLastLogin(ctx, user.ID); err != nil {
 		x.logger.ErrorContext(ctx, "2fa exchange: touch last login", "error", err, "user_id", user.ID)
 	}
+	meta := map[string]any{
+		"method":        firstFactor(pre.AMR),
+		"second_factor": factor,
+		"amr":           amr,
+		"session_id":    t.Session.ID.String(),
+		"remember":      pre.Remember,
+	}
+	if pre.OrgID != "" {
+		// An SSO first factor: the organization whose connection was used.
+		meta["org_id"] = pre.OrgID
+	}
 	if err := x.deps.Audit.Record(ctx, audit.Event{
 		User:  &user.ID,
 		Actor: &user.ID,
 		Kind:  audit.LoginSucceeded,
-		Meta: map[string]any{
-			"method":        firstFactor(pre.AMR),
-			"second_factor": factor,
-			"amr":           amr,
-			"session_id":    t.Session.ID.String(),
-			"remember":      pre.Remember,
-		},
+		Meta:  meta,
 	}); err != nil {
 		x.logger.ErrorContext(ctx, "2fa exchange: audit", "error", err, "user_id", user.ID)
 	}

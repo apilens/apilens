@@ -121,6 +121,15 @@ const (
 	// problem carries `start_url`; a browser callback redirects with
 	// ?error=sso_required instead.
 	CodeSSORequired ErrCode = "sso_required"
+	// CodeSSONotConfigured: the organization has no single sign-on
+	// connection.
+	CodeSSONotConfigured ErrCode = "sso_not_configured"
+	// CodeSSOUntested: turning SSO enforcement on needs the caller to have
+	// signed in through the organization's connection at least once.
+	CodeSSOUntested ErrCode = "sso_untested"
+	// CodeSSODomainTaken: another organization already enforces single
+	// sign-on for one of the domains.
+	CodeSSODomainTaken ErrCode = "sso_domain_taken"
 	// CodeAPIKeyGone: the project has no API key with that id. Only
 	// answered to members of the project's organization.
 	CodeAPIKeyGone ErrCode = "api_key_gone"
@@ -181,6 +190,9 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeMemberGone:            {http.StatusGone, "Member gone", "The user is not a member of this organization."},
 	CodeAPIKeyGone:            {http.StatusGone, "API key gone", "The project has no such API key."},
 	CodeSSORequired:           {http.StatusForbidden, "Single sign-on required", "This organization requires single sign-on. Sign in through its identity provider."},
+	CodeSSONotConfigured:      {http.StatusConflict, "Single sign-on not configured", "This organization has no single sign-on connection."},
+	CodeSSOUntested:           {http.StatusConflict, "Single sign-on untested", "Sign in through single sign-on at least once before enforcing it."},
+	CodeSSODomainTaken:        {http.StatusConflict, "Domain enforced elsewhere", "Another organization already enforces single sign-on for this domain."},
 	CodeForbidden:             {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
 	CodeNotFound:              {http.StatusNotFound, "Not found", "The resource does not exist or you do not have access to it."},
 	CodeAuthzUnavailable:      {http.StatusServiceUnavailable, "Authorization unavailable", "Permissions could not be checked. Try again shortly."},

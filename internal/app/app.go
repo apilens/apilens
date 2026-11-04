@@ -344,6 +344,19 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	orgService := orgs.New(a.pool, audit.New(a.pool))
+	// SSO client secrets are sealed with the identity key-encryption key;
+	// without one in this process saving a connection answers
+	// internal_error.
+	var sealer *keys.Sealer
+	if a.cfg.Identity.KeyEncryptionKey != "" {
+		kek, err := a.cfg.Identity.KEK()
+		if err != nil {
+			return nil, err
+		}
+		if sealer, err = keys.NewSealer(kek); err != nil {
+			return nil, err
+		}
+	}
 	controlplaneapi.Register(a.server.API(), controlplaneapi.Deps{
 		Orgs:     orgService,
 		Members:  orgService,
@@ -358,6 +371,9 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		// Invitation emails are enqueued here and sent by the role that
 		// runs the email worker (identity).
 		Invitations: orgs.NewInvitations(a.pool, audit.New(a.pool), a.jobs),
+
+		SSO:    orgs.NewSSOConnections(a.pool, audit.New(a.pool), sealer),
+		Issuer: a.cfg.Identity.Issuer,
 	})
 	return nil, nil
 }
