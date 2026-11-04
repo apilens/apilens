@@ -21,6 +21,8 @@ export interface SignInNotice {
 export const SIGN_IN_NOTICES: Record<string, Omit<SignInNotice, "code">> = {
   signed_out: { tone: "info", text: "You’re signed out. Sign in again whenever you’re ready." },
   session_expired: { tone: "warn", text: "Your session expired. Sign in again to pick up where you left off." },
+  "2fa_locked": { tone: "warn", text: "Too many wrong two-factor codes. Sign in again to start over." },
+  "2fa_expired": { tone: "warn", text: "Your two-factor step timed out. Sign in again to continue." },
   oauth_email_unverified: {
     tone: "error",
     text: "That provider account has no verified email. Verify it with the provider, or sign in with an email code.",
