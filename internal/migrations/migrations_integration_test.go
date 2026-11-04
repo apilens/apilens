@@ -24,6 +24,9 @@ func TestMigrationsApplyAndAreIdempotent(t *testing.T) {
 	if err := migrations.UpPostgres(ctx, pool, logger); err != nil {
 		t.Fatalf("second postgres run should be a no-op: %v", err)
 	}
+	if err := migrations.UpRiver(ctx, pool, logger); err != nil {
+		t.Fatalf("second river run should be a no-op: %v", err)
+	}
 	var tables []string
 	rows, err := pool.Query(ctx, `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1`)
 	if err != nil {
@@ -36,7 +39,7 @@ func TestMigrationsApplyAndAreIdempotent(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	for _, want := range []string{"api_keys", "apps", "audit_events", "environments", "organizations", "outbox", "projects", "users"} {
+	for _, want := range []string{"api_keys", "apps", "audit_events", "environments", "organizations", "outbox", "projects", "users", "river_job", "river_migration", "river_queue"} {
 		if !slices.Contains(tables, want) {
 			t.Errorf("postgres table %q missing (have %v)", want, tables)
 		}

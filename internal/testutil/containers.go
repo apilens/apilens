@@ -64,7 +64,8 @@ func Postgres(t *testing.T) config.PostgresConfig {
 	return config.PostgresConfig{URL: url, MaxConns: 10}
 }
 
-// MigratedPostgres starts Postgres, applies migrations and returns a pool.
+// MigratedPostgres starts Postgres, applies migrations (ours and River's) and
+// returns a pool.
 func MigratedPostgres(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx := context.Background()
@@ -74,6 +75,9 @@ func MigratedPostgres(t *testing.T) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 	if err := migrations.UpPostgres(ctx, pool, Logger(t)); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations.UpRiver(ctx, pool, Logger(t)); err != nil {
 		t.Fatal(err)
 	}
 	return pool

@@ -16,6 +16,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivermigrate"
 
 	"github.com/apilens/apilens/internal/platform/ch"
 	"github.com/apilens/apilens/internal/platform/config"
@@ -46,6 +48,24 @@ func UpPostgres(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) er
 	db := stdlib.OpenDBFromPool(pool)
 	defer func() { _ = db.Close() }()
 	return up(ctx, goose.DialectPostgres, db, PostgresFS(), "postgres", logger)
+}
+
+// UpRiver applies River's own migrations (the background-job tables). River
+// versions its schema separately from ours, in river_migration.
+func UpRiver(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) error {
+	migrator, err := rivermigrate.New(riverpgxv5.New(pool), &rivermigrate.Config{Logger: logger})
+	if err != nil {
+		return fmt.Errorf("migrations: river migrator: %w", err)
+	}
+	res, err := migrator.Migrate(ctx, rivermigrate.DirectionUp, nil)
+	if err != nil {
+		return fmt.Errorf("migrations: river up: %w", err)
+	}
+	for _, v := range res.Versions {
+		logger.Info("migration applied", "db", "river", "version", v.Version, "name", v.Name, "duration", v.Duration)
+	}
+	logger.Info("schema up to date", "db", "river", "applied_now", len(res.Versions))
+	return nil
 }
 
 // UpClickHouse creates the target database if needed, then applies pending

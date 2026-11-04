@@ -33,7 +33,7 @@ func TestResolve(t *testing.T) {
 		want   []string
 	}{
 		{TargetAll, []string{TargetEdge, TargetQuery, TargetAPI, TargetIdentity}},
-		{TargetIdentity, []string{modServer, modPostgres, modValkey, TargetIdentity}},
+		{TargetIdentity, []string{modServer, modPostgres, modValkey, modJobs, TargetIdentity}},
 		{TargetAPI, []string{modServer, modPostgres, modValkey, TargetAPI}},
 	} {
 		order, err := a.mgr.Resolve([]string{tc.target})
