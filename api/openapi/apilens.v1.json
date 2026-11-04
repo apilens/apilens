@@ -597,6 +597,30 @@
         ],
         "type": "object"
       },
+      "HandoffBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/HandoffBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "code": {
+            "description": "The one-time code from the {public_ui_url}/auth/callback?code=… redirect of a Google, GitHub or SSO sign-in.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
       "ListMyPasskeysOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -3200,6 +3224,86 @@
           }
         },
         "summary": "Sign in with an emailed magic link",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/handoff": {
+      "post": {
+        "description": "Public. After a Google, GitHub or SSO sign-in the browser lands on `{public_ui_url}/auth/callback?code=…`; the UI's server side posts that code here. Answers what the sign-in produced: the session bundle or, when the user has two-factor authentication enabled, `{status: \"2fa_required\", pre_auth_token}`, either with the `next` path the sign-in started with. The code is deleted as it is read (atomic GETDEL), so it works once: an unknown, expired (60 s) or already redeemed code answers `invalid_token`. Rate-limited per client IP (429 `rate_limited` with Retry-After).",
+        "operationId": "redeem-handoff",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandoffBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `invalid_token`.",
+            "x-apilens-codes": [
+              "invalid_token"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "summary": "Redeem a one-time sign-in handoff code",
         "tags": [
           "Auth"
         ]

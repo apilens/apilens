@@ -143,7 +143,12 @@ The callback lives in `internal/identity/oauth_callback.go`. A session is
 audited as `login.succeeded` with `method` and `amr` set to the provider; the
 identity's `last_login_at`, email and profile are refreshed on each sign-in.
 Handoff codes are kept in Valkey under their SHA-256 only
-(`internal/identity/handoff.go`).
+(`internal/identity/handoff.go`). `POST /api/v1/auth/handoff` `{code}`
+answers the stored session bundle or `2fa_required` payload and deletes the
+code in the same step (`GETDEL`), so a code works once; an unknown, expired
+or already redeemed code answers `invalid_token`. It is rate-limited per IP
+(`identity.rate_limits.handoff_per_ip`, 30 / 15 min;
+`internal/identity/handoff_redeem.go`).
 
 `intent=link` attaches the provider to the signed-in user instead (Settings →
 Connected accounts).

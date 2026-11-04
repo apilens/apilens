@@ -397,6 +397,7 @@ func runOpenAPI(stdout io.Writer) error {
 	identity.Register(srv.API())
 	identity.RegisterProviders(srv.API(), config.IdentityConfig{})
 	identity.NewOAuth(config.IdentityConfig{}, identity.NewValkeyOAuthStateStore(nil), nil, nil).Register(srv.API())
+	identity.NewHandoff(config.IdentityConfig{}, nil, nil, nil).Register(srv.API())
 	identity.NewSessions(config.IdentityConfig{}, nil, nil, nil).Register(srv.API())
 	identity.NewAccount(nil, nil).Register(srv.API())
 	identity.NewEmailStart(config.IdentityConfig{}, identity.EmailStartDeps{}, nil, nil).Register(srv.API())
