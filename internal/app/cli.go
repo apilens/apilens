@@ -34,7 +34,6 @@ import (
 	"github.com/apilens/apilens/internal/platform/config"
 	applog "github.com/apilens/apilens/internal/platform/log"
 	"github.com/apilens/apilens/internal/platform/pg"
-	"github.com/apilens/apilens/internal/platform/ratelimit"
 	"github.com/apilens/apilens/internal/platform/server"
 	"github.com/apilens/apilens/internal/platform/spicedb"
 	"github.com/apilens/apilens/internal/query"
@@ -514,7 +513,6 @@ func runOpenAPI(stdout io.Writer) error {
 	identity.NewOnboarding(nil, nil).Register(srv.API())
 	identity.NewEmailStart(config.IdentityConfig{}, identity.EmailStartDeps{}, nil, nil).Register(srv.API())
 	identity.NewSSOLookup(config.IdentityConfig{}, nil, nil, nil).Register(srv.API())
-	controlplaneapi.NewInvitationLinks(nil, nil, ratelimit.Rate{}, nil).Register(srv.API())
 	identity.NewTwoFactor(nil, nil).Register(srv.API())
 	identity.NewTwoFactorExchange(identity.TwoFactorExchangeDeps{}, nil).Register(srv.API())
 	identity.NewEmailChange(nil, nil).Register(srv.API())

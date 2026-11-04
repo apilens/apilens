@@ -237,9 +237,6 @@ type RateLimitsConfig struct {
 	// RecoveryPerIP limits each recovery endpoint (request, status,
 	// confirm, cancel) per client IP.
 	RecoveryPerIP RateLimit `koanf:"recovery_per_ip"`
-	// InvitationLookupPerIP limits public invitation link lookups
-	// (GET /api/v1/auth/invitations/{token}) per client IP.
-	InvitationLookupPerIP RateLimit `koanf:"invitation_lookup_per_ip"`
 }
 
 // RateLimit allows Limit requests per sliding Window.
@@ -457,8 +454,6 @@ func Defaults() map[string]any {
 		"identity.rate_limits.handoff_per_ip.window":             "15m",
 		"identity.rate_limits.sso_lookup_per_ip.limit":           60,
 		"identity.rate_limits.sso_lookup_per_ip.window":          "15m",
-		"identity.rate_limits.invitation_lookup_per_ip.limit":    60,
-		"identity.rate_limits.invitation_lookup_per_ip.window":   "15m",
 		"identity.rate_limits.passkey_login_per_ip.limit":        60,
 		"identity.rate_limits.passkey_login_per_ip.window":       "15m",
 		"identity.rate_limits.slug_check_per_user.limit":         60,
@@ -716,7 +711,6 @@ func (r RateLimitsConfig) validate() []error {
 		{"oauth_start_per_ip", r.OAuthStartPerIP},
 		{"handoff_per_ip", r.HandoffPerIP},
 		{"sso_lookup_per_ip", r.SSOLookupPerIP},
-		{"invitation_lookup_per_ip", r.InvitationLookupPerIP},
 		{"passkey_login_per_ip", r.PasskeyLoginPerIP},
 		{"slug_check_per_user", r.SlugCheckPerUser},
 		{"recovery_request_per_email", r.RecoveryRequestPerEmail},
