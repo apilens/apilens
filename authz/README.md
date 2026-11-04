@@ -9,6 +9,10 @@ Run `task lint:authz` to validate both files with `zed validate`. It is also par
 
 `schema.go` embeds `schema.zed` into the binary. `apilens migrate` writes it to SpiceDB through the API (idempotent) whenever `authz.endpoint` is set; `apilens migrate -only=authz` applies just the schema. SpiceDB runs in `deploy/compose` (dev and self-host) and optionally in the Helm chart (`spicedb.enabled`).
 
+## Go client
+
+Code checks permissions only through `internal/authz.Client` (`Check`, `CheckBulk`, `LookupResources`, `WriteRelationships`). It fails closed: when SpiceDB cannot answer, the result is a denial with an error wrapping `authz.ErrUnavailable` (answer 503, not 403) and `apilens_authz_errors_total` goes up. ZedTokens from writes are stored per organization in Valkey and reads use `at_least_as_fresh`; allowed results are cached for `authz.cache_ttl` keyed by (subject, permission, resource, zedtoken).
+
 ## Roles
 
 | Resource | Relation | Granted by |
