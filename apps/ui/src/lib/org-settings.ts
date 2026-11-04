@@ -128,6 +128,7 @@ export interface OrgSettingsSection {
 export const ORG_SETTINGS_SECTIONS: readonly OrgSettingsSection[] = [
   { slug: "", label: "General" },
   { slug: "members", label: "Members" },
+  { slug: "invitations", label: "Invitations" },
 ];
 
 /** `/orgs/<org>/settings` or `/orgs/<org>/settings/<slug>`. */

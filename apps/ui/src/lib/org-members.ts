@@ -1,20 +1,14 @@
 // Organization members (#345): who may do what on `/orgs/<org>/settings/members`, the reason a
-// control is disabled, the invite dialog's address parsing and the sentences shown for the
-// server's error codes. Permissions come from the backend's capabilities (`members.invite`,
-// `members.remove`); the rules below only mirror the API's extra checks (owners only touch
+// control is disabled and the sentences shown for the server's error codes (the invite chip
+// input's parsing lives in invite-input.ts). Permissions come from the backend's capabilities
+// (`members.invite`, `members.remove`); the rules below only mirror the API's extra checks (owners only touch
 // owners, the last owner stays) so a control is disabled with its reason instead of failing.
 // The server stays the authority. Pure; safe in Client Components and Server Actions alike.
 import { type Action, can } from "./capabilities";
-import type { InviteResult, InviteRole, Member, OrgRole, UserContext } from "./identity";
+import type { InviteResult, Member, OrgRole, UserContext } from "./identity";
 
 /** Every role, most powerful first (the role select's order). */
 export const MEMBER_ROLES: readonly OrgRole[] = ["owner", "admin", "member", "viewer"];
-
-/** The roles an invitation can carry. */
-export const INVITE_ROLES: readonly InviteRole[] = ["admin", "member", "viewer"];
-
-/** Most addresses one invite request takes (`maxItems` of `invites`). */
-export const MAX_INVITES = 50;
 
 /** One line on what each role can do. */
 export const ROLE_SUMMARY: Record<OrgRole, string> = {
@@ -123,34 +117,6 @@ export function formatJoined(iso: string): string {
   const at = Date.parse(iso);
   if (Number.isNaN(at)) return "Unknown";
   return new Intl.DateTimeFormat("en", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }).format(at);
-}
-
-// A pragmatic address check: something@label.tld, no spaces. The API validates for real.
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/** Whether `email` looks like an address worth sending. */
-export function isEmail(email: string): boolean {
-  return email.length <= 320 && EMAIL.test(email);
-}
-
-export type ParsedInvites = { emails: string[]; invalid: string[] };
-
-/**
- * The addresses typed or pasted into the invite dialog (`a@example.com, b@example.com` or one
- * per line): lower-cased, duplicates dropped, in the order given; the entries that are not
- * addresses are returned apart so the dialog can name them.
- */
-export function parseInviteEmails(text: string): ParsedInvites {
-  const emails: string[] = [];
-  const invalid: string[] = [];
-  for (const raw of text.split(/[\s,;]+/)) {
-    const entry = raw.replace(/^<|>$/g, "").trim();
-    if (!entry) continue;
-    const email = entry.toLowerCase();
-    if (!isEmail(email)) invalid.push(entry);
-    else if (!emails.includes(email)) emails.push(email);
-  }
-  return { emails, invalid };
 }
 
 /** What the dialog says once the invitations went out. */

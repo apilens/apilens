@@ -616,10 +616,26 @@ export interface InviteEntry {
   role: InviteRole;
 }
 
+/** `GET /orgs/{slug}/invitations` item (#281): a pending invitation, maybe past its expiry. */
+export interface Invitation {
+  id: string;
+  email: string;
+  role: InviteRole;
+  created_at: string;
+  /** When the emailed link stops working; a pending invitation past it can still be resent. */
+  expires_at: string;
+  /** When it was last resent; null if never. */
+  resent_at: string | null;
+  /** Who sent it; absent once their account is gone. */
+  invited_by?: { id: string; email: string; name: string };
+}
+
 /** `POST /orgs/{slug}/invitations` result, one per requested address in request order. */
 export interface InviteResult {
   email: string;
   status: "invited" | "replaced" | "already_member" | "duplicate";
+  /** The invitation, when one was emailed (invited, replaced). */
+  invitation?: Invitation;
 }
 
 export interface CreateOrgRequest {
@@ -811,6 +827,12 @@ export function createClient(config: ClientConfig) {
       request<void>("POST", `/orgs/${seg(slug)}/transfer-ownership`, { ...o, body: { user_id: userId } }),
     createInvitations: (slug: string, invites: InviteEntry[], o: Authed) =>
       request<{ results: InviteResult[] | null }>("POST", `/orgs/${seg(slug)}/invitations`, { ...o, body: { invites } }),
+    listInvitations: (slug: string, o: Authed) =>
+      request<Invitation[] | null>("GET", `/orgs/${seg(slug)}/invitations`, o),
+    resendInvitation: (slug: string, id: string, o: Authed) =>
+      request<Invitation>("POST", `/orgs/${seg(slug)}/invitations/${seg(id)}/resend`, o),
+    revokeInvitation: (slug: string, id: string, o: Authed) =>
+      request<void>("DELETE", `/orgs/${seg(slug)}/invitations/${seg(id)}`, o),
 
     // api: projects -----------------------------------------------------------------------
     listProjects: (orgSlug: string, o: Authed) =>

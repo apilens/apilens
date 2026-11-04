@@ -10,7 +10,6 @@ import {
   membersError,
   orgCan,
   ownerCount,
-  parseInviteEmails,
   removeGate,
   roleGate,
   roleOptionAllowed,
@@ -127,18 +126,11 @@ describe("display", () => {
   it("links the settings sections", () => {
     expect(orgSettingsHref("acme", { slug: "" })).toBe("/orgs/acme/settings");
     expect(orgSettingsHref("acme", { slug: "members" })).toBe("/orgs/acme/settings/members");
+    expect(orgSettingsHref("acme", { slug: "invitations" })).toBe("/orgs/acme/settings/invitations");
   });
 });
 
 describe("invites", () => {
-  it("parses commas, spaces and new lines; lower-cases and dedupes", () => {
-    expect(parseInviteEmails("Ada@Example.com, grace@example.com\n<ada@example.com>; bad nope@")).toEqual({
-      emails: ["ada@example.com", "grace@example.com"],
-      invalid: ["bad", "nope@"],
-    });
-    expect(parseInviteEmails("  ")).toEqual({ emails: [], invalid: [] });
-  });
-
   it("summarizes the results", () => {
     expect(inviteSummary([{ email: "a@example.com", status: "invited" }])).toBe("Sent 1 invitation.");
     expect(

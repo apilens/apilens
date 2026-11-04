@@ -358,6 +358,9 @@ describe("operations", () => {
     ["PATCH", "/orgs/{slug}", (c) => c.updateOrg("a/b?c", { name: "Acme" }, authed)],
     ["DELETE", "/orgs/{slug}", (c) => c.deleteOrg("a/b?c", authed)],
     ["GET", "/orgs/slug-available", (c) => c.orgSlugAvailable("acme", authed)],
+    ["GET", "/orgs/{slug}/invitations", (c) => c.listInvitations("a/b?c", authed)],
+    ["POST", "/orgs/{slug}/invitations/{id}/resend", (c) => c.resendInvitation("a/b?c", "a/b?c", authed)],
+    ["DELETE", "/orgs/{slug}/invitations/{id}", (c) => c.revokeInvitation("a/b?c", "a/b?c", authed)],
     ["GET", "/orgs/{slug}/projects", (c) => c.listProjects("a/b?c", authed)],
     [
       "POST",
