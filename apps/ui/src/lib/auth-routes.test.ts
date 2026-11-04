@@ -377,7 +377,7 @@ describe("passkeys", () => {
     });
     expect(json).toEqual({ ok: true, next: "/" });
     expectNoTokens(text);
-    expect(seen[0].body).toEqual({ challenge_id: "ch_1", credential, remember: true });
+    expect(seen[0].body).toEqual({ challenge_id: "ch_1", response: credential, remember: true });
     expect(await session.open(cookieValue(setCookies, session.SESSION_COOKIE_NAME), SECRET)).toMatchObject({
       uid: "usr_1",
     });

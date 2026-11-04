@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     const credential = requiredObject(body, "credential");
     const remember = optionalBoolean(body, "remember");
     const bundle = await identity().passkeyLoginVerify(
-      { challenge_id: challengeId, credential, remember },
+      { challenge_id: challengeId, response: credential, remember },
       callContext(req),
     );
     return await signedIn(bundle, remember, requestedNext(body));

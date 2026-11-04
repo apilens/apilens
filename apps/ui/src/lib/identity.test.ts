@@ -319,7 +319,7 @@ describe("operations", () => {
     [
       "POST",
       "/auth/passkeys/login/verify",
-      (c) => c.passkeyLoginVerify({ challenge_id: "c", credential: {} }),
+      (c) => c.passkeyLoginVerify({ challenge_id: "c", response: {} }),
     ],
     ["GET", "/auth/oidc/requests/{id}", (c) => c.oidcRequest("a/b?c")],
     ["POST", "/auth/oidc/requests/{id}/complete", (c) => c.oidcComplete("a/b?c", authed)],
