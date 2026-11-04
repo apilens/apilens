@@ -336,6 +336,8 @@ describe("operations", () => {
     ["GET", "/orgs", (c) => c.listOrgs(authed)],
     ["POST", "/orgs", (c) => c.createOrg({ name: "Acme", slug: "acme" }, authed)],
     ["GET", "/orgs/{slug}", (c) => c.getOrg("a/b?c", authed)],
+    ["PATCH", "/orgs/{slug}", (c) => c.updateOrg("a/b?c", { name: "Acme" }, authed)],
+    ["DELETE", "/orgs/{slug}", (c) => c.deleteOrg("a/b?c", authed)],
     ["GET", "/orgs/slug-available", (c) => c.orgSlugAvailable("acme", authed)],
     ["GET", "/orgs/{slug}/projects", (c) => c.listProjects("a/b?c", authed)],
     [

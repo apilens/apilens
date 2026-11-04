@@ -464,6 +464,16 @@ export interface Org {
   created_at?: string;
 }
 
+/** `PATCH /orgs/{slug}` (#279): omitted fields are left unchanged. */
+export interface UpdateOrgRequest {
+  name?: string;
+  /** Must equal the current slug (`slug_immutable` otherwise). */
+  slug?: string;
+  /** Replaces the list: lower-case hostnames, no public email providers (`domain_not_allowed`). */
+  allowed_domains?: string[];
+  domain_join?: boolean;
+}
+
 export interface CreateOrgRequest {
   name: string;
   slug: string;
@@ -587,6 +597,9 @@ export function createClient(config: ClientConfig) {
     // api: organizations ------------------------------------------------------------------
     listOrgs: (o: Authed) => request<Org[]>("GET", "/orgs", o),
     getOrg: (slug: string, o: Authed) => request<Org>("GET", `/orgs/${seg(slug)}`, o),
+    updateOrg: (slug: string, body: UpdateOrgRequest, o: Authed) =>
+      request<Org>("PATCH", `/orgs/${seg(slug)}`, { ...o, body }),
+    deleteOrg: (slug: string, o: Authed) => request<void>("DELETE", `/orgs/${seg(slug)}`, o),
     createOrg: (body: CreateOrgRequest, o: Authed) =>
       request<Org>("POST", "/orgs", { ...o, body }),
     orgSlugAvailable: (slug: string, o: Authed) =>
