@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { CapabilitiesProvider } from "@/lib/permissions";
 import { type UserContext, findOrg, findProject } from "@/lib/scope";
 import { Icon } from "./icons";
 import { ScopeSwitcher } from "./scope-switcher";
@@ -12,7 +13,9 @@ import { Sidebar } from "./sidebar";
  * to a rail (remembered). ⌘K opens the scope switcher. `context` is the signed-in user's
  * `GET /users/me/context`; the page has already checked that `project` or `org` is in it.
  * `account` is the account scope (`/settings/*`): no project, the first organization in the top
- * cell, and the account menu marks Account settings as the current page.
+ * cell, and the account menu marks Account settings as the current page. The page renders inside
+ * `CapabilitiesProvider` with the actions the context allows on the project in scope (in org
+ * scope, the org's first project; none in account scope), so `useCan`/`<Gated>` work below it.
  */
 export function AppShell({ context, project: projectSlug, org: orgSlug, account = false, view, children }: { context: UserContext; project?: string; org?: string; account?: boolean; view: string; children?: ReactNode }) {
   const found = projectSlug ? findProject(context, projectSlug) : undefined;
@@ -67,7 +70,11 @@ export function AppShell({ context, project: projectSlug, org: orgSlug, account 
             <Icon name="menu" />
           </button>
         </div>
-        <main className="app-main">{children}</main>
+        <main className="app-main">
+          <CapabilitiesProvider capabilities={context.capabilities} project={account ? undefined : navProject?.slug}>
+            {children}
+          </CapabilitiesProvider>
+        </main>
       </div>
 
       <ScopeSwitcher orgs={context.orgs} open={switcher} onClose={() => setSwitcher(false)} orgSlug={org.slug} projectSlug={navProject?.slug} />
