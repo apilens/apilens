@@ -109,6 +109,19 @@ type OauthIdentity struct {
 	LastLoginAt *time.Time
 }
 
+type OrgSsoConnection struct {
+	OrgID           uuid.UUID
+	Issuer          string
+	ClientID        string
+	ClientSecretEnc []byte
+	Domains         []string
+	Enforce         bool
+	DefaultRole     string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	LastLoginAt     *time.Time
+}
+
 type Organization struct {
 	ID             uuid.UUID
 	Slug           string

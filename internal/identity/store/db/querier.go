@@ -99,6 +99,18 @@ type Querier interface {
 	// Resolves a provider callback to the linked identity (and so its user).
 	// Returns pgx.ErrNoRows when the provider account is not linked.
 	GetOAuthIdentityByProviderSubject(ctx context.Context, arg GetOAuthIdentityByProviderSubjectParams) (OauthIdentity, error)
+	// An organization's OIDC connection, for the SSO start and callback. Only
+	// identity and the api role touch org_sso_connections (ADR 0005);
+	// client_secret_enc is ciphertext, decrypt it with the identity
+	// key-encryption key. Returns pgx.ErrNoRows when the organization has no
+	// connection.
+	GetOrgSSOConnection(ctx context.Context, orgID uuid.UUID) (OrgSsoConnection, error)
+	// The connection of an active organization that lists an email domain
+	// (lower-case, no "@"), for the SSO lookup at sign-in. An enforcing
+	// connection wins over non-enforcing ones; the service layer keeps a domain
+	// enforced by at most one organization. Returns pgx.ErrNoRows when no
+	// organization uses SSO for the domain.
+	GetOrgSSOConnectionForDomain(ctx context.Context, domain string) (OrgSsoConnection, error)
 	// Resolves the rawId of a sign-in assertion to its credential (and so its
 	// user). Returns pgx.ErrNoRows when the credential is not registered.
 	GetPasskeyCredentialByCredentialID(ctx context.Context, credentialID []byte) (PasskeyCredential, error)
@@ -185,6 +197,8 @@ type Querier interface {
 	// row once delete_after has passed.
 	SoftDeleteUser(ctx context.Context, arg SoftDeleteUserParams) (User, error)
 	TouchLastLogin(ctx context.Context, id uuid.UUID) error
+	// Records a successful sign-in through an organization's connection.
+	TouchOrgSSOLastLogin(ctx context.Context, orgID uuid.UUID) error
 	// Records activity on a live session. A NULL ip keeps the stored one.
 	TouchSession(ctx context.Context, arg TouchSessionParams) (int64, error)
 	// Records a verified sign-in: the new signature counter, the current backup

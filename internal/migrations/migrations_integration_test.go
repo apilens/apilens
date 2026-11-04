@@ -42,7 +42,7 @@ func TestMigrationsApplyAndAreIdempotent(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	for _, want := range []string{"api_keys", "apps", "audit_events", "auth_email_tokens", "backup_codes", "environments", "invitations", "memberships", "oauth_identities", "organizations", "outbox", "passkey_credentials", "projects", "recovery_requests", "sessions", "signing_keys", "user_totp", "users", "river_job", "river_migration", "river_queue"} {
+	for _, want := range []string{"api_keys", "apps", "audit_events", "auth_email_tokens", "backup_codes", "environments", "invitations", "memberships", "oauth_identities", "org_sso_connections", "organizations", "outbox", "passkey_credentials", "projects", "recovery_requests", "sessions", "signing_keys", "user_totp", "users", "river_job", "river_migration", "river_queue"} {
 		if !slices.Contains(tables, want) {
 			t.Errorf("postgres table %q missing (have %v)", want, tables)
 		}
@@ -746,6 +746,103 @@ func TestPostgresMembershipsMigrationRollsBack(t *testing.T) {
 		if !tableExists(t, pool, table) {
 			t.Errorf("table %q missing after re-apply", table)
 		}
+	}
+}
+
+func TestPostgresOrgSSOMigrationRollsBack(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var orgID, otherID string
+	if err := pool.QueryRow(ctx, `INSERT INTO organizations (id, slug, name) VALUES (gen_random_uuid(), 'acme', 'Acme') RETURNING id`).Scan(&orgID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO organizations (id, slug, name) VALUES (gen_random_uuid(), 'other', 'Other') RETURNING id`).Scan(&otherID); err != nil {
+		t.Fatal(err)
+	}
+
+	// One connection per organization, with defaults.
+	insertConn := `INSERT INTO org_sso_connections (org_id, issuer, client_id, client_secret_enc) VALUES ($1, $2, $3, $4)`
+	if _, err := pool.Exec(ctx, insertConn, orgID, "https://idp.example.com", "client", []byte{0x01}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, insertConn, orgID, "https://idp2.example.com", "client2", []byte{0x02}); err == nil {
+		t.Fatal("a second connection for the same organization should violate the primary key")
+	}
+	var domains []string
+	var enforce bool
+	var role string
+	var lastLogin *time.Time
+	if err := pool.QueryRow(ctx, `SELECT domains, enforce, default_role, last_login_at FROM org_sso_connections WHERE org_id = $1`, orgID).
+		Scan(&domains, &enforce, &role, &lastLogin); err != nil {
+		t.Fatal(err)
+	}
+	if len(domains) != 0 || enforce || role != "member" || lastLogin != nil {
+		t.Errorf("defaults = %v, %v, %q, %v; want {}, false, member, NULL", domains, enforce, role, lastLogin)
+	}
+
+	// Required, non-empty settings.
+	for name, args := range map[string][]any{
+		"empty issuer":        {otherID, "", "client", []byte{0x01}},
+		"empty client_id":     {otherID, "https://idp.example.com", "", []byte{0x01}},
+		"empty client secret": {otherID, "https://idp.example.com", "client", []byte{}},
+	} {
+		if _, err := pool.Exec(ctx, insertConn, args...); err == nil {
+			t.Errorf("%s should violate a check", name)
+		}
+	}
+
+	// Domains are lower-case; default_role is never owner.
+	if _, err := pool.Exec(ctx, `UPDATE org_sso_connections SET domains = '{acme.com,acme.io}', enforce = true, default_role = 'viewer' WHERE org_id = $1`, orgID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE org_sso_connections SET domains = '{Acme.com}' WHERE org_id = $1`, orgID); err == nil {
+		t.Fatal("an upper-case domain should violate the check")
+	}
+	for _, bad := range []string{"owner", "superuser"} {
+		if _, err := pool.Exec(ctx, `UPDATE org_sso_connections SET default_role = $2 WHERE org_id = $1`, orgID, bad); err == nil {
+			t.Errorf("default_role %q should violate the check", bad)
+		}
+	}
+	var hasIndex bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'org_sso_connections' AND indexname = 'org_sso_connections_domains')`).Scan(&hasIndex); err != nil || !hasIndex {
+		t.Errorf("org_sso_connections_domains index missing: %v", err)
+	}
+
+	// Deleting an organization cascades to its connection only.
+	if _, err := pool.Exec(ctx, insertConn, otherID, "https://idp.example.com", "client", []byte{0x01}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, orgID); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM org_sso_connections`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("connections after organization delete = %d, %v; want 1", n, err)
+	}
+
+	if _, err := provider.DownTo(ctx, 9); err != nil {
+		t.Fatalf("roll back to 00009: %v", err)
+	}
+	if tableExists(t, pool, "org_sso_connections") {
+		t.Error("table org_sso_connections should be dropped after rollback")
+	}
+	if !tableExists(t, pool, "memberships") || !tableExists(t, pool, "organizations") {
+		t.Error("rollback of 00010 must not touch earlier migrations")
+	}
+
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply after rollback: %v", err)
+	}
+	if !tableExists(t, pool, "org_sso_connections") {
+		t.Error("table org_sso_connections missing after re-apply")
 	}
 }
 
