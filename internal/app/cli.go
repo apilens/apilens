@@ -302,6 +302,7 @@ func runOpenAPI(stdout io.Writer) error {
 	identity.NewSessions(config.IdentityConfig{}, nil, nil, nil).Register(srv.API())
 	identity.NewAccount(nil, nil).Register(srv.API())
 	identity.NewEmailStart(config.IdentityConfig{}, identity.EmailStartDeps{}, nil, nil).Register(srv.API())
+	identity.NewSSOLookup(config.IdentityConfig{}, nil, nil, nil).Register(srv.API())
 	identity.NewTwoFactor(nil, nil).Register(srv.API())
 	identity.NewEmailChange(nil, nil).Register(srv.API())
 	identity.NewEmailVerify(config.IdentityConfig{}, identity.EmailVerifyDeps{}, nil, nil).Register(srv.API())

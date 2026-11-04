@@ -71,6 +71,33 @@ func (q *Queries) GetOrgSSOConnectionForDomain(ctx context.Context, domain strin
 	return i, err
 }
 
+const lookupOrgSSOForDomain = `-- name: LookupOrgSSOForDomain :one
+SELECT o.slug, o.name, c.enforce FROM org_sso_connections c
+JOIN organizations o ON o.id = c.org_id
+WHERE c.domains @> ARRAY[$1::text]
+  AND o.deleted_at IS NULL
+ORDER BY c.enforce DESC, c.created_at, c.org_id
+LIMIT 1
+`
+
+type LookupOrgSSOForDomainRow struct {
+	Slug    string
+	Name    string
+	Enforce bool
+}
+
+// What the public SSO lookup at sign-in may reveal about the active
+// organization that uses SSO for an email domain (lower-case, no "@"): its
+// slug (for the start URL), display name and whether SSO is enforced. Same
+// precedence as GetOrgSSOConnectionForDomain. Returns pgx.ErrNoRows when no
+// organization uses SSO for the domain.
+func (q *Queries) LookupOrgSSOForDomain(ctx context.Context, domain string) (LookupOrgSSOForDomainRow, error) {
+	row := q.db.QueryRow(ctx, lookupOrgSSOForDomain, domain)
+	var i LookupOrgSSOForDomainRow
+	err := row.Scan(&i.Slug, &i.Name, &i.Enforce)
+	return i, err
+}
+
 const touchOrgSSOLastLogin = `-- name: TouchOrgSSOLastLogin :exec
 UPDATE org_sso_connections
 SET last_login_at = now()

@@ -25,3 +25,16 @@ LIMIT 1;
 UPDATE org_sso_connections
 SET last_login_at = now()
 WHERE org_id = @org_id;
+
+-- name: LookupOrgSSOForDomain :one
+-- What the public SSO lookup at sign-in may reveal about the active
+-- organization that uses SSO for an email domain (lower-case, no "@"): its
+-- slug (for the start URL), display name and whether SSO is enforced. Same
+-- precedence as GetOrgSSOConnectionForDomain. Returns pgx.ErrNoRows when no
+-- organization uses SSO for the domain.
+SELECT o.slug, o.name, c.enforce FROM org_sso_connections c
+JOIN organizations o ON o.id = c.org_id
+WHERE c.domains @> ARRAY[@domain::text]
+  AND o.deleted_at IS NULL
+ORDER BY c.enforce DESC, c.created_at, c.org_id
+LIMIT 1;
