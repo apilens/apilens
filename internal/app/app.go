@@ -136,15 +136,16 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	m.Register(modJobs, a.initJobs, modules.Invisible(), modules.DependsOn(modPostgres))
 	m.Register(modAuthz, a.initAuthz, modules.Invisible(), modules.DependsOn(modServer, modValkey))
 	// The outbox relay syncs Postgres to SpiceDB: a periodic job plus a
-	// NOTIFY listener for low latency.
+	// NOTIFY listener for low latency. The hourly reconciler job repairs
+	// drift between the two.
 	m.Register(modRelay, a.initRelay, modules.Invisible(), modules.DependsOn(modPostgres, modJobs, modAuthz))
 
 	m.Register(TargetEdge, a.initEdge, modules.DependsOn(modServer, modCatalog, modSink))
 	// query is the first slice of the M3 read path (fixed queries, read keys).
 	m.Register(TargetQuery, a.initQuery, modules.DependsOn(modServer, modClickHouse, modCatalog))
 	m.Register(TargetAPI, a.initAPI, modules.DependsOn(modServer, modPostgres, modValkey))
-	// identity runs the M2 job workers (email, outbox relay); the M4 worker
-	// role will too.
+	// identity runs the M2 job workers (email, outbox relay, authz
+	// reconciler); the M4 worker role will too.
 	m.Register(TargetIdentity, a.initIdentity, modules.DependsOn(modServer, modPostgres, modValkey, modJobs, modRelay))
 	m.Register(TargetAll, func(context.Context) (modules.Service, error) { return nil, nil },
 		modules.DependsOn(TargetEdge, TargetQuery, TargetAPI, TargetIdentity))
@@ -286,7 +287,8 @@ func (a *App) initAuthz(context.Context) (modules.Service, error) {
 	return closer(func() { _ = client.Close() }), nil
 }
 
-// initRelay registers the outbox relay job and runs its NOTIFY listener.
+// initRelay registers the outbox relay and authz reconcile jobs and runs the
+// relay's NOTIFY listener.
 func (a *App) initRelay(context.Context) (modules.Service, error) {
 	if a.spicedb == nil {
 		return nil, nil
@@ -294,6 +296,9 @@ func (a *App) initRelay(context.Context) (modules.Service, error) {
 	relay := outbox.NewRelay(a.pool, a.spicedb, a.authz, outbox.RelayOptions{}, a.logger, a.registry)
 	jobs.Register(a.workers, outbox.NewRelayWorker(relay))
 	a.workers.Periodic(outbox.RelayInterval, outbox.RelayArgs{})
+	reconciler := outbox.NewReconciler(a.pool, a.spicedb, a.authz, outbox.ReconcileOptions{}, a.logger, a.registry)
+	jobs.Register(a.workers, outbox.NewReconcileWorker(reconciler))
+	a.workers.Periodic(outbox.ReconcileInterval, outbox.ReconcileArgs{})
 	if !a.cfg.Jobs.Enabled {
 		return nil, nil
 	}
