@@ -12,6 +12,13 @@ RETURNING *;
 SELECT * FROM sessions
 WHERE token_hash = @token_hash;
 
+-- name: GetSessionForUser :one
+-- Returns one session row of a user whatever its state, e.g. the row named
+-- by an access token's sid (which may since have been rotated) to find its
+-- family. Scoped by user_id.
+SELECT * FROM sessions
+WHERE id = @id AND user_id = @user_id;
+
 -- name: RotateSession :one
 -- Atomically revokes the live parent (reason 'rotated') and inserts its child
 -- in the same family with a new token. The child inherits user, family,

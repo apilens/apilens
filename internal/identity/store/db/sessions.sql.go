@@ -99,6 +99,42 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash string) (
 	return i, err
 }
 
+const getSessionForUser = `-- name: GetSessionForUser :one
+SELECT id, user_id, family_id, token_hash, parent_id, remember, amr, ip, user_agent, device_label, created_at, last_seen_at, expires_at, revoked_at, revoked_reason FROM sessions
+WHERE id = $1 AND user_id = $2
+`
+
+type GetSessionForUserParams struct {
+	ID     uuid.UUID
+	UserID uuid.UUID
+}
+
+// Returns one session row of a user whatever its state, e.g. the row named
+// by an access token's sid (which may since have been rotated) to find its
+// family. Scoped by user_id.
+func (q *Queries) GetSessionForUser(ctx context.Context, arg GetSessionForUserParams) (Session, error) {
+	row := q.db.QueryRow(ctx, getSessionForUser, arg.ID, arg.UserID)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.FamilyID,
+		&i.TokenHash,
+		&i.ParentID,
+		&i.Remember,
+		&i.Amr,
+		&i.Ip,
+		&i.UserAgent,
+		&i.DeviceLabel,
+		&i.CreatedAt,
+		&i.LastSeenAt,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.RevokedReason,
+	)
+	return i, err
+}
+
 const listActiveSessionsForUser = `-- name: ListActiveSessionsForUser :many
 SELECT id, user_id, family_id, token_hash, parent_id, remember, amr, ip, user_agent, device_label, created_at, last_seen_at, expires_at, revoked_at, revoked_reason FROM sessions
 WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()

@@ -33,7 +33,8 @@ implements them, and that issue updates this page when it merges.
 | OAuth callback and handoff (#255, #258–#260) | planned |
 | Passkeys (#261–#265), TOTP and recovery (#266–#270) | planned |
 | `GET/PATCH/DELETE /api/v1/users/me` (#245); the sole-owner check reads memberships once #276 lands | done |
-| Session management (#271–#275) | planned |
+| Device labels, `GET /api/v1/users/me/sessions` (#271) | done |
+| Session revocation, new-device alerts, email change, purge (#272–#275) | planned |
 | Orgs, members, invitations, projects, API keys (#276–#287) | planned |
 | Outbox relay, reconciler, `authz.Require`, capabilities (#291–#296) | planned |
 | Per-org OIDC SSO (#297–#300), OIDC provider (#301) | planned |

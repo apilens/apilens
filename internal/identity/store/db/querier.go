@@ -104,6 +104,10 @@ type Querier interface {
 	// Returns the row whatever its state, so the caller can tell a live token
 	// from a revoked one (reuse) or an expired one.
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
+	// Returns one session row of a user whatever its state, e.g. the row named
+	// by an access token's sid (which may since have been rotated) to find its
+	// family. Scoped by user_id.
+	GetSessionForUser(ctx context.Context, arg GetSessionForUserParams) (Session, error)
 	// A user's TOTP row, confirmed or not. Returns pgx.ErrNoRows when the user
 	// has never started enabling 2FA (or has turned it off).
 	GetTOTPForUser(ctx context.Context, userID uuid.UUID) (UserTotp, error)

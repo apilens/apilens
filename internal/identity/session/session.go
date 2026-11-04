@@ -120,10 +120,11 @@ type Meta struct {
 	AMR []string
 	// IP and UserAgent identify the client. When IP is invalid and
 	// UserAgent empty, the request client in the context (audit.Middleware)
-	// is used.
+	// is used. The user agent is stored truncated to MaxUserAgentLen.
 	IP        netip.Addr
 	UserAgent string
 	// DeviceLabel is a human-readable device name for the sessions list.
+	// Empty means derived from the user agent (see DeviceLabel).
 	DeviceLabel string
 }
 
@@ -156,6 +157,10 @@ func (s *Service) Create(ctx context.Context, user db.User, remember bool, meta 
 		return Tokens{}, err
 	}
 	ip, ua := client(ctx, meta.IP, meta.UserAgent)
+	label := meta.DeviceLabel
+	if label == "" {
+		label = DeviceLabel(ua)
+	}
 	id := uuid.New()
 	sess, err := s.q.CreateSession(ctx, db.CreateSessionParams{
 		ID:          id,
@@ -166,7 +171,7 @@ func (s *Service) Create(ctx context.Context, user db.User, remember bool, meta 
 		Amr:         meta.AMR,
 		Ip:          ip,
 		UserAgent:   ua,
-		DeviceLabel: meta.DeviceLabel,
+		DeviceLabel: label,
 		ExpiresAt:   s.expiry(remember),
 	})
 	if err != nil {
@@ -274,6 +279,46 @@ func (s *Service) Logout(ctx context.Context, raw string) error {
 	})
 }
 
+// Active is a live session of a user as the sessions list shows it.
+type Active struct {
+	db.Session
+	// Current marks the session the caller is using: the family of the
+	// access token's sid.
+	Current bool
+}
+
+// List returns the live sessions of user (one per sign-in), most recently
+// active first, flagging the one the caller uses. currentSID is the access
+// token's sid; it may name a row rotated since the token was issued, so the
+// match is by family, not by row id.
+func (s *Service) List(ctx context.Context, user, currentSID uuid.UUID) ([]Active, error) {
+	rows, err := s.q.ListActiveSessionsForUser(ctx, user)
+	if err != nil {
+		return nil, fmt.Errorf("session: list: %w", err)
+	}
+	var currentFamily uuid.UUID
+	for _, r := range rows {
+		if r.ID == currentSID {
+			currentFamily = r.FamilyID
+			break
+		}
+	}
+	if currentFamily == uuid.Nil && currentSID != uuid.Nil {
+		cur, err := s.q.GetSessionForUser(ctx, db.GetSessionForUserParams{ID: currentSID, UserID: user})
+		switch {
+		case err == nil:
+			currentFamily = cur.FamilyID
+		case !errors.Is(err, pgx.ErrNoRows):
+			return nil, fmt.Errorf("session: load current: %w", err)
+		}
+	}
+	out := make([]Active, len(rows))
+	for i, r := range rows {
+		out[i] = Active{Session: r, Current: currentFamily != uuid.Nil && r.FamilyID == currentFamily}
+	}
+	return out, nil
+}
+
 // reuse revokes the family of a replayed rotated token, audits
 // session.reuse_detected and returns ErrReuseDetected.
 func (s *Service) reuse(ctx context.Context, sess db.Session) error {
@@ -345,12 +390,14 @@ func (s *Service) expiry(remember bool) time.Time {
 	return s.opts.Now().Add(s.opts.RefreshTTLShort)
 }
 
-// client returns ip and ua, falling back to the context's request client.
+// client returns ip and ua, falling back to the context's request client;
+// ua is truncated to MaxUserAgentLen.
 func client(ctx context.Context, ip netip.Addr, ua string) (*netip.Addr, string) {
 	if !ip.IsValid() && ua == "" {
 		req := audit.RequestFrom(ctx)
 		ip, ua = req.IP, req.UserAgent
 	}
+	ua = TruncateUserAgent(ua)
 	if !ip.IsValid() {
 		return nil, ua
 	}

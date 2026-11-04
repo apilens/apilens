@@ -353,6 +353,34 @@
         ],
         "type": "object"
       },
+      "ListMySessionsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ListMySessionsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "sessions": {
+            "description": "Live sessions, most recently active first.",
+            "items": {
+              "$ref": "#/components/schemas/SessionInfo"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "sessions"
+        ],
+        "type": "object"
+      },
       "Me": {
         "additionalProperties": false,
         "properties": {
@@ -829,6 +857,72 @@
         },
         "required": [
           "requests"
+        ],
+        "type": "object"
+      },
+      "SessionInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "amr": {
+            "description": "How the session was authenticated.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "created_at": {
+            "description": "When the user signed in.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "current": {
+            "description": "True for the session the request was made with.",
+            "type": "boolean"
+          },
+          "device_label": {
+            "description": "Device name derived from the user agent at sign-in, e.g. \"Chrome on macOS\".",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "When the session ends unless refreshed.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "Session id. It changes on every refresh.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "ip": {
+            "description": "Client IP address of the last sign-in or refresh, or null when unknown.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_seen_at": {
+            "description": "When the session was last used.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "user_agent": {
+            "description": "User agent of the last sign-in or refresh, at most 512 characters.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "device_label",
+          "user_agent",
+          "ip",
+          "amr",
+          "created_at",
+          "last_seen_at",
+          "expires_at",
+          "current"
         ],
         "type": "object"
       },
@@ -2111,6 +2205,59 @@
           }
         ],
         "summary": "Update the signed-in user",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/me/sessions": {
+      "get": {
+        "description": "Lists the signed-in user's live sessions (one per sign-in), most recently active first, with device label, IP and activity times. The session the request was made with has `current: true`.",
+        "operationId": "list-my-sessions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListMySessionsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List my sessions",
         "tags": [
           "Users"
         ]
