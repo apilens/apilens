@@ -28,6 +28,6 @@
 
 Until production code imports them, `internal/deps` holds blank imports so `go mod tidy` keeps them and govulncheck scans them. `gosaml2` and `elimity-com/scim` get pinned with the `saml` and SCIM work.
 
-**Safeguards.** Threat model, OpenID conformance suite in CI, external pentest before GA, encrypted secrets, key rotation, shared rate limits, fail-closed.
+**Safeguards.** Threat model ([identity threat model and security checklist](../security/identity-threat-model.md)), OpenID conformance suite in CI, external pentest before GA, encrypted secrets, key rotation, shared rate limits, fail-closed.
 
 **Revisit if** SAML library advisories keep recurring; then broker SAML through an external Keycloak and keep only OIDC in core.
