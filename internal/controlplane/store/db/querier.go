@@ -11,14 +11,57 @@ import (
 )
 
 type Querier interface {
+	// Marks a pending, unexpired invitation accepted; returns pgx.ErrNoRows
+	// otherwise. Of two concurrent accepts only one succeeds. The caller creates
+	// the membership in the same transaction.
+	AcceptInvitation(ctx context.Context, id uuid.UUID) (Invitation, error)
+	CountOrgOwners(ctx context.Context, orgID uuid.UUID) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
+	// token_hash is the SHA-256 of the emailed token, never the token itself.
+	// An invitation is pending while accepted_at IS NULL AND revoked_at IS NULL.
+	// Fails on invitations_org_email_pending if the address already has a
+	// pending invitation to the organization.
+	CreateInvitation(ctx context.Context, arg CreateInvitationParams) (Invitation, error)
+	// Membership writes never check the last-owner rule themselves: the service
+	// layer locks the organization (LockOrganization), checks CountOrgOwners and
+	// only then demotes or removes an owner, in one transaction.
+	CreateMembership(ctx context.Context, arg CreateMembershipParams) (Membership, error)
+	// The caller adds the creator's owner membership in the same transaction.
+	CreateOrganization(ctx context.Context, arg CreateOrganizationParams) (Organization, error)
+	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) (int64, error)
 	// Resolves an ingest key to its project. Revoked, expired and keys of
 	// deleted projects never match.
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error)
+	GetInvitation(ctx context.Context, arg GetInvitationParams) (Invitation, error)
+	// Returns the row whatever its state, with its organization, so the caller
+	// can tell a pending invitation from an accepted, revoked or expired one.
+	GetInvitationByTokenHash(ctx context.Context, tokenHash string) (GetInvitationByTokenHashRow, error)
+	GetMembership(ctx context.Context, arg GetMembershipParams) (Membership, error)
+	GetOrganizationBySlug(ctx context.Context, slug string) (Organization, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
+	// Active organizations with domain join on for the (lower-case) email
+	// domain that the user is not already a member of.
+	ListJoinableOrganizations(ctx context.Context, arg ListJoinableOrganizationsParams) ([]ListJoinableOrganizationsRow, error)
+	ListOrgMembers(ctx context.Context, orgID uuid.UUID) ([]ListOrgMembersRow, error)
+	ListPendingInvitations(ctx context.Context, orgID uuid.UUID) ([]Invitation, error)
 	ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppsRow, error)
+	// The active organizations a user belongs to, with their role.
+	ListUserOrganizations(ctx context.Context, userID uuid.UUID) ([]ListUserOrganizationsRow, error)
+	// Row-locks an active organization for the rest of the transaction.
+	// Membership writes that could remove the last owner take this lock first,
+	// then check CountOrgOwners (the last-owner rule lives in the service layer).
+	LockOrganization(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	OrganizationSlugTaken(ctx context.Context, slug string) (bool, error)
+	// Rotates the token and extends the expiry of a pending invitation.
+	ResendInvitation(ctx context.Context, arg ResendInvitationParams) (Invitation, error)
 	RevokeAPIKey(ctx context.Context, id uuid.UUID) (string, error)
+	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (Invitation, error)
+	SoftDeleteOrganization(ctx context.Context, id uuid.UUID) (int64, error)
 	TouchAPIKey(ctx context.Context, id uuid.UUID) error
+	UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (Membership, error)
+	// NULL arguments leave the column unchanged. allowed_domains must be
+	// lower-case (checked by the table).
+	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)
 	UpsertApp(ctx context.Context, arg UpsertAppParams) (UpsertAppRow, error)
 	UpsertEnvironment(ctx context.Context, arg UpsertEnvironmentParams) (Environment, error)
 	UpsertOrganization(ctx context.Context, arg UpsertOrganizationParams) (UpsertOrganizationRow, error)

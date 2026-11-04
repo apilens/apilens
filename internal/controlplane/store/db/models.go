@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type ApiKey struct {
@@ -37,8 +36,8 @@ type App struct {
 
 type AuditEvent struct {
 	ID          int64
-	UserID      pgtype.UUID
-	ActorUserID pgtype.UUID
+	UserID      *uuid.UUID
+	ActorUserID *uuid.UUID
 	Event       string
 	Ip          *netip.Addr
 	UserAgent   string
@@ -50,7 +49,7 @@ type AuthEmailToken struct {
 	ID            uuid.UUID
 	Email         string
 	Intent        string
-	UserID        pgtype.UUID
+	UserID        *uuid.UUID
 	LinkTokenHash string
 	CodeHash      string
 	Attempts      int32
@@ -77,6 +76,28 @@ type Environment struct {
 	CreatedAt time.Time
 }
 
+type Invitation struct {
+	ID         uuid.UUID
+	OrgID      uuid.UUID
+	Email      string
+	Role       string
+	TokenHash  string
+	InvitedBy  *uuid.UUID
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	AcceptedAt *time.Time
+	RevokedAt  *time.Time
+	ResentAt   *time.Time
+}
+
+type Membership struct {
+	OrgID     uuid.UUID
+	UserID    uuid.UUID
+	Role      string
+	InvitedBy *uuid.UUID
+	CreatedAt time.Time
+}
+
 type OauthIdentity struct {
 	ID          uuid.UUID
 	UserID      uuid.UUID
@@ -89,11 +110,14 @@ type OauthIdentity struct {
 }
 
 type Organization struct {
-	ID        uuid.UUID
-	Slug      string
-	Name      string
-	CreatedAt time.Time
-	DeletedAt *time.Time
+	ID             uuid.UUID
+	Slug           string
+	Name           string
+	CreatedAt      time.Time
+	DeletedAt      *time.Time
+	AllowedDomains []string
+	DomainJoin     bool
+	CreatedBy      *uuid.UUID
 }
 
 type Outbox struct {
@@ -147,7 +171,7 @@ type Session struct {
 	UserID        uuid.UUID
 	FamilyID      uuid.UUID
 	TokenHash     string
-	ParentID      pgtype.UUID
+	ParentID      *uuid.UUID
 	Remember      bool
 	Amr           []string
 	Ip            *netip.Addr
