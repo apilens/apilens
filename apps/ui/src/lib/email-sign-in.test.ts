@@ -22,6 +22,18 @@ describe("startEmailSignIn", () => {
     expect(JSON.parse(init.body as string)).toEqual({ email: "ada@example.com", intent: "signin" });
   });
 
+  it("carries the start URL of a sso_required refusal", async () => {
+    const start = "https://id.apilens.test/api/v1/auth/sso/acme/start?remember=true";
+    const f = reply(403, { ok: false, code: "sso_required", start_url: start });
+    expect(await startEmailSignIn({ email: "ada@example.com" }, f)).toEqual({
+      ok: false,
+      code: "sso_required",
+      retryAfter: null,
+      startUrl: start,
+    });
+    expect(emailStartError("sso_required", null)).toMatch(/single sign-on/);
+  });
+
   it("passes the route's code and retry_after through", async () => {
     const res = await startEmailSignIn({ email: "a@b.co" }, reply(429, { ok: false, code: "rate_limited", retry_after: 42 }));
     expect(res).toEqual({ ok: false, code: "rate_limited", retryAfter: 42 });

@@ -1,6 +1,7 @@
-// A fake identity server plus a fake OAuth provider for the social sign-in (#317), two-factor
-// step (#320), account settings (#339), profile (#340), sessions (#343), connected accounts (#344),
-// Security → Passkeys (#341) and two-factor settings (#342) browser tests.
+// A fake identity server plus a fake OAuth provider and a fake OIDC identity provider for the
+// social sign-in (#317), two-factor step (#320), organization SSO (#323), account settings (#339),
+// profile (#340), sessions (#343), connected accounts (#344), Security → Passkeys (#341) and
+// two-factor settings (#342) browser tests.
 // It mirrors the real contract (internal/identity/oauth.go, oauth_callback.go, handoff_redeem.go):
 //
 //   GET  /api/v1/auth/providers                    google and github enabled
@@ -34,6 +35,13 @@
 //   DELETE /api/v1/users/me                        owner_transfer_required while the user is acme's only owner
 //   POST /__fake/profile {name?, email?, sole_owner?}
 //                                                  test hook: resets the fake user's profile state
+//   GET  /api/v1/auth/sso/lookup?email=            acme.example.com: Acme, enforced;
+//                                                  beta.example.com: Beta, not enforced; else none
+//   GET  /api/v1/auth/sso/{org}/start              keeps a state, 302 to the fake IdP's authorize
+//   GET  /fake-idp/authorize                       IdP sign-in page: "Sign in" or "Cancel"
+//   GET  /api/v1/auth/sso/{org}/callback           302 to {ui}/auth/callback?code=… or /sign-in?error=…
+//   POST /api/v1/auth/email/start                  403 sso_required (+ start_url) on an enforced
+//                                                  domain, else {sent: true} (never sends mail)
 //   POST /__fake/handoff {next, totp_secret?, backup_codes?, passkeys?, stale?}
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  with `totp_secret` (base32) it answers 2fa_required;
@@ -50,6 +58,21 @@ const PORT = Number(process.env.FAKE_IDENTITY_PORT ?? 18080);
 const UI_URL = (process.env.FAKE_IDENTITY_UI_URL ?? "http://localhost:3210").replace(/\/+$/, "");
 const SELF = `http://localhost:${PORT}`;
 const PROVIDERS = new Set(["google", "github"]);
+
+/** Organizations with an SSO connection, by email domain (internal/identity/sso_lookup.go). */
+const SSO_ORGS: Record<string, { slug: string; name: string; enforce: boolean }> = {
+  "acme.example.com": { slug: "acme", name: "Acme", enforce: true },
+  "beta.example.com": { slug: "beta", name: "Beta", enforce: false },
+};
+const ssoStartUrl = (slug: string) => `${SELF}/api/v1/auth/sso/${encodeURIComponent(slug)}/start`;
+const ssoOrgFor = (email: string) => SSO_ORGS[email.trim().toLowerCase().split("@")[1] ?? ""];
+
+interface SSOState {
+  org: string;
+  next: string;
+  loginHint: string;
+}
+const ssoStates = new Map<string, SSOState>();
 
 interface State {
   provider: string;
@@ -355,7 +378,67 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
 
   if (req.method === "GET" && path === "/healthz") return send(res, 200, { ok: true });
   if (req.method === "GET" && path === "/api/v1/auth/providers") {
-    return send(res, 200, { email: true, passkeys: true, google: true, github: true, sso: false });
+    return send(res, 200, { email: true, passkeys: true, google: true, github: true, sso: true });
+  }
+
+  if (req.method === "GET" && path === "/api/v1/auth/sso/lookup") {
+    const org = ssoOrgFor(q.get("email") ?? "");
+    if (!org) return send(res, 200, { sso: false, enforced: false });
+    return send(res, 200, { sso: true, enforced: org.enforce, org_name: org.name, start_url: ssoStartUrl(org.slug) });
+  }
+  if (req.method === "POST" && path === "/api/v1/auth/email/start") {
+    const { email } = await readBody(req);
+    const org = ssoOrgFor(String(email ?? ""));
+    if (org?.enforce) {
+      return send(res, 403, { status: 403, title: "Forbidden", code: "sso_required", start_url: ssoStartUrl(org.slug) }, "application/problem+json");
+    }
+    return send(res, 200, { sent: true, retry_after: 30 });
+  }
+
+  const sso = path.match(/^\/api\/v1\/auth\/sso\/([a-z0-9-]+)\/(start|callback)$/);
+  if (req.method === "GET" && sso) {
+    const [, org, step] = sso;
+    if (!Object.values(SSO_ORGS).some((o) => o.slug === org)) return problem(res, 404, "not_found");
+    if (step === "start") {
+      const next = safeNext(q.get("next") ?? "");
+      if (next === null) return problem(res, 400, "invalid_request");
+      const state = token();
+      const loginHint = q.get("login_hint") ?? "";
+      ssoStates.set(state, { org, next, loginHint });
+      const authorize = new URLSearchParams({
+        response_type: "code",
+        client_id: `apilens-${org}`,
+        redirect_uri: `${SELF}/api/v1/auth/sso/${org}/callback`,
+        scope: "openid email profile",
+        state,
+        login_hint: loginHint,
+      });
+      return redirect(res, `${SELF}/fake-idp/authorize?${authorize}`);
+    }
+    const state = q.get("state") ?? "";
+    const st = ssoStates.get(state);
+    ssoStates.delete(state);
+    if (!st || st.org !== org) return redirect(res, `${UI_URL}/sign-in?error=oauth_state_mismatch`);
+    if (q.get("error")) return redirect(res, `${UI_URL}/sign-in?error=oauth_denied`);
+    const code = issueHandoff(st.next === "/" ? "/onboarding/about" : st.next);
+    return redirect(res, `${UI_URL}/auth/callback?${new URLSearchParams({ code })}`);
+  }
+
+  if (req.method === "GET" && path === "/fake-idp/authorize") {
+    const back = q.get("redirect_uri") ?? "";
+    const state = q.get("state") ?? "";
+    if (!back.startsWith(`${SELF}/api/v1/auth/sso/`)) return problem(res, 400, "invalid_request");
+    const allow = `${back}?${new URLSearchParams({ code: `idp_${token()}`, state })}`;
+    const deny = `${back}?${new URLSearchParams({ error: "access_denied", state })}`;
+    return send(
+      res,
+      200,
+      `<!doctype html><title>Fake IdP</title><h1>Fake IdP sign-in</h1>` +
+        `<p>Client <code>${escape(q.get("client_id") ?? "")}</code></p>` +
+        `<p>Account <output id="login-hint">${escape(q.get("login_hint") ?? "")}</output></p>` +
+        `<a href="${escape(allow)}">Sign in</a> <a href="${escape(deny)}">Cancel</a>`,
+      "text/html; charset=utf-8",
+    );
   }
 
   const oauth = path.match(/^\/api\/v1\/auth\/oauth\/([a-z]+)\/(start|callback)$/);

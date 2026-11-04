@@ -20,10 +20,12 @@ import {
   relativeDay,
 } from "@/lib/remembered-account";
 import { type OAuthLinks, type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
-import type { SignInNotice } from "@/lib/sign-in-notice";
+import { SIGN_IN_NOTICES, type SignInNotice } from "@/lib/sign-in-notice";
+import { ssoRequiredMatch } from "@/lib/sso";
 import { AltLink } from "./alt-method";
 import { ObIcon, ObShell } from "./ob";
 import { SignInNoticeBanner } from "./sign-in-notice";
+import { SSOButton, SSOLink, useSSOLookup } from "./sso";
 
 const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
 
@@ -35,6 +37,12 @@ const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
  * which provider buttons sit next to the email code; `oauth` holds the Google/GitHub start URLs
  * (built on the server); `next` is where to land after signing in; `notice` (from
  * `?error=`/`?reason=`) sits above the form.
+ *
+ * SSO (#323): once the email is valid its domain is looked up. An organization that enforces SSO
+ * replaces the email code with "Continue with <org> SSO" as the primary action (the passkey
+ * button stays, as a secondary one); SSO that is offered but not enforced adds that button under
+ * the others. The email code checks the lookup before sending, and a `sso_required` refusal shows
+ * the organization's SSO the same way.
  */
 export function SignIn({
   methods,
@@ -58,6 +66,12 @@ export function SignIn({
   const [error, setError] = useState<string | null>(null);
   const bad = touched && !valid(email);
   const target = remembered ? remembered.email : email.trim();
+  const sso = useSSOLookup(remembered ? remembered.email : valid(email) ? email.trim() : null, next);
+  const enforced = sso.match?.enforced === true;
+  const [ssoBusy, setSsoBusy] = useState(false);
+  const [ssoNotice, setSsoNotice] = useState(false);
+  // An enforced organization takes the email code's place; its own SSO button replaces the generic one.
+  const shown = alts.filter((m) => !(m === "email" && enforced) && !(m === "sso" && sso.match));
   // Passkeys: shown until the browser proves it has no WebAuthn (most do, so no layout shift).
   const [passkeys, setPasskeys] = useState(true);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
@@ -122,11 +136,35 @@ export function SignIn({
     stopAutofill();
     setSending(true);
     setError(null);
+    // An enforced domain never gets a code: go to its SSO instead (the lookup may still be pending).
+    const found = await sso.resolve(target);
+    if (found.kind === "match" && found.match.enforced) {
+      window.location.assign(found.match.startUrl);
+      return;
+    }
     const res = await startEmailSignIn({ email: target, next });
     if (res.ok) return router.push(res.next);
     setSending(false);
-    setError(emailStartError(res.code, res.retryAfter));
+    const required = res.code === "sso_required" ? ssoRequiredMatch(res.startUrl) : null;
+    if (required) {
+      sso.remember(target, required);
+      setSsoNotice(true);
+    } else {
+      setError(emailStartError(res.code, res.retryAfter));
+    }
     setAutofillRound((n) => n + 1);
+  };
+
+  const genericSSO = async () => {
+    if (ssoBusy) return;
+    // The passkey autofill stays on: a lookup does not compete with it, and leaving the page ends it.
+    setSsoBusy(true);
+    setError(null);
+    const problem = await sso.go(remembered ? remembered.email : valid(email) ? email.trim() : null);
+    if (problem === null) return; // navigating to the identity provider
+    setSsoBusy(false);
+    if (!remembered && !valid(email)) setTouched(true);
+    setError(problem);
   };
 
   return (
@@ -148,7 +186,11 @@ export function SignIn({
         </>
       }
     >
-      {notice ? <SignInNoticeBanner notice={notice} /> : null}
+      {ssoNotice ? (
+        <SignInNoticeBanner key="sso_required" notice={{ code: "sso_required", ...SIGN_IN_NOTICES.sso_required }} />
+      ) : notice ? (
+        <SignInNoticeBanner notice={notice} />
+      ) : null}
       <div className="ob-f">
         {remembered ? (
           <div className="ob-row">
@@ -168,7 +210,7 @@ export function SignIn({
             </label>
             <div className={`ob-in${bad ? " bad" : ""}`}>
               <ObIcon name="mail" />
-              <input id="si-email" type="email" autoComplete="email webauthn" autoFocus placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => setTouched(true)} onKeyDown={(e) => e.key === "Enter" && emailCode()} aria-invalid={bad} aria-describedby={bad ? "si-err" : undefined} />
+              <input id="si-email" type="email" autoComplete="email webauthn" autoFocus placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => setTouched(true)} onKeyDown={(e) => e.key === "Enter" && (enforced && sso.match ? window.location.assign(sso.match.startUrl) : emailCode())} aria-invalid={bad} aria-describedby={bad ? "si-err" : undefined} />
             </div>
             {bad ? (
               <p id="si-err" className="ob-err">
@@ -183,29 +225,45 @@ export function SignIn({
           </p>
         ) : null}
       </div>
+      {enforced && sso.match ? (
+        <div style={{ marginTop: 14 }}>
+          <SSOLink match={sso.match} primary />
+        </div>
+      ) : null}
       {passkeys ? (
         <>
-          <div style={{ marginTop: 14 }}>
-            <button type="button" className={`ah-btn ah-btn--primary au-btn-full${passkeyBusy ? " is-loading" : ""}`} onClick={passkey} disabled={passkeyBusy} aria-busy={passkeyBusy}>
+          <div style={{ marginTop: enforced ? 10 : 14 }}>
+            <button type="button" className={`ah-btn ${enforced ? "ah-btn--secondary" : "ah-btn--primary"} au-btn-full${passkeyBusy ? " is-loading" : ""}`} onClick={passkey} disabled={passkeyBusy} aria-busy={passkeyBusy}>
               <ObIcon name="finger" />
               Continue with a passkey
             </button>
           </div>
-          <div className="ob-or">or</div>
+          {shown.length > 0 ? <div className="ob-or">or</div> : null}
         </>
+      ) : enforced && shown.length > 0 ? (
+        <div className="ob-or">or</div>
       ) : null}
-      <div style={{ display: "grid", gridTemplateColumns: gridColumns(alts.length), gap: 10, marginTop: passkeys ? undefined : 14 }}>
-        {alts.map((m) =>
-          m === "email" ? (
-            <button key={m} type="button" className={`ah-btn ah-btn--secondary${sending ? " is-loading" : ""}`} onClick={emailCode} disabled={sending} aria-busy={sending}>
-              <ObIcon name="mail" />
-              Email code
-            </button>
-          ) : (
-            <AltLink key={m} method={m} href={m === "sso" ? "/platform/incidents" : (oauth?.[m] ?? "/sign-in")} />
-          ),
-        )}
-      </div>
+      {shown.length > 0 ? (
+        <div style={{ display: "grid", gridTemplateColumns: gridColumns(shown.length), gap: 10, marginTop: passkeys || enforced ? undefined : 14 }}>
+          {shown.map((m) =>
+            m === "email" ? (
+              <button key={m} type="button" className={`ah-btn ah-btn--secondary${sending ? " is-loading" : ""}`} onClick={emailCode} disabled={sending} aria-busy={sending}>
+                <ObIcon name="mail" />
+                Email code
+              </button>
+            ) : m === "sso" ? (
+              <SSOButton key={m} busy={ssoBusy} onClick={genericSSO} />
+            ) : (
+              <AltLink key={m} method={m} href={oauth?.[m] ?? "/sign-in"} />
+            ),
+          )}
+        </div>
+      ) : null}
+      {sso.match && !enforced ? (
+        <div style={{ marginTop: 10 }}>
+          <SSOLink match={sso.match} />
+        </div>
+      ) : null}
     </ObShell>
   );
 }

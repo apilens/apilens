@@ -17,8 +17,11 @@ export type EmailStartResult =
   | { kind: "rate_limited"; retryAfter: number }
   /** No answer: the browser is offline, or identity is unreachable behind the Route Handler. */
   | { kind: "network" }
-  /** Any other refusal, by stable `code`. */
-  | { kind: "error"; code: string };
+  /**
+   * Any other refusal, by stable `code`. `sso_required` (#323): the domain's organization enforces
+   * SSO, no code was sent, and `startUrl` (when known) is where its SSO starts.
+   */
+  | { kind: "error"; code: string; startUrl?: string };
 
 /** Seconds to show when a 429 carries no `Retry-After`. */
 export const DEFAULT_RETRY_AFTER = 60;
@@ -81,6 +84,9 @@ export async function startEmail(input: EmailStartInput, fetcher: typeof fetch =
     return { kind: "rate_limited", retryAfter: retryAfter ?? DEFAULT_RETRY_AFTER };
   }
   const code = typeof body.code === "string" && body.code !== "" ? body.code : `http_${res.status}`;
+  if (code === "sso_required" && typeof body.start_url === "string") {
+    return { kind: "error", code, startUrl: body.start_url };
+  }
   if (UNREACHABLE.has(code)) return { kind: "network" };
   return { kind: "error", code };
 }
@@ -100,6 +106,8 @@ export function errorMessage(code: string): string {
     case "validation_failed":
     case "invalid_email":
       return "Enter a work email like you@company.com.";
+    case "sso_required":
+      return "Your organization requires single sign-on. Continue with SSO instead.";
     default:
       return "Something went wrong sending your code. Try again.";
   }

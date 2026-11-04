@@ -310,6 +310,7 @@ describe("operations", () => {
   // [method, path template under /api/v1, call]
   const routes: [string, string, (c: Client) => Promise<unknown>][] = [
     ["GET", "/auth/providers", (c) => c.providers()],
+    ["GET", "/auth/sso/lookup", (c) => c.ssoLookup("ada@example.com")],
     ["POST", "/auth/email/start", (c) => c.emailStart({ email: "a@b.co", intent: "signin" })],
     ["POST", "/auth/email/verify", (c) => c.emailVerify({ email: "a@b.co", code: "123456" })],
     ["POST", "/auth/email/verify-link", (c) => c.emailVerifyLink({ token: "t" })],
@@ -383,6 +384,12 @@ describe("operations", () => {
     expect(calls[0].method).toBe(method);
     // Path parameters are encoded as a single segment.
     expect(url.pathname).toBe(`/api/v1${template.replace(/\{[^}]+\}/g, "a%2Fb%3Fc")}`);
+  });
+
+  it("sends the SSO lookup email as a query parameter", async () => {
+    const { client, calls } = recordingClient(() => json({ sso: false, enforced: false }));
+    await client.ssoLookup("ada+x@example.com");
+    expect(new URL(calls[0].url).searchParams.get("email")).toBe("ada+x@example.com");
   });
 
   it("sends slug availability as a query parameter", async () => {

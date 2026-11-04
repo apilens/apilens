@@ -56,7 +56,7 @@ const MAX_BODY_BYTES = 64 * 1024;
 
 export type AuthRouteBody =
   | { ok: true; next: string; [extra: string]: unknown }
-  | { ok: false; code: string; next?: string; retry_after?: number };
+  | { ok: false; code: string; next?: string; retry_after?: number; start_url?: string };
 
 /** A failure answer: `{ok: false, code}` with the HTTP status (and `Retry-After` when known). */
 export function failure(status: number, code: string, retryAfter?: number | null): NextResponse {
