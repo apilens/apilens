@@ -492,6 +492,13 @@ button.cp-av--btn:active { background: var(--border-strong); }
 .cp-side.is-collapsed .cp-tip { display: none !important; }
 @media (prefers-reduced-motion: reduce) { .cp-side.is-collapsed [data-tip]::after { transition: none; } }
 
+/* ───────── Gated controls (lib/permissions.tsx) ─────────
+   A denied <Gated> disables the controls inside through a layout-free fieldset; the wrapper
+   carries the reason as a hover title, and a visually hidden span gives it to screen readers. */
+.gated { display: inline-flex; cursor: not-allowed; }
+.gated > fieldset { display: contents; min-width: 0; margin: 0; padding: 0; border: 0; }
+.gated-reason { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
 /* ───────── Org and project menus share one row design ─────────
    44px rows: 24px mark tile · bold name over a one-line detail · check. Same insets, same widths. */
 .org-pop .cp-org--row { height: 44px; gap: 10px; padding: 0 8px; }
