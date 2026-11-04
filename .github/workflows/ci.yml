@@ -35,6 +35,8 @@ env:
   ACTIONLINT_VERSION: v1.7.12
   ZIZMOR_VERSION: 1.31.1
   OSV_SCANNER_VERSION: v2.7.0
+  # Same pinned image as `task lint:authz` (Taskfile.yml ZED_IMAGE); keep them in step.
+  ZED_IMAGE: ghcr.io/authzed/zed:v1.2.1@sha256:075810514ce2b5b494240b8015dd1ee686b47c00e238a5925eaf5f5fe3c8d02e
 
 jobs:
   changes:
@@ -46,7 +48,9 @@ jobs:
       pull-requests: read
     outputs:
       go: ${{ github.event_name == 'merge_group' || steps.filter.outputs.go == 'true' }}
+      authz: ${{ github.event_name == 'merge_group' || steps.filter.outputs.authz == 'true' }}
       web: ${{ github.event_name == 'merge_group' || steps.filter.outputs.web == 'true' }}
+      e2e: ${{ github.event_name == 'merge_group' || steps.filter.outputs.e2e == 'true' }}
       ai: ${{ github.event_name == 'merge_group' || steps.filter.outputs.ai == 'true' }}
       sdk-python: ${{ github.event_name == 'merge_group' || steps.filter.outputs.sdk-python == 'true' }}
       sdk-ts: ${{ github.event_name == 'merge_group' || steps.filter.outputs.sdk-ts == 'true' }}
@@ -78,6 +82,12 @@ jobs:
               - .golangci.yml
               - Taskfile.yml
               - .github/workflows/ci.yml
+            # SpiceDB schema + assertions (zed validate). Go code embeds the schema, so
+            # `go` above also covers authz/**.
+            authz:
+              - 'authz/**'
+              - Taskfile.yml
+              - .github/workflows/ci.yml
             web:
               - 'apps/ui/**'
               - package.json
@@ -107,6 +117,15 @@ jobs:
               - 'deploy/compose/**'
               - 'deploy/docker/**'
               - 'apps/ui/Dockerfile'
+              - .github/workflows/ci.yml
+            # Anything the e2e job exercises beyond the go/web/compose filters: the
+            # Go black-box suite and the Playwright specs (auth/onboarding funnel).
+            e2e:
+              - 'test/e2e/**'
+              - 'apps/ui/e2e/**'
+              - 'apps/ui/playwright*.config.ts'
+              - 'internal/identity/**'
+              - 'authz/**'
               - .github/workflows/ci.yml
             workflows:
               - '.github/**'
@@ -143,8 +162,12 @@ jobs:
           go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
           govulncheck ./...
 
+  # Testcontainers start every dependency the integration suites need, pinned in
+  # internal/testutil: Postgres, ClickHouse, Valkey, SpiceDB (authz client, outbox
+  # relay, fail-closed API) and Mailpit (identity email flows). Mail never leaves
+  # the runner.
   go-integration:
-    name: Go integration tests (testcontainers)
+    name: Go integration tests (Postgres, ClickHouse, Valkey, SpiceDB, Mailpit)
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
@@ -160,6 +183,23 @@ jobs:
           go-version-file: go.mod
       - name: Integration tests
         run: go test -race -count=1 -tags=integration ./internal/...
+
+  authz:
+    name: SpiceDB schema (zed validate)
+    needs: changes
+    if: needs.changes.outputs.authz == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Validates authz/schema.zed against every assertion in schema.validation.yaml
+      # (the same command as `task lint:authz`).
+      - name: zed validate
+        run: docker run --rm -v "$GITHUB_WORKSPACE/authz:/authz:ro" -w /authz "$ZED_IMAGE" validate schema.validation.yaml
 
   proto:
     name: Protobuf (lint, format, breaking)
@@ -391,7 +431,7 @@ jobs:
   e2e:
     name: End-to-end (compose all-in-one)
     needs: changes
-    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.compose == 'true' || needs.changes.outputs.web == 'true'
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.compose == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -437,10 +477,25 @@ jobs:
           APILENS_E2E_CLICKHOUSE_PASSWORD: ci-clickhouse
           APILENS_E2E_MAILPIT_URL: http://127.0.0.1:8025
         run: go test -count=1 -tags=e2e ./test/e2e/...
-      - name: Install Playwright
+      - name: Install UI dependencies
+        id: playwright
         run: |
           pnpm install --frozen-lockfile
-          pnpm --filter ui exec playwright install --with-deps chromium
+          echo "version=$(pnpm --filter ui exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      # Browsers are keyed on the exact Playwright version; system deps are not
+      # cacheable and are installed on every run.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter ui exec playwright install --with-deps chromium
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter ui exec playwright install-deps chromium
       # The whole onboarding funnel in a browser (apps/ui/e2e/onboarding.spec.ts): sign-up codes
       # and invitations are read from Mailpit, the first request goes to the edge.
       - name: Run browser e2e (onboarding)
@@ -451,6 +506,15 @@ jobs:
         run: |
           timeout 120 sh -c 'until curl -fsS -o /dev/null "$APILENS_E2E_UI_URL/sign-in"; do sleep 2; done'
           pnpm --filter ui exec playwright test onboarding.spec.ts
+      # playwright.config.ts keeps traces for failed tests (trace: retain-on-failure).
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-traces
+          path: apps/ui/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Dump logs on failure
         if: failure()
         run: $COMPOSE logs --no-color --timestamps
@@ -498,6 +562,7 @@ jobs:
       - changes
       - go
       - go-integration
+      - authz
       - proto
       - codegen
       - web
