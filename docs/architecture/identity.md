@@ -452,13 +452,14 @@ here, in `capabilities.ts` and in the schema in the same change.
 
 Every identity endpoint fails with an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
 problem served as `application/problem+json`. On top of Huma's standard
-members (`title`, `status`, `detail`) each problem carries two extension
-members:
+members (`title`, `status`, `detail`) each problem carries `code`, and some
+carry more extension members:
 
 | Member | Type | Meaning |
 |---|---|---|
 | `code` | string | Stable, machine-readable error code from the catalogue below. |
 | `retry_after` | integer | Seconds to wait before retrying. Only on rate limits and lockouts; mirrored in the `Retry-After` header. |
+| `suggestions` | string[] | Up to three free alternative slugs. Only on `slug_taken`. |
 
 ```json
 {
@@ -524,6 +525,7 @@ Rules:
 | `reauth_required` | 403 Forbidden | For your security, sign in again to continue. |
 | `email_taken` | 409 Conflict | Another account already uses this email address. |
 | `account_deleting` | 409 Conflict | This account is scheduled for deletion on {delete_after}. Restore it to keep using it. |
+| `slug_taken` | 409 Conflict | That URL is taken. Try one of the suggestions. |
 | `forbidden` | 403 Forbidden | You don't have permission to do that. |
 | `internal_error` | 500 Internal Server Error | Something went wrong on our side. Please try again. |
 

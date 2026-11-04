@@ -216,6 +216,7 @@ type RateLimitsConfig struct {
 	OAuthStartPerIP     RateLimit `koanf:"oauth_start_per_ip"`
 	SSOLookupPerIP      RateLimit `koanf:"sso_lookup_per_ip"`
 	PasskeyLoginPerIP   RateLimit `koanf:"passkey_login_per_ip"` // passkey sign-in options and verify, each
+	SlugCheckPerUser    RateLimit `koanf:"slug_check_per_user"`  // slug availability checks
 }
 
 // RateLimit allows Limit requests per sliding Window.
@@ -431,6 +432,8 @@ func Defaults() map[string]any {
 		"identity.rate_limits.sso_lookup_per_ip.window":      "15m",
 		"identity.rate_limits.passkey_login_per_ip.limit":    60,
 		"identity.rate_limits.passkey_login_per_ip.window":   "15m",
+		"identity.rate_limits.slug_check_per_user.limit":     60,
+		"identity.rate_limits.slug_check_per_user.window":    "1m",
 		"authz.endpoint":      "",
 		"authz.preshared_key": "",
 		"authz.insecure":      false,
@@ -680,6 +683,7 @@ func (r RateLimitsConfig) validate() []error {
 		{"oauth_start_per_ip", r.OAuthStartPerIP},
 		{"sso_lookup_per_ip", r.SSOLookupPerIP},
 		{"passkey_login_per_ip", r.PasskeyLoginPerIP},
+		{"slug_check_per_user", r.SlugCheckPerUser},
 	}
 	for _, l := range limits {
 		if l.l.Limit <= 0 || l.l.Window < time.Second {

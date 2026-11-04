@@ -204,6 +204,32 @@ func (q *Queries) SoftDeleteOrganization(ctx context.Context, id uuid.UUID) (int
 	return result.RowsAffected(), nil
 }
 
+const takenOrganizationSlugs = `-- name: TakenOrganizationSlugs :many
+SELECT slug FROM organizations
+WHERE slug = ANY($1::text[]) AND deleted_at IS NULL
+`
+
+// Which of the given slugs active organizations already use.
+func (q *Queries) TakenOrganizationSlugs(ctx context.Context, slugs []string) ([]string, error) {
+	rows, err := q.db.Query(ctx, takenOrganizationSlugs, slugs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		items = append(items, slug)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateOrganization = `-- name: UpdateOrganization :one
 UPDATE organizations
 SET name            = coalesce($1, name),

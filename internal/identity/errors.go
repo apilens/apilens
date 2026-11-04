@@ -93,6 +93,10 @@ const (
 	// restores it. Only sent after the caller proved control of the address,
 	// so it reveals nothing to a stranger.
 	CodeAccountDeleting ErrCode = "account_deleting"
+	// CodeSlugTaken: the organization or project slug is reserved or used by
+	// another active one. The problem carries up to three free
+	// `suggestions`.
+	CodeSlugTaken ErrCode = "slug_taken"
 	// CodeForbidden: authenticated, but not allowed to perform the action.
 	CodeForbidden ErrCode = "forbidden"
 	// CodeInternal: an unexpected server failure. Details stay in the logs.
@@ -133,6 +137,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeReauthRequired:        {http.StatusForbidden, "Recent sign-in required", "Sign in again to continue."},
 	CodeEmailTaken:            {http.StatusConflict, "Email taken", "Another account already uses this email address."},
 	CodeAccountDeleting:       {http.StatusConflict, "Account scheduled for deletion", "This account was deleted and will be removed for good after delete_after. Restore it with a new email code."},
+	CodeSlugTaken:             {http.StatusConflict, "Slug taken", "This slug is not available. Pick another one."},
 	CodeForbidden:             {http.StatusForbidden, "Forbidden", "You do not have permission to perform this action."},
 	CodeInternal:              {http.StatusInternalServerError, "Internal error", "Something went wrong."},
 }
@@ -158,6 +163,8 @@ type Problem struct {
 	// DeleteAfter is when a deleted account is removed for good
 	// (account_deleting only).
 	DeleteAfter *time.Time `json:"delete_after,omitempty" doc:"When the deleted account is removed for good (account_deleting only)."`
+	// Suggestions are free alternative slugs (slug_taken only).
+	Suggestions []string `json:"suggestions,omitempty" maxItems:"3" doc:"Free alternative slugs (slug_taken only)."`
 }
 
 // GetHeaders sets Retry-After when the problem carries a retry delay.
@@ -187,6 +194,13 @@ func ErrAccountDeleting(deleteAfter time.Time) *Problem {
 	p := Err(CodeAccountDeleting)
 	t := deleteAfter.UTC()
 	p.DeleteAfter = &t
+	return p
+}
+
+// ErrSlugTaken builds the slug_taken problem offering suggestions.
+func ErrSlugTaken(suggestions []string) *Problem {
+	p := Err(CodeSlugTaken)
+	p.Suggestions = suggestions
 	return p
 }
 

@@ -23,6 +23,7 @@ import (
 	controlplaneapi "github.com/apilens/apilens/internal/controlplane/api"
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
 	"github.com/apilens/apilens/internal/controlplane/catalog"
+	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/email"
@@ -113,6 +114,8 @@ type App struct {
 	// denylist refuses access tokens of revoked sessions; set by
 	// useSessionAuth and written by identity on revocation.
 	denylist *authn.Denylist
+	// limiter is shared by api and identity; built once by rateLimiter.
+	limiter *ratelimit.Limiter
 }
 
 // New registers all modules.
@@ -323,7 +326,20 @@ func (a *App) initQuery(context.Context) (modules.Service, error) {
 
 func (a *App) initAPI(context.Context) (modules.Service, error) {
 	a.useSessionAuth()
-	controlplaneapi.Register(a.server.API())
+	if !a.cfg.IdentityEnabled() {
+		// With identity in this process, initIdentity installs it.
+		a.server.Use(audit.Middleware)
+	}
+	limiter, err := a.rateLimiter()
+	if err != nil {
+		return nil, err
+	}
+	controlplaneapi.Register(a.server.API(), controlplaneapi.Deps{
+		Orgs:    orgs.New(a.pool, audit.New(a.pool)),
+		Limiter: limiter,
+		Limits:  a.cfg.Identity.RateLimits,
+		Logger:  a.logger,
+	})
 	return nil, nil
 }
 
@@ -348,7 +364,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	identity.Register(a.server.API())
 	identity.RegisterJWKS(a.server.Mux(), signingKeys, a.logger)
 	identity.RegisterProviders(a.server.API(), a.cfg.Identity)
-	limiter, err := ratelimit.New(a.valkey, a.logger, a.cfg.Identity.RateLimits.TrustedProxies)
+	limiter, err := a.rateLimiter()
 	if err != nil {
 		return nil, err
 	}
@@ -418,6 +434,20 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	jobs.Register(a.workers, account.NewPurgeWorker(a.pool, a.logger))
 	a.workers.Periodic(account.PurgeInterval, account.PurgeArgs{})
 	return modules.ServiceFunc(signingKeys.Run), nil
+}
+
+// rateLimiter returns the process-wide Valkey-backed limiter, building it on
+// first use so api and identity share one instance.
+func (a *App) rateLimiter() (*ratelimit.Limiter, error) {
+	if a.limiter != nil {
+		return a.limiter, nil
+	}
+	l, err := ratelimit.New(a.valkey, a.logger, a.cfg.Identity.RateLimits.TrustedProxies)
+	if err != nil {
+		return nil, err
+	}
+	a.limiter = l
+	return l, nil
 }
 
 // useSessionAuth installs the user-session middleware on the typed API. With

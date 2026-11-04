@@ -74,6 +74,36 @@
         ],
         "type": "object"
       },
+      "CreateOrgInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/CreateOrgInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name; surrounding spaces are trimmed.",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL name, globally unique among organizations: lower-case letters, digits and hyphens, starting with a letter or digit, at most 63 characters.",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "slug"
+        ],
+        "type": "object"
+      },
       "DeployOut": {
         "additionalProperties": false,
         "properties": {
@@ -810,6 +840,52 @@
         ],
         "type": "object"
       },
+      "Org": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Org.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "description": "The signed-in user's role in the organization.",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "role",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "Passkey": {
         "additionalProperties": false,
         "properties": {
@@ -1173,6 +1249,17 @@
             ],
             "format": "int64",
             "type": "integer"
+          },
+          "suggestions": {
+            "description": "Free alternative slugs (slug_taken only).",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "title": {
             "description": "A short, human-readable summary of the problem type. This value should not change between occurrences of the error.",
@@ -1568,6 +1655,40 @@
             "$ref": "#/components/schemas/AuthUser"
           }
         },
+        "type": "object"
+      },
+      "SlugAvailableOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SlugAvailableOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "available": {
+            "description": "Whether a new organization can use the slug.",
+            "type": "boolean"
+          },
+          "suggestions": {
+            "description": "Up to three free alternatives when the slug is not available; empty otherwise.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "available",
+          "suggestions"
+        ],
         "type": "object"
       },
       "SpanOut": {
@@ -3621,6 +3742,185 @@
         "summary": "Build and runtime metadata",
         "tags": [
           "System"
+        ]
+      }
+    },
+    "/api/v1/orgs": {
+      "post": {
+        "description": "Creates an organization owned by the signed-in user. Answers `slug_taken` (409) with up to three free `suggestions` when the slug is reserved or used by another organization. Audited as `org.created`.",
+        "operationId": "create-org",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrgInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Org"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `slug_taken`.",
+            "x-apilens-codes": [
+              "slug_taken"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Create an organization",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/api/v1/orgs/slug-available": {
+      "get": {
+        "description": "Answers whether a new organization can use `slug` and, when it cannot (taken or reserved), up to three free alternatives. Rate-limited per user.",
+        "operationId": "check-org-slug",
+        "parameters": [
+          {
+            "description": "The slug to check.",
+            "explode": false,
+            "in": "query",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The slug to check.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlugAvailableOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Check whether an organization slug is free",
+        "tags": [
+          "Organizations"
         ]
       }
     },

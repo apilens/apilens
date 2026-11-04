@@ -79,6 +79,8 @@ type Querier interface {
 	RevokeAPIKey(ctx context.Context, id uuid.UUID) (string, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (Invitation, error)
 	SoftDeleteOrganization(ctx context.Context, id uuid.UUID) (int64, error)
+	// Which of the given slugs active organizations already use.
+	TakenOrganizationSlugs(ctx context.Context, slugs []string) ([]string, error)
 	TouchAPIKey(ctx context.Context, id uuid.UUID) error
 	UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (Membership, error)
 	// NULL arguments leave the column unchanged. allowed_domains must be

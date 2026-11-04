@@ -2,10 +2,26 @@
 // members and keys. It mounts its operations on the typed API.
 package api
 
-import "github.com/danielgtaylor/huma/v2"
+import (
+	"log/slog"
 
-// Register mounts the control-plane operations on api. There are none yet;
-// later M2 tasks add them.
-func Register(api huma.API) {
-	_ = api
+	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/apilens/apilens/internal/platform/config"
+	"github.com/apilens/apilens/internal/platform/ratelimit"
+)
+
+// Deps are what the control-plane operations run on. Zero values are enough
+// when only the OpenAPI document is read.
+type Deps struct {
+	Orgs    OrgService
+	Limiter *ratelimit.Limiter
+	Limits  config.RateLimitsConfig
+	Logger  *slog.Logger
+}
+
+// Register mounts the control-plane operations on api. They declare the
+// session scheme, so authn.Middleware must be installed on api before.
+func Register(api huma.API, d Deps) {
+	NewOrgs(d.Orgs, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
 }
