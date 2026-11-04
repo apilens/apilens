@@ -52,6 +52,12 @@ type Querier interface {
 	ListOrgMembers(ctx context.Context, orgID uuid.UUID) ([]ListOrgMembersRow, error)
 	ListPendingInvitations(ctx context.Context, orgID uuid.UUID) ([]Invitation, error)
 	ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppsRow, error)
+	// The authz reconciler (ADR 0006) compares these with SpiceDB. They describe
+	// the relationships the outbox relay leaves behind once it has applied every
+	// row: one org role per membership of an active organization, and one
+	// project#org per active project of an active organization.
+	ListReconcileMemberships(ctx context.Context) ([]ListReconcileMembershipsRow, error)
+	ListReconcileProjects(ctx context.Context) ([]ListReconcileProjectsRow, error)
 	// The active organizations a user belongs to, with their role.
 	ListUserOrganizations(ctx context.Context, userID uuid.UUID) ([]ListUserOrganizationsRow, error)
 	// Row-locks an active organization for the rest of the transaction.

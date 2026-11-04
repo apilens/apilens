@@ -19,11 +19,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/apilens/apilens/authz"
+	authzclient "github.com/apilens/apilens/internal/authz"
 	controlplaneapi "github.com/apilens/apilens/internal/controlplane/api"
 	"github.com/apilens/apilens/internal/controlplane/bootstrap"
+	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/migrations"
 	"github.com/apilens/apilens/internal/platform/buildinfo"
+	"github.com/apilens/apilens/internal/platform/cache"
 	"github.com/apilens/apilens/internal/platform/config"
 	applog "github.com/apilens/apilens/internal/platform/log"
 	"github.com/apilens/apilens/internal/platform/pg"
@@ -43,6 +46,8 @@ Usage:
   apilens seed [flags]                        create a dev org/project/app and print an ingest key
   apilens identity rotate-key                 activate a new token signing key; the previous
                                               one stays published until its tokens expire
+  apilens authz reconcile [-dry-run]          repair drift between Postgres and SpiceDB now
+                                              (the identity role also runs it hourly)
   apilens healthcheck [-url=...]              exit 0 if the readiness endpoint answers 200
   apilens openapi                             print the OpenAPI 3.1 document
   apilens version                             print build information
@@ -72,6 +77,8 @@ func Main(args []string, stdout, stderr io.Writer, environ []string) int {
 		err = runSeed(ctx, args, stdout, stderr, environ)
 	case "identity":
 		err = runIdentity(ctx, args, stdout, stderr, environ)
+	case "authz":
+		err = runAuthz(ctx, args, stdout, stderr, environ)
 	case "healthcheck":
 		err = runHealthcheck(ctx, args, stderr)
 	case "openapi":
@@ -264,6 +271,61 @@ func runRotateKey(ctx context.Context, args []string, stdout, stderr io.Writer, 
 		KID        string `json:"kid"`
 		RetiredKID string `json:"retired_kid,omitempty"`
 	}{active.KID, retired})
+}
+
+// runAuthz runs the `apilens authz <command>` operator commands.
+func runAuthz(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) error {
+	sub := ""
+	if len(args) > 0 {
+		sub, args = args[0], args[1:]
+	}
+	switch sub {
+	case "reconcile":
+		return runReconcile(ctx, args, stdout, stderr, environ)
+	default:
+		return fmt.Errorf("authz: unknown command %q (want reconcile)", sub)
+	}
+}
+
+// runReconcile runs the authz reconciler once (the job the identity role
+// runs hourly) and prints how much drift it found.
+func runReconcile(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) error {
+	fs := flag.NewFlagSet("apilens authz reconcile", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dryRun := fs.Bool("dry-run", false, "report drift without repairing it")
+	cfg, logger, err := loadConfig(fs, args, environ, stderr)
+	if err != nil {
+		return err
+	}
+	if !cfg.Authz.Enabled() {
+		return errors.New("authz reconcile: authz.endpoint is not set")
+	}
+	pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-authz")
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	client, err := spicedb.Connect(cfg.Authz)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close() }()
+	// Record ZedTokens like the job does, so checks see the repair at once.
+	var tokens authzclient.TokenStore
+	if cfg.Valkey.Enabled() {
+		vk, err := cache.Connect(ctx, cfg.Valkey)
+		if err != nil {
+			return err
+		}
+		defer vk.Close()
+		tokens = authzclient.NewValkeyTokens(vk)
+	}
+	recorder := authzclient.New(client, tokens, authzclient.Options{}, logger, nil)
+	res, err := outbox.NewReconciler(pool, client, recorder, outbox.ReconcileOptions{}, logger, nil).Reconcile(ctx, *dryRun)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(stdout).Encode(res)
 }
 
 func runHealthcheck(ctx context.Context, args []string, stderr io.Writer) error {

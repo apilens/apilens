@@ -83,6 +83,17 @@ docker compose run --rm --entrypoint /apilens apilens identity rotate-key
 
 The command prints `{"kid":"<new>","retired_kid":"<previous>"}`. The new key starts signing immediately, and running identity replicas switch to it within 60 seconds. The previous key is retired: it no longer signs, but stays in the published JWKS for `identity.refresh_token_ttl` (30 days by default), so tokens it already signed keep verifying until they expire. Rotation is safe to run while the stack is serving traffic. It needs the same Postgres and key-encryption-key settings as the `identity` role.
 
+### Authorization drift
+
+Postgres is the source of truth for who can see what; SpiceDB holds the derived relationships. The `identity` role relays every change within seconds and, once an hour, reconciles the two: it restores relationships SpiceDB lost and removes ones Postgres has no source for. `apilens_authz_drift_total{kind}` counts what it repaired, so a non-zero rate means something edited SpiceDB behind APILens' back. To reconcile at once, for example after restoring a backup of either store:
+
+```bash
+docker compose run --rm --entrypoint /apilens apilens authz reconcile            # add -dry-run to only report
+# Kubernetes: kubectl exec deploy/<deployment running identity or all> -- /apilens authz reconcile
+```
+
+It prints `{"missing":<n>,"extra":<n>,"dry_run":false}` and needs the same Postgres, SpiceDB and Valkey settings as the `identity` role.
+
 ### Upgrading
 
 ```bash
