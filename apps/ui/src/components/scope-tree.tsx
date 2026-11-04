@@ -2,36 +2,37 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { HOME_VIEW, ORGS, PROJECTS, appsIn, type Org, type Project } from "@/lib/data";
+import { HOME_VIEW, appsIn } from "@/lib/data";
+import { type ContextOrg, type ContextProject, orgHome, orgMark, plural, roleLabel } from "@/lib/scope";
 import { Icon } from "./icons";
 import { PopMenu } from "./pop-menu";
 
 
 
 /** Top of the sidebar: the organization (switch, settings, create). Collapsed: the mark only. */
-export function OrgHeader({ org, orgScope, collapsed }: { org: Org; orgScope: boolean; collapsed: boolean }) {
+export function OrgHeader({ orgs, org, orgScope, collapsed }: { orgs: ContextOrg[]; org: ContextOrg; orgScope: boolean; collapsed: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
   const close = () => setOpen(false);
   return (
     <>
-      <button ref={ref} type="button" className={`oh${open ? " is-open" : ""}`} aria-haspopup="menu" aria-expanded={open} aria-label={`${org.name}, ${org.role}. Organization menu`} data-tip={collapsed && !open ? org.name : undefined} onClick={() => setOpen((o) => !o)}>
-        <span className="st-mark">{org.mark}</span>
+      <button ref={ref} type="button" className={`oh${open ? " is-open" : ""}`} aria-haspopup="menu" aria-expanded={open} aria-label={`${org.name}, ${roleLabel(org.role)}. Organization menu`} data-tip={collapsed && !open ? org.name : undefined} onClick={() => setOpen((o) => !o)}>
+        <span className="st-mark">{orgMark(org)}</span>
         <span className="oh-txt">
           <b>{org.name}</b>
-          <small>Organization · {org.role}</small>
+          <small>Organization · {roleLabel(org.role)}</small>
         </span>
         <Icon name="updown" />
       </button>
       <PopMenu open={open} onClose={close} triggerRef={ref} label="Organization" align={collapsed ? "side" : "start"}>
         <p className="menu-label">Organizations</p>
-        {ORGS.slice(0, 3).map((o) => (
-          <Link key={o.slug} role="menuitemradio" aria-checked={o.slug === org.slug} href={orgScope ? `/orgs/${o.slug}/settings` : `/${PROJECTS.find((p) => p.org === o.slug)!.slug}/incidents`} className={`cp-org cp-org--row${o.slug === org.slug ? " on" : ""}`} onClick={close}>
-            <span className="st-mark">{o.mark}</span>
+        {orgs.map((o) => (
+          <Link key={o.slug} role="menuitemradio" aria-checked={o.slug === org.slug} href={orgScope ? `/orgs/${o.slug}/settings` : orgHome(o, HOME_VIEW)} className={`cp-org cp-org--row${o.slug === org.slug ? " on" : ""}`} onClick={close}>
+            <span className="st-mark">{orgMark(o)}</span>
             <span className="t">
               <b>{o.name}</b>
               <small>
-                {o.role} · {o.note}
+                {roleLabel(o.role)} · {plural(o.projects.length, "project")}
               </small>
             </span>
             {o.slug === org.slug ? (
@@ -60,7 +61,7 @@ export function OrgHeader({ org, orgScope, collapsed }: { org: Org; orgScope: bo
 }
 
 /** Under the organization: the project, switchable within the org. */
-export function ProjectRow({ org, project, view, collapsed = false }: { org: Org; project: Project; view: string; collapsed?: boolean }) {
+export function ProjectRow({ org, project, view, collapsed = false }: { org: ContextOrg; project: ContextProject; view: string; collapsed?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
   return (
@@ -77,7 +78,7 @@ export function ProjectRow({ org, project, view, collapsed = false }: { org: Org
       </button>
       <PopMenu open={open} onClose={() => setOpen(false)} triggerRef={ref} label="Projects" align={collapsed ? "side" : "start"}>
         <p className="menu-label">Projects</p>
-        {PROJECTS.filter((p) => p.org === org.slug).map((p) => {
+        {org.projects.map((p) => {
           const apps = appsIn(p.slug).length;
           return (
             <Link key={p.slug} role="menuitemradio" aria-checked={p.slug === project.slug} href={`/${p.slug}/${view || HOME_VIEW}`} className={`cp-org cp-org--row${p.slug === project.slug ? " on" : ""}`} onClick={() => setOpen(false)}>

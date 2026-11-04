@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
-import { VIEWS, projectBySlug } from "@/lib/data";
+import { getContext } from "@/lib/auth/server";
+import { VIEWS } from "@/lib/data";
+import { findProject } from "@/lib/scope";
 
 type Params = { project: string; view: string };
 
@@ -13,6 +15,8 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
 // The shell (sidebar, top bar, scope switcher) is built; page content is intentionally empty for now.
 export default async function Page({ params }: { params: Promise<Params> }) {
   const { project, view } = await params;
-  if (!projectBySlug(project) || !VIEWS.some((v) => v.slug === view)) notFound();
-  return <AppShell project={project} view={view} />;
+  if (!VIEWS.some((v) => v.slug === view)) notFound();
+  const context = await getContext(`/${project}/${view}`);
+  if (!findProject(context, project)) notFound();
+  return <AppShell context={context} project={project} view={view} />;
 }

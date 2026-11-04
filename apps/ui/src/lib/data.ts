@@ -1,46 +1,16 @@
-// Sample tenancy and data. Names, health and facts follow the design system's own examples.
+// View definitions (`VIEWS`, `SECTIONS`, settings pages). Tenancy (user, orgs, projects, roles)
+// is real: it comes from `GET /users/me/context` via `lib/auth/server.ts` and `lib/scope.ts`.
+// The services/apps below are still sample data (names follow the design system's examples)
+// until the apps API exists; they are keyed by sample project slugs.
 
 export type Health = "ok" | "warn" | "error" | "info" | "none";
 
-export interface Org {
-  slug: string;
-  name: string;
-  mark: string;
-  role: string;
-  note: string;
-  health: Health;
-  fact: string;
-}
-export interface Project {
-  slug: string;
-  name: string;
-  org: string;
-  health: Health;
-  services: number;
-}
 export interface Service {
   slug: string;
   project: string;
   health: Health;
   fact: string;
 }
-
-export const ORGS: Org[] = [
-  { slug: "acme-retail", name: "Acme Retail", mark: "A", role: "Owner", note: "4 projects", health: "warn", fact: "2" },
-  { slug: "acme-labs", name: "Acme Labs", mark: "L", role: "Admin", note: "3 projects", health: "ok", fact: "quiet" },
-  { slug: "northwind", name: "Northwind", mark: "N", role: "Admin", note: "client org", health: "info", fact: "client" },
-  { slug: "sandbox", name: "Sandbox", mark: "S", role: "Owner", note: "1 project", health: "none", fact: "idle 9d" },
-];
-
-export const PROJECTS: Project[] = [
-  { slug: "platform", name: "platform", org: "acme-retail", health: "warn", services: 5 },
-  { slug: "identity", name: "identity", org: "acme-retail", health: "none", services: 3 },
-  { slug: "storefront", name: "storefront", org: "acme-retail", health: "info", services: 4 },
-  { slug: "notifications", name: "notifications", org: "acme-retail", health: "none", services: 2 },
-  { slug: "ml-gateway", name: "ml-gateway", org: "acme-labs", health: "ok", services: 3 },
-  { slug: "orders", name: "orders", org: "northwind", health: "info", services: 4 },
-  { slug: "scratch", name: "scratch", org: "sandbox", health: "none", services: 1 },
-];
 
 export const SERVICES: Service[] = [
   { slug: "checkout-api", project: "platform", health: "warn", fact: "412ms" },
@@ -67,15 +37,6 @@ export const SERVICES: Service[] = [
   { slug: "demo-api", project: "scratch", health: "none", fact: "idle 9d" },
 ];
 
-export const PINNED = [
-  { slug: "web-api", health: "warn" as Health, value: "412 ms", tone: "warn" },
-  { slug: "jobs-worker", health: "error" as Health, value: "6.1%", tone: "error" },
-  { slug: "users-db", health: "none" as Health, value: "4 ms", tone: "none" },
-];
-
-export const USER = { name: "Amit", initials: "AM", email: "amit@motadata.com" };
-export const USAGE = { pct: 60, text: "29.8 of 50 GB · resets Nov 1" };
-
 export const VIEWS = [
   { slug: "incidents", label: "Incidents", section: "Monitor", badge: "1", warn: true },
   { slug: "explore", label: "Explore", section: "Monitor" },
@@ -95,12 +56,6 @@ export const PROJECT_SETTINGS = { slug: "settings", label: "Project settings", c
 /** Organization-level page (not a project view): linked from the sidebar, lives at /orgs/<org>/settings. */
 export const ORG_SETTINGS = { label: "Organization settings", crumb: "Settings" } as const;
 export type ViewSlug = (typeof VIEWS)[number]["slug"];
-
-export const orgOf = (p: Project) => ORGS.find((o) => o.slug === p.org)!;
-export const projectBySlug = (slug: string) => PROJECTS.find((p) => p.slug === slug);
-
-export const firstProjectOf = (orgSlug: string) => PROJECTS.find((p) => p.org === orgSlug) ?? PROJECTS[0];
-export const orgBySlug = (slug: string) => ORGS.find((o) => o.slug === slug) ?? ORGS[0];
 
 // ── Apps: the services instrumented in a project ───────────────────────────
 export type Lang = "python" | "java" | "go" | "node";

@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./icons";
-import { ORGS, PROJECTS, SERVICES, type Health } from "@/lib/data";
+import { SERVICES, type Health } from "@/lib/data";
+import { type ContextOrg, plural, roleLabel } from "@/lib/scope";
 
 type Level = 0 | 1 | 2;
 interface Row {
@@ -25,8 +26,11 @@ function Hit({ text, q }: { text: string; q: string }) {
   );
 }
 
-/** Miller columns: Organizations, Projects, Services. Typing filters all three at once. */
-export function ScopeSwitcher({ open, onClose, orgSlug, projectSlug }: { open: boolean; onClose: () => void; orgSlug: string; projectSlug: string }) {
+/**
+ * Miller columns: Organizations (with your role), Projects, Services. Typing filters all three at
+ * once. `orgs` is the user's `GET /users/me/context` tenancy.
+ */
+export function ScopeSwitcher({ orgs: allOrgs, open, onClose, orgSlug, projectSlug = "" }: { orgs: ContextOrg[]; open: boolean; onClose: () => void; orgSlug: string; projectSlug?: string }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState("");
@@ -34,35 +38,37 @@ export function ScopeSwitcher({ open, onClose, orgSlug, projectSlug }: { open: b
   const [project, setProject] = useState(projectSlug);
   const [cur, setCur] = useState<{ level: Level; i: number }>({ level: 1, i: 0 });
 
+  const projectsOf = (slug: string) => allOrgs.find((o) => o.slug === slug)?.projects ?? [];
+
   useEffect(() => {
     if (!open) return;
     setQ("");
     setOrg(orgSlug);
     setProject(projectSlug);
-    const pi = Math.max(0, PROJECTS.filter((p) => p.org === orgSlug).findIndex((p) => p.slug === projectSlug));
+    const pi = Math.max(0, projectsOf(orgSlug).findIndex((p) => p.slug === projectSlug));
     setCur({ level: 1, i: pi });
     requestAnimationFrame(() => input.current?.focus());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, orgSlug, projectSlug]);
 
   const match = (s: string) => !q.trim() || s.toLowerCase().includes(q.trim().toLowerCase());
 
   const cols = useMemo<[Row[], Row[], Row[]]>(() => {
-    const orgs = ORGS.filter((o) => match(o.name)).map((o) => ({ key: o.slug, label: o.name, health: o.health, fact: o.fact }));
-    const projects = PROJECTS.filter((p) => p.org === org && match(p.name)).map((p) => ({ key: p.slug, label: p.name, health: p.health, fact: String(p.services) }));
+    const orgs = allOrgs.filter((o) => match(o.name)).map((o) => ({ key: o.slug, label: o.name, health: "none" as Health, fact: roleLabel(o.role) }));
+    const projects = projectsOf(org).filter((p) => match(p.name)).map((p) => ({ key: p.slug, label: p.name, health: "none" as Health, fact: plural(p.environments.length, "env") }));
     const services = SERVICES.filter((s) => s.project === project && match(s.slug)).map((s) => ({ key: s.slug, label: s.slug, health: s.health, fact: s.fact }));
     return [orgs, projects, services];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, org, project]);
+  }, [q, org, project, allOrgs]);
 
-  const orgName = ORGS.find((o) => o.slug === org)?.name ?? "";
+  const orgName = allOrgs.find((o) => o.slug === org)?.name ?? "";
 
   const choose = (level: Level, i: number) => {
     const row = cols[level][i];
     if (!row) return;
     if (level === 0) {
-      const first = PROJECTS.find((p) => p.org === row.key);
       setOrg(row.key);
-      if (first) setProject(first.slug);
+      setProject(projectsOf(row.key)[0]?.slug ?? "");
       setCur({ level: 1, i: 0 });
     } else if (level === 1) {
       onClose();
@@ -79,8 +85,7 @@ export function ScopeSwitcher({ open, onClose, orgSlug, projectSlug }: { open: b
     if (!row) return;
     if (level === 0) {
       setOrg(row.key);
-      const first = PROJECTS.find((p) => p.org === row.key);
-      if (first) setProject(first.slug);
+      setProject(projectsOf(row.key)[0]?.slug ?? "");
     }
     if (level === 1) setProject(row.key);
     setCur({ level, i });
@@ -140,7 +145,7 @@ export function ScopeSwitcher({ open, onClose, orgSlug, projectSlug }: { open: b
         <div className="ah-switch__cols">
           <Col level={0} title="Organizations" empty="No organization matches." />
           <Col level={1} title={`${orgName} · projects`} empty="No project matches." />
-          <Col level={2} title={`${project} · services`} empty="No services in this project yet." />
+          <Col level={2} title={project ? `${project} · services` : "Services"} empty="No services in this project yet." />
         </div>
         <div className="ah-switch__foot">
           <span><span className="ah-kbd">↑</span><span className="ah-kbd">↓</span> move</span>
