@@ -1,0 +1,135 @@
+{{- if .Values.spicedb.enabled }}
+{{- /*
+In-chart SpiceDB (ADR 0006) on the Postgres datastore. The init container
+applies SpiceDB's own datastore migrations; `apilens migrate -only=authz`
+(authz-schema-job.yaml) writes the APILens schema.
+*/}}
+{{- $ctx := dict "root" . "component" "spicedb" }}
+{{- $secretName := include "apilens.secretName" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "apilens.fullname" . }}-spicedb
+  labels:
+    {{- include "apilens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: spicedb
+spec:
+  replicas: {{ .Values.spicedb.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "apilens.componentSelectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "apilens.componentSelectorLabels" $ctx | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- if .Values.metrics.podAnnotations }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "apilens.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: migrate
+          image: {{ include "apilens.imageRef" (dict "image" .Values.spicedb.image "root" .) }}
+          imagePullPolicy: {{ .Values.spicedb.image.pullPolicy }}
+          args: ["datastore", "migrate", "head"]
+          env:
+            - name: SPICEDB_DATASTORE_ENGINE
+              value: postgres
+            - name: SPICEDB_DATASTORE_CONN_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: spicedb-datastore-uri
+          resources:
+            {{- toYaml .Values.spicedb.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+      containers:
+        - name: spicedb
+          image: {{ include "apilens.imageRef" (dict "image" .Values.spicedb.image "root" .) }}
+          imagePullPolicy: {{ .Values.spicedb.image.pullPolicy }}
+          args: ["serve"]
+          ports:
+            - name: grpc
+              containerPort: 50051
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: SPICEDB_DATASTORE_ENGINE
+              value: postgres
+            - name: SPICEDB_DATASTORE_CONN_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: spicedb-datastore-uri
+            - name: SPICEDB_GRPC_PRESHARED_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: spicedb-preshared-key
+            - name: SPICEDB_LOG_FORMAT
+              value: json
+            # No usage telemetry to authzed.com.
+            - name: SPICEDB_TELEMETRY_ENDPOINT
+              value: ""
+            {{- with .Values.spicedb.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            grpc:
+              port: 50051
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          readinessProbe:
+            grpc:
+              port: 50051
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.spicedb.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "apilens.fullname" . }}-spicedb
+  labels:
+    {{- include "apilens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: spicedb
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: grpc
+      protocol: TCP
+      appProtocol: grpc
+  selector:
+    {{- include "apilens.componentSelectorLabels" $ctx | nindent 4 }}
+{{- end }}

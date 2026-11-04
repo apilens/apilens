@@ -18,6 +18,7 @@ import (
 	tcclickhouse "github.com/testcontainers/testcontainers-go/modules/clickhouse"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	tcvalkey "github.com/testcontainers/testcontainers-go/modules/valkey"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/apilens/apilens/internal/migrations"
 	"github.com/apilens/apilens/internal/platform/config"
@@ -28,6 +29,7 @@ const (
 	PostgresImage   = "postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27"
 	ClickHouseImage = "clickhouse/clickhouse-server:26.8.33.10@sha256:1c0b76ac42e16b4eeb0be84013c67269b660701971d29bab9ad0d01b0ba6c10d"
 	ValkeyImage     = "valkey/valkey:9.1.2@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd"
+	SpiceDBImage    = "ghcr.io/authzed/spicedb:v1.57.0@sha256:a170d372c9f6b921bb6849064df6ca3566dd5b174882c1a2c4300c2ae1d60efd"
 )
 
 // Logger discards output unless the test runs with -v.
@@ -118,4 +120,26 @@ func Valkey(t *testing.T) config.ValkeyConfig {
 	}
 	addr := strings.TrimPrefix(strings.TrimPrefix(conn, "redis://"), "valkey://")
 	return config.ValkeyConfig{Addr: []string{strings.TrimSuffix(addr, "/")}}
+}
+
+// SpiceDBKey is the preshared key of the SpiceDB test container.
+const SpiceDBKey = "apilens-test-key"
+
+// SpiceDB starts SpiceDB on the in-memory datastore and returns its config.
+func SpiceDB(t *testing.T) config.AuthzConfig {
+	t.Helper()
+	ctx := context.Background()
+	c, err := testcontainers.Run(ctx, SpiceDBImage,
+		testcontainers.WithCmd("serve", "--grpc-preshared-key="+SpiceDBKey, "--datastore-engine=memory"),
+		testcontainers.WithExposedPorts("50051/tcp"),
+		testcontainers.WithWaitStrategy(wait.ForListeningPort("50051/tcp").WithStartupTimeout(time.Minute)))
+	testcontainers.CleanupContainer(t, c)
+	if err != nil {
+		t.Fatalf("start spicedb: %v", err)
+	}
+	endpoint, err := c.PortEndpoint(ctx, "50051/tcp", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return config.AuthzConfig{Endpoint: endpoint, PresharedKey: SpiceDBKey, Insecure: true}
 }

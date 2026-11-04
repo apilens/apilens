@@ -1,6 +1,6 @@
 # Build context = repo root for every image (apilens, web, ai). Keep it small,
 # but never exclude what deploy/docker/Dockerfile, apps/ui/Dockerfile or
-# apps/ai/Dockerfile copy (go.mod/go.sum/cmd/internal, root package.json +
+# apps/ai/Dockerfile copy (go.mod/go.sum/cmd/internal/authz, root package.json +
 # pnpm-lock.yaml + pnpm-workspace.yaml + apps/ui, root pyproject.toml +
 # uv.lock + apps/ai).
 

@@ -1,0 +1,49 @@
+{{- if and .Values.migrations.enabled .Values.spicedb.enabled }}
+{{- /*
+Applies the SpiceDB schema (`apilens migrate -only=authz`) once the in-chart
+SpiceDB exists. Post hooks run after the chart's resources are created, so
+this Job mounts the shared ConfigMap and Secret. `apilens migrate` retries
+while SpiceDB is still starting. Writing the schema is idempotent.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "apilens.fullname" . }}-authz-schema
+  labels:
+    {{- include "apilens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: authz-schema
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "apilens.componentSelectorLabels" (dict "root" . "component" "authz-schema") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: authz-schema
+          image: {{ include "apilens.imageRef" (dict "image" .Values.image "root" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate", "-only=authz"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "apilens.fullname" . }}-config
+          env:
+            {{- include "apilens.secretEnv" (dict "root" . "secretName" (include "apilens.secretName" .)) | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+{{- end }}

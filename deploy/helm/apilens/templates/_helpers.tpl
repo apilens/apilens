@@ -95,6 +95,18 @@ app.kubernetes.io/component: {{ .component }}
 {{- end }}
 {{- end }}
 
+{{/* SpiceDB gRPC address: the in-chart Service when spicedb.enabled, else authz.endpoint (empty = authz disabled). */}}
+{{- define "apilens.authzEndpoint" -}}
+{{- if and .Values.spicedb.enabled .Values.authz.endpoint }}
+{{- fail "set either spicedb.enabled or authz.endpoint, not both" }}
+{{- end }}
+{{- if .Values.spicedb.enabled }}
+{{- printf "%s-spicedb:50051" (include "apilens.fullname" .) }}
+{{- else }}
+{{- .Values.authz.endpoint }}
+{{- end }}
+{{- end }}
+
 {{/* Non-secret APILENS_* configuration shared by every role and the migrate job.
 Chart-managed keys first; entries in .Values.config override them. */}}
 {{- define "apilens.configData" -}}
@@ -107,7 +119,10 @@ Chart-managed keys first; entries in .Values.config override them. */}}
   "APILENS_CLICKHOUSE__SECURE" (toString .Values.externalClickHouse.secure)
   "APILENS_CLICKHOUSE__CLUSTER" .Values.externalClickHouse.cluster
   "APILENS_VALKEY__ADDR" (join "," .Values.externalValkey.addr)
-  "APILENS_VALKEY__USERNAME" .Values.externalValkey.username }}
+  "APILENS_VALKEY__USERNAME" .Values.externalValkey.username
+  "APILENS_AUTHZ__ENDPOINT" (include "apilens.authzEndpoint" .)
+  "APILENS_AUTHZ__INSECURE" (toString (or .Values.spicedb.enabled .Values.authz.insecure))
+  "APILENS_AUTHZ__CACHE_TTL" (toString .Values.authz.cacheTTL) }}
 {{- range $k, $v := .Values.config }}
 {{- $_ := set $base $k (toString $v) }}
 {{- end }}
@@ -139,6 +154,12 @@ Chart-managed keys first; entries in .Values.config override them. */}}
     secretKeyRef:
       name: {{ .secretName }}
       key: identity-key-encryption-key
+      optional: true
+- name: APILENS_AUTHZ__PRESHARED_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .secretName }}
+      key: spicedb-preshared-key
       optional: true
 {{- end }}
 

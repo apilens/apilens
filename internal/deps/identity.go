@@ -20,7 +20,4 @@ import (
 	// Background jobs (ADR 0008).
 	_ "github.com/riverqueue/river"
 	_ "github.com/riverqueue/river/riverdriver/riverpgxv5"
-
-	// Authorization (ADR 0006): SpiceDB client.
-	_ "github.com/authzed/authzed-go/v1"
 )
