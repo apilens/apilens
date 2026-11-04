@@ -25,6 +25,12 @@ SELECT * FROM passkey_credentials
 WHERE user_id = @user_id
 ORDER BY created_at, id;
 
+-- name: GetPasskeyCredentialForUser :one
+-- One passkey of a user; scoped by user_id so a caller cannot read another
+-- user's passkey. Returns pgx.ErrNoRows when nothing matched.
+SELECT * FROM passkey_credentials
+WHERE id = @id AND user_id = @user_id;
+
 -- name: UpdatePasskeySignCount :execrows
 -- Records a verified sign-in: the new signature counter, the current backup
 -- state (BS) and last_used_at. The caller rejects a counter that went
