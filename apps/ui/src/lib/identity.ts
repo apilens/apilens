@@ -354,6 +354,26 @@ export interface ConnectedAccount {
   last_login_at: string | null;
 }
 
+/** `PATCH /users/me` (#245): omitted fields are left unchanged. */
+export interface UpdateMeRequest {
+  /** Trimmed by the server; at most 120 characters. */
+  name?: string;
+  /** An http(s) image URL, or empty to clear it. */
+  avatar_url?: string;
+  preferences?: Partial<User["preferences"]>;
+}
+
+/** `POST /users/me/email/change` (#274): the code went to `pending_email`. */
+export interface EmailChangeStarted {
+  pending_email: string;
+  expires_at: string;
+}
+
+/** `DELETE /users/me` (#245): the account is removed for good after `delete_after`. */
+export interface AccountDeleted {
+  delete_after: string;
+}
+
 export interface OnboardingState {
   step: string | null;
   completed: boolean;
@@ -693,6 +713,12 @@ export function createClient(config: ClientConfig) {
     // identity / api: current user --------------------------------------------------------
     me: (o: Authed) => request<User>("GET", "/users/me", o),
     context: (o: Authed) => request<UserContext>("GET", "/users/me/context", o),
+    updateMe: (body: UpdateMeRequest, o: Authed) => request<User>("PATCH", "/users/me", { ...o, body }),
+    deleteMe: (o: Authed) => request<AccountDeleted>("DELETE", "/users/me", o),
+    startEmailChange: (body: { new_email: string }, o: Authed) =>
+      request<EmailChangeStarted>("POST", "/users/me/email/change", { ...o, body }),
+    confirmEmailChange: (body: { code: string }, o: Authed) =>
+      request<User>("POST", "/users/me/email/confirm", { ...o, body }),
 
     // identity: the signed-in user's sessions ---------------------------------------------
     listSessions: (o: Authed) => request<{ sessions: SessionInfo[] }>("GET", "/users/me/sessions", o),

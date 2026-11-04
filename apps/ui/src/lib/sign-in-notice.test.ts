@@ -7,6 +7,7 @@ describe("signInNotice", () => {
       [
         "2fa_expired",
         "2fa_locked",
+        "account_deleted",
         "account_deleting",
         "oauth_email_unverified",
         "oauth_identity_taken",

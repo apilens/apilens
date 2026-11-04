@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AccountSettings } from "@/components/account-settings";
 import { SessionsSettings } from "@/components/account-settings/sessions";
+import { DeleteAccount } from "@/components/account/delete-account";
+import { ProfileSettings } from "@/components/account/profile";
 import { TwoFactorSettings } from "@/components/account/two-factor-settings";
 import { AppShell } from "@/components/app-shell";
 import { ConnectedAccounts } from "@/components/connected-accounts";
@@ -10,6 +12,7 @@ import { getContext, getSession } from "@/lib/auth/server";
 import { ACCOUNT_SETTINGS, type AccountSection, accountSection, accountSectionHref } from "@/lib/account-settings";
 import { connectedNotice, providerRows } from "@/lib/connected-accounts";
 import { type ConnectedAccount, type Passkey, type SessionInfo, type TwoFactorStatus, type UserContext, identity, isApiError } from "@/lib/identity";
+import { ownedOrgs } from "@/lib/profile";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 import { signInMethods } from "@/lib/sign-in-providers";
 
@@ -70,6 +73,8 @@ async function loadConnectedAccounts(next: string): Promise<ConnectedAccount[]> 
 /** The section's own content under its title; null for sections still to come. */
 async function sectionContent(section: AccountSection, context: UserContext, search: Search) {
   const next = accountSectionHref(section);
+  if (section.slug === "") return <ProfileSettings user={context.user} />;
+  if (section.slug === "danger") return <DeleteAccount email={context.user.email} owned={ownedOrgs(context.orgs)} />;
   if (section.slug === "sessions") {
     const sessions = await loadSessions(next);
     // `now` is taken here so server and browser render the same "last active" text.

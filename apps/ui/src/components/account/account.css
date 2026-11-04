@@ -1,0 +1,29 @@
+/* Account Profile and Danger zone (#340). Builds on org-settings.css (.os-card, .os-confirm…);
+   tokens from tokens.css only. */
+.os.acct-os { max-width: 680px; margin: var(--space-6) 0 0; padding: 0; }
+
+/* Avatar initials beside the name field. */
+.ac-who { display: flex; align-items: flex-end; gap: var(--space-4); margin-top: var(--space-4); }
+.ac-who .ob-f { flex: 1; min-width: 0; }
+.os-card__body .ac-who .ob-f:first-child, .os-card__body .ac-who .ob-f { margin-top: 0; }
+.ac-avatar { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 10px; background: color-mix(in srgb, var(--border) 70%, var(--surface-2)); box-shadow: inset 0 0 0 1px var(--border); font: 600 15px/1 var(--font-sans); color: var(--ink); letter-spacing: .02em; }
+
+.acct-os .ob-in .ac-val { font-family: var(--font-sans); font-size: 14px; }
+.acct-os .os-card__body > .os-status { display: block; margin-top: var(--space-3); font: 400 13px/18px var(--font-sans); color: var(--ink-muted); }
+.acct-os .os-card__body > .os-status:empty { margin-top: 0; }
+.acct-os .os-card__body > .os-status.ok { color: var(--ok); }
+.acct-os .os-card__body > .os-status.err { color: var(--error); }
+.acct-os .ac-code input { font: 500 15px/1 var(--font-mono); letter-spacing: .3em; }
+.acct-os .os-confirm .ac-left { margin-right: auto; }
+
+/* owner_transfer_required: what blocks the deletion and where to settle it. */
+.ac-blocked { margin-top: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid color-mix(in srgb, var(--error) 35%, var(--border)); border-radius: var(--radius-md); background: var(--error-soft); }
+.ac-blocked p { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.ac-blocked ul { display: grid; gap: 4px; margin: var(--space-3) 0 0; padding: 0; list-style: none; }
+.ac-blocked li { display: flex; align-items: baseline; gap: var(--space-2); font: 400 13px/20px var(--font-sans); }
+.ac-blocked li a { font-weight: 500; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.ac-blocked li span { font: 400 12px/18px var(--font-mono); color: var(--ink-muted); }
+
+@media (max-width: 860px) {
+  .acct-os .os-confirm .row { flex-wrap: wrap; }
+}
