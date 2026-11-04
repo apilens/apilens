@@ -313,5 +313,5 @@ export async function finishSignIn(
   return signedIn(result, remember, next);
 }
 
-/** Where the browser goes after signing out. */
-export const SIGNED_OUT_PATH = SIGN_IN_PATH;
+/** Where the browser goes after signing out; the sign-in page shows a "signed out" notice. */
+export const SIGNED_OUT_PATH = `${SIGN_IN_PATH}?reason=signed_out`;

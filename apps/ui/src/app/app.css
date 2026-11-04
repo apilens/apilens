@@ -71,6 +71,18 @@
 .ob-pick:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 .ob-err { margin-top: 8px; font: 400 13px/18px var(--font-sans); color: var(--error); }
 .ob-err button.cp-link { padding: 0; border: 0; background: none; font: inherit; font-weight: 500; cursor: pointer; }
+/* Sign-in notice for ?error= / ?reason= (#318): one sentence, a tone, a dismiss button. */
+.ob-notice { display: flex; gap: 10px; align-items: flex-start; margin-top: 22px; padding: 10px 8px 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg); font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.ob-notice p { flex: 1; margin: 0; }
+.ob-notice > .ob-ic { margin-top: 2px; color: var(--info); }
+.ob-notice--warn { border-color: var(--warn); background: var(--warn-soft); }
+.ob-notice--warn > .ob-ic { color: var(--warn); }
+.ob-notice--error { border-color: var(--error); background: var(--error-soft); }
+.ob-notice--error > .ob-ic { color: var(--error); }
+.ob-notice-x { display: inline-grid; place-items: center; width: 24px; height: 24px; flex: none; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink-muted); cursor: pointer; }
+.ob-notice-x:hover { color: var(--ink); }
+.ob-notice-x:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.ob-notice-x .ob-ic { width: 14px; height: 14px; }
 .ob-code6 { position: relative; }
 .ob-code6 input { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; cursor: text; }
 .ob-code6:focus-within span.cur { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }

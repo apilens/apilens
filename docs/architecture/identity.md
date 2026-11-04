@@ -430,3 +430,22 @@ Rules:
 
 `internal/identity/errors_test.go` checks that this table lists every code
 with its status.
+
+### Sign-in notices
+
+Flows that end on `/sign-in` say why in the query: `?reason=` for an expected
+landing, `?error=` for a sign-in that failed (OAuth callback, SSO
+enforcement). The page shows one dismissible notice above the form
+(`role="status"`). The value only selects one of these fixed sentences, never
+shown itself. An unknown `?error=` shows *Sign-in didn't complete. Try again.*;
+an unknown `?reason=` shows nothing. The copy lives in
+`apps/ui/src/lib/sign-in-notice.ts`.
+
+| Query | Sent by | Notice |
+|---|---|---|
+| `?reason=signed_out` | `POST /api/auth/logout` | You're signed out. Sign in again whenever you're ready. |
+| `?reason=session_expired` | `web` when a refresh fails | Your session expired. Sign in again to pick up where you left off. |
+| `?error=oauth_email_unverified` | OAuth callback | That provider account has no verified email. Verify it with the provider, or sign in with an email code. |
+| `?error=oauth_identity_taken` | OAuth callback (`intent=link`) | That provider account is already linked to a different APILens account. Sign in to that account instead. |
+| `?error=account_deleting` | Sign-in to an account in its deletion grace period | This account is scheduled for deletion, so it can't sign in. Contact support to restore it. |
+| `?error=sso_required` | Email or social sign-in on an SSO-enforced domain | Your organization requires single sign-on. Sign in through your company's identity provider. |

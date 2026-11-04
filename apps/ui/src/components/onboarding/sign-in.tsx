@@ -12,17 +12,20 @@ import {
   relativeDay,
 } from "@/lib/remembered-account";
 import { type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
+import type { SignInNotice } from "@/lib/sign-in-notice";
 import { AltLink } from "./alt-method";
 import { ObIcon, ObShell } from "./ob";
+import { SignInNoticeBanner } from "./sign-in-notice";
 
 const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
 
 /**
  * Returning users: the remembered account first (from `localStorage`, when this device has one),
  * a passkey as the primary action. `methods` (from `GET /auth/providers`) decides which provider
- * buttons sit next to the email code; `next` is where to land after signing in.
+ * buttons sit next to the email code; `next` is where to land after signing in; `notice` (from
+ * `?error=`/`?reason=`) sits above the form.
  */
-export function SignIn({ methods, next }: { methods: SignInMethods; next?: string }) {
+export function SignIn({ methods, next, notice }: { methods: SignInMethods; next?: string; notice?: SignInNotice | null }) {
   const router = useRouter();
   const alts = altMethods(methods, { email: true });
   // Read after mount: the server render (and a blocked store) shows the email field.
@@ -71,6 +74,7 @@ export function SignIn({ methods, next }: { methods: SignInMethods; next?: strin
         </>
       }
     >
+      {notice ? <SignInNoticeBanner notice={notice} /> : null}
       <div className="ob-f">
         {remembered ? (
           <div className="ob-row">
