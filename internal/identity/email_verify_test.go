@@ -23,11 +23,17 @@ import (
 	"github.com/apilens/apilens/internal/platform/ratelimit"
 )
 
-// fakeCodes answers VerifyCode with row or err.
+// fakeCodes answers VerifyCode and VerifyLink with row or err.
 type fakeCodes struct {
 	row   db.AuthEmailToken
 	err   error
 	calls []string
+	links []string
+}
+
+func (f *fakeCodes) VerifyLink(_ context.Context, token string) (db.AuthEmailToken, error) {
+	f.links = append(f.links, token)
+	return f.row, f.err
 }
 
 func (f *fakeCodes) VerifyCode(_ context.Context, addr, code string) (db.AuthEmailToken, error) {
@@ -136,7 +142,7 @@ func newEmailVerifyHarness(t *testing.T) *emailVerifyHarness {
 		audit:    &fakeAudit{},
 		logs:     logs,
 	}
-	cfg := config.IdentityConfig{PreAuthTTL: 3 * time.Minute}
+	cfg := config.IdentityConfig{PreAuthTTL: 3 * time.Minute, PublicUIURL: "https://app.example.com/"}
 	e := NewEmailVerify(cfg, EmailVerifyDeps{
 		Codes: h.codes, Users: h.users, Sessions: h.sessions, PreAuth: h.preAuth, Audit: h.audit,
 	}, limiter, logger)

@@ -98,7 +98,10 @@ or, when the user has confirmed TOTP and the method was not a passkey, in
    `{public_ui_url}/verify?token=…&email=…`, which `web` exchanges server-side with
    `POST /api/v1/auth/email/verify-link` `{token, remember}`.
    `GET /api/v1/auth/email/link?token=` redirects to the UI without consuming
-   the token, for clients that hit identity directly.
+   the token, for clients that hit identity directly. Using the link consumes
+   the email (its code stops working too); a used, superseded or unknown link
+   answers `invalid_token`, an expired one `code_expired`. The link token is
+   never logged or audited.
 3. Five wrong codes lock the token (`too_many_attempts`). On success the user
    is found or created (`email_verified_at` set, `user.created` audited on
    first sign-in) and gets a session with `amr: ["email"]` (`remember` picks
