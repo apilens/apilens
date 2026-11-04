@@ -41,8 +41,6 @@ type orgsFixture struct {
 	api  humatest.TestAPI
 	pool *pgxpool.Pool
 	ctx  context.Context
-	// authz is the SpiceDB-backed checker the guard uses.
-	authz *authz.Client
 }
 
 func setupOrgs(t *testing.T, slugCheck ratelimit.Rate) *orgsFixture {
@@ -91,7 +89,7 @@ func setupOrgs(t *testing.T, slugCheck ratelimit.Rate) *orgsFixture {
 	svc := orgs.New(pool, audit.New(pool))
 	NewOrgs(svc, guard, limiter, slugCheck, logger).Register(api)
 	NewMembers(svc, guard, logger).Register(api)
-	return &orgsFixture{api: api, pool: pool, ctx: context.Background(), authz: checker}
+	return &orgsFixture{api: api, pool: pool, ctx: context.Background()}
 }
 
 func (f *orgsFixture) user(t *testing.T, email string) uuid.UUID {
