@@ -72,6 +72,11 @@ func TestMetaAndOpenAPI(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"get-meta"`) {
 		t.Fatalf("openapi = %d", rec.Code)
 	}
+	for _, tag := range []string{TagAuth, TagUsers, TagOrganizations, TagProjects} {
+		if !strings.Contains(rec.Body.String(), `"name":"`+tag+`"`) {
+			t.Fatalf("openapi.json does not list tag %q", tag)
+		}
+	}
 }
 
 func TestPanicIsRecovered(t *testing.T) {

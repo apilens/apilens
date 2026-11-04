@@ -28,7 +28,7 @@ func RegisterMeta(api huma.API, roles []string) {
 		Method:      http.MethodGet,
 		Path:        APIPrefix + "/meta",
 		Summary:     "Build and runtime metadata",
-		Tags:        []string{"System"},
+		Tags:        []string{TagSystem},
 	}, func(_ context.Context, _ *struct{}) (*MetaOutput, error) {
 		info := buildinfo.Get()
 		out := &MetaOutput{}

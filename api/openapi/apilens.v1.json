@@ -1269,5 +1269,31 @@
         ]
       }
     }
-  }
+  },
+  "tags": [
+    {
+      "description": "Sign-in and sessions: email codes and magic links, passkeys, TOTP, OAuth/OIDC and token refresh. Failures are RFC 9457 problems with a stable `code`.",
+      "name": "Auth"
+    },
+    {
+      "description": "The signed-in user: profile, sessions, passkeys and two-factor settings.",
+      "name": "Users"
+    },
+    {
+      "description": "Organizations, members, roles and invitations.",
+      "name": "Organizations"
+    },
+    {
+      "description": "Projects within an organization, with their apps, environments and API keys.",
+      "name": "Projects"
+    },
+    {
+      "description": "Read-only traffic, error and trace analytics for a project.",
+      "name": "Dashboard"
+    },
+    {
+      "description": "Build and runtime metadata of the running process.",
+      "name": "System"
+    }
+  ]
 }

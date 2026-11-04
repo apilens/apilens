@@ -18,7 +18,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	controlplaneapi "github.com/apilens/apilens/internal/controlplane/api"
 	"github.com/apilens/apilens/internal/controlplane/bootstrap"
+	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/migrations"
 	"github.com/apilens/apilens/internal/platform/buildinfo"
 	"github.com/apilens/apilens/internal/platform/config"
@@ -206,6 +208,8 @@ func runOpenAPI(stdout io.Writer) error {
 	srv := server.New(config.ServerConfig{}, slog.New(slog.NewTextHandler(io.Discard, nil)), prometheus.NewRegistry())
 	server.RegisterMeta(srv.API(), nil)
 	query.Register(srv.API(), nil) // handlers are never invoked; only the schema is read
+	identity.Register(srv.API())
+	controlplaneapi.Register(srv.API())
 	b, err := json.MarshalIndent(srv.API().OpenAPI(), "", "  ")
 	if err != nil {
 		return err

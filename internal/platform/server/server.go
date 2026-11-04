@@ -36,6 +36,30 @@ import (
 // APIPrefix is the mount point of the Huma (dashboard/public) API.
 const APIPrefix = "/api/v1"
 
+// OpenAPI tags. Every typed operation sets Tags to one of these so the UI
+// client and the docs can group it; a test fails on an undeclared tag.
+const (
+	TagAuth          = "Auth"
+	TagUsers         = "Users"
+	TagOrganizations = "Organizations"
+	TagProjects      = "Projects"
+	TagDashboard     = "Dashboard"
+	TagSystem        = "System"
+)
+
+// Tags returns the declared OpenAPI tags with their descriptions, in the
+// order the spec lists them.
+func Tags() []*huma.Tag {
+	return []*huma.Tag{
+		{Name: TagAuth, Description: "Sign-in and sessions: email codes and magic links, passkeys, TOTP, OAuth/OIDC and token refresh. Failures are RFC 9457 problems with a stable `code`."},
+		{Name: TagUsers, Description: "The signed-in user: profile, sessions, passkeys and two-factor settings."},
+		{Name: TagOrganizations, Description: "Organizations, members, roles and invitations."},
+		{Name: TagProjects, Description: "Projects within an organization, with their apps, environments and API keys."},
+		{Name: TagDashboard, Description: "Read-only traffic, error and trace analytics for a project."},
+		{Name: TagSystem, Description: "Build and runtime metadata of the running process."},
+	}
+}
+
 // Check reports whether a dependency is usable. It must respect ctx.
 type Check func(ctx context.Context) error
 
@@ -97,6 +121,7 @@ func NewAPIConfig() huma.Config {
 	cfg.Info.License = &huma.License{Name: "MIT", Identifier: "MIT"}
 	cfg.OpenAPIPath = APIPrefix + "/openapi"
 	cfg.SchemasPath = APIPrefix + "/schemas"
+	cfg.Tags = Tags()
 	// No bundled docs UI: it loads assets from a CDN, which self-hosted
 	// installs may not allow.
 	cfg.DocsPath = ""
