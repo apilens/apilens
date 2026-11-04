@@ -402,10 +402,17 @@ once every 5 minutes (`rate_limited` with `retry_after`); `DELETE …/{id}`
 revokes. Only the SHA-256 of a token is stored. Every email sent is audited
 as `invitation.sent`; the email job is enqueued in the same transaction.
 `GET /api/v1/auth/invitations/{token}` is public and shows the org, inviter,
-masked email, role and expiry. Accepting
+masked email, role and expiry (`{org: {name, slug}, inviter_name,
+email_masked, role, expires_at}`); an unknown token answers `invalid_token`,
+an expired, revoked or used one `invite_expired`. It is rate-limited per IP
+(`identity.rate_limits.invitation_lookup_per_ip`, 60 / 15 min). Accepting
 (`POST /api/v1/auth/invitations/{token}/accept`) needs a session whose
 verified email equals the invited one (`invite_email_mismatch` otherwise),
-creates the membership through the outbox and is idempotent.
+marks the invitation accepted, creates the membership through the outbox and
+audits `invitation.accepted`, in one transaction; a user who already belongs
+to the org keeps their role. It is idempotent: accepting a used invitation
+again answers the org with `joined: false` while the user is still a member.
+Both live under `/api/v1/auth`, so the identity role serves them.
 
 ## Tokens and sessions
 

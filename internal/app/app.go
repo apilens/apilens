@@ -451,6 +451,10 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		SSO:    ssoEnforcement,
 	}, limiter, a.logger).Register(a.server.API())
 	identity.NewSSOLookup(a.cfg.Identity, identitydb.New(a.pool), limiter, a.logger).Register(a.server.API())
+	// Invitation links live under /api/v1/auth, so the identity role serves
+	// them; accepting writes the membership through the outbox.
+	controlplaneapi.NewInvitationLinks(orgs.NewInvitations(a.pool, audit.New(a.pool), a.jobs), limiter,
+		ratelimit.Rate(a.cfg.Identity.RateLimits.InvitationLookupPerIP), a.logger).Register(a.server.API())
 	identity.NewEmailVerify(a.cfg.Identity, identity.EmailVerifyDeps{
 		Codes:    emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{}),
 		Users:    identity.NewPGSignInUsers(a.pool),

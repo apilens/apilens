@@ -61,3 +61,17 @@ func TestInvitationToken(t *testing.T) {
 		t.Fatal("tokens repeat")
 	}
 }
+
+func TestMaskEmail(t *testing.T) {
+	for in, want := range map[string]string{
+		"ada@example.com":     "a***@example.com",
+		"a@example.com":       "a***@example.com",
+		"Émile.Z@Example.COM": "É***@Example.COM",
+		"no-at-sign":          "***",
+		"@example.com":        "***",
+	} {
+		if got := MaskEmail(in); got != want {
+			t.Errorf("MaskEmail(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

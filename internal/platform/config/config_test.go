@@ -329,6 +329,7 @@ func TestIdentityRateLimitDefaults(t *testing.T) {
 		{"oauth_start_per_ip", rl.OAuthStartPerIP, RateLimit{30, 15 * time.Minute}},
 		{"handoff_per_ip", rl.HandoffPerIP, RateLimit{30, 15 * time.Minute}},
 		{"sso_lookup_per_ip", rl.SSOLookupPerIP, RateLimit{60, 15 * time.Minute}},
+		{"invitation_lookup_per_ip", rl.InvitationLookupPerIP, RateLimit{60, 15 * time.Minute}},
 		{"passkey_login_per_ip", rl.PasskeyLoginPerIP, RateLimit{60, 15 * time.Minute}},
 		{"slug_check_per_user", rl.SlugCheckPerUser, RateLimit{60, time.Minute}},
 		{"recovery_request_per_email", rl.RecoveryRequestPerEmail, RateLimit{3, time.Hour}},
