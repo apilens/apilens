@@ -18,6 +18,16 @@ func TestMigrateRejectsUnknownStep(t *testing.T) {
 	}
 }
 
+func TestIdentityRejectsUnknownCommand(t *testing.T) {
+	var stderr bytes.Buffer
+	if code := Main([]string{"identity", "bogus"}, &bytes.Buffer{}, &stderr, nil); code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), `identity: unknown command "bogus"`) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestMigrateAuthzSkippedWithoutEndpoint(t *testing.T) {
 	var stderr bytes.Buffer
 	env := []string{"APILENS_IDENTITY__KEY_ENCRYPTION_KEY=ZGV2LW9ubHktaWRlbnRpdHkta2VrLTAxMjM0NTY3ODk=", "APILENS_LOG__FORMAT=text"}

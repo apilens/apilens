@@ -70,6 +70,19 @@ With the default `log` provider, the `all`, `api` and `identity` roles log a war
 
 Mail goes out from a background job (`email.send`) run by the `identity` role, never from the request itself. A failed send is retried 5 times with exponential backoff (30s up to 8m), and each failure is logged with its Message-ID but not the body. `apilens_email_sent_total{template,status}` counts attempts (`sent`, `failed`, `rejected`). With `tls: none`, SMTP credentials are only offered over challenge mechanisms (CRAM-MD5, SCRAM), never in clear text.
 
+### Token signing keys
+
+The identity role signs session tokens (RS256, 2048-bit RSA). On first start it creates a signing key if none is active. Private keys are stored in Postgres, encrypted under `APILENS_IDENTITY__KEY_ENCRYPTION_KEY`.
+
+To rotate the key, for example on a schedule or after an operator leaves:
+
+```bash
+docker compose run --rm --entrypoint /apilens apilens identity rotate-key
+# Kubernetes: kubectl exec deploy/<deployment running identity or all> -- /apilens identity rotate-key
+```
+
+The command prints `{"kid":"<new>","retired_kid":"<previous>"}`. The new key starts signing immediately, and running identity replicas switch to it within 60 seconds. The previous key is retired: it no longer signs, but stays in the published JWKS for `identity.refresh_token_ttl` (30 days by default), so tokens it already signed keep verifying until they expire. Rotation is safe to run while the stack is serving traffic. It needs the same Postgres and key-encryption-key settings as the `identity` role.
+
 ### Upgrading
 
 ```bash
