@@ -598,6 +598,30 @@ export interface UpdateOrgRequest {
   domain_join?: boolean;
 }
 
+/** `GET /orgs/{slug}/members` item (#280): a member with their user, role and dates. */
+export interface Member {
+  user: { id: string; email: string; name: string; avatar_url: string };
+  role: OrgRole;
+  joined_at: string;
+  /** Null when they never signed in. */
+  last_login_at: string | null;
+}
+
+/** The roles an invitation can carry (`owner` comes only from a role change or a transfer). */
+export type InviteRole = Exclude<OrgRole, "owner">;
+
+/** One address of `POST /orgs/{slug}/invitations` (#281). */
+export interface InviteEntry {
+  email: string;
+  role: InviteRole;
+}
+
+/** `POST /orgs/{slug}/invitations` result, one per requested address in request order. */
+export interface InviteResult {
+  email: string;
+  status: "invited" | "replaced" | "already_member" | "duplicate";
+}
+
 export interface CreateOrgRequest {
   name: string;
   slug: string;
@@ -775,6 +799,18 @@ export function createClient(config: ClientConfig) {
       request<Org>("POST", "/orgs", { ...o, body }),
     orgSlugAvailable: (slug: string, o: Authed) =>
       request<SlugAvailability>("GET", "/orgs/slug-available", { ...o, query: { slug } }),
+
+    // api: organization members (#280) and invitations (#281) ---------------------------------
+    listMembers: (slug: string, o: Authed) =>
+      request<Member[] | null>("GET", `/orgs/${seg(slug)}/members`, o),
+    changeMemberRole: (slug: string, userId: string, role: OrgRole, o: Authed) =>
+      request<Member>("PATCH", `/orgs/${seg(slug)}/members/${seg(userId)}`, { ...o, body: { role } }),
+    removeMember: (slug: string, userId: string, o: Authed) =>
+      request<void>("DELETE", `/orgs/${seg(slug)}/members/${seg(userId)}`, o),
+    transferOwnership: (slug: string, userId: string, o: Authed) =>
+      request<void>("POST", `/orgs/${seg(slug)}/transfer-ownership`, { ...o, body: { user_id: userId } }),
+    createInvitations: (slug: string, invites: InviteEntry[], o: Authed) =>
+      request<{ results: InviteResult[] | null }>("POST", `/orgs/${seg(slug)}/invitations`, { ...o, body: { invites } }),
 
     // api: projects -----------------------------------------------------------------------
     listProjects: (orgSlug: string, o: Authed) =>

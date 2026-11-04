@@ -117,3 +117,20 @@ export function orgSettingsError(code: string): string {
       return "Something went wrong. Try again in a moment.";
   }
 }
+
+/** A page of the organization settings, shown as a tab under the title. */
+export interface OrgSettingsSection {
+  /** URL segment under `/orgs/<org>/settings`; empty for General. */
+  slug: string;
+  label: string;
+}
+
+export const ORG_SETTINGS_SECTIONS: readonly OrgSettingsSection[] = [
+  { slug: "", label: "General" },
+  { slug: "members", label: "Members" },
+];
+
+/** `/orgs/<org>/settings` or `/orgs/<org>/settings/<slug>`. */
+export function orgSettingsHref(org: string, section: Pick<OrgSettingsSection, "slug">): string {
+  return section.slug ? `/orgs/${org}/settings/${section.slug}` : `/orgs/${org}/settings`;
+}
