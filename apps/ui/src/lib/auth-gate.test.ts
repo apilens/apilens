@@ -92,6 +92,20 @@ describe("decide: signed in", () => {
     },
   );
 
+  it("a failed account connection on /sign-in goes back to Connected accounts", () => {
+    expect(decide(signedIn("/sign-in", { search: "?error=oauth_identity_taken" }))).toEqual({
+      action: "redirect",
+      location: "/settings/connected-accounts?error=oauth_identity_taken",
+    });
+    expect(decide(signedIn("/sign-in", { search: "?error=oauth_denied" }))).toEqual({
+      action: "redirect",
+      location: "/settings/connected-accounts?error=oauth_denied",
+    });
+    // Other codes, and /sign-up, keep the usual bounce.
+    expect(decide(signedIn("/sign-in", { search: "?error=sso_required" }))).toEqual({ action: "redirect", location: "/" });
+    expect(decide(signedIn("/sign-up", { search: "?error=oauth_identity_taken" }))).toEqual({ action: "redirect", location: "/" });
+  });
+
   it("protected pages pass; refresh only within two minutes of expiry", () => {
     expect(decide(signedIn("/acme/incidents"))).toEqual({ action: "next", refresh: false });
     const near = { ...SESSION, exp: NOW + REFRESH_WINDOW_SECONDS };
