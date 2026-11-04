@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -17,10 +18,10 @@ import (
 )
 
 var (
-	// ErrVerification means the registration response failed WebAuthn
-	// verification (challenge, origin, RP ID, user, flags or attestation),
-	// or could not be parsed.
-	ErrVerification = errors.New("passkey: registration verification failed")
+	// ErrVerification means the registration or sign-in response failed
+	// WebAuthn verification (challenge, origin, RP ID, user, flags,
+	// attestation or signature), or could not be parsed.
+	ErrVerification = errors.New("passkey: verification failed")
 	// ErrCredentialExists means the credential id is already registered, to
 	// this user or another.
 	ErrCredentialExists = errors.New("passkey: credential already registered")
@@ -197,9 +198,20 @@ func newUser(u db.User, stored []db.PasskeyCredential) user {
 			transports = append(transports, protocol.AuthenticatorTransport(t))
 		}
 		creds = append(creds, webauthn.Credential{
-			ID:        c.CredentialID,
-			PublicKey: c.PublicKey,
-			Transport: transports,
+			ID:                c.CredentialID,
+			PublicKey:         c.PublicKey,
+			AttestationFormat: c.AttestationType,
+			Transport:         transports,
+			// Sign-in validation checks BE against the stored value and the
+			// counter against SignCount.
+			Flags: webauthn.CredentialFlags{
+				BackupEligible: c.BackupEligible,
+				BackupState:    c.BackupState,
+			},
+			Authenticator: webauthn.Authenticator{
+				AAGUID:    c.Aaguid[:],
+				SignCount: uint32(max(0, min(c.SignCount, math.MaxUint32))), //nolint:gosec // clamped to uint32
+			},
 		})
 	}
 	return user{u: u, creds: creds}

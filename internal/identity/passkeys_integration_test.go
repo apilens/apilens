@@ -15,7 +15,9 @@ import (
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
+	"github.com/valkey-io/valkey-go"
 
 	"github.com/apilens/apilens/internal/email"
 	"github.com/apilens/apilens/internal/identity/audit"
@@ -36,6 +38,8 @@ var onePasswordAAGUID = uuid.MustParse("bada5566-a7aa-401f-bd96-45619a55120d")
 type passkeyFixture struct {
 	*meFixture
 	jobs *fakeJobs
+	vk   valkey.Client
+	rp   *webauthn.WebAuthn
 }
 
 // setupPasskeys serves the passkey endpoints over real Postgres and
@@ -65,7 +69,7 @@ func setupPasskeys(t *testing.T) *passkeyFixture {
 		Users:     f.q,
 		Jobs:      jobs,
 	}, testutil.Logger(t)).Register(f.api)
-	return &passkeyFixture{meFixture: f, jobs: jobs}
+	return &passkeyFixture{meFixture: f, jobs: jobs, vk: vk, rp: rp}
 }
 
 type registerOptions struct {

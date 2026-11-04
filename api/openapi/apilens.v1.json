@@ -882,6 +882,89 @@
         ],
         "type": "object"
       },
+      "PasskeyLoginOptionsBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/PasskeyLoginOptionsBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "email": {
+            "description": "Optional hint. When it names an account with passkeys, allowCredentials lists them; otherwise the options are fully discoverable.",
+            "maxLength": 254,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PasskeyLoginOptionsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/PasskeyLoginOptionsResponse.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "challenge_id": {
+            "description": "Send back with the verify request. Valid for 5 minutes, once.",
+            "type": "string"
+          },
+          "options": {
+            "description": "CredentialRequestOptions ({publicKey: ...}) for navigator.credentials.get(); add mediation: \"conditional\" for autofill."
+          }
+        },
+        "required": [
+          "challenge_id",
+          "options"
+        ],
+        "type": "object"
+      },
+      "PasskeyLoginVerifyBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/PasskeyLoginVerifyBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "challenge_id": {
+            "description": "The challenge_id from the options response.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "next": {
+            "description": "Relative path (starting with a single /) to open after sign-in; echoed back.",
+            "maxLength": 512,
+            "type": "string"
+          },
+          "remember": {
+            "description": "Keep the session for identity.refresh_token_ttl (30 days) instead of identity.refresh_token_ttl_short (24 hours).",
+            "type": "boolean"
+          },
+          "response": {
+            "description": "The PublicKeyCredential from navigator.credentials.get(), JSON-encoded (PublicKeyCredential.toJSON())."
+          }
+        },
+        "required": [
+          "challenge_id",
+          "response"
+        ],
+        "type": "object"
+      },
       "PasskeyOptionsResponse": {
         "additionalProperties": false,
         "properties": {
@@ -2787,6 +2870,179 @@
           }
         },
         "summary": "Start social sign-in",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/passkeys/login/options": {
+      "post": {
+        "description": "Public. Starts a discoverable (username-less) passkey sign-in, also usable for conditional UI (autofill). Returns a `challenge_id` (valid 5 minutes, once) and the `options` for `navigator.credentials.get()`. An optional `email` hint narrows `allowCredentials` to that account's passkeys; an unknown address gets fully discoverable options. Rate-limited per IP (429 `rate_limited` with Retry-After).",
+        "operationId": "passkey-login-options",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasskeyLoginOptionsBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyLoginOptionsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "summary": "Start signing in with a passkey",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/passkeys/login/verify": {
+      "post": {
+        "description": "Public. Verifies the authenticator's assertion for the options of `challenge_id`, resolving the user from the passkey's user handle, and answers the session bundle (`amr: [\"passkey\"]`; `remember` picks the session lifetime) with `next` echoed. A passkey is phishing-resistant and user-verifying, so two-factor authentication is not asked for. Answers 401 `passkey_unknown` for a passkey that is not registered, and 401 `passkey_failed` when the challenge is unknown, expired or used, the assertion does not verify, or its signature counter went backwards (a possibly cloned authenticator). Rate-limited per IP (429 `rate_limited` with Retry-After).",
+        "operationId": "passkey-login-verify",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasskeyLoginVerifyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `passkey_failed`, `passkey_unknown`.",
+            "x-apilens-codes": [
+              "passkey_failed",
+              "passkey_unknown"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "summary": "Sign in with a passkey",
         "tags": [
           "Auth"
         ]
