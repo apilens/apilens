@@ -14,6 +14,12 @@ export interface ServerEnv {
   sessionSecret: string;
   /** Public origin users reach the UI at, no trailing slash (links, redirects, cookie scope). */
   publicUrl: string;
+  /**
+   * Base URL browsers reach the APILens API at, no trailing slash: the social sign-in buttons
+   * navigate there (`/api/v1/auth/oauth/{provider}/start`). Defaults to {@link apiUrl}, which is
+   * only right when that address is public too.
+   */
+  publicApiUrl: string;
 }
 
 export const SESSION_SECRET_MIN_LENGTH = 32;
@@ -65,7 +71,8 @@ export function parseEnv(source: Source): ServerEnv {
     );
   }
   const publicUrl = httpUrl(source, "APILENS_PUBLIC_URL");
-  return { apiUrl, sessionSecret, publicUrl };
+  const publicApiUrl = source.APILENS_PUBLIC_API_URL?.trim() ? httpUrl(source, "APILENS_PUBLIC_API_URL") : apiUrl;
+  return { apiUrl, sessionSecret, publicUrl, publicApiUrl };
 }
 
 let cached: ServerEnv | undefined;

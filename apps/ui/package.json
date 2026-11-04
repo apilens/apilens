@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:fake": "playwright test -c playwright.fake.config.ts",
     "tokens": "node scripts/build-tokens.mjs"
   },
   "dependencies": {

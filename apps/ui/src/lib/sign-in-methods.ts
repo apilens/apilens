@@ -23,6 +23,14 @@ export function toSignInMethods(p: Partial<AuthProviders> | null | undefined): S
 
 export type AltMethod = "email" | "github" | "google" | "sso";
 
+export type OAuthProvider = "google" | "github";
+
+/**
+ * Where each provider button navigates (identity's OAuth start URL, built on the server by
+ * `oauthStartLinks` in `oauth.ts`), present only for the providers this deployment enables.
+ */
+export type OAuthLinks = Partial<Record<OAuthProvider, string>>;
+
 /** The secondary buttons in display order. `email` leads when the row carries the email code. */
 export function altMethods(m: SignInMethods, opts: { email: boolean }): AltMethod[] {
   const out: AltMethod[] = opts.email ? ["email"] : [];

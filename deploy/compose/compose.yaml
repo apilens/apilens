@@ -283,6 +283,9 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
       # Origin users open the dashboard at (links, redirects, cookie scope).
       APILENS_PUBLIC_URL: ${APILENS_PUBLIC_URL:-http://localhost:3000}
+      # Public URL of the API (the token issuer): the Google and GitHub sign-in
+      # buttons send browsers to its /api/v1/auth/oauth/{provider}/start.
+      APILENS_PUBLIC_API_URL: ${APILENS_IDENTITY__ISSUER:-http://localhost:8080}
       # Public URL SDKs and OpenTelemetry exporters send events to, for the
       # onboarding and API key setup snippets.
       APILENS_PUBLIC_INGEST_URL: ${APILENS_PUBLIC_INGEST_URL:-http://localhost:8080}

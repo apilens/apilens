@@ -53,6 +53,11 @@ spec:
               value: {{ include "apilens.webApiUrl" . | quote }}
             - name: APILENS_PUBLIC_URL
               value: {{ include "apilens.webPublicUrl" . | quote }}
+            {{- with include "apilens.identityIssuer" . }}
+            # Public API URL: the Google and GitHub sign-in buttons link here.
+            - name: APILENS_PUBLIC_API_URL
+              value: {{ . | quote }}
+            {{- end }}
             - name: SESSION_SECRET
               valueFrom:
                 secretKeyRef:
