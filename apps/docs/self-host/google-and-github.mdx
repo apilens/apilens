@@ -1,0 +1,101 @@
+---
+title: "Self-host: Google and GitHub sign-in"
+description: "Register OAuth apps with Google and GitHub and turn on social sign-in."
+---
+
+Email codes and passkeys always work. Google and GitHub sign-in are optional and independent: a provider is turned on when its client ID is set. The sign-in page asks APILens which providers are on (`GET /api/v1/auth/providers`) and shows only those buttons.
+
+<Frame caption="With both providers configured, sign-in and sign-up show GitHub and Google buttons.">
+  <img src="/images/auth-sign-in-methods.png" alt="Sign-in buttons: Continue with a passkey, Email code, GitHub and Google" />
+</Frame>
+
+## Before you start
+
+You need:
+
+- `APILENS_IDENTITY__ISSUER`: the public URL of the APILens API (port 8080), for example `https://api.apilens.example.com`. The callback URLs are built from it.
+- `APILENS_PUBLIC_URL`: the dashboard URL, for example `https://apilens.example.com`. After sign-in, users land there.
+- Valkey. Each sign-in attempt (state, PKCE verifier, nonce) is kept there for 10 minutes so the callback can reach any replica. The compose stack includes it.
+
+The callback (redirect) URLs to register are:
+
+```
+<issuer>/api/v1/auth/oauth/google/callback
+<issuer>/api/v1/auth/oauth/github/callback
+```
+
+They must match exactly: same scheme, host, port and path, no trailing slash. For a local test, `http://localhost:8080/api/v1/auth/oauth/github/callback` works with both providers.
+
+## Google
+
+<Steps>
+  <Step title="Configure the consent screen">
+    In the [Google Cloud console](https://console.cloud.google.com/), open **Google Auth Platform** and configure branding: app name, support email, and the authorized domain of your dashboard. Under **Data access**, add the `openid`, `email` and `profile` scopes. These are non-sensitive scopes, so no Google verification is needed.
+  </Step>
+  <Step title="Choose the audience">
+    **Internal** limits sign-in to your Google Workspace. **External** allows any Google account; while the app is in *Testing*, only listed test users can sign in, so publish it when ready.
+  </Step>
+  <Step title="Create the client">
+    Go to **Clients → Create client**, choose **Web application**, and add the Google callback URL under **Authorized redirect URIs**.
+  </Step>
+  <Step title="Copy the credentials">
+    ```bash
+    APILENS_IDENTITY__OAUTH__GOOGLE__CLIENT_ID=1234-abc.apps.googleusercontent.com
+    APILENS_IDENTITY__OAUTH__GOOGLE__CLIENT_SECRET=GOCSPX-...
+    ```
+  </Step>
+</Steps>
+
+Google is used as an OpenID Connect provider: APILens discovers its endpoints from `https://accounts.google.com`, checks the `id_token` signature and nonce, and requires `email_verified`.
+
+## GitHub
+
+<Steps>
+  <Step title="Create an OAuth app">
+    Go to **Settings → Developer settings → OAuth Apps → New OAuth App**. Create it under an organization's settings instead if the organization should own it.
+  </Step>
+  <Step title="Fill in the URLs">
+    **Homepage URL**: your dashboard URL (`APILENS_PUBLIC_URL`). **Authorization callback URL**: the GitHub callback URL above. Leave device flow off.
+  </Step>
+  <Step title="Generate a secret and copy the credentials">
+    ```bash
+    APILENS_IDENTITY__OAUTH__GITHUB__CLIENT_ID=Ov23li...
+    APILENS_IDENTITY__OAUTH__GITHUB__CLIENT_SECRET=...
+    ```
+  </Step>
+</Steps>
+
+APILens requests `read:user` and `user:email` and uses the account's **primary verified** email. Users whose GitHub email is unverified see *Your account with this provider has no verified email*.
+
+## Apply
+
+```bash
+docker compose up -d --wait
+```
+
+On Kubernetes, pass the same `APILENS_IDENTITY__OAUTH__*` variables, with the secrets in a Secret.
+
+APILens refuses to start if a client ID is set without its secret, or a secret without its ID, and names the missing variable. Check what is on:
+
+```bash
+curl -s https://api.apilens.example.com/api/v1/auth/providers
+# {"email":true,"passkeys":true,"google":true,"github":true,"sso":false}
+```
+
+## How accounts are matched
+
+1. A returning user is found by the provider's account id.
+2. Otherwise, an existing APILens account with the same verified email is linked to the provider.
+3. Otherwise, a new account is created.
+
+If the user has two-factor authentication on, they are asked for a code after the provider. Users can link and unlink providers in Settings → Connected accounts.
+
+## Troubleshooting
+
+| Error | Cause |
+|---|---|
+| Google `redirect_uri_mismatch` or GitHub *The redirect_uri is not associated with this application* | The registered callback URL differs from `<issuer>/api/v1/auth/oauth/<provider>/callback`. Compare scheme, host, port and trailing slash. |
+| *Sign-in couldn't be completed. Start again.* | The attempt took over 10 minutes, was replayed, or Valkey lost the state. Start again. |
+| `503` from `/oauth/<provider>/start` | Valkey is not configured or not reachable. |
+| `404` from `/oauth/<provider>/start` | That provider has no client ID. |
+| `429` | More than 30 sign-in starts per IP in 15 minutes (`APILENS_IDENTITY__RATE_LIMITS__OAUTH_START_PER_IP__*`). Behind a proxy, set `APILENS_IDENTITY__RATE_LIMITS__TRUSTED_PROXIES` so the real client IP is used. |

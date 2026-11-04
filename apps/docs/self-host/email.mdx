@@ -1,0 +1,83 @@
+---
+title: "Self-host: email"
+description: "Deliver sign-in codes, invitations and security alerts through your SMTP relay."
+---
+
+A self-hosted APILens sends email for sign-in codes and links, invitations, new-device alerts and account recovery. Until you configure SMTP, nothing is delivered: messages are written to the APILens log instead.
+
+## How it works
+
+- Requests never send mail themselves. They enqueue an `email.send` background job (River, in Postgres) that the `identity` role runs.
+- A failed send is retried 5 times with exponential backoff (30 s up to 8 min). Failures are logged with the Message-ID, never the body.
+- `apilens_email_sent_total{template,status}` counts attempts by outcome: `sent`, `failed` or `rejected`.
+
+## Configure SMTP
+
+Set these in `deploy/compose/.env` (they map to `email.*` in the config file; on Kubernetes pass the same environment variables, with the password in a Secret):
+
+```bash
+APILENS_EMAIL__PROVIDER=smtp
+APILENS_EMAIL__HOST=smtp.example.com
+APILENS_EMAIL__PORT=587
+APILENS_EMAIL__USERNAME=apilens
+APILENS_EMAIL__PASSWORD=...
+APILENS_EMAIL__FROM="APILens <no-reply@example.com>"
+# APILENS_EMAIL__REPLY_TO=support@example.com
+APILENS_EMAIL__TLS=starttls
+```
+
+Then apply it:
+
+```bash
+docker compose up -d --wait
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `APILENS_EMAIL__PROVIDER` | `log` | `smtp` delivers mail. `log` writes each rendered message to the log and sends nothing. |
+| `APILENS_EMAIL__HOST` | | SMTP relay host. Required for `smtp`. |
+| `APILENS_EMAIL__PORT` | `587` | SMTP port. |
+| `APILENS_EMAIL__USERNAME` / `__PASSWORD` | | Credentials. Leave both empty for an unauthenticated relay. |
+| `APILENS_EMAIL__FROM` | | Sender address, e.g. `APILens <no-reply@example.com>`. Required for `smtp`. |
+| `APILENS_EMAIL__REPLY_TO` | | Optional Reply-To address. |
+| `APILENS_EMAIL__TLS` | `starttls` | `starttls` (port 587), `tls` (implicit TLS, port 465) or `none` (local relays only). |
+| `APILENS_EMAIL__TIMEOUT` | `10s` | Connect and send timeout. |
+
+APILens refuses to start with `smtp` and no `HOST` or `FROM`, or with an invalid address. With `TLS=none`, credentials are only offered over challenge mechanisms (CRAM-MD5, SCRAM), never in clear text.
+
+### Provider examples
+
+| Provider | Host | Port / TLS | Username |
+|---|---|---|---|
+| Amazon SES | `email-smtp.<region>.amazonaws.com` | `587` / `starttls` | SMTP credentials from the SES console |
+| Postmark | `smtp.postmarkapp.com` | `587` / `starttls` | Server API token (also the password) |
+| Resend | `smtp.resend.com` | `465` / `tls` | `resend` (password: API key) |
+| SendGrid | `smtp.sendgrid.net` | `587` / `starttls` | `apikey` (password: API key) |
+| Mailgun | `smtp.mailgun.org` | `587` / `starttls` | Domain SMTP login |
+| Local relay (Postfix, Mailpit) | `localhost` or service name | `25` or `1025` / `none` | (empty) |
+
+Whatever you use, verify the sending domain with the provider and publish its SPF and DKIM records, and a DMARC policy. Sign-in emails that land in spam look like a broken product.
+
+### Links in emails
+
+Links point at `APILENS_PUBLIC_URL`, the address users open the dashboard at. Behind a TLS proxy, set it to your public HTTPS URL, for example `https://apilens.example.com`, or links will point at `localhost`.
+
+## Without SMTP (testing)
+
+With the default `log` provider, the `all`, `api` and `identity` roles log a warning at startup, and each email appears in the log with its code and link:
+
+```bash
+docker compose logs apilens | grep -i "email"
+```
+
+This is fine to try APILens on one machine. Nobody else can sign in until you configure SMTP, so do that before inviting your team.
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| No email arrives, log shows `email.send` failures | Host, port and TLS mode match (587 with `starttls`, 465 with `tls`). The firewall allows outbound SMTP; many clouds block port 25. |
+| `535 authentication failed` | Username and password; some providers need an API key as the password. |
+| Email arrives in spam | SPF, DKIM and DMARC for the `FROM` domain. |
+| Link opens `localhost` | `APILENS_PUBLIC_URL`. |
+| Code says it expired | Codes last 15 minutes (`APILENS_IDENTITY__EMAIL_CODE_TTL`). Check the queue is not backed up: `apilens_email_sent_total` and the job logs. |

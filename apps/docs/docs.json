@@ -67,6 +67,22 @@
             ]
           },
           {
+            "group": "Account",
+            "pages": [
+              "account/sign-in-and-2fa",
+              "account/members-and-invitations"
+            ]
+          },
+          {
+            "group": "Self-hosting",
+            "pages": [
+              "self-host/first-admin",
+              "self-host/email",
+              "self-host/google-and-github",
+              "self-host/sso-oidc"
+            ]
+          },
+          {
             "group": "Ingest API",
             "pages": [
               "ingest/ingest-api",

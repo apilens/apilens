@@ -1,0 +1,72 @@
+---
+title: "Managing members and invitations"
+description: "Organization roles, inviting teammates, changing roles and sharing a single project."
+---
+
+<Info>
+Organizations, members and invitations ship with APILens v2 (milestone M2).
+</Info>
+
+An **organization** owns projects and the people who work on them. Each member has exactly one role in the organization, and that role applies to every project in it.
+
+## Roles
+
+| Role | Can do |
+|---|---|
+| **Owner** | Everything, including SSO and billing. Only an owner can transfer ownership. |
+| **Admin** | Manage organization settings, invite and remove members, change roles, delete projects. |
+| **Member** | Create projects, change project settings, create and revoke API keys, see all data. |
+| **Viewer** | See every project and its data. Cannot change anything. |
+
+| Action | Owner | Admin | Member | Viewer |
+|---|:-:|:-:|:-:|:-:|
+| See projects and telemetry | ✓ | ✓ | ✓ | ✓ |
+| Create projects, change project settings | ✓ | ✓ | ✓ | |
+| Create and revoke API keys | ✓ | ✓ | ✓ | |
+| Delete projects | ✓ | ✓ | | |
+| Invite members, change roles, remove members | ✓ | ✓ | | |
+| Organization settings | ✓ | ✓ | | |
+| SSO connection, billing | ✓ | | | |
+
+Buttons you are not allowed to use are hidden or disabled. The server checks every action as well, so a hidden button is never the only safeguard.
+
+### Sharing a single project
+
+A project can also be shared with someone who is not an organization member, as project **admin**, **editor** or **viewer**. That access covers only that project, never the organization or its other projects.
+
+## Invite your team
+
+Owners and admins invite people from **Organization settings → Members → Invite**, or from the last onboarding step.
+
+<Steps>
+  <Step title="Enter emails and roles">
+    Add up to 50 email addresses, each with a role: admin, member or viewer. Nobody can be invited as owner.
+  </Step>
+  <Step title="Send">
+    Each address gets an email with a link. Existing members are skipped and listed as such. Inviting an address that already has a pending invitation replaces it.
+  </Step>
+  <Step title="They accept">
+    The link opens a page showing the organization, who invited them and the role. They sign in (or sign up) **with the invited email address** and accept. Signing in with a different address shows *This invitation was sent to a different email address*.
+  </Step>
+</Steps>
+
+### Pending invitations
+
+**Organization settings → Invitations** lists invitations that have not been accepted. You can:
+
+- **Resend** the email (once every 5 minutes per invitation).
+- **Revoke** the invitation; its link stops working.
+
+An expired invitation shows *This invitation has expired. Ask for a new one.* Send a new invitation.
+
+## Change a role or remove a member
+
+On **Organization settings → Members**, owners and admins can change a member's role or remove them. Changes apply within seconds. Removing someone ends their access to every project in the organization; their own account is not deleted.
+
+Members can leave an organization themselves. The last owner cannot leave or be removed; transfer ownership first.
+
+## Join by email domain
+
+An organization can allow anyone with a verified email address on its domains (for example `example.com`) to find and join it without an invitation. Admins turn this on in **Organization settings → General** under allowed domains. Public email domains such as gmail.com never qualify.
+
+With [SSO](/self-host/sso-oidc), people from the SSO domains join automatically the first time they sign in.

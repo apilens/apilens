@@ -1,0 +1,75 @@
+---
+title: "Self-host: first admin"
+description: "Sign in for the first time on a new self-hosted APILens and become the owner of your organization."
+---
+
+A fresh self-hosted APILens has no users. The first person to sign up creates an organization during onboarding and becomes its **owner**. Owners can then invite everyone else ([Managing members and invitations](/account/members-and-invitations)).
+
+## Before you start
+
+Run the stack (`deploy/compose`, see the self-host quickstart in `deploy/README.md`) with every required secret set, including `APILENS_IDENTITY__KEY_ENCRYPTION_KEY`:
+
+```bash
+openssl rand -base64 32   # 32 random bytes, base64
+```
+
+<Warning>
+Back up `APILENS_IDENTITY__KEY_ENCRYPTION_KEY` with your database backups. It encrypts token signing keys and two-factor secrets; losing or changing it signs everyone out and makes two-factor secrets unreadable.
+</Warning>
+
+## Option 1: sign up in the browser
+
+<Steps>
+  <Step title="Open the dashboard">
+    Go to `APILENS_PUBLIC_URL` (by default http://localhost:3000) and select **Create an account**.
+  </Step>
+  <Step title="Get the code">
+    Enter your email. If you have [configured email](/self-host/email), the code arrives in your inbox. With the default `log` provider, read it from the logs:
+
+    ```bash
+    docker compose logs apilens | grep -i "email"
+    ```
+  </Step>
+  <Step title="Create your organization">
+    Verify the code, then follow onboarding: name your organization and create your first project. You are now the organization's owner.
+  </Step>
+  <Step title="Secure the account">
+    Add a passkey or turn on two-factor authentication in Settings → Security ([Sign in and 2FA](/account/sign-in-and-2fa)).
+  </Step>
+</Steps>
+
+## Option 2: from the command line
+
+For a server without SMTP, or for automation, the `apilens` binary can create the first admin and print a sign-in link without sending email:
+
+```bash
+# Create a user who owns an organization (created if it does not exist)
+docker compose run --rm --entrypoint /apilens apilens \
+  user create --email admin@example.com --org acme --role owner
+
+# Print a one-time sign-in link for an existing user
+docker compose run --rm --entrypoint /apilens apilens \
+  user magic-link --email admin@example.com
+```
+
+Open the printed link within 15 minutes; it works once. Both commands are recorded in the audit log.
+
+<Note>
+`apilens user create` and `apilens user magic-link` ship with APILens v2 (milestone M2, [#353](https://github.com/apilens/apilens/issues/353)). Until then, use option 1.
+</Note>
+
+## Sample data
+
+To try APILens without instrumenting anything, `apilens seed` creates a demo organization, project and app and prints an ingest key and a read key:
+
+```bash
+docker compose run --rm --entrypoint /apilens apilens seed
+```
+
+Send events with the `api_key` from its output to `http://<host>:8080/v1`, or point an OpenTelemetry exporter at `http://<host>:8080/otlp`.
+
+## Next steps
+
+- [Deliver email](/self-host/email) so teammates can sign in.
+- [Add Google and GitHub sign-in](/self-host/google-and-github).
+- [Connect SSO](/self-host/sso-oidc) for your company domain.

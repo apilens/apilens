@@ -2,7 +2,296 @@
 
 The `identity` role is APILens' built-in identity provider: email codes and
 magic links, passkeys, TOTP, OAuth/OIDC sign-in, sessions and invitations
-(ADR 0005). This page documents the contract its endpoints share.
+(ADR 0005). This page documents how sign-in works end to end, the tokens it
+issues, how memberships reach SpiceDB (ADR 0006), the capabilities vocabulary
+the UI gates on, and the contract every identity endpoint shares (errors).
+
+Security controls per flow live in the
+[identity threat model](../security/identity-threat-model.md); self-host
+configuration lives in [`deploy/README.md`](../../deploy/README.md) and the
+docs site (`apps/docs/self-host/*`).
+
+## Status
+
+Identity lands over milestone M2. Sections below describe the M2 design; the
+table says what is on `v2` today. Rows marked *planned* name the issue that
+implements them, and that issue updates this page when it merges.
+
+| Piece | State |
+|---|---|
+| `identity` and `api` role targets, `IdentityConfig`, `EmailConfig`, `AuthzConfig` | done |
+| Error catalogue (`problem+json` + `code`), CORS/CSRF posture, auth rate limits | done |
+| Signing-key storage (`00003_signing_keys.sql`, AES-256-GCM with the KEK) | done |
+| `users`, `audit_events`, `sessions` tables; audit recorder | done |
+| `email.send` River job, `smtp` and `log` providers | done |
+| `GET /api/v1/auth/providers`, `GET /api/v1/auth/oauth/{provider}/start` | done |
+| SpiceDB schema, Go client (fail-closed, ZedTokens), SpiceDB in compose/Helm | done |
+| UI: encrypted session cookie, auth gate, `/api/auth/*` Route Handlers, refresh coalescing | done |
+| Key rotation and JWKS, access-token issuer, session verifier (#233–#236) | planned |
+| Refresh rotation and logout (#238) | planned |
+| Email code and magic link (#248–#254) | planned |
+| OAuth callback and handoff (#255, #258–#260) | planned |
+| Passkeys (#261–#265), TOTP and recovery (#266–#270) | planned |
+| Session management (#271–#275) | planned |
+| Orgs, members, invitations, projects, API keys (#276–#287) | planned |
+| Outbox relay, reconciler, `authz.Require`, capabilities (#291–#296) | planned |
+| Per-org OIDC SSO (#297–#300), OIDC provider (#301) | planned |
+| First-admin CLI `apilens user create` / `user magic-link` (#353) | planned |
+
+## Components
+
+```
+browser ──► web (apps/ui, Next.js) ──server-side──► identity  (/api/v1/auth/*)
+  │            │  encrypted httpOnly cookie            api       (/api/v1/users, /orgs, /projects)
+  │            │  {access, refresh, user}              query     (/api/v1/... reads)
+  │            ▼                                          │
+  └──► OAuth / SSO provider ──callback──► identity        ├── Postgres  (source of truth, outbox)
+                                                          ├── Valkey    (rate limits, OAuth state,
+                                                          │              handoff codes, denylist)
+                                                          └── SpiceDB   (permissions, via outbox relay)
+```
+
+- **The browser never holds a token.** `web` calls identity from Route
+  Handlers (`apps/ui/src/app/api/auth/*`) and keeps the session bundle in an
+  AES-256-GCM sealed, `httpOnly`, `SameSite=Lax` cookie
+  (`apps/ui/src/lib/session.ts`). Identity itself sets no cookies.
+- **Only identity holds signing keys.** Keys are stored encrypted with
+  `identity.key_encryption_key`; every other role verifies access tokens
+  locally against `GET /.well-known/jwks.json`.
+- **Top-level navigations only.** The browser reaches identity directly only
+  for OAuth/SSO redirects (`…/start`, `…/callback`) and the magic-link
+  fallback. CORS is off unless `identity.cors_origins` is set.
+
+## Sign-in flows
+
+Every successful sign-in, whatever the method, ends in the same **session
+bundle**:
+
+```json
+{
+  "access_token": "<RS256 JWT>",
+  "refresh_token": "<opaque, 32 random bytes, base64url>",
+  "expires_in": 900,
+  "user": { "id": "…", "email": "…", "email_verified": true, "…": "…" },
+  "next": "/my-project"
+}
+```
+
+or, when the user has confirmed TOTP and the method was not a passkey, in
+`{"status": "2fa_required", "pre_auth_token": "…", "next": "…"}`.
+
+### Email code and magic link
+
+1. `POST /api/v1/auth/email/start` `{email, intent: signin|signup, next?, remember?}`
+   always answers `200 {sent: true, retry_after}`, whether or not the account
+   exists. Within the 30 s cooldown no new email is sent. Otherwise identity
+   issues a 6-digit code and a 256-bit link token (both stored as SHA-256,
+   15 min, single use; a new issue invalidates older ones) and enqueues the
+   `auth_code` email. For `intent=signin` with no account, the email says so
+   and offers a sign-up link instead.
+2. The user either types the code on `/verify`, which posts
+   `POST /api/v1/auth/email/verify` `{email, code, remember}`, or opens the link
+   `{public_ui_url}/verify?token=…`, which `web` exchanges server-side with
+   `POST /api/v1/auth/email/verify-link` `{token, remember}`.
+   `GET /api/v1/auth/email/link?token=` redirects to the UI without consuming
+   the token, for clients that hit identity directly.
+3. Five wrong codes lock the token (`too_many_attempts`). On success the user
+   is found or created (`email_verified_at` set, `user.created` audited on
+   first sign-in) and gets a session with `amr: ["email"]`.
+
+### Google and GitHub
+
+1. The sign-in page links to `GET /api/v1/auth/oauth/{provider}/start?next=&remember=&intent=login|link`.
+   Identity stores `{provider, PKCE verifier, nonce (Google), next, intent,
+   remember}` in Valkey for 10 minutes under a random `state` and redirects
+   (302) to the provider.
+2. The provider redirects to `GET /api/v1/auth/oauth/{provider}/callback`.
+   Identity takes the state (atomic `GETDEL`, so it is single use), exchanges
+   the code with the PKCE verifier and gets a **verified** email: Google from
+   the `id_token` (`email_verified`, nonce checked), GitHub from the primary
+   verified address in `/user/emails`. No verified email means
+   `oauth_email_unverified`.
+3. The user is matched by (provider, subject), then by verified email (the
+   identity is linked), else created. The session bundle (or the 2FA
+   challenge) is stored under a one-time **handoff code** (60 s, Valkey) and
+   the browser is sent to `{public_ui_url}/auth/callback?code=…`. Tokens never
+   appear in a URL.
+4. `web` redeems the code with `POST /api/v1/auth/handoff` and sets the
+   cookie. Errors redirect to `{public_ui_url}/sign-in?error=<code>`.
+
+`intent=link` attaches the provider to the signed-in user instead (Settings →
+Connected accounts).
+
+### Passkeys
+
+Passkeys are discoverable WebAuthn credentials bound to
+`identity.webauthn.rp_id`. Sign-in is
+`POST /api/v1/auth/passkeys/login/options` → browser ceremony →
+`POST /api/v1/auth/passkeys/login/verify` `{challenge_id, credential, remember}`.
+A passkey is phishing-resistant and user-verifying, so it **skips** the TOTP
+step (`amr: ["passkey"]`). Registration (`…/register/options`, `…/register/verify`)
+requires a session.
+
+### Two-factor (TOTP) and backup codes
+
+When TOTP is confirmed, email, social and SSO sign-ins answer `2fa_required`
+with a `pre_auth_token`: 32 random bytes in Valkey for
+`identity.pre_auth_ttl` (5 min), at most 5 attempts. It is not a JWT and is
+accepted by one endpoint only: `POST /api/v1/auth/2fa/exchange`
+`{pre_auth_token, code | backup_code}`, which returns the session bundle with
+`totp` (or `backup_code`) appended to `amr`. Enabling TOTP returns 10 single-use
+backup codes once. TOTP secrets are encrypted with the KEK.
+
+**Lost device.** `POST /api/v1/auth/recovery/request` emails a cancel link and
+starts a 24 h cooling-off period; `…/recovery/confirm` succeeds only after it,
+disables TOTP, revokes every session and emails a security alert.
+`…/recovery/cancel` stops it.
+
+### Per-org SSO (OIDC)
+
+An org owner configures one OIDC connection (issuer, client ID, secret,
+domains, `enforce`, `default_role`). `GET /api/v1/auth/sso/lookup?email=`
+tells the sign-in page whether the email's domain has SSO and whether it is
+enforced. `GET /api/v1/auth/sso/{org}/start` → IdP →
+`GET /api/v1/auth/sso/{org}/callback` uses the same state, PKCE, nonce and
+handoff mechanics as social sign-in. The `id_token` email must be in the
+connection's `domains`; the user joins the org with `default_role` if not
+already a member (just-in-time, through the outbox). With `enforce` on, email
+and social sign-in for those domains answer `sso_required`.
+
+### Invitations
+
+Admins and owners invite by email with a role (`admin`, `member`, `viewer`;
+never `owner`). The invitation email links to `{public_ui_url}/invite/{token}`.
+`GET /api/v1/auth/invitations/{token}` is public and shows the org, inviter,
+masked email, role and expiry. Accepting
+(`POST /api/v1/auth/invitations/{token}/accept`) needs a session whose
+verified email equals the invited one (`invite_email_mismatch` otherwise),
+creates the membership through the outbox and is idempotent.
+
+## Tokens and sessions
+
+### Access token
+
+RS256 JWT, `identity.access_token_ttl` (15 min). Header `kid` names the
+signing key; `GET /.well-known/jwks.json` serves the public keys (current and
+recently retired, so rotation never breaks live tokens).
+
+| Claim | Value |
+|---|---|
+| `iss` | `identity.issuer` |
+| `sub` | user id |
+| `aud` | `apilens` |
+| `iat`, `exp` | issue time, issue time + `access_token_ttl` |
+| `sid` | session id (the `sessions` row) |
+| `amr` | how the session was authenticated: `email`, `google`, `github`, `passkey`, `totp`, `backup_code`, `sso` |
+
+Verifiers (`api`, `query`, later `mcp`) accept only RS256 and only keys from
+JWKS, check `iss`, `aud` and `exp`, and consult the `sid` denylist.
+
+### Refresh token and session
+
+A session is a `sessions` row with device metadata (user agent label, IP,
+last active). Its refresh token is 32 random bytes, base64url; only the
+SHA-256 is stored. Lifetime is `identity.refresh_token_ttl` (30 days) with
+"Keep me signed in", otherwise `identity.refresh_token_ttl_short` (24 h).
+
+- `POST /api/v1/auth/refresh` `{refresh_token}` rotates: it returns a new
+  bundle and retires the old token. Replaying a retired token revokes the
+  whole token family and audits `session.reuse_detected`.
+- `POST /api/v1/auth/logout` revokes the session;
+  `POST /api/v1/auth/logout-all` revokes all of the user's sessions.
+- Revoking a session pushes its `sid` into a Valkey denylist for one access
+  token TTL, so its access token stops working within seconds (verifiers
+  cache the denylist for 5 s and fall back to TTL-only if Valkey is down).
+- `web` refreshes server-side shortly before expiry and coalesces concurrent
+  refreshes by token, so parallel requests never replay a rotated token.
+
+### Lifetimes and limits
+
+| Setting | Default |
+|---|---|
+| `identity.access_token_ttl` | `15m` |
+| `identity.refresh_token_ttl` / `refresh_token_ttl_short` | `720h` / `24h` |
+| `identity.email_code_ttl` / `email_code_max_attempts` | `15m` / `5` |
+| `identity.pre_auth_ttl` | `5m` |
+| OAuth state / handoff code | 10 min / 60 s |
+| Email start per email / per IP | 5 / 20 per 15 min |
+| Code verify per email | 10 per 15 min |
+| Refresh per IP | 60 per minute |
+| Passkey and 2FA verify per user | 10 per 15 min |
+| OAuth start per IP | 30 per 15 min |
+
+Rate limits are sliding windows in Valkey shared by every replica
+(`identity.rate_limits.*`); they answer `429` with `Retry-After`.
+
+## Authorization: outbox and SpiceDB sync
+
+Postgres is the source of truth for organizations, memberships and projects;
+SpiceDB holds the derived relationships that permission checks read
+([ADR 0006](../adr/0006-authorization-spicedb.md), schema in
+[`authz/`](../../authz/README.md)).
+
+1. **Write.** Every membership-affecting write calls
+   `outbox.Emit(tx, topic, aggregate_id, payload)` in the same Postgres
+   transaction as the change, so the outbox row commits or rolls back with it.
+2. **Relay.** A River periodic job (every 2 s, and woken by `NOTIFY outbox`)
+   reads pending rows in `id` order (`FOR UPDATE SKIP LOCKED`, 500 at a time),
+   translates each topic into SpiceDB `WriteRelationships` with idempotent
+   `TOUCH`/`DELETE` updates, stores the returned ZedToken for the org in
+   Valkey and marks the row `processed_at`. A crash between the write and the
+   mark re-applies the row safely. `apilens_outbox_lag_seconds` tracks lag.
+3. **Reconcile.** An hourly job compares Postgres with SpiceDB and repairs
+   drift.
+4. **Read.** Checks go through `internal/authz.Client` with
+   `at_least_as_fresh` the org's last ZedToken, so a user sees their own
+   writes immediately. When SpiceDB cannot answer, the check **fails closed**
+   (`503`, never an allow).
+
+| Topic | `aggregate_id` | Payload | Relationships |
+|---|---|---|---|
+| `org.created` | org id | `{org_id, owner_user_id}` | `TOUCH organization:{org}#owner@user:{owner}` |
+| `org.deleted` | org id | `{org_id}` | `DELETE` every relationship of `organization:{org}` |
+| `membership.upserted` | org id | `{org_id, user_id, role}` | `DELETE` the user's other org roles, `TOUCH organization:{org}#{role}@user:{user}` |
+| `membership.deleted` | org id | `{org_id, user_id}` | `DELETE organization:{org}#{owner,admin,member,viewer}@user:{user}` |
+| `project.created` | project id | `{project_id, org_id}` | `TOUCH project:{project}#org@organization:{org}` |
+| `project.deleted` | project id | `{project_id}` | `DELETE` every relationship of `project:{project}` |
+| `project.moved` | project id | `{project_id, from_org_id, to_org_id}` | `DELETE …#org@organization:{from}`, `TOUCH …#org@organization:{to}` |
+
+The topics and payloads above are the contract the outbox helper (#277) and
+the relay (#291) implement. Payloads carry ids and roles only, never emails or secrets. Topics are stable
+once shipped; a new shape gets a new topic.
+
+## Capabilities vocabulary
+
+The UI never derives permissions from a role. `GET /api/v1/users/me/context`
+returns, per project, the list of **actions** the user may perform, computed
+with one SpiceDB `CheckBulkPermissions` call; the UI gates buttons on them
+(`apps/ui/src/lib/capabilities.ts`, `useCan()`, `<Gated>`). The server still
+checks every request with `authz.Require`; capabilities only decide what the
+UI shows.
+
+```json
+"capabilities": {
+  "checkout-api": ["project.read", "project.update", "api_keys.create", "api_keys.revoke"]
+}
+```
+
+| Action | SpiceDB permission | Gates |
+|---|---|---|
+| `project.read` | `project#view` | seeing the project and its telemetry |
+| `project.update` | `project#edit` | project settings, environments |
+| `project.delete` | `project#delete` | the project's danger zone |
+| `api_keys.create` | `project#manage_keys` | creating ingest and read keys |
+| `api_keys.revoke` | `project#manage_keys` | revoking keys |
+| `members.invite` | `organization#invite` | the invite dialog and Invitations page |
+| `members.remove` | `organization#manage_members` | role changes and removal on Members |
+| `billing.manage` | `organization#manage_billing` | billing (SaaS) |
+
+Which roles hold each permission is the table in
+[`authz/README.md`](../../authz/README.md), asserted by
+`authz/schema.validation.yaml`. Actions are stable once shipped; add new ones
+here, in `capabilities.ts` and in the schema in the same change.
 
 ## Errors
 
