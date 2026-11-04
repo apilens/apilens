@@ -1,0 +1,45 @@
+/* Settings → Connected accounts (#344). Tokens from tokens.css only; banners reuse .ob-notice. */
+.ca { max-width: 720px; margin-top: var(--space-6); }
+.ca-notice { margin: 0 0 var(--space-6); }
+.ca-notice--ok { border-color: var(--ok); background: var(--ok-soft); }
+.ca-notice--ok > .ob-ic { color: var(--ok); }
+.ca-notice--error { border-color: var(--error); background: var(--error-soft); }
+.ca-notice--error > .ob-ic { color: var(--error); }
+
+.ca-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
+.ca-item { padding: var(--space-4) var(--space-6); }
+.ca-item + .ca-item { border-top: 1px solid var(--border); }
+.ca-row { display: flex; align-items: center; gap: var(--space-4); }
+.ca-logo { display: inline-grid; place-items: center; width: 36px; height: 36px; flex: none; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); color: var(--ink); }
+.ca-logo .al-brand { width: 18px !important; height: 18px !important; }
+.ca-what { flex: 1; min-width: 0; }
+.ca-what h2 { margin: 0; font: 600 14px/20px var(--font-sans); color: var(--ink); }
+.ca-what p { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.ca-err { margin: var(--space-2) 0 0 52px; }
+
+.ca-accounts { margin: var(--space-3) 0 0 52px; padding: 0; list-style: none; }
+.ca-acct { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg); }
+.ca-acct + .ca-acct { margin-top: var(--space-2); }
+.ca-acct__row { display: flex; align-items: center; gap: var(--space-3); padding: 10px 8px 10px 12px; }
+.ca-acct__who { flex: 1; min-width: 0; }
+.ca-acct__who b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 13px/18px var(--font-sans); color: var(--ink); }
+.ca-acct__who span { display: block; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ca-disconnect { color: var(--error); }
+.ca-disconnect:hover { background: var(--error-soft); color: var(--error); }
+
+.ca-confirm { padding: var(--space-3) 12px var(--space-3); border-top: 1px solid var(--border); }
+.ca-confirm p { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.ca-confirm .row { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-3); }
+.ca-btn-danger { background: var(--error); border-color: var(--error); color: #fff; }
+.ca-btn-danger:hover { filter: brightness(1.08); }
+.ca .ah-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.ca-confirm .ah-btn.is-loading:disabled { opacity: 1; }
+
+.ca-foot { display: flex; gap: 10px; align-items: flex-start; margin: var(--space-4) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.ca-foot > .ob-ic { margin-top: 2px; flex: none; }
+.ca-foot b { font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+
+@media (max-width: 860px) {
+  .ca-item { padding: var(--space-4); }
+  .ca-accounts, .ca-err { margin-left: 0; }
+}

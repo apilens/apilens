@@ -2,6 +2,7 @@
 // can be unit tested. The proxy decrypts the session cookie (decrypt-verify, never presence:
 // a stale or tampered cookie must count as signed out, or `/` redirect-loops as it did in v1)
 // and hands the result here.
+import { CONNECTED_ACCOUNTS_PATH, LINK_ERROR_NOTICES } from "./connected-accounts";
 import { safeNext } from "./safe-next";
 import type { SessionPayload } from "./session-format";
 
@@ -63,8 +64,14 @@ export function decide(req: GateRequest): GateDecision {
 
   if (session) {
     if (GUEST_ONLY.has(pathname)) {
-      const next = new URLSearchParams(search).get("next");
-      return { action: "redirect", location: safeNext(next, "/") };
+      const params = new URLSearchParams(search);
+      // A failed "Connect" in Settings → Connected accounts: identity reports it on the sign-in
+      // page, which a signed-in user never sees. Show it where the connection was started.
+      const error = params.get("error");
+      if (pathname === SIGN_IN_PATH && error && Object.hasOwn(LINK_ERROR_NOTICES, error)) {
+        return { action: "redirect", location: `${CONNECTED_ACCOUNTS_PATH}?${new URLSearchParams({ error })}` };
+      }
+      return { action: "redirect", location: safeNext(params.get("next"), "/") };
     }
     // `/` itself (`app/page.tsx`) picks onboarding or the last project from the user's context.
     return { action: "next", refresh: needsRefresh(session, req.nowSeconds) };

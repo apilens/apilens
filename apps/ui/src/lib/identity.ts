@@ -231,7 +231,7 @@ function makeRequest(config: ClientConfig) {
   return async function request<T>(
     method: Method,
     path: string,
-    opts: CallOptions & { body?: unknown; query?: Query } = {},
+    opts: CallOptions & { body?: unknown; query?: Query; location?: boolean } = {},
   ): Promise<T> {
     const requestId = opts.requestId ?? crypto.randomUUID();
     const headers = new Headers({
@@ -269,6 +269,11 @@ function makeRequest(config: ClientConfig) {
       });
     }
 
+    // A browser-navigation endpoint called from the server: the answer is where it redirects.
+    if (opts.location && res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location");
+      if (location) return location as T;
+    }
     if (!res.ok) throw await errorFromResponse(res, requestId);
     if (res.status === 204 || res.status === 205) return undefined as T;
     const text = await res.text();
@@ -331,6 +336,22 @@ export interface User {
   created_at: string;
   /** Authentication methods of the current session. */
   amr?: AuthMethod[];
+}
+
+/** `GET /users/me/identities` (#260): a Google or GitHub account connected to the user. */
+export interface ConnectedAccount {
+  id: string;
+  provider: "google" | "github";
+  /** Address the provider reported, or null. */
+  email: string | null;
+  /** Display name at the provider, or empty. */
+  name: string;
+  /** Login at the provider (GitHub), or empty. */
+  username: string;
+  avatar_url: string;
+  /** When the account was connected. */
+  created_at: string;
+  last_login_at: string | null;
 }
 
 export interface OnboardingState {
@@ -610,6 +631,20 @@ export function createClient(config: ClientConfig) {
     revokeSession: (id: string, o: Authed) => request<void>("DELETE", `/users/me/sessions/${seg(id)}`, o),
     revokeOtherSessions: (o: Authed) =>
       request<{ revoked: number }>("POST", "/users/me/sessions/revoke-others", o),
+    // identity: connected accounts (#260) --------------------------------------------------
+    listIdentities: (o: Authed) =>
+      request<{ identities: ConnectedAccount[] }>("GET", "/users/me/identities", o),
+    deleteIdentity: (id: string, o: Authed) => request<void>("DELETE", `/users/me/identities/${seg(id)}`, o),
+    /**
+     * `GET /auth/oauth/{provider}/start?intent=link` as the signed-in user: answers the provider
+     * URL identity redirects to, for the browser to follow. `next` is where identity sends it back.
+     */
+    oauthLinkStart: (provider: "google" | "github", next: string, o: Authed) =>
+      request<string>("GET", `/auth/oauth/${seg(provider)}/start`, {
+        ...o,
+        query: { intent: "link", next },
+        location: true,
+      }),
 
     // api: invitations --------------------------------------------------------------------
     invitationLookup: (token: string, o?: CallOptions) =>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { type KeyboardEvent, type ReactNode, useRef } from "react";
 import { ACCOUNT_SECTIONS, ACCOUNT_SETTINGS, type AccountSection, accountSectionHref } from "@/lib/account-settings";
 
 /**

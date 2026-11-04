@@ -1,11 +1,15 @@
 // A fake identity server plus a fake OAuth provider for the social sign-in (#317), two-factor
-// step (#320), account settings (#339) and sessions (#343) browser tests.
+// step (#320), account settings (#339), sessions (#343) and connected accounts (#344) browser tests.
 // It mirrors the real contract (internal/identity/oauth.go, oauth_callback.go, handoff_redeem.go):
 //
 //   GET  /api/v1/auth/providers                    google and github enabled
-//   GET  /api/v1/auth/oauth/{provider}/start       checks `next`, keeps a state, 302 to the provider
-//   GET  /fake-provider/authorize                  consent page: "Authorize" or "Deny"
-//   GET  /api/v1/auth/oauth/{provider}/callback    302 to {ui}/auth/callback?code=… or /sign-in?error=…
+//   GET  /api/v1/auth/oauth/{provider}/start       checks `next`, keeps a state, 302 to the provider;
+//                                                  intent=link needs a Bearer token
+//   GET  /fake-provider/authorize                  consent page: "Authorize", "Use a taken account" or "Deny"
+//   GET  /api/v1/auth/oauth/{provider}/callback    302 to {ui}/auth/callback?code=… or /sign-in?error=…;
+//                                                  intent=link: 302 to {ui}{next}?linked=… (or error=oauth_identity_taken)
+//   GET  /api/v1/users/me/identities               the connected accounts
+//   DELETE /api/v1/users/me/identities/{id}        204, or 410 oauth_identity_gone
 //   POST /api/v1/auth/handoff                      redeems a one-time code (session bundle or 2fa_required)
 //   POST /api/v1/auth/2fa/exchange                 spends a pre-auth token with a TOTP or backup code
 //   POST /api/v1/auth/logout                       204
@@ -16,6 +20,7 @@
 //   POST /__fake/handoff {next, totp_secret?, backup_codes?}
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  with `totp_secret` (base32) it answers 2fa_required
+//   POST /__fake/identities {identities}          test hook: replaces the connected accounts
 //
 // Nothing here sends mail or talks to a real provider. Run with
 // `node --experimental-strip-types e2e-fake/fake-identity.ts` (Playwright starts it).
@@ -31,7 +36,22 @@ interface State {
   provider: string;
   next: string;
   remember: boolean;
+  intent: "login" | "link";
 }
+
+interface Identity {
+  id: string;
+  provider: string;
+  email: string | null;
+  name: string;
+  username: string;
+  avatar_url: string;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+/** The connected accounts of every fake user (tests run one at a time). */
+let identities: Identity[] = [];
 
 interface PreAuth {
   secret: Buffer;
@@ -230,9 +250,11 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (!PROVIDERS.has(provider)) return problem(res, 404, "not_found");
     if (step === "start") {
       const next = safeNext(q.get("next") ?? "");
-      if (next === null || (q.get("intent") ?? "login") !== "login") return problem(res, 400, "invalid_request");
+      const intent = q.get("intent") ?? "login";
+      if (next === null || (intent !== "login" && intent !== "link")) return problem(res, 400, "invalid_request");
+      if (intent === "link" && !req.headers.authorization?.startsWith("Bearer at_")) return problem(res, 401, "unauthenticated");
       const state = token();
-      states.set(state, { provider, next, remember: q.get("remember") === "true" });
+      states.set(state, { provider, next, remember: q.get("remember") === "true", intent });
       return redirect(res, `${SELF}/fake-provider/authorize?${new URLSearchParams({ provider, state })}`);
     }
     const state = q.get("state") ?? "";
@@ -240,6 +262,22 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     states.delete(state);
     if (!st || st.provider !== provider) return redirect(res, `${UI_URL}/sign-in?error=oauth_state_mismatch`);
     if (q.get("error")) return redirect(res, `${UI_URL}/sign-in?error=oauth_denied`);
+    if (st.intent === "link") {
+      if ((q.get("code") ?? "").startsWith("taken_")) return redirect(res, `${UI_URL}/sign-in?error=oauth_identity_taken`);
+      identities.push({
+        id: randomUUID(),
+        provider,
+        email: "you@example.com",
+        name: "Fake User",
+        username: provider === "github" ? "fake-user" : "",
+        avatar_url: "",
+        created_at: new Date().toISOString(),
+        last_login_at: null,
+      });
+      const back = new URL(st.next, UI_URL);
+      back.searchParams.set("linked", provider);
+      return redirect(res, back.href);
+    }
     // Every fake sign-in is a new user: identity sends them to onboarding unless `next` says otherwise.
     const code = issueHandoff(st.next === "/" ? "/onboarding/about" : st.next);
     return redirect(res, `${UI_URL}/auth/callback?${new URLSearchParams({ code })}`);
@@ -251,11 +289,12 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const back = `${SELF}/api/v1/auth/oauth/${encodeURIComponent(provider)}/callback`;
     const allow = `${back}?${new URLSearchParams({ code: `prov_${token()}`, state })}`;
     const deny = `${back}?${new URLSearchParams({ error: "access_denied", state })}`;
+    const taken = `${back}?${new URLSearchParams({ code: `taken_${token()}`, state })}`;
     return send(
       res,
       200,
       `<!doctype html><title>Fake ${escape(provider)}</title><h1>Fake ${escape(provider)} consent</h1>` +
-        `<a href="${escape(allow)}">Authorize</a> <a href="${escape(deny)}">Deny</a>`,
+        `<a href="${escape(allow)}">Authorize</a> <a href="${escape(taken)}">Use a taken account</a> <a href="${escape(deny)}">Deny</a>`,
       "text/html; charset=utf-8",
     );
   }
@@ -316,6 +355,21 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (gone?.access) userByAccess.delete(gone.access);
       return send(res, 204);
     }
+  }
+  if (path === "/api/v1/users/me/identities" || path.startsWith("/api/v1/users/me/identities/")) {
+    if (!req.headers.authorization?.startsWith("Bearer at_")) return problem(res, 401, "unauthenticated");
+    if (req.method === "GET" && path === "/api/v1/users/me/identities") return send(res, 200, { identities });
+    if (req.method === "DELETE") {
+      const id = decodeURIComponent(path.slice("/api/v1/users/me/identities/".length));
+      const before = identities.length;
+      identities = identities.filter((i) => i.id !== id);
+      return identities.length < before ? send(res, 204) : problem(res, 410, "oauth_identity_gone");
+    }
+  }
+  if (req.method === "POST" && path === "/__fake/identities") {
+    const body = await readBody(req);
+    identities = Array.isArray(body.identities) ? (body.identities as Identity[]) : [];
+    return send(res, 200, { identities });
   }
   if (req.method === "POST" && path === "/__fake/handoff") {
     const { next, totp_secret: secret, backup_codes: backups } = await readBody(req);

@@ -330,6 +330,8 @@ describe("operations", () => {
     ["GET", "/users/me/sessions", (c) => c.listSessions(authed)],
     ["DELETE", "/users/me/sessions/{id}", (c) => c.revokeSession("a/b?c", authed)],
     ["POST", "/users/me/sessions/revoke-others", (c) => c.revokeOtherSessions(authed)],
+    ["GET", "/users/me/identities", (c) => c.listIdentities(authed)],
+    ["DELETE", "/users/me/identities/{id}", (c) => c.deleteIdentity("a/b?c", authed)],
     ["GET", "/auth/invitations/{token}", (c) => c.invitationLookup("a/b?c")],
     ["POST", "/auth/invitations/{token}/accept", (c) => c.invitationAccept("a/b?c", authed)],
     ["POST", "/auth/recovery/request", (c) => c.recoveryRequest({ email: "a@example.com" })],
@@ -374,6 +376,31 @@ describe("operations", () => {
     const { client, calls } = recordingClient(() => json({ available: true, suggestions: [] }));
     await client.orgSlugAvailable("acme co", authed);
     expect(new URL(calls[0].url).searchParams.get("slug")).toBe("acme co");
+  });
+
+  it("starts a link flow as the user and answers the provider URL it redirects to", async () => {
+    const provider = "https://github.com/login/oauth/authorize?state=s";
+    const { client, calls } = recordingClient(
+      () => new Response(null, { status: 302, headers: { location: provider } }),
+    );
+    await expect(client.oauthLinkStart("github", "/settings/connected-accounts", authed)).resolves.toBe(provider);
+    const url = new URL(calls[0].url);
+    expect(url.pathname).toBe("/api/v1/auth/oauth/github/start");
+    expect(url.searchParams.get("intent")).toBe("link");
+    expect(url.searchParams.get("next")).toBe("/settings/connected-accounts");
+    expect(calls[0].headers.get("authorization")).toBe("Bearer jwt");
+  });
+
+  it("a refused link start is an ApiError", async () => {
+    const { client } = recordingClient(() => problem(401, { code: "unauthenticated" }));
+    await expect(client.oauthLinkStart("google", "/", authed)).rejects.toMatchObject({ status: 401, code: "unauthenticated" });
+  });
+
+  it("other redirects stay errors", async () => {
+    const { client } = recordingClient(
+      () => new Response(null, { status: 302, headers: { location: "https://elsewhere.test/" } }),
+    );
+    await expect(client.listIdentities(authed)).rejects.toBeInstanceOf(ApiError);
   });
 
   it("uses the method the committed OpenAPI spec declares for every path it already has", () => {
