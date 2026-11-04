@@ -30,6 +30,7 @@ const (
 	ClickHouseImage = "clickhouse/clickhouse-server:26.8.33.10@sha256:1c0b76ac42e16b4eeb0be84013c67269b660701971d29bab9ad0d01b0ba6c10d"
 	ValkeyImage     = "valkey/valkey:9.1.2@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd"
 	SpiceDBImage    = "ghcr.io/authzed/spicedb:v1.57.0@sha256:a170d372c9f6b921bb6849064df6ca3566dd5b174882c1a2c4300c2ae1d60efd"
+	MailpitImage    = "axllent/mailpit:v1.27.10@sha256:b1f1be18af530d939a11ee8820b379e0c88eeec204d904bfad68862adced3a5a"
 )
 
 // Logger discards output unless the test runs with -v.
@@ -142,4 +143,39 @@ func SpiceDB(t *testing.T) config.AuthzConfig {
 		t.Fatal(err)
 	}
 	return config.AuthzConfig{Endpoint: endpoint, PresharedKey: SpiceDBKey, Insecure: true}
+}
+
+// Mailpit is a running Mailpit SMTP sink.
+type Mailpit struct {
+	SMTPHost string
+	SMTPPort int
+	// APIURL is the base of Mailpit's HTTP API, e.g. http://host:port/api/v1.
+	APIURL string
+}
+
+// StartMailpit starts Mailpit, an SMTP sink with an HTTP API for reading what
+// it received. SMTP is plain and unauthenticated.
+func StartMailpit(t *testing.T) Mailpit {
+	t.Helper()
+	ctx := context.Background()
+	c, err := testcontainers.Run(ctx, MailpitImage,
+		testcontainers.WithExposedPorts("1025/tcp", "8025/tcp"),
+		testcontainers.WithWaitStrategy(wait.ForHTTP("/livez").WithPort("8025/tcp").WithStartupTimeout(time.Minute)))
+	testcontainers.CleanupContainer(t, c)
+	if err != nil {
+		t.Fatalf("start mailpit: %v", err)
+	}
+	host, err := c.Host(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	smtpPort, err := c.MappedPort(ctx, "1025/tcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, err := c.PortEndpoint(ctx, "8025/tcp", "http")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Mailpit{SMTPHost: host, SMTPPort: int(smtpPort.Num()), APIURL: api + "/api/v1"}
 }

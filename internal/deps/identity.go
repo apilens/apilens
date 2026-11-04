@@ -14,9 +14,6 @@ import (
 	_ "github.com/zitadel/oidc/v3/pkg/op"
 	_ "golang.org/x/oauth2"
 
-	// Transactional email (magic links, verification, invites).
-	_ "github.com/wneessen/go-mail"
-
 	// Background jobs (ADR 0008).
 	_ "github.com/riverqueue/river"
 	_ "github.com/riverqueue/river/riverdriver/riverpgxv5"

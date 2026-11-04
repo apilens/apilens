@@ -40,6 +40,8 @@ APILens sends sign-in codes, invitations and security alerts by email. Configure
 
 With the default `log` provider, the `all`, `api` and `identity` roles log a warning at startup. Users cannot receive sign-in codes until you switch to `smtp`. Read the codes from `docker compose logs apilens` while testing.
 
+Mail goes out from a background job (`email.send`) run by the `identity` role, never from the request itself. A failed send is retried 5 times with exponential backoff (30s up to 8m), and each failure is logged with its Message-ID but not the body. `apilens_email_sent_total{template,status}` counts attempts (`sent`, `failed`, `rejected`). With `tls: none`, SMTP credentials are only offered over challenge mechanisms (CRAM-MD5, SCRAM), never in clear text.
+
 ### Upgrading
 
 ```bash
