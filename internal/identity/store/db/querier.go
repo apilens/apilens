@@ -19,12 +19,21 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	// Records a security-relevant event about a user's account.
 	InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) (AuditEvent, error)
+	// Only identity reads or writes signing keys (ADR 0005). Pass
+	// activated_at = NULL to publish a key in JWKS before it signs.
+	InsertSigningKey(ctx context.Context, arg InsertSigningKeyParams) (SigningKey, error)
 	// Newest first, keyset-paginated: pass the last row's (created_at, id) as the
 	// cursor for the next page, or NULLs for the first page.
 	ListAuditEventsForUser(ctx context.Context, arg ListAuditEventsForUserParams) ([]AuditEvent, error)
+	// The keys served in JWKS: every key not yet retired, plus keys retired less
+	// than @retired_window_secs (identity.refresh_token_ttl) ago, measured on the
+	// database clock. Active key first.
+	ListPublishedSigningKeys(ctx context.Context, retiredWindowSecs float64) ([]SigningKey, error)
 	// Undoes a soft delete inside the grace period. Fails with a unique
 	// violation if the email has since been taken by a new active account.
 	RestoreUser(ctx context.Context, id uuid.UUID) (User, error)
+	// Stops a key from signing; it stays published for the retirement window.
+	RetireSigningKey(ctx context.Context, kid string) (SigningKey, error)
 	// Hides the user and schedules the hard delete; the purge job removes the
 	// row once delete_after has passed.
 	SoftDeleteUser(ctx context.Context, arg SoftDeleteUserParams) (User, error)
