@@ -9,7 +9,9 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	tcclickhouse "github.com/testcontainers/testcontainers-go/modules/clickhouse"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	tcvalkey "github.com/testcontainers/testcontainers-go/modules/valkey"
+	tcnetwork "github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/apilens/apilens/internal/migrations"
@@ -143,6 +146,138 @@ func SpiceDB(t *testing.T) config.AuthzConfig {
 		t.Fatal(err)
 	}
 	return config.AuthzConfig{Endpoint: endpoint, PresharedKey: SpiceDBKey, Insecure: true}
+}
+
+// SpiceDBServer is a SpiceDB that a test can stop and start again, to prove
+// that callers fail closed while it is down and recover once it is back.
+// Unlike SpiceDB it keeps its relationships in its own Postgres (the
+// production datastore, ADR 0006), so they and the ZedTokens issued for them
+// survive a restart.
+type SpiceDBServer struct {
+	// Config points at a stable local address that forwards to the
+	// container's current port, the way a compose service name or a
+	// Kubernetes Service survives a restart of the container behind it.
+	Config config.AuthzConfig
+	c      testcontainers.Container
+}
+
+// RestartableSpiceDB starts SpiceDB on a Postgres datastore and returns it.
+func RestartableSpiceDB(t *testing.T) *SpiceDBServer {
+	t.Helper()
+	ctx := context.Background()
+	nw, err := tcnetwork.New(ctx)
+	testcontainers.CleanupNetwork(t, nw)
+	if err != nil {
+		t.Fatalf("create network: %v", err)
+	}
+	// SpiceDB's Watch API needs commit timestamps (as in deploy/compose).
+	pg, err := tcpostgres.Run(ctx, PostgresImage,
+		tcpostgres.WithDatabase("spicedb"), tcpostgres.WithUsername("spicedb"), tcpostgres.WithPassword("spicedb"),
+		tcpostgres.BasicWaitStrategies(),
+		testcontainers.WithCmdArgs("-c", "track_commit_timestamp=on"),
+		tcnetwork.WithNetwork([]string{"spicedb-postgres"}, nw))
+	testcontainers.CleanupContainer(t, pg)
+	if err != nil {
+		t.Fatalf("start spicedb postgres: %v", err)
+	}
+	datastore := []string{
+		"--datastore-engine=postgres",
+		"--datastore-conn-uri=postgres://spicedb:spicedb@spicedb-postgres:5432/spicedb?sslmode=disable",
+	}
+
+	migrate, err := testcontainers.Run(ctx, SpiceDBImage,
+		testcontainers.WithCmd(append([]string{"datastore", "migrate", "head"}, datastore...)...),
+		tcnetwork.WithNetwork(nil, nw),
+		testcontainers.WithWaitStrategy(wait.ForExit().WithExitTimeout(2*time.Minute)))
+	testcontainers.CleanupContainer(t, migrate)
+	if err != nil {
+		t.Fatalf("migrate spicedb: %v", err)
+	}
+	if state, err := migrate.State(ctx); err != nil || state.ExitCode != 0 {
+		t.Fatalf("migrate spicedb: state %+v, %v", state, err)
+	}
+
+	c, err := testcontainers.Run(ctx, SpiceDBImage,
+		testcontainers.WithCmd(append([]string{"serve", "--grpc-preshared-key=" + SpiceDBKey}, datastore...)...),
+		testcontainers.WithEnv(map[string]string{"SPICEDB_TELEMETRY_ENDPOINT": ""}),
+		testcontainers.WithExposedPorts("50051/tcp"),
+		tcnetwork.WithNetwork(nil, nw),
+		testcontainers.WithWaitStrategy(wait.ForListeningPort("50051/tcp").WithStartupTimeout(time.Minute)))
+	testcontainers.CleanupContainer(t, c)
+	if err != nil {
+		t.Fatalf("start spicedb: %v", err)
+	}
+	return &SpiceDBServer{
+		Config: config.AuthzConfig{Endpoint: forward(t, c, "50051/tcp"), PresharedKey: SpiceDBKey, Insecure: true},
+		c:      c,
+	}
+}
+
+// Stop stops the SpiceDB container; its datastore keeps running.
+func (s *SpiceDBServer) Stop(t *testing.T) {
+	t.Helper()
+	timeout := 5 * time.Second
+	if err := s.c.Stop(context.Background(), &timeout); err != nil {
+		t.Fatalf("stop spicedb: %v", err)
+	}
+}
+
+// Start starts the stopped SpiceDB container again and waits until it
+// listens.
+func (s *SpiceDBServer) Start(t *testing.T) {
+	t.Helper()
+	if err := s.c.Start(context.Background()); err != nil {
+		t.Fatalf("start spicedb: %v", err)
+	}
+}
+
+// forward listens on a local port and forwards every connection to the
+// container's port as currently mapped, which may change across a restart.
+// While the container is down, connections are accepted and closed at once,
+// which clients see as the service being unavailable.
+func forward(t *testing.T, c testcontainers.Container, port string) string {
+	t.Helper()
+	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	t.Cleanup(func() {
+		_ = l.Close()
+		wg.Wait()
+	})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			in, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go pipe(c, port, in)
+		}
+	}()
+	return l.Addr().String()
+}
+
+// pipe copies between in and the container's port until either side closes.
+func pipe(c testcontainers.Container, port string, in net.Conn) {
+	defer func() { _ = in.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	target, err := c.PortEndpoint(ctx, port, "")
+	if err != nil {
+		return
+	}
+	out, err := (&net.Dialer{}).DialContext(ctx, "tcp", target)
+	if err != nil {
+		return
+	}
+	defer func() { _ = out.Close() }()
+	done := make(chan struct{}, 2)
+	go func() { _, _ = io.Copy(out, in); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(in, out); done <- struct{}{} }()
+	<-done
 }
 
 // Mailpit is a running Mailpit SMTP sink.

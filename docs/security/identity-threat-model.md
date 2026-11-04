@@ -265,6 +265,25 @@ every request.
 - The SpiceDB wrapper returns `false` on any transport error and increments
   `apilens_authz_errors_total` (#290). v1 failed open when OPA was down; v2
   must not.
+- This is proven, not assumed, by integration tests that run in
+  `task test:integration` (#296,
+  `internal/controlplane/api/failclosed_integration_test.go`). They run
+  SpiceDB on its Postgres datastore and the outbox relay as in production,
+  and:
+  - stop the SpiceDB container and call every `authz.Require`-guarded
+    operation as every role (owner, admin, member, viewer, stranger). Each
+    answers 503 `authz_unavailable` with `Retry-After`, never 2xx, and no
+    guarded write reaches Postgres;
+  - start SpiceDB again and require the same apilens process (no restart)
+    to answer correctly once more, including a membership committed while
+    SpiceDB was down, which the periodic relay applies afterwards;
+  - demote an owner to viewer through the API and require `project.update`
+    to be denied (403 `forbidden`) within 2 s.
+- Known bounded window: an *allowed* result cached before an outage can
+  still answer for up to `authz.cache_ttl` (default 5 s), because the cache
+  key is the organization's last ZedToken, which an outage does not change.
+  Denials are never cached, and any write about the organization changes
+  the token, so a revocation is never served from the cache.
 - The JWKS verifier fails closed when JWKS is unreachable and its cache is
   empty (#236).
 - Writes that change membership emit an outbox row in the same transaction
