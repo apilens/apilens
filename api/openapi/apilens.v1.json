@@ -1267,6 +1267,86 @@
           "logs"
         ],
         "type": "object"
+      },
+      "TwoFactorEnableOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/TwoFactorEnableOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "otpauth_uri": {
+            "description": "otpauth:// key URI (issuer APILens, account the user's email), for rendering as a QR code.",
+            "type": "string"
+          },
+          "secret": {
+            "description": "Base32 TOTP secret, for typing into an authenticator app.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "secret",
+          "otpauth_uri"
+        ],
+        "type": "object"
+      },
+      "TwoFactorVerifyInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/TwoFactorVerifyInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "code": {
+            "description": "Current 6-digit code from the authenticator app.",
+            "maxLength": 6,
+            "minLength": 6,
+            "pattern": "^[0-9]{6}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
+      "TwoFactorVerifyOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/TwoFactorVerifyOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "backup_codes": {
+            "description": "Ten single-use backup codes (xxxx-xxxx). They are shown this once and cannot be retrieved again.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "backup_codes"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -1294,6 +1374,177 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/auth/2fa/enable": {
+      "post": {
+        "description": "Generates a TOTP secret (issuer `APILens`, account the user's email) and stores it encrypted and unconfirmed; returns the secret and its `otpauth://` URI for a QR code. Calling it again before `/2fa/verify` replaces the pending secret. Needs a sign-in less than 10 minutes old (`reauth_required` otherwise); answers `already_enabled` when 2FA is on.",
+        "operationId": "enable-2fa",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TwoFactorEnableOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `reauth_required`.",
+            "x-apilens-codes": [
+              "reauth_required"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `already_enabled`.",
+            "x-apilens-codes": [
+              "already_enabled"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Start enabling two-factor authentication",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/2fa/verify": {
+      "post": {
+        "description": "Checks a code from the authenticator app against the pending secret (one 30-second period of skew either way). On success 2FA is on: returns ten single-use backup codes, shown this once. Audited as `totp.enabled`; a security alert is emailed. Answers `invalid_totp` for a wrong code, `invalid_request` when `/2fa/enable` was not called and `already_enabled` when 2FA is already on.",
+        "operationId": "verify-2fa",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorVerifyInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TwoFactorVerifyOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `invalid_totp`, `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "invalid_totp",
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `already_enabled`.",
+            "x-apilens-codes": [
+              "already_enabled"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Confirm two-factor authentication",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/api/v1/auth/email/start": {
       "post": {
         "description": "Public. Emails a 6-digit code and a magic link (15 minutes, single use) to the address. Always answers 200 `{sent: true, retry_after}` whether or not the address has an account; for `intent=signin` with no account the email offers sign-up instead. Within 30 seconds of the previous email for the same address and intent no new email is sent and `retry_after` is the remaining wait. Rate-limited per client IP and per email address (429 `rate_limited` with Retry-After).",

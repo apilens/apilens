@@ -31,6 +31,7 @@ import (
 	"github.com/apilens/apilens/internal/identity/session"
 	identitydb "github.com/apilens/apilens/internal/identity/store/db"
 	"github.com/apilens/apilens/internal/identity/token"
+	"github.com/apilens/apilens/internal/identity/twofactor"
 	"github.com/apilens/apilens/internal/ingest"
 	"github.com/apilens/apilens/internal/pipeline"
 	"github.com/apilens/apilens/internal/platform/authn"
@@ -317,6 +318,15 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	// Until memberships exist (#276) no user owns an organization, so
 	// nothing blocks a deletion.
 	identity.NewAccount(account.New(a.pool, account.NoMemberships{}), a.logger).Register(a.server.API())
+	kek, err := a.cfg.Identity.KEK()
+	if err != nil {
+		return nil, err
+	}
+	twoFactor, err := twofactor.New(a.pool, kek, a.jobs)
+	if err != nil {
+		return nil, err
+	}
+	identity.NewTwoFactor(twoFactor, a.logger).Register(a.server.API())
 	return modules.ServiceFunc(signingKeys.Run), nil
 }
 

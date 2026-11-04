@@ -145,6 +145,18 @@ accepted by one endpoint only: `POST /api/v1/auth/2fa/exchange`
 `totp` (or `backup_code`) appended to `amr`. Enabling TOTP returns 10 single-use
 backup codes once. TOTP secrets are encrypted with the KEK.
 
+**Enabling** (`internal/identity/twofactor.go`, `internal/identity/twofactor`)
+is two session-authenticated calls. `POST /api/v1/auth/2fa/enable` needs a
+sign-in less than 10 minutes old (`reauth_required` otherwise), generates a
+secret (issuer `APILens`, account the user's email), stores it unconfirmed
+(AES-256-GCM under the KEK, bound to the user id) and returns
+`{secret, otpauth_uri}`; calling it again before confirming replaces the
+pending secret. `POST /api/v1/auth/2fa/verify` `{code}` checks the code with
+one period of skew, confirms the secret and returns `{backup_codes}`: 10
+`xxxx-xxxx` codes, stored only as SHA-256 hashes salted with the user id. It
+audits `totp.enabled` and enqueues the `security_change` email in the same
+transaction. Both answer `already_enabled` once 2FA is on.
+
 **Lost device.** `POST /api/v1/auth/recovery/request` emails a cancel link and
 starts a 24 h cooling-off period; `…/recovery/confirm` succeeds only after it,
 disables TOTP, revokes every session and emails a security alert.
@@ -383,6 +395,8 @@ Rules:
 | `invite_expired` | 410 Gone | This invitation has expired. Ask for a new one. |
 | `invite_email_mismatch` | 403 Forbidden | This invitation was sent to a different email address. Sign in with that address. |
 | `owner_transfer_required` | 409 Conflict | You're the only owner of an organization. Transfer ownership or delete it before deleting your account. |
+| `already_enabled` | 409 Conflict | Two-factor authentication is already on. |
+| `reauth_required` | 403 Forbidden | For your security, sign in again to continue. |
 | `forbidden` | 403 Forbidden | You don't have permission to do that. |
 | `internal_error` | 500 Internal Server Error | Something went wrong on our side. Please try again. |
 

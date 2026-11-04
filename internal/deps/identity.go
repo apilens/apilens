@@ -7,9 +7,8 @@
 package deps
 
 import (
-	// Identity (ADR 0005): OIDC/OAuth server, passkeys, TOTP, OIDC SSO client.
+	// Identity (ADR 0005): OIDC/OAuth server, OIDC SSO client.
 	_ "github.com/coreos/go-oidc/v3/oidc"
-	_ "github.com/pquerna/otp/totp"
 	_ "github.com/zitadel/oidc/v3/pkg/op"
 	_ "golang.org/x/oauth2"
 
