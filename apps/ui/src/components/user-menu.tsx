@@ -5,6 +5,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
 import type { User } from "@/lib/identity";
 import { userLabel } from "@/lib/scope";
+import { signOut } from "@/lib/sign-out";
 import { Icon, type IconName } from "./icons";
 import { PopMenu } from "./pop-menu";
 
@@ -20,18 +21,17 @@ export function UserMenu({ user, collapsed = false }: { user: Pick<User, "name" 
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
+  const [signingOut, setSigningOut] = useState(false);
   useEffect(() => setMounted(true), []);
   const close = () => setOpen(false);
 
-  const item = (icon: IconName, label: string, extra?: string) => (
-    <button type="button" role="menuitem" className="cp-sitem" onClick={close}>
-      <span className="sl">
-        <Icon name={icon} />
-      </span>
-      <span className="lb">{label}</span>
-      {extra ? <span className="ah-kbd">{extra}</span> : null}
-    </button>
-  );
+  // The Route Handler revokes the session and clears the cookie; a full navigation then drops
+  // every bit of client state that belonged to the signed-in user.
+  const onSignOut = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    window.location.assign(await signOut());
+  };
 
   return (
     <>
@@ -43,7 +43,12 @@ export function UserMenu({ user, collapsed = false }: { user: Pick<User, "name" 
         </span>
       </button>
       <PopMenu open={open} onClose={close} triggerRef={trigger} label="Account" align={collapsed ? "side-up" : "up"}>
-        {item("settings", "Account settings")}
+        <Link href="/settings/profile" role="menuitem" className="cp-sitem" onClick={close}>
+          <span className="sl">
+            <Icon name="settings" />
+          </span>
+          <span className="lb">Account settings</span>
+        </Link>
         <hr />
         <p className="menu-label">Appearance</p>
         {THEMES.map((t) => (
@@ -60,12 +65,12 @@ export function UserMenu({ user, collapsed = false }: { user: Pick<User, "name" 
           </button>
         ))}
         <hr />
-        <Link href="/sign-in" role="menuitem" className="cp-sitem" onClick={close}>
+        <button type="button" role="menuitem" className="cp-sitem" disabled={signingOut} aria-busy={signingOut} onClick={onSignOut}>
           <span className="sl">
             <Icon name="logout" />
           </span>
-          <span className="lb">Sign out</span>
-        </Link>
+          <span className="lb">{signingOut ? "Signing out…" : "Sign out"}</span>
+        </button>
       </PopMenu>
     </>
   );
