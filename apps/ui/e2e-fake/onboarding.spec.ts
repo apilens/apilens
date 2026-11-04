@@ -32,6 +32,26 @@ test("signed out → sign-up, then onboarding starts at the saved step", async (
   await page.waitForURL((url) => url.pathname === "/acme/requests");
 });
 
+// #328: Continue on "What should you see first?" saves the pick as the home preference, so it is
+// still selected after a refresh.
+test("the home screen pick is saved and stays selected after a refresh", async ({ page }) => {
+  await page.goto("/sign-in");
+  await githubButton(page).click();
+  await page.getByRole("link", { name: "Authorize" }).click();
+  await page.goto("/onboarding/about");
+  const picks = page.getByRole("radiogroup", { name: "Home screen" });
+  await expect(picks.getByRole("radio", { name: /^Slow or failing endpoints/ })).toHaveAttribute("aria-checked", "true");
+
+  await picks.getByRole("radio", { name: /^Exceptions/ }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.waitForURL((url) => url.pathname === "/onboarding/join");
+
+  await page.goto("/onboarding/about");
+  await page.reload();
+  await expect(picks.getByRole("radio", { name: /^Exceptions/ })).toHaveAttribute("aria-checked", "true");
+  await expect(picks.getByRole("radio", { name: /^Slow or failing endpoints/ })).toHaveAttribute("aria-checked", "false");
+});
+
 // #327: every Continue saves the step and answers (`PATCH /users/me/onboarding`), so a refresh
 // resumes on the saved step with what was entered; a failed save shows a toast.
 test("Continue saves progress, so a refresh resumes with the answers", async ({ page }) => {

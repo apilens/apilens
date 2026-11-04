@@ -32,7 +32,8 @@
 //   POST /api/v1/auth/2fa/verify                   internal/identity/twofactor.go
 //   POST /api/v1/auth/2fa/disable
 //   POST /api/v1/auth/2fa/backup-codes/regenerate
-//   GET|PATCH /api/v1/users/me                     the fake user; PATCH renames it
+//   GET|PATCH /api/v1/users/me                     the fake user; PATCH renames it and saves
+//                                                  preferences.home per user (#328)
 //   PATCH /api/v1/users/me/onboarding              saves the step, completed and merges the answers per user (#327);
 //                                                  the context reports them. An org_slug of
 //                                                  `unavailable` answers 503 unavailable
@@ -502,6 +503,11 @@ const GLOBEX = {
 /** Users who accepted an invitation. */
 const joinedGlobex = new Set<string>();
 
+/** Each fake user's preferences (#328): the home screen picked in onboarding. */
+const preferencesByUser = new Map<string, Record<string, unknown>>();
+const preferencesOf = (id: string) => preferencesByUser.get(id) ?? {};
+const HOME_SCREENS = new Set(["endpoints", "requests", "exceptions"]);
+
 /** `GET /users/me/context` for a signed-in fake user: one org with one project (plus globex once invited). */
 function context(id: string) {
   const role = roleOf(id);
@@ -513,7 +519,7 @@ function context(id: string) {
       email_verified: true,
       name: profile.name,
       avatar_url: null,
-      preferences: {},
+      preferences: preferencesOf(id),
       onboarding: { step: progress.step, completed: progress.completed, answers: progress.answers },
       created_at: new Date().toISOString(),
     },
@@ -810,9 +816,17 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const me = () => context(signedInUser(req) ?? randomUUID()).user;
     if (req.method === "GET" && path === "/api/v1/users/me") return send(res, 200, me());
     if (req.method === "PATCH" && path === "/api/v1/users/me") {
-      const { name } = await readBody(req);
-      if (typeof name !== "string" || name.trim().length > 120) return problem(res, 400, "invalid_request");
-      profile.name = name.trim();
+      const { name, preferences } = await readBody(req);
+      if (name === undefined && preferences === undefined) return problem(res, 400, "invalid_request");
+      if (name !== undefined && (typeof name !== "string" || name.trim().length > 120)) return problem(res, 400, "invalid_request");
+      if (preferences !== undefined) {
+        const user = signedInUser(req);
+        const { home, ...rest } = (preferences ?? {}) as Record<string, unknown>;
+        if (!user) return problem(res, 401, "unauthenticated");
+        if (Object.keys(rest).length > 0 || typeof home !== "string" || !HOME_SCREENS.has(home)) return problem(res, 400, "invalid_request");
+        preferencesByUser.set(user, { ...preferencesOf(user), home });
+      }
+      if (typeof name === "string") profile.name = name.trim();
       return send(res, 200, me());
     }
     if (req.method === "DELETE" && path === "/api/v1/users/me") {

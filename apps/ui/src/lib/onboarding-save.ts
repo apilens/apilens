@@ -3,7 +3,7 @@
 // internal/identity/onboarding.go, and reading the saved answers back out of the user context so
 // a refreshed screen starts from them. Pure, so it can be unit tested.
 import { z } from "zod";
-import type { OnboardingAnswers, UpdateOnboardingRequest, UserContext } from "./identity";
+import type { HomeScreen, OnboardingAnswers, UpdateOnboardingRequest, UserContext } from "./identity";
 
 // The API's rules (account.StepPattern, SlugPattern, ChoicePattern and MaxInvited).
 const STEP = /^[a-z][a-z0-9_-]{0,31}$/;
@@ -55,6 +55,25 @@ export function savedAnswers(ctx: UserContext): OnboardingAnswers {
     if (parsed.success) out[key] = parsed.data;
   }
   return out as OnboardingAnswers;
+}
+
+/** The home screens "What should you see first?" offers (`preferences.home` in the API). */
+export const HOME_SCREENS = ["endpoints", "requests", "exceptions"] as const satisfies readonly HomeScreen[];
+
+/** The home screen preselected when the user has not picked one. */
+export const DEFAULT_HOME: HomeScreen = "endpoints";
+
+const homeSchema = z.enum(HOME_SCREENS);
+
+/** Checks a home screen to save (#328); null when it is not one the API accepts. */
+export function parseHome(home: unknown): HomeScreen | null {
+  const parsed = homeSchema.safeParse(home);
+  return parsed.success ? parsed.data : null;
+}
+
+/** The saved home screen (`user.preferences.home`), or the default when none (or an unknown one) is saved. */
+export function savedHome(ctx: UserContext): HomeScreen {
+  return parseHome(ctx.user.preferences?.home) ?? DEFAULT_HOME;
 }
 
 /** A sentence for a failed save, by API error code. */

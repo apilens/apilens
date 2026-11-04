@@ -131,7 +131,7 @@ describe("requireOnboardingStep", () => {
 
   it("loads the context for the page's own path and returns the step bar state", async () => {
     getContext.mockResolvedValue(ctx({ step: "create", completed: false }));
-    await expect(requireOnboardingStep("about")).resolves.toEqual({ kind: "show", step: 0, reached: 1, answers: {} });
+    await expect(requireOnboardingStep("about")).resolves.toEqual({ kind: "show", step: 0, reached: 1, answers: {}, home: "endpoints" });
     expect(getContext).toHaveBeenCalledWith("/onboarding/about");
   });
 
@@ -142,7 +142,15 @@ describe("requireOnboardingStep", () => {
       step: 1,
       reached: 1,
       answers: { org_slug: "example-co", invited: 2 },
+      home: "endpoints",
     });
+  });
+
+  it("hands the page the saved home screen (#328)", async () => {
+    const saved = ctx({ step: "join", completed: false });
+    saved.user.preferences = { home: "exceptions" };
+    getContext.mockResolvedValue(saved);
+    await expect(requireOnboardingStep("about")).resolves.toMatchObject({ step: 0, reached: 1, home: "exceptions" });
   });
 
   it("finished → the project", async () => {
@@ -164,7 +172,8 @@ describe("/onboarding/* pages", () => {
 
   it("render with the real step bar state", async () => {
     const about = (await AboutPage()) as { props: Record<string, unknown> };
-    expect(about.props).toEqual({ step: 0, reached: 1 });
+    // The home screen pick starts from the saved preference (#328).
+    expect(about.props).toEqual({ step: 0, reached: 1, home: "endpoints" });
     const join = (await JoinPage()) as { props: Record<string, unknown> };
     expect(join.props).toEqual({ step: 1, reached: 1 });
     const create = (await CreatePage()) as { props: Record<string, unknown> };
@@ -179,7 +188,7 @@ describe("/onboarding/* pages", () => {
     const invited = ctx({ step: "about", completed: false, answers: { org_slug: "globex" } }, [globex]);
     getContext.mockResolvedValue(invited);
     const about = (await AboutPage()) as { props: Record<string, unknown> };
-    expect(about.props).toEqual({ step: 0, reached: 0, invitedOrg: "Globex" });
+    expect(about.props).toEqual({ step: 0, reached: 0, home: "endpoints", invitedOrg: "Globex" });
   });
 
   it("redirect when the page is not allowed", async () => {

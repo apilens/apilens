@@ -1,22 +1,30 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { finishInvitedOnboarding } from "@/app/(auth)/onboarding/actions";
+import { finishInvitedOnboarding, saveHome } from "@/app/(auth)/onboarding/actions";
+import type { HomeScreen } from "@/lib/identity";
+import { DEFAULT_HOME } from "@/lib/onboarding-save";
 import { BackNext, ObShell, type StepProps } from "./ob";
 import { useOnboardingContinue } from "./progress";
 
-const PICKS = [
+const PICKS: { id: HomeScreen; t: string; s: string }[] = [
   { id: "endpoints", t: "Slow or failing endpoints", s: "Every API, with its latency and error rate" },
   { id: "requests", t: "Requests across services", s: "One request, followed through every service" },
   { id: "exceptions", t: "Exceptions", s: "Grouped, with the request that caused each one" },
 ];
 
 /**
- * `invitedOrg`: the organization an invitation made the user a member of (#337). They skip the
- * organization and project steps: Continue finishes onboarding and opens its first project.
+ * "What should you see first?": Continue saves the pick as the home preference (#328); `home` is
+ * the saved one. `invitedOrg`: the organization an invitation made the user a member of (#337).
+ * They skip the organization and project steps: Continue finishes onboarding and opens its first project.
  */
-export function About({ step = 0, reached = step, invitedOrg }: Partial<StepProps> & { invitedOrg?: string }) {
-  const [pick, setPick] = useState("endpoints");
+export function About({
+  step = 0,
+  reached = step,
+  home = DEFAULT_HOME,
+  invitedOrg,
+}: Partial<StepProps> & { home?: HomeScreen; invitedOrg?: string }) {
+  const [pick, setPick] = useState<HomeScreen>(home);
   const { go, pending } = useOnboardingContinue(reached);
   const [finishing, startFinishing] = useTransition();
   return (
@@ -39,7 +47,7 @@ export function About({ step = 0, reached = step, invitedOrg }: Partial<StepProp
         invitedOrg ? (
           <BackNext back="/verify" nextLabel={`Continue to ${invitedOrg}`} loading={finishing} disabled={finishing} onNext={() => startFinishing(() => finishInvitedOnboarding())} />
         ) : (
-          <BackNext back="/verify" nextLabel="Continue" loading={pending} onNext={() => go("join", "/onboarding/join")} />
+          <BackNext back="/verify" nextLabel="Continue" loading={pending} onNext={() => go("join", "/onboarding/join", {}, () => saveHome(pick))} />
         )
       }
     >

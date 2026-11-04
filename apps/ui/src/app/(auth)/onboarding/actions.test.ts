@@ -3,6 +3,7 @@ import { ApiError, type ContextOrg, type UserContext } from "@/lib/identity";
 
 const context = vi.fn();
 const updateOnboarding = vi.fn();
+const updateMe = vi.fn();
 let expired = false;
 
 class Redirect extends Error {
@@ -19,7 +20,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/identity", async (orig) => ({
   ...(await orig<typeof import("@/lib/identity")>()),
-  identity: () => ({ context, updateOnboarding }),
+  identity: () => ({ context, updateOnboarding, updateMe }),
 }));
 vi.mock("@/lib/server-session", async (orig) => {
   const real = await orig<typeof import("@/lib/server-session")>();
@@ -43,7 +44,7 @@ vi.mock("@/lib/server-session", async (orig) => {
   };
 });
 
-const { finishInvitedOnboarding, saveOnboarding } = await import("./actions");
+const { finishInvitedOnboarding, saveHome, saveOnboarding } = await import("./actions");
 
 const saved = { step: "create", completed: false, completed_at: null, answers: { org_slug: "example-co" } };
 
@@ -137,5 +138,45 @@ describe("finishInvitedOnboarding", () => {
   it("an expired session signs in again", async () => {
     expired = true;
     await expect(finishInvitedOnboarding()).rejects.toEqual(new Redirect("/sign-in?reason=session_expired"));
+  });
+});
+
+describe("saveHome", () => {
+  const user = { id: "u1", email: "grace@example.com", preferences: { home: "exceptions", last_project_slug: "shop" } };
+
+  it("saves the pick as the home preference as the signed-in user", async () => {
+    updateMe.mockResolvedValue(user);
+    await expect(saveHome("exceptions")).resolves.toEqual({ ok: true, home: "exceptions" });
+    expect(updateMe).toHaveBeenCalledWith({ preferences: { home: "exceptions" } }, { accessToken: "a" });
+  });
+
+  it("refuses a home screen the API does not offer without calling it", async () => {
+    for (const home of ["dashboard", "", null, 3, { home: "requests" }]) {
+      await expect(saveHome(home as never)).resolves.toEqual({
+        ok: false,
+        error: "Some answers weren’t accepted. Check them and try again.",
+        code: "invalid_request",
+      });
+    }
+    expect(updateMe).not.toHaveBeenCalled();
+  });
+
+  it("answers a sentence when the API refuses", async () => {
+    updateMe.mockRejectedValue(new ApiError({ status: 429, code: "rate_limited" }));
+    await expect(saveHome("requests")).resolves.toEqual({
+      ok: false,
+      error: "Too many attempts in a row. Wait a moment and try again.",
+      code: "rate_limited",
+    });
+  });
+
+  it("an expired session goes to sign-in", async () => {
+    expired = true;
+    await expect(saveHome("requests")).rejects.toEqual(new Redirect("/sign-in?reason=session_expired"));
+  });
+
+  it("does not swallow unexpected errors", async () => {
+    updateMe.mockRejectedValue(new TypeError("boom"));
+    await expect(saveHome("requests")).rejects.toThrow("boom");
   });
 });
