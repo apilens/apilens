@@ -90,7 +90,8 @@
         "existingSecret": { "type": "string" },
         "postgresUrl": { "type": "string" },
         "clickhousePassword": { "type": "string" },
-        "valkeyPassword": { "type": "string" }
+        "valkeyPassword": { "type": "string" },
+        "sessionSecret": { "type": "string" }
       }
     },
     "migrations": {
@@ -110,6 +111,8 @@
         "image": { "$ref": "#/definitions/image" },
         "service": { "type": "object" },
         "resources": { "$ref": "#/definitions/resources" },
+        "apiUrl": { "type": "string" },
+        "publicUrl": { "type": "string" },
         "extraEnv": { "type": "array" }
       }
     },

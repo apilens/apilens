@@ -163,6 +163,11 @@ services:
       dockerfile: apps/ui/Dockerfile
     restart: unless-stopped
     <<: *hardened
+    # Read at runtime by apps/ui/src/lib/env.ts (see apps/ui/README.md).
+    environment:
+      APILENS_API_URL: http://apilens:8080
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      APILENS_PUBLIC_URL: ${APILENS_PUBLIC_URL:-http://localhost:3000}
     ports:
       - "${APILENS_WEB_PORT:-3000}:3000"
     tmpfs:

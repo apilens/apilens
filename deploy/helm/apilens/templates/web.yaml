@@ -47,10 +47,20 @@ spec:
             - name: http
               containerPort: 3000
               protocol: TCP
-          {{- with .Values.web.extraEnv }}
+          # Read at runtime by apps/ui/src/lib/env.ts (see apps/ui/README.md).
           env:
+            - name: APILENS_API_URL
+              value: {{ include "apilens.webApiUrl" . | quote }}
+            - name: APILENS_PUBLIC_URL
+              value: {{ include "apilens.webPublicUrl" . | quote }}
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "apilens.secretName" . }}
+                  key: session-secret
+            {{- with .Values.web.extraEnv }}
             {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- end }}
           livenessProbe:
             tcpSocket:
               port: http
