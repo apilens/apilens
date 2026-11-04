@@ -222,6 +222,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 }
 
 func (a *App) initIdentity(context.Context) (modules.Service, error) {
+	a.server.Use(identity.Middleware(a.cfg.Identity))
 	identity.Register(a.server.API())
 	return nil, nil
 }

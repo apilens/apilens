@@ -47,6 +47,7 @@ type Server struct {
 	api      huma.API
 	registry *prometheus.Registry
 	wrap     func(http.Handler) http.Handler
+	mws      []func(http.Handler) http.Handler
 
 	mu       sync.RWMutex
 	checks   map[string]Check
@@ -111,6 +112,11 @@ func (s *Server) API() huma.API { return s.api }
 // SetWrapper installs an outer handler wrapper (for example OpenTelemetry).
 func (s *Server) SetWrapper(wrap func(http.Handler) http.Handler) { s.wrap = wrap }
 
+// Use adds an HTTP middleware around the mux. Unlike Huma middleware it also
+// sees requests that match no operation (CORS preflights, 404s). Middlewares
+// run in the order they were added; register them before Run.
+func (s *Server) Use(mw func(http.Handler) http.Handler) { s.mws = append(s.mws, mw) }
+
 // AddReadinessCheck registers a dependency check for /readyz.
 func (s *Server) AddReadinessCheck(name string, c Check) {
 	s.mu.Lock()
@@ -164,6 +170,9 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 // Handler returns the full handler chain (metrics, panic recovery, wrapper).
 func (s *Server) Handler() http.Handler {
 	var h http.Handler = s.mux
+	for i := len(s.mws) - 1; i >= 0; i-- {
+		h = s.mws[i](h)
+	}
 	h = s.instrument(h)
 	h = recoverer(s.logger, h)
 	if s.wrap != nil {
