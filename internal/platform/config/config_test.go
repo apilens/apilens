@@ -328,6 +328,7 @@ func TestIdentityRateLimitDefaults(t *testing.T) {
 		{"oauth_start_per_ip", rl.OAuthStartPerIP, RateLimit{30, 15 * time.Minute}},
 		{"sso_lookup_per_ip", rl.SSOLookupPerIP, RateLimit{60, 15 * time.Minute}},
 		{"passkey_login_per_ip", rl.PasskeyLoginPerIP, RateLimit{60, 15 * time.Minute}},
+		{"slug_check_per_user", rl.SlugCheckPerUser, RateLimit{60, time.Minute}},
 	}
 	for _, c := range checks {
 		if c.got != c.want {

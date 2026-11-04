@@ -55,3 +55,8 @@ WHERE o.domain_join
       SELECT 1 FROM memberships m WHERE m.org_id = o.id AND m.user_id = @user_id
   )
 ORDER BY o.name, o.slug;
+
+-- name: TakenOrganizationSlugs :many
+-- Which of the given slugs active organizations already use.
+SELECT slug FROM organizations
+WHERE slug = ANY(@slugs::text[]) AND deleted_at IS NULL;

@@ -372,9 +372,13 @@ describe("operations", () => {
         "utf8",
       ),
     ) as { paths: Record<string, Record<string, unknown>> };
+    // Operations on a path the spec already has but that are not built yet.
+    const pending = new Set(["GET /orgs"]); // #279
     for (const [method, template] of routes) {
       const item = spec.paths[`/api/v1${template}`];
-      if (item) expect(Object.keys(item)).toContain(method.toLowerCase());
+      if (item && !pending.has(`${method} ${template}`) && !(method.toLowerCase() in item)) {
+        expect.fail(`${method} ${template} is not in the committed spec`);
+      }
     }
   });
 });

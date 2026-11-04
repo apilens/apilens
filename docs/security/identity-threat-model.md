@@ -247,6 +247,7 @@ Shared across replicas in Valkey with a sliding window (#239). They answer
 | Refresh | 60 / min per IP |
 | Passkey and 2FA verify | 10 / 15 min per user |
 | SSO lookup | 60 / 15 min per IP |
+| Slug availability | 60 / min per user |
 | Passkey login options and verify | 60 / 15 min per IP, each |
 | OAuth/SSO start, handoff, invitation lookup, recovery | Per IP (values set in their issues) |
 
