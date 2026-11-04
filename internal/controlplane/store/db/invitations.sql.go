@@ -164,6 +164,25 @@ func (q *Queries) GetInvitationByTokenHash(ctx context.Context, tokenHash string
 	return i, err
 }
 
+const getInviter = `-- name: GetInviter :one
+SELECT email, name FROM users
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+type GetInviterRow struct {
+	Email string
+	Name  string
+}
+
+// The email and name of an invitation's inviting user; no row once their
+// account is deleted.
+func (q *Queries) GetInviter(ctx context.Context, id uuid.UUID) (GetInviterRow, error) {
+	row := q.db.QueryRow(ctx, getInviter, id)
+	var i GetInviterRow
+	err := row.Scan(&i.Email, &i.Name)
+	return i, err
+}
+
 const listPendingInvitations = `-- name: ListPendingInvitations :many
 SELECT id, org_id, email, role, token_hash, invited_by, created_at, expires_at, accepted_at, revoked_at, resent_at FROM invitations
 WHERE org_id = $1 AND accepted_at IS NULL AND revoked_at IS NULL
@@ -202,6 +221,59 @@ func (q *Queries) ListPendingInvitations(ctx context.Context, orgID uuid.UUID) (
 	return items, nil
 }
 
+const listPendingInvitationsWithInviter = `-- name: ListPendingInvitationsWithInviter :many
+SELECT i.id, i.email, i.role, i.invited_by, i.created_at, i.expires_at, i.resent_at,
+       u.email AS inviter_email, u.name AS inviter_name
+FROM invitations i
+LEFT JOIN users u ON u.id = i.invited_by AND u.deleted_at IS NULL
+WHERE i.org_id = $1 AND i.accepted_at IS NULL AND i.revoked_at IS NULL
+ORDER BY i.created_at DESC, i.email
+`
+
+type ListPendingInvitationsWithInviterRow struct {
+	ID           uuid.UUID
+	Email        string
+	Role         string
+	InvitedBy    *uuid.UUID
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+	ResentAt     *time.Time
+	InviterEmail *string
+	InviterName  *string
+}
+
+// ListPendingInvitations with the inviting user's email and name (NULL when
+// the inviter's account is gone).
+func (q *Queries) ListPendingInvitationsWithInviter(ctx context.Context, orgID uuid.UUID) ([]ListPendingInvitationsWithInviterRow, error) {
+	rows, err := q.db.Query(ctx, listPendingInvitationsWithInviter, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPendingInvitationsWithInviterRow{}
+	for rows.Next() {
+		var i ListPendingInvitationsWithInviterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.Role,
+			&i.InvitedBy,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+			&i.ResentAt,
+			&i.InviterEmail,
+			&i.InviterName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const resendInvitation = `-- name: ResendInvitation :one
 UPDATE invitations
 SET token_hash = $1,
@@ -209,23 +281,29 @@ SET token_hash = $1,
     resent_at  = now()
 WHERE id = $3 AND org_id = $4
   AND accepted_at IS NULL AND revoked_at IS NULL
+  AND ($5::timestamptz IS NULL
+       OR coalesce(resent_at, created_at) <= $5::timestamptz)
 RETURNING id, org_id, email, role, token_hash, invited_by, created_at, expires_at, accepted_at, revoked_at, resent_at
 `
 
 type ResendInvitationParams struct {
-	TokenHash string
-	ExpiresAt time.Time
-	ID        uuid.UUID
-	OrgID     uuid.UUID
+	TokenHash  string
+	ExpiresAt  time.Time
+	ID         uuid.UUID
+	OrgID      uuid.UUID
+	SentBefore *time.Time
 }
 
-// Rotates the token and extends the expiry of a pending invitation.
+// Rotates the token and extends the expiry of a pending invitation. With
+// sent_before set, only an invitation last sent (created or resent) at or
+// before it is resent, so concurrent resends respect a cooldown.
 func (q *Queries) ResendInvitation(ctx context.Context, arg ResendInvitationParams) (Invitation, error) {
 	row := q.db.QueryRow(ctx, resendInvitation,
 		arg.TokenHash,
 		arg.ExpiresAt,
 		arg.ID,
 		arg.OrgID,
+		arg.SentBefore,
 	)
 	var i Invitation
 	err := row.Scan(
@@ -273,4 +351,25 @@ func (q *Queries) RevokeInvitation(ctx context.Context, arg RevokeInvitationPara
 		&i.ResentAt,
 	)
 	return i, err
+}
+
+const revokePendingInvitationByEmail = `-- name: RevokePendingInvitationByEmail :execrows
+UPDATE invitations SET revoked_at = now()
+WHERE org_id = $1 AND email = $2
+  AND accepted_at IS NULL AND revoked_at IS NULL
+`
+
+type RevokePendingInvitationByEmailParams struct {
+	OrgID uuid.UUID
+	Email string
+}
+
+// Revokes the address's pending invitation to the organization, if any, so
+// a new one can replace it.
+func (q *Queries) RevokePendingInvitationByEmail(ctx context.Context, arg RevokePendingInvitationByEmailParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokePendingInvitationByEmail, arg.OrgID, arg.Email)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

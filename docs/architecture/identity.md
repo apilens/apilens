@@ -376,6 +376,15 @@ screen (`prompt=consent` is ignored); both land with the M4 UI.
 
 Admins and owners invite by email with a role (`admin`, `member`, `viewer`;
 never `owner`). The invitation email links to `{public_ui_url}/invite/{token}`.
+The control-plane `api` role manages them under `/api/v1/orgs/{slug}/invitations`
+(owners and admins only): `POST` invites up to 50 addresses in one call and
+answers one result per address (`invited`, `replaced` when a pending
+invitation was swapped for a new one, `already_member`, `duplicate`); `GET`
+lists pending ones (expired ones included, so they can be resent);
+`POST …/{id}/resend` rotates the token and restarts the 7-day expiry, at most
+once every 5 minutes (`rate_limited` with `retry_after`); `DELETE …/{id}`
+revokes. Only the SHA-256 of a token is stored. Every email sent is audited
+as `invitation.sent`; the email job is enqueued in the same transaction.
 `GET /api/v1/auth/invitations/{token}` is public and shows the org, inviter,
 masked email, role and expiry. Accepting
 (`POST /api/v1/auth/invitations/{token}/accept`) needs a session whose

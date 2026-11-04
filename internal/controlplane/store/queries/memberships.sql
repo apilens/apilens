@@ -26,6 +26,15 @@ FROM memberships m
 JOIN users u ON u.id = m.user_id
 WHERE m.org_id = @org_id AND m.user_id = @user_id AND u.deleted_at IS NULL;
 
+-- name: OrgMemberEmailExists :one
+-- Whether a member of the organization (with an account that is not
+-- deleted) uses the address; citext compares it case-insensitively.
+SELECT EXISTS (
+    SELECT 1 FROM memberships m
+    JOIN users u ON u.id = m.user_id
+    WHERE m.org_id = @org_id AND u.email = @email AND u.deleted_at IS NULL
+);
+
 -- name: CountOrgOwners :one
 -- Owners whose account is not deleted: a deleted owner cannot act for the
 -- organization, so it does not count towards the last-owner rule.

@@ -54,6 +54,9 @@ type Querier interface {
 	// Returns the row whatever its state, with its organization, so the caller
 	// can tell a pending invitation from an accepted, revoked or expired one.
 	GetInvitationByTokenHash(ctx context.Context, tokenHash string) (GetInvitationByTokenHashRow, error)
+	// The email and name of an invitation's inviting user; no row once their
+	// account is deleted.
+	GetInviter(ctx context.Context, id uuid.UUID) (GetInviterRow, error)
 	// An active organization by slug together with the user's role in it; no
 	// row when the organization does not exist or the user is not a member.
 	GetMemberOrganization(ctx context.Context, arg GetMemberOrganizationParams) (GetMemberOrganizationRow, error)
@@ -83,6 +86,9 @@ type Querier interface {
 	ListOrgMembers(ctx context.Context, orgID uuid.UUID) ([]ListOrgMembersRow, error)
 	ListOrgProjects(ctx context.Context, orgID uuid.UUID) ([]ListOrgProjectsRow, error)
 	ListPendingInvitations(ctx context.Context, orgID uuid.UUID) ([]Invitation, error)
+	// ListPendingInvitations with the inviting user's email and name (NULL when
+	// the inviter's account is gone).
+	ListPendingInvitationsWithInviter(ctx context.Context, orgID uuid.UUID) ([]ListPendingInvitationsWithInviterRow, error)
 	ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppsRow, error)
 	// The environments of the given projects, by project then name.
 	ListProjectsEnvironments(ctx context.Context, projectIds []uuid.UUID) ([]ListProjectsEnvironmentsRow, error)
@@ -119,17 +125,25 @@ type Querier interface {
 	// Wakes the relay. A NOTIFY sent inside a transaction is delivered on commit
 	// only, and never on rollback.
 	NotifyOutbox(ctx context.Context) error
+	// Whether a member of the organization (with an account that is not
+	// deleted) uses the address; citext compares it case-insensitively.
+	OrgMemberEmailExists(ctx context.Context, arg OrgMemberEmailExistsParams) (bool, error)
 	OrganizationSlugTaken(ctx context.Context, slug string) (bool, error)
 	// Age of the oldest unprocessed row, 0 when the outbox is drained.
 	OutboxLagSeconds(ctx context.Context) (float64, error)
 	ProjectSlugTaken(ctx context.Context, slug string) (bool, error)
-	// Rotates the token and extends the expiry of a pending invitation.
+	// Rotates the token and extends the expiry of a pending invitation. With
+	// sent_before set, only an invitation last sent (created or resent) at or
+	// before it is resent, so concurrent resends respect a cooldown.
 	ResendInvitation(ctx context.Context, arg ResendInvitationParams) (Invitation, error)
 	// Resolves an active project slug (globally unique) to its id and its
 	// active organization, for authorization of /…/{project} paths.
 	ResolveProjectSlug(ctx context.Context, slug string) (ResolveProjectSlugRow, error)
 	RevokeAPIKey(ctx context.Context, id uuid.UUID) (string, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (Invitation, error)
+	// Revokes the address's pending invitation to the organization, if any, so
+	// a new one can replace it.
+	RevokePendingInvitationByEmail(ctx context.Context, arg RevokePendingInvitationByEmailParams) (int64, error)
 	SoftDeleteOrganization(ctx context.Context, id uuid.UUID) (int64, error)
 	SoftDeleteProject(ctx context.Context, id uuid.UUID) (int64, error)
 	// Which of the given slugs active organizations already use.
