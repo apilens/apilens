@@ -56,3 +56,23 @@ Server code calls identity and the dashboard API through `src/lib/identity.ts`
 `contextFromHeaders(req.headers)`), and throws `ApiError { status, code,
 retryAfter, requestId }` parsed from the RFC 9457 problem body. Branch on
 `code`; `status` is `0` for network failures and timeouts.
+
+## Session refresh
+
+Authenticated calls go through `src/lib/server-session.ts`, which refreshes the
+access token when the proxy flagged it as near expiry (`x-apilens-session-refresh`),
+when it has expired, or after a backend 401 (retried once):
+
+- Route Handlers: `withSession(req, async (s) => ... s.call((o) => identity().me(o)) ...)`
+  writes the rewritten cookie with `res.cookies.set` and answers an expired
+  session with a cleared cookie and `/sign-in?reason=session_expired` (302 for
+  navigations, `401 {ok: false, code: "session_expired"}` for fetches).
+- Server Actions: `withActionSession(...)` writes through `cookies()`.
+- Server Components cannot set cookies, so `componentSession()` never refreshes.
+  It uses the token while it is valid (the proxy flags it two minutes early);
+  on `SessionExpiredError` call `redirectToRefresh(path)`, which bounces through
+  `GET /api/auth/refresh?next=...` to refresh and rewrite the cookie.
+
+Identity rotates the refresh token on every use and treats a replay as theft,
+so refresh is coalesced per token: concurrent callers share one in-flight call
+and a success is reused for 15 s (keyed by the token's SHA-256).
