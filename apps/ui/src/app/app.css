@@ -88,6 +88,9 @@
 .ob-notice-x:hover { color: var(--ink); }
 .ob-notice-x:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
 .ob-notice-x .ob-ic { width: 14px; height: 14px; }
+/* Onboarding "couldn't save" toast (#327): bottom centre, above the form, one at a time. */
+.ob-toasts { position: fixed; left: 50%; bottom: 24px; z-index: 50; width: min(440px, calc(100vw - 32px)); transform: translateX(-50%); pointer-events: none; }
+.ob-toast { margin: 0; box-shadow: var(--shadow-frame); pointer-events: auto; }
 .ob-code6 { position: relative; }
 .ob-code6 input { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; cursor: text; }
 .ob-code6:focus-within span.cur { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }

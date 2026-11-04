@@ -32,6 +32,9 @@
 //   POST /api/v1/auth/2fa/disable
 //   POST /api/v1/auth/2fa/backup-codes/regenerate
 //   GET|PATCH /api/v1/users/me                     the fake user; PATCH renames it
+//   PATCH /api/v1/users/me/onboarding              saves the step and merges the answers per user (#327);
+//                                                  the context reports them. An org_slug of
+//                                                  `unavailable` answers 503 unavailable
 //   POST /api/v1/users/me/email/change             `taken@example.com` answers email_taken
 //   POST /api/v1/users/me/email/confirm            code 123456 moves the email, anything else invalid_code
 //   DELETE /api/v1/users/me                        owner_transfer_required while the user is acme's only owner
@@ -398,9 +401,22 @@ function bundle(next: string, seeds: Seeds = {}, role: Role = "owner") {
 const PROFILE_DEFAULTS = { name: "Fake User", email: "you@example.com", soleOwner: true };
 const profile = { ...PROFILE_DEFAULTS, pendingEmail: null as string | null };
 
+/** Each fake user's saved onboarding progress (#327): the step and answers. */
+const onboardingByUser = new Map<string, { step: string | null; answers: Record<string, unknown> }>();
+const onboardingOf = (id: string) => onboardingByUser.get(id) ?? { step: null, answers: {} };
+const ONBOARDING_ANSWERS: Record<string, RegExp | "count"> = {
+  org_slug: /^([a-z0-9][a-z0-9-]{0,62})?$/,
+  project_slug: /^([a-z0-9][a-z0-9-]{0,62})?$/,
+  language: /^([a-z0-9][a-z0-9._+-]{0,31})?$/,
+  runtime: /^([a-z0-9][a-z0-9._+-]{0,31})?$/,
+  method: /^([a-z0-9][a-z0-9._+-]{0,31})?$/,
+  invited: "count",
+};
+
 /** `GET /users/me/context` for a signed-in fake user: one org with one project. */
 function context(id: string) {
   const role = roleOf(id);
+  const progress = onboardingOf(id);
   return {
     user: {
       id,
@@ -409,7 +425,7 @@ function context(id: string) {
       name: profile.name,
       avatar_url: null,
       preferences: {},
-      onboarding: { step: null, completed: true },
+      onboarding: { step: progress.step, completed: false, answers: progress.answers },
       created_at: new Date().toISOString(),
     },
     orgs: [
@@ -423,7 +439,7 @@ function context(id: string) {
     ],
     last_project_slug: "shop",
     // Every fake sign-in is a new user, so onboarding is still open: `/onboarding/*` shows (#326).
-    onboarding: { step: null, completed: false },
+    onboarding: { step: progress.step, completed: false },
     capabilities: { [PROJECT]: capabilitiesOf(id) },
   };
 }
@@ -642,6 +658,29 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     // An access token whose session was revoked still reads a context here (as an owner).
     const user = userByAccess.get(req.headers.authorization.slice("Bearer ".length));
     return send(res, 200, context(user ?? randomUUID()));
+  }
+  if (req.method === "PATCH" && path === "/api/v1/users/me/onboarding") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const { step, answers = {}, ...rest } = await readBody(req);
+    const valid =
+      Object.keys(rest).length === 0 &&
+      (step === undefined || (typeof step === "string" && /^[a-z][a-z0-9_-]{0,31}$/.test(step))) &&
+      typeof answers === "object" &&
+      answers !== null &&
+      !Array.isArray(answers) &&
+      Object.entries(answers).every(([k, v]) => {
+        const rule = ONBOARDING_ANSWERS[k];
+        if (rule === "count") return Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 1000;
+        return rule !== undefined && typeof v === "string" && rule.test(v);
+      });
+    if (!valid) return problem(res, 422, "invalid_request");
+    const given = answers as Record<string, unknown>;
+    if (given.org_slug === "unavailable") return problem(res, 503, "unavailable");
+    const progress = onboardingOf(user);
+    const saved = { step: typeof step === "string" ? step : progress.step, answers: { ...progress.answers, ...given } };
+    onboardingByUser.set(user, saved);
+    return send(res, 200, { ...saved, completed: false, completed_at: null });
   }
   if (path === "/api/v1/users/me" || path.startsWith("/api/v1/users/me/email/")) {
     if (!req.headers.authorization?.startsWith("Bearer at_")) return problem(res, 401, "unauthenticated");

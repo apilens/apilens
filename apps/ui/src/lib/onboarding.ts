@@ -56,3 +56,16 @@ export function onboardingDecision(ctx: UserContext, page: string): OnboardingDe
   }
   return { kind: "show", step, reached };
 }
+
+/**
+ * The step to save when Continue moves to `target`: the target itself, unless it is behind the
+ * furthest step reached (going through an earlier screen again must not move progress back).
+ */
+export function stepToSave(target: string, reached: number): string | undefined {
+  return stageOf(target) >= reached ? target : undefined;
+}
+
+/** Whether `target` is already allowed by the onboarding guard, so the browser can go there before the save lands. */
+export function alreadyReached(target: string, reached: number): boolean {
+  return stageOf(target) <= reached;
+}

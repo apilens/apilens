@@ -392,6 +392,31 @@ export interface OnboardingState {
   answers?: Record<string, unknown>;
 }
 
+/** Answers given during onboarding (`OnboardingAnswers` in the spec); unset ones are omitted. */
+export interface OnboardingAnswers {
+  org_slug?: string;
+  project_slug?: string;
+  language?: string;
+  runtime?: string;
+  method?: string;
+  invited?: number;
+}
+
+/** `PATCH /users/me/onboarding` (#327): omitted fields stay unchanged; answers merge key by key. */
+export interface UpdateOnboardingRequest {
+  step?: string;
+  answers?: OnboardingAnswers;
+  completed?: boolean;
+}
+
+/** `PATCH /users/me/onboarding` answer (`Onboarding` in the spec). */
+export interface Onboarding {
+  step: string | null;
+  completed: boolean;
+  completed_at: string | null;
+  answers: OnboardingAnswers;
+}
+
 /** Shared by every sign-in method and by refresh (#238). */
 export interface SessionBundle {
   access_token: string;
@@ -752,6 +777,8 @@ export function createClient(config: ClientConfig) {
     me: (o: Authed) => request<User>("GET", "/users/me", o),
     context: (o: Authed) => request<UserContext>("GET", "/users/me/context", o),
     updateMe: (body: UpdateMeRequest, o: Authed) => request<User>("PATCH", "/users/me", { ...o, body }),
+    updateOnboarding: (body: UpdateOnboardingRequest, o: Authed) =>
+      request<Onboarding>("PATCH", "/users/me/onboarding", { ...o, body }),
     deleteMe: (o: Authed) => request<AccountDeleted>("DELETE", "/users/me", o),
     startEmailChange: (body: { new_email: string }, o: Authed) =>
       request<EmailChangeStarted>("POST", "/users/me/email/change", { ...o, body }),

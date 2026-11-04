@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContextOrg, OnboardingState, UserContext } from "./identity";
-import { onboardingDecision, stageOf } from "./onboarding";
+import { alreadyReached, onboardingDecision, stageOf, stepToSave } from "./onboarding";
 
 class Redirect extends Error {
   constructor(readonly location: string) {
@@ -131,8 +131,18 @@ describe("requireOnboardingStep", () => {
 
   it("loads the context for the page's own path and returns the step bar state", async () => {
     getContext.mockResolvedValue(ctx({ step: "create", completed: false }));
-    await expect(requireOnboardingStep("about")).resolves.toEqual({ kind: "show", step: 0, reached: 1 });
+    await expect(requireOnboardingStep("about")).resolves.toEqual({ kind: "show", step: 0, reached: 1, answers: {} });
     expect(getContext).toHaveBeenCalledWith("/onboarding/about");
+  });
+
+  it("hands the page the saved answers (#327)", async () => {
+    getContext.mockResolvedValue(ctx({ step: "create", completed: false, answers: { org_slug: "example-co", invited: 2 } }));
+    await expect(requireOnboardingStep("create")).resolves.toEqual({
+      kind: "show",
+      step: 1,
+      reached: 1,
+      answers: { org_slug: "example-co", invited: 2 },
+    });
   });
 
   it("finished → the project", async () => {
@@ -149,7 +159,7 @@ describe("requireOnboardingStep", () => {
 describe("/onboarding/* pages", () => {
   beforeEach(() => {
     payload = { access: "a", refresh: "r", exp: 0, remember: false, uid: "u1" };
-    getContext.mockReset().mockResolvedValue(ctx({ step: "join", completed: false }));
+    getContext.mockReset().mockResolvedValue(ctx({ step: "join", completed: false, answers: { org_slug: "example-co" } }));
   });
 
   it("render with the real step bar state", async () => {
@@ -158,12 +168,39 @@ describe("/onboarding/* pages", () => {
     const join = (await JoinPage()) as { props: Record<string, unknown> };
     expect(join.props).toEqual({ step: 1, reached: 1 });
     const create = (await CreatePage()) as { props: Record<string, unknown> };
-    expect(create.props).toEqual({ step: 1, reached: 1 });
+    // The organization screen starts from the saved address (#327).
+    expect(create.props).toEqual({ step: 1, reached: 1, answers: { org_slug: "example-co" } });
     expect(getContext.mock.calls.map(([p]) => p)).toEqual(["/onboarding/about", "/onboarding/join", "/onboarding/create"]);
   });
 
   it("redirect when the page is not allowed", async () => {
     getContext.mockResolvedValue(ctx({ step: "invite", completed: true }, [ACME]));
     await expect(JoinPage()).rejects.toEqual(new Redirect("/shop/incidents"));
+  });
+});
+
+describe("stepToSave", () => {
+  it("saves the step Continue moves to", () => {
+    expect(stepToSave("join", 0)).toBe("join");
+    expect(stepToSave("create", 1)).toBe("create");
+    expect(stepToSave("project", 1)).toBe("project");
+  });
+
+  it("does not move saved progress back when an earlier screen is passed again", () => {
+    expect(stepToSave("join", 2)).toBeUndefined();
+    expect(stepToSave("about", 1)).toBeUndefined();
+  });
+});
+
+describe("alreadyReached", () => {
+  it("is true for steps the guard already lets the user onto", () => {
+    expect(alreadyReached("join", 1)).toBe(true);
+    expect(alreadyReached("create", 2)).toBe(true);
+    expect(alreadyReached("about", 0)).toBe(true);
+  });
+
+  it("is false for a step ahead of the saved one", () => {
+    expect(alreadyReached("join", 0)).toBe(false);
+    expect(alreadyReached("project", 1)).toBe(false);
   });
 });
