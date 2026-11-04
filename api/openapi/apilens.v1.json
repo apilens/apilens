@@ -1123,6 +1123,53 @@
         ],
         "type": "object"
       },
+      "IngestStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/IngestStatus.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "count_1h": {
+            "description": "Requests stored with a timestamp in the last hour.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "first_at": {
+            "description": "Timestamp of the oldest stored request; null when none.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_at": {
+            "description": "Timestamp of the newest stored request; null when none.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "received": {
+            "description": "Whether any request was ever stored for the project (within retention).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "received",
+          "first_at",
+          "last_at",
+          "count_1h"
+        ],
+        "type": "object"
+      },
       "Invitation": {
         "additionalProperties": false,
         "properties": {
@@ -1804,6 +1851,115 @@
           "expires_at",
           "callback_url"
         ],
+        "type": "object"
+      },
+      "Onboarding": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Onboarding.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "answers": {
+            "$ref": "#/components/schemas/OnboardingAnswers"
+          },
+          "completed": {
+            "description": "Whether onboarding is finished.",
+            "type": "boolean"
+          },
+          "completed_at": {
+            "description": "When onboarding was finished; null while it is not.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "step": {
+            "description": "The onboarding screen to resume at; null before onboarding starts.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "step",
+          "completed",
+          "completed_at",
+          "answers"
+        ],
+        "type": "object"
+      },
+      "OnboardingAnswers": {
+        "additionalProperties": false,
+        "properties": {
+          "invited": {
+            "description": "Number of teammates invited.",
+            "format": "int64",
+            "maximum": 1000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "language": {
+            "description": "Language chosen to instrument, e.g. python.",
+            "pattern": "^([a-z0-9][a-z0-9._+-]{0,31})?$",
+            "type": "string"
+          },
+          "method": {
+            "description": "Instrumentation method, e.g. sdk or otel.",
+            "pattern": "^([a-z0-9][a-z0-9._+-]{0,31})?$",
+            "type": "string"
+          },
+          "org_slug": {
+            "description": "Slug of the organization created or joined.",
+            "pattern": "^([a-z0-9][a-z0-9-]{0,62})?$",
+            "type": "string"
+          },
+          "project_slug": {
+            "description": "Slug of the first project.",
+            "pattern": "^([a-z0-9][a-z0-9-]{0,62})?$",
+            "type": "string"
+          },
+          "runtime": {
+            "description": "Framework or runtime, e.g. fastapi.",
+            "pattern": "^([a-z0-9][a-z0-9._+-]{0,31})?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "OnboardingPatchBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/OnboardingPatchBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "answers": {
+            "$ref": "#/components/schemas/OnboardingAnswers",
+            "description": "Merged key by key into the stored answers; answers not sent stay unchanged."
+          },
+          "completed": {
+            "description": "true finishes onboarding (completed_at is set the first time); false reopens it.",
+            "type": "boolean"
+          },
+          "step": {
+            "description": "The onboarding screen to resume at, e.g. project.",
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "OnboardingState": {
@@ -8500,6 +8656,88 @@
         ]
       }
     },
+    "/api/v1/projects/{project}/ingest-status": {
+      "get": {
+        "description": "Answers whether any request has been stored for the project, when the first and last arrived and how many arrived in the last hour. The onboarding 'Waiting for data' screen polls it. Open to a session that can view the project or to the project's read key.",
+        "operationId": "get-ingest-status",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Whether a project has received its first request",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
     "/api/v1/projects/{slug}": {
       "delete": {
         "description": "Soft-deletes the project; its slug becomes free. Owners and admins only. Emits `project.deleted`. Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart.",
@@ -10330,6 +10568,83 @@
         "summary": "List organizations I can join",
         "tags": [
           "Organizations"
+        ]
+      }
+    },
+    "/api/v1/users/me/onboarding": {
+      "patch": {
+        "description": "Saves where the user is in onboarding so a refresh resumes there: `step` replaces the stored step, `answers` is merged key by key into the stored answers (org_slug, project_slug, language, runtime, method, invited), and `completed` finishes or reopens onboarding. Returns the resulting state; `GET /api/v1/users/me/context` reports the same step and completion. Unknown fields fail validation (`422`).",
+        "operationId": "update-onboarding",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardingPatchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Onboarding"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Save the signed-in user's onboarding progress",
+        "tags": [
+          "Users"
         ]
       }
     },

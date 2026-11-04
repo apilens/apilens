@@ -11,6 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/platform/authn"
 )
 
@@ -33,8 +34,10 @@ type RangeInput struct {
 }
 
 // Register mounts the dashboard operations on api. s may be nil when only the
-// OpenAPI document is needed.
-func Register(api huma.API, s *Service) {
+// OpenAPI document is needed. guard authorizes the operations addressed by
+// project slug in their path; nil refuses them with authz_unavailable (fail
+// closed).
+func Register(api huma.API, s *Service, guard *authz.Guard) {
 	authn.AddSecurityScheme(api)
 	AddSecurityScheme(api)
 	op := func(id, method, path, summary string) huma.Operation {
@@ -48,6 +51,7 @@ func Register(api huma.API, s *Service) {
 	huma.Register(api, op("list-errors", http.MethodGet, "/api/v1/errors", "Failed requests grouped by endpoint and status"), s.errors)
 	huma.Register(api, op("get-trace", http.MethodGet, "/api/v1/traces/{trace_id}", "Spans and correlated logs of one trace"), s.trace)
 	huma.Register(api, op("list-deploys", http.MethodGet, "/api/v1/deploys", "Deploy markers in a time range"), s.deploys)
+	registerIngestStatus(api, s, guard)
 }
 
 // ---------------------------------------------------------------- project

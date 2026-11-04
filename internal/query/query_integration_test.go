@@ -93,7 +93,7 @@ func TestDashboardQueriesAreTenantScoped(t *testing.T) {
 	q := db.New(pool)
 	verifier := apikeys.NewVerifier(q, apikeys.Options{Size: 100, TTL: time.Minute, NegativeTTL: time.Minute}, logger, nil)
 	srv.API().UseMiddleware(query.AuthMiddleware(srv.API(), verifier, nil))
-	query.Register(srv.API(), query.NewService(conn, q))
+	query.Register(srv.API(), query.NewService(conn, q), nil)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -294,7 +294,7 @@ func TestDashboardQueriesAcceptSessions(t *testing.T) {
 	verifier := apikeys.NewVerifier(q, apikeys.Options{Size: 100, TTL: time.Minute, NegativeTTL: time.Minute}, logger, nil)
 	guard := authz.NewGuard(client, authz.NewPGResolver(pool), authz.GuardOptions{}, logger)
 	api.UseMiddleware(query.AuthMiddleware(api, verifier, guard))
-	query.Register(api, query.NewService(conn, q))
+	query.Register(api, query.NewService(conn, q), guard)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
