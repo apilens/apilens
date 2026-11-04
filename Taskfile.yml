@@ -17,6 +17,9 @@ env:
   APILENS_LOG__FORMAT: '{{.APILENS_LOG__FORMAT | default "text"}}'
   # Development-only identity key, base64("dev-only-identity-kek-0123456789").
   APILENS_IDENTITY__KEY_ENCRYPTION_KEY: '{{.APILENS_IDENTITY__KEY_ENCRYPTION_KEY | default "ZGV2LW9ubHktaWRlbnRpdHkta2VrLTAxMjM0NTY3ODk="}}'
+  APILENS_AUTHZ__ENDPOINT: '{{.APILENS_AUTHZ__ENDPOINT | default "localhost:50051"}}'
+  APILENS_AUTHZ__PRESHARED_KEY: '{{.APILENS_AUTHZ__PRESHARED_KEY | default "apilens-dev-key"}}'
+  APILENS_AUTHZ__INSECURE: '{{.APILENS_AUTHZ__INSECURE | default "true"}}'
 
 tasks:
   default:
@@ -142,7 +145,7 @@ tasks:
       - docker build -f deploy/docker/Dockerfile -t ghcr.io/apilens/apilens:dev .
 
   up:
-    desc: Start dev datastores (Postgres, ClickHouse, Valkey) on localhost
+    desc: Start dev datastores (Postgres, ClickHouse, Valkey, SpiceDB) on localhost
     cmds:
       - docker compose -f {{.DEV_COMPOSE}} up -d --wait
 
@@ -152,7 +155,7 @@ tasks:
       - docker compose -f {{.DEV_COMPOSE}} down
 
   migrate:
-    desc: Apply Postgres and ClickHouse migrations to the dev datastores
+    desc: Apply Postgres and ClickHouse migrations and the SpiceDB schema to the dev datastores
     cmds:
       - go run ./cmd/apilens migrate
 

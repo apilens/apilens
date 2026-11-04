@@ -16,8 +16,12 @@ Datastores are **not bundled**. Run Postgres, ClickHouse and Valkey with their o
      --from-literal=clickhouse-password='...' \
      --from-literal=valkey-password='...' \
      --from-literal=session-secret="$(openssl rand -hex 32)" \
-     --from-literal=identity-key-encryption-key="$(openssl rand -base64 32)"
+     --from-literal=identity-key-encryption-key="$(openssl rand -base64 32)" \
+     --from-literal=spicedb-preshared-key="$(openssl rand -hex 32)" \
+     --from-literal=spicedb-datastore-uri='postgres://apilens:PASS@pg-rw:5432/spicedb?sslmode=require'
    ```
+
+   The two `spicedb-*` keys are needed only with authorization enabled (`spicedb.enabled` or `authz.endpoint`).
 
 2. Install the chart:
 
@@ -51,9 +55,13 @@ helm install apilens oci://ghcr.io/apilens/charts/apilens --version <x.y.z>
 | `config` | log, sink settings | Extra `APILENS_*` env vars (`__` = nesting); these override chart-managed keys |
 | `externalClickHouse.*` | `clickhouse:9000`, db `apilens` | Native protocol addresses, user, TLS, cluster name |
 | `externalValkey.addr` | `[]` (disabled) | API-key cache invalidation; when empty, falls back to TTL |
-| `secrets.existingSecret` | — | Keys: `postgres-url`, `clickhouse-password`, `valkey-password` (optional), `session-secret` (web UI), `identity-key-encryption-key` (32 bytes, base64; required by the `all` and `identity` roles) |
+| `authz.endpoint` | — (disabled) | External SpiceDB gRPC address (`host:port`). Leave empty when `spicedb.enabled` |
+| `authz.insecure` / `authz.cacheTTL` | `false` / `5s` | Plaintext gRPC (forced on for the in-chart SpiceDB); permission check cache lifetime |
+| `spicedb.enabled` | `false` | Runs SpiceDB in-chart (Deployment + Service, datastore migrations as an init container) on a separate Postgres database |
+| `spicedb.image` / `replicas` / `resources` / `extraEnv` | pinned `v1.57.0` digest / 1 | For HA, run the SpiceDB operator and use `authz.endpoint` instead |
+| `secrets.existingSecret` | — | Keys: `postgres-url`, `clickhouse-password`, `valkey-password` (optional), `session-secret` (web UI), `identity-key-encryption-key` (32 bytes, base64; required by the `all` and `identity` roles), `spicedb-preshared-key` (when authz is enabled), `spicedb-datastore-uri` (with `spicedb.enabled`) |
 | `secrets.*` (inline) | — | Development only; renders a chart-managed Secret |
-| `migrations.enabled` | `true` | `pre-install`/`pre-upgrade` hook Job running `apilens migrate` |
+| `migrations.enabled` | `true` | `pre-install`/`pre-upgrade` hook Job running `apilens migrate`; with `spicedb.enabled`, a `post-install`/`post-upgrade` Job applies the SpiceDB schema (`apilens migrate -only=authz`) |
 | `web.*` | enabled | Web UI (`apps/ui`) |
 | `web.apiUrl` | `ingress.ingestRole` Service | `APILENS_API_URL`: backend base URL the UI server calls |
 | `web.publicUrl` | from `ingress.webHost` | `APILENS_PUBLIC_URL`: origin users open the dashboard at; set it when not using the chart's ingress |
@@ -71,6 +79,9 @@ helm install apilens oci://ghcr.io/apilens/charts/apilens --version <x.y.z>
 | Postgres 17 | [CloudNativePG](https://cloudnative-pg.io) with Barman Cloud plugin backups to object storage |
 | ClickHouse 26.8 LTS | [Altinity ClickHouse operator](https://github.com/Altinity/clickhouse-operator): ReplicatedMergeTree, ClickHouse Keeper ×3; set `externalClickHouse.cluster` |
 | Valkey 9 | the [valkey-io Helm chart](https://github.com/valkey-io/valkey-helm) or a managed Valkey |
+| SpiceDB | `spicedb.enabled` for small installs; the [SpiceDB operator](https://github.com/authzed/spicedb-operator) for HA (set `authz.endpoint`) |
+
+SpiceDB stores its data in its own Postgres database (create it, e.g. `CREATE DATABASE spicedb`, and put its URI in `spicedb-datastore-uri`). Enable `track_commit_timestamp` on that Postgres for SpiceDB's Watch API.
 
 Kafka (Strimzi) is used by the `kafka` sink from M3 onwards.
 

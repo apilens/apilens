@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"net/url"
 	"regexp"
@@ -39,6 +40,7 @@ type Config struct {
 	OTel       OTelConfig       `koanf:"otel"`
 	Identity   IdentityConfig   `koanf:"identity"`
 	Jobs       JobsConfig       `koanf:"jobs"`
+	Authz      AuthzConfig      `koanf:"authz"`
 }
 
 // ServerConfig configures the shared HTTP server.
@@ -189,6 +191,25 @@ type WebAuthnConfig struct {
 	Origins []string `koanf:"origins"`
 }
 
+// AuthzConfig configures the SpiceDB client (ADR 0006). An empty Endpoint
+// disables authorization: `apilens migrate` then skips the schema.
+type AuthzConfig struct {
+	// Endpoint is the SpiceDB gRPC address (host:port), e.g. spicedb:50051.
+	Endpoint string `koanf:"endpoint"`
+	// PresharedKey authenticates APILens to SpiceDB (its
+	// --grpc-preshared-key). Required when Endpoint is set.
+	PresharedKey string `koanf:"preshared_key"`
+	// Insecure dials without TLS. Use it only on a private network (the
+	// compose stack, an in-cluster Service).
+	Insecure bool `koanf:"insecure"`
+	// CacheTTL bounds how long a permission check result may be reused.
+	// 0 disables the client-side cache.
+	CacheTTL time.Duration `koanf:"cache_ttl"`
+}
+
+// Enabled reports whether a SpiceDB endpoint is configured.
+func (a AuthzConfig) Enabled() bool { return a.Endpoint != "" }
+
 // KEK returns the decoded key encryption key.
 func (i IdentityConfig) KEK() ([]byte, error) {
 	if i.KeyEncryptionKey == "" {
@@ -281,6 +302,10 @@ func Defaults() map[string]any {
 		"identity.rate_limits.refresh_per_ip.window":         "1m",
 		"identity.rate_limits.second_factor_per_user.limit":  10,
 		"identity.rate_limits.second_factor_per_user.window": "15m",
+		"authz.endpoint":      "",
+		"authz.preshared_key": "",
+		"authz.insecure":      false,
+		"authz.cache_ttl":     "5s",
 	}
 }
 
@@ -414,6 +439,7 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("jobs.metrics_interval must be > 0"))
 	}
 	errs = append(errs, c.validateIdentity()...)
+	errs = append(errs, c.validateAuthz()...)
 	if len(errs) > 0 {
 		return fmt.Errorf("config: %w", errors.Join(errs...))
 	}
@@ -492,6 +518,25 @@ func (r RateLimitsConfig) validate() []error {
 		if l.l.Limit <= 0 || l.l.Window < time.Second {
 			errs = append(errs, fmt.Errorf("identity.rate_limits.%s: want limit > 0 and window >= 1s (got %d per %v)", l.name, l.l.Limit, l.l.Window))
 		}
+	}
+	return errs
+}
+
+// validateAuthz checks the authz section when SpiceDB is configured.
+func (c *Config) validateAuthz() []error {
+	var errs []error
+	a := c.Authz
+	if a.CacheTTL < 0 {
+		errs = append(errs, errors.New("authz.cache_ttl must be >= 0"))
+	}
+	if !a.Enabled() {
+		return errs
+	}
+	if _, port, err := net.SplitHostPort(a.Endpoint); err != nil || port == "" {
+		errs = append(errs, fmt.Errorf("authz.endpoint %q: want host:port", a.Endpoint))
+	}
+	if a.PresharedKey == "" {
+		errs = append(errs, errors.New("authz.preshared_key is required when authz.endpoint is set (set APILENS_AUTHZ__PRESHARED_KEY)"))
 	}
 	return errs
 }

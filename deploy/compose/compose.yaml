@@ -6,7 +6,7 @@
 #
 # Exposes only the ingest/API port (8080) and the dashboard (3000). Terminate
 # TLS in front of both (Caddy, nginx, a cloud load balancer, ...).
-# Datastores are reachable only on the internal compose network.
+# Datastores (and SpiceDB) are reachable only on the internal compose network.
 name: apilens
 
 x-logging: &logging
@@ -29,6 +29,17 @@ x-apilens-image: &apilens-image
   build:
     context: ../..
     dockerfile: deploy/docker/Dockerfile
+
+x-spicedb-image: &spicedb-image
+  image: ghcr.io/authzed/spicedb:v1.57.0@sha256:a170d372c9f6b921bb6849064df6ca3566dd5b174882c1a2c4300c2ae1d60efd
+
+# SpiceDB keeps its data in its own `spicedb` database on the shared Postgres.
+x-spicedb-env: &spicedb-env
+  SPICEDB_DATASTORE_ENGINE: postgres
+  SPICEDB_DATASTORE_CONN_URI: postgres://apilens:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/spicedb?sslmode=disable
+  SPICEDB_LOG_FORMAT: json
+  # No usage telemetry to authzed.com.
+  SPICEDB_TELEMETRY_ENDPOINT: ""
 
 x-apilens-env: &apilens-env
   APILENS_LOG__LEVEL: ${APILENS_LOG_LEVEL:-info}
@@ -58,6 +69,11 @@ x-apilens-env: &apilens-env
   APILENS_IDENTITY__WEBAUTHN__RP_NAME: ${APILENS_IDENTITY__WEBAUTHN__RP_NAME:-APILens}
   APILENS_IDENTITY__WEBAUTHN__ORIGINS: ${APILENS_IDENTITY__WEBAUTHN__ORIGINS:-${APILENS_PUBLIC_URL:-http://localhost:3000}}
   APILENS_IDENTITY__CORS_ORIGINS: ${APILENS_IDENTITY__CORS_ORIGINS:-}
+  # Authorization (SpiceDB on the compose network; plaintext gRPC).
+  APILENS_AUTHZ__ENDPOINT: spicedb:50051
+  APILENS_AUTHZ__PRESHARED_KEY: ${SPICEDB_PRESHARED_KEY:?set SPICEDB_PRESHARED_KEY in .env}
+  APILENS_AUTHZ__INSECURE: "true"
+  APILENS_AUTHZ__CACHE_TTL: ${APILENS_AUTHZ__CACHE_TTL:-5s}
 
 services:
   postgres:
@@ -67,6 +83,8 @@ services:
       POSTGRES_DB: apilens
       POSTGRES_USER: apilens
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    # SpiceDB's Watch API needs commit timestamps.
+    command: ["postgres", "-c", "track_commit_timestamp=on"]
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -129,7 +147,60 @@ services:
           memory: ${VALKEY_MEMORY_LIMIT:-256m}
     logging: *logging
 
-  # One-shot: applies the embedded Postgres + ClickHouse migrations, then exits.
+  # One-shot: creates SpiceDB's database on the shared Postgres if missing.
+  spicedb-db:
+    image: postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGUSER: apilens
+      PGDATABASE: apilens
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    command: ["sh", "-c", "psql -tAc \"SELECT 1 FROM pg_database WHERE datname = 'spicedb'\" | grep -q 1 || psql -c 'CREATE DATABASE spicedb'"]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *logging
+
+  # One-shot: applies SpiceDB's own datastore migrations, then exits.
+  spicedb-migrate:
+    <<: [*spicedb-image, *hardened]
+    command: ["datastore", "migrate", "head"]
+    restart: "no"
+    environment:
+      <<: *spicedb-env
+    depends_on:
+      spicedb-db:
+        condition: service_completed_successfully
+    logging: *logging
+
+  spicedb:
+    <<: [*spicedb-image, *hardened]
+    command: ["serve"]
+    restart: unless-stopped
+    environment:
+      <<: *spicedb-env
+      SPICEDB_GRPC_PRESHARED_KEY: ${SPICEDB_PRESHARED_KEY:?set SPICEDB_PRESHARED_KEY in .env}
+    tmpfs:
+      - /tmp:size=64m
+    depends_on:
+      spicedb-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50051"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: ${SPICEDB_MEMORY_LIMIT:-512m}
+    logging: *logging
+
+  # One-shot: applies the embedded Postgres + ClickHouse migrations and the
+  # SpiceDB schema, then exits.
   migrate:
     <<: [*apilens-image, *hardened]
     command: ["migrate"]
@@ -141,6 +212,8 @@ services:
       postgres:
         condition: service_healthy
       clickhouse:
+        condition: service_healthy
+      spicedb:
         condition: service_healthy
     logging: *logging
 
@@ -159,6 +232,8 @@ services:
       migrate:
         condition: service_completed_successfully
       valkey:
+        condition: service_healthy
+      spicedb:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "/apilens", "healthcheck"]

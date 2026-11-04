@@ -89,10 +89,47 @@ externalValkey:
   addr: []
   username: ""
 
+# Authorization (SpiceDB, ADR 0006). Either point `authz.endpoint` at a
+# SpiceDB you operate, or set `spicedb.enabled` to run one in-chart. With
+# neither, authorization is disabled (`apilens migrate` skips the schema).
+authz:
+  # External SpiceDB gRPC address (host:port). Must be empty when
+  # spicedb.enabled is true.
+  endpoint: ""
+  # Dial without TLS (only for a plaintext in-cluster SpiceDB). Forced on for
+  # the in-chart SpiceDB.
+  insecure: false
+  # How long a permission check result may be reused (Go duration; 0s = off).
+  cacheTTL: 5s
+
+# In-chart SpiceDB: one Deployment + Service; its datastore migrations run as
+# an init container. The Postgres datastore URI (a separate database, e.g.
+# postgres://apilens:PASS@pg-rw:5432/spicedb?sslmode=require) is read from the
+# secret key `spicedb-datastore-uri`. For HA, run the SpiceDB operator instead
+# and set `authz.endpoint`.
+spicedb:
+  enabled: false
+  replicas: 1
+  image:
+    repository: ghcr.io/authzed/spicedb
+    tag: v1.57.0
+    digest: "sha256:a170d372c9f6b921bb6849064df6ca3566dd5b174882c1a2c4300c2ae1d60efd"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  # Extra environment variables (SPICEDB_* flags) for the SpiceDB container.
+  extraEnv: []
+
 secrets:
   # Name of an existing Secret with keys: postgres-url, clickhouse-password,
   # valkey-password (optional), session-secret (required when web is enabled),
-  # identity-key-encryption-key (required when the all or identity role runs).
+  # identity-key-encryption-key (required when the all or identity role runs),
+  # spicedb-preshared-key (required when authz is enabled),
+  # spicedb-datastore-uri (required when spicedb.enabled).
   existingSecret: ""
   # Inline values for development ONLY (rendered into a chart-managed Secret
   # when existingSecret is empty).
@@ -104,8 +141,14 @@ secrets:
   # Identity key encryption key: 32 random bytes, base64
   # (openssl rand -base64 32). Encrypts signing keys and TOTP secrets at rest.
   identityKeyEncryptionKey: ""
+  # SpiceDB preshared key (openssl rand -hex 32).
+  spicedbPresharedKey: ""
+  # Postgres URI of SpiceDB's own database (spicedb.enabled only).
+  spicedbDatastoreUri: ""
 
-# Database migrations run as a Helm hook Job (pre-install, pre-upgrade).
+# Database migrations run as a Helm hook Job (pre-install, pre-upgrade). With
+# spicedb.enabled the SpiceDB schema is applied by a second hook Job
+# (post-install, post-upgrade), once the in-chart SpiceDB exists.
 migrations:
   enabled: true
   backoffLimit: 3

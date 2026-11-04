@@ -1,6 +1,7 @@
 {{- if .Values.migrations.enabled }}
 {{- /*
-Runs `apilens migrate` (embedded Postgres + ClickHouse migrations) before
+Runs `apilens migrate` (embedded Postgres + ClickHouse migrations, plus the
+SpiceDB schema when authz.endpoint points at an external SpiceDB) before
 install/upgrade. Hooks run before regular chart resources exist, so this Job
 inlines its config instead of mounting the ConfigMap, reads credentials from
 the hook Secret (or existingSecret), and uses the namespace's default
@@ -38,7 +39,13 @@ spec:
         - name: migrate
           image: {{ include "apilens.imageRef" (dict "image" .Values.image "root" .) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.spicedb.enabled }}
+          # The in-chart SpiceDB does not exist yet; authz-schema-job.yaml
+          # applies the schema after install/upgrade.
+          args: ["migrate", "-only=postgres,clickhouse"]
+          {{- else }}
           args: ["migrate"]
+          {{- end }}
           env:
             {{- range $k, $v := $config }}
             - name: {{ $k }}

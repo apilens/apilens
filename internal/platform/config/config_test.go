@@ -327,3 +327,61 @@ func TestIdentityRateLimitValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthzDefaults(t *testing.T) {
+	cfg, err := Load("", []string{kekEnv}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Authz.Enabled() {
+		t.Error("authz should be disabled by default")
+	}
+	if cfg.Authz.CacheTTL != 5*time.Second || cfg.Authz.Insecure {
+		t.Errorf("authz = %+v", cfg.Authz)
+	}
+}
+
+func TestAuthzEnv(t *testing.T) {
+	env := []string{
+		kekEnv,
+		"APILENS_AUTHZ__ENDPOINT=spicedb:50051",
+		"APILENS_AUTHZ__PRESHARED_KEY=secret",
+		"APILENS_AUTHZ__INSECURE=true",
+		"APILENS_AUTHZ__CACHE_TTL=0s",
+	}
+	cfg, err := Load("", env, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := AuthzConfig{Endpoint: "spicedb:50051", PresharedKey: "secret", Insecure: true}
+	if cfg.Authz != want || !cfg.Authz.Enabled() {
+		t.Errorf("authz = %+v, want %+v", cfg.Authz, want)
+	}
+}
+
+func TestAuthzValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     []string
+		wantErr string
+	}{
+		{name: "missing key", env: []string{"APILENS_AUTHZ__ENDPOINT=spicedb:50051"}, wantErr: "authz.preshared_key is required"},
+		{name: "no port", env: []string{"APILENS_AUTHZ__ENDPOINT=spicedb", "APILENS_AUTHZ__PRESHARED_KEY=k"}, wantErr: "want host:port"},
+		{name: "negative ttl", env: []string{"APILENS_AUTHZ__CACHE_TTL=-1s"}, wantErr: "authz.cache_ttl"},
+		{name: "key without endpoint", env: []string{"APILENS_AUTHZ__PRESHARED_KEY=k"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load("", append([]string{kekEnv}, tt.env...), nil)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}

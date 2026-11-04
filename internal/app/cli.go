@@ -18,6 +18,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/apilens/apilens/authz"
 	controlplaneapi "github.com/apilens/apilens/internal/controlplane/api"
 	"github.com/apilens/apilens/internal/controlplane/bootstrap"
 	"github.com/apilens/apilens/internal/identity"
@@ -27,6 +28,7 @@ import (
 	applog "github.com/apilens/apilens/internal/platform/log"
 	"github.com/apilens/apilens/internal/platform/pg"
 	"github.com/apilens/apilens/internal/platform/server"
+	"github.com/apilens/apilens/internal/platform/spicedb"
 	"github.com/apilens/apilens/internal/query"
 )
 
@@ -34,7 +36,10 @@ const usage = `apilens — API observability platform (one binary, many roles)
 
 Usage:
   apilens [-target=all] [-config.file=path]   run roles (comma-separated targets)
-  apilens migrate                             apply Postgres (incl. River jobs) and ClickHouse migrations
+  apilens migrate [-only=postgres,clickhouse,authz]
+                                              apply Postgres (incl. River jobs) and ClickHouse
+                                              migrations and the SpiceDB schema (when
+                                              authz.endpoint is set)
   apilens seed [flags]                        create a dev org/project/app and print an ingest key
   apilens healthcheck [-url=...]              exit 0 if the readiness endpoint answers 200
   apilens openapi                             print the OpenAPI 3.1 document
@@ -125,7 +130,7 @@ func runServe(ctx context.Context, args []string, stderr io.Writer, environ []st
 	}
 	// `-target=migrate` is accepted for parity with the other one-shot roles.
 	if len(cfg.Target) == 1 && cfg.Target[0] == "migrate" {
-		return migrate(ctx, cfg, logger)
+		return migrate(ctx, cfg, logger, nil)
 	}
 	logger.Info("apilens starting", "version", buildinfo.Get().Version, "targets", cfg.Target)
 	return New(cfg, logger).Run(ctx)
@@ -134,26 +139,59 @@ func runServe(ctx context.Context, args []string, stderr io.Writer, environ []st
 func runMigrate(ctx context.Context, args []string, stderr io.Writer, environ []string) error {
 	fs := flag.NewFlagSet("apilens migrate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	only := fs.String("only", "", "comma-separated subset to apply: "+strings.Join(migrateSteps, ", ")+" (default: all)")
 	cfg, logger, err := loadConfig(fs, args, environ, stderr)
 	if err != nil {
 		return err
 	}
-	return migrate(ctx, cfg, logger)
+	steps := splitComma(*only)
+	for _, s := range steps {
+		if !slices.Contains(migrateSteps, s) {
+			return fmt.Errorf("migrate: unknown -only step %q (want %s)", s, strings.Join(migrateSteps, ", "))
+		}
+	}
+	return migrate(ctx, cfg, logger, steps)
 }
 
-func migrate(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
-	pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-migrate")
-	if err != nil {
-		return err
+// migrateSteps are the parts of `apilens migrate`, in the order they run.
+var migrateSteps = []string{"postgres", "clickhouse", "authz"}
+
+// migrate applies the selected steps (all when steps is empty). The authz
+// step writes the SpiceDB schema and is skipped when authz.endpoint is unset.
+func migrate(ctx context.Context, cfg *config.Config, logger *slog.Logger, steps []string) error {
+	want := func(step string) bool { return len(steps) == 0 || slices.Contains(steps, step) }
+	if want("postgres") {
+		pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-migrate")
+		if err != nil {
+			return err
+		}
+		err = migrations.UpPostgres(ctx, pool, logger)
+		if err == nil {
+			err = migrations.UpRiver(ctx, pool, logger)
+		}
+		pool.Close()
+		if err != nil {
+			return err
+		}
 	}
-	defer pool.Close()
-	if err := migrations.UpPostgres(ctx, pool, logger); err != nil {
-		return err
+	if want("clickhouse") {
+		if err := migrations.UpClickHouse(ctx, cfg.ClickHouse, logger); err != nil {
+			return err
+		}
 	}
-	if err := migrations.UpRiver(ctx, pool, logger); err != nil {
-		return err
+	if want("authz") {
+		if !cfg.Authz.Enabled() {
+			logger.Info("authz.endpoint not set; skipping the SpiceDB schema")
+			return nil
+		}
+		client, err := spicedb.Connect(cfg.Authz)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = client.Close() }()
+		return spicedb.ApplySchema(ctx, client, authz.Schema, logger)
 	}
-	return migrations.UpClickHouse(ctx, cfg.ClickHouse, logger)
+	return nil
 }
 
 func runSeed(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) error {

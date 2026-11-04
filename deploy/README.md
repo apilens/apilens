@@ -3,7 +3,7 @@
 | Path | What it is |
 |---|---|
 | `docker/Dockerfile` | One image for every role: a static Go binary on distroless, running as non-root |
-| `compose/compose.yaml` | Self-hosted all-in-one: Postgres, ClickHouse, Valkey, migrate, apilens, console (v2 dashboard) and web (v1 dashboard) |
+| `compose/compose.yaml` | Self-hosted all-in-one: Postgres, ClickHouse, Valkey, SpiceDB, migrate, apilens, console (v2 dashboard) and web (v1 dashboard) |
 | `compose/compose.dev.yaml` | Datastores only, for local development (ports bound to 127.0.0.1) |
 | `compose/compose.ci.yaml` + `compose/ci.env` | Override with throwaway secrets for CI end-to-end tests |
 | `helm/apilens/` | Kubernetes chart: one Deployment per role, migrations as a hook Job |
@@ -21,7 +21,7 @@ docker compose run --rm --entrypoint /apilens apilens seed
 - `api_key` (scope `ingest`): point an SDK at `http://<host>:8080/v1`, or an OpenTelemetry exporter at `http://<host>:8080/otlp`, with this key.
 - `read_key` (scope `read`): put it in `.env` as `APILENS_READ_KEY`, then `docker compose up -d console`. The v2 dashboard runs on port 3100 (`APILENS_CONSOLE_PORT`). It calls the API from its server, so the key never reaches browsers.
 
-Published ports: ingest/API on 8080, console on 3100, and the v1 dashboard on 3000 (until cutover). Postgres, ClickHouse and Valkey are reachable only on the compose network.
+Published ports: ingest/API on 8080, console on 3100, and the v1 dashboard on 3000 (until cutover). Postgres, ClickHouse, Valkey and SpiceDB are reachable only on the compose network.
 
 ### Upgrading
 
@@ -41,7 +41,7 @@ The compose stack does not back itself up.
 
 ## Kubernetes
 
-See [`helm/apilens/README.md`](helm/apilens/README.md). The chart expects externally operated datastores: CloudNativePG, the Altinity ClickHouse operator and Valkey.
+See [`helm/apilens/README.md`](helm/apilens/README.md). The chart expects externally operated datastores: CloudNativePG, the Altinity ClickHouse operator and Valkey. SpiceDB runs in-chart (`spicedb.enabled`) or externally (`authz.endpoint`).
 
 ## Security notes
 
@@ -51,6 +51,7 @@ See [`helm/apilens/README.md`](helm/apilens/README.md). The chart expects extern
   - drop all Linux capabilities and set `no-new-privileges`;
   - use a distroless base (no shell). The healthcheck is `apilens healthcheck`.
 - Valkey requires a password (`VALKEY_PASSWORD`) even on the internal network.
+- SpiceDB requires a preshared key (`SPICEDB_PRESHARED_KEY`). It keeps its data in a separate `spicedb` database on the bundled Postgres (created by the one-shot `spicedb-db` service), so Postgres backups cover it. `migrate` writes the authorization schema on every `up` (`APILENS_AUTHZ__*` configures the client; see `.env.example`).
 - Keep `.env` out of version control (it is gitignored). Use hex secrets, because the Postgres password is embedded in a URL.
 - `APILENS_IDENTITY__KEY_ENCRYPTION_KEY` (32 bytes, base64: `openssl rand -base64 32`) encrypts token signing keys and TOTP secrets at rest. The `all` and `identity` roles refuse to start without it. Back it up: losing it makes those secrets unreadable.
 - Images are signed with cosign (keyless) and published with SBOM and provenance attestations. To verify one:

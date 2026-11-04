@@ -68,6 +68,7 @@ jobs:
               - go.sum
               - 'cmd/**'
               - 'internal/**'
+              - 'authz/**'
               - 'test/**'
               - 'tools/**'
               - 'proto/**'

@@ -26,6 +26,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY cmd ./cmd
 COPY internal ./internal
+# The SpiceDB schema embedded for `apilens migrate`.
+COPY authz/schema.go authz/schema.zed ./authz/
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \

@@ -7,6 +7,8 @@ SpiceDB schema for APILens ([ADR 0006](../docs/adr/0006-authorization-spicedb.md
 
 Run `task lint:authz` to validate both files with `zed validate`. It is also part of `task lint`.
 
+`schema.go` embeds `schema.zed` into the binary. `apilens migrate` writes it to SpiceDB through the API (idempotent) whenever `authz.endpoint` is set; `apilens migrate -only=authz` applies just the schema. SpiceDB runs in `deploy/compose` (dev and self-host) and optionally in the Helm chart (`spicedb.enabled`).
+
 ## Roles
 
 | Resource | Relation | Granted by |

@@ -92,8 +92,34 @@
         "clickhousePassword": { "type": "string" },
         "valkeyPassword": { "type": "string" },
         "sessionSecret": { "type": "string" },
-        "identityKeyEncryptionKey": { "type": "string" }
+        "identityKeyEncryptionKey": { "type": "string" },
+        "spicedbPresharedKey": { "type": "string" },
+        "spicedbDatastoreUri": { "type": "string" }
       }
+    },
+    "authz": {
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "External SpiceDB gRPC address (host:port). Empty disables authz unless spicedb.enabled.",
+          "pattern": "^([^:]+:[0-9]+)?$"
+        },
+        "insecure": { "type": "boolean" },
+        "cacheTTL": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$|^0$" }
+      },
+      "additionalProperties": false
+    },
+    "spicedb": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 0 },
+        "image": { "$ref": "#/definitions/image" },
+        "resources": { "$ref": "#/definitions/resources" },
+        "extraEnv": { "type": "array" }
+      },
+      "additionalProperties": false
     },
     "migrations": {
       "type": "object",

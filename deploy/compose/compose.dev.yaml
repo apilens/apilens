@@ -7,9 +7,13 @@
 #   Postgres   postgres://apilens:apilens@127.0.0.1:5432/apilens?sslmode=disable
 #   ClickHouse native 127.0.0.1:9000, HTTP 127.0.0.1:8123, user apilens / password apilens
 #   Valkey     127.0.0.1:6379 (no password)
+#   SpiceDB    gRPC 127.0.0.1:50051, preshared key apilens-dev-key (database
+#              `spicedb` on the Postgres above)
 # Matching env for the binary:
 #   APILENS_CLICKHOUSE__PASSWORD=apilens APILENS_VALKEY__ADDR=127.0.0.1:6379
 #   APILENS_IDENTITY__KEY_ENCRYPTION_KEY=<openssl rand -base64 32> (Taskfile sets a dev key)
+#   APILENS_AUTHZ__ENDPOINT=127.0.0.1:50051 APILENS_AUTHZ__PRESHARED_KEY=apilens-dev-key
+#   APILENS_AUTHZ__INSECURE=true (Taskfile sets these)
 name: apilens-dev
 
 services:
@@ -19,6 +23,8 @@ services:
       POSTGRES_DB: apilens
       POSTGRES_USER: apilens
       POSTGRES_PASSWORD: apilens
+    # SpiceDB's Watch API needs commit timestamps.
+    command: ["postgres", "-c", "track_commit_timestamp=on"]
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -61,6 +67,50 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+
+  # One-shot: creates SpiceDB's database on the shared Postgres if missing.
+  spicedb-db:
+    image: postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+    environment:
+      PGHOST: postgres
+      PGUSER: apilens
+      PGDATABASE: apilens
+      PGPASSWORD: apilens
+    command: ["sh", "-c", "psql -tAc \"SELECT 1 FROM pg_database WHERE datname = 'spicedb'\" | grep -q 1 || psql -c 'CREATE DATABASE spicedb'"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # One-shot: applies SpiceDB's own datastore migrations.
+  spicedb-migrate:
+    image: ghcr.io/authzed/spicedb:v1.57.0@sha256:a170d372c9f6b921bb6849064df6ca3566dd5b174882c1a2c4300c2ae1d60efd
+    command: ["datastore", "migrate", "head"]
+    environment:
+      SPICEDB_DATASTORE_ENGINE: postgres
+      SPICEDB_DATASTORE_CONN_URI: postgres://apilens:apilens@postgres:5432/spicedb?sslmode=disable
+    depends_on:
+      spicedb-db:
+        condition: service_completed_successfully
+
+  # The schema is written by `apilens migrate` (task migrate).
+  spicedb:
+    image: ghcr.io/authzed/spicedb:v1.57.0@sha256:a170d372c9f6b921bb6849064df6ca3566dd5b174882c1a2c4300c2ae1d60efd
+    command: ["serve"]
+    environment:
+      SPICEDB_DATASTORE_ENGINE: postgres
+      SPICEDB_DATASTORE_CONN_URI: postgres://apilens:apilens@postgres:5432/spicedb?sslmode=disable
+      SPICEDB_GRPC_PRESHARED_KEY: apilens-dev-key
+      SPICEDB_TELEMETRY_ENDPOINT: ""
+    ports:
+      - "127.0.0.1:50051:50051"
+    depends_on:
+      spicedb-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50051"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
 
   # M3: optional Kafka profile (Apache Kafka 4.x, KRaft) for the kafka sink.
   # kafka:
