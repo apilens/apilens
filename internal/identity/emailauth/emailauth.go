@@ -226,6 +226,21 @@ func (s *Service) Issue(ctx context.Context, email string, intent Intent, opts I
 	return Issued{LinkToken: link, Code: code, Row: row}, nil
 }
 
+// Latest returns the latest unconsumed email of address email (expired or
+// not), and false when there is none. Issuing a new email invalidates older
+// ones, so this is the newest email the address was sent; the email-start
+// endpoint uses its CreatedAt for the resend cooldown.
+func (s *Service) Latest(ctx context.Context, email string) (db.AuthEmailToken, bool, error) {
+	row, err := s.store.GetLatestUnconsumedEmailTokenForEmail(ctx, strings.TrimSpace(email))
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return db.AuthEmailToken{}, false, nil
+	case err != nil:
+		return db.AuthEmailToken{}, false, fmt.Errorf("emailauth: latest: %w", err)
+	}
+	return row, true, nil
+}
+
 // VerifyCode checks a typed code against the latest email sent to email and,
 // when it matches, consumes the row and returns it.
 //

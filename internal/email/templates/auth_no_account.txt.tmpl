@@ -1,0 +1,13 @@
+{{- /* Data: email (the address that has no account). */ -}}
+{{define "subject"}}No APILens account uses this email address{{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+Someone asked to sign in to APILens with {{.email}}, but no APILens account uses this address.
+
+To create an account with this address, open:
+{{link "/sign-up" "email" .email}}
+
+If you have an account under a different address, sign in with that one instead.
+
+If you did not try to sign in, ignore this email. No account was created.
+{{- end}}

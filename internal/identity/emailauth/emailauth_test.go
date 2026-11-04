@@ -241,6 +241,25 @@ func TestIssueInvalidatesOlder(t *testing.T) {
 	}
 }
 
+func TestLatest(t *testing.T) {
+	s, st, c := newTestService()
+	ctx := context.Background()
+	if _, ok, err := s.Latest(ctx, email); err != nil || ok {
+		t.Fatalf("no email: ok = %v, err = %v", ok, err)
+	}
+	mustIssue(t, s)
+	c.t = c.t.Add(time.Minute)
+	second := mustIssue(t, s)
+	row, ok, err := s.Latest(ctx, " "+email)
+	if err != nil || !ok || row.ID != second.Row.ID {
+		t.Fatalf("latest = %v %v %v, want the second email", row.ID, ok, err)
+	}
+	st.failGet = errors.New("boom")
+	if _, _, err := s.Latest(ctx, email); err == nil {
+		t.Fatal("lookup error not returned")
+	}
+}
+
 func TestVerifyCode(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {

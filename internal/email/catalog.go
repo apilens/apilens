@@ -7,9 +7,14 @@ import "fmt"
 // links are built from identity.public_ui_url by the template, so jobs carry
 // tokens, never URLs.
 const (
-	// TemplateAuthCode: code (6 digits), token (magic link token for
-	// /verify?token=), expires_in (for example "10 minutes").
+	// TemplateAuthCode: code (6 digits), token (magic link token) and email
+	// (the address) for /verify?token=&email=, expires_in (for example
+	// "15 minutes").
 	TemplateAuthCode = "auth_code"
+	// TemplateAuthNoAccount: email. Sent instead of auth_code when someone
+	// asks to sign in with an address that has no account; links to
+	// /sign-up?email=.
+	TemplateAuthNoAccount = "auth_no_account"
 	// TemplateNewSignin: device, ip, time. Links to the Sessions page.
 	TemplateNewSignin = "new_signin"
 	// TemplateInvitation: org, inviter, role, token (for /invite/{token}),

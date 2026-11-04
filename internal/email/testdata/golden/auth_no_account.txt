@@ -1,0 +1,15 @@
+Subject: No APILens account uses this email address
+
+APILens
+
+Someone asked to sign in to APILens with ada+test@example.com, but no APILens account uses this address.
+
+To create an account with this address, open:
+https://app.example.com/sign-up?email=ada%2Btest%40example.com
+
+If you have an account under a different address, sign in with that one instead.
+
+If you did not try to sign in, ignore this email. No account was created.
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.

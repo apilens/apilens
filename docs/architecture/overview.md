@@ -175,6 +175,7 @@ shipped; a test checks that this table lists every one.
 | `user.deleted` | the user deletes their account: it is hidden, every session is revoked and the purge is scheduled after a 30-day grace period |
 | `login.succeeded` | a sign-in completes |
 | `login.failed` | a sign-in attempt fails (user is NULL for an unknown email) |
+| `login.requested` | a sign-in or sign-up email is requested (`intent`; user is NULL for an unknown email) |
 | `session.revoked` | a session is signed out or revoked |
 | `session.reuse_detected` | a rotated refresh token is replayed and its family is revoked |
 | `email.changed` | the account email changes |
