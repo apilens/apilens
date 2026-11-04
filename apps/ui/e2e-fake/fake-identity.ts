@@ -72,6 +72,11 @@
 //                                                  on projects the user created in onboarding (#333);
 //   DELETE /api/v1/projects/shop/api-keys/{id}     revoke (204, or 410 api_key_gone). Creating and
 //                                                  revoking answer 403 without the capability
+//   GET  /api/v1/projects/{slug}/ingest-status     {received, first_at, last_at, count_1h} of shop or a
+//                                                  project the user created (#334); 403 otherwise
+//   POST /v1/requests                              the ingest edge's v1 endpoint (#334): an X-API-Key
+//                                                  created here records the requests on its project
+//                                                  ({accepted}); anything else answers 401
 //   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?}
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  `role` is the user's role in acme (default owner);
@@ -412,6 +417,11 @@ const PROJECT = "shop";
 const capabilities = new Map<string, string[]>();
 /** User id → shop's API keys as that user sees them, newest first. */
 const apiKeys = new Map<string, FakeApiKey[]>();
+
+/** Raw key → the project it was created on and its id, for the fake ingest edge (#334). */
+const rawKeys = new Map<string, { project: string; id: string; user: string }>();
+/** Project slug → what the fake edge stored for it: `ingest-status` reads it (#334). */
+const ingested = new Map<string, { first_at: string; last_at: string; count: number }>();
 
 function seedApiKey(input: Record<string, unknown>): FakeApiKey {
   return {
@@ -1070,6 +1080,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         revoked_at: null,
       };
       apiKeys.set(user, [created, ...list]);
+      rawKeys.set(raw, { project: keysProject, id: created.id, user });
       return send(res, 201, { ...created, key: raw });
     }
     if (req.method === "DELETE" && sub !== undefined) {
@@ -1080,6 +1091,30 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       return send(res, 204);
     }
     return problem(res, 404, "not_found");
+  }
+  const statusPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/ingest-status$/);
+  if (statusPath && req.method === "GET") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = decodeURIComponent(statusPath[1]);
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 403, "forbidden");
+    const got = ingested.get(slug);
+    return send(res, 200, { received: Boolean(got), first_at: got?.first_at ?? null, last_at: got?.last_at ?? null, count_1h: got?.count ?? 0 });
+  }
+  if (req.method === "POST" && path === "/v1/requests") {
+    // The edge's v1 contract (internal/ingest): the key in X-API-Key, `{requests: [...]}` each with
+    // an app_id, method and path; `{accepted}` back. Errors are `{error, detail}`.
+    const holder = rawKeys.get(String(req.headers["x-api-key"] ?? "").trim());
+    const revoked = holder && apiKeys.get(holder.user)?.find((k) => k.id === holder.id)?.revoked_at;
+    if (!holder || revoked) return send(res, 401, { error: "authentication_error", detail: "Authentication required" });
+    const { requests } = await readBody(req);
+    const list = Array.isArray(requests) ? (requests as Record<string, unknown>[]) : [];
+    const valid = list.length > 0 && list.every((r) => typeof r.app_id === "string" && r.app_id && typeof r.method === "string" && typeof r.path === "string");
+    if (!valid) return send(res, 422, { error: "validation_error", detail: "app_id, method and path are required" });
+    const now = new Date().toISOString();
+    const was = ingested.get(holder.project);
+    ingested.set(holder.project, { first_at: was?.first_at ?? now, last_at: now, count: (was?.count ?? 0) + list.length });
+    return send(res, 200, { accepted: list.length });
   }
   const sessionPath = path.match(/^\/api\/v1\/users\/me\/sessions(?:\/([^/]+))?$/);
   if (sessionPath) {

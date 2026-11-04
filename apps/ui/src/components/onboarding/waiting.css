@@ -1,0 +1,20 @@
+/* "Waiting for your first request" (#334): the listening card on the system's .ob-card, .ob-check
+   and .ob-pulse, and the troubleshooting list. The pulse stops while polling is paused or failing. */
+.wt-card .hd > span:not(.ob-pulse) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-card { margin-top: 16px; }
+.wt-card .hd b { font-weight: 600; }
+.wt-card .hd small { flex: none; white-space: nowrap; }
+.wt-card .ob-check { grid-template-columns: 28px 1fr; }
+.wt-card .ob-check small { font-family: var(--font-sans); }
+.wt-card .ob-check.wt-now small { color: var(--ink); }
+.wt-still::after { animation: none; opacity: 0; }
+.wt-trouble { margin-top: 20px; display: grid; gap: 10px; }
+.wt-trouble > .ob-l { margin: 0; }
+.wt-list { display: grid; gap: 10px; margin: 0; padding: 0 0 0 20px; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.wt-list li::marker { color: var(--ink-muted); font-family: var(--font-mono); font-size: 12px; }
+.wt-list b { display: block; color: var(--ink); font-weight: 500; }
+.wt-list code { font: 400 12px/18px var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+.wt-list .cp-link { margin-left: 0; font-size: inherit; }
+@media (prefers-reduced-motion: reduce) {
+  .wt-card .ob-pulse::after, .wt-card .st.spin { animation: none; }
+}

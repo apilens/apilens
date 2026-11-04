@@ -18,6 +18,7 @@ const STAGES: Record<string, number> = {
   instrument: 3,
   install: 3,
   waiting: 4,
+  "first-data": 4,
   requests: 4,
   invite: 4,
 };

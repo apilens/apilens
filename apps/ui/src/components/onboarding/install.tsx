@@ -33,7 +33,7 @@ function useCopy() {
   return { copied, failed, copy };
 }
 
-function CodeBlock({ snippet }: { snippet: Snippet }) {
+export function CodeBlock({ snippet }: { snippet: Snippet }) {
   const { copied, failed, copy } = useCopy();
   return (
     <div className="ob-code ins-code">
