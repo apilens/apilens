@@ -1,6 +1,6 @@
 // A fake identity server plus a fake OAuth provider for the social sign-in (#317), two-factor
-// step (#320), account settings (#339), sessions (#343), connected accounts (#344) and
-// Security → Passkeys (#341) browser tests.
+// step (#320), account settings (#339), sessions (#343), connected accounts (#344),
+// Security → Passkeys (#341) and two-factor settings (#342) browser tests.
 // It mirrors the real contract (internal/identity/oauth.go, oauth_callback.go, handoff_redeem.go):
 //
 //   GET  /api/v1/auth/providers                    google and github enabled
@@ -23,10 +23,16 @@
 //                                                  stores the passkey; no attestation crypto
 //   GET|PATCH|DELETE /api/v1/users/me/passkeys[/{id}]
 //                                                  list, rename, remove the signed-in user's passkeys
-//   POST /__fake/handoff {next, totp_secret?, backup_codes?, passkeys?}
+//   GET  /api/v1/auth/2fa/status                   two-factor settings (#342), per access token:
+//   POST /api/v1/auth/2fa/enable                   enable, verify, disable and regenerate as in
+//   POST /api/v1/auth/2fa/verify                   internal/identity/twofactor.go
+//   POST /api/v1/auth/2fa/disable
+//   POST /api/v1/auth/2fa/backup-codes/regenerate
+//   POST /__fake/handoff {next, totp_secret?, backup_codes?, passkeys?, stale?}
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  with `totp_secret` (base32) it answers 2fa_required;
-//                                                  `passkeys` seeds the new user's passkey list
+//                                                  `passkeys` seeds the new user's passkey list;
+//                                                  `stale` makes /2fa/enable answer reauth_required
 //   POST /__fake/identities {identities}          test hook: replaces the connected accounts
 //
 // Nothing here sends mail or talks to a real provider. Run with
@@ -67,7 +73,18 @@ interface PreAuth {
   attempts: number;
 }
 
+/** Two-factor settings of one signed-in fake user, keyed by their access token. */
+interface Totp {
+  pending: Buffer | null;
+  secret: Buffer | null;
+  confirmedAt: string | null;
+  backupCodes: Set<string>;
+  /** The sign-in is "too old" for enabling (identity's 10-minute reauth window). */
+  stale: boolean;
+}
+
 const states = new Map<string, State>();
+const totps = new Map<string, Totp>();
 const handoffs = new Map<string, unknown>();
 const preAuths = new Map<string, PreAuth>();
 const token = () => randomBytes(24).toString("base64url");
@@ -110,6 +127,32 @@ function totpValid(secret: Buffer, code: string): boolean {
 }
 
 const normalizeBackup = (code: string) => code.toLowerCase().replace(/[-\s]/g, "");
+
+function base32Encode(buf: Buffer): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = 0;
+  let value = 0;
+  let out = "";
+  for (const byte of buf) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += alphabet[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += alphabet[(value << (5 - bits)) & 31];
+  return out;
+}
+
+/** Ten xxxx-xxxx codes over lowercase base32, like twofactor.NewBackupCodes. */
+function newBackupCodes(): string[] {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+  return Array.from({ length: 10 }, () => {
+    const raw = [...randomBytes(8)].map((b) => alphabet[b & 31]).join("");
+    return `${raw.slice(0, 4)}-${raw.slice(4)}`;
+  });
+}
 
 /** Same rules as identity.SafeNext: "" means "/", else one leading "/" and no backslash/control. */
 function safeNext(next: string): string | null {
@@ -240,7 +283,13 @@ const CONTEXT = {
   capabilities: {},
 };
 
-function issueHandoff(next: string, secret?: string, backupCodes: string[] = [], seeds: Record<string, unknown>[] = []): string {
+function issueHandoff(
+  next: string,
+  secret?: string,
+  backupCodes: string[] = [],
+  seeds: Record<string, unknown>[] = [],
+  stale = false,
+): string {
   const code = token();
   if (secret) {
     const pre = token();
@@ -252,7 +301,9 @@ function issueHandoff(next: string, secret?: string, backupCodes: string[] = [],
     });
     handoffs.set(code, { status: "2fa_required", pre_auth_token: pre, next });
   } else {
-    handoffs.set(code, bundle(next, seeds));
+    const b = bundle(next, seeds);
+    totps.set(b.access_token, { pending: null, secret: null, confirmedAt: null, backupCodes: new Set(), stale });
+    handoffs.set(code, b);
   }
   return code;
 }
@@ -510,13 +561,75 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     return problem(res, 404, "not_found");
   }
 
+  if (path.startsWith("/api/v1/auth/2fa/") && path !== "/api/v1/auth/2fa/exchange") {
+    const t = totps.get(req.headers.authorization?.replace(/^Bearer /, "") ?? "");
+    if (!t) return problem(res, 401, "unauthenticated");
+    return twoFactor(req, res, path.slice("/api/v1/auth/2fa".length), t);
+  }
   if (req.method === "POST" && path === "/__fake/handoff") {
-    const { next, totp_secret: secret, backup_codes: backups, passkeys: seeds } = await readBody(req);
+    const { next, totp_secret: secret, backup_codes: backups, passkeys: seeds, stale } = await readBody(req);
     const codes = Array.isArray(backups) ? backups.map(String) : [];
     const seeded = Array.isArray(seeds) ? (seeds as Record<string, unknown>[]) : [];
-    return send(res, 200, {
-      code: issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded),
-    });
+    const code = issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded, stale === true);
+    return send(res, 200, { code });
+  }
+  return problem(res, 404, "not_found");
+}
+
+/** The two-factor settings endpoints, with identity's answers and status codes. */
+async function twoFactor(req: IncomingMessage, res: ServerResponse, route: string, t: Totp) {
+  const status = () => ({
+    enabled: t.secret !== null,
+    confirmed_at: t.confirmedAt,
+    backup_codes_remaining: t.secret ? t.backupCodes.size : 0,
+  });
+  const totpCode = (v: unknown) => (typeof v === "string" && /^[0-9]{6}$/.test(v) ? v : null);
+
+  if (req.method === "GET" && route === "/status") return send(res, 200, status());
+  if (req.method !== "POST") return problem(res, 404, "not_found");
+  const body = await readBody(req);
+
+  if (route === "/enable") {
+    if (t.stale) return problem(res, 403, "reauth_required");
+    if (t.secret) return problem(res, 409, "already_enabled");
+    t.pending = randomBytes(20);
+    const secret = base32Encode(t.pending);
+    const uri = `otpauth://totp/APILens:you%40example.com?secret=${secret}&issuer=APILens&algorithm=SHA1&digits=6&period=30`;
+    return send(res, 200, { secret, otpauth_uri: uri });
+  }
+  if (route === "/verify") {
+    const code = totpCode(body.code);
+    if (!code) return problem(res, 422, "validation_failed");
+    if (t.secret) return problem(res, 409, "already_enabled");
+    if (!t.pending) return problem(res, 400, "invalid_request");
+    if (!totpValid(t.pending, code)) return problem(res, 401, "invalid_totp");
+    const codes = newBackupCodes();
+    t.secret = t.pending;
+    t.pending = null;
+    t.confirmedAt = new Date().toISOString();
+    t.backupCodes = new Set(codes.map(normalizeBackup));
+    return send(res, 200, { backup_codes: codes });
+  }
+  if (route === "/disable") {
+    const code = typeof body.code === "string" ? body.code : null;
+    const backup = typeof body.backup_code === "string" ? body.backup_code : null;
+    if ((code === null) === (backup === null)) return problem(res, 400, "invalid_request");
+    if (!t.secret) return problem(res, 409, "not_enabled");
+    const ok = code !== null ? totpValid(t.secret, code) : t.backupCodes.delete(normalizeBackup(backup as string));
+    if (!ok) return problem(res, 401, "invalid_totp");
+    t.secret = null;
+    t.confirmedAt = null;
+    t.backupCodes = new Set();
+    return send(res, 204);
+  }
+  if (route === "/backup-codes/regenerate") {
+    const code = totpCode(body.code);
+    if (!code) return problem(res, 422, "validation_failed");
+    if (!t.secret) return problem(res, 409, "not_enabled");
+    if (!totpValid(t.secret, code)) return problem(res, 401, "invalid_totp");
+    const codes = newBackupCodes();
+    t.backupCodes = new Set(codes.map(normalizeBackup));
+    return send(res, 200, { backup_codes: codes });
   }
   return problem(res, 404, "not_found");
 }
