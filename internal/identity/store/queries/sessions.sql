@@ -103,3 +103,18 @@ SELECT
           AND (sqlc.narg('prefix')::cidr IS NULL OR s.ip <<= sqlc.narg('prefix')::cidr)
           AND ((s.revoked_at IS NULL AND s.expires_at > now()) OR s.revoked_at > sqlc.arg('revoked_since')::timestamptz)
     ) AS known_device;
+
+-- name: ListTokenSessionIDs :many
+-- The rows of a user whose access tokens may not have expired yet: an access
+-- token's sid is the row it was issued with, so these are the rows still
+-- live or ended after @since (now minus the access-token TTL), excluding
+-- rows that expired before it. Optionally scoped to one family or to every
+-- family but one. Revocation pushes these ids into the access-token
+-- denylist.
+SELECT id FROM sessions
+WHERE user_id = @user_id
+  AND (sqlc.narg('family_id')::uuid IS NULL OR family_id = sqlc.narg('family_id')::uuid)
+  AND (sqlc.narg('except_family_id')::uuid IS NULL OR family_id <> sqlc.narg('except_family_id')::uuid)
+  AND (revoked_at IS NULL OR revoked_at > @since::timestamptz)
+  AND expires_at > @since::timestamptz
+ORDER BY id;

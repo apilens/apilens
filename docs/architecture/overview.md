@@ -144,6 +144,12 @@ with "remember me", `identity.refresh_token_ttl_short` (24 hours) without.
   `invalid_token`.
 - `POST /api/v1/auth/logout {refresh_token}` revokes the family (`logout`),
   audits `session.revoked` and always answers 204.
+- `DELETE /api/v1/users/me/sessions/{id}` (`revoked`),
+  `POST /api/v1/users/me/sessions/revoke-others` (`revoked`) and
+  `POST /api/v1/auth/logout-all` (`logout_all`) end families of the signed-in
+  user and audit `session.revoked`. Every ending pushes the family's
+  unexpired access-token `sid`s into the Valkey denylist, so those tokens are
+  refused within 5 s (see [`identity.md`](identity.md)).
 
 Raw tokens and their hashes are never logged or written to audit metadata.
 

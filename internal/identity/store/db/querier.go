@@ -175,6 +175,13 @@ type Querier interface {
 	// Soft-deleted users whose grace period has passed, oldest first, locked so
 	// concurrent purges skip each other's rows. Served by users_delete_after.
 	ListPurgeableUsers(ctx context.Context, batchSize int32) ([]uuid.UUID, error)
+	// The rows of a user whose access tokens may not have expired yet: an access
+	// token's sid is the row it was issued with, so these are the rows still
+	// live or ended after @since (now minus the access-token TTL), excluding
+	// rows that expired before it. Optionally scoped to one family or to every
+	// family but one. Revocation pushes these ids into the access-token
+	// denylist.
+	ListTokenSessionIDs(ctx context.Context, arg ListTokenSessionIDsParams) ([]uuid.UUID, error)
 	// A user's confirmed TOTP row, locked until the transaction ends, so that
 	// disabling 2FA and regenerating backup codes do not interleave. Returns
 	// pgx.ErrNoRows when 2FA is not on (no row, or only a pending secret).

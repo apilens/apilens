@@ -22,12 +22,15 @@ import (
 // MySessionsPath is the sessions list of the signed-in user.
 const MySessionsPath = server.APIPrefix + "/users/me/sessions"
 
-// SessionService rotates, ends and lists refresh-token sessions;
+// SessionService rotates, ends, lists and revokes refresh-token sessions;
 // *session.Service satisfies it.
 type SessionService interface {
 	Refresh(ctx context.Context, raw string) (session.Tokens, error)
 	Logout(ctx context.Context, raw string) error
 	List(ctx context.Context, user, currentSID uuid.UUID) ([]session.Active, error)
+	Revoke(ctx context.Context, user, id uuid.UUID) error
+	RevokeOthers(ctx context.Context, user, currentSID uuid.UUID) (int64, error)
+	LogoutAll(ctx context.Context, user uuid.UUID) (int64, error)
 }
 
 // AuthUser is the signed-in user as returned with every token response.
@@ -130,7 +133,22 @@ type ListMySessionsOutput struct {
 	}
 }
 
-// Sessions serves the refresh, logout and sessions-list endpoints.
+// RevokeMySessionInput is the request of DELETE
+// /api/v1/users/me/sessions/{id}.
+type RevokeMySessionInput struct {
+	ID string `path:"id" format:"uuid" doc:"Session id from the sessions list."`
+}
+
+// RevokeOtherSessionsOutput is the response of POST
+// /api/v1/users/me/sessions/revoke-others.
+type RevokeOtherSessionsOutput struct {
+	Body struct {
+		Revoked int64 `json:"revoked" minimum:"0" doc:"How many sessions were signed out."`
+	}
+}
+
+// Sessions serves the refresh, logout, sessions-list and revocation
+// endpoints.
 type Sessions struct {
 	svc     SessionService
 	limiter *ratelimit.Limiter
@@ -151,9 +169,11 @@ func NewSessions(cfg config.IdentityConfig, svc SessionService, limiter *ratelim
 	}
 }
 
-// Register mounts POST /api/v1/auth/refresh, POST /api/v1/auth/logout and
-// GET /api/v1/users/me/sessions. The last requires a session: install
-// authn.Middleware on api first.
+// Register mounts POST /api/v1/auth/refresh, POST /api/v1/auth/logout,
+// POST /api/v1/auth/logout-all, GET /api/v1/users/me/sessions,
+// DELETE /api/v1/users/me/sessions/{id} and
+// POST /api/v1/users/me/sessions/revoke-others. All but the first two
+// require a session: install authn.Middleware on api first.
 func (s *Sessions) Register(api huma.API) {
 	huma.Register(api, Operation(api, huma.Operation{
 		OperationID: "refresh-session",
@@ -184,6 +204,38 @@ func (s *Sessions) Register(api huma.API) {
 		Tags:        []string{server.TagUsers},
 		Security:    []map[string][]string{{authn.SchemeSession: {}}},
 	}, CodeUnauthenticated, CodeInternal), s.listMine)
+
+	huma.Register(api, Operation(api, huma.Operation{
+		OperationID:   "revoke-my-session",
+		Method:        http.MethodDelete,
+		Path:          MySessionsPath + "/{id}",
+		Summary:       "Sign out a session",
+		Description:   "Ends one of the signed-in user's sessions (it may be the current one): its refresh token stops working at once and its access tokens within seconds. Audited as `session.revoked`. Answers 204 also for an unknown or already ended session.",
+		Tags:          []string{server.TagUsers},
+		Security:      []map[string][]string{{authn.SchemeSession: {}}},
+		DefaultStatus: http.StatusNoContent,
+	}, CodeInvalidRequest, CodeUnauthenticated, CodeInternal), s.revokeMine)
+
+	huma.Register(api, Operation(api, huma.Operation{
+		OperationID: "revoke-other-sessions",
+		Method:      http.MethodPost,
+		Path:        MySessionsPath + "/revoke-others",
+		Summary:     "Sign out other sessions",
+		Description: "Ends every session of the signed-in user except the one the request was made with: their refresh tokens stop working at once and their access tokens within seconds. Audited as `session.revoked`.",
+		Tags:        []string{server.TagUsers},
+		Security:    []map[string][]string{{authn.SchemeSession: {}}},
+	}, CodeUnauthenticated, CodeSessionExpired, CodeInternal), s.revokeOthers)
+
+	huma.Register(api, Operation(api, huma.Operation{
+		OperationID:   "logout-all",
+		Method:        http.MethodPost,
+		Path:          AuthPrefix + "/logout-all",
+		Summary:       "Sign out everywhere",
+		Description:   "Ends every session of the signed-in user, including the current one: refresh tokens stop working at once and access tokens within seconds. Audited as `session.revoked`.",
+		Tags:          []string{server.TagAuth},
+		Security:      []map[string][]string{{authn.SchemeSession: {}}},
+		DefaultStatus: http.StatusNoContent,
+	}, CodeUnauthenticated, CodeInternal), s.logoutAll)
 }
 
 func (s *Sessions) refresh(ctx context.Context, in *RefreshInput) (*RefreshOutput, error) {
@@ -225,4 +277,52 @@ func (s *Sessions) listMine(ctx context.Context, _ *struct{}) (*ListMySessionsOu
 		out.Body.Sessions[i] = NewSessionInfo(a)
 	}
 	return out, nil
+}
+
+func (s *Sessions) revokeMine(ctx context.Context, in *RevokeMySessionInput) (*struct{}, error) {
+	p, ok := authn.FromContext(ctx)
+	if !ok || p.Kind != authn.KindUser {
+		return nil, Err(CodeUnauthenticated)
+	}
+	id, err := uuid.Parse(in.ID)
+	if err != nil {
+		// Unreachable: the path parameter is validated as a uuid.
+		return nil, Err(CodeInvalidRequest)
+	}
+	if err := s.svc.Revoke(ctx, p.UserID, id); err != nil {
+		s.logger.ErrorContext(ctx, "revoke session", "error", err)
+		return nil, Err(CodeInternal)
+	}
+	return nil, nil
+}
+
+func (s *Sessions) revokeOthers(ctx context.Context, _ *struct{}) (*RevokeOtherSessionsOutput, error) {
+	p, ok := authn.FromContext(ctx)
+	if !ok || p.Kind != authn.KindUser {
+		return nil, Err(CodeUnauthenticated)
+	}
+	n, err := s.svc.RevokeOthers(ctx, p.UserID, p.SessionID)
+	switch {
+	case err == nil:
+	case errors.Is(err, session.ErrExpired):
+		return nil, Err(CodeSessionExpired)
+	default:
+		s.logger.ErrorContext(ctx, "revoke other sessions", "error", err)
+		return nil, Err(CodeInternal)
+	}
+	out := &RevokeOtherSessionsOutput{}
+	out.Body.Revoked = n
+	return out, nil
+}
+
+func (s *Sessions) logoutAll(ctx context.Context, _ *struct{}) (*struct{}, error) {
+	p, ok := authn.FromContext(ctx)
+	if !ok || p.Kind != authn.KindUser {
+		return nil, Err(CodeUnauthenticated)
+	}
+	if _, err := s.svc.LogoutAll(ctx, p.UserID); err != nil {
+		s.logger.ErrorContext(ctx, "logout all", "error", err)
+		return nil, Err(CodeInternal)
+	}
+	return nil, nil
 }

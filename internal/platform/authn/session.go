@@ -38,9 +38,10 @@ type claims struct {
 
 // SessionVerifier verifies access tokens locally against identity's keys.
 type SessionVerifier struct {
-	keys   KeySource
-	issuer string
-	now    func() time.Time
+	keys     KeySource
+	issuer   string
+	now      func() time.Time
+	denylist *Denylist
 }
 
 // NewSessionVerifier returns a verifier accepting tokens with `iss` issuer
@@ -52,9 +53,17 @@ func NewSessionVerifier(keys KeySource, issuer string, now func() time.Time) *Se
 	return &SessionVerifier{keys: keys, issuer: issuer, now: now}
 }
 
+// WithDenylist makes v refuse tokens whose `sid` is on d (ErrRevoked) and
+// returns v. Without one, tokens are valid until they expire.
+func (v *SessionVerifier) WithDenylist(d *Denylist) *SessionVerifier {
+	v.denylist = d
+	return v
+}
+
 // Verify checks raw's RS256 signature and its `iss`, `aud`, `exp`, `iat`,
-// `sub`, `sid` and `amr` claims. It fails with ErrExpired, ErrUnavailable
-// (keys could not be loaded) or ErrInvalidToken.
+// `sub`, `sid` and `amr` claims, then the denylist. It fails with
+// ErrExpired, ErrUnavailable (keys could not be loaded), ErrRevoked or
+// ErrInvalidToken.
 func (v *SessionVerifier) Verify(ctx context.Context, raw string) (Principal, error) {
 	var c claims
 	_, err := jwt.ParseWithClaims(raw, &c, func(t *jwt.Token) (any, error) {
@@ -91,6 +100,9 @@ func (v *SessionVerifier) Verify(ctx context.Context, raw string) (Principal, er
 	}
 	if len(c.AMR) == 0 {
 		return Principal{}, fmt.Errorf("%w: amr is empty", ErrInvalidToken)
+	}
+	if v.denylist.Denied(ctx, session) {
+		return Principal{}, ErrRevoked
 	}
 	return Principal{Kind: KindUser, UserID: user, SessionID: session, AMR: slices.Clone(c.AMR)}, nil
 }
@@ -141,6 +153,8 @@ func Middleware(api huma.API, v *SessionVerifier) func(huma.Context, func(huma.C
 			_ = huma.WriteErr(api, ctx, http.StatusServiceUnavailable, "authentication backend unavailable, retry later")
 		case errors.Is(err, ErrExpired):
 			unauthorized(api, ctx, `, error="invalid_token", error_description="token expired"`, "the access token has expired; refresh it")
+		case errors.Is(err, ErrRevoked):
+			unauthorized(api, ctx, `, error="invalid_token", error_description="session revoked"`, "the session was revoked; sign in again")
 		case err != nil:
 			unauthorized(api, ctx, `, error="invalid_token"`, "the access token is invalid")
 		default:
