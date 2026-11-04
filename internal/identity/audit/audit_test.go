@@ -158,7 +158,6 @@ func TestCatalogue(t *testing.T) {
 		"email.changed", "passkey.added", "passkey.removed", "passkey.renamed", "totp.enabled", "totp.disabled",
 		"recovery.requested", "recovery.confirmed", "recovery.cancelled", "oauth.linked", "oauth.unlinked",
 		"org.created", "org.updated", "org.deleted", "member.added", "member.role_changed", "member.removed", "member.joined", "invitation.sent", "invitation.accepted",
-		"org.created", "org.updated", "org.deleted", "member.role_changed", "member.removed", "member.joined", "invitation.sent", "invitation.accepted",
 		"api_key.created", "api_key.revoked",
 	}
 	got := Kinds()
