@@ -2,13 +2,12 @@
 // can be unit tested. The proxy decrypts the session cookie (decrypt-verify, never presence:
 // a stale or tampered cookie must count as signed out, or `/` redirect-loops as it did in v1)
 // and hands the result here.
-import { HOME_VIEW } from "./data";
 import { safeNext } from "./safe-next";
 import type { SessionPayload } from "./session-format";
 
 /** Where signed-out users are sent; `next` carries the page they asked for. */
 export const SIGN_IN_PATH = "/sign-in";
-/** Where a signed-in user without a known project lands. */
+/** First onboarding page, for a signed-in user without an organization (see `lib/landing.ts`). */
 export const ONBOARDING_PATH = "/onboarding/about";
 
 /**
@@ -19,14 +18,6 @@ export const ONBOARDING_PATH = "/onboarding/about";
 export const REFRESH_HEADER = "x-apilens-session-refresh";
 /** Refresh when the access token expires within two minutes. */
 export const REFRESH_WINDOW_SECONDS = 2 * 60;
-
-/**
- * Cookie holding the slug of the project the user last opened (a routing hint, not a
- * credential: the project page still authorises access). Set by the app shell.
- */
-export const LAST_PROJECT_COOKIE = "apilens_last_project";
-
-const PROJECT_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 
 /** Pages that never need a session. */
 const PUBLIC_EXACT = new Set(["/sign-in", "/sign-up", "/verify"]);
@@ -51,11 +42,6 @@ export function needsRefresh(session: Pick<SessionPayload, "exp">, nowSeconds: n
   return session.exp - nowSeconds <= REFRESH_WINDOW_SECONDS;
 }
 
-/** Landing page for a signed-in user at `/`: the last project, else onboarding. */
-export function homeFor(lastProject: string | undefined): string {
-  return lastProject && PROJECT_SLUG.test(lastProject) ? `/${lastProject}/${HOME_VIEW}` : ONBOARDING_PATH;
-}
-
 export interface GateRequest {
   pathname: string;
   /** Raw query string including the leading `?`, or "". */
@@ -64,7 +50,6 @@ export interface GateRequest {
   session: SessionPayload | null;
   nowSeconds: number;
   dev: boolean;
-  lastProject?: string;
 }
 
 export type GateDecision =
@@ -81,7 +66,7 @@ export function decide(req: GateRequest): GateDecision {
       const next = new URLSearchParams(search).get("next");
       return { action: "redirect", location: safeNext(next, "/") };
     }
-    if (pathname === "/") return { action: "redirect", location: homeFor(req.lastProject) };
+    // `/` itself (`app/page.tsx`) picks onboarding or the last project from the user's context.
     return { action: "next", refresh: needsRefresh(session, req.nowSeconds) };
   }
 
