@@ -5,6 +5,14 @@ INSERT INTO users (id, email, email_verified_at, name, avatar_url)
 VALUES (@id, @email, sqlc.narg('email_verified_at'), @name, @avatar_url)
 RETURNING *;
 
+-- name: CreateFirstLoginUser :one
+-- The first sign-in of a verified address (users.FindOrCreateByVerifiedEmail):
+-- the user starts verified, signed in, and with the default preferences and
+-- onboarding state.
+INSERT INTO users (id, email, email_verified_at, preferences, onboarding, last_login_at)
+VALUES (@id, @email, @email_verified_at, @preferences::jsonb, @onboarding::jsonb, @last_login_at)
+RETURNING *;
+
 -- name: GetUserByID :one
 SELECT * FROM users
 WHERE id = @id AND deleted_at IS NULL;

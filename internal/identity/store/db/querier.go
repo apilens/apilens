@@ -51,6 +51,10 @@ type Querier interface {
 	// (the table check rejects anything else). Call InvalidateEmailTokensForEmail
 	// first so only the newest email works.
 	CreateEmailToken(ctx context.Context, arg CreateEmailTokenParams) (AuthEmailToken, error)
+	// The first sign-in of a verified address (users.FindOrCreateByVerifiedEmail):
+	// the user starts verified, signed in, and with the default preferences and
+	// onboarding state.
+	CreateFirstLoginUser(ctx context.Context, arg CreateFirstLoginUserParams) (User, error)
 	// Links a provider account to a user. Only identity reads or writes
 	// oauth_identities (ADR 0005). provider is 'google' or 'github' (the table
 	// check rejects anything else); a (provider, subject) already linked to any

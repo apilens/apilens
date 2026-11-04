@@ -1439,7 +1439,7 @@
             "type": "integer"
           },
           "next": {
-            "description": "Relative path to open after sign-in, as requested when the sign-in started.",
+            "description": "Relative path to open after sign-in: as requested when the sign-in started, or /onboarding/about for a new user who requested none.",
             "type": "string"
           },
           "pre_auth_token": {
@@ -2466,7 +2466,7 @@
     },
     "/api/v1/auth/email/verify": {
       "post": {
-        "description": "Public. Checks the 6-digit code of the latest sign-in email sent to the address and consumes it. The user is found or, on first sign-in, created, and the address is marked verified. Answers the session bundle (`amr: [\"email\"]`; `remember` picks the session lifetime) or, when the user has two-factor authentication enabled, `{status: \"2fa_required\", pre_auth_token}`. Either answer carries the `next` path the email was requested with. A wrong code, an unknown address and an address with no outstanding email all answer `invalid_code`; the fifth wrong code locks the email (`too_many_attempts`) until a new one is requested. Rate-limited per email address (429 `rate_limited` with Retry-After).",
+        "description": "Public. Checks the 6-digit code of the latest sign-in email sent to the address and consumes it. The user is found or, on first sign-in, created, and the address is marked verified. Answers the session bundle (`amr: [\"email\"]`; `remember` picks the session lifetime) or, when the user has two-factor authentication enabled, `{status: \"2fa_required\", pre_auth_token}`. Either answer carries the `next` path the email was requested with; a new user who requested none gets `/onboarding/about`. A wrong code, an unknown address and an address with no outstanding email all answer `invalid_code`; the fifth wrong code locks the email (`too_many_attempts`) until a new one is requested. Rate-limited per email address (429 `rate_limited` with Retry-After).",
         "operationId": "verify-email-code",
         "requestBody": {
           "content": {

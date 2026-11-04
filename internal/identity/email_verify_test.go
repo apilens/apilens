@@ -19,6 +19,7 @@ import (
 	"github.com/apilens/apilens/internal/identity/emailauth"
 	"github.com/apilens/apilens/internal/identity/session"
 	"github.com/apilens/apilens/internal/identity/store/db"
+	"github.com/apilens/apilens/internal/identity/users"
 	"github.com/apilens/apilens/internal/platform/config"
 	"github.com/apilens/apilens/internal/platform/ratelimit"
 )
@@ -206,12 +207,36 @@ func TestEmailVerifyRememberOff(t *testing.T) {
 	if len(h.sessions.remember) != 1 || h.sessions.remember[0] {
 		t.Fatalf("remember = %v, want false", h.sessions.remember)
 	}
-	if _, ok := body["next"]; ok {
-		t.Fatalf("next present without one stored: %v", body)
+	if body["next"] != users.OnboardingPath {
+		t.Fatalf("new user without a stored next: next = %v, want %s", body["next"], users.OnboardingPath)
 	}
 	if _, ok := h.users.byEmail["new@example.com"]; !ok {
 		t.Fatal("new user not created")
 	}
+}
+
+func TestEmailVerifyNextForNewAndReturningUsers(t *testing.T) {
+	t.Run("returning user without next", func(t *testing.T) {
+		h := newEmailVerifyHarness(t)
+		h.codes.row.NextPath = nil
+		status, body := h.verify(t, map[string]any{"email": "ada@example.com", "code": "123456"})
+		if status != http.StatusOK {
+			t.Fatalf("status = %d: %v", status, body)
+		}
+		if _, ok := body["next"]; ok {
+			t.Fatalf("next present for a returning user without one stored: %v", body)
+		}
+	})
+	t.Run("new user keeps the requested next", func(t *testing.T) {
+		h := newEmailVerifyHarness(t)
+		status, body := h.verify(t, map[string]any{"email": "new@example.com", "code": "123456"})
+		if status != http.StatusOK {
+			t.Fatalf("status = %d: %v", status, body)
+		}
+		if body["next"] != "/acme/endpoints" {
+			t.Fatalf("next = %v, want the stored /acme/endpoints", body["next"])
+		}
+	})
 }
 
 func TestEmailVerifyTwoFactorRequired(t *testing.T) {
