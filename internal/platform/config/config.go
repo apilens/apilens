@@ -228,6 +228,7 @@ type RateLimitsConfig struct {
 	RefreshPerIP        RateLimit `koanf:"refresh_per_ip"`
 	SecondFactorPerUser RateLimit `koanf:"second_factor_per_user"` // passkey and 2FA verify
 	OAuthStartPerIP     RateLimit `koanf:"oauth_start_per_ip"`
+	HandoffPerIP        RateLimit `koanf:"handoff_per_ip"` // one-time handoff code redemptions
 	SSOLookupPerIP      RateLimit `koanf:"sso_lookup_per_ip"`
 	PasskeyLoginPerIP   RateLimit `koanf:"passkey_login_per_ip"` // passkey sign-in options and verify, each
 	SlugCheckPerUser    RateLimit `koanf:"slug_check_per_user"`  // slug availability checks
@@ -449,6 +450,8 @@ func Defaults() map[string]any {
 		"identity.rate_limits.second_factor_per_user.window":     "15m",
 		"identity.rate_limits.oauth_start_per_ip.limit":          30,
 		"identity.rate_limits.oauth_start_per_ip.window":         "15m",
+		"identity.rate_limits.handoff_per_ip.limit":              30,
+		"identity.rate_limits.handoff_per_ip.window":             "15m",
 		"identity.rate_limits.sso_lookup_per_ip.limit":           60,
 		"identity.rate_limits.sso_lookup_per_ip.window":          "15m",
 		"identity.rate_limits.passkey_login_per_ip.limit":        60,
@@ -706,6 +709,7 @@ func (r RateLimitsConfig) validate() []error {
 		{"refresh_per_ip", r.RefreshPerIP},
 		{"second_factor_per_user", r.SecondFactorPerUser},
 		{"oauth_start_per_ip", r.OAuthStartPerIP},
+		{"handoff_per_ip", r.HandoffPerIP},
 		{"sso_lookup_per_ip", r.SSOLookupPerIP},
 		{"passkey_login_per_ip", r.PasskeyLoginPerIP},
 		{"slug_check_per_user", r.SlugCheckPerUser},

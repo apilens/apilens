@@ -385,14 +385,16 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	identity.NewSessions(a.cfg.Identity, sessions, limiter, a.logger).Register(a.server.API())
+	handoff := identity.NewValkeyHandoffStore(a.valkey)
 	identity.NewOAuth(a.cfg.Identity, identity.NewValkeyOAuthStateStore(a.valkey), limiter, a.logger).
 		WithSignIn(identity.OAuthSignInDeps{
 			Users:    identity.NewPGSignInUsers(a.pool),
 			Sessions: sessions,
 			PreAuth:  identity.NewValkeyPreAuthStore(a.valkey),
-			Handoff:  identity.NewValkeyHandoffStore(a.valkey),
+			Handoff:  handoff,
 			Audit:    audit.New(a.pool),
 		}).Register(a.server.API())
+	identity.NewHandoff(a.cfg.Identity, handoff, limiter, a.logger).Register(a.server.API())
 	identity.NewEmailStart(a.cfg.Identity, identity.EmailStartDeps{
 		Tokens: emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{}),
 		Users:  identitydb.New(a.pool),
