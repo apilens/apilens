@@ -56,6 +56,41 @@ The compose stack does not back itself up.
 - **ClickHouse:** use `clickhouse-backup` or the native `BACKUP ... TO S3/GCS`.
 - **Restores:** test them regularly.
 
+### OAuth sign-in (Google, GitHub)
+
+Email codes and passkeys always work. Google and GitHub sign-in are optional and independent: a provider is enabled when its client ID is set, and APILens refuses to start if the ID is set without the secret (or the other way round). `GET /api/v1/auth/providers` reports what is enabled, and the sign-in page shows only those buttons.
+
+The redirect (callback) URI is derived from `APILENS_IDENTITY__ISSUER`, the public URL of the API:
+
+```
+<issuer>/api/v1/auth/oauth/google/callback
+<issuer>/api/v1/auth/oauth/github/callback
+```
+
+For example, with `APILENS_IDENTITY__ISSUER=https://api.example.com`, register `https://api.example.com/api/v1/auth/oauth/google/callback`. The URI must match exactly: same scheme, host, port and path, with no trailing slash.
+
+**Google**
+1. In the Google Cloud console, open *Google Auth Platform* and configure the consent screen (app name, support email, the `openid`, `email` and `profile` scopes).
+2. Go to *Clients* > *Create client*, choose *Web application*, and add the redirect URI above under *Authorized redirect URIs*.
+3. Copy the client ID and secret into `.env`:
+
+   ```bash
+   APILENS_IDENTITY__OAUTH__GOOGLE__CLIENT_ID=1234-abc.apps.googleusercontent.com
+   APILENS_IDENTITY__OAUTH__GOOGLE__CLIENT_SECRET=GOCSPX-...
+   ```
+
+**GitHub**
+1. Go to *Settings* > *Developer settings* > *OAuth Apps* > *New OAuth App* (under an organization's settings to own it there).
+2. Set *Homepage URL* to the dashboard URL (`APILENS_PUBLIC_URL`) and *Authorization callback URL* to the redirect URI above.
+3. Generate a client secret and copy both values into `.env`:
+
+   ```bash
+   APILENS_IDENTITY__OAUTH__GITHUB__CLIENT_ID=Ov23li...
+   APILENS_IDENTITY__OAUTH__GITHUB__CLIENT_SECRET=...
+   ```
+
+Then `docker compose up -d --wait` to apply. On Kubernetes, pass the same `APILENS_IDENTITY__OAUTH__*` variables, keeping the secrets in a Secret.
+
 ## Kubernetes
 
 See [`helm/apilens/README.md`](helm/apilens/README.md). The chart expects externally operated datastores: CloudNativePG, the Altinity ClickHouse operator and Valkey. SpiceDB runs in-chart (`spicedb.enabled`) or externally (`authz.endpoint`).

@@ -164,6 +164,40 @@ type IdentityConfig struct {
 	// cross-origin. Empty (the default) disables CORS: the UI calls identity
 	// server-side, and browsers reach it only through top-level navigations.
 	CORSOrigins []string `koanf:"cors_origins"`
+	// OAuth configures the optional social sign-in providers.
+	OAuth OAuthConfig `koanf:"oauth"`
+}
+
+// OAuth provider names, as they appear in config keys and callback paths.
+const (
+	OAuthProviderGoogle = "google"
+	OAuthProviderGitHub = "github"
+)
+
+// OAuthCallbackPath is the identity path an OAuth provider redirects back
+// to, relative to identity.issuer. Format it with the provider name.
+const OAuthCallbackPath = "/api/v1/auth/oauth/%s/callback"
+
+// OAuthConfig configures the social sign-in providers. A provider is enabled
+// when its client ID is set; each is independent.
+type OAuthConfig struct {
+	Google OAuthProviderConfig `koanf:"google"`
+	GitHub OAuthProviderConfig `koanf:"github"`
+}
+
+// OAuthProviderConfig holds one OAuth app's credentials.
+type OAuthProviderConfig struct {
+	ClientID     string `koanf:"client_id"`
+	ClientSecret string `koanf:"client_secret"`
+}
+
+// Enabled reports whether the provider is configured.
+func (p OAuthProviderConfig) Enabled() bool { return p.ClientID != "" }
+
+// OAuthRedirectURI returns the callback URL to register in provider's OAuth
+// app: identity.issuer + /api/v1/auth/oauth/{provider}/callback.
+func (i IdentityConfig) OAuthRedirectURI(provider string) string {
+	return strings.TrimRight(i.Issuer, "/") + fmt.Sprintf(OAuthCallbackPath, provider)
 }
 
 // RateLimitsConfig configures the shared (Valkey) rate limits on the auth
@@ -333,6 +367,11 @@ func Defaults() map[string]any {
 		"jobs.enabled":                     true,
 		"jobs.max_workers":                 10,
 		"jobs.metrics_interval":            "15s",
+
+		"identity.oauth.google.client_id":     "",
+		"identity.oauth.google.client_secret": "",
+		"identity.oauth.github.client_id":     "",
+		"identity.oauth.github.client_secret": "",
 
 		"identity.rate_limits.trusted_proxies":               []string{},
 		"identity.rate_limits.email_start_per_email.limit":   5,
@@ -544,7 +583,30 @@ func (c *Config) validateIdentity() []error {
 	if id.EmailCodeMaxAttempts <= 0 {
 		errs = append(errs, errors.New("identity.email_code_max_attempts must be > 0"))
 	}
+	errs = append(errs, id.OAuth.validate()...)
 	return append(errs, id.RateLimits.validate()...)
+}
+
+// validate requires a client secret for every provider with a client ID, and
+// rejects a secret without an ID (almost certainly a misspelt key).
+func (o OAuthConfig) validate() []error {
+	var errs []error
+	for _, p := range []struct {
+		name string
+		cfg  OAuthProviderConfig
+	}{
+		{OAuthProviderGoogle, o.Google},
+		{OAuthProviderGitHub, o.GitHub},
+	} {
+		env := "APILENS_IDENTITY__OAUTH__" + strings.ToUpper(p.name)
+		switch {
+		case p.cfg.ClientID != "" && p.cfg.ClientSecret == "":
+			errs = append(errs, fmt.Errorf("identity.oauth.%s.client_secret is required when client_id is set (set %s__CLIENT_SECRET)", p.name, env))
+		case p.cfg.ClientID == "" && p.cfg.ClientSecret != "":
+			errs = append(errs, fmt.Errorf("identity.oauth.%s.client_id is required when client_secret is set (set %s__CLIENT_ID)", p.name, env))
+		}
+	}
+	return errs
 }
 
 func (r RateLimitsConfig) validate() []error {

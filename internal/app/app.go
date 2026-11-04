@@ -257,6 +257,7 @@ func (a *App) initIdentity(context.Context) (modules.Service, error) {
 	a.server.Use(identity.Middleware(a.cfg.Identity))
 	a.server.Use(audit.Middleware)
 	identity.Register(a.server.API())
+	identity.RegisterProviders(a.server.API(), a.cfg.Identity)
 	return nil, nil
 }
 
