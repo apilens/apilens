@@ -305,6 +305,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	sessions, err := session.New(a.pool, issuer, session.Options{
 		RefreshTTL:      a.cfg.Identity.RefreshTokenTTL,
 		RefreshTTLShort: a.cfg.Identity.RefreshTokenTTLShort,
+		Jobs:            a.jobs,
 	}, a.logger)
 	if err != nil {
 		return nil, err

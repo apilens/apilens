@@ -83,3 +83,23 @@ UPDATE sessions
 SET last_seen_at = now(),
     ip           = COALESCE(sqlc.narg('ip'), ip)
 WHERE id = @id AND revoked_at IS NULL AND expires_at > now();
+
+-- name: SignInHistory :one
+-- Run before a sign-in creates its session. has_sessions is false for the
+-- user's very first sign-in (no session row at all). known_device is true
+-- when a live session, or one revoked since revoked_since (rotated rows
+-- included), has the same device_label and an ip inside prefix (the /24 or
+-- /64 of the new client). A NULL prefix (client IP unknown) matches on the
+-- device label alone.
+SELECT
+    EXISTS (
+        SELECT 1 FROM sessions s
+        WHERE s.user_id = @user_id
+    ) AS has_sessions,
+    EXISTS (
+        SELECT 1 FROM sessions s
+        WHERE s.user_id = @user_id
+          AND s.device_label = @device_label
+          AND (sqlc.narg('prefix')::cidr IS NULL OR s.ip <<= sqlc.narg('prefix')::cidr)
+          AND ((s.revoked_at IS NULL AND s.expires_at > now()) OR s.revoked_at > sqlc.arg('revoked_since')::timestamptz)
+    ) AS known_device;
