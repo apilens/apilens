@@ -328,6 +328,51 @@ func (q *Queries) RotateSession(ctx context.Context, arg RotateSessionParams) (S
 	return i, err
 }
 
+const signInHistory = `-- name: SignInHistory :one
+SELECT
+    EXISTS (
+        SELECT 1 FROM sessions s
+        WHERE s.user_id = $1
+    ) AS has_sessions,
+    EXISTS (
+        SELECT 1 FROM sessions s
+        WHERE s.user_id = $1
+          AND s.device_label = $2
+          AND ($3::cidr IS NULL OR s.ip <<= $3::cidr)
+          AND ((s.revoked_at IS NULL AND s.expires_at > now()) OR s.revoked_at > $4::timestamptz)
+    ) AS known_device
+`
+
+type SignInHistoryParams struct {
+	UserID       uuid.UUID
+	DeviceLabel  string
+	Prefix       *netip.Prefix
+	RevokedSince time.Time
+}
+
+type SignInHistoryRow struct {
+	HasSessions bool
+	KnownDevice bool
+}
+
+// Run before a sign-in creates its session. has_sessions is false for the
+// user's very first sign-in (no session row at all). known_device is true
+// when a live session, or one revoked since revoked_since (rotated rows
+// included), has the same device_label and an ip inside prefix (the /24 or
+// /64 of the new client). A NULL prefix (client IP unknown) matches on the
+// device label alone.
+func (q *Queries) SignInHistory(ctx context.Context, arg SignInHistoryParams) (SignInHistoryRow, error) {
+	row := q.db.QueryRow(ctx, signInHistory,
+		arg.UserID,
+		arg.DeviceLabel,
+		arg.Prefix,
+		arg.RevokedSince,
+	)
+	var i SignInHistoryRow
+	err := row.Scan(&i.HasSessions, &i.KnownDevice)
+	return i, err
+}
+
 const touchSession = `-- name: TouchSession :execrows
 UPDATE sessions
 SET last_seen_at = now(),

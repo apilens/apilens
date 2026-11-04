@@ -9,6 +9,9 @@
 // token was stolen: the whole family is revoked and session.reuse_detected
 // is audited, so neither the thief nor the victim can refresh any more.
 //
+// A sign-in from a device the user has not used lately enqueues a new_signin
+// email (see Create).
+//
 // Raw refresh tokens never reach a log: Tokens redacts them in its LogValue,
 // and the service logs only session and family ids.
 package session
@@ -26,7 +29,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
+	"github.com/apilens/apilens/internal/email"
 	"github.com/apilens/apilens/internal/identity/audit"
 	"github.com/apilens/apilens/internal/identity/store/db"
 )
@@ -68,6 +74,16 @@ type AccessIssuer interface {
 	Issue(user db.User, session db.Session, amr []string) (string, time.Time, error)
 }
 
+// KnownDeviceWindow is how long after a session ends (it was revoked or
+// rotated) its device still counts as known: signing in again from it within
+// the window sends no new-sign-in alert.
+const KnownDeviceWindow = 30 * 24 * time.Hour
+
+// JobEnqueuer enqueues background jobs; *jobs.Client satisfies it.
+type JobEnqueuer interface {
+	Insert(ctx context.Context, args river.JobArgs, opts *river.InsertOpts) (*rivertype.JobInsertResult, error)
+}
+
 // TxBeginner starts transactions; *pgxpool.Pool satisfies it.
 type TxBeginner interface {
 	db.DBTX
@@ -84,6 +100,8 @@ type Options struct {
 	RefreshTTLShort time.Duration
 	// Now returns the current time. Nil means time.Now.
 	Now func() time.Time
+	// Jobs enqueues the new_signin alert email. Nil sends no alerts.
+	Jobs JobEnqueuer
 }
 
 // Service creates, rotates and ends sessions.
@@ -151,6 +169,13 @@ func (t Tokens) LogValue() slog.Value {
 
 // Create starts a new session family for user and returns its refresh token
 // and a first access token whose `sid` is the session row id.
+//
+// When no live session of the user, and none ended within
+// KnownDeviceWindow, has the same device label and an IP in the same /24
+// (IPv4) or /64 (IPv6), Create enqueues a new_signin email to the user. The
+// user's very first sign-in (no session row at all, as right after
+// user.created) sends none. Failing to check or enqueue is logged, never
+// returned: the alert must not block the sign-in.
 func (s *Service) Create(ctx context.Context, user db.User, remember bool, meta Meta) (Tokens, error) {
 	raw, hash, err := newToken()
 	if err != nil {
@@ -161,6 +186,7 @@ func (s *Service) Create(ctx context.Context, user db.User, remember bool, meta 
 	if label == "" {
 		label = DeviceLabel(ua)
 	}
+	alert := s.newDevice(ctx, user.ID, label, ip)
 	id := uuid.New()
 	sess, err := s.q.CreateSession(ctx, db.CreateSessionParams{
 		ID:          id,
@@ -177,7 +203,65 @@ func (s *Service) Create(ctx context.Context, user db.User, remember bool, meta 
 	if err != nil {
 		return Tokens{}, fmt.Errorf("session: create: %w", err)
 	}
+	if alert {
+		s.alertNewSignIn(ctx, user, sess)
+	}
 	return s.tokens(user, sess, raw)
+}
+
+// newDevice reports whether a sign-in of user from label and ip should send
+// a new_signin alert. Run it before the session row is created.
+func (s *Service) newDevice(ctx context.Context, user uuid.UUID, label string, ip *netip.Addr) bool {
+	if s.opts.Jobs == nil {
+		return false
+	}
+	h, err := s.q.SignInHistory(ctx, db.SignInHistoryParams{
+		UserID:       user,
+		DeviceLabel:  label,
+		Prefix:       NetworkPrefix(ip),
+		RevokedSince: s.opts.Now().Add(-KnownDeviceWindow),
+	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "session: sign-in history; no new sign-in alert", "user_id", user, "error", err)
+		return false
+	}
+	return h.HasSessions && !h.KnownDevice
+}
+
+// alertNewSignIn enqueues the new_signin email for sess.
+func (s *Service) alertNewSignIn(ctx context.Context, user db.User, sess db.Session) {
+	ip := "unknown"
+	if sess.Ip != nil {
+		ip = sess.Ip.String()
+	}
+	job := email.SendArgs{To: user.Email, Template: email.TemplateNewSignin, Data: map[string]any{
+		"device": sess.DeviceLabel,
+		"ip":     ip,
+		"time":   sess.CreatedAt,
+	}}
+	if _, err := s.opts.Jobs.Insert(ctx, job, nil); err != nil {
+		s.logger.ErrorContext(ctx, "session: enqueue new sign-in alert",
+			"user_id", user.ID, "session_id", sess.ID, "error", err)
+	}
+}
+
+// NetworkPrefix returns the network a sign-in from ip is compared by: its
+// /24 for IPv4 (IPv4-mapped IPv6 included) and its /64 for IPv6, or nil
+// when ip is unknown.
+func NetworkPrefix(ip *netip.Addr) *netip.Prefix {
+	if ip == nil || !ip.IsValid() {
+		return nil
+	}
+	a := ip.Unmap().WithZone("")
+	bits := 64
+	if a.Is4() {
+		bits = 24
+	}
+	p, err := a.Prefix(bits)
+	if err != nil {
+		return nil
+	}
+	return &p
 }
 
 // Refresh rotates the session of raw and returns a new refresh token and

@@ -164,6 +164,13 @@ type Querier interface {
 	// pgx.ErrNoRows when the parent is not live (already rotated, revoked or
 	// expired); of two concurrent rotations of one parent only one succeeds.
 	RotateSession(ctx context.Context, arg RotateSessionParams) (Session, error)
+	// Run before a sign-in creates its session. has_sessions is false for the
+	// user's very first sign-in (no session row at all). known_device is true
+	// when a live session, or one revoked since revoked_since (rotated rows
+	// included), has the same device_label and an ip inside prefix (the /24 or
+	// /64 of the new client). A NULL prefix (client IP unknown) matches on the
+	// device label alone.
+	SignInHistory(ctx context.Context, arg SignInHistoryParams) (SignInHistoryRow, error)
 	// Hides the user and schedules the hard delete; the purge job removes the
 	// row once delete_after has passed.
 	SoftDeleteUser(ctx context.Context, arg SoftDeleteUserParams) (User, error)

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/netip"
@@ -17,12 +18,17 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/riverqueue/river"
 
+	"github.com/apilens/apilens/internal/email"
 	"github.com/apilens/apilens/internal/identity/audit"
 	"github.com/apilens/apilens/internal/identity/keys"
 	"github.com/apilens/apilens/internal/identity/session"
 	"github.com/apilens/apilens/internal/identity/store/db"
 	"github.com/apilens/apilens/internal/identity/token"
+	"github.com/apilens/apilens/internal/platform/config"
+	"github.com/apilens/apilens/internal/platform/jobs"
 	"github.com/apilens/apilens/internal/testutil"
 )
 
@@ -366,6 +372,122 @@ func TestSessionLifecycle(t *testing.T) {
 					t.Fatalf("token in audit metadata of %s", e.Event)
 				}
 			}
+		}
+	})
+}
+
+// TestNewSignInAlertIntegration checks which sign-ins enqueue the new_signin
+// email (a River job in Postgres).
+func TestNewSignInAlertIntegration(t *testing.T) {
+	f := setup(t)
+	reg := jobs.NewRegistry()
+	jobs.Register(reg, river.WorkFunc(func(context.Context, *river.Job[email.SendArgs]) error { return nil }))
+	jc, err := jobs.New(f.pool, config.JobsConfig{}, reg, time.Second, testutil.Logger(t), prometheus.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := session.New(f.pool, f.issuer, session.Options{
+		RefreshTTL: refreshTTL, RefreshTTLShort: refreshTTLShort, Jobs: jc,
+	}, testutil.Logger(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := f.q.CreateUser(f.ctx, db.CreateUserParams{ID: uuid.New(), Email: "grace@example.com", Name: "Grace"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		firefoxMac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.1; rv:121.0) Gecko/20100101 Firefox/121.0"
+		chromeWin  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	)
+	alerts := func() []email.SendArgs {
+		t.Helper()
+		rows, err := f.pool.Query(f.ctx, `SELECT args FROM river_job WHERE kind = 'email.send' ORDER BY id`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []email.SendArgs
+		for rows.Next() {
+			var raw []byte
+			if err := rows.Scan(&raw); err != nil {
+				t.Fatal(err)
+			}
+			var a email.SendArgs
+			if err := json.Unmarshal(raw, &a); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, a)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	// expect signs in from ua at ip and checks it enqueued want alerts.
+	expect := func(t *testing.T, ua, ip string, want int) []email.SendArgs {
+		t.Helper()
+		before := len(alerts())
+		if _, err := svc.Create(f.ctx, user, false, session.Meta{
+			AMR: []string{token.AMREmail}, UserAgent: ua, IP: netip.MustParseAddr(ip),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		got := alerts()
+		if n := len(got) - before; n != want {
+			t.Fatalf("sign-in from %q at %s enqueued %d alerts, want %d", ua, ip, n, want)
+		}
+		return got[before:]
+	}
+
+	t.Run("first sign-in sends no alert", func(t *testing.T) {
+		expect(t, firefoxMac, "203.0.113.7", 0)
+	})
+	t.Run("same device and /24 sends no alert", func(t *testing.T) {
+		expect(t, firefoxMac, "203.0.113.200", 0)
+	})
+	t.Run("new user agent sends one", func(t *testing.T) {
+		got := expect(t, chromeWin, "203.0.113.7", 1)
+		a := got[0]
+		if a.To != user.Email || a.Template != email.TemplateNewSignin {
+			t.Fatalf("alert = %+v", a)
+		}
+		if a.Data["device"] != "Chrome on Windows" || a.Data["ip"] != "203.0.113.7" || a.Data["time"] == nil {
+			t.Fatalf("alert data = %v", a.Data)
+		}
+	})
+	t.Run("same device from another /24 sends one", func(t *testing.T) {
+		expect(t, firefoxMac, "198.51.100.4", 1)
+	})
+	t.Run("IPv6 compares by /64", func(t *testing.T) {
+		expect(t, firefoxMac, "2001:db8:1:2::1", 1)
+		expect(t, firefoxMac, "2001:db8:1:2:ffff::9", 0)
+		expect(t, firefoxMac, "2001:db8:1:3::1", 1)
+	})
+	t.Run("recently revoked session still counts as known", func(t *testing.T) {
+		if _, err := f.q.RevokeAllForUser(f.ctx, db.RevokeAllForUserParams{Reason: session.ReasonLogout, UserID: user.ID}); err != nil {
+			t.Fatal(err)
+		}
+		expect(t, chromeWin, "203.0.113.50", 0)
+	})
+	t.Run("sessions ended long ago do not count", func(t *testing.T) {
+		if _, err := f.pool.Exec(f.ctx, `UPDATE sessions
+			SET revoked_at = now() - interval '31 days', revoked_reason = 'logout'
+			WHERE user_id = $1`, user.ID); err != nil {
+			t.Fatal(err)
+		}
+		expect(t, chromeWin, "203.0.113.50", 1)
+	})
+	t.Run("no alerts without a job client", func(t *testing.T) {
+		before := len(alerts())
+		if _, err := f.svc.Create(f.ctx, user, false, session.Meta{
+			AMR: []string{token.AMREmail}, UserAgent: "curl/8.4.0", IP: netip.MustParseAddr("192.0.2.1"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if n := len(alerts()) - before; n != 0 {
+			t.Fatalf("enqueued %d alerts", n)
 		}
 	})
 }

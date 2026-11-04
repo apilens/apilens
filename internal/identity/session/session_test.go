@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"log/slog"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -55,5 +56,27 @@ func TestTokensLogValueRedacts(t *testing.T) {
 	out := buf.String()
 	if strings.Contains(out, "secret") || !strings.Contains(out, tok.Session.ID.String()) {
 		t.Fatalf("log = %s", out)
+	}
+}
+
+func TestNetworkPrefix(t *testing.T) {
+	if p := NetworkPrefix(nil); p != nil {
+		t.Fatalf("NetworkPrefix(nil) = %v", p)
+	}
+	if p := NetworkPrefix(&netip.Addr{}); p != nil {
+		t.Fatalf("NetworkPrefix(invalid) = %v", p)
+	}
+	for ip, want := range map[string]string{
+		"203.0.113.7":          "203.0.113.0/24",
+		"::ffff:203.0.113.7":   "203.0.113.0/24",
+		"2001:db8:1:2:3:4:5:6": "2001:db8:1:2::/64",
+		"fe80::1%eth0":         "fe80::/64",
+		"2001:db8::1:2:3:4":    "2001:db8::/64",
+	} {
+		a := netip.MustParseAddr(ip)
+		got := NetworkPrefix(&a)
+		if got == nil || got.String() != want {
+			t.Errorf("NetworkPrefix(%s) = %v, want %s", ip, got, want)
+		}
 	}
 }
