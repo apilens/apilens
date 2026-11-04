@@ -73,6 +73,7 @@ describe("stageOf", () => {
     expect(stageOf("project")).toBe(2);
     expect(stageOf("install")).toBe(3);
     expect(stageOf("waiting")).toBe(4);
+    expect(stageOf("first-data")).toBe(4);
   });
 
   it.each([null, undefined, "", "toString", "../evil"])("%j counts as the first step", (step) => {

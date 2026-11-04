@@ -21,7 +21,7 @@ the offending variable. `next build` does not need them.
 | `SESSION_SECRET` | yes | `openssl rand -hex 32` | Key that encrypts the httpOnly session cookie. At least 32 characters. Rotating it signs everyone out. |
 | `APILENS_PUBLIC_URL` | yes | `https://apilens.example.com` | Origin users open the dashboard at, used for absolute links, redirects and cookie scope. |
 | `APILENS_PUBLIC_API_URL` | no | `https://api.apilens.example.com` | Base URL browsers reach the backend at (the identity issuer). The Google and GitHub buttons link to `/api/v1/auth/oauth/{provider}/start` on it. Defaults to `APILENS_API_URL`, which is only right when that address is public. |
-| `APILENS_PUBLIC_INGEST_URL` | no | `https://ingest.apilens.example.com` | Public URL of the edge (port 8080) that SDKs and OpenTelemetry exporters send events to, used in the onboarding install snippets. Defaults to `http://localhost:8080`. |
+| `APILENS_PUBLIC_INGEST_URL` | no | `https://ingest.apilens.example.com` | Public URL of the edge (port 8080) that SDKs and OpenTelemetry exporters send events to, used in the onboarding install snippets and the waiting screen’s troubleshooting. Defaults to `http://localhost:8080`. |
 
 Where they are set:
 
