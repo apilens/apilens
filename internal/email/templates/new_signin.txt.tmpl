@@ -1,0 +1,15 @@
+{{- /* Data: device, ip, time. */ -}}
+{{define "subject"}}New sign-in to your APILens account{{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+Your APILens account was signed in to from a device we have not seen before.
+
+Device: {{.device}}
+IP address: {{.ip}}
+Time: {{datetime .time}}
+
+If this was you, there is nothing to do.
+
+Not you? Sign out that session and check your security settings:
+{{link "/settings/sessions"}}
+{{- end}}

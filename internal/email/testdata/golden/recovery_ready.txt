@@ -1,0 +1,14 @@
+Subject: Your APILens account recovery is ready
+
+APILens
+
+The waiting period for your account recovery has ended. You can now turn off two-factor authentication and sign in:
+https://app.example.com/auth/recovery/status?token=rec_1a2b3c
+
+Completing recovery signs out every other session. Set up two-factor authentication again afterwards.
+
+If you did not ask for this, cancel the request now:
+https://app.example.com/auth/recovery/cancel?token=rec_1a2b3c
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.

@@ -1,0 +1,11 @@
+{{template "layout" .}}
+{{- define "content" -}}
+<p style="margin:0 0 16px 0;">Someone asked to recover your APILens account because they lost access to their two-factor device.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">IP address</td><td style="padding:2px 0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">{{.ip}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Time</td><td style="padding:2px 0;">{{datetime .time}}</td></tr>
+</table>
+<p style="margin:0 0 16px 0;">For your safety, recovery waits until <strong>{{datetime .ready_at}}</strong>. After that, we will email you a link to turn off two-factor authentication and sign in.</p>
+<p style="margin:0 0 24px 0;"><strong>Did not ask for this?</strong> Cancel the request now.</p>
+<p style="margin:0;"><a class="button" href="{{link "/auth/recovery/cancel" "token" .token}}" style="display:inline-block;padding:10px 20px;border-radius:6px;background:#5b4bff;color:#ffffff;font-weight:600;text-decoration:none;">Cancel recovery</a></p>
+{{- end}}

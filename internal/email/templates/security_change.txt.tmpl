@@ -1,0 +1,15 @@
+{{- /* Data: change (see SecurityChange* in catalog.go), device, ip, time. */ -}}
+{{define "subject"}}{{(security .change).Subject}}{{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+{{(security .change).Summary}}
+
+Device: {{.device}}
+IP address: {{.ip}}
+Time: {{datetime .time}}
+
+If you made this change, there is nothing to do.
+
+Not you? Sign out every session and review your security settings now:
+{{link "/settings/security"}}
+{{- end}}

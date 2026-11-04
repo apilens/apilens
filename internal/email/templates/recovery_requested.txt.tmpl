@@ -1,0 +1,14 @@
+{{- /* Data: token, ip, time, ready_at. */ -}}
+{{define "subject"}}Account recovery was requested for your APILens account{{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+Someone asked to recover your APILens account because they lost access to their two-factor device.
+
+IP address: {{.ip}}
+Time: {{datetime .time}}
+
+For your safety, recovery waits until {{datetime .ready_at}}. After that, we will email you a link to turn off two-factor authentication and sign in.
+
+If you did not ask for this, cancel the request now:
+{{link "/auth/recovery/cancel" "token" .token}}
+{{- end}}

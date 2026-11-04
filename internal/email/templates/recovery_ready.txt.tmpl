@@ -1,0 +1,12 @@
+{{- /* Data: token. */ -}}
+{{define "subject"}}Your APILens account recovery is ready{{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+The waiting period for your account recovery has ended. You can now turn off two-factor authentication and sign in:
+{{link "/auth/recovery/status" "token" .token}}
+
+Completing recovery signs out every other session. Set up two-factor authentication again afterwards.
+
+If you did not ask for this, cancel the request now:
+{{link "/auth/recovery/cancel" "token" .token}}
+{{- end}}
