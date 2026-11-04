@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { BackNext, ObShell, type StepProps } from "./ob";
+import { useOnboardingContinue } from "./progress";
 
 const PICKS = [
   { id: "endpoints", t: "Slow or failing endpoints", s: "Every API, with its latency and error rate" },
@@ -11,6 +12,7 @@ const PICKS = [
 
 export function About({ step = 0, reached = step }: Partial<StepProps>) {
   const [pick, setPick] = useState("endpoints");
+  const { go, pending } = useOnboardingContinue(reached);
   return (
     <ObShell
       eyebrow="02:21 AM"
@@ -27,7 +29,7 @@ export function About({ step = 0, reached = step }: Partial<StepProps>) {
       badge="eye"
       title="What should you see first?"
       lead="This becomes your home screen. You can change it anytime."
-      footer={<BackNext back="/verify" next="/onboarding/join" nextLabel="Continue" />}
+      footer={<BackNext back="/verify" nextLabel="Continue" loading={pending} onNext={() => go("join", "/onboarding/join")} />}
     >
       <div className="ob-picks" role="radiogroup" aria-label="Home screen">
         {PICKS.map((p) => (

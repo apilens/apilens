@@ -31,3 +31,47 @@ test("signed out → sign-up, then onboarding starts at the saved step", async (
   await page.goForward();
   await page.waitForURL((url) => url.pathname === "/acme/requests");
 });
+
+// #327: every Continue saves the step and answers (`PATCH /users/me/onboarding`), so a refresh
+// resumes on the saved step with what was entered; a failed save shows a toast.
+test("Continue saves progress, so a refresh resumes with the answers", async ({ page }) => {
+  await page.goto("/sign-in");
+  await githubButton(page).click();
+  await page.getByRole("link", { name: "Authorize" }).click();
+  await page.goto("/onboarding/about");
+  await expect(page.getByRole("heading", { name: ABOUT })).toBeVisible();
+
+  // About → join: saved before the guard is asked, so the page stays after a refresh.
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.waitForURL((url) => url.pathname === "/onboarding/join");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Join your team on APILens" })).toBeVisible();
+  await expect(page.locator('.ob-st[aria-current="step"]')).toHaveText("Organization");
+  expect(new URL(page.url()).pathname).toBe("/onboarding/join");
+
+  // A failed save keeps the screen and says so.
+  await page.getByRole("link", { name: "Create a separate organization" }).click();
+  await page.waitForURL((url) => url.pathname === "/onboarding/create");
+  await page.getByLabel("Name", { exact: true }).fill("Example Co");
+  const address = page.getByRole("textbox", { name: /^Address/ });
+  await address.fill("unavailable");
+  await page.getByRole("button", { name: "Create organization" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "couldn’t reach APILens to save your progress" })).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe("/onboarding/create");
+
+  // The saved address comes back after leaving the screen and refreshing it.
+  await address.fill("example-co");
+  await page.getByRole("button", { name: "Create organization" }).click();
+  await page.waitForURL((url) => url.pathname !== "/onboarding/create");
+  await page.goto("/onboarding/create");
+  await page.reload();
+  await expect(page.getByRole("textbox", { name: /^Address/ })).toHaveValue("example-co");
+  await expect(page.locator('.ob-st[aria-current="step"]')).toHaveText("Organization");
+
+  // Passing an earlier screen again goes straight on (the save follows) and still resumes there.
+  await page.goto("/onboarding/about");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.waitForURL((url) => url.pathname === "/onboarding/join");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Join your team on APILens" })).toBeVisible();
+});

@@ -1,17 +1,19 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
+import type { OnboardingAnswers } from "@/lib/identity";
 import { BackNext, ObIcon, ObShell, type StepProps } from "./ob";
+import { useOnboardingContinue } from "./progress";
 
 const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
 const TAKEN = ["apilens", "acme", "northwind", "admin"];
 
-export function CreateOrg({ step = 1, reached = step }: Partial<StepProps>) {
-  const router = useRouter();
+/** `answers` are the saved onboarding answers (#327): a refresh keeps the address entered. */
+export function CreateOrg({ step = 1, reached = step, answers = {} }: Partial<StepProps> & { answers?: OnboardingAnswers }) {
   const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [edited, setEdited] = useState(false);
+  const [slug, setSlug] = useState(answers.org_slug ?? "");
+  const [edited, setEdited] = useState(Boolean(answers.org_slug));
+  const { go, pending } = useOnboardingContinue(reached);
   const address = edited ? slug : slugify(name);
   const taken = TAKEN.includes(address);
   const ok = name.trim().length > 1 && address.length > 1 && !taken;
@@ -32,7 +34,7 @@ export function CreateOrg({ step = 1, reached = step }: Partial<StepProps>) {
       badge="building"
       title="Name your organization"
       lead="Usually your company. It holds projects, people and billing."
-      footer={<BackNext back="/onboarding/join" nextLabel="Create organization" disabled={!ok} onNext={() => router.push("/platform/incidents")} />}
+      footer={<BackNext back="/onboarding/join" nextLabel="Create organization" disabled={!ok || pending} loading={pending} onNext={() => go("create", "/platform/incidents", { org_slug: address })} />}
     >
       <div className="ob-f">
         <label className="ob-l" htmlFor="org-name">
