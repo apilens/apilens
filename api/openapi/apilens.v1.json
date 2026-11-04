@@ -2482,6 +2482,41 @@
         ],
         "type": "object"
       },
+      "TwoFactorExchangeBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/TwoFactorExchangeBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "backup_code": {
+            "description": "An unused backup code (xxxx-xxxx; case, dashes and spaces are ignored). It is spent. Send this or code, not both.",
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "code": {
+            "description": "Current 6-digit code from the authenticator app. Send this or backup_code, not both.",
+            "pattern": "^[0-9]{6}$",
+            "type": "string"
+          },
+          "pre_auth_token": {
+            "description": "The pre_auth_token of the 2fa_required sign-in answer.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "pre_auth_token"
+        ],
+        "type": "object"
+      },
       "TwoFactorRegenerateInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -2899,6 +2934,100 @@
           }
         ],
         "summary": "Start enabling two-factor authentication",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/2fa/exchange": {
+      "post": {
+        "description": "Public. Completes an email, social or SSO sign-in that answered `{status: \"2fa_required\", pre_auth_token}`. Send the `pre_auth_token` with exactly one of `code` (from the authenticator app) or `backup_code` (`invalid_request` otherwise); a backup code is spent. Answers the session bundle with `totp` or `backup_code` appended to the first factor's `amr`, the session lifetime (`remember`) and `next` of the first step. A wrong code answers `invalid_code`; a token allows 5 attempts and the fifth wrong one answers `too_many_attempts` and deletes it, so the sign-in starts over. An unknown, expired (5 minutes) or used token answers `invalid_token`. The pre-auth token is not a JWT and no other endpoint accepts it.",
+        "operationId": "exchange-2fa",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorExchangeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_code`, `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_code",
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `invalid_token`.",
+            "x-apilens-codes": [
+              "invalid_token"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `too_many_attempts`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "too_many_attempts"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "summary": "Finish signing in with a second factor",
         "tags": [
           "Auth"
         ]

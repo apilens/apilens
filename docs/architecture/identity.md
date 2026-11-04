@@ -193,6 +193,16 @@ accepted by one endpoint only: `POST /api/v1/auth/2fa/exchange`
 `totp` (or `backup_code`) appended to `amr`. Enabling TOTP returns 10 single-use
 backup codes once. TOTP secrets are encrypted with the KEK.
 
+**Exchanging** (`internal/identity/twofactor_exchange.go`) counts the attempt
+atomically in Valkey (a Lua script) before the factor is checked, so parallel
+guesses cannot exceed the cap. A wrong code (or a wrong or spent backup code)
+answers `invalid_code`; the fifth wrong one answers `too_many_attempts` and
+deletes the token, so the sign-in starts over. An unknown, expired or used
+token answers `invalid_token`. A used backup code gets `used_at`; on success
+the token is deleted (single use), the session keeps the first step's
+`remember` and `next`, and `login.succeeded` records `method` (the first
+factor), `second_factor` and `amr`.
+
 **Enabling** (`internal/identity/twofactor.go`, `internal/identity/twofactor`)
 is two session-authenticated calls. `POST /api/v1/auth/2fa/enable` needs a
 sign-in less than 10 minutes old (`reauth_required` otherwise), generates a

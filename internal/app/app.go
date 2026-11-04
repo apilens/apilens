@@ -424,6 +424,13 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	identity.NewTwoFactor(twoFactor, a.logger).Register(a.server.API())
+	identity.NewTwoFactorExchange(identity.TwoFactorExchangeDeps{
+		PreAuth:   identity.NewValkeyPreAuthStore(a.valkey),
+		TwoFactor: twoFactor,
+		Users:     identity.NewPGSignInUsers(a.pool),
+		Sessions:  sessions,
+		Audit:     audit.New(a.pool),
+	}, a.logger).Register(a.server.API())
 	codes := emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{})
 	identity.NewEmailChange(emailchange.New(a.pool, codes, a.jobs), a.logger).Register(a.server.API())
 	rp, err := passkey.NewRelyingParty(a.cfg.Identity.WebAuthn)

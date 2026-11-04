@@ -36,11 +36,13 @@ const (
 	AMRGitHub  = "github"
 	AMRPasskey = "passkey"
 	AMRTOTP    = "totp"
-	AMRSSO     = "sso"
+	// AMRBackupCode: the second factor was a single-use 2FA backup code.
+	AMRBackupCode = "backup_code"
+	AMRSSO        = "sso"
 )
 
 // AMRs lists every valid `amr` value.
-var AMRs = []string{AMREmail, AMRGoogle, AMRGitHub, AMRPasskey, AMRTOTP, AMRSSO}
+var AMRs = []string{AMREmail, AMRGoogle, AMRGitHub, AMRPasskey, AMRTOTP, AMRBackupCode, AMRSSO}
 
 var (
 	// ErrInvalid means the token is malformed, tampered with, or fails a
