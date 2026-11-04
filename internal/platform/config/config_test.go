@@ -281,6 +281,7 @@ func TestIdentityRateLimitDefaults(t *testing.T) {
 		{"code_verify_per_email", rl.CodeVerifyPerEmail, RateLimit{10, 15 * time.Minute}},
 		{"refresh_per_ip", rl.RefreshPerIP, RateLimit{60, time.Minute}},
 		{"second_factor_per_user", rl.SecondFactorPerUser, RateLimit{10, 15 * time.Minute}},
+		{"oauth_start_per_ip", rl.OAuthStartPerIP, RateLimit{30, 15 * time.Minute}},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
