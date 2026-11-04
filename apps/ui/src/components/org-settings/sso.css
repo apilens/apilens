@@ -1,0 +1,45 @@
+/* Organization single sign-on (#348). Tokens from tokens.css only; builds on org-settings.css. */
+.sso-head { display: flex; align-items: flex-start; gap: var(--space-4); }
+.sso-head > div { flex: 1; min-width: 0; }
+.sso-badge { flex: none; display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface-2); font: 500 12px/1 var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
+.sso-badge.ok { border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); background: var(--ok-soft); color: var(--ok); }
+.sso-badge.on { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent-ink); }
+.sso-badge.warn { border-color: color-mix(in srgb, var(--warn) 40%, var(--border)); color: var(--warn); }
+
+.sso-muted { color: var(--ink-muted); font-family: var(--font-sans) !important; }
+
+/* Issuer and its Test button share a row. */
+.sso-row { display: flex; gap: var(--space-2); align-items: center; }
+.sso-row .ob-in { flex: 1; min-width: 0; }
+.sso-test-btn { flex: none; height: 40px; }
+
+.sso-test { margin-top: var(--space-3); padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.sso-test > b { display: flex; align-items: center; gap: 6px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+.sso-test > span { display: block; margin-top: 2px; }
+.sso-test.ok > b .ob-ic { color: var(--ok); }
+.sso-test.bad { border-color: color-mix(in srgb, var(--error) 45%, var(--border)); }
+.sso-test.bad > b { color: var(--error); }
+.sso-test dl { display: grid; gap: 4px; margin: var(--space-2) 0 0; }
+.sso-test dl > div { display: grid; grid-template-columns: 96px 1fr; gap: var(--space-2); }
+.sso-test dt { color: var(--ink-muted); }
+.sso-test dd { margin: 0; min-width: 0; font: 400 12.5px/20px var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+
+.sso-select { width: 100%; height: 40px; padding: 0 32px 0 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 12px center; color: var(--ink); font: 400 14px/1 var(--font-sans); appearance: none; cursor: pointer; }
+.sso-select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+
+.os-toggle.is-busy { opacity: .6; }
+.sso-signin { display: inline-flex; align-items: center; gap: 6px; margin-top: var(--space-4); text-decoration: none; }
+
+.sso-audit { margin: var(--space-6) 0 0; }
+.sso-audit + .os-card { margin-top: var(--space-6); }
+.sso-confirm { display: inline-flex; gap: var(--space-2); }
+.sso-enforce-status { margin: var(--space-3) 0 0; min-height: 18px; font: 400 13px/18px var(--font-sans); color: var(--ink-muted); }
+.sso-enforce-status .ok { color: var(--ok); }
+.sso-enforce-status .err { color: var(--error); }
+
+@media (max-width: 860px) {
+  .sso-head { flex-direction: column; gap: var(--space-2); }
+  .sso-row { flex-direction: column; align-items: stretch; }
+  .sso-row .ob-in { flex: none; }
+  .sso-test dl > div { grid-template-columns: 1fr; gap: 0; }
+}
