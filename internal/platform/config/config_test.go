@@ -212,3 +212,28 @@ func TestIdentityValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestIdentityCORSOrigins(t *testing.T) {
+	cfg, err := Load("", []string{kekEnv}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Identity.CORSOrigins) != 0 {
+		t.Fatalf("cors_origins should default to empty, got %v", cfg.Identity.CORSOrigins)
+	}
+
+	cfg, err = Load("", []string{kekEnv, "APILENS_IDENTITY__CORS_ORIGINS=https://app.example.com, http://localhost:3000"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cfg.Identity.CORSOrigins, []string{"https://app.example.com", "http://localhost:3000"}) {
+		t.Fatalf("cors_origins = %v", cfg.Identity.CORSOrigins)
+	}
+
+	for _, bad := range []string{"*", "app.example.com", "https://app.example.com/path", "https://app.example.com?x=1", "null"} {
+		_, err := Load("", []string{kekEnv, "APILENS_IDENTITY__CORS_ORIGINS=" + bad}, nil)
+		if err == nil || !strings.Contains(err.Error(), "identity.cors_origins") {
+			t.Errorf("cors_origins=%q: err = %v", bad, err)
+		}
+	}
+}

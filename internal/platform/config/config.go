@@ -142,6 +142,10 @@ type IdentityConfig struct {
 	// and TOTP secrets at rest. Required when the identity role runs.
 	KeyEncryptionKey string         `koanf:"key_encryption_key"`
 	WebAuthn         WebAuthnConfig `koanf:"webauthn"`
+	// CORSOrigins are browser origins allowed to call /api/v1/auth/*
+	// cross-origin. Empty (the default) disables CORS: the UI calls identity
+	// server-side, and browsers reach it only through top-level navigations.
+	CORSOrigins []string `koanf:"cors_origins"`
 }
 
 // WebAuthnConfig configures the WebAuthn relying party.
@@ -227,6 +231,7 @@ func Defaults() map[string]any {
 		"identity.webauthn.rp_id":          "localhost",
 		"identity.webauthn.rp_name":        "APILens",
 		"identity.webauthn.origins":        []string{"http://localhost:3000"},
+		"identity.cors_origins":            []string{},
 	}
 }
 
@@ -279,6 +284,7 @@ var identifierRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 
 var listKeys = map[string]bool{
 	"target": true, "clickhouse.addr": true, "valkey.addr": true, "identity.webauthn.origins": true,
+	"identity.cors_origins": true,
 }
 
 func isListKey(key string) bool { return listKeys[key] }
@@ -385,6 +391,11 @@ func (c *Config) validateIdentity() []error {
 	if len(id.WebAuthn.Origins) == 0 {
 		errs = append(errs, errors.New("identity.webauthn.origins must not be empty"))
 	}
+	for _, o := range id.CORSOrigins {
+		if !isOrigin(o) {
+			errs = append(errs, fmt.Errorf("identity.cors_origins %q: want an http(s) origin (scheme://host[:port], no path)", o))
+		}
+	}
 	if id.WebAuthn.RPID == "" || id.WebAuthn.RPName == "" {
 		errs = append(errs, errors.New("identity.webauthn.rp_id and identity.webauthn.rp_name must not be empty"))
 	}
@@ -404,4 +415,11 @@ func (c *Config) validateIdentity() []error {
 func isHTTPURL(v string) bool {
 	u, err := url.Parse(v)
 	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
+// isOrigin reports whether v is a bare http(s) origin, as browsers send it in
+// the Origin header: no path, query, fragment or user info.
+func isOrigin(v string) bool {
+	u, err := url.Parse(v)
+	return err == nil && isHTTPURL(v) && u.User == nil && u.Path == "" && u.RawQuery == "" && u.Fragment == "" && !u.ForceQuery
 }

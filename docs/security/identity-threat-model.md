@@ -96,6 +96,21 @@ expires_in, user}` (#238), or in `2fa_required` with a pre-auth token (#269).
 The `amr` claim records how the user signed in (`email`, `google`, `github`,
 `passkey`, `totp`, `backup_code`, `sso`).
 
+### 4.0 HTTP posture of identity endpoints (#246)
+
+`identity.Middleware` (`internal/identity/http.go`) wraps every request under
+`/api/v1/auth/*`, including ones that match no operation:
+
+| Threat | Control |
+|---|---|
+| Auth responses (tokens, session bundles) cached by a browser or proxy (A5, A7) | `Cache-Control: no-store` on every response |
+| Tokens in URLs leaking through `Referer` (A3) | `Referrer-Policy: no-referrer` |
+| MIME sniffing of JSON responses | `X-Content-Type-Options: nosniff` |
+| Cross-origin scripts reading identity responses (A3) | CORS is deny-by-default. Only origins listed in `identity.cors_origins` (empty by default, validated as bare `scheme://host[:port]`) get `Access-Control-Allow-Origin`; credentials are never allowed; a preflight from any other origin gets `403` |
+| CSRF (A3) | Identity sets no cookies. The session cookie is sealed and set by the `apps/ui` server, so there is no ambient credential to ride. Defence in depth: a non-`GET`/`HEAD`/`OPTIONS` request whose `Origin` is neither the issuer's origin nor an allowed CORS origin (including `null`) gets `403`. Server-side callers send no `Origin` and are unaffected; top-level `GET` navigations (OAuth callbacks, magic-link redirect) still work |
+
+Tests: `internal/identity/http_test.go`.
+
 ### 4.1 Email code (6 digits)
 
 | Threat | Control |

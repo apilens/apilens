@@ -83,3 +83,22 @@ func TestPanicIsRecovered(t *testing.T) {
 		t.Fatalf("code = %d", rec.Code)
 	}
 }
+
+func TestUseMiddlewareOrder(t *testing.T) {
+	s := newTestServer(t)
+	var order []string
+	for _, name := range []string{"a", "b"} {
+		s.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				order = append(order, name)
+				next.ServeHTTP(w, r)
+			})
+		})
+	}
+	rec := httptest.NewRecorder()
+	// Middleware also sees requests that match no route.
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/nope", nil))
+	if rec.Code != http.StatusNotFound || strings.Join(order, ",") != "a,b" {
+		t.Fatalf("code=%d order=%v", rec.Code, order)
+	}
+}
