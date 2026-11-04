@@ -357,7 +357,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Members:  orgService,
 		Projects: projects.New(a.pool),
 		APIKeys:  apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger),
-		Context:  usercontext.New(a.pool),
+		Context:  usercontext.New(a.pool, checker),
 		Guard:    authz.NewGuard(checker, authz.NewPGResolver(a.pool), authz.GuardOptions{}, a.logger),
 		Limiter:  limiter,
 		Limits:   a.cfg.Identity.RateLimits,

@@ -3508,7 +3508,7 @@
                 "null"
               ]
             },
-            "description": "Per project slug, the actions the user may perform there (project.read, project.update, project.delete, api_keys.create, api_keys.revoke, members.invite, members.remove, billing.manage). Every project in orgs has an entry. The UI gates on these; the server still checks every request.",
+            "description": "Per project slug, the actions the user may perform there (project.read, project.update, project.delete, api_keys.create, api_keys.revoke, members.invite, members.remove, billing.manage). Every project in orgs has an entry, listing actions in this order. Computed from SpiceDB; the UI gates on these, the server still checks every request.",
             "type": "object"
           },
           "last_project_slug": {
@@ -9570,7 +9570,7 @@
     },
     "/api/v1/users/me/context": {
       "get": {
-        "description": "Returns in one call what the app shell needs: the user, their organizations with their role and each organization's projects and environments, the last opened project, the onboarding state and, per project, the actions the user may perform. A user deleted while their access token is still valid answers `session_expired`.",
+        "description": "Returns in one call what the app shell needs: the user, their organizations with their role and each organization's projects and environments, the last opened project, the onboarding state and, per project, the actions the user may perform. Capabilities are computed with one SpiceDB `CheckBulkPermissions` call; when SpiceDB cannot answer, the call fails with `authz_unavailable` rather than returning partial capabilities. A user deleted while their access token is still valid answers `session_expired`.",
         "operationId": "get-user-context",
         "responses": {
           "200": {
@@ -9608,6 +9608,19 @@
             "description": "Internal Server Error. Codes: `internal_error`.",
             "x-apilens-codes": [
               "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
             ]
           }
         },
