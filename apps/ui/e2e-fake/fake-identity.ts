@@ -1,5 +1,5 @@
-// A fake identity server plus a fake OAuth provider for the social sign-in (#317) and two-factor
-// step (#320) browser tests.
+// A fake identity server plus a fake OAuth provider for the social sign-in (#317), two-factor
+// step (#320) and account settings (#339) browser tests.
 // It mirrors the real contract (internal/identity/oauth.go, oauth_callback.go, handoff_redeem.go):
 //
 //   GET  /api/v1/auth/providers                    google and github enabled
@@ -9,6 +9,7 @@
 //   POST /api/v1/auth/handoff                      redeems a one-time code (session bundle or 2fa_required)
 //   POST /api/v1/auth/2fa/exchange                 spends a pre-auth token with a TOTP or backup code
 //   POST /api/v1/auth/logout                       204
+//   GET  /api/v1/users/me/context                  one org (acme) with one project (shop)
 //   POST /__fake/handoff {next, totp_secret?, backup_codes?}
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  with `totp_secret` (base32) it answers 2fa_required
@@ -110,6 +111,23 @@ function bundle(next: string) {
     next,
   };
 }
+
+/** `GET /users/me/context` for any signed-in fake user: one org with one project. */
+const CONTEXT = {
+  user: bundle("/").user,
+  orgs: [
+    {
+      id: "org_fake",
+      slug: "acme",
+      name: "Acme",
+      role: "owner",
+      projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"] }],
+    },
+  ],
+  last_project_slug: "shop",
+  onboarding: { step: null, completed: true },
+  capabilities: {},
+};
 
 function issueHandoff(next: string, secret?: string, backupCodes: string[] = []): string {
   const code = token();
@@ -224,6 +242,10 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     return send(res, 200, bundle(pre.next));
   }
   if (req.method === "POST" && path === "/api/v1/auth/logout") return send(res, 204);
+  if (req.method === "GET" && path === "/api/v1/users/me/context") {
+    if (!req.headers.authorization?.startsWith("Bearer at_")) return problem(res, 401, "unauthenticated");
+    return send(res, 200, CONTEXT);
+  }
   if (req.method === "POST" && path === "/__fake/handoff") {
     const { next, totp_secret: secret, backup_codes: backups } = await readBody(req);
     const codes = Array.isArray(backups) ? backups.map(String) : [];

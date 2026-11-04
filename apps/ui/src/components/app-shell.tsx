@@ -11,8 +11,10 @@ import { Sidebar } from "./sidebar";
  * 860px a slim bar with the menu button opens the sidebar as a drawer. `[` collapses the sidebar
  * to a rail (remembered). ⌘K opens the scope switcher. `context` is the signed-in user's
  * `GET /users/me/context`; the page has already checked that `project` or `org` is in it.
+ * `account` is the account scope (`/settings/*`): no project, the first organization in the top
+ * cell, and the account menu marks Account settings as the current page.
  */
-export function AppShell({ context, project: projectSlug, org: orgSlug, view, children }: { context: UserContext; project?: string; org?: string; view: string; children?: ReactNode }) {
+export function AppShell({ context, project: projectSlug, org: orgSlug, account = false, view, children }: { context: UserContext; project?: string; org?: string; account?: boolean; view: string; children?: ReactNode }) {
   const found = projectSlug ? findProject(context, projectSlug) : undefined;
   const project = found?.project;
   const org = found?.org ?? findOrg(context, orgSlug ?? "") ?? context.orgs[0];
@@ -55,7 +57,7 @@ export function AppShell({ context, project: projectSlug, org: orgSlug, view, ch
   return (
     <div className={`ah app${drawer ? " is-open" : ""}`}>
       <div className="app-side">
-        <Sidebar user={context.user} orgs={context.orgs} org={org} project={navProject} view={project ? view : ""} orgScope={!project} collapsed={collapsed && !drawer} drawer={drawer} onCollapse={drawer ? () => setDrawer(false) : toggle} />
+        <Sidebar user={context.user} orgs={context.orgs} org={org} project={navProject} view={project ? view : ""} orgScope={!project} account={account} collapsed={collapsed && !drawer} drawer={drawer} onCollapse={drawer ? () => setDrawer(false) : toggle} />
       </div>
       <div className="app-scrim" onClick={() => setDrawer(false)} />
 

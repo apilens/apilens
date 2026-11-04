@@ -18,6 +18,8 @@ interface Props {
   project?: ContextProject;
   view: string;
   orgScope: boolean;
+  /** Account scope (`/settings/*`): Account settings is the current page. */
+  account?: boolean;
   collapsed: boolean;
   drawer?: boolean;
   onCollapse: () => void;
@@ -28,7 +30,7 @@ interface Props {
  * then the settings pages, and at the foot your account and the collapse control. The app (service) and environment are
  * chosen in the top bar.
  */
-export function Sidebar({ user, orgs, org, project, view, orgScope, collapsed, drawer, onCollapse }: Props) {
+export function Sidebar({ user, orgs, org, project, view, orgScope, account = false, collapsed, drawer, onCollapse }: Props) {
   const row = (p: ContextProject, slug: string, label: string, icon: NavIconName, extra?: React.ReactNode) => {
     const on = !orgScope && view === slug;
     return (
@@ -71,7 +73,7 @@ export function Sidebar({ user, orgs, org, project, view, orgScope, collapsed, d
       </nav>
 
       <div className="cp-sfoot cp-sfoot--toggle side-foot">
-        <UserMenu user={user} collapsed={collapsed} />
+        <UserMenu user={user} collapsed={collapsed} current={account} />
         <button type="button" className="cp-sbtn side-toggle" data-tip={collapsed && !drawer ? "Expand sidebar" : undefined} title={collapsed ? undefined : drawer ? "Close navigation" : "Collapse sidebar"} aria-label={drawer ? "Close navigation" : `${collapsed ? "Expand" : "Collapse"} sidebar`} onClick={onCollapse}>
           <Icon name={collapsed ? "panelOpen" : "panelClose"} />
         </button>
