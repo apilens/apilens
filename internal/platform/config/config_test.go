@@ -213,6 +213,50 @@ func TestIdentityValidation(t *testing.T) {
 	}
 }
 
+func TestWebAuthnRPIDValidation(t *testing.T) {
+	tests := []struct {
+		rpID    string
+		origins string
+		wantErr string
+	}{
+		{rpID: "localhost", origins: "http://localhost:3000"},
+		{rpID: "example.com", origins: "https://example.com,https://app.example.com:8443"},
+		{rpID: "app.example.com", origins: "https://app.example.com"},
+		{rpID: "example.co.uk", origins: "https://app.example.co.uk"},
+		{rpID: "corp.internal", origins: "https://apilens.corp.internal"},
+		{rpID: "example.com", origins: "https://example.org", wantErr: `not a registrable domain suffix of origin "https://example.org"`},
+		{rpID: "example.com", origins: "https://notexample.com", wantErr: "not a registrable domain suffix"},
+		{rpID: "app.example.com", origins: "https://example.com", wantErr: "not a registrable domain suffix"},
+		{rpID: "example.com", origins: "https://app.example.com,https://evil.test", wantErr: `origin "https://evil.test"`},
+		{rpID: "co.uk", origins: "https://example.co.uk", wantErr: "not a registrable domain suffix"},
+		{rpID: "com", origins: "https://example.com", wantErr: "not a registrable domain suffix"},
+		{rpID: "localhost", origins: "http://127.0.0.1:3000", wantErr: "not a registrable domain suffix"},
+		{rpID: "127.0.0.1", origins: "http://127.0.0.1:3000", wantErr: "want a lowercase domain name"},
+		{rpID: "https://example.com", origins: "https://example.com", wantErr: "want a lowercase domain name"},
+		{rpID: "example.com:443", origins: "https://example.com", wantErr: "want a lowercase domain name"},
+		{rpID: "Example.com", origins: "https://example.com", wantErr: "want a lowercase domain name"},
+		{rpID: ".example.com", origins: "https://example.com", wantErr: "want a lowercase domain name"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.rpID+" "+tt.origins, func(t *testing.T) {
+			_, err := Load("", []string{
+				kekEnv,
+				"APILENS_IDENTITY__WEBAUTHN__RP_ID=" + tt.rpID,
+				"APILENS_IDENTITY__WEBAUTHN__ORIGINS=" + tt.origins,
+			}, nil)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestIdentityCORSOrigins(t *testing.T) {
 	cfg, err := Load("", []string{kekEnv}, nil)
 	if err != nil {

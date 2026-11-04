@@ -23,6 +23,7 @@ import (
 	"github.com/knadh/koanf/providers/env/v2"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
+	"golang.org/x/net/publicsuffix"
 )
 
 // EnvPrefix is the prefix for environment overrides.
@@ -226,6 +227,43 @@ type WebAuthnConfig struct {
 	RPID    string   `koanf:"rp_id"`
 	RPName  string   `koanf:"rp_name"`
 	Origins []string `koanf:"origins"`
+}
+
+// Validate checks that rp_id is a valid RP ID for every origin: a domain
+// (no scheme, port, path or IP address) that equals each origin's host or is
+// a registrable domain suffix of it. Browsers refuse a ceremony otherwise.
+// Origins that are not absolute http(s) URLs are reported by the caller.
+func (w WebAuthnConfig) Validate() []error {
+	rpID := w.RPID
+	if rpID == "" || rpID != strings.ToLower(rpID) || strings.ContainsAny(rpID, ":/?#@[] ") ||
+		strings.HasPrefix(rpID, ".") || strings.HasSuffix(rpID, ".") || net.ParseIP(rpID) != nil {
+		return []error{fmt.Errorf("identity.webauthn.rp_id %q: want a lowercase domain name (no scheme, port or path), e.g. example.com", rpID)}
+	}
+	var errs []error
+	for _, o := range w.Origins {
+		u, err := url.Parse(o)
+		if err != nil || u.Hostname() == "" {
+			continue
+		}
+		if !rpIDValidForHost(rpID, strings.ToLower(u.Hostname())) {
+			errs = append(errs, fmt.Errorf("identity.webauthn.rp_id %q is not a registrable domain suffix of origin %q", rpID, o))
+		}
+	}
+	return errs
+}
+
+// rpIDValidForHost reports whether rpID equals host or is a registrable domain
+// suffix of it (HTML "is a registrable domain suffix of or is equal to"): host
+// is a subdomain of rpID and rpID is not itself a public suffix such as co.uk.
+func rpIDValidForHost(rpID, host string) bool {
+	if host == rpID {
+		return true
+	}
+	if net.ParseIP(host) != nil || !strings.HasSuffix(host, "."+rpID) {
+		return false
+	}
+	suffix, _ := publicsuffix.PublicSuffix(rpID)
+	return suffix != rpID
 }
 
 // AuthzConfig configures the SpiceDB client (ADR 0006). An empty Endpoint
@@ -575,6 +613,8 @@ func (c *Config) validateIdentity() []error {
 	}
 	if id.WebAuthn.RPID == "" || id.WebAuthn.RPName == "" {
 		errs = append(errs, errors.New("identity.webauthn.rp_id and identity.webauthn.rp_name must not be empty"))
+	} else {
+		errs = append(errs, id.WebAuthn.Validate()...)
 	}
 	if id.AccessTokenTTL <= 0 || id.RefreshTokenTTL <= 0 || id.RefreshTokenTTLShort <= 0 ||
 		id.EmailCodeTTL <= 0 || id.PreAuthTTL <= 0 {
