@@ -8,15 +8,18 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/humatest"
 	"github.com/google/uuid"
 
 	"github.com/apilens/apilens/internal/identity/session"
 	"github.com/apilens/apilens/internal/identity/store/db"
+	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/config"
 	"github.com/apilens/apilens/internal/platform/ratelimit"
 )
@@ -29,6 +32,14 @@ type fakeSessions struct {
 	refreshErr error
 	logoutErr  error
 	got        []string
+	list       []session.Active
+	listErr    error
+	listArgs   [2]uuid.UUID
+}
+
+func (f *fakeSessions) List(_ context.Context, user, sid uuid.UUID) ([]session.Active, error) {
+	f.listArgs = [2]uuid.UUID{user, sid}
+	return f.list, f.listErr
 }
 
 func (f *fakeSessions) Refresh(_ context.Context, raw string) (session.Tokens, error) {
@@ -43,6 +54,13 @@ func (f *fakeSessions) Logout(_ context.Context, raw string) error {
 
 func newTestSessions(t *testing.T, svc SessionService) (humatest.TestAPI, *bytes.Buffer) {
 	t.Helper()
+	return newTestSessionsAs(t, svc, nil)
+}
+
+// newTestSessionsAs is newTestSessions with p stored as the caller of every
+// request, standing in for authn.Middleware.
+func newTestSessionsAs(t *testing.T, svc SessionService, p *authn.Principal) (humatest.TestAPI, *bytes.Buffer) {
+	t.Helper()
 	logs := &bytes.Buffer{}
 	logger := slog.New(slog.NewJSONHandler(logs, nil))
 	limiter, err := ratelimit.New(nil, logger, nil)
@@ -53,6 +71,11 @@ func newTestSessions(t *testing.T, svc SessionService) (humatest.TestAPI, *bytes
 	now := time.Unix(1_700_000_000, 0)
 	s.now = func() time.Time { return now }
 	_, api := humatest.New(t)
+	if p != nil {
+		api.UseMiddleware(func(ctx huma.Context, next func(huma.Context)) {
+			next(huma.WithContext(ctx, authn.WithPrincipal(ctx.Context(), *p)))
+		})
+	}
 	s.Register(api)
 	return api, logs
 }
@@ -139,6 +162,66 @@ func TestLogoutEndpoint(t *testing.T) {
 	api, logs := newTestSessions(t, &fakeSessions{logoutErr: errors.New("db down")})
 	resp = api.Post(AuthPrefix+"/logout", map[string]any{"refresh_token": testRefresh})
 	if resp.Code != http.StatusInternalServerError || strings.Contains(logs.String(), testRefresh) {
+		t.Fatalf("status = %d, logs %q", resp.Code, logs)
+	}
+}
+
+func TestListMySessionsEndpoint(t *testing.T) {
+	user, sid := uuid.New(), uuid.New()
+	created := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	ip := netip.MustParseAddr("203.0.113.7")
+	svc := &fakeSessions{list: []session.Active{
+		{Session: db.Session{ID: sid, FamilyID: sid, DeviceLabel: "Chrome on macOS", UserAgent: "Mozilla/5.0", Ip: &ip, Amr: []string{"email"},
+			CreatedAt: created, LastSeenAt: created.Add(time.Hour), ExpiresAt: created.Add(720 * time.Hour)}, Current: true},
+		{Session: db.Session{ID: uuid.New(), DeviceLabel: "curl", UserAgent: "curl/8.4.0",
+			CreatedAt: created, LastSeenAt: created, ExpiresAt: created.Add(24 * time.Hour)}},
+	}}
+	api, _ := newTestSessionsAs(t, svc, &authn.Principal{Kind: authn.KindUser, UserID: user, SessionID: sid, AMR: []string{"email"}})
+
+	resp := api.Get(MySessionsPath)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", resp.Code, resp.Body)
+	}
+	if svc.listArgs != [2]uuid.UUID{user, sid} {
+		t.Fatalf("service got %v, want user and sid of the caller", svc.listArgs)
+	}
+	var body struct {
+		Sessions []map[string]any `json:"sessions"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Sessions) != 2 {
+		t.Fatalf("sessions = %v", body.Sessions)
+	}
+	first, second := body.Sessions[0], body.Sessions[1]
+	if first["id"] != sid.String() || first["current"] != true || first["device_label"] != "Chrome on macOS" ||
+		first["ip"] != "203.0.113.7" || first["created_at"] != "2026-11-01T09:00:00Z" || first["last_seen_at"] != "2026-11-01T10:00:00Z" {
+		t.Fatalf("first = %v", first)
+	}
+	if second["current"] != false || second["ip"] != nil || fmt.Sprint(second["amr"]) != "[]" {
+		t.Fatalf("second = %v", second)
+	}
+	if _, ok := first["token_hash"]; ok {
+		t.Fatal("token hash exposed")
+	}
+}
+
+func TestListMySessionsEndpointErrors(t *testing.T) {
+	// Without a user principal (no or an API-key credential) the handler refuses.
+	for _, p := range []*authn.Principal{nil, {Kind: authn.KindAPIKey, KeyID: uuid.New()}} {
+		api, _ := newTestSessionsAs(t, &fakeSessions{}, p)
+		resp := api.Get(MySessionsPath)
+		var prob Problem
+		_ = json.Unmarshal(resp.Body.Bytes(), &prob)
+		if resp.Code != http.StatusUnauthorized || prob.Code != CodeUnauthenticated {
+			t.Fatalf("principal %v: status = %d code = %q", p, resp.Code, prob.Code)
+		}
+	}
+
+	api, logs := newTestSessionsAs(t, &fakeSessions{listErr: errors.New("db down")}, &authn.Principal{Kind: authn.KindUser, UserID: uuid.New(), SessionID: uuid.New()})
+	resp := api.Get(MySessionsPath)
+	if resp.Code != http.StatusInternalServerError || !strings.Contains(logs.String(), "db down") {
 		t.Fatalf("status = %d, logs %q", resp.Code, logs)
 	}
 }

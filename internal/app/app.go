@@ -284,6 +284,9 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	}
 	a.server.Use(identity.Middleware(a.cfg.Identity))
 	a.server.Use(audit.Middleware)
+	// /api/v1/users/me and /api/v1/users/me/sessions need a user session;
+	// install it before any identity route is registered.
+	a.useSessionAuth()
 	identity.Register(a.server.API())
 	identity.RegisterJWKS(a.server.Mux(), signingKeys, a.logger)
 	identity.RegisterProviders(a.server.API(), a.cfg.Identity)
@@ -304,9 +307,8 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	identity.NewSessions(a.cfg.Identity, sessions, limiter, a.logger).Register(a.server.API())
-	// /api/v1/users/me is session-authenticated. Until memberships exist
-	// (#276) no user owns an organization, so nothing blocks a deletion.
-	a.useSessionAuth()
+	// Until memberships exist (#276) no user owns an organization, so
+	// nothing blocks a deletion.
 	identity.NewAccount(account.New(a.pool, account.NoMemberships{}), a.logger).Register(a.server.API())
 	return modules.ServiceFunc(signingKeys.Run), nil
 }

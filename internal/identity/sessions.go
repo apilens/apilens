@@ -9,19 +9,25 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/google/uuid"
 
 	"github.com/apilens/apilens/internal/identity/session"
 	"github.com/apilens/apilens/internal/identity/store/db"
+	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/config"
 	"github.com/apilens/apilens/internal/platform/ratelimit"
 	"github.com/apilens/apilens/internal/platform/server"
 )
 
-// SessionService rotates and ends refresh-token sessions;
+// MySessionsPath is the sessions list of the signed-in user.
+const MySessionsPath = server.APIPrefix + "/users/me/sessions"
+
+// SessionService rotates, ends and lists refresh-token sessions;
 // *session.Service satisfies it.
 type SessionService interface {
 	Refresh(ctx context.Context, raw string) (session.Tokens, error)
 	Logout(ctx context.Context, raw string) error
+	List(ctx context.Context, user, currentSID uuid.UUID) ([]session.Active, error)
 }
 
 // AuthUser is the signed-in user as returned with every token response.
@@ -82,7 +88,49 @@ type LogoutInput struct {
 	Body RefreshTokenBody
 }
 
-// Sessions serves the refresh and logout endpoints.
+// SessionInfo is one live session in the sessions list.
+type SessionInfo struct {
+	ID          string    `json:"id" format:"uuid" doc:"Session id. It changes on every refresh."`
+	DeviceLabel string    `json:"device_label" doc:"Device name derived from the user agent at sign-in, e.g. \"Chrome on macOS\"."`
+	UserAgent   string    `json:"user_agent" doc:"User agent of the last sign-in or refresh, at most 512 characters."`
+	IP          *string   `json:"ip" nullable:"true" doc:"Client IP address of the last sign-in or refresh, or null when unknown."`
+	AMR         []string  `json:"amr" doc:"How the session was authenticated."`
+	CreatedAt   time.Time `json:"created_at" doc:"When the user signed in."`
+	LastSeenAt  time.Time `json:"last_seen_at" doc:"When the session was last used."`
+	ExpiresAt   time.Time `json:"expires_at" doc:"When the session ends unless refreshed."`
+	Current     bool      `json:"current" doc:"True for the session the request was made with."`
+}
+
+// NewSessionInfo renders a.
+func NewSessionInfo(a session.Active) SessionInfo {
+	info := SessionInfo{
+		ID:          a.ID.String(),
+		DeviceLabel: a.DeviceLabel,
+		UserAgent:   a.UserAgent,
+		AMR:         a.Amr,
+		CreatedAt:   a.CreatedAt,
+		LastSeenAt:  a.LastSeenAt,
+		ExpiresAt:   a.ExpiresAt,
+		Current:     a.Current,
+	}
+	if info.AMR == nil {
+		info.AMR = []string{}
+	}
+	if a.Ip != nil {
+		ip := a.Ip.String()
+		info.IP = &ip
+	}
+	return info
+}
+
+// ListMySessionsOutput is the response of GET /api/v1/users/me/sessions.
+type ListMySessionsOutput struct {
+	Body struct {
+		Sessions []SessionInfo `json:"sessions" doc:"Live sessions, most recently active first."`
+	}
+}
+
+// Sessions serves the refresh, logout and sessions-list endpoints.
 type Sessions struct {
 	svc     SessionService
 	limiter *ratelimit.Limiter
@@ -103,7 +151,9 @@ func NewSessions(cfg config.IdentityConfig, svc SessionService, limiter *ratelim
 	}
 }
 
-// Register mounts POST /api/v1/auth/refresh and POST /api/v1/auth/logout.
+// Register mounts POST /api/v1/auth/refresh, POST /api/v1/auth/logout and
+// GET /api/v1/users/me/sessions. The last requires a session: install
+// authn.Middleware on api first.
 func (s *Sessions) Register(api huma.API) {
 	huma.Register(api, Operation(api, huma.Operation{
 		OperationID: "refresh-session",
@@ -124,6 +174,16 @@ func (s *Sessions) Register(api huma.API) {
 		Tags:          []string{server.TagAuth},
 		DefaultStatus: http.StatusNoContent,
 	}, CodeInternal), s.logout)
+
+	huma.Register(api, Operation(api, huma.Operation{
+		OperationID: "list-my-sessions",
+		Method:      http.MethodGet,
+		Path:        MySessionsPath,
+		Summary:     "List my sessions",
+		Description: "Lists the signed-in user's live sessions (one per sign-in), most recently active first, with device label, IP and activity times. The session the request was made with has `current: true`.",
+		Tags:        []string{server.TagUsers},
+		Security:    []map[string][]string{{authn.SchemeSession: {}}},
+	}, CodeUnauthenticated, CodeInternal), s.listMine)
 }
 
 func (s *Sessions) refresh(ctx context.Context, in *RefreshInput) (*RefreshOutput, error) {
@@ -147,4 +207,22 @@ func (s *Sessions) logout(ctx context.Context, in *LogoutInput) (*struct{}, erro
 		return nil, Err(CodeInternal)
 	}
 	return nil, nil
+}
+
+func (s *Sessions) listMine(ctx context.Context, _ *struct{}) (*ListMySessionsOutput, error) {
+	p, ok := authn.FromContext(ctx)
+	if !ok || p.Kind != authn.KindUser {
+		return nil, Err(CodeUnauthenticated)
+	}
+	list, err := s.svc.List(ctx, p.UserID, p.SessionID)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "list sessions", "error", err)
+		return nil, Err(CodeInternal)
+	}
+	out := &ListMySessionsOutput{}
+	out.Body.Sessions = make([]SessionInfo, len(list))
+	for i, a := range list {
+		out.Body.Sessions[i] = NewSessionInfo(a)
+	}
+	return out, nil
 }
