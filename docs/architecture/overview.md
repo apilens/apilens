@@ -176,7 +176,7 @@ shipped; a test checks that this table lists every one.
 
 | Kind | Recorded when |
 |---|---|
-| `user.created` | an account is created (sign-up or invitation) |
+| `user.created` | an account is created (sign-up, invitation, or an operator's `apilens seed` / `apilens user create`: `method` `operator`) |
 | `user.updated` | the user changes their profile or preferences (metadata lists the changed field names, never values) |
 | `user.deleted` | the user deletes their account: it is hidden, every session is revoked and the purge is scheduled after a 30-day grace period |
 | `user.restored` | the user restores their deleted account inside the grace period with a fresh email code |
@@ -199,6 +199,7 @@ shipped; a test checks that this table lists every one.
 | `org.created` | an organization is created |
 | `org.updated` | an organization's name, allowed domains or domain join change (metadata lists the `fields`) |
 | `org.deleted` | an organization is deleted |
+| `member.added` | an operator adds a user to an organization with `apilens seed` or `apilens user create\|promote` (metadata has `role`) |
 | `member.role_changed` | an organization member's role changes (metadata has `from` and `to`; ownership transfer records one per member) |
 | `member.removed` | a member is removed from an organization, or leaves it (metadata `left`) |
 | `member.joined` | a user joins an organization through its verified email domain |

@@ -14,7 +14,7 @@ import (
 )
 
 func TestSourceValid(t *testing.T) {
-	for _, s := range []Source{SourceEmail, SourceGoogle, SourceGitHub, SourceSSO} {
+	for _, s := range []Source{SourceEmail, SourceGoogle, SourceGitHub, SourceSSO, SourceOperator} {
 		if !s.Valid() {
 			t.Errorf("%q not valid", s)
 		}

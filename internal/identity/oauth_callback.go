@@ -453,7 +453,7 @@ func (o *OAuth) redirect(path string) *OAuthCallbackOutput {
 // FindOrCreateOAuth implements OAuthUsers.
 func (s *PGSignInUsers) FindOrCreateOAuth(ctx context.Context, ext ExternalIdentity) (db.User, bool, error) {
 	source := users.Source(ext.Provider)
-	if !source.Valid() || source == users.SourceEmail || source == users.SourceSSO {
+	if !source.Valid() || source == users.SourceEmail || source == users.SourceSSO || source == users.SourceOperator {
 		return db.User{}, false, fmt.Errorf("identity: unknown oauth provider %q", ext.Provider)
 	}
 	profile, err := json.Marshal(ext.Profile)

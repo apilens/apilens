@@ -157,7 +157,7 @@ func TestCatalogue(t *testing.T) {
 		"user.created", "user.updated", "user.deleted", "user.restored", "login.succeeded", "login.failed", "login.requested", "session.revoked", "session.reuse_detected",
 		"email.changed", "passkey.added", "passkey.removed", "passkey.renamed", "totp.enabled", "totp.disabled",
 		"recovery.requested", "recovery.confirmed", "recovery.cancelled", "oauth.linked", "oauth.unlinked",
-		"org.created", "org.updated", "org.deleted", "member.role_changed", "member.removed", "member.joined", "invitation.sent", "invitation.accepted",
+		"org.created", "org.updated", "org.deleted", "member.added", "member.role_changed", "member.removed", "member.joined", "invitation.sent", "invitation.accepted",
 	}
 	got := Kinds()
 	if len(got) != len(want) {
