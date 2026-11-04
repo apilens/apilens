@@ -17,6 +17,8 @@ func TestValidateOnboarding(t *testing.T) {
 		}},
 		{Answers: map[string]any{AnswerOrgSlug: "", AnswerInvited: float64(0)}},
 		{Answers: map[string]any{AnswerInvited: float64(MaxInvited)}},
+		{Answers: map[string]any{AnswerAPIKeyID: "0b6f5c7e-8d1a-4c2b-9e3f-1a2b3c4d5e6f"}},
+		{Answers: map[string]any{AnswerAPIKeyID: ""}},
 	} {
 		if err := ValidateOnboarding(ok); err != nil {
 			t.Errorf("ValidateOnboarding(%+v) = %v", ok, err)
@@ -34,6 +36,9 @@ func TestValidateOnboarding(t *testing.T) {
 		"invited fraction": {Answers: map[string]any{AnswerInvited: 1.5}},
 		"invited too many": {Answers: map[string]any{AnswerInvited: MaxInvited + 1}},
 		"invited string":   {Answers: map[string]any{AnswerInvited: "3"}},
+		"key id not uuid":  {Answers: map[string]any{AnswerAPIKeyID: "apl_live_secret"}},
+		"key id upper":     {Answers: map[string]any{AnswerAPIKeyID: "0B6F5C7E-8D1A-4C2B-9E3F-1A2B3C4D5E6F"}},
+		"key id number":    {Answers: map[string]any{AnswerAPIKeyID: 7}},
 	} {
 		if err := ValidateOnboarding(bad); !errors.Is(err, ErrInvalidOnboarding) {
 			t.Errorf("%s: err = %v", name, err)

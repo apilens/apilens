@@ -20,7 +20,15 @@ export interface ServerEnv {
    * only right when that address is public too.
    */
   publicApiUrl: string;
+  /**
+   * Public base URL SDKs and OpenTelemetry exporters send events to (the edge, port 8080), no
+   * trailing slash: the onboarding install snippets use it. Defaults to `http://localhost:8080`.
+   */
+  publicIngestUrl: string;
 }
+
+/** {@link ServerEnv.publicIngestUrl} when `APILENS_PUBLIC_INGEST_URL` is not set. */
+export const DEFAULT_PUBLIC_INGEST_URL = "http://localhost:8080";
 
 export const SESSION_SECRET_MIN_LENGTH = 32;
 
@@ -72,7 +80,8 @@ export function parseEnv(source: Source): ServerEnv {
   }
   const publicUrl = httpUrl(source, "APILENS_PUBLIC_URL");
   const publicApiUrl = source.APILENS_PUBLIC_API_URL?.trim() ? httpUrl(source, "APILENS_PUBLIC_API_URL") : apiUrl;
-  return { apiUrl, sessionSecret, publicUrl, publicApiUrl };
+  const publicIngestUrl = source.APILENS_PUBLIC_INGEST_URL?.trim() ? httpUrl(source, "APILENS_PUBLIC_INGEST_URL") : DEFAULT_PUBLIC_INGEST_URL;
+  return { apiUrl, sessionSecret, publicUrl, publicApiUrl, publicIngestUrl };
 }
 
 let cached: ServerEnv | undefined;

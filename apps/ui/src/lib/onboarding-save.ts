@@ -5,11 +5,12 @@
 import { z } from "zod";
 import type { HomeScreen, OnboardingAnswers, UpdateOnboardingRequest, UserContext } from "./identity";
 
-// The API's rules (account.StepPattern, SlugPattern, ChoicePattern and MaxInvited).
+// The API's rules (account.StepPattern, SlugPattern, ChoicePattern, MaxInvited and KeyIDPattern).
 const STEP = /^[a-z][a-z0-9_-]{0,31}$/;
 const SLUG = /^([a-z0-9][a-z0-9-]{0,62})?$/;
 const CHOICE = /^([a-z0-9][a-z0-9._+-]{0,31})?$/;
 const MAX_INVITED = 1000;
+const KEY_ID = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/;
 
 const answerShape = {
   org_slug: z.string().regex(SLUG),
@@ -18,6 +19,7 @@ const answerShape = {
   runtime: z.string().regex(CHOICE),
   method: z.string().regex(CHOICE),
   invited: z.number().int().min(0).max(MAX_INVITED),
+  api_key_id: z.string().regex(KEY_ID),
 };
 
 /** Answers to save; unknown keys are refused, as the API refuses them. */
@@ -28,6 +30,7 @@ export const onboardingAnswersSchema = z.strictObject({
   runtime: answerShape.runtime.optional(),
   method: answerShape.method.optional(),
   invited: answerShape.invited.optional(),
+  api_key_id: answerShape.api_key_id.optional(),
 }) satisfies z.ZodType<OnboardingAnswers>;
 
 /** The body of `PATCH /users/me/onboarding` as the onboarding screens send it. */

@@ -134,7 +134,8 @@ export function Instrument({
 
   const next = () => {
     if (!ok || !method) return;
-    go("install", "/onboarding/install", { language: choice.language, runtime: choice.runtime, method });
+    // The install step renders from these answers, so it opens once they are saved.
+    go("install", "/onboarding/install", { language: choice.language, runtime: choice.runtime, method }, undefined, true);
   };
 
   return (

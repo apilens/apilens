@@ -69,7 +69,8 @@ export function useOnboardingToast() {
  * screen that waited stays where it is, so Continue can be pressed again. It runs as a
  * transition, so an expired session's redirect to sign-in reaches the router. `also` is another
  * save the screen needs with it (the home preference, #328); it runs alongside, and Continue
- * succeeds only when both do.
+ * succeeds only when both do. `wait` always waits for the save, for a target page that reads the
+ * answers being saved (the install step reads the instrument step's, #333).
  */
 export function useOnboardingContinue(reached: number) {
   const router = useRouter();
@@ -77,7 +78,7 @@ export function useOnboardingContinue(reached: number) {
   const [pending, startTransition] = useTransition();
 
   const go = useCallback(
-    (step: string, href: string, answers: OnboardingAnswers = {}, also?: () => Promise<Saved>) =>
+    (step: string, href: string, answers: OnboardingAnswers = {}, also?: () => Promise<Saved>, wait = false) =>
       startTransition(async () => {
         const guard = (p: Promise<Saved>) =>
           p.catch((err: unknown): Saved => {
@@ -88,7 +89,7 @@ export function useOnboardingContinue(reached: number) {
           const results = await Promise.all([guard(saveOnboarding(stepToSave(step, reached), answers)), ...(also ? [guard(also())] : [])]);
           return results.find((r) => !r.ok) ?? { ok: true };
         };
-        if (href.startsWith("/onboarding/") && alreadyReached(step, reached)) {
+        if (!wait && href.startsWith("/onboarding/") && alreadyReached(step, reached)) {
           router.push(href);
           const result = await save();
           if (!result.ok) toast(result.error);

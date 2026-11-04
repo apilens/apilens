@@ -68,7 +68,8 @@
 //                                                  owners only; enforce needs `last_login_at` (sso_untested)
 //   POST /api/v1/orgs/acme/sso/test                discovery: an issuer containing "broken" is
 //                                                  unreachable, any other one answers its endpoints
-//   GET|POST /api/v1/projects/shop/api-keys        list (newest first), create (raw key once);
+//   GET|POST /api/v1/projects/shop/api-keys        list (newest first), create (raw key once); also
+//                                                  on projects the user created in onboarding (#333);
 //   DELETE /api/v1/projects/shop/api-keys/{id}     revoke (204, or 410 api_key_gone). Creating and
 //                                                  revoking answer 403 without the capability
 //   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?}
@@ -539,6 +540,7 @@ const ONBOARDING_ANSWERS: Record<string, RegExp | "count"> = {
   runtime: /^([a-z0-9][a-z0-9._+-]{0,31})?$/,
   method: /^([a-z0-9][a-z0-9._+-]{0,31})?$/,
   invited: "count",
+  api_key_id: /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/,
 };
 
 /** Invitations by token (#337); every address is @example.com. */
@@ -1040,8 +1042,10 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   if (keysPath) {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
-    // Like the API: a project the user cannot see answers forbidden.
-    if (decodeURIComponent(keysPath[1]) !== PROJECT) return problem(res, 403, "forbidden");
+    // Like the API: a project the user cannot see answers forbidden. Projects created in
+    // onboarding (#333) have keys too; the fake keeps one list per user.
+    const keysProject = decodeURIComponent(keysPath[1]);
+    if (keysProject !== PROJECT && createdProjects.get(keysProject)?.owner !== user) return problem(res, 403, "forbidden");
     const list = apiKeys.get(user) ?? [];
     const allowed = (action: string) => capabilitiesOf(user).includes(action);
     const sub = keysPath[2];

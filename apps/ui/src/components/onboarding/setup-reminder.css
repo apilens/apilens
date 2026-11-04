@@ -1,0 +1,2 @@
+/* The "finish setting up" reminder (#333) at the top of a project page, on the system's .ob-notice. */
+.setup-reminder { margin: 0 0 var(--space-6); }

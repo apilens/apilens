@@ -1899,6 +1899,11 @@
       "OnboardingAnswers": {
         "additionalProperties": false,
         "properties": {
+          "api_key_id": {
+            "description": "Id of the ingest key the install step created; the raw key is never stored.",
+            "pattern": "^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$",
+            "type": "string"
+          },
           "invited": {
             "description": "Number of teammates invited.",
             "format": "int64",
@@ -11341,7 +11346,7 @@
     },
     "/api/v1/users/me/onboarding": {
       "patch": {
-        "description": "Saves where the user is in onboarding so a refresh resumes there: `step` replaces the stored step, `answers` is merged key by key into the stored answers (org_slug, project_slug, language, runtime, method, invited), and `completed` finishes or reopens onboarding. Returns the resulting state; `GET /api/v1/users/me/context` reports the same step and completion. Unknown fields fail validation (`422`).",
+        "description": "Saves where the user is in onboarding so a refresh resumes there: `step` replaces the stored step, `answers` is merged key by key into the stored answers (org_slug, project_slug, language, runtime, method, invited, api_key_id), and `completed` finishes or reopens onboarding. Returns the resulting state; `GET /api/v1/users/me/context` reports the same step and completion. Unknown fields fail validation (`422`).",
         "operationId": "update-onboarding",
         "requestBody": {
           "content": {
