@@ -251,6 +251,7 @@ func runOpenAPI(stdout io.Writer) error {
 	query.Register(srv.API(), nil) // handlers are never invoked; only the schema is read
 	identity.Register(srv.API())
 	identity.RegisterProviders(srv.API(), config.IdentityConfig{})
+	identity.NewOAuth(config.IdentityConfig{}, identity.NewValkeyOAuthStateStore(nil), nil, nil).Register(srv.API())
 	controlplaneapi.Register(srv.API())
 	b, err := json.MarshalIndent(srv.API().OpenAPI(), "", "  ")
 	if err != nil {

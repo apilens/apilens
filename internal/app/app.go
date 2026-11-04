@@ -32,6 +32,7 @@ import (
 	"github.com/apilens/apilens/internal/platform/modules"
 	"github.com/apilens/apilens/internal/platform/otel"
 	"github.com/apilens/apilens/internal/platform/pg"
+	"github.com/apilens/apilens/internal/platform/ratelimit"
 	"github.com/apilens/apilens/internal/platform/server"
 	"github.com/apilens/apilens/internal/query"
 )
@@ -262,6 +263,11 @@ func (a *App) initIdentity(context.Context) (modules.Service, error) {
 	a.server.Use(audit.Middleware)
 	identity.Register(a.server.API())
 	identity.RegisterProviders(a.server.API(), a.cfg.Identity)
+	limiter, err := ratelimit.New(a.valkey, a.logger, a.cfg.Identity.RateLimits.TrustedProxies)
+	if err != nil {
+		return nil, err
+	}
+	identity.NewOAuth(a.cfg.Identity, identity.NewValkeyOAuthStateStore(a.valkey), limiter, a.logger).Register(a.server.API())
 	return nil, nil
 }
 

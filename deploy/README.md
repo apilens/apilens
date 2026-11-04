@@ -121,6 +121,8 @@ For example, with `APILENS_IDENTITY__ISSUER=https://api.example.com`, register `
 
 Then `docker compose up -d --wait` to apply. On Kubernetes, pass the same `APILENS_IDENTITY__OAUTH__*` variables, keeping the secrets in a Secret.
 
+Social sign-in needs Valkey: `GET /api/v1/auth/oauth/{provider}/start` keeps each attempt (state, PKCE verifier, nonce) there for 10 minutes so the callback can land on any replica, and is rate-limited per IP (`APILENS_IDENTITY__RATE_LIMITS__OAUTH_START_PER_IP__*`, 30 per 15 minutes by default). The compose stack bundles Valkey.
+
 ## Kubernetes
 
 See [`helm/apilens/README.md`](helm/apilens/README.md). The chart expects externally operated datastores: CloudNativePG, the Altinity ClickHouse operator and Valkey. SpiceDB runs in-chart (`spicedb.enabled`) or externally (`authz.endpoint`).
