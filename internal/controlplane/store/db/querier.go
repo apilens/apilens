@@ -15,6 +15,9 @@ type Querier interface {
 	// otherwise. Of two concurrent accepts only one succeeds. The caller creates
 	// the membership in the same transaction.
 	AcceptInvitation(ctx context.Context, id uuid.UUID) (Invitation, error)
+	// The relay's batch: the oldest unprocessed rows, locked until its
+	// transaction ends.
+	ClaimPendingOutbox(ctx context.Context, batchSize int32) ([]ClaimPendingOutboxRow, error)
 	CountOrgOwners(ctx context.Context, orgID uuid.UUID) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
 	// token_hash is the SHA-256 of the emailed token, never the token itself.
@@ -55,10 +58,16 @@ type Querier interface {
 	// Membership writes that could remove the last owner take this lock first,
 	// then check CountOrgOwners (the last-owner rule lives in the service layer).
 	LockOrganization(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	// Serialises relay passes across processes for the rest of the transaction,
+	// so rows are applied to SpiceDB strictly in id order.
+	LockOutboxRelay(ctx context.Context, lockKey int64) error
+	MarkOutboxProcessed(ctx context.Context, id int64) error
 	// Wakes the relay. A NOTIFY sent inside a transaction is delivered on commit
 	// only, and never on rollback.
 	NotifyOutbox(ctx context.Context) error
 	OrganizationSlugTaken(ctx context.Context, slug string) (bool, error)
+	// Age of the oldest unprocessed row, 0 when the outbox is drained.
+	OutboxLagSeconds(ctx context.Context) (float64, error)
 	// Rotates the token and extends the expiry of a pending invitation.
 	ResendInvitation(ctx context.Context, arg ResendInvitationParams) (Invitation, error)
 	RevokeAPIKey(ctx context.Context, id uuid.UUID) (string, error)

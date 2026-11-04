@@ -13,14 +13,17 @@ import (
 	"sync"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	authzed "github.com/authzed/authzed-go/v1"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/valkey-io/valkey-go"
 
+	"github.com/apilens/apilens/internal/authz"
 	controlplaneapi "github.com/apilens/apilens/internal/controlplane/api"
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
 	"github.com/apilens/apilens/internal/controlplane/catalog"
+	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/email"
 	"github.com/apilens/apilens/internal/identity"
@@ -46,6 +49,7 @@ import (
 	"github.com/apilens/apilens/internal/platform/pg"
 	"github.com/apilens/apilens/internal/platform/ratelimit"
 	"github.com/apilens/apilens/internal/platform/server"
+	"github.com/apilens/apilens/internal/platform/spicedb"
 	"github.com/apilens/apilens/internal/query"
 )
 
@@ -66,6 +70,8 @@ const (
 	modCatalog    = "catalog"
 	modSink       = "sink"
 	modJobs       = "jobs"
+	modAuthz      = "authz"
+	modRelay      = "outbox-relay"
 )
 
 // PlannedTargets are roles of the target architecture that later milestones
@@ -97,6 +103,9 @@ type App struct {
 	// workers is filled by modules during init; jobs runs them afterwards.
 	workers *jobs.Registry
 	jobs    *jobs.Client
+	// spicedb and authz are nil when authz.endpoint is not set.
+	spicedb *authzed.Client
+	authz   *authz.Client
 	// signingKeys holds identity's JWT signing keys (identity role only).
 	signingKeys *keys.Manager
 	// sessionAuth installs authn.Middleware once, for api, query and identity.
@@ -125,13 +134,18 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	// River client; its worker loop starts once every module has registered
 	// workers and stops (draining in-flight jobs) after the HTTP listener.
 	m.Register(modJobs, a.initJobs, modules.Invisible(), modules.DependsOn(modPostgres))
+	m.Register(modAuthz, a.initAuthz, modules.Invisible(), modules.DependsOn(modServer, modValkey))
+	// The outbox relay syncs Postgres to SpiceDB: a periodic job plus a
+	// NOTIFY listener for low latency.
+	m.Register(modRelay, a.initRelay, modules.Invisible(), modules.DependsOn(modPostgres, modJobs, modAuthz))
 
 	m.Register(TargetEdge, a.initEdge, modules.DependsOn(modServer, modCatalog, modSink))
 	// query is the first slice of the M3 read path (fixed queries, read keys).
 	m.Register(TargetQuery, a.initQuery, modules.DependsOn(modServer, modClickHouse, modCatalog))
 	m.Register(TargetAPI, a.initAPI, modules.DependsOn(modServer, modPostgres, modValkey))
-	// identity runs the M2 job workers (email); the M4 worker role will too.
-	m.Register(TargetIdentity, a.initIdentity, modules.DependsOn(modServer, modPostgres, modValkey, modJobs))
+	// identity runs the M2 job workers (email, outbox relay); the M4 worker
+	// role will too.
+	m.Register(TargetIdentity, a.initIdentity, modules.DependsOn(modServer, modPostgres, modValkey, modJobs, modRelay))
 	m.Register(TargetAll, func(context.Context) (modules.Service, error) { return nil, nil },
 		modules.DependsOn(TargetEdge, TargetQuery, TargetAPI, TargetIdentity))
 	return a
@@ -252,6 +266,38 @@ func (a *App) initJobs(context.Context) (modules.Service, error) {
 	}
 	a.jobs = client
 	return client, nil
+}
+
+func (a *App) initAuthz(context.Context) (modules.Service, error) {
+	if !a.cfg.Authz.Enabled() {
+		a.logger.Warn("authz disabled (authz.endpoint is not set): permission checks deny and the outbox is not relayed to SpiceDB")
+		return nil, nil
+	}
+	client, err := spicedb.Connect(a.cfg.Authz)
+	if err != nil {
+		return nil, err
+	}
+	var tokens authz.TokenStore
+	if a.valkey != nil {
+		tokens = authz.NewValkeyTokens(a.valkey)
+	}
+	a.spicedb = client
+	a.authz = authz.New(client, tokens, authz.Options{CacheTTL: a.cfg.Authz.CacheTTL}, a.logger, a.registry)
+	return closer(func() { _ = client.Close() }), nil
+}
+
+// initRelay registers the outbox relay job and runs its NOTIFY listener.
+func (a *App) initRelay(context.Context) (modules.Service, error) {
+	if a.spicedb == nil {
+		return nil, nil
+	}
+	relay := outbox.NewRelay(a.pool, a.spicedb, a.authz, outbox.RelayOptions{}, a.logger, a.registry)
+	jobs.Register(a.workers, outbox.NewRelayWorker(relay))
+	a.workers.Periodic(outbox.RelayInterval, outbox.RelayArgs{})
+	if !a.cfg.Jobs.Enabled {
+		return nil, nil
+	}
+	return modules.ServiceFunc(relay.Listen), nil
 }
 
 func (a *App) initEdge(context.Context) (modules.Service, error) {

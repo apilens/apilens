@@ -7,7 +7,53 @@ package db
 
 import (
 	"context"
+	"time"
 )
+
+const claimPendingOutbox = `-- name: ClaimPendingOutbox :many
+SELECT id, topic, aggregate_id, payload, created_at
+FROM outbox
+WHERE processed_at IS NULL
+ORDER BY id
+LIMIT $1
+FOR UPDATE SKIP LOCKED
+`
+
+type ClaimPendingOutboxRow struct {
+	ID          int64
+	Topic       string
+	AggregateID string
+	Payload     []byte
+	CreatedAt   time.Time
+}
+
+// The relay's batch: the oldest unprocessed rows, locked until its
+// transaction ends.
+func (q *Queries) ClaimPendingOutbox(ctx context.Context, batchSize int32) ([]ClaimPendingOutboxRow, error) {
+	rows, err := q.db.Query(ctx, claimPendingOutbox, batchSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ClaimPendingOutboxRow{}
+	for rows.Next() {
+		var i ClaimPendingOutboxRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Topic,
+			&i.AggregateID,
+			&i.Payload,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const insertOutbox = `-- name: InsertOutbox :one
 INSERT INTO outbox (topic, aggregate_id, payload)
@@ -31,6 +77,26 @@ func (q *Queries) InsertOutbox(ctx context.Context, arg InsertOutboxParams) (int
 	return id, err
 }
 
+const lockOutboxRelay = `-- name: LockOutboxRelay :exec
+SELECT pg_advisory_xact_lock($1::bigint)
+`
+
+// Serialises relay passes across processes for the rest of the transaction,
+// so rows are applied to SpiceDB strictly in id order.
+func (q *Queries) LockOutboxRelay(ctx context.Context, lockKey int64) error {
+	_, err := q.db.Exec(ctx, lockOutboxRelay, lockKey)
+	return err
+}
+
+const markOutboxProcessed = `-- name: MarkOutboxProcessed :exec
+UPDATE outbox SET processed_at = now() WHERE id = $1
+`
+
+func (q *Queries) MarkOutboxProcessed(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, markOutboxProcessed, id)
+	return err
+}
+
 const notifyOutbox = `-- name: NotifyOutbox :exec
 SELECT pg_notify('outbox', '')
 `
@@ -40,4 +106,18 @@ SELECT pg_notify('outbox', '')
 func (q *Queries) NotifyOutbox(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, notifyOutbox)
 	return err
+}
+
+const outboxLagSeconds = `-- name: OutboxLagSeconds :one
+SELECT COALESCE(EXTRACT(EPOCH FROM now() - min(created_at)), 0)::float8 AS lag
+FROM outbox
+WHERE processed_at IS NULL
+`
+
+// Age of the oldest unprocessed row, 0 when the outbox is drained.
+func (q *Queries) OutboxLagSeconds(ctx context.Context) (float64, error) {
+	row := q.db.QueryRow(ctx, outboxLagSeconds)
+	var lag float64
+	err := row.Scan(&lag)
+	return lag, err
 }
