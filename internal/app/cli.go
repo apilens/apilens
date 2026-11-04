@@ -41,6 +41,8 @@ Usage:
                                               migrations and the SpiceDB schema (when
                                               authz.endpoint is set)
   apilens seed [flags]                        create a dev org/project/app and print an ingest key
+  apilens identity rotate-key                 activate a new token signing key; the previous
+                                              one stays published until its tokens expire
   apilens healthcheck [-url=...]              exit 0 if the readiness endpoint answers 200
   apilens openapi                             print the OpenAPI 3.1 document
   apilens version                             print build information
@@ -68,6 +70,8 @@ func Main(args []string, stdout, stderr io.Writer, environ []string) int {
 		err = runMigrate(ctx, args, stderr, environ)
 	case "seed":
 		err = runSeed(ctx, args, stdout, stderr, environ)
+	case "identity":
+		err = runIdentity(ctx, args, stdout, stderr, environ)
 	case "healthcheck":
 		err = runHealthcheck(ctx, args, stderr)
 	case "openapi":
@@ -217,6 +221,49 @@ func runSeed(ctx context.Context, args []string, stdout, stderr io.Writer, envir
 		return fmt.Errorf("seed: %w", err)
 	}
 	return json.NewEncoder(stdout).Encode(res) //nolint:gosec // G117: printing the new key once is the point of seed
+}
+
+// runIdentity runs the `apilens identity <command>` operator commands.
+func runIdentity(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) error {
+	sub := ""
+	if len(args) > 0 {
+		sub, args = args[0], args[1:]
+	}
+	switch sub {
+	case "rotate-key":
+		return runRotateKey(ctx, args, stdout, stderr, environ)
+	default:
+		return fmt.Errorf("identity: unknown command %q (want rotate-key)", sub)
+	}
+}
+
+// runRotateKey retires the active signing key and activates a new one. The
+// retired key stays in JWKS for identity.refresh_token_ttl; running identity
+// replicas switch to the new key within keys.DefaultRefreshInterval.
+func runRotateKey(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) error {
+	fs := flag.NewFlagSet("apilens identity rotate-key", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfg, logger, err := loadConfig(fs, args, environ, stderr)
+	if err != nil {
+		return err
+	}
+	pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-identity")
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	signingKeys, err := newKeyManager(pool, cfg, logger)
+	if err != nil {
+		return err
+	}
+	active, retired, err := signingKeys.Rotate(ctx)
+	if err != nil {
+		return fmt.Errorf("rotate-key: %w", err)
+	}
+	return json.NewEncoder(stdout).Encode(struct {
+		KID        string `json:"kid"`
+		RetiredKID string `json:"retired_kid,omitempty"`
+	}{active.KID, retired})
 }
 
 func runHealthcheck(ctx context.Context, args []string, stderr io.Writer) error {

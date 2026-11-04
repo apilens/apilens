@@ -23,6 +23,8 @@ import (
 	"github.com/apilens/apilens/internal/email"
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/identity/audit"
+	"github.com/apilens/apilens/internal/identity/keys"
+	identitydb "github.com/apilens/apilens/internal/identity/store/db"
 	"github.com/apilens/apilens/internal/ingest"
 	"github.com/apilens/apilens/internal/pipeline"
 	"github.com/apilens/apilens/internal/platform/cache"
@@ -85,6 +87,8 @@ type App struct {
 	// workers is filled by modules during init; jobs runs them afterwards.
 	workers *jobs.Registry
 	jobs    *jobs.Client
+	// signingKeys holds identity's JWT signing keys (identity role only).
+	signingKeys *keys.Manager
 }
 
 // New registers all modules.
@@ -255,7 +259,16 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 	return nil, nil
 }
 
-func (a *App) initIdentity(context.Context) (modules.Service, error) {
+func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
+	signingKeys, err := newKeyManager(a.pool, a.cfg, a.logger)
+	if err != nil {
+		return nil, err
+	}
+	// A fresh database gets its first signing key here.
+	if _, _, err := signingKeys.Ensure(ctx); err != nil {
+		return nil, fmt.Errorf("identity: signing keys: %w", err)
+	}
+	a.signingKeys = signingKeys
 	if err := a.registerEmailWorker(); err != nil {
 		return nil, err
 	}
@@ -268,7 +281,21 @@ func (a *App) initIdentity(context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	identity.NewOAuth(a.cfg.Identity, identity.NewValkeyOAuthStateStore(a.valkey), limiter, a.logger).Register(a.server.API())
-	return nil, nil
+	return modules.ServiceFunc(signingKeys.Run), nil
+}
+
+// newKeyManager builds the signing key manager over pool, sealing private
+// keys with identity.key_encryption_key.
+func newKeyManager(pool *pgxpool.Pool, cfg *config.Config, logger *slog.Logger) (*keys.Manager, error) {
+	kek, err := cfg.Identity.KEK()
+	if err != nil {
+		return nil, err
+	}
+	store, err := keys.NewStore(identitydb.New(pool), kek)
+	if err != nil {
+		return nil, err
+	}
+	return keys.NewManager(pool, store, keys.ManagerOptions{RetiredWindow: cfg.Identity.RefreshTokenTTL}, logger), nil
 }
 
 // registerEmailWorker registers the email.send worker with the configured
