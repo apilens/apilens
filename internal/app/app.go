@@ -26,7 +26,9 @@ import (
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/identity/audit"
 	"github.com/apilens/apilens/internal/identity/keys"
+	"github.com/apilens/apilens/internal/identity/session"
 	identitydb "github.com/apilens/apilens/internal/identity/store/db"
+	"github.com/apilens/apilens/internal/identity/token"
 	"github.com/apilens/apilens/internal/ingest"
 	"github.com/apilens/apilens/internal/pipeline"
 	"github.com/apilens/apilens/internal/platform/authn"
@@ -289,6 +291,18 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	identity.NewOAuth(a.cfg.Identity, identity.NewValkeyOAuthStateStore(a.valkey), limiter, a.logger).Register(a.server.API())
+	issuer, err := token.New(signingKeys, token.Options{Issuer: a.cfg.Identity.Issuer, TTL: a.cfg.Identity.AccessTokenTTL})
+	if err != nil {
+		return nil, err
+	}
+	sessions, err := session.New(a.pool, issuer, session.Options{
+		RefreshTTL:      a.cfg.Identity.RefreshTokenTTL,
+		RefreshTTLShort: a.cfg.Identity.RefreshTokenTTLShort,
+	}, a.logger)
+	if err != nil {
+		return nil, err
+	}
+	identity.NewSessions(a.cfg.Identity, sessions, limiter, a.logger).Register(a.server.API())
 	return modules.ServiceFunc(signingKeys.Run), nil
 }
 

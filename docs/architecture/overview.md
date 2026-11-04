@@ -125,6 +125,28 @@ against the published JWKS; identity uses `token.Issuer.Verify`.
 Tokens carry no email, name or role: authorization looks those up by `sub`.
 Verification tolerates 30 s of clock skew on `exp` and `iat`.
 
+### Refresh tokens and sessions (M2)
+
+Every sign-in method ends with `session.Service.Create`
+(`internal/identity/session`), which starts a session family and returns
+`{access_token, refresh_token, expires_in, user}`; the access token's `sid` is
+the session row id. The refresh token is 32 random bytes, base64url-encoded;
+only its SHA-256 is stored, and it lives `identity.refresh_token_ttl` (30 days)
+with "remember me", `identity.refresh_token_ttl_short` (24 hours) without.
+
+- `POST /api/v1/auth/refresh {refresh_token}` rotates: the presented row is
+  revoked (`rotated`), a child row with a new token joins the family, and a
+  new access token is issued. The lifetime slides from the refresh.
+- Presenting a rotated token again (including two concurrent refreshes of one
+  token) is reuse: the whole family is revoked (`reuse_detected`),
+  `session.reuse_detected` is audited and the caller gets `invalid_token`.
+- An expired or ended session answers `session_expired`; an unknown token
+  `invalid_token`.
+- `POST /api/v1/auth/logout {refresh_token}` revokes the family (`logout`),
+  audits `session.revoked` and always answers 204.
+
+Raw tokens and their hashes are never logged or written to audit metadata.
+
 ## Identity and authorization (M2)
 
 Sign-in flows (email code and magic link, Google/GitHub, passkeys, TOTP, SSO),
