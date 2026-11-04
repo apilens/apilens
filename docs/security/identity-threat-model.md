@@ -229,6 +229,11 @@ in CI (#301).
   `projects/slug-available`) reveal that a slug exists. That is accepted
   because slugs are globally unique and not secret. They are rate-limited
   like other auth endpoints.
+- The optional `email` hint of `passkeys/login/options` reveals whether an
+  address has passkeys (`allowCredentials` is non-empty). That is accepted:
+  the hint is optional (the UI's default flow is fully discoverable), the
+  endpoint is rate-limited per IP, and security keys without discoverable
+  credentials need it.
 
 ## 6. Rate limits
 
@@ -242,7 +247,8 @@ Shared across replicas in Valkey with a sliding window (#239). They answer
 | Refresh | 60 / min per IP |
 | Passkey and 2FA verify | 10 / 15 min per user |
 | SSO lookup | 60 / 15 min per IP |
-| OAuth/SSO start, handoff, passkey login options, invitation lookup, recovery | Per IP (values set in their issues) |
+| Passkey login options and verify | 60 / 15 min per IP, each |
+| OAuth/SSO start, handoff, invitation lookup, recovery | Per IP (values set in their issues) |
 
 **Fail closed.** If Valkey is unreachable, rate-limited endpoints answer `503`
 (logged at most once a minute) instead of skipping the limit. Real client IPs

@@ -1,5 +1,5 @@
 // Package passkeytest is a virtual WebAuthn authenticator for tests: it
-// answers registration options the way a browser and a platform
+// answers registration and sign-in options the way a browser and a platform
 // authenticator would, with an ES256 key and "none" attestation, so the
 // ceremonies run end to end without a browser.
 package passkeytest
@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/go-webauthn/webauthn/protocol/webauthncbor"
@@ -40,6 +41,13 @@ type Authenticator struct {
 	BackupEligible, BackupState bool
 	// Transports are reported with the attestation response.
 	Transports []string
+	// UserHandle is returned with assertions; Register sets it from the
+	// options' user.id, as a discoverable credential stores it.
+	UserHandle []byte
+	// SignCount is the signature counter reported by the next Register or
+	// Login. Zero means the authenticator does not count (like most synced
+	// passkeys).
+	SignCount uint32
 
 	key *ecdsa.PrivateKey
 }
@@ -64,6 +72,9 @@ type creationOptions struct {
 		RP        struct {
 			ID string `json:"id"`
 		} `json:"rp"`
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
 	} `json:"publicKey"`
 }
 
@@ -75,6 +86,11 @@ func (a *Authenticator) Register(options []byte) (json.RawMessage, error) {
 	if err := json.Unmarshal(options, &opts); err != nil {
 		return nil, fmt.Errorf("passkeytest: decode options: %w", err)
 	}
+	handle, err := base64.RawURLEncoding.DecodeString(opts.PublicKey.User.ID)
+	if err != nil {
+		return nil, fmt.Errorf("passkeytest: decode user handle: %w", err)
+	}
+	a.UserHandle = handle
 	clientData, err := json.Marshal(map[string]any{
 		"type":        "webauthn.create",
 		"challenge":   opts.PublicKey.Challenge,
@@ -139,10 +155,77 @@ func (a *Authenticator) authData(rpID string) ([]byte, error) {
 	out := make([]byte, 0, 37+16+2+len(a.CredentialID)+len(coseKey))
 	out = append(out, rpHash[:]...)
 	out = append(out, flags)
-	out = binary.BigEndian.AppendUint32(out, 0) // sign count
+	out = binary.BigEndian.AppendUint32(out, a.SignCount)
 	out = append(out, a.AAGUID[:]...)
 	out = binary.BigEndian.AppendUint16(out, uint16(len(a.CredentialID))) //nolint:gosec // ids are at most 1023 bytes
 	out = append(out, a.CredentialID...)
 	out = append(out, coseKey...)
 	return out, nil
+}
+
+// requestOptions is the part of a CredentialAssertion the authenticator
+// reads.
+type requestOptions struct {
+	PublicKey struct {
+		Challenge string `json:"challenge"`
+		RPID      string `json:"rpId"`
+	} `json:"publicKey"`
+}
+
+// Login answers the sign-in options (the CredentialAssertion JSON,
+// {"publicKey": {...}}) with a PublicKeyCredential JSON carrying an ES256
+// assertion and UserHandle, as the browser would send it to the relying
+// party. It does not check allowCredentials.
+func (a *Authenticator) Login(options []byte) (json.RawMessage, error) {
+	var opts requestOptions
+	if err := json.Unmarshal(options, &opts); err != nil {
+		return nil, fmt.Errorf("passkeytest: decode options: %w", err)
+	}
+	if opts.PublicKey.Challenge == "" || opts.PublicKey.RPID == "" {
+		return nil, errors.New("passkeytest: options without challenge or rpId")
+	}
+	clientData, err := json.Marshal(map[string]any{
+		"type":        "webauthn.get",
+		"challenge":   opts.PublicKey.Challenge,
+		"origin":      a.Origin,
+		"crossOrigin": false,
+	})
+	if err != nil {
+		return nil, err
+	}
+	rpHash := sha256.Sum256([]byte(opts.PublicKey.RPID))
+	flags := byte(flagUP | flagUV)
+	if a.BackupEligible {
+		flags |= flagBE
+	}
+	if a.BackupState {
+		flags |= flagBS
+	}
+	authData := make([]byte, 0, 37)
+	authData = append(authData, rpHash[:]...)
+	authData = append(authData, flags)
+	authData = binary.BigEndian.AppendUint32(authData, a.SignCount)
+	clientHash := sha256.Sum256(clientData)
+	signed := make([]byte, 0, len(authData)+len(clientHash))
+	signed = append(signed, authData...)
+	signed = append(signed, clientHash[:]...)
+	digest := sha256.Sum256(signed)
+	sig, err := ecdsa.SignASN1(rand.Reader, a.key, digest[:])
+	if err != nil {
+		return nil, fmt.Errorf("passkeytest: sign: %w", err)
+	}
+	b64 := base64.RawURLEncoding.EncodeToString
+	return json.Marshal(map[string]any{
+		"id":    b64(a.CredentialID),
+		"rawId": b64(a.CredentialID),
+		"type":  "public-key",
+		"response": map[string]any{
+			"clientDataJSON":    b64(clientData),
+			"authenticatorData": b64(authData),
+			"signature":         b64(sig),
+			"userHandle":        b64(a.UserHandle),
+		},
+		"clientExtensionResults":  map[string]any{},
+		"authenticatorAttachment": "platform",
+	})
 }

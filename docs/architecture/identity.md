@@ -140,10 +140,20 @@ Connected accounts).
 Passkeys are discoverable WebAuthn credentials bound to
 `identity.webauthn.rp_id`. Sign-in is
 `POST /api/v1/auth/passkeys/login/options` → browser ceremony →
-`POST /api/v1/auth/passkeys/login/verify` `{challenge_id, credential, remember}`.
+`POST /api/v1/auth/passkeys/login/verify` `{challenge_id, response, remember, next}`
+(`internal/identity/passkey_login.go`, `internal/identity/passkey/login.go`).
+Both are public and rate-limited per IP (`passkey_login_per_ip`). Options are
+discoverable (no `allowCredentials`), so the sign-in page can offer "Continue
+with a passkey" and conditional UI without an email; an optional `email` hint
+lists that account's passkeys in `allowCredentials` (an unknown address gets
+discoverable options). Verify resolves the user from the credential id and
+its user handle (the user id), answers `passkey_unknown` for an unregistered
+credential and `passkey_failed` for a used challenge, a bad assertion or a
+signature counter that did not advance (possible clone; audited as
+`login.failed`). It stores the new counter, backup state and `last_used_at`.
 A passkey is phishing-resistant and user-verifying, so it **skips** the TOTP
-step (`amr: ["passkey"]`). Registration (`…/register/options`, `…/register/verify`)
-requires a session.
+step (`amr: ["passkey"]`) and answers the session bundle with `next` echoed.
+Registration (`…/register/options`, `…/register/verify`) requires a session.
 
 Security settings manage the signed-in user's passkeys
 (`internal/identity/passkeys.go`, `internal/identity/passkey/manage.go`):
@@ -286,6 +296,7 @@ SHA-256 is stored. Lifetime is `identity.refresh_token_ttl` (30 days) with
 | Refresh per IP | 60 per minute |
 | Passkey and 2FA verify per user | 10 per 15 min |
 | OAuth start per IP | 30 per 15 min |
+| Passkey login options / verify per IP | 60 per 15 min each |
 
 Rate limits are sliding windows in Valkey shared by every replica
 (`identity.rate_limits.*`); they answer `429` with `Retry-After`.

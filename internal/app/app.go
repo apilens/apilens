@@ -407,6 +407,12 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		Users:     identitydb.New(a.pool),
 		Jobs:      a.jobs,
 	}, a.logger).Register(a.server.API())
+	identity.NewPasskeyLogin(a.cfg.Identity, identity.PasskeyLoginDeps{
+		Login:    passkey.NewLogin(rp, passkey.NewValkeyChallengeStore(a.valkey), a.pool),
+		Users:    identity.NewPGSignInUsers(a.pool),
+		Sessions: sessions,
+		Audit:    audit.New(a.pool),
+	}, limiter, a.logger).Register(a.server.API())
 	identity.NewRestore(a.cfg.Identity, accounts, codes, limiter, a.logger).Register(a.server.API())
 	// Deleted accounts are purged hourly once their grace period has passed.
 	jobs.Register(a.workers, account.NewPurgeWorker(a.pool, a.logger))
