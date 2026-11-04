@@ -1,0 +1,57 @@
+/* Project settings → API keys (#350). Tokens from tokens.css only; the card and table reuse
+   .os-card (org settings) and .pk-table (Security → Passkeys); inputs reuse .ob-in. */
+.ak { max-width: 1040px; }
+.ak-card { margin-top: 0; }
+.ak-name { font-weight: 500; overflow-wrap: anywhere; }
+.ak-table .pk-name { width: auto; min-width: 140px; }
+.ak-prefix { font: 400 12.5px/20px var(--font-mono); color: var(--ink); white-space: nowrap; }
+.ak-table tr.is-inactive .ak-name, .ak-table tr.is-inactive .ak-prefix { color: var(--ink-muted); }
+.ak-table tr.is-revoked .ak-prefix { text-decoration: line-through; }
+.ak-status { display: inline-flex; align-items: center; height: 20px; padding: 0 var(--space-2); border-radius: var(--radius-pill); font: 500 11px/1 var(--font-sans); white-space: nowrap; }
+.ak-status--active { background: var(--ok-soft); color: var(--ok); }
+.ak-status--expired { background: var(--warn-soft); color: var(--warn); }
+.ak-status--revoked { background: var(--surface-2); color: var(--ink-muted); }
+.ak-expires { display: block; margin-top: 2px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
+.ak .pk-confirm code { padding: 1px 6px; }
+
+/* Create dialog */
+.ak-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }
+.ak-dialog::backdrop { background: color-mix(in srgb, var(--ink) 40%, transparent); }
+.ak-dialog__head { padding: var(--space-6) var(--space-6) 0; }
+.ak-dialog__head h2 { margin: 0; font: 600 16px/24px var(--font-sans); color: var(--ink); }
+.ak-dialog__head p { margin: 2px 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); overflow-wrap: anywhere; }
+.ak-dialog__head p b { font-weight: 500; color: var(--ink); }
+.ak-dialog__body { padding: 0 var(--space-6) var(--space-6); }
+.ak-dialog__body .ob-f { margin-top: var(--space-4); }
+.ak-dialog__body .ob-in { height: 40px; font-size: 14px; }
+.ak-dialog__body > .ob-err { margin-top: var(--space-4); }
+.ak-dialog__foot { display: flex; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-6); border-top: 1px solid var(--border); background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+.ak-dialog .ah-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+.ak-scopes { margin-left: 0; margin-right: 0; padding: 0; border: 0; min-width: 0; }
+.ak-scopes legend { width: 100%; padding: 0; }
+.ak-scope { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer; }
+.ak-scope + .ak-scope { margin-top: var(--space-2); }
+.ak-scope.on { border-color: var(--accent); background: var(--ok-soft); }
+.ak-scope input { margin: 3px 0 0; accent-color: var(--accent); }
+.ak-scope b { display: block; font: 500 13px/18px var(--font-sans); color: var(--ink); }
+.ak-scope span span { display: block; font: 400 12.5px/18px var(--font-sans); color: var(--ink-muted); }
+.ak-scope:has(input:focus-visible) { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+
+.ak-expiry { display: flex; gap: var(--space-2); }
+.ak-expiry .ob-in { flex: 1; min-width: 0; padding: 0 10px; }
+.ak-expiry select, .ak-expiry input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: inherit; font: inherit; }
+
+/* One-time reveal */
+.ak-warn { margin: var(--space-4) 0 0; border-color: color-mix(in srgb, var(--warn) 35%, var(--border)); background: var(--warn-soft); color: var(--ink); }
+.ak-warn > .ob-ic { color: var(--warn); }
+.ak-key.ob-in { padding-right: 10px; background: var(--surface-2); }
+.ak-key input { font: 400 13px/1 var(--font-mono); }
+.ak-copied { min-height: 18px; margin: 6px 0 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+
+@media (max-width: 860px) {
+  .ak-table td[data-label="Status"] { flex-wrap: wrap; align-items: center; }
+  .ak-table .ak-expires { display: inline; margin: 0; }
+  .ak-dialog__head, .ak-dialog__body, .ak-dialog__foot { padding-left: var(--space-4); padding-right: var(--space-4); }
+  .ak-expiry { flex-direction: column; }
+}

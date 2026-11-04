@@ -1,7 +1,7 @@
 // A fake identity server plus a fake OAuth provider and a fake OIDC identity provider for the
 // social sign-in (#317), two-factor step (#320), organization SSO (#323), account settings (#339),
 // profile (#340), sessions (#343), connected accounts (#344), Security → Passkeys (#341),
-// two-factor settings (#342) and organization members (#345) browser tests.
+// two-factor settings (#342), organization members (#345) and project API keys (#350) browser tests.
 // It mirrors the real contract (internal/identity/oauth.go, oauth_callback.go, handoff_redeem.go):
 //
 //   GET  /api/v1/auth/providers                    google and github enabled
@@ -16,7 +16,8 @@
 //   POST /api/v1/auth/2fa/exchange                 spends a pre-auth token with a TOTP or backup code
 //   POST /api/v1/auth/logout                       204
 //   GET  /api/v1/users/me/context                  one org (acme) with one project (shop); the
-//                                                  role and capabilities follow the fake user's role
+//                                                  role and capabilities follow the fake user's role,
+//                                                  or the `capabilities` seeded for them
 //   GET  /api/v1/users/me/sessions                 the signed-in user's sessions: this one + two seeded
 //   DELETE /api/v1/users/me/sessions/{id}          204 (also for an unknown id)
 //   POST /api/v1/users/me/sessions/revoke-others   {revoked}
@@ -47,11 +48,16 @@
 //   PATCH/DELETE /api/v1/orgs/acme/members/{id}    role change / removal with the API's owner rules
 //   POST /api/v1/orgs/acme/transfer-ownership      owners only; the caller becomes an admin
 //   POST /api/v1/orgs/acme/invitations             records nothing, answers one result per address
-//   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, stale?}
+//   GET|POST /api/v1/projects/shop/api-keys        list (newest first), create (raw key once);
+//   DELETE /api/v1/projects/shop/api-keys/{id}     revoke (204, or 410 api_key_gone). Creating and
+//                                                  revoking answer 403 without the capability
+//   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, stale?}
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  `role` is the user's role in acme (default owner);
 //                                                  with `totp_secret` (base32) it answers 2fa_required;
-//                                                  `passkeys` seeds the new user's passkey list;
+//                                                  `passkeys` seeds the new user's passkey list,
+//                                                  `capabilities` their actions on shop, `api_keys`
+//                                                  shop's keys as that user sees them;
 //                                                  `stale` makes /2fa/enable answer reauth_required
 //   POST /__fake/identities {identities}          test hook: replaces the connected accounts
 //
@@ -321,12 +327,55 @@ function capabilitiesFor(role: Role): string[] {
   return ["project.read"];
 }
 
-function bundle(next: string, seeds: Record<string, unknown>[] = [], role: Role = "owner") {
+/** A project API key as `GET /projects/{slug}/api-keys` lists it. */
+interface FakeApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+/** The one project of the fake context. */
+const PROJECT = "shop";
+/** User id → their seeded actions on shop (absent: what their role allows). */
+const capabilities = new Map<string, string[]>();
+/** User id → shop's API keys as that user sees them, newest first. */
+const apiKeys = new Map<string, FakeApiKey[]>();
+
+function seedApiKey(input: Record<string, unknown>): FakeApiKey {
+  return {
+    id: randomUUID(),
+    name: String(input.name ?? "Key"),
+    prefix: String(input.prefix ?? `apl_live_${token().slice(0, 7)}`),
+    scopes: Array.isArray(input.scopes) ? input.scopes.map(String) : ["ingest"],
+    created_at: String(input.created_at ?? new Date().toISOString()),
+    expires_at: typeof input.expires_at === "string" ? input.expires_at : null,
+    last_used_at: typeof input.last_used_at === "string" ? input.last_used_at : null,
+    revoked_at: typeof input.revoked_at === "string" ? input.revoked_at : null,
+  };
+}
+
+interface Seeds {
+  passkeys?: Record<string, unknown>[];
+  capabilities?: string[];
+  apiKeys?: Record<string, unknown>[];
+}
+
+/** The user's actions on shop: seeded ones, else what their role allows. */
+const capabilitiesOf = (id: string): string[] => capabilities.get(id) ?? capabilitiesFor(roleOf(id));
+
+function bundle(next: string, seeds: Seeds = {}, role: Role = "owner") {
   const id = randomUUID();
   const access = `at_${token()}`;
   seedSessions(id, access);
   seedMembers(id, role);
-  passkeys.set(id, seeds.map(seedPasskey));
+  passkeys.set(id, (seeds.passkeys ?? []).map(seedPasskey));
+  if (seeds.capabilities) capabilities.set(id, seeds.capabilities);
+  apiKeys.set(id, (seeds.apiKeys ?? []).map(seedApiKey));
   return {
     access_token: access,
     refresh_token: `rt_${token()}`,
@@ -374,7 +423,7 @@ function context(id: string) {
     ],
     last_project_slug: "shop",
     onboarding: { step: null, completed: true },
-    capabilities: { shop: capabilitiesFor(role) },
+    capabilities: { [PROJECT]: capabilitiesOf(id) },
   };
 }
 
@@ -382,7 +431,7 @@ function issueHandoff(
   next: string,
   secret?: string,
   backupCodes: string[] = [],
-  seeds: Record<string, unknown>[] = [],
+  seeds: Seeds = {},
   stale = false,
   role: Role = "owner",
 ): string {
@@ -634,6 +683,47 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   }
   const orgPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/(members|transfer-ownership|invitations)(?:\/([^/]+))?$/);
   if (orgPath) return orgs(req, res, orgPath[1], orgPath[2], orgPath[3]);
+  const keysPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/api-keys(?:\/([^/]+))?$/);
+  if (keysPath) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    // Like the API: a project the user cannot see answers forbidden.
+    if (decodeURIComponent(keysPath[1]) !== PROJECT) return problem(res, 403, "forbidden");
+    const list = apiKeys.get(user) ?? [];
+    const allowed = (action: string) => capabilitiesOf(user).includes(action);
+    const sub = keysPath[2];
+    if (req.method === "GET" && sub === undefined) return send(res, 200, list);
+    if (req.method === "POST" && sub === undefined) {
+      if (!allowed("api_keys.create")) return problem(res, 403, "forbidden");
+      const { name, scopes, expires_at: expires } = await readBody(req);
+      const label = typeof name === "string" ? name.trim() : "";
+      const picked = Array.isArray(scopes) ? scopes.map(String) : [];
+      const valid = picked.length > 0 && picked.every((s) => s === "ingest" || s === "read") && new Set(picked).size === picked.length;
+      const when = typeof expires === "string" ? Date.parse(expires) : undefined;
+      if (!label || label.length > 100 || !valid || (when !== undefined && !(when > Date.now()))) return problem(res, 400, "invalid_request");
+      const raw = `apl_live_${token()}`;
+      const created: FakeApiKey = {
+        id: randomUUID(),
+        name: label,
+        prefix: raw.slice(0, 16),
+        scopes: ["ingest", "read"].filter((s) => picked.some((p) => p === s)),
+        created_at: new Date().toISOString(),
+        expires_at: when === undefined ? null : new Date(when).toISOString(),
+        last_used_at: null,
+        revoked_at: null,
+      };
+      apiKeys.set(user, [created, ...list]);
+      return send(res, 201, { ...created, key: raw });
+    }
+    if (req.method === "DELETE" && sub !== undefined) {
+      if (!allowed("api_keys.revoke")) return problem(res, 403, "forbidden");
+      const found = list.find((k) => k.id === decodeURIComponent(sub));
+      if (!found) return problem(res, 410, "api_key_gone");
+      found.revoked_at ??= new Date().toISOString();
+      return send(res, 204);
+    }
+    return problem(res, 404, "not_found");
+  }
   const sessionPath = path.match(/^\/api\/v1\/users\/me\/sessions(?:\/([^/]+))?$/);
   if (sessionPath) {
     const access = req.headers.authorization?.replace(/^Bearer /, "") ?? "";
@@ -766,9 +856,22 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     return twoFactor(req, res, path.slice("/api/v1/auth/2fa".length), t);
   }
   if (req.method === "POST" && path === "/__fake/handoff") {
-    const { next, role, totp_secret: secret, backup_codes: backups, passkeys: seeds, stale } = await readBody(req);
+    const {
+      next,
+      role,
+      totp_secret: secret,
+      backup_codes: backups,
+      passkeys: seeds,
+      capabilities: caps,
+      api_keys: keys,
+      stale,
+    } = await readBody(req);
     const codes = Array.isArray(backups) ? backups.map(String) : [];
-    const seeded = Array.isArray(seeds) ? (seeds as Record<string, unknown>[]) : [];
+    const seeded: Seeds = {
+      passkeys: Array.isArray(seeds) ? (seeds as Record<string, unknown>[]) : [],
+      capabilities: Array.isArray(caps) ? caps.map(String) : undefined,
+      apiKeys: Array.isArray(keys) ? (keys as Record<string, unknown>[]) : [],
+    };
     const r = ROLES.has(role as Role) ? (role as Role) : "owner";
     const code = issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded, stale === true, r);
     return send(res, 200, { code });
