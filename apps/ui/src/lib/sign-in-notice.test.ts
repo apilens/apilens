@@ -5,6 +5,8 @@ describe("signInNotice", () => {
   it("has copy for every documented code", () => {
     expect(Object.keys(SIGN_IN_NOTICES).sort()).toEqual(
       [
+        "2fa_expired",
+        "2fa_locked",
         "account_deleting",
         "oauth_email_unverified",
         "oauth_identity_taken",
@@ -31,6 +33,8 @@ describe("signInNotice", () => {
   it("maps known reasons and errors", () => {
     expect(signInNotice({ reason: "session_expired" })).toMatchObject({ code: "session_expired", tone: "warn" });
     expect(signInNotice({ reason: "signed_out" })).toMatchObject({ code: "signed_out", tone: "info" });
+    expect(signInNotice({ reason: "2fa_locked" })).toMatchObject({ code: "2fa_locked", tone: "warn" });
+    expect(signInNotice({ reason: "2fa_expired" })).toMatchObject({ code: "2fa_expired", tone: "warn" });
     expect(signInNotice({ error: "oauth_identity_taken" })).toMatchObject({ code: "oauth_identity_taken", tone: "error" });
     expect(signInNotice({ error: "sso_required" })?.text).toBe(SIGN_IN_NOTICES.sso_required.text);
   });

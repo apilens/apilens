@@ -717,6 +717,8 @@ an unknown `?reason=` shows nothing. The copy lives in
 |---|---|---|
 | `?reason=signed_out` | `POST /api/auth/logout` | You're signed out. Sign in again whenever you're ready. |
 | `?reason=session_expired` | `web` when a refresh fails | Your session expired. Sign in again to pick up where you left off. |
+| `?reason=2fa_locked` | Two-factor step after the fifth wrong code (`too_many_attempts`) | Too many wrong two-factor codes. Sign in again to start over. |
+| `?reason=2fa_expired` | Two-factor step when the pending sign-in is gone (`invalid_token`, `2fa_session_expired`) | Your two-factor step timed out. Sign in again to continue. |
 | `?error=oauth_email_unverified` | OAuth callback | That provider account has no verified email. Verify it with the provider, or sign in with an email code. |
 | `?error=oauth_identity_taken` | OAuth callback (`intent=link`) | That provider account is already linked to a different APILens account. Sign in to that account instead. |
 | `?error=account_deleting` | Sign-in to an account in its deletion grace period | This account is scheduled for deletion, so it can't sign in. Contact support to restore it. |

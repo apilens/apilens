@@ -1,17 +1,21 @@
-// A fake identity server plus a fake OAuth provider for the social sign-in browser test (#317).
+// A fake identity server plus a fake OAuth provider for the social sign-in (#317) and two-factor
+// step (#320) browser tests.
 // It mirrors the real contract (internal/identity/oauth.go, oauth_callback.go, handoff_redeem.go):
 //
 //   GET  /api/v1/auth/providers                    google and github enabled
 //   GET  /api/v1/auth/oauth/{provider}/start       checks `next`, keeps a state, 302 to the provider
 //   GET  /fake-provider/authorize                  consent page: "Authorize" or "Deny"
 //   GET  /api/v1/auth/oauth/{provider}/callback    302 to {ui}/auth/callback?code=… or /sign-in?error=…
-//   POST /api/v1/auth/handoff                      redeems a one-time code (session bundle)
+//   POST /api/v1/auth/handoff                      redeems a one-time code (session bundle or 2fa_required)
+//   POST /api/v1/auth/2fa/exchange                 spends a pre-auth token with a TOTP or backup code
 //   POST /api/v1/auth/logout                       204
-//   POST /__fake/handoff {next}                    test hook: a code whose bundle carries any `next`
+//   POST /__fake/handoff {next, totp_secret?, backup_codes?}
+//                                                  test hook: a code whose bundle carries any `next`;
+//                                                  with `totp_secret` (base32) it answers 2fa_required
 //
 // Nothing here sends mail or talks to a real provider. Run with
 // `node --experimental-strip-types e2e-fake/fake-identity.ts` (Playwright starts it).
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 
 const PORT = Number(process.env.FAKE_IDENTITY_PORT ?? 18080);
@@ -25,9 +29,56 @@ interface State {
   remember: boolean;
 }
 
+interface PreAuth {
+  secret: Buffer;
+  backupCodes: Set<string>;
+  next: string;
+  attempts: number;
+}
+
 const states = new Map<string, State>();
 const handoffs = new Map<string, unknown>();
+const preAuths = new Map<string, PreAuth>();
 const token = () => randomBytes(24).toString("base64url");
+
+/** Mirrors identity.PreAuthMaxAttempts. */
+const PRE_AUTH_MAX_ATTEMPTS = 5;
+
+function base32Decode(input: string): Buffer {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = 0;
+  let value = 0;
+  const out: number[] = [];
+  for (const ch of input.toUpperCase().replace(/=+$/, "")) {
+    const i = alphabet.indexOf(ch);
+    if (i < 0) throw new Error("bad base32");
+    value = (value << 5) | i;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(out);
+}
+
+/** RFC 6238 TOTP (SHA-1, 6 digits, 30 s), like internal/identity/twofactor. */
+function totp(secret: Buffer, step: number): string {
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(step));
+  const mac = createHmac("sha1", secret).update(counter).digest();
+  const off = mac[mac.length - 1] & 0x0f;
+  const n = (mac.readUInt32BE(off) & 0x7fffffff) % 1_000_000;
+  return String(n).padStart(6, "0");
+}
+
+/** Accepts the current step and one either side, as identity does. */
+function totpValid(secret: Buffer, code: string): boolean {
+  const step = Math.floor(Date.now() / 30_000);
+  return [-1, 0, 1].some((d) => totp(secret, step + d) === code);
+}
+
+const normalizeBackup = (code: string) => code.toLowerCase().replace(/[-\s]/g, "");
 
 /** Same rules as identity.SafeNext: "" means "/", else one leading "/" and no backslash/control. */
 function safeNext(next: string): string | null {
@@ -60,9 +111,20 @@ function bundle(next: string) {
   };
 }
 
-function issueHandoff(next: string): string {
+function issueHandoff(next: string, secret?: string, backupCodes: string[] = []): string {
   const code = token();
-  handoffs.set(code, bundle(next));
+  if (secret) {
+    const pre = token();
+    preAuths.set(pre, {
+      secret: base32Decode(secret),
+      backupCodes: new Set(backupCodes.map(normalizeBackup)),
+      next,
+      attempts: 0,
+    });
+    handoffs.set(code, { status: "2fa_required", pre_auth_token: pre, next });
+  } else {
+    handoffs.set(code, bundle(next));
+  }
   return code;
 }
 
@@ -141,10 +203,31 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     handoffs.delete(code as string);
     return send(res, 200, answer);
   }
+  if (req.method === "POST" && path === "/api/v1/auth/2fa/exchange") {
+    const { pre_auth_token: raw, code, backup_code: backup } = await readBody(req);
+    if ((typeof code === "string") === (typeof backup === "string")) return problem(res, 400, "invalid_request");
+    const pre = typeof raw === "string" ? preAuths.get(raw) : undefined;
+    if (!pre) return problem(res, 401, "invalid_token");
+    pre.attempts++;
+    const ok =
+      typeof code === "string"
+        ? totpValid(pre.secret, code)
+        : pre.backupCodes.delete(normalizeBackup(String(backup)));
+    if (!ok) {
+      if (pre.attempts >= PRE_AUTH_MAX_ATTEMPTS) {
+        preAuths.delete(raw as string);
+        return problem(res, 429, "too_many_attempts");
+      }
+      return problem(res, 401, "invalid_code");
+    }
+    preAuths.delete(raw as string);
+    return send(res, 200, bundle(pre.next));
+  }
   if (req.method === "POST" && path === "/api/v1/auth/logout") return send(res, 204);
   if (req.method === "POST" && path === "/__fake/handoff") {
-    const { next } = await readBody(req);
-    return send(res, 200, { code: issueHandoff(String(next ?? "/")) });
+    const { next, totp_secret: secret, backup_codes: backups } = await readBody(req);
+    const codes = Array.isArray(backups) ? backups.map(String) : [];
+    return send(res, 200, { code: issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes) });
   }
   return problem(res, 404, "not_found");
 }
