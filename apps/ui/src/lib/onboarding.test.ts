@@ -170,7 +170,16 @@ describe("/onboarding/* pages", () => {
     const create = (await CreatePage()) as { props: Record<string, unknown> };
     // The organization screen starts from the saved address (#327).
     expect(create.props).toEqual({ step: 1, reached: 1, answers: { org_slug: "example-co" } });
-    expect(getContext.mock.calls.map(([p]) => p)).toEqual(["/onboarding/about", "/onboarding/join", "/onboarding/create"]);
+    // About reads the context twice (guard, then the invited check); `cache()` makes it one call.
+    expect(getContext.mock.calls.map(([p]) => p)).toEqual(["/onboarding/about", "/onboarding/about", "/onboarding/join", "/onboarding/create"]);
+  });
+
+  it("about tells an invited user which organization Continue opens (#337)", async () => {
+    const globex: ContextOrg = { ...ACME, id: "o2", slug: "globex", name: "Globex", role: "member" };
+    const invited = ctx({ step: "about", completed: false, answers: { org_slug: "globex" } }, [globex]);
+    getContext.mockResolvedValue(invited);
+    const about = (await AboutPage()) as { props: Record<string, unknown> };
+    expect(about.props).toEqual({ step: 0, reached: 0, invitedOrg: "Globex" });
   });
 
   it("redirect when the page is not allowed", async () => {

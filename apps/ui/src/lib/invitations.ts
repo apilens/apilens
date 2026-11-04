@@ -4,7 +4,12 @@
 // `created_at`) so the Resend button counts down instead of failing; the server stays the
 // authority and answers `rate_limited` with `retry_after`. Pure; safe in Client Components and
 // Server Actions alike.
-import type { Invitation } from "./identity";
+//
+// Also the invitation landing (`/invite/{token}`, #337): who signs in where, what accepting does
+// and how the invited user's onboarding skips the organization and project steps.
+import type { ContextOrg, Invitation, InvitationAccepted, UpdateOnboardingRequest, UserContext } from "./identity";
+import { homeView } from "./landing";
+import { orgHome } from "./scope";
 
 /** The least time between two emails of one invitation (`orgs.ResendCooldown`). */
 export const RESEND_COOLDOWN_MS = 5 * 60_000;
@@ -70,4 +75,92 @@ export function invitationsError(code: string): string {
     default:
       return "Something went wrong. Try again in a moment.";
   }
+}
+
+// --- Invitation landing (#337) ---
+
+/** The onboarding step an invited user starts at (and the only one they see). */
+export const INVITED_STEP = "about";
+/** Where an invited user with open onboarding goes after accepting. */
+export const INVITED_ONBOARDING_PATH = `/onboarding/${INVITED_STEP}`;
+
+/** The landing page of an invitation token. */
+export function invitePath(token: string): string {
+  return `/invite/${encodeURIComponent(token)}`;
+}
+
+/** The Route Handler that accepts an invitation as the signed-in user. */
+export function acceptPath(token: string): string {
+  return `/api/invitations/${encodeURIComponent(token)}/accept`;
+}
+
+/**
+ * Where "Accept invitation" sends a signed-out visitor: sign in when this device remembers an
+ * account (#314), else sign up. Either way they come back to the invitation afterwards.
+ */
+export function inviteAuthPath(token: string, remembered: boolean): string {
+  return `${remembered ? "/sign-in" : "/sign-up"}?${new URLSearchParams({ next: invitePath(token) })}`;
+}
+
+/** Problems the landing shows instead of (or under) the invitation. */
+export type InviteProblem = "invite_expired" | "invalid_token" | "invite_email_mismatch" | "error";
+
+/** Maps an identity `code` to the problem the landing shows; anything unknown is `error`. */
+export function inviteProblem(code: string | null | undefined): InviteProblem {
+  return code === "invite_expired" || code === "invalid_token" || code === "invite_email_mismatch" ? code : "error";
+}
+
+/**
+ * The organization of an invitation the user accepted while onboarding: the stored
+ * `answers.org_slug` names an organization they belong to without owning it (an invitation never
+ * makes an owner, while the organization step's create does). Undefined for everyone else.
+ */
+export function invitedOrg(ctx: UserContext): ContextOrg | undefined {
+  if (ctx.onboarding?.completed) return undefined;
+  const answers = ctx.onboarding?.answers ?? ctx.user.onboarding?.answers;
+  const slug = answers && typeof answers.org_slug === "string" ? answers.org_slug : "";
+  if (!slug) return undefined;
+  const org = ctx.orgs.find((o) => o.slug === slug);
+  return org && org.role !== "owner" ? org : undefined;
+}
+
+/** Where an invited user lands once onboarding is done: the organization's first project. */
+export function invitedLanding(ctx: UserContext, org: ContextOrg): string {
+  return orgHome(org, homeView(ctx));
+}
+
+export interface AcceptDeps {
+  accept: () => Promise<InvitationAccepted>;
+  context: () => Promise<UserContext>;
+  updateOnboarding: (patch: UpdateOnboardingRequest) => Promise<unknown>;
+}
+
+/**
+ * Accepts the invitation and says where the browser goes next. A user still onboarding resumes
+ * at the about step with the organization saved (`answers.org_slug`), which marks them as
+ * invited: the about step then opens the organization's first project instead of the
+ * organization and project steps. A user who finished onboarding goes straight to the
+ * organization. Identity errors (`invite_email_mismatch`, `invite_expired`, …) propagate.
+ */
+export async function acceptInvitation(deps: AcceptDeps): Promise<string> {
+  const { org } = await deps.accept();
+  const ctx = await deps.context();
+  if (!ctx.onboarding?.completed) {
+    await deps.updateOnboarding({ step: INVITED_STEP, answers: { org_slug: org.slug } });
+    return INVITED_ONBOARDING_PATH;
+  }
+  const joined = ctx.orgs.find((o) => o.slug === org.slug);
+  return joined ? invitedLanding(ctx, joined) : "/";
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/** "Expires in 7 days" (to the nearest day), "Expires in 3 hours" (whole hours), "Expires within the hour". */
+export function expiresIn(expiresAt: string, now = Date.now()): string {
+  const left = Date.parse(expiresAt) - now;
+  if (!Number.isFinite(left) || left < HOUR_MS) return "Expires within the hour";
+  const hours = Math.floor(left / HOUR_MS);
+  if (hours < 24) return `Expires in ${hours} hour${hours === 1 ? "" : "s"}`;
+  const days = Math.round(left / (24 * HOUR_MS));
+  return `Expires in ${days} day${days === 1 ? "" : "s"}`;
 }

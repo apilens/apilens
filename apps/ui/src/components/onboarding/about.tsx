@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { finishInvitedOnboarding } from "@/app/(auth)/onboarding/actions";
 import { BackNext, ObShell, type StepProps } from "./ob";
 import { useOnboardingContinue } from "./progress";
 
@@ -10,9 +11,14 @@ const PICKS = [
   { id: "exceptions", t: "Exceptions", s: "Grouped, with the request that caused each one" },
 ];
 
-export function About({ step = 0, reached = step }: Partial<StepProps>) {
+/**
+ * `invitedOrg`: the organization an invitation made the user a member of (#337). They skip the
+ * organization and project steps: Continue finishes onboarding and opens its first project.
+ */
+export function About({ step = 0, reached = step, invitedOrg }: Partial<StepProps> & { invitedOrg?: string }) {
   const [pick, setPick] = useState("endpoints");
   const { go, pending } = useOnboardingContinue(reached);
+  const [finishing, startFinishing] = useTransition();
   return (
     <ObShell
       eyebrow="02:21 AM"
@@ -29,7 +35,13 @@ export function About({ step = 0, reached = step }: Partial<StepProps>) {
       badge="eye"
       title="What should you see first?"
       lead="This becomes your home screen. You can change it anytime."
-      footer={<BackNext back="/verify" nextLabel="Continue" loading={pending} onNext={() => go("join", "/onboarding/join")} />}
+      footer={
+        invitedOrg ? (
+          <BackNext back="/verify" nextLabel={`Continue to ${invitedOrg}`} loading={finishing} disabled={finishing} onNext={() => startFinishing(() => finishInvitedOnboarding())} />
+        ) : (
+          <BackNext back="/verify" nextLabel="Continue" loading={pending} onNext={() => go("join", "/onboarding/join")} />
+        )
+      }
     >
       <div className="ob-picks" role="radiogroup" aria-label="Home screen">
         {PICKS.map((p) => (

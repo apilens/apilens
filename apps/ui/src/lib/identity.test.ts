@@ -344,6 +344,7 @@ describe("operations", () => {
     ["DELETE", "/users/me/passkeys/{id}", (c) => c.deleteMyPasskey("a/b?c", authed)],
     ["PATCH", "/users/me", (c) => c.updateMe({ name: "Ada" }, authed)],
     ["DELETE", "/users/me", (c) => c.deleteMe(authed)],
+    ["PATCH", "/users/me/onboarding", (c) => c.updateOnboarding({ step: "about" }, authed)],
     ["POST", "/users/me/email/change", (c) => c.startEmailChange({ new_email: "new@example.com" }, authed)],
     ["POST", "/users/me/email/confirm", (c) => c.confirmEmailChange({ code: "123456" }, authed)],
     ["GET", "/auth/invitations/{token}", (c) => c.invitationLookup("a/b?c")],

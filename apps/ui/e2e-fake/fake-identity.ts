@@ -33,7 +33,7 @@
 //   POST /api/v1/auth/2fa/disable
 //   POST /api/v1/auth/2fa/backup-codes/regenerate
 //   GET|PATCH /api/v1/users/me                     the fake user; PATCH renames it
-//   PATCH /api/v1/users/me/onboarding              saves the step and merges the answers per user (#327);
+//   PATCH /api/v1/users/me/onboarding              saves the step, completed and merges the answers per user (#327);
 //                                                  the context reports them. An org_slug of
 //                                                  `unavailable` answers 503 unavailable
 //   POST /api/v1/users/me/email/change             `taken@example.com` answers email_taken
@@ -72,6 +72,11 @@
 //                                                  `sso` seeds acme's SSO connection (fields of the read),
 //                                                  `stale` makes /2fa/enable answer reauth_required
 //   POST /__fake/identities {identities}          test hook: replaces the connected accounts
+//   GET  /api/v1/auth/invitations/{token}          invitation landing (#337): inv_globex (for
+//                                                  you@example.com), inv_other (another address),
+//                                                  inv_expired (invite_expired); else invalid_token
+//   POST /api/v1/auth/invitations/{token}/accept   joins globex (project storefront) as a member;
+//                                                  invite_email_mismatch for inv_other
 //
 // Nothing here sends mail or talks to a real provider. Run with
 // `node --experimental-strip-types e2e-fake/fake-identity.ts` (Playwright starts it).
@@ -468,9 +473,9 @@ function bundle(next: string, seeds: Seeds = {}, role: Role = "owner") {
 const PROFILE_DEFAULTS = { name: "Fake User", email: "you@example.com", soleOwner: true };
 const profile = { ...PROFILE_DEFAULTS, pendingEmail: null as string | null };
 
-/** Each fake user's saved onboarding progress (#327): the step and answers. */
-const onboardingByUser = new Map<string, { step: string | null; answers: Record<string, unknown> }>();
-const onboardingOf = (id: string) => onboardingByUser.get(id) ?? { step: null, answers: {} };
+/** Each fake user's saved onboarding progress (#327): the step, answers and whether it is done. */
+const onboardingByUser = new Map<string, { step: string | null; completed: boolean; answers: Record<string, unknown> }>();
+const onboardingOf = (id: string) => onboardingByUser.get(id) ?? { step: null, completed: false, answers: {} };
 const ONBOARDING_ANSWERS: Record<string, RegExp | "count"> = {
   org_slug: /^([a-z0-9][a-z0-9-]{0,62})?$/,
   project_slug: /^([a-z0-9][a-z0-9-]{0,62})?$/,
@@ -480,7 +485,24 @@ const ONBOARDING_ANSWERS: Record<string, RegExp | "count"> = {
   invited: "count",
 };
 
-/** `GET /users/me/context` for a signed-in fake user: one org with one project. */
+/** Invitations by token (#337); every address is @example.com. */
+const INVITES: Record<string, { email: string; masked: string; expired?: boolean }> = {
+  inv_globex: { email: "you@example.com", masked: "y***@example.com" },
+  inv_other: { email: "someone@example.com", masked: "s***@example.com" },
+  inv_expired: { email: "you@example.com", masked: "y***@example.com", expired: true },
+};
+/** The organization every fake invitation is to. */
+const GLOBEX = {
+  id: "org_globex",
+  slug: "globex",
+  name: "Globex",
+  role: "member",
+  projects: [{ id: "prj_globex", slug: "storefront", name: "storefront", environments: ["production"] }],
+};
+/** Users who accepted an invitation. */
+const joinedGlobex = new Set<string>();
+
+/** `GET /users/me/context` for a signed-in fake user: one org with one project (plus globex once invited). */
 function context(id: string) {
   const role = roleOf(id);
   const progress = onboardingOf(id);
@@ -492,7 +514,7 @@ function context(id: string) {
       name: profile.name,
       avatar_url: null,
       preferences: {},
-      onboarding: { step: progress.step, completed: false, answers: progress.answers },
+      onboarding: { step: progress.step, completed: progress.completed, answers: progress.answers },
       created_at: new Date().toISOString(),
     },
     orgs: [
@@ -503,11 +525,15 @@ function context(id: string) {
         role,
         projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"] }],
       },
+      ...(joinedGlobex.has(id) ? [GLOBEX] : []),
     ],
     last_project_slug: "shop",
     // Every fake sign-in is a new user, so onboarding is still open: `/onboarding/*` shows (#326).
-    onboarding: { step: progress.step, completed: false },
-    capabilities: { [PROJECT]: capabilitiesOf(id) },
+    onboarding: { step: progress.step, completed: progress.completed },
+    capabilities: {
+      [PROJECT]: capabilitiesOf(id),
+      ...(joinedGlobex.has(id) ? { storefront: capabilitiesFor("member") } : {}),
+    },
   };
 }
 
@@ -726,12 +752,38 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const user = userByAccess.get(req.headers.authorization.slice("Bearer ".length));
     return send(res, 200, context(user ?? randomUUID()));
   }
+  const invite = path.match(/^\/api\/v1\/auth\/invitations\/([^/]+)(\/accept)?$/);
+  if (invite) {
+    const inv = INVITES[decodeURIComponent(invite[1])];
+    if (invite[2] && req.method === "POST") {
+      const user = signedInUser(req);
+      if (!user) return problem(res, 401, "unauthenticated");
+      if (!inv) return problem(res, 401, "invalid_token");
+      if (inv.expired) return problem(res, 410, "invite_expired");
+      if (inv.email !== profile.email) return problem(res, 403, "invite_email_mismatch");
+      const joined = !joinedGlobex.has(user);
+      joinedGlobex.add(user);
+      return send(res, 200, { org: { id: GLOBEX.id, slug: GLOBEX.slug, name: GLOBEX.name, role: GLOBEX.role }, joined });
+    }
+    if (!invite[2] && req.method === "GET") {
+      if (!inv) return problem(res, 401, "invalid_token");
+      if (inv.expired) return problem(res, 410, "invite_expired");
+      return send(res, 200, {
+        org: { name: GLOBEX.name, slug: GLOBEX.slug },
+        inviter_name: "Olive Owner",
+        email_masked: inv.masked,
+        role: "member",
+        expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+      });
+    }
+  }
   if (req.method === "PATCH" && path === "/api/v1/users/me/onboarding") {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
-    const { step, answers = {}, ...rest } = await readBody(req);
+    const { step, answers = {}, completed, ...rest } = await readBody(req);
     const valid =
       Object.keys(rest).length === 0 &&
+      (completed === undefined || typeof completed === "boolean") &&
       (step === undefined || (typeof step === "string" && /^[a-z][a-z0-9_-]{0,31}$/.test(step))) &&
       typeof answers === "object" &&
       answers !== null &&
@@ -745,9 +797,13 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const given = answers as Record<string, unknown>;
     if (given.org_slug === "unavailable") return problem(res, 503, "unavailable");
     const progress = onboardingOf(user);
-    const saved = { step: typeof step === "string" ? step : progress.step, answers: { ...progress.answers, ...given } };
+    const saved = {
+      step: typeof step === "string" ? step : progress.step,
+      completed: typeof completed === "boolean" ? completed : progress.completed,
+      answers: { ...progress.answers, ...given },
+    };
     onboardingByUser.set(user, saved);
-    return send(res, 200, { ...saved, completed: false, completed_at: null });
+    return send(res, 200, { ...saved, completed_at: saved.completed ? new Date().toISOString() : null });
   }
   if (path === "/api/v1/users/me" || path.startsWith("/api/v1/users/me/email/")) {
     if (!req.headers.authorization?.startsWith("Bearer at_")) return problem(res, 401, "unauthenticated");
