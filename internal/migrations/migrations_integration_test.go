@@ -951,3 +951,73 @@ func TestPostgresOAuthProviderMigrationRollsBack(t *testing.T) {
 		t.Error("table oauth_tokens missing after re-apply")
 	}
 }
+
+func TestPostgresDefaultAppsMigrationBackfills(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.DownTo(ctx, 11); err != nil {
+		t.Fatalf("roll back to 00011: %v", err)
+	}
+
+	// bare: no app (created through the API before 00012), backfilled;
+	// seeded: already has an app, left alone; gone: soft-deleted, left alone.
+	if _, err := pool.Exec(ctx, `INSERT INTO organizations (id, slug, name) VALUES (gen_random_uuid(), 'acme', 'Acme')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []struct{ slug, deleted string }{{"bare", "NULL"}, {"seeded", "NULL"}, {"gone", "now()"}} {
+		q := fmt.Sprintf(`INSERT INTO projects (id, org_id, slug, name, deleted_at)
+			SELECT gen_random_uuid(), id, $1::text, upper($1::text), %s FROM organizations WHERE slug = 'acme'`, p.deleted)
+		if _, err := pool.Exec(ctx, q, p.slug); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO apps (id, project_id, slug, name)
+		SELECT gen_random_uuid(), id, 'storefront', 'Storefront' FROM projects WHERE slug = 'seeded'`); err != nil {
+		t.Fatal(err)
+	}
+
+	apps := func() []string {
+		t.Helper()
+		rows, err := pool.Query(ctx, `SELECT p.slug || ':' || a.slug || ':' || a.name FROM apps a JOIN projects p ON p.id = a.project_id
+			WHERE a.deleted_at IS NULL ORDER BY 1`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var s string
+			if err := rows.Scan(&s); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, s)
+		}
+		return out
+	}
+	want := []string{"bare:bare:BARE", "seeded:storefront:Storefront"}
+
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("apply 00012: %v", err)
+	}
+	if got := apps(); !slices.Equal(got, want) {
+		t.Fatalf("apps after backfill = %v, want %v", got, want)
+	}
+
+	// Down is a no-op and re-applying does not duplicate.
+	if _, err := provider.DownTo(ctx, 11); err != nil {
+		t.Fatalf("roll back 00012: %v", err)
+	}
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply 00012: %v", err)
+	}
+	if got := apps(); !slices.Equal(got, want) {
+		t.Fatalf("apps after re-apply = %v, want %v", got, want)
+	}
+}

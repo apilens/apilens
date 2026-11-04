@@ -7,7 +7,9 @@
 // projects_slug_active is the final arbiter, so two concurrent creates of one
 // slug end with exactly one winner. Creating and deleting a project write the
 // project.created / project.deleted outbox rows (ADR 0006) in the same
-// transaction as the change.
+// transaction as the change. Creating a project also registers its default
+// app, whose identifier is the project slug, so SDKs can send events with
+// app_id = <project slug> straight away.
 //
 // Role checks read memberships until the authz middleware lands; they follow
 // authz/schema.zed: any member may read, owners, admins and members may
@@ -155,6 +157,12 @@ func (s *Service) create(ctx context.Context, user uuid.UUID, orgSlug, name, slu
 	p, err := q.CreateProject(ctx, db.CreateProjectParams{ID: uuid.New(), OrgID: org.ID, Slug: slug, Name: name})
 	if err != nil {
 		return Project{}, fmt.Errorf("projects: create project: %w", err)
+	}
+	// The default app: ingest only accepts app identifiers registered on the
+	// project, and the install instructions tell SDKs to send app_id = the
+	// project slug. Without it a new project's first events are rejected.
+	if _, err := q.UpsertApp(ctx, db.UpsertAppParams{ID: uuid.New(), ProjectID: p.ID, Slug: p.Slug, Name: p.Name}); err != nil {
+		return Project{}, fmt.Errorf("projects: create default app: %w", err)
 	}
 	for _, e := range envs {
 		if _, err := q.CreateEnvironment(ctx, db.CreateEnvironmentParams{ID: uuid.New(), ProjectID: p.ID, Name: e}); err != nil {

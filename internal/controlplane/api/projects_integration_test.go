@@ -65,6 +65,13 @@ func TestCreateProject(t *testing.T) {
 	if n := f.count(t, `SELECT count(*) FROM environments WHERE project_id = $1`, p.ID); n != 2 {
 		t.Fatalf("environments = %d, want 2", n)
 	}
+	// The default app, so SDKs can send app_id = <project slug>.
+	if n := f.count(t, `SELECT count(*) FROM apps WHERE project_id = $1 AND slug = 'checkout' AND name = 'Checkout API' AND deleted_at IS NULL`, p.ID); n != 1 {
+		t.Fatalf("default apps = %d, want 1", n)
+	}
+	if n := f.count(t, `SELECT count(*) FROM apps WHERE project_id = $1`, p.ID); n != 1 {
+		t.Fatalf("apps = %d, want 1", n)
+	}
 
 	var aggregate string
 	var payload map[string]string
