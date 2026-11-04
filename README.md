@@ -47,14 +47,24 @@ and the [decision records](docs/adr/README.md).
 
 ```sh
 cd deploy/compose
-cp .env.example .env            # set the passwords
+cp .env.example .env
+# Fill in every secret (or edit .env by hand; see the comments in it):
+for k in POSTGRES_PASSWORD CLICKHOUSE_PASSWORD VALKEY_PASSWORD SESSION_SECRET SPICEDB_PRESHARED_KEY; do
+  sed -i.bak "s|^$k=.*|$k=$(openssl rand -hex 32)|" .env
+done
+sed -i.bak "s|^APILENS_IDENTITY__KEY_ENCRYPTION_KEY=.*|APILENS_IDENTITY__KEY_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env && rm .env.bak
 docker compose up -d --wait
-docker compose run --rm --entrypoint /apilens apilens seed   # prints api_key (ingest) and read_key
-# web UI on http://localhost:3000
 ```
 
+Open http://localhost:3000 and sign up with your email. Email delivery is off by
+default (`APILENS_EMAIL__PROVIDER=log`), so read the sign-in code from
+`docker compose logs apilens`, then create your organization and project in
+onboarding. `docker compose run --rm --entrypoint /apilens apilens seed` prints
+a dev ingest key (`api_key`) if you want to send events right away.
+
 Point an SDK (or any OpenTelemetry exporter at `http://<host>:8080/otlp`) at
-the edge. See [deploy/README.md](deploy/README.md) for TLS, upgrades and Helm.
+the edge. See [deploy/README.md](deploy/README.md) for email, TLS, upgrades and
+Helm.
 
 ```python
 from apilens.fastapi import ApiLensMiddleware

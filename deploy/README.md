@@ -3,7 +3,7 @@
 | Path | What it is |
 |---|---|
 | `docker/Dockerfile` | One image for every role: a static Go binary on distroless, running as non-root |
-| `compose/compose.yaml` | Self-hosted all-in-one: Postgres, ClickHouse, Valkey, SpiceDB, migrate, apilens, console (v2 dashboard) and web (v1 dashboard) |
+| `compose/compose.yaml` | Self-hosted all-in-one: Postgres, ClickHouse, Valkey, SpiceDB, migrate, apilens (`-target=all`) and web (the dashboard, `apps/ui`) |
 | `compose/compose.dev.yaml` | Datastores only, for local development (ports bound to 127.0.0.1) |
 | `compose/compose.ci.yaml` + `compose/ci.env` | Override with throwaway secrets for CI end-to-end tests |
 | `helm/apilens/` | Kubernetes chart: one Deployment per role, migrations as a hook Job |
@@ -12,16 +12,44 @@
 
 ```bash
 cd deploy/compose
-cp .env.example .env          # set every secret: openssl rand -hex 32
+cp .env.example .env
+# Fill in every secret (or edit .env by hand; see the comments in it):
+for k in POSTGRES_PASSWORD CLICKHOUSE_PASSWORD VALKEY_PASSWORD SESSION_SECRET SPICEDB_PRESHARED_KEY; do
+  sed -i.bak "s|^$k=.*|$k=$(openssl rand -hex 32)|" .env
+done
+sed -i.bak "s|^APILENS_IDENTITY__KEY_ENCRYPTION_KEY=.*|APILENS_IDENTITY__KEY_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env && rm .env.bak
 docker compose up -d --wait   # add --build to build the images from source
-docker compose run --rm --entrypoint /apilens apilens seed
 ```
 
-`seed` prints one JSON line with two keys:
-- `api_key` (scope `ingest`): point an SDK at `http://<host>:8080/v1`, or an OpenTelemetry exporter at `http://<host>:8080/otlp`, with this key.
-- `read_key` (scope `read`): put it in `.env` as `APILENS_READ_KEY`, then `docker compose up -d console`. The v2 dashboard runs on port 3100 (`APILENS_CONSOLE_PORT`). It calls the API from its server, so the key never reaches browsers.
+Then open http://localhost:3000 and sign up. With the default `log` email provider nothing is sent: the sign-in code is in `docker compose logs apilens` (see [Email](#email) to deliver mail). Onboarding then creates your organization and project.
 
-Published ports: ingest/API on 8080, console on 3100, and the v1 dashboard on 3000 (until cutover). Postgres, ClickHouse, Valkey and SpiceDB are reachable only on the compose network.
+For a scripted setup, `docker compose run --rm --entrypoint /apilens apilens seed` creates a dev org, project and app and prints one JSON line with an `api_key` (scope `ingest`) and a `read_key` (scope `read`). Point an SDK at `http://<host>:8080/v1`, or an OpenTelemetry exporter at `http://<host>:8080/otlp`, with the `api_key`.
+
+Published ports: the API on 8080 and the dashboard on 3000. Postgres, ClickHouse, Valkey and SpiceDB are reachable only on the compose network.
+
+### Services and URLs
+
+`apilens` runs `-target=all`: every role in one process on port 8080, namely `edge` (ingest: `/v1`, `/otlp`), `query` and `api` (the dashboard API under `/api/v1`) and `identity` (`/api/v1/auth/*`). `web` is the dashboard; it calls `apilens` server-side over the compose network, so browsers only ever talk to port 3000 for the UI.
+
+| Variable | Default | Used by | Meaning |
+|---|---|---|---|
+| `APILENS_PUBLIC_URL` | `http://localhost:3000` | `web`, `apilens` | Origin users open the dashboard at. `web` uses it for links, redirects and the session cookie (`Secure` when https); identity uses it for email links and as the default WebAuthn origin |
+| `APILENS_PUBLIC_INGEST_URL` | `http://localhost:8080` | `web` | Public URL of port 8080 that SDKs send events to, used in the dashboard's setup snippets |
+| `APILENS_IDENTITY__ISSUER` | `http://localhost:8080` | `apilens` | Token issuer: the public URL of the API (port 8080) |
+| `APILENS_IDENTITY__WEBAUTHN__RP_ID` | `localhost` | `apilens` | Passkey relying party: the dashboard's registrable domain, no scheme or port |
+| `SESSION_SECRET` | (required) | `web` | Encrypts the dashboard session cookie; at least 32 characters. Rotating it signs everyone out |
+| `APILENS_IDENTITY__KEY_ENCRYPTION_KEY` | (required) | `apilens` | 32 random bytes, base64. Encrypts token signing keys and TOTP secrets at rest |
+
+`web` reaches the API at `APILENS_API_URL=http://apilens:8080`, fixed in `compose.yaml`. Behind a TLS proxy on your own domains, set at least:
+
+```bash
+APILENS_PUBLIC_URL=https://apilens.example.com
+APILENS_PUBLIC_INGEST_URL=https://api.apilens.example.com
+APILENS_IDENTITY__ISSUER=https://api.apilens.example.com
+APILENS_IDENTITY__WEBAUTHN__RP_ID=apilens.example.com
+```
+
+All identity, authorization and email settings (`APILENS_IDENTITY__*`, `APILENS_AUTHZ__*`, `APILENS_EMAIL__*`) are listed with comments in `compose/.env.example`.
 
 ### Email
 
@@ -99,7 +127,7 @@ See [`helm/apilens/README.md`](helm/apilens/README.md). The chart expects extern
 
 ## Security notes
 
-- Terminate TLS in front of ports 8080 and 3000 with Caddy, nginx or a cloud load balancer. APILens itself serves plain HTTP.
+- Terminate TLS in front of ports 8080 and 3000 with Caddy, nginx or a cloud load balancer. APILens itself serves plain HTTP. Use https public URLs so the dashboard session cookie is `Secure`.
 - The APILens containers:
   - run as UID 65532 with a read-only root filesystem;
   - drop all Linux capabilities and set `no-new-privileges`;
