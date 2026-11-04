@@ -300,6 +300,28 @@ describe("2FA", () => {
     expect(cookieLine(second.setCookies, lib.PRE_AUTH_COOKIE_NAME)).toMatch(/Max-Age=0/);
   });
 
+  it.each([
+    [true, 2_592_000],
+    [false, 86_400],
+  ])("carries remember=%s from the first factor to a %i-second session cookie", async (remember, maxAge) => {
+    replies["POST /api/v1/auth/email/verify"] = () => ({
+      status: 200,
+      body: { status: "2fa_required", pre_auth_token: PRE_AUTH, next: "/acme/endpoints" },
+    });
+    const first = await call("email/verify", { body: { email: "ada@example.com", code: "123456", remember } });
+    expect(seen[0].body).toEqual({ email: "ada@example.com", code: "123456", remember });
+
+    replies["POST /api/v1/auth/2fa/exchange"] = () => ({ status: 200, body: BUNDLE });
+    const second = await call("2fa/exchange", {
+      body: { code: "654321" },
+      cookies: { [lib.PRE_AUTH_COOKIE_NAME]: cookieValue(first.setCookies, lib.PRE_AUTH_COOKIE_NAME) as string },
+    });
+    expect(second.json).toEqual({ ok: true, next: "/acme/endpoints" });
+    expect(cookieLine(second.setCookies, session.SESSION_COOKIE_NAME)).toMatch(new RegExp(`Max-Age=${maxAge}(;|$)`));
+    const opened = await session.open(cookieValue(second.setCookies, session.SESSION_COOKIE_NAME), SECRET);
+    expect(opened).toMatchObject({ remember });
+  });
+
   it("accepts a backup code", async () => {
     replies["POST /api/v1/auth/2fa/exchange"] = () => ({ status: 200, body: BUNDLE });
     const pre = Buffer.from(JSON.stringify({ t: PRE_AUTH, r: false, n: "/" })).toString("base64url");

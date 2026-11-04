@@ -16,10 +16,11 @@ import {
   wrongCodeMessage,
 } from "@/lib/email-verify";
 import { rememberAccount } from "@/lib/remembered-account";
+import { KeepSignedIn } from "./keep-signed-in";
 import { BackNext, ObIcon, ObShell } from "./ob";
 
-/** Sessions default to "keep me signed in"; #322 puts a control on this page for it. */
-const REMEMBER = true;
+/** "Keep me signed in" starts checked (30-day session); unchecked asks for 24 hours (#322). */
+const DEFAULT_REMEMBER = true;
 
 type Problem =
   | { kind: "invalid_code"; left: number }
@@ -66,6 +67,7 @@ export function Verify() {
   const [problem, setProblem] = useState<Problem | null>(null);
   const [sent, setSent] = useState(false);
   const [shake, setShake] = useState(false);
+  const [remember, setRemember] = useState(DEFAULT_REMEMBER);
   // The resend cooldown starts where `/api/auth/email/start` said (`retry_after`, #313).
   const [left, setLeft] = useCountdown(secondsParam(params.get("retry_after")));
   // A verify rate limit (429 `rate_limited`) blocks checking codes until it runs out.
@@ -94,7 +96,7 @@ export function Verify() {
     const res = await verifyEmailCode({
       email,
       code: value,
-      remember: REMEMBER,
+      remember,
       next: asked ?? (signin ? undefined : NEW_USER_PATH),
     });
     if (res.kind === "signed_in" || res.kind === "2fa_required") {
@@ -268,6 +270,7 @@ export function Verify() {
           </div>
         )}
       </div>
+      <KeepSignedIn checked={remember} onChange={setRemember} disabled={sending} />
       <div className="ob-actions">
         <a className="ah-btn ah-btn--secondary ah-btn--sm" href={mail("mail.google.com")} target="_blank" rel="noreferrer">
           <ObIcon name="out" />

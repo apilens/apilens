@@ -36,8 +36,8 @@ export const VERIFY_PATH = "/verify";
 /** Longest token accepted (matches `POST /api/auth/email/verify-link`). */
 export const MAX_TOKEN_LENGTH = 2048;
 /**
- * Magic-link sessions are kept like code sign-ins: "keep me signed in" until #322 adds a
- * control for it.
+ * A magic link opens straight into a session with no form to ask on, so it takes the default of
+ * the "keep me signed in" control on the code page (#322): a 30-day session and cookie.
  */
 export const LINK_REMEMBER = true;
 

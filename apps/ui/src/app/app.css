@@ -92,6 +92,12 @@
 .ob-code6 input:disabled { cursor: not-allowed; }
 @keyframes obShake { 0%, 100% { transform: none; } 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
 @media (prefers-reduced-motion: reduce) { .ob-code6.is-shake { animation: none; } }
+/* "Keep me signed in" on /verify and the 2FA step (#322). */
+.ob-keep { display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; font: 500 14px/20px var(--font-sans); color: var(--ink); cursor: pointer; }
+.ob-keep input { width: 16px; height: 16px; margin: 2px 0 0; flex: none; accent-color: var(--accent); cursor: inherit; }
+.ob-keep input:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.ob-keep small { display: block; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ob-keep:has(input:disabled) { cursor: default; opacity: 0.6; }
 .ob-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
 .ob-row button.ah-btn { font: inherit; }
 .ah-btn { font-family: var(--font-sans); }
