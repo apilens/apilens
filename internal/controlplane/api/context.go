@@ -6,10 +6,12 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 
+	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/usercontext"
 	"github.com/apilens/apilens/internal/identity"
 	identitydb "github.com/apilens/apilens/internal/identity/store/db"
@@ -55,7 +57,7 @@ type UserContext struct {
 	Orgs            []ContextOrg        `json:"orgs" doc:"The organizations the user belongs to, ordered by name."`
 	LastProjectSlug *string             `json:"last_project_slug" doc:"The project the user last opened (preferences.last_project_slug, set with PATCH /api/v1/users/me); null when unset or no longer visible to the user."`
 	Onboarding      OnboardingState     `json:"onboarding"`
-	Capabilities    map[string][]string `json:"capabilities" doc:"Per project slug, the actions the user may perform there (project.read, project.update, project.delete, api_keys.create, api_keys.revoke, members.invite, members.remove, billing.manage). Every project in orgs has an entry. The UI gates on these; the server still checks every request."`
+	Capabilities    map[string][]string `json:"capabilities" doc:"Per project slug, the actions the user may perform there (project.read, project.update, project.delete, api_keys.create, api_keys.revoke, members.invite, members.remove, billing.manage). Every project in orgs has an entry, listing actions in this order. Computed from SpiceDB; the UI gates on these, the server still checks every request."`
 }
 
 // UserContextOutput is the response of GET /api/v1/users/me/context.
@@ -83,10 +85,11 @@ func (c *Context) Register(api huma.API) {
 		Path:        UserContextPath,
 		Summary:     "Get the signed-in user's context",
 		Description: "Returns in one call what the app shell needs: the user, their organizations with their role and each organization's projects and environments, the last opened project, the onboarding state and, per project, the actions the user may perform. " +
+			"Capabilities are computed with one SpiceDB `CheckBulkPermissions` call; when SpiceDB cannot answer, the call fails with `authz_unavailable` rather than returning partial capabilities. " +
 			"A user deleted while their access token is still valid answers `session_expired`.",
 		Tags:     []string{server.TagUsers},
 		Security: []map[string][]string{{authn.SchemeSession: {}}},
-	}, identity.CodeUnauthenticated, identity.CodeSessionExpired, identity.CodeInternal), c.get)
+	}, identity.CodeUnauthenticated, identity.CodeSessionExpired, identity.CodeAuthzUnavailable, identity.CodeInternal), c.get)
 }
 
 func (c *Context) get(ctx context.Context, _ *struct{}) (*UserContextOutput, error) {
@@ -97,6 +100,11 @@ func (c *Context) get(ctx context.Context, _ *struct{}) (*UserContextOutput, err
 	uc, err := c.svc.Get(ctx, p.UserID)
 	if errors.Is(err, usercontext.ErrNotFound) {
 		return nil, identity.Err(identity.CodeSessionExpired)
+	}
+	if errors.Is(err, authz.ErrUnavailable) {
+		// Fail closed: no context rather than one with missing capabilities.
+		c.logger.WarnContext(ctx, "get user context: capabilities unavailable", "error", err)
+		return nil, identity.ErrRetryAfter(identity.CodeAuthzUnavailable, time.Second)
 	}
 	if err != nil {
 		c.logger.ErrorContext(ctx, "get user context", "error", err)
