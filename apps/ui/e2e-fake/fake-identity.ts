@@ -1,5 +1,6 @@
 // A fake identity server plus a fake OAuth provider for the social sign-in (#317), two-factor
-// step (#320), account settings (#339), sessions (#343) and connected accounts (#344) browser tests.
+// step (#320), account settings (#339), sessions (#343), connected accounts (#344) and
+// Security → Passkeys (#341) browser tests.
 // It mirrors the real contract (internal/identity/oauth.go, oauth_callback.go, handoff_redeem.go):
 //
 //   GET  /api/v1/auth/providers                    google and github enabled
@@ -17,9 +18,15 @@
 //   GET  /api/v1/users/me/sessions                 the signed-in user's sessions: this one + two seeded
 //   DELETE /api/v1/users/me/sessions/{id}          204 (also for an unknown id)
 //   POST /api/v1/users/me/sessions/revoke-others   {revoked}
-//   POST /__fake/handoff {next, totp_secret?, backup_codes?}
+//   POST /api/v1/auth/passkeys/register/options    creation options for the signed-in user
+//   POST /api/v1/auth/passkeys/register/verify     checks clientDataJSON (type, challenge, origin) and
+//                                                  stores the passkey; no attestation crypto
+//   GET|PATCH|DELETE /api/v1/users/me/passkeys[/{id}]
+//                                                  list, rename, remove the signed-in user's passkeys
+//   POST /__fake/handoff {next, totp_secret?, backup_codes?, passkeys?}
 //                                                  test hook: a code whose bundle carries any `next`;
-//                                                  with `totp_secret` (base32) it answers 2fa_required
+//                                                  with `totp_secret` (base32) it answers 2fa_required;
+//                                                  `passkeys` seeds the new user's passkey list
 //   POST /__fake/identities {identities}          test hook: replaces the connected accounts
 //
 // Nothing here sends mail or talks to a real provider. Run with
@@ -156,10 +163,48 @@ function seedSessions(user: string, access: string) {
   userByAccess.set(access, user);
 }
 
-function bundle(next: string) {
+/** A stored passkey, as `GET /users/me/passkeys` lists it, plus its credential id. */
+interface FakePasskey {
+  id: string;
+  credential_id: string;
+  name: string;
+  aaguid: string;
+  authenticator: string;
+  transports: string[];
+  backup_eligible: boolean;
+  backup_state: boolean;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+/** User id → passkeys, oldest first. */
+const passkeys = new Map<string, FakePasskey[]>();
+/** Registration challenges: challenge id → user and challenge (once, like identity). */
+const registrations = new Map<string, { user: string; challenge: string }>();
+const ZERO_AAGUID = "00000000-0000-0000-0000-000000000000";
+
+const listed = ({ credential_id: _, ...p }: FakePasskey) => p;
+
+function seedPasskey(input: Record<string, unknown>): FakePasskey {
+  return {
+    id: randomUUID(),
+    credential_id: token(),
+    name: String(input.name ?? "Passkey"),
+    aaguid: ZERO_AAGUID,
+    authenticator: String(input.authenticator ?? ""),
+    transports: Array.isArray(input.transports) ? input.transports.map(String) : ["internal"],
+    backup_eligible: input.backup_state === true,
+    backup_state: input.backup_state === true,
+    created_at: String(input.created_at ?? new Date().toISOString()),
+    last_used_at: typeof input.last_used_at === "string" ? input.last_used_at : null,
+  };
+}
+
+function bundle(next: string, seeds: Record<string, unknown>[] = []) {
   const id = `usr_${token().slice(0, 8)}`;
   const access = `at_${token()}`;
   seedSessions(id, access);
+  passkeys.set(id, seeds.map(seedPasskey));
   return {
     access_token: access,
     refresh_token: `rt_${token()}`,
@@ -195,7 +240,7 @@ const CONTEXT = {
   capabilities: {},
 };
 
-function issueHandoff(next: string, secret?: string, backupCodes: string[] = []): string {
+function issueHandoff(next: string, secret?: string, backupCodes: string[] = [], seeds: Record<string, unknown>[] = []): string {
   const code = token();
   if (secret) {
     const pre = token();
@@ -207,10 +252,18 @@ function issueHandoff(next: string, secret?: string, backupCodes: string[] = [])
     });
     handoffs.set(code, { status: "2fa_required", pre_auth_token: pre, next });
   } else {
-    handoffs.set(code, bundle(next));
+    handoffs.set(code, bundle(next, seeds));
   }
   return code;
 }
+
+/** The signed-in user's id, from `Authorization: Bearer at_…`. */
+function signedInUser(req: IncomingMessage): string | undefined {
+  const auth = req.headers.authorization ?? "";
+  return auth.startsWith("Bearer ") ? userByAccess.get(auth.slice(7)) : undefined;
+}
+
+const b64u = (b: Buffer) => b.toString("base64url");
 
 function send(res: ServerResponse, status: number, body?: unknown, type = "application/json") {
   res.writeHead(status, { "content-type": type, "cache-control": "no-store" });
@@ -371,10 +424,99 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     identities = Array.isArray(body.identities) ? (body.identities as Identity[]) : [];
     return send(res, 200, { identities });
   }
+  if (path.startsWith("/api/v1/auth/passkeys/register/") || path.startsWith("/api/v1/users/me/passkeys")) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const list = passkeys.get(user) ?? [];
+
+    if (req.method === "POST" && path === "/api/v1/auth/passkeys/register/options") {
+      const id = token();
+      const challenge = b64u(randomBytes(32));
+      registrations.set(id, { user, challenge });
+      return send(res, 200, {
+        challenge_id: id,
+        options: {
+          publicKey: {
+            challenge,
+            rp: { id: new URL(UI_URL).hostname, name: "APILens" },
+            user: { id: b64u(Buffer.from(user)), name: "you@example.com", displayName: "Fake User" },
+            pubKeyCredParams: [
+              { type: "public-key", alg: -7 },
+              { type: "public-key", alg: -257 },
+            ],
+            timeout: 60_000,
+            excludeCredentials: list.map((p) => ({ type: "public-key", id: p.credential_id })),
+            authenticatorSelection: { residentKey: "required", requireResidentKey: true, userVerification: "preferred" },
+            attestation: "none",
+          },
+        },
+      });
+    }
+    if (req.method === "POST" && path === "/api/v1/auth/passkeys/register/verify") {
+      const { challenge_id: id, response, name } = await readBody(req);
+      const reg = typeof id === "string" ? registrations.get(id) : undefined;
+      if (typeof id === "string") registrations.delete(id);
+      const credential = response as { rawId?: string; response?: { clientDataJSON?: string; transports?: string[] } } | undefined;
+      if (!reg || reg.user !== user || !credential?.rawId || !credential.response?.clientDataJSON) {
+        return problem(res, 401, "passkey_failed");
+      }
+      const client = JSON.parse(Buffer.from(credential.response.clientDataJSON, "base64url").toString("utf8"));
+      if (client.type !== "webauthn.create" || client.challenge !== reg.challenge || client.origin !== UI_URL) {
+        return problem(res, 401, "passkey_failed");
+      }
+      if ([...passkeys.values()].flat().some((p) => p.credential_id === credential.rawId)) {
+        return problem(res, 409, "passkey_already_registered");
+      }
+      const label = typeof name === "string" ? name.trim() : "";
+      if (label.length > 64) return problem(res, 400, "invalid_request");
+      const stored: FakePasskey = {
+        id: randomUUID(),
+        credential_id: credential.rawId,
+        // Identity names it after the authenticator, or the browser and OS; the virtual
+        // authenticator reports no AAGUID.
+        name: label || "Chrome",
+        aaguid: ZERO_AAGUID,
+        authenticator: "",
+        transports: credential.response.transports ?? [],
+        backup_eligible: false,
+        backup_state: false,
+        created_at: new Date().toISOString(),
+        last_used_at: null,
+      };
+      passkeys.set(user, [...list, stored]);
+      return send(res, 201, listed(stored));
+    }
+    if (req.method === "GET" && path === "/api/v1/users/me/passkeys") {
+      return send(res, 200, { passkeys: list.map(listed) });
+    }
+    const one = path.match(/^\/api\/v1\/users\/me\/passkeys\/([^/]+)$/);
+    const found = one ? list.find((p) => p.id === decodeURIComponent(one[1])) : undefined;
+    if (one && req.method === "PATCH") {
+      const { name } = await readBody(req);
+      const label = typeof name === "string" ? name.trim() : "";
+      if (!label || label.length > 64) return problem(res, 400, "invalid_request");
+      if (!found) return problem(res, 410, "passkey_gone");
+      found.name = label;
+      return send(res, 200, listed(found));
+    }
+    if (one && req.method === "DELETE") {
+      if (!found) return problem(res, 410, "passkey_gone");
+      passkeys.set(
+        user,
+        list.filter((p) => p !== found),
+      );
+      return send(res, 204);
+    }
+    return problem(res, 404, "not_found");
+  }
+
   if (req.method === "POST" && path === "/__fake/handoff") {
-    const { next, totp_secret: secret, backup_codes: backups } = await readBody(req);
+    const { next, totp_secret: secret, backup_codes: backups, passkeys: seeds } = await readBody(req);
     const codes = Array.isArray(backups) ? backups.map(String) : [];
-    return send(res, 200, { code: issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes) });
+    const seeded = Array.isArray(seeds) ? (seeds as Record<string, unknown>[]) : [];
+    return send(res, 200, {
+      code: issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded),
+    });
   }
   return problem(res, 404, "not_found");
 }

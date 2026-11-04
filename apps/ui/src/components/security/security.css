@@ -1,0 +1,70 @@
+/* Account → Security (#341). Tokens from tokens.css only; the card frame is .os-card, inputs reuse .ob-in. */
+.pk { margin-top: var(--space-6); }
+.pk-head { display: flex; align-items: flex-start; gap: var(--space-4); }
+.pk-head > div { flex: 1; min-width: 0; }
+.pk .ob-ic { width: 16px; height: 16px; }
+.pk .ah-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.pk-add { border: 1px solid var(--border); color: var(--ink); }
+.pk-body { padding-top: var(--space-4); }
+
+/* Empty state: what a passkey is, and the one thing to do about it. */
+.pk-empty { display: grid; justify-items: center; gap: var(--space-2); padding: var(--space-8) var(--space-4); border: 1px dashed var(--border); border-radius: var(--radius-md); text-align: center; }
+.pk-empty__ic { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); color: var(--accent-ink); }
+.pk-empty__ic .ob-ic { width: 20px; height: 20px; }
+.pk-empty h3 { margin: var(--space-2) 0 0; font: 600 14px/20px var(--font-sans); color: var(--ink); }
+.pk-empty p { max-width: 440px; margin: 0 0 var(--space-3); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.pk-load-err { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--error); }
+
+/* Table */
+.pk-table { width: 100%; border-collapse: collapse; font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.pk-table th { padding: 0 var(--space-3) var(--space-2); border-bottom: 1px solid var(--border); text-align: left; font: 500 12px/16px var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
+.pk-table td { padding: var(--space-3); border-bottom: 1px solid var(--border); vertical-align: middle; }
+.pk-table th:first-child, .pk-table td:first-child { padding-left: 0; }
+.pk-table th:last-child, .pk-table td:last-child { padding-right: 0; }
+.pk-table tbody tr:last-child td { border-bottom: 0; }
+.pk-table tr.is-confirming td { border-bottom: 0; }
+.pk-table time { white-space: nowrap; }
+.pk-muted { color: var(--ink-muted); }
+.pk-name { width: 36%; }
+.pk-name__v { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+.pk-name__v b { font-weight: 500; overflow-wrap: anywhere; }
+.pk-badge { display: inline-flex; align-items: center; height: 20px; padding: 0 var(--space-2); border-radius: var(--radius-pill); background: var(--ok-soft); color: var(--ok); font: 500 11px/1 var(--font-sans); white-space: nowrap; }
+.pk-actions { text-align: right; white-space: nowrap; }
+.pk-actions .ah-btn + .ah-btn { margin-left: 2px; }
+.pk-remove:hover { background: var(--error-soft); color: var(--error); }
+.pk-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Inline rename */
+.pk-rename { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.pk-rename .ob-in { flex: 1; min-width: 160px; height: 32px; padding: 0 10px; font-size: 13px; }
+.pk-rename__row { display: flex; gap: var(--space-1); }
+.pk-rename .ob-err { flex-basis: 100%; margin: 0; }
+
+/* Remove confirmation, under its row */
+.pk-confirm-row td { padding-top: 0; }
+.pk-confirm { margin-top: 0; }
+.pk-confirm p b { font-weight: 600; }
+
+.pk-status { margin: 0; padding: 0 var(--space-6) var(--space-4); font: 400 13px/18px var(--font-sans); color: var(--ink-muted); }
+.pk-status:empty { padding: 0; }
+.pk-status.ok { color: var(--ok); }
+.pk-status.err { color: var(--error); }
+
+@media (max-width: 860px) {
+  .pk-head { flex-direction: column; align-items: stretch; }
+  .pk-status { padding-left: var(--space-4); padding-right: var(--space-4); }
+  /* Rows become stacked cards: each cell labelled by its column. */
+  .pk-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .pk-table, .pk-table tbody, .pk-table tr, .pk-table td { display: block; width: auto; }
+  .pk-table tr.pk-row { padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+  .pk-table tbody tr:last-child { border-bottom: 0; }
+  .pk-table tr.is-confirming { border-bottom: 0; }
+  .pk-table td { display: flex; gap: var(--space-3); padding: 2px 0; border: 0; }
+  .pk-table td[data-label]::before { content: attr(data-label); flex: none; width: 104px; color: var(--ink-muted); }
+  .pk-table td.pk-name { display: block; padding-bottom: var(--space-2); }
+  .pk-table td.pk-name::before { content: none; }
+  .pk-table td.pk-actions { justify-content: flex-start; padding-top: var(--space-2); }
+  .pk-actions .ah-btn:first-child { margin-left: -12px; }
+  .pk-confirm-row { padding-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
+  .pk-confirm-row td { display: block; padding: 0; }
+}
