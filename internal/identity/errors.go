@@ -101,8 +101,8 @@ const (
 	// cooling-off period (identity.recovery_delay); retry_after says how long
 	// is left. It can still be cancelled.
 	CodeRecoveryNotReady ErrCode = "recovery_not_ready"
-	// CodeSlugImmutable: the update asks for a different organization slug;
-	// slugs cannot be changed yet.
+	// CodeSlugImmutable: the update asks for a different organization or
+	// project slug; slugs cannot be changed yet.
 	CodeSlugImmutable ErrCode = "slug_immutable"
 	// CodeDomainNotAllowed: an allowed domain is a public email provider
 	// (gmail.com, outlook.com, …) that anyone can hold an address at.
@@ -157,7 +157,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeAccountDeleting:       {http.StatusConflict, "Account scheduled for deletion", "This account was deleted and will be removed for good after delete_after. Restore it with a new email code."},
 	CodeSlugTaken:             {http.StatusConflict, "Slug taken", "This slug is not available. Pick another one."},
 	CodeRecoveryNotReady:      {http.StatusConflict, "Recovery not ready", "Account recovery is still in its waiting period. Try again after it ends."},
-	CodeSlugImmutable:         {http.StatusConflict, "Slug cannot be changed", "An organization's slug cannot be changed."},
+	CodeSlugImmutable:         {http.StatusConflict, "Slug cannot be changed", "This slug cannot be changed."},
 	CodeDomainNotAllowed:      {http.StatusBadRequest, "Domain not allowed", "Public email domains cannot be claimed by an organization."},
 	CodeLastOwner:             {http.StatusConflict, "Last owner", "An organization must keep at least one owner."},
 	CodeMemberGone:            {http.StatusGone, "Member gone", "The user is not a member of this organization."},

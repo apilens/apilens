@@ -22,6 +22,8 @@ type Querier interface {
 	// organization, so it does not count towards the last-owner rule.
 	CountOrgOwners(ctx context.Context, orgID uuid.UUID) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
+	// Adds the environment unless the project already has one of that name.
+	CreateEnvironment(ctx context.Context, arg CreateEnvironmentParams) (int64, error)
 	// token_hash is the SHA-256 of the emailed token, never the token itself.
 	// An invitation is pending while accepted_at IS NULL AND revoked_at IS NULL.
 	// Fails on invitations_org_email_pending if the address already has a
@@ -33,6 +35,11 @@ type Querier interface {
 	CreateMembership(ctx context.Context, arg CreateMembershipParams) (Membership, error)
 	// The caller adds the creator's owner membership in the same transaction.
 	CreateOrganization(ctx context.Context, arg CreateOrganizationParams) (Organization, error)
+	// Explicit project and environment queries of the projects API. The
+	// Upsert* queries in catalog.sql stay for the idempotent dev seed.
+	// Fails on projects_slug_active when an active project uses the slug.
+	CreateProject(ctx context.Context, arg CreateProjectParams) (CreateProjectRow, error)
+	DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentParams) (int64, error)
 	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) (int64, error)
 	// Resolves an ingest key to its project. Revoked, expired and keys of
 	// deleted projects never match.
@@ -44,6 +51,10 @@ type Querier interface {
 	// An active organization by slug together with the user's role in it; no
 	// row when the organization does not exist or the user is not a member.
 	GetMemberOrganization(ctx context.Context, arg GetMemberOrganizationParams) (GetMemberOrganizationRow, error)
+	// An active project of an active organization by slug, with the user's role
+	// in the organization; no row when either is missing or the user is not a
+	// member.
+	GetMemberProject(ctx context.Context, arg GetMemberProjectParams) (GetMemberProjectRow, error)
 	GetMembership(ctx context.Context, arg GetMembershipParams) (Membership, error)
 	// One member of an organization with their user; no row when the user is
 	// not a member or their account is deleted.
@@ -64,8 +75,11 @@ type Querier interface {
 	// the name is blank) of up to three members, owners first then oldest.
 	ListJoinableOrganizationsWithCounts(ctx context.Context, arg ListJoinableOrganizationsWithCountsParams) ([]ListJoinableOrganizationsWithCountsRow, error)
 	ListOrgMembers(ctx context.Context, orgID uuid.UUID) ([]ListOrgMembersRow, error)
+	ListOrgProjects(ctx context.Context, orgID uuid.UUID) ([]ListOrgProjectsRow, error)
 	ListPendingInvitations(ctx context.Context, orgID uuid.UUID) ([]Invitation, error)
 	ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppsRow, error)
+	// The environments of the given projects, by project then name.
+	ListProjectsEnvironments(ctx context.Context, projectIds []uuid.UUID) ([]ListProjectsEnvironmentsRow, error)
 	// The authz reconciler (ADR 0006) compares these with SpiceDB. They describe
 	// the relationships the outbox relay leaves behind once it has applied every
 	// row: one org role per membership of an active organization, and one
@@ -80,6 +94,8 @@ type Querier interface {
 	// GetMemberOrganization, row-locking the organization (not the membership)
 	// for the rest of the transaction.
 	LockMemberOrganization(ctx context.Context, arg LockMemberOrganizationParams) (LockMemberOrganizationRow, error)
+	// GetMemberProject, row-locking the project for the rest of the transaction.
+	LockMemberProject(ctx context.Context, arg LockMemberProjectParams) (LockMemberProjectRow, error)
 	// Row-locks an active organization for the rest of the transaction.
 	// Membership writes that could remove the last owner take this lock first,
 	// then check CountOrgOwners (the last-owner rule lives in the service layer).
@@ -97,18 +113,23 @@ type Querier interface {
 	OrganizationSlugTaken(ctx context.Context, slug string) (bool, error)
 	// Age of the oldest unprocessed row, 0 when the outbox is drained.
 	OutboxLagSeconds(ctx context.Context) (float64, error)
+	ProjectSlugTaken(ctx context.Context, slug string) (bool, error)
 	// Rotates the token and extends the expiry of a pending invitation.
 	ResendInvitation(ctx context.Context, arg ResendInvitationParams) (Invitation, error)
 	RevokeAPIKey(ctx context.Context, id uuid.UUID) (string, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (Invitation, error)
 	SoftDeleteOrganization(ctx context.Context, id uuid.UUID) (int64, error)
+	SoftDeleteProject(ctx context.Context, id uuid.UUID) (int64, error)
 	// Which of the given slugs active organizations already use.
 	TakenOrganizationSlugs(ctx context.Context, slugs []string) ([]string, error)
+	// Which of the given slugs active projects already use.
+	TakenProjectSlugs(ctx context.Context, slugs []string) ([]string, error)
 	TouchAPIKey(ctx context.Context, id uuid.UUID) error
 	UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (Membership, error)
 	// NULL arguments leave the column unchanged. allowed_domains must be
 	// lower-case (checked by the table).
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)
+	UpdateProjectName(ctx context.Context, arg UpdateProjectNameParams) (UpdateProjectNameRow, error)
 	UpsertApp(ctx context.Context, arg UpsertAppParams) (UpsertAppRow, error)
 	UpsertEnvironment(ctx context.Context, arg UpsertEnvironmentParams) (Environment, error)
 	UpsertOrganization(ctx context.Context, arg UpsertOrganizationParams) (UpsertOrganizationRow, error)

@@ -663,7 +663,7 @@ Rules:
 | `account_deleting` | 409 Conflict | This account is scheduled for deletion on {delete_after}. Restore it to keep using it. |
 | `slug_taken` | 409 Conflict | That URL is taken. Try one of the suggestions. |
 | `recovery_not_ready` | 409 Conflict | Account recovery is still in its waiting period. Try again in {retry_after} seconds, or cancel it if you didn't ask for it. |
-| `slug_immutable` | 409 Conflict | An organization's URL can't be changed yet. |
+| `slug_immutable` | 409 Conflict | This URL can't be changed yet. |
 | `domain_not_allowed` | 400 Bad Request | Public email domains like gmail.com can't be added. Use your company's domain. |
 | `last_owner` | 409 Conflict | An organization needs at least one owner. Make someone else an owner first. |
 | `member_gone` | 410 Gone | This person is no longer a member. Refresh the page. |

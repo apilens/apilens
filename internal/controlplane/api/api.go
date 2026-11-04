@@ -14,11 +14,12 @@ import (
 // Deps are what the control-plane operations run on. Zero values are enough
 // when only the OpenAPI document is read.
 type Deps struct {
-	Orgs    OrgService
-	Members MemberService
-	Limiter *ratelimit.Limiter
-	Limits  config.RateLimitsConfig
-	Logger  *slog.Logger
+	Orgs     OrgService
+	Members  MemberService
+	Projects ProjectService
+	Limiter  *ratelimit.Limiter
+	Limits   config.RateLimitsConfig
+	Logger   *slog.Logger
 }
 
 // Register mounts the control-plane operations on api. They declare the
@@ -26,4 +27,5 @@ type Deps struct {
 func Register(api huma.API, d Deps) {
 	NewOrgs(d.Orgs, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
 	NewMembers(d.Members, d.Logger).Register(api)
+	NewProjects(d.Projects, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
 }
