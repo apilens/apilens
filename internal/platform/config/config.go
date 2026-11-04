@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"slices"
@@ -152,12 +153,33 @@ type IdentityConfig struct {
 	PreAuthTTL time.Duration `koanf:"pre_auth_ttl"`
 	// KeyEncryptionKey is 32 bytes, base64-encoded. It encrypts signing keys
 	// and TOTP secrets at rest. Required when the identity role runs.
-	KeyEncryptionKey string         `koanf:"key_encryption_key"`
-	WebAuthn         WebAuthnConfig `koanf:"webauthn"`
+	KeyEncryptionKey string           `koanf:"key_encryption_key"`
+	WebAuthn         WebAuthnConfig   `koanf:"webauthn"`
+	RateLimits       RateLimitsConfig `koanf:"rate_limits"`
 	// CORSOrigins are browser origins allowed to call /api/v1/auth/*
 	// cross-origin. Empty (the default) disables CORS: the UI calls identity
 	// server-side, and browsers reach it only through top-level navigations.
 	CORSOrigins []string `koanf:"cors_origins"`
+}
+
+// RateLimitsConfig configures the shared (Valkey) rate limits on the auth
+// endpoints. Each limit is a sliding window.
+type RateLimitsConfig struct {
+	// TrustedProxies lists the IPs or CIDRs of reverse proxies whose
+	// X-Forwarded-For entries are believed. Empty means the client IP is the
+	// TCP peer and X-Forwarded-For is ignored.
+	TrustedProxies      []string  `koanf:"trusted_proxies"`
+	EmailStartPerEmail  RateLimit `koanf:"email_start_per_email"`
+	EmailStartPerIP     RateLimit `koanf:"email_start_per_ip"`
+	CodeVerifyPerEmail  RateLimit `koanf:"code_verify_per_email"`
+	RefreshPerIP        RateLimit `koanf:"refresh_per_ip"`
+	SecondFactorPerUser RateLimit `koanf:"second_factor_per_user"` // passkey and 2FA verify
+}
+
+// RateLimit allows Limit requests per sliding Window.
+type RateLimit struct {
+	Limit  int           `koanf:"limit"`
+	Window time.Duration `koanf:"window"`
 }
 
 // WebAuthnConfig configures the WebAuthn relying party.
@@ -247,6 +269,18 @@ func Defaults() map[string]any {
 		"jobs.enabled":                     true,
 		"jobs.max_workers":                 10,
 		"jobs.metrics_interval":            "15s",
+
+		"identity.rate_limits.trusted_proxies":               []string{},
+		"identity.rate_limits.email_start_per_email.limit":   5,
+		"identity.rate_limits.email_start_per_email.window":  "15m",
+		"identity.rate_limits.email_start_per_ip.limit":      20,
+		"identity.rate_limits.email_start_per_ip.window":     "15m",
+		"identity.rate_limits.code_verify_per_email.limit":   10,
+		"identity.rate_limits.code_verify_per_email.window":  "15m",
+		"identity.rate_limits.refresh_per_ip.limit":          60,
+		"identity.rate_limits.refresh_per_ip.window":         "1m",
+		"identity.rate_limits.second_factor_per_user.limit":  10,
+		"identity.rate_limits.second_factor_per_user.window": "15m",
 	}
 }
 
@@ -299,7 +333,8 @@ var identifierRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 
 var listKeys = map[string]bool{
 	"target": true, "clickhouse.addr": true, "valkey.addr": true, "identity.webauthn.origins": true,
-	"identity.cors_origins": true,
+	"identity.cors_origins":                true,
+	"identity.rate_limits.trusted_proxies": true,
 }
 
 func isListKey(key string) bool { return listKeys[key] }
@@ -429,6 +464,34 @@ func (c *Config) validateIdentity() []error {
 	}
 	if id.EmailCodeMaxAttempts <= 0 {
 		errs = append(errs, errors.New("identity.email_code_max_attempts must be > 0"))
+	}
+	return append(errs, id.RateLimits.validate()...)
+}
+
+func (r RateLimitsConfig) validate() []error {
+	var errs []error
+	for _, p := range r.TrustedProxies {
+		if _, err := netip.ParsePrefix(p); err == nil {
+			continue
+		}
+		if _, err := netip.ParseAddr(p); err != nil {
+			errs = append(errs, fmt.Errorf("identity.rate_limits.trusted_proxies %q: want an IP or CIDR", p))
+		}
+	}
+	limits := []struct {
+		name string
+		l    RateLimit
+	}{
+		{"email_start_per_email", r.EmailStartPerEmail},
+		{"email_start_per_ip", r.EmailStartPerIP},
+		{"code_verify_per_email", r.CodeVerifyPerEmail},
+		{"refresh_per_ip", r.RefreshPerIP},
+		{"second_factor_per_user", r.SecondFactorPerUser},
+	}
+	for _, l := range limits {
+		if l.l.Limit <= 0 || l.l.Window < time.Second {
+			errs = append(errs, fmt.Errorf("identity.rate_limits.%s: want limit > 0 and window >= 1s (got %d per %v)", l.name, l.l.Limit, l.l.Window))
+		}
 	}
 	return errs
 }

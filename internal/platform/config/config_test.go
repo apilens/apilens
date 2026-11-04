@@ -265,3 +265,65 @@ func TestJobsConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestIdentityRateLimitDefaults(t *testing.T) {
+	cfg, err := Load("", []string{kekEnv}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rl := cfg.Identity.RateLimits
+	checks := []struct {
+		name      string
+		got, want RateLimit
+	}{
+		{"email_start_per_email", rl.EmailStartPerEmail, RateLimit{5, 15 * time.Minute}},
+		{"email_start_per_ip", rl.EmailStartPerIP, RateLimit{20, 15 * time.Minute}},
+		{"code_verify_per_email", rl.CodeVerifyPerEmail, RateLimit{10, 15 * time.Minute}},
+		{"refresh_per_ip", rl.RefreshPerIP, RateLimit{60, time.Minute}},
+		{"second_factor_per_user", rl.SecondFactorPerUser, RateLimit{10, 15 * time.Minute}},
+	}
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("%s = %+v, want %+v", c.name, c.got, c.want)
+		}
+	}
+	if len(rl.TrustedProxies) != 0 {
+		t.Errorf("trusted_proxies = %v, want empty", rl.TrustedProxies)
+	}
+}
+
+func TestIdentityRateLimitEnv(t *testing.T) {
+	cfg, err := Load("", []string{
+		kekEnv,
+		"APILENS_IDENTITY__RATE_LIMITS__REFRESH_PER_IP__LIMIT=120",
+		"APILENS_IDENTITY__RATE_LIMITS__REFRESH_PER_IP__WINDOW=2m",
+		"APILENS_IDENTITY__RATE_LIMITS__TRUSTED_PROXIES=10.0.0.0/8, 192.168.1.1",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rl := cfg.Identity.RateLimits
+	if rl.RefreshPerIP != (RateLimit{120, 2 * time.Minute}) {
+		t.Errorf("refresh_per_ip = %+v", rl.RefreshPerIP)
+	}
+	if !slices.Equal(rl.TrustedProxies, []string{"10.0.0.0/8", "192.168.1.1"}) {
+		t.Errorf("trusted_proxies not split: %v", rl.TrustedProxies)
+	}
+}
+
+func TestIdentityRateLimitValidation(t *testing.T) {
+	tests := []struct {
+		env     string
+		wantErr string
+	}{
+		{"APILENS_IDENTITY__RATE_LIMITS__EMAIL_START_PER_IP__LIMIT=0", "identity.rate_limits.email_start_per_ip"},
+		{"APILENS_IDENTITY__RATE_LIMITS__CODE_VERIFY_PER_EMAIL__WINDOW=10ms", "identity.rate_limits.code_verify_per_email"},
+		{"APILENS_IDENTITY__RATE_LIMITS__TRUSTED_PROXIES=not-an-ip", "identity.rate_limits.trusted_proxies"},
+	}
+	for _, tt := range tests {
+		_, err := Load("", []string{kekEnv, tt.env}, nil)
+		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+			t.Errorf("%s: err = %v, want %q", tt.env, err, tt.wantErr)
+		}
+	}
+}
