@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { NETWORK_MESSAGE, errorMessage, rateLimitMessage, startEmail } from "@/lib/email-start";
 import { LINKS, extLink } from "@/lib/links";
-import { type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
+import { type OAuthLinks, type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
 import { AltLink } from "./alt-method";
 import { ObIcon, ObShell } from "./ob";
 
@@ -16,9 +16,10 @@ type Problem = { kind: "network" } | { kind: "rate_limited"; until: number } | {
 /**
  * The email form is always shown; `methods` adds the provider row under it when any are on.
  * Continue asks `/api/auth/email/start` to send the code, then goes to `/verify` with the
- * server's resend cooldown (`retry_after`). `next` is where to land after verifying.
+ * server's resend cooldown (`retry_after`). `oauth` holds the Google/GitHub start URLs (built on
+ * the server). `next` is where to land after verifying.
  */
-export function SignUp({ methods, next }: { methods: SignInMethods; next?: string }) {
+export function SignUp({ methods, oauth, next }: { methods: SignInMethods; oauth?: OAuthLinks; next?: string }) {
   const router = useRouter();
   const alts = altMethods(methods, { email: false });
   const [email, setEmail] = useState("");
@@ -130,7 +131,11 @@ export function SignUp({ methods, next }: { methods: SignInMethods; next?: strin
         <>
           <div className="ob-or">or</div>
           <div style={{ display: "grid", gridTemplateColumns: gridColumns(alts.length), gap: 10 }}>
-            {alts.map((m) => (m === "email" ? null : <AltLink key={m} method={m} href="/onboarding/about" />))}
+            {alts.map((m) =>
+              m === "email" ? null : (
+                <AltLink key={m} method={m} href={m === "sso" ? "/onboarding/about" : (oauth?.[m] ?? "/sign-up")} />
+              ),
+            )}
           </div>
         </>
       ) : null}

@@ -19,7 +19,7 @@ import {
   readRememberedAccount,
   relativeDay,
 } from "@/lib/remembered-account";
-import { type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
+import { type OAuthLinks, type SignInMethods, altMethods, gridColumns } from "@/lib/sign-in-methods";
 import type { SignInNotice } from "@/lib/sign-in-notice";
 import { AltLink } from "./alt-method";
 import { ObIcon, ObShell } from "./ob";
@@ -32,10 +32,21 @@ const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim());
  * a passkey as the primary action: the button, plus passkeys in the email field's autofill while
  * the field is shown (cancelled when another method is picked; leaving the page cancels it too).
  * Both are hidden when the browser has no WebAuthn. `methods` (from `GET /auth/providers`) decides
- * which provider buttons sit next to the email code; `next` is where to land after signing in; `notice` (from
+ * which provider buttons sit next to the email code; `oauth` holds the Google/GitHub start URLs
+ * (built on the server); `next` is where to land after signing in; `notice` (from
  * `?error=`/`?reason=`) sits above the form.
  */
-export function SignIn({ methods, next, notice }: { methods: SignInMethods; next?: string; notice?: SignInNotice | null }) {
+export function SignIn({
+  methods,
+  oauth,
+  next,
+  notice,
+}: {
+  methods: SignInMethods;
+  oauth?: OAuthLinks;
+  next?: string;
+  notice?: SignInNotice | null;
+}) {
   const router = useRouter();
   const alts = altMethods(methods, { email: true });
   // Read after mount: the server render (and a blocked store) shows the email field.
@@ -191,7 +202,7 @@ export function SignIn({ methods, next, notice }: { methods: SignInMethods; next
               Email code
             </button>
           ) : (
-            <AltLink key={m} method={m} href="/platform/incidents" />
+            <AltLink key={m} method={m} href={m === "sso" ? "/platform/incidents" : (oauth?.[m] ?? "/sign-in")} />
           ),
         )}
       </div>

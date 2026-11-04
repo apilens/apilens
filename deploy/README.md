@@ -35,7 +35,7 @@ Published ports: the API on 8080 and the dashboard on 3000. Postgres, ClickHouse
 |---|---|---|---|
 | `APILENS_PUBLIC_URL` | `http://localhost:3000` | `web`, `apilens` | Origin users open the dashboard at. `web` uses it for links, redirects and the session cookie (`Secure` when https); identity uses it for email links and as the default WebAuthn origin |
 | `APILENS_PUBLIC_INGEST_URL` | `http://localhost:8080` | `web` | Public URL of port 8080 that SDKs send events to, used in the dashboard's setup snippets |
-| `APILENS_IDENTITY__ISSUER` | `http://localhost:8080` | `apilens` | Token issuer: the public URL of the API (port 8080) |
+| `APILENS_IDENTITY__ISSUER` | `http://localhost:8080` | `apilens`, `web` | Token issuer: the public URL of the API (port 8080). `web` sends the Google and GitHub sign-in buttons there (`APILENS_PUBLIC_API_URL`) |
 | `APILENS_IDENTITY__WEBAUTHN__RP_ID` | `localhost` | `apilens` | Passkey relying party: the dashboard's registrable domain, no scheme or port |
 | `SESSION_SECRET` | (required) | `web` | Encrypts the dashboard session cookie; at least 32 characters. Rotating it signs everyone out |
 | `APILENS_IDENTITY__KEY_ENCRYPTION_KEY` | (required) | `apilens` | 32 random bytes, base64. Encrypts token signing keys and TOTP secrets at rest |
