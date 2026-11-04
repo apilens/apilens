@@ -16,9 +16,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/valkey-io/valkey-go"
 
+	controlplaneapi "github.com/apilens/apilens/internal/controlplane/api"
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
 	"github.com/apilens/apilens/internal/controlplane/catalog"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
+	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/ingest"
 	"github.com/apilens/apilens/internal/pipeline"
 	"github.com/apilens/apilens/internal/platform/cache"
@@ -33,9 +35,11 @@ import (
 
 // Module names. Visible ones are role targets (-target=...).
 const (
-	TargetAll   = "all"
-	TargetEdge  = "edge"
-	TargetQuery = "query"
+	TargetAll      = "all"
+	TargetEdge     = "edge"
+	TargetQuery    = "query"
+	TargetAPI      = "api"
+	TargetIdentity = "identity"
 
 	modTelemetry  = "telemetry"
 	modServer     = "server"
@@ -52,8 +56,6 @@ const (
 var PlannedTargets = map[string]string{
 	"writer":    "M3 (Kafka consumers)",
 	"processor": "M3 (endpoint discovery, error grouping)",
-	"api":       "M2 (control-plane API)",
-	"identity":  "M2 (OIDC provider, passkeys, TOTP)",
 	"saml":      "M5 (isolated SAML ACS)",
 	"worker":    "M4 (alerts, integrations)",
 	"mcp":       "M4 (MCP server)",
@@ -88,7 +90,7 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	m.Register(modServer, a.initServer, modules.Invisible(), modules.DependsOn(modTelemetry))
 	// The listener starts after, and stops before, every module that
 	// registers routes, so in-flight requests drain before the sink does.
-	m.Register(modHTTP, a.initHTTP, modules.Invisible(), modules.DependsOn(modServer), modules.After(TargetEdge, TargetQuery))
+	m.Register(modHTTP, a.initHTTP, modules.Invisible(), modules.DependsOn(modServer), modules.After(TargetEdge, TargetQuery, TargetAPI, TargetIdentity))
 	m.Always(modHTTP)
 
 	m.Register(modPostgres, a.initPostgres, modules.Invisible(), modules.DependsOn(modServer))
@@ -100,7 +102,10 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	m.Register(TargetEdge, a.initEdge, modules.DependsOn(modServer, modCatalog, modSink))
 	// query is the first slice of the M3 read path (fixed queries, read keys).
 	m.Register(TargetQuery, a.initQuery, modules.DependsOn(modServer, modClickHouse, modCatalog))
-	m.Register(TargetAll, func(context.Context) (modules.Service, error) { return nil, nil }, modules.DependsOn(TargetEdge, TargetQuery))
+	m.Register(TargetAPI, a.initAPI, modules.DependsOn(modServer, modPostgres, modValkey))
+	m.Register(TargetIdentity, a.initIdentity, modules.DependsOn(modServer, modPostgres, modValkey))
+	m.Register(TargetAll, func(context.Context) (modules.Service, error) { return nil, nil },
+		modules.DependsOn(TargetEdge, TargetQuery, TargetAPI, TargetIdentity))
 	return a
 }
 
@@ -208,6 +213,16 @@ func (a *App) initQuery(context.Context) (modules.Service, error) {
 	api := a.server.API()
 	api.UseMiddleware(query.AuthMiddleware(api, a.verifier))
 	query.Register(api, query.NewService(a.chConn, a.queries))
+	return nil, nil
+}
+
+func (a *App) initAPI(context.Context) (modules.Service, error) {
+	controlplaneapi.Register(a.server.API())
+	return nil, nil
+}
+
+func (a *App) initIdentity(context.Context) (modules.Service, error) {
+	identity.Register(a.server.API())
 	return nil, nil
 }
 

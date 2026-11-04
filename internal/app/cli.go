@@ -84,7 +84,7 @@ func Main(args []string, stdout, stderr io.Writer, environ []string) int {
 
 func printUsage(w io.Writer) {
 	planned := slices.Sorted(maps.Keys(PlannedTargets))
-	_, _ = fmt.Fprintf(w, usage, strings.Join([]string{TargetAll, TargetEdge, TargetQuery}, ", "), strings.Join(planned, ", "))
+	_, _ = fmt.Fprintf(w, usage, strings.Join([]string{TargetAll, TargetEdge, TargetQuery, TargetAPI, TargetIdentity}, ", "), strings.Join(planned, ", "))
 }
 
 // loadConfig parses the shared flags and returns the merged config.
