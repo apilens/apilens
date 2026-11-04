@@ -21,13 +21,18 @@ import (
 const (
 	OrgsPath          = server.APIPrefix + "/orgs"
 	SlugAvailablePath = OrgsPath + "/slug-available"
+	OrgPath           = OrgsPath + "/{slug}"
 )
 
-// OrgService creates organizations and checks slugs; *orgs.Service
-// satisfies it.
+// OrgService creates, reads, updates and deletes organizations and checks
+// slugs; *orgs.Service satisfies it.
 type OrgService interface {
 	Create(ctx context.Context, owner uuid.UUID, name, slug string) (orgs.Org, error)
 	Available(ctx context.Context, slug string) (bool, []string, error)
+	List(ctx context.Context, user uuid.UUID) ([]orgs.Summary, error)
+	Get(ctx context.Context, user uuid.UUID, slug string) (orgs.Detail, error)
+	Update(ctx context.Context, user uuid.UUID, slug string, u orgs.Update) (orgs.Detail, error)
+	Delete(ctx context.Context, user uuid.UUID, slug string) error
 }
 
 // Org is an organization as seen by the signed-in user.
@@ -37,6 +42,50 @@ type Org struct {
 	Name      string    `json:"name"`
 	Role      string    `json:"role" enum:"owner,admin,member,viewer" doc:"The signed-in user's role in the organization."`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// OrgSummary is an item of GET /api/v1/orgs.
+type OrgSummary struct {
+	Org
+	ProjectCount int64 `json:"project_count" minimum:"0" doc:"Active projects in the organization."`
+	MemberCount  int64 `json:"member_count" minimum:"1" doc:"Members of the organization."`
+}
+
+// OrgDetail is an organization with its settings.
+type OrgDetail struct {
+	Org
+	AllowedDomains []string `json:"allowed_domains" doc:"Email domains (lower-case hostnames) whose users may join when domain_join is on."`
+	DomainJoin     bool     `json:"domain_join" doc:"Whether users with a verified email at one of allowed_domains may join without an invitation."`
+}
+
+// ListOrgsInput is the request of GET /api/v1/orgs.
+type ListOrgsInput struct{}
+
+// ListOrgsOutput is the response of GET /api/v1/orgs.
+type ListOrgsOutput struct {
+	Body []OrgSummary
+}
+
+// OrgSlugInput names an organization in the path.
+type OrgSlugInput struct {
+	Slug string `path:"slug" pattern:"^[a-z0-9][a-z0-9-]{0,62}$" doc:"The organization's slug."`
+}
+
+// OrgOutput is the response of GET and PATCH /api/v1/orgs/{slug}.
+type OrgOutput struct {
+	Body OrgDetail
+}
+
+// UpdateOrgInput is the request of PATCH /api/v1/orgs/{slug}. Omitted
+// fields are left unchanged.
+type UpdateOrgInput struct {
+	OrgSlugInput
+	Body struct {
+		Name           *string   `json:"name,omitempty" minLength:"1" maxLength:"100" doc:"Display name; surrounding spaces are trimmed."`
+		Slug           *string   `json:"slug,omitempty" pattern:"^[a-z0-9][a-z0-9-]{0,62}$" doc:"Must equal the current slug: slugs cannot be changed yet (slug_immutable)."`
+		AllowedDomains *[]string `json:"allowed_domains,omitempty" maxItems:"50" doc:"Replaces the allowed email domains: lower-case hostnames, not public email providers (domain_not_allowed). Duplicates are dropped."`
+		DomainJoin     *bool     `json:"domain_join,omitempty" doc:"Whether users with a verified email at an allowed domain may join without an invitation."`
+	}
 }
 
 // CreateOrgInput is the request of POST /api/v1/orgs.
@@ -104,6 +153,49 @@ func (o *Orgs) Register(api huma.API) {
 		Security:    security,
 		Middlewares: huma.Middlewares{o.limiter.Limit(api, "org_slug_check", ratelimit.Rate{}, ratelimit.Key{Rate: o.slugCheck, From: userKey})},
 	}, identity.CodeUnauthenticated, identity.CodeRateLimited, identity.CodeInternal), o.slugAvailable)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "list-orgs",
+		Method:      http.MethodGet,
+		Path:        OrgsPath,
+		Summary:     "List my organizations",
+		Description: "Lists the active organizations the signed-in user is a member of, with their role and the number of projects and members of each, ordered by name.",
+		Tags:        []string{server.TagOrganizations},
+		Security:    security,
+	}, identity.CodeUnauthenticated, identity.CodeInternal), o.list)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "get-org",
+		Method:      http.MethodGet,
+		Path:        OrgPath,
+		Summary:     "Get an organization",
+		Description: "Returns the organization and the signed-in user's role in it. Answers `forbidden` (403) when it does not exist or the user is not a member, so the two cannot be told apart.",
+		Tags:        []string{server.TagOrganizations},
+		Security:    security,
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), o.get)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "update-org",
+		Method:      http.MethodPatch,
+		Path:        OrgPath,
+		Summary:     "Update an organization",
+		Description: "Changes the name, allowed email domains or domain join of the organization. Owners and admins only (403 `forbidden` otherwise, and for an organization the user is not a member of). " +
+			"A public email domain answers `domain_not_allowed`; a slug other than the current one answers `slug_immutable`. Audited as `org.updated`.",
+		Tags:     []string{server.TagOrganizations},
+		Security: security,
+	}, identity.CodeInvalidRequest, identity.CodeDomainNotAllowed, identity.CodeUnauthenticated, identity.CodeForbidden,
+		identity.CodeSlugImmutable, identity.CodeInternal), o.update)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID:   "delete-org",
+		Method:        http.MethodDelete,
+		Path:          OrgPath,
+		DefaultStatus: http.StatusNoContent,
+		Summary:       "Delete an organization",
+		Description:   "Soft-deletes the organization; its members lose access to it and its projects, and its slug becomes free. Owners only (403 `forbidden` otherwise, and for an organization the user is not a member of). Audited as `org.deleted`.",
+		Tags:          []string{server.TagOrganizations},
+		Security:      security,
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), o.delete)
 }
 
 // userKey keys a per-user rate limit by the signed-in user.
@@ -133,13 +225,108 @@ func (o *Orgs) create(ctx context.Context, in *CreateOrgInput) (*CreateOrgOutput
 		o.logger.ErrorContext(ctx, "create organization", "error", err)
 		return nil, identity.Err(identity.CodeInternal)
 	}
-	return &CreateOrgOutput{Body: Org{
+	return &CreateOrgOutput{Body: toOrg(org)}, nil
+}
+
+func toOrg(org orgs.Org) Org {
+	return Org{
 		ID:        org.ID.String(),
 		Slug:      org.Slug,
 		Name:      org.Name,
 		Role:      org.Role,
 		CreatedAt: org.CreatedAt.UTC(),
-	}}, nil
+	}
+}
+
+func toDetail(d orgs.Detail) OrgDetail {
+	domains := d.AllowedDomains
+	if domains == nil {
+		domains = []string{}
+	}
+	return OrgDetail{Org: toOrg(d.Org), AllowedDomains: domains, DomainJoin: d.DomainJoin}
+}
+
+// signedInUser returns the signed-in user, or the unauthenticated problem.
+func signedInUser(ctx context.Context) (uuid.UUID, error) {
+	p, ok := authn.FromContext(ctx)
+	if !ok || p.Kind != authn.KindUser {
+		return uuid.Nil, identity.Err(identity.CodeUnauthenticated)
+	}
+	return p.UserID, nil
+}
+
+// orgProblem maps a read/update/delete error of orgs.Service to a problem.
+func (o *Orgs) orgProblem(ctx context.Context, op string, err error) error {
+	var notAllowed *orgs.DomainNotAllowedError
+	switch {
+	case errors.Is(err, orgs.ErrNotFound), errors.Is(err, orgs.ErrForbidden):
+		return identity.Err(identity.CodeForbidden)
+	case errors.Is(err, orgs.ErrSlugImmutable):
+		return identity.Err(identity.CodeSlugImmutable)
+	case errors.As(err, &notAllowed):
+		return identity.Err(identity.CodeDomainNotAllowed)
+	case errors.Is(err, orgs.ErrInvalid):
+		return identity.Err(identity.CodeInvalidRequest)
+	default:
+		o.logger.ErrorContext(ctx, op, "error", err)
+		return identity.Err(identity.CodeInternal)
+	}
+}
+
+func (o *Orgs) list(ctx context.Context, _ *ListOrgsInput) (*ListOrgsOutput, error) {
+	uid, err := signedInUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	list, err := o.svc.List(ctx, uid)
+	if err != nil {
+		return nil, o.orgProblem(ctx, "list organizations", err)
+	}
+	out := &ListOrgsOutput{Body: make([]OrgSummary, 0, len(list))}
+	for _, s := range list {
+		out.Body = append(out.Body, OrgSummary{Org: toOrg(s.Org), ProjectCount: s.ProjectCount, MemberCount: s.MemberCount})
+	}
+	return out, nil
+}
+
+func (o *Orgs) get(ctx context.Context, in *OrgSlugInput) (*OrgOutput, error) {
+	uid, err := signedInUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d, err := o.svc.Get(ctx, uid, in.Slug)
+	if err != nil {
+		return nil, o.orgProblem(ctx, "get organization", err)
+	}
+	return &OrgOutput{Body: toDetail(d)}, nil
+}
+
+func (o *Orgs) update(ctx context.Context, in *UpdateOrgInput) (*OrgOutput, error) {
+	uid, err := signedInUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d, err := o.svc.Update(ctx, uid, in.Slug, orgs.Update{
+		Name:           in.Body.Name,
+		Slug:           in.Body.Slug,
+		AllowedDomains: in.Body.AllowedDomains,
+		DomainJoin:     in.Body.DomainJoin,
+	})
+	if err != nil {
+		return nil, o.orgProblem(ctx, "update organization", err)
+	}
+	return &OrgOutput{Body: toDetail(d)}, nil
+}
+
+func (o *Orgs) delete(ctx context.Context, in *OrgSlugInput) (*struct{}, error) {
+	uid, err := signedInUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := o.svc.Delete(ctx, uid, in.Slug); err != nil {
+		return nil, o.orgProblem(ctx, "delete organization", err)
+	}
+	return nil, nil
 }
 
 func (o *Orgs) slugAvailable(ctx context.Context, in *SlugAvailableInput) (*SlugAvailableOutput, error) {

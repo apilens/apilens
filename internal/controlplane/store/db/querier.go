@@ -39,6 +39,9 @@ type Querier interface {
 	// Returns the row whatever its state, with its organization, so the caller
 	// can tell a pending invitation from an accepted, revoked or expired one.
 	GetInvitationByTokenHash(ctx context.Context, tokenHash string) (GetInvitationByTokenHashRow, error)
+	// An active organization by slug together with the user's role in it; no
+	// row when the organization does not exist or the user is not a member.
+	GetMemberOrganization(ctx context.Context, arg GetMemberOrganizationParams) (GetMemberOrganizationRow, error)
 	GetMembership(ctx context.Context, arg GetMembershipParams) (Membership, error)
 	GetOrganizationBySlug(ctx context.Context, slug string) (Organization, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
@@ -60,6 +63,12 @@ type Querier interface {
 	ListReconcileProjects(ctx context.Context) ([]ListReconcileProjectsRow, error)
 	// The active organizations a user belongs to, with their role.
 	ListUserOrganizations(ctx context.Context, userID uuid.UUID) ([]ListUserOrganizationsRow, error)
+	// The active organizations a user belongs to, with their role and the
+	// number of active projects and (non-deleted) members of each.
+	ListUserOrganizationsWithCounts(ctx context.Context, userID uuid.UUID) ([]ListUserOrganizationsWithCountsRow, error)
+	// GetMemberOrganization, row-locking the organization (not the membership)
+	// for the rest of the transaction.
+	LockMemberOrganization(ctx context.Context, arg LockMemberOrganizationParams) (LockMemberOrganizationRow, error)
 	// Row-locks an active organization for the rest of the transaction.
 	// Membership writes that could remove the last owner take this lock first,
 	// then check CountOrgOwners (the last-owner rule lives in the service layer).

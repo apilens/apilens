@@ -7,7 +7,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +27,8 @@ type fakeOrgs struct {
 	owner     uuid.UUID
 	available bool
 	sugg      []string
+	err       error // returned by List, Get, Update and Delete
+	update    orgs.Update
 }
 
 func (f *fakeOrgs) Create(_ context.Context, owner uuid.UUID, name, slug string) (orgs.Org, error) {
@@ -38,6 +42,21 @@ func (f *fakeOrgs) Create(_ context.Context, owner uuid.UUID, name, slug string)
 func (f *fakeOrgs) Available(context.Context, string) (bool, []string, error) {
 	return f.available, f.sugg, nil
 }
+
+func (f *fakeOrgs) List(context.Context, uuid.UUID) ([]orgs.Summary, error) {
+	return nil, f.err
+}
+
+func (f *fakeOrgs) Get(_ context.Context, _ uuid.UUID, slug string) (orgs.Detail, error) {
+	return orgs.Detail{Org: orgs.Org{ID: uuid.New(), Slug: slug, Name: "Acme", Role: orgs.RoleAdmin, CreatedAt: time.Now()}}, f.err
+}
+
+func (f *fakeOrgs) Update(ctx context.Context, user uuid.UUID, slug string, u orgs.Update) (orgs.Detail, error) {
+	f.update = u
+	return f.Get(ctx, user, slug)
+}
+
+func (f *fakeOrgs) Delete(context.Context, uuid.UUID, string) error { return f.err }
 
 func newOrgsAPI(t *testing.T, svc OrgService, user uuid.UUID) humatest.TestAPI {
 	t.Helper()
@@ -114,5 +133,72 @@ func TestSlugAvailableEmptySuggestions(t *testing.T) {
 	_ = json.Unmarshal(resp.Body.Bytes(), &raw)
 	if string(raw["available"]) != "true" || string(raw["suggestions"]) != "[]" {
 		t.Fatalf("body = %s", resp.Body)
+	}
+}
+
+func TestOrgErrors(t *testing.T) {
+	for _, tc := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{orgs.ErrNotFound, http.StatusForbidden, "forbidden"},
+		{orgs.ErrForbidden, http.StatusForbidden, "forbidden"},
+		{orgs.ErrSlugImmutable, http.StatusConflict, "slug_immutable"},
+		{&orgs.DomainNotAllowedError{Domain: "gmail.com"}, http.StatusBadRequest, "domain_not_allowed"},
+		{orgs.ErrInvalid, http.StatusBadRequest, "invalid_request"},
+		{errors.New("boom"), http.StatusInternalServerError, "internal_error"},
+	} {
+		api := newOrgsAPI(t, &fakeOrgs{err: tc.err}, uuid.New())
+		for _, resp := range []*httptest.ResponseRecorder{
+			api.Get(OrgsPath + "/acme"),
+			api.Patch(OrgsPath+"/acme", map[string]any{"name": "Acme"}),
+			api.Delete(OrgsPath + "/acme"),
+		} {
+			var p struct {
+				Code string `json:"code"`
+			}
+			_ = json.Unmarshal(resp.Body.Bytes(), &p)
+			if resp.Code != tc.status || p.Code != tc.code {
+				t.Errorf("%v: %d %s", tc.err, resp.Code, resp.Body)
+			}
+		}
+	}
+}
+
+func TestListOrgsEmptyIsArray(t *testing.T) {
+	resp := newOrgsAPI(t, &fakeOrgs{}, uuid.New()).Get(OrgsPath)
+	if resp.Code != http.StatusOK || strings.TrimSpace(resp.Body.String()) != "[]" {
+		t.Fatalf("list: %d %s", resp.Code, resp.Body)
+	}
+}
+
+func TestUpdateOrgPassesOnlySetFields(t *testing.T) {
+	svc := &fakeOrgs{}
+	resp := newOrgsAPI(t, svc, uuid.New()).Patch(OrgsPath+"/acme", map[string]any{"allowed_domains": []string{}, "domain_join": false})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", resp.Code, resp.Body)
+	}
+	u := svc.update
+	if u.Name != nil || u.Slug != nil || u.AllowedDomains == nil || len(*u.AllowedDomains) != 0 || u.DomainJoin == nil || *u.DomainJoin {
+		t.Fatalf("update = %+v", u)
+	}
+	var d OrgDetail
+	if err := json.Unmarshal(resp.Body.Bytes(), &d); err != nil || d.AllowedDomains == nil {
+		t.Fatalf("detail = %+v (%v): %s", d, err, resp.Body)
+	}
+}
+
+func TestOrgOpsRequireUser(t *testing.T) {
+	api := newOrgsAPI(t, &fakeOrgs{}, uuid.Nil)
+	for _, resp := range []*httptest.ResponseRecorder{
+		api.Get(OrgsPath),
+		api.Get(OrgsPath + "/acme"),
+		api.Patch(OrgsPath+"/acme", map[string]any{"name": "Acme"}),
+		api.Delete(OrgsPath + "/acme"),
+	} {
+		if resp.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d: %s", resp.Code, resp.Body)
+		}
 	}
 }

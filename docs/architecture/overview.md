@@ -197,6 +197,8 @@ shipped; a test checks that this table lists every one.
 | `oauth.linked` | an external OAuth/OIDC identity is linked |
 | `oauth.unlinked` | an external OAuth/OIDC identity is unlinked |
 | `org.created` | an organization is created |
+| `org.updated` | an organization's name, allowed domains or domain join change (metadata lists the `fields`) |
+| `org.deleted` | an organization is deleted |
 | `member.role_changed` | an organization member's role changes |
 | `invitation.sent` | an organization invitation is sent |
 | `invitation.accepted` | an organization invitation is accepted |

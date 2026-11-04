@@ -636,6 +636,8 @@ Rules:
 | `account_deleting` | 409 Conflict | This account is scheduled for deletion on {delete_after}. Restore it to keep using it. |
 | `slug_taken` | 409 Conflict | That URL is taken. Try one of the suggestions. |
 | `recovery_not_ready` | 409 Conflict | Account recovery is still in its waiting period. Try again in {retry_after} seconds, or cancel it if you didn't ask for it. |
+| `slug_immutable` | 409 Conflict | An organization's URL can't be changed yet. |
+| `domain_not_allowed` | 400 Bad Request | Public email domains like gmail.com can't be added. Use your company's domain. |
 | `forbidden` | 403 Forbidden | You don't have permission to do that. |
 | `internal_error` | 500 Internal Server Error | Something went wrong on our side. Please try again. |
 
