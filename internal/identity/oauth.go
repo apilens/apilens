@@ -18,6 +18,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
 
+	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/config"
 	"github.com/apilens/apilens/internal/platform/ratelimit"
 	"github.com/apilens/apilens/internal/platform/server"
@@ -139,8 +140,8 @@ type OAuth struct {
 	limit     ratelimit.Rate
 	logger    *slog.Logger
 	// CurrentUser resolves the signed-in user from the request context for
-	// intent=link. While nil (no bearer authentication yet), linking is
-	// refused as unauthenticated.
+	// intent=link; by default the user Principal authn.Middleware stored.
+	// While nil, linking is refused as unauthenticated.
 	CurrentUser func(context.Context) (userID string, ok bool)
 
 	// The callback's collaborators and settings (oauth_callback.go).
@@ -160,15 +161,16 @@ func NewOAuth(cfg config.IdentityConfig, states OAuthStateStore, limiter *rateli
 		ttl = defaultPreAuthTTL
 	}
 	return &OAuth{
-		providers:  OAuthProviders(cfg),
-		states:     states,
-		limiter:    limiter,
-		limit:      ratelimit.Rate(cfg.RateLimits.OAuthStartPerIP),
-		logger:     logger,
-		uiURL:      strings.TrimRight(cfg.PublicUIURL, "/"),
-		preAuthTTL: ttl,
-		client:     &http.Client{Timeout: providerTimeout},
-		now:        time.Now,
+		CurrentUser: sessionUser,
+		providers:   OAuthProviders(cfg),
+		states:      states,
+		limiter:     limiter,
+		limit:       ratelimit.Rate(cfg.RateLimits.OAuthStartPerIP),
+		logger:      logger,
+		uiURL:       strings.TrimRight(cfg.PublicUIURL, "/"),
+		preAuthTTL:  ttl,
+		client:      &http.Client{Timeout: providerTimeout},
+		now:         time.Now,
 	}
 }
 
@@ -176,6 +178,15 @@ func NewOAuth(cfg config.IdentityConfig, states OAuthStateStore, limiter *rateli
 func (o *OAuth) WithSignIn(deps OAuthSignInDeps) *OAuth {
 	o.signIn = deps
 	return o
+}
+
+// sessionUser returns the signed-in user of ctx, if any.
+func sessionUser(ctx context.Context) (string, bool) {
+	p, ok := authn.FromContext(ctx)
+	if !ok || p.Kind != authn.KindUser {
+		return "", false
+	}
+	return p.UserID.String(), true
 }
 
 // Provider returns the enabled provider name, or nil.
@@ -199,12 +210,15 @@ type OAuthStartOutput struct {
 // …/callback.
 func (o *OAuth) Register(api huma.API) {
 	huma.Register(api, Operation(api, huma.Operation{
-		OperationID:   "start-oauth",
-		Method:        http.MethodGet,
-		Path:          AuthPrefix + "/oauth/{provider}/start",
-		Summary:       "Start social sign-in",
-		Description:   "Public browser navigation. Starts an authorization-code flow with PKCE (and an OIDC nonce for Google), keeps the attempt server-side for 10 minutes keyed by a random state, and redirects (302) to the provider. Rate-limited per client IP. A provider that is not configured answers 404.",
-		Tags:          []string{server.TagAuth},
+		OperationID: "start-oauth",
+		Method:      http.MethodGet,
+		Path:        AuthPrefix + "/oauth/{provider}/start",
+		Summary:     "Start social sign-in",
+		Description: "Public browser navigation. Starts an authorization-code flow with PKCE (and an OIDC nonce for Google), keeps the attempt server-side for 10 minutes keyed by a random state, and redirects (302) to the provider. Rate-limited per client IP. A provider that is not configured answers 404. " +
+			"`intent=link` connects the provider account to the signed-in user instead of signing in: it needs the session (`Authorization: Bearer`), so the UI's server calls it and sends the browser to the returned `Location`; without one it answers 401 `unauthenticated`.",
+		Tags: []string{server.TagAuth},
+		// The session is optional: only intent=link needs it.
+		Security:      []map[string][]string{{}, {authn.SchemeSession: {}}},
 		DefaultStatus: http.StatusFound,
 		Middlewares:   huma.Middlewares{o.limiter.Limit(api, "oauth_start", o.limit, ratelimit.Key{})},
 	}, CodeInvalidRequest, CodeUnauthenticated, CodeRateLimited, CodeInternal), o.start)

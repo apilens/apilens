@@ -151,7 +151,21 @@ or already redeemed code answers `invalid_token`. It is rate-limited per IP
 `internal/identity/handoff_redeem.go`).
 
 `intent=link` attaches the provider to the signed-in user instead (Settings →
-Connected accounts).
+Connected accounts). The session is optional on `…/start` and required for
+`intent=link`, so the UI's server calls it with the bearer and sends the
+browser to the returned `Location`. The state carries the user id; the
+callback links the provider account to that user (`internal/identity/oauth_link.go`),
+audits `oauth.linked`, emails a `security_change` alert and redirects to
+`{public_ui_url}{next}?linked={provider}`. A provider account already linked to
+another user ends on `/sign-in?error=oauth_identity_taken`; one already linked
+to the same user is a no-op.
+
+`GET /api/v1/users/me/identities` lists the connected accounts (provider,
+email, name, username, avatar, `created_at`, `last_login_at`) and
+`DELETE /api/v1/users/me/identities/{id}` disconnects one (`oauth.unlinked`,
+`security_change` alert; `oauth_identity_gone` for an id that is not the
+user's). Email is always a sign-in method, so the last connected account can
+be disconnected too.
 
 ### Passkeys
 
@@ -653,6 +667,7 @@ Rules:
 | `passkey_gone` | 410 Gone | This passkey was already removed. Refresh the page. |
 | `oauth_state_mismatch` | 400 Bad Request | Sign-in couldn't be completed. Start again. |
 | `oauth_email_unverified` | 403 Forbidden | Your account with this provider has no verified email. Verify it there, or sign in with email. |
+| `oauth_identity_gone` | 410 Gone | This account was already disconnected. Refresh the page. |
 | `invite_expired` | 410 Gone | This invitation has expired. Ask for a new one. |
 | `invite_email_mismatch` | 403 Forbidden | This invitation was sent to a different email address. Sign in with that address. |
 | `owner_transfer_required` | 409 Conflict | You're the only owner of an organization. Transfer ownership or delete it before deleting your account. |

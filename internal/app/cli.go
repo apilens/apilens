@@ -407,6 +407,7 @@ func runOpenAPI(stdout io.Writer) error {
 	identity.NewEmailChange(nil, nil).Register(srv.API())
 	identity.NewEmailVerify(config.IdentityConfig{}, identity.EmailVerifyDeps{}, nil, nil).Register(srv.API())
 	identity.NewPasskeys(identity.PasskeysDeps{}, nil).Register(srv.API())
+	identity.NewConnectedAccounts(identity.ConnectedAccountsDeps{}, nil).Register(srv.API())
 	identity.NewPasskeyLogin(config.IdentityConfig{}, identity.PasskeyLoginDeps{}, nil, nil).Register(srv.API())
 	identity.NewRestore(config.IdentityConfig{}, nil, nil, nil, nil).Register(srv.API())
 	controlplaneapi.Register(srv.API(), controlplaneapi.Deps{})

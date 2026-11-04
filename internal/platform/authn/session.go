@@ -138,6 +138,9 @@ func looksLikeJWT(raw string) bool { return strings.Count(raw, ".") == 2 }
 // An operation that also accepts another scheme (an API key) is passed on
 // untouched when the bearer is not a JWT, so that scheme's middleware can
 // handle it; an operation already carrying a Principal is passed on too.
+// An operation whose security also lists the empty requirement ({}) makes
+// the session optional: a request without an Authorization header is passed
+// on anonymous, while one with a bearer must carry a valid session.
 func Middleware(api huma.API, v *SessionVerifier) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
 		op := ctx.Operation()
@@ -146,6 +149,10 @@ func Middleware(api huma.API, v *SessionVerifier) func(huma.Context, func(huma.C
 			return
 		}
 		if _, ok := FromContext(ctx.Context()); ok {
+			next(ctx)
+			return
+		}
+		if ctx.Header("Authorization") == "" && allowsAnonymous(op) {
 			next(ctx)
 			return
 		}
@@ -181,6 +188,17 @@ func acceptsOtherScheme(op *huma.Operation) bool {
 			if name != SchemeSession {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// allowsAnonymous reports whether op lists the empty security requirement,
+// OpenAPI's way of making authentication optional.
+func allowsAnonymous(op *huma.Operation) bool {
+	for _, req := range op.Security {
+		if len(req) == 0 {
+			return true
 		}
 	}
 	return false

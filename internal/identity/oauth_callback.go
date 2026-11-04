@@ -76,6 +76,10 @@ type OAuthSignInDeps struct {
 	PreAuth  PreAuthStore
 	Handoff  HandoffStore
 	Audit    AuditRecorder
+	// Identities and Jobs serve intent=link: the provider account is linked
+	// to the signed-in user and a security alert is emailed.
+	Identities OAuthIdentities
+	Jobs       JobEnqueuer
 }
 
 // OAuthCallbackInput is the request of GET
@@ -101,6 +105,8 @@ type callbackFailure struct {
 	code   string
 	reason string
 	err    error
+	// intent is the flow's intent, once its state is known.
+	intent string
 }
 
 func (f *callbackFailure) Error() string {
@@ -127,6 +133,8 @@ func (o *OAuth) registerCallback(api huma.API) {
 			"and the browser is redirected (302) to `{public_ui_url}/auth/callback?code=…`, whose server side redeems it; tokens never appear in a URL. " +
 			"Failures redirect to `{public_ui_url}/sign-in?error=<code>`: `oauth_state_mismatch` (unknown, expired, used or foreign state; rejected code or PKCE verifier; wrong nonce), " +
 			"`oauth_email_unverified` (no verified email), `oauth_denied` (consent declined), `account_deleting`, `invalid_request` or `internal_error`. " +
+			"A flow started with `intent=link` instead connects the provider account to the user who started it (audited as `oauth.linked`, security alert emailed) and redirects to `{public_ui_url}{next}` with `linked={provider}` added; " +
+			"a provider account already connected to another user fails with `oauth_identity_taken`. " +
 			"A provider that is not configured answers 404.",
 		Tags:          []string{server.TagAuth},
 		DefaultStatus: http.StatusFound,
@@ -138,13 +146,17 @@ func (o *OAuth) callback(ctx context.Context, in *OAuthCallbackInput) (*OAuthCal
 	if p == nil {
 		return nil, huma.Error404NotFound("provider not enabled")
 	}
-	res, err := o.finish(ctx, p, in)
+	res, next, err := o.finish(ctx, p, in)
 	if err != nil {
 		var f *callbackFailure
 		if !errors.As(err, &f) {
 			f = failure(CodeInternal, "internal", err)
 		}
 		return o.failRedirect(ctx, p.Name, f), nil
+	}
+	if res == nil {
+		// A linked account: back to where the link was started.
+		return o.redirect(next), nil
 	}
 	code, err := o.signIn.Handoff.Issue(ctx, *res, HandoffTTL)
 	if err != nil {
@@ -154,43 +166,57 @@ func (o *OAuth) callback(ctx context.Context, in *OAuthCallbackInput) (*OAuthCal
 	return o.redirect("/auth/callback?" + url.Values{"code": {code}}.Encode()), nil
 }
 
-// finish runs the callback up to the sign-in answer to hand off.
-func (o *OAuth) finish(ctx context.Context, p *OAuthProvider, in *OAuthCallbackInput) (*SignInResponse, error) {
+// finish runs the callback up to the sign-in answer to hand off, or, for
+// intent=link, up to the UI path to return to (with a nil answer).
+func (o *OAuth) finish(ctx context.Context, p *OAuthProvider, in *OAuthCallbackInput) (*SignInResponse, string, error) {
 	if in.State == "" {
-		return nil, failure(CodeOAuthStateMismatch, "missing_state", nil)
+		return nil, "", failure(CodeOAuthStateMismatch, "missing_state", nil)
 	}
 	// Taking the state burns it whatever happens next.
 	st, err := o.states.Take(ctx, in.State)
 	switch {
 	case errors.Is(err, ErrOAuthStateNotFound):
-		return nil, failure(CodeOAuthStateMismatch, "unknown_state", nil)
+		return nil, "", failure(CodeOAuthStateMismatch, "unknown_state", nil)
 	case err != nil:
-		return nil, failure(CodeInternal, "load_state", err)
+		return nil, "", failure(CodeInternal, "load_state", err)
 	}
+	res, next, err := o.finishState(ctx, p, in, st)
+	var f *callbackFailure
+	if errors.As(err, &f) {
+		f.intent = st.Intent
+	}
+	return res, next, err
+}
+
+// finishState runs the callback of the flow st.
+func (o *OAuth) finishState(ctx context.Context, p *OAuthProvider, in *OAuthCallbackInput, st OAuthState) (*SignInResponse, string, error) {
 	if st.Provider != p.Name {
-		return nil, failure(CodeOAuthStateMismatch, "provider_mismatch", nil)
+		return nil, "", failure(CodeOAuthStateMismatch, "provider_mismatch", nil)
 	}
 	if in.Error != "" {
 		if in.Error == "access_denied" {
-			return nil, &callbackFailure{code: CodeOAuthDenied, reason: "access_denied"}
+			return nil, "", &callbackFailure{code: CodeOAuthDenied, reason: "access_denied"}
 		}
-		return nil, &callbackFailure{code: CodeOAuthDenied, reason: "provider_error", err: errors.New(in.Error)}
+		return nil, "", &callbackFailure{code: CodeOAuthDenied, reason: "provider_error", err: errors.New(in.Error)}
 	}
 	if in.Code == "" {
-		return nil, failure(CodeInvalidRequest, "missing_code", nil)
+		return nil, "", failure(CodeInvalidRequest, "missing_code", nil)
 	}
-	if st.Intent != OAuthIntentLogin {
-		// Linking a provider to a signed-in user is not served by this
-		// callback yet; start refuses intent=link without a signed-in user.
-		return nil, failure(CodeInvalidRequest, "unsupported_intent", nil)
+	if st.Intent != OAuthIntentLogin && st.Intent != OAuthIntentLink {
+		return nil, "", failure(CodeInvalidRequest, "unsupported_intent", nil)
 	}
 
 	pctx := context.WithValue(ctx, oauth2.HTTPClient, o.client)
 	ext, err := o.identify(pctx, p, st, in.Code)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return o.signInUser(ctx, ext, st)
+	if st.Intent == OAuthIntentLink {
+		next, err := o.linkIdentity(ctx, ext, st)
+		return nil, next, err
+	}
+	res, err := o.signInUser(ctx, ext, st)
+	return res, "", err
 }
 
 // identify exchanges code and returns the provider account with its verified
@@ -399,9 +425,13 @@ func (o *OAuth) failRedirect(ctx context.Context, provider string, f *callbackFa
 		o.logger.InfoContext(ctx, "oauth callback rejected", "provider", provider, "reason", f.reason, "error", f.err)
 	}
 	if o.signIn.Audit != nil {
+		meta := map[string]any{"method": provider, "reason": f.reason, "code": f.code}
+		if f.intent == OAuthIntentLink {
+			meta["intent"] = f.intent
+		}
 		if err := o.signIn.Audit.Record(ctx, audit.Event{
 			Kind: audit.LoginFailed,
-			Meta: map[string]any{"method": provider, "reason": f.reason, "code": f.code},
+			Meta: meta,
 		}); err != nil {
 			o.logger.ErrorContext(ctx, "oauth callback: audit", "error", err)
 		}
