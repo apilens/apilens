@@ -348,6 +348,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Orgs:     orgService,
 		Members:  orgService,
 		Projects: projects.New(a.pool),
+		APIKeys:  apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger),
 		Context:  usercontext.New(a.pool),
 		Guard:    authz.NewGuard(checker, authz.NewPGResolver(a.pool), authz.GuardOptions{}, a.logger),
 		Limiter:  limiter,
@@ -359,6 +360,20 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Invitations: orgs.NewInvitations(a.pool, audit.New(a.pool), a.jobs),
 	})
 	return nil, nil
+}
+
+// invalidateAPIKey drops a revoked key hash from this process's verifier and,
+// through Valkey pub/sub, from every other process's (the edge and query
+// roles subscribe in initCatalog). Without Valkey a revocation reaches other
+// processes when their key cache TTL expires.
+func (a *App) invalidateAPIKey(ctx context.Context, hash string) error {
+	if a.verifier != nil {
+		a.verifier.Invalidate(hash)
+	}
+	if a.valkey == nil {
+		return nil
+	}
+	return cache.Publish(ctx, a.valkey, apikeys.InvalidateChannel, hash)
 }
 
 func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {

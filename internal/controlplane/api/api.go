@@ -18,6 +18,7 @@ type Deps struct {
 	Orgs     OrgService
 	Members  MemberService
 	Projects ProjectService
+	APIKeys  APIKeyService
 	Context  ContextService
 	// Guard authorizes every operation on an organization (authz.Require);
 	// nil refuses them with authz_unavailable (fail closed).
@@ -36,6 +37,7 @@ func Register(api huma.API, d Deps) {
 	NewOrgs(d.Orgs, d.Guard, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
 	NewMembers(d.Members, d.Guard, d.Logger).Register(api)
 	NewProjects(d.Projects, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
+	NewAPIKeys(d.APIKeys, d.Logger).Register(api)
 	NewContext(d.Context, d.Logger).Register(api)
 	NewInvitations(d.Invitations, d.Logger).Register(api)
 }

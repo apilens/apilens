@@ -96,6 +96,90 @@ func (q *Queries) GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (Ge
 	return i, err
 }
 
+const listProjectAPIKeys = `-- name: ListProjectAPIKeys :many
+SELECT id, name, prefix, scopes, created_at, expires_at, revoked_at, last_used_at
+FROM api_keys
+WHERE project_id = $1
+ORDER BY created_at DESC, id
+`
+
+type ListProjectAPIKeysRow struct {
+	ID         uuid.UUID
+	Name       string
+	Prefix     string
+	Scopes     []string
+	CreatedAt  time.Time
+	ExpiresAt  *time.Time
+	RevokedAt  *time.Time
+	LastUsedAt *time.Time
+}
+
+// Every key of the project, revoked ones included, newest first.
+func (q *Queries) ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) ([]ListProjectAPIKeysRow, error) {
+	rows, err := q.db.Query(ctx, listProjectAPIKeys, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectAPIKeysRow{}
+	for rows.Next() {
+		var i ListProjectAPIKeysRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Prefix,
+			&i.Scopes,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+			&i.RevokedAt,
+			&i.LastUsedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockProjectAPIKey = `-- name: LockProjectAPIKey :one
+SELECT id, name, prefix, scopes, key_hash, revoked_at
+FROM api_keys
+WHERE id = $1 AND project_id = $2
+FOR UPDATE
+`
+
+type LockProjectAPIKeyParams struct {
+	ID        uuid.UUID
+	ProjectID uuid.UUID
+}
+
+type LockProjectAPIKeyRow struct {
+	ID        uuid.UUID
+	Name      string
+	Prefix    string
+	Scopes    []string
+	KeyHash   string
+	RevokedAt *time.Time
+}
+
+// A key of the project, row-locked for the rest of the transaction.
+func (q *Queries) LockProjectAPIKey(ctx context.Context, arg LockProjectAPIKeyParams) (LockProjectAPIKeyRow, error) {
+	row := q.db.QueryRow(ctx, lockProjectAPIKey, arg.ID, arg.ProjectID)
+	var i LockProjectAPIKeyRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Prefix,
+		&i.Scopes,
+		&i.KeyHash,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
 const revokeAPIKey = `-- name: RevokeAPIKey :one
 UPDATE api_keys SET revoked_at = now()
 WHERE id = $1 AND revoked_at IS NULL

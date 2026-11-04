@@ -205,6 +205,8 @@ shipped; a test checks that this table lists every one.
 | `member.joined` | a user joins an organization through its verified email domain |
 | `invitation.sent` | an organization invitation is sent |
 | `invitation.accepted` | an organization invitation is accepted |
+| `api_key.created` | a project API key is created (metadata has the project, key id, name, display prefix and scopes; never the key) |
+| `api_key.revoked` | a project API key is revoked |
 
 ## Delivery
 

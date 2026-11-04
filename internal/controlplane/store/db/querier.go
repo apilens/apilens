@@ -89,6 +89,8 @@ type Querier interface {
 	// ListPendingInvitations with the inviting user's email and name (NULL when
 	// the inviter's account is gone).
 	ListPendingInvitationsWithInviter(ctx context.Context, orgID uuid.UUID) ([]ListPendingInvitationsWithInviterRow, error)
+	// Every key of the project, revoked ones included, newest first.
+	ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) ([]ListProjectAPIKeysRow, error)
 	ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppsRow, error)
 	// The environments of the given projects, by project then name.
 	ListProjectsEnvironments(ctx context.Context, projectIds []uuid.UUID) ([]ListProjectsEnvironmentsRow, error)
@@ -121,6 +123,8 @@ type Querier interface {
 	// Serialises relay passes across processes for the rest of the transaction,
 	// so rows are applied to SpiceDB strictly in id order.
 	LockOutboxRelay(ctx context.Context, lockKey int64) error
+	// A key of the project, row-locked for the rest of the transaction.
+	LockProjectAPIKey(ctx context.Context, arg LockProjectAPIKeyParams) (LockProjectAPIKeyRow, error)
 	MarkOutboxProcessed(ctx context.Context, id int64) error
 	// Wakes the relay. A NOTIFY sent inside a transaction is delivered on commit
 	// only, and never on rollback.
