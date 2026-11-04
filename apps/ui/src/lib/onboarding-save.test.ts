@@ -37,6 +37,12 @@ describe("parseOnboardingSave", () => {
     expect(parseOnboardingSave("create", { org_slug: "" })).toEqual({ step: "create", answers: { org_slug: "" } });
   });
 
+  it("accepts the install step's key id, never a raw key", () => {
+    const id = "0b6f5c7e-8d1a-4c2b-9e3f-1a2b3c4d5e6f";
+    expect(parseOnboardingSave("install", { api_key_id: id })).toEqual({ step: "install", answers: { api_key_id: id } });
+    expect(parseOnboardingSave("install", { api_key_id: "apl_live_0123456789abcdef" })).toBeNull();
+  });
+
   it.each([
     ["a step with capitals", "Project", {}],
     ["a step that is a path", "../admin", {}],
@@ -60,10 +66,11 @@ describe("parseOnboardingSave", () => {
 
 describe("savedAnswers", () => {
   it("reads the answers stored on the user", () => {
-    expect(savedAnswers(ctx({ org_slug: "example-co", project_slug: "shop", invited: 2 }))).toEqual({
+    expect(savedAnswers(ctx({ org_slug: "example-co", project_slug: "shop", invited: 2, api_key_id: "0b6f5c7e-8d1a-4c2b-9e3f-1a2b3c4d5e6f" }))).toEqual({
       org_slug: "example-co",
       project_slug: "shop",
       invited: 2,
+      api_key_id: "0b6f5c7e-8d1a-4c2b-9e3f-1a2b3c4d5e6f",
     });
   });
 

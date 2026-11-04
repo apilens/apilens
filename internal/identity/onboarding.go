@@ -36,6 +36,7 @@ type OnboardingAnswers struct {
 	Runtime     *string `json:"runtime,omitempty" pattern:"^([a-z0-9][a-z0-9._+-]{0,31})?$" doc:"Framework or runtime, e.g. fastapi."`
 	Method      *string `json:"method,omitempty" pattern:"^([a-z0-9][a-z0-9._+-]{0,31})?$" doc:"Instrumentation method, e.g. sdk or otel."`
 	Invited     *int    `json:"invited,omitempty" minimum:"0" maximum:"1000" doc:"Number of teammates invited."`
+	APIKeyID    *string `json:"api_key_id,omitempty" pattern:"^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$" doc:"Id of the ingest key the install step created; the raw key is never stored."`
 }
 
 // OnboardingPatchBody is the request body of PATCH
@@ -83,7 +84,7 @@ func (o *OnboardingAPI) Register(api huma.API) {
 		Method:      http.MethodPatch,
 		Path:        OnboardingPath,
 		Summary:     "Save the signed-in user's onboarding progress",
-		Description: "Saves where the user is in onboarding so a refresh resumes there: `step` replaces the stored step, `answers` is merged key by key into the stored answers (org_slug, project_slug, language, runtime, method, invited), and `completed` finishes or reopens onboarding. " +
+		Description: "Saves where the user is in onboarding so a refresh resumes there: `step` replaces the stored step, `answers` is merged key by key into the stored answers (org_slug, project_slug, language, runtime, method, invited, api_key_id), and `completed` finishes or reopens onboarding. " +
 			"Returns the resulting state; `GET /api/v1/users/me/context` reports the same step and completion. Unknown fields fail validation (`422`).",
 		Tags:     []string{server.TagUsers},
 		Security: []map[string][]string{{authn.SchemeSession: {}}},
@@ -101,6 +102,7 @@ func (o *OnboardingAPI) update(ctx context.Context, in *OnboardingPatchInput) (*
 		for k, v := range map[string]*string{
 			account.AnswerOrgSlug: a.OrgSlug, account.AnswerProjectSlug: a.ProjectSlug,
 			account.AnswerLanguage: a.Language, account.AnswerRuntime: a.Runtime, account.AnswerMethod: a.Method,
+			account.AnswerAPIKeyID: a.APIKeyID,
 		} {
 			if v != nil {
 				patch.Answers[k] = *v
@@ -161,6 +163,7 @@ func NewOnboardingState(raw []byte) Onboarding {
 		Language:    str(account.AnswerLanguage),
 		Runtime:     str(account.AnswerRuntime),
 		Method:      str(account.AnswerMethod),
+		APIKeyID:    str(account.AnswerAPIKeyID),
 	}
 	if f, ok := stored.Answers[account.AnswerInvited].(float64); ok && f >= 0 && f <= math.MaxInt32 && f == math.Trunc(f) {
 		n := int(f)

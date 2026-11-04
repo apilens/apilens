@@ -403,6 +403,8 @@ export interface OnboardingAnswers {
   runtime?: string;
   method?: string;
   invited?: number;
+  /** Id of the ingest key the install step created (#333); the raw key is never saved. */
+  api_key_id?: string;
 }
 
 /** `PATCH /users/me/onboarding` (#327): omitted fields stay unchanged; answers merge key by key. */

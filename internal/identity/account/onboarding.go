@@ -21,6 +21,7 @@ const (
 	AnswerRuntime     = "runtime"
 	AnswerMethod      = "method"
 	AnswerInvited     = "invited"
+	AnswerAPIKeyID    = "api_key_id"
 )
 
 // MaxInvited bounds the `invited` answer (the number of teammates invited).
@@ -39,10 +40,14 @@ var (
 	// ChoicePattern is the rule for the language, runtime and method
 	// answers (e.g. "python", "fastapi", "sdk"), or empty.
 	ChoicePattern = `^([a-z0-9][a-z0-9._+-]{0,31})?$`
+	// KeyIDPattern is the rule for the api_key_id answer: the id of the
+	// ingest key the install step created (a lowercase UUID), or empty.
+	KeyIDPattern = `^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$`
 
 	stepRE   = regexp.MustCompile(StepPattern)
 	slugRE   = regexp.MustCompile(SlugPattern)
 	choiceRE = regexp.MustCompile(ChoicePattern)
+	keyIDRE  = regexp.MustCompile(KeyIDPattern)
 )
 
 // OnboardingPatch is a partial update of the onboarding state. Nil fields
@@ -91,7 +96,8 @@ func (s *Service) UpdateOnboarding(ctx context.Context, id uuid.UUID, p Onboardi
 // ValidateOnboarding checks an onboarding patch: the step is a screen name,
 // and answers only carry the known keys with an allowed value (slugs for
 // org_slug and project_slug, short lowercase names for language, runtime
-// and method, a count from 0 to MaxInvited for invited).
+// and method, a count from 0 to MaxInvited for invited, a key id for
+// api_key_id).
 func ValidateOnboarding(p OnboardingPatch) error {
 	if p.Step != nil && !stepRE.MatchString(*p.Step) {
 		return fmt.Errorf("%w: step must match %s", ErrInvalidOnboarding, StepPattern)
@@ -107,6 +113,9 @@ func ValidateOnboarding(p OnboardingPatch) error {
 			ok = isString && choiceRE.MatchString(s)
 		case AnswerInvited:
 			ok = validInvited(v)
+		case AnswerAPIKeyID:
+			s, isString := v.(string)
+			ok = isString && keyIDRE.MatchString(s)
 		default:
 			return fmt.Errorf("%w: unknown answer %q", ErrInvalidOnboarding, k)
 		}

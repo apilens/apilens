@@ -25,6 +25,9 @@ func TestNewOnboardingState(t *testing.T) {
 		},
 		`{"answers":{"invited":-1}}`: func(o Onboarding) bool { return o.Answers.Invited == nil },
 		`{"answers":"acme"}`:         func(o Onboarding) bool { return o.Answers.OrgSlug == nil },
+		`{"answers":{"api_key_id":"0b6f5c7e-8d1a-4c2b-9e3f-1a2b3c4d5e6f"}}`: func(o Onboarding) bool {
+			return o.Answers.APIKeyID != nil && *o.Answers.APIKeyID == "0b6f5c7e-8d1a-4c2b-9e3f-1a2b3c4d5e6f"
+		},
 	} {
 		if got := NewOnboardingState([]byte(raw)); !check(got) {
 			t.Errorf("NewOnboardingState(%s) = %+v", raw, got)

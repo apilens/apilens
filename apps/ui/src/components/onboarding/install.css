@@ -1,0 +1,13 @@
+/* "Install" (#333): the one-time key field and the snippet blocks, on the system's .ob-in, .ob-hint
+   and .ob-code. Long lines scroll inside their block instead of widening the column. */
+.ins-key.ob-in { padding-right: 6px; background: var(--surface-2); }
+.ins-key input { font: 400 13px/1 var(--font-mono); }
+.ins-status { min-height: 18px; margin: 6px 0 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ins-new { margin-top: 10px; }
+.ins-snippets { display: grid; gap: 10px; }
+.ins-snippets > .ob-l { margin-bottom: 0; }
+.ins-code { min-width: 0; }
+.ins-code pre { overflow-x: auto; }
+.ins-code pre:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.ins-later { padding: 0; border: 0; background: none; font: inherit; font-weight: 500; cursor: pointer; }
+.ins-later:disabled { cursor: default; opacity: .6; }
