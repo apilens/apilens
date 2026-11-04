@@ -14,8 +14,11 @@ const THEMES: { value: "dark" | "light"; label: string; icon: IconName }[] = [
   { value: "light", label: "Light", icon: "sun" },
 ];
 
-/** Account, at the foot of the sidebar: you, account settings, appearance, sign out. Opens upward. */
-export function UserMenu({ user, collapsed = false }: { user: Pick<User, "name" | "email">; collapsed?: boolean }) {
+/**
+ * Account, at the foot of the sidebar: you, account settings, appearance, sign out. Opens upward.
+ * `current`: the page is the account section (`/settings/*`).
+ */
+export function UserMenu({ user, collapsed = false, current = false }: { user: Pick<User, "name" | "email">; collapsed?: boolean; current?: boolean }) {
   const me = userLabel(user);
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -43,7 +46,7 @@ export function UserMenu({ user, collapsed = false }: { user: Pick<User, "name" 
         </span>
       </button>
       <PopMenu open={open} onClose={close} triggerRef={trigger} label="Account" align={collapsed ? "side-up" : "up"}>
-        <Link href="/settings/profile" role="menuitem" className="cp-sitem" onClick={close}>
+        <Link href="/settings" role="menuitem" className={`cp-sitem${current ? " on" : ""}`} aria-current={current ? "page" : undefined} onClick={close}>
           <span className="sl">
             <Icon name="settings" />
           </span>
