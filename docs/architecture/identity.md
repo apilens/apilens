@@ -131,7 +131,19 @@ or, when the user has confirmed TOTP and the method was not a passkey, in
    the browser is sent to `{public_ui_url}/auth/callback?code=…`. Tokens never
    appear in a URL.
 4. `web` redeems the code with `POST /api/v1/auth/handoff` and sets the
-   cookie. Errors redirect to `{public_ui_url}/sign-in?error=<code>`.
+   cookie. Errors redirect to `{public_ui_url}/sign-in?error=<code>`:
+   `oauth_state_mismatch` (unknown, used, expired or foreign state; a code or
+   PKCE verifier the provider rejects; an id_token with the wrong nonce,
+   audience or signature), `oauth_email_unverified`, `oauth_denied` (consent
+   declined at the provider; the page shows its generic notice),
+   `account_deleting`, `invalid_request` or `internal_error`. Every failure is
+   audited as `login.failed` with the provider as `method`.
+
+The callback lives in `internal/identity/oauth_callback.go`. A session is
+audited as `login.succeeded` with `method` and `amr` set to the provider; the
+identity's `last_login_at`, email and profile are refreshed on each sign-in.
+Handoff codes are kept in Valkey under their SHA-256 only
+(`internal/identity/handoff.go`).
 
 `intent=link` attaches the provider to the signed-in user instead (Settings →
 Connected accounts).
