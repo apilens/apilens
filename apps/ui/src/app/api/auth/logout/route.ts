@@ -1,5 +1,5 @@
 // POST /api/auth/logout: revokes the refresh token at identity and clears the session cookie.
-// Always answers `{ok: true, next: "/sign-in"}` and clears the cookie, even when identity is
+// Always answers `{ok: true, next: "/sign-in?reason=signed_out"}` and clears the cookie, even when identity is
 // unreachable or the session was already gone: signing out must never leave the browser signed in.
 import type { NextRequest } from "next/server";
 import {

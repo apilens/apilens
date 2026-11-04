@@ -380,7 +380,7 @@ describe("POST /api/auth/logout", () => {
       headers: { "content-type": "" },
     });
     expect(res.status).toBe(200);
-    expect(json).toEqual({ ok: true, next: "/sign-in" });
+    expect(json).toEqual({ ok: true, next: "/sign-in?reason=signed_out" });
     expectNoTokens(text);
     expect(seen[0].body).toEqual({ refresh_token: REFRESH });
     expect(seen[0].headers.authorization).toBe(`Bearer ${ACCESS}`);
@@ -395,13 +395,13 @@ describe("POST /api/auth/logout", () => {
       SECRET,
     );
     const { json, setCookies } = await call("logout", { cookies: { [session.SESSION_COOKIE_NAME]: cookie } });
-    expect(json).toEqual({ ok: true, next: "/sign-in" });
+    expect(json).toEqual({ ok: true, next: "/sign-in?reason=signed_out" });
     expect(cookieLine(setCookies, session.SESSION_COOKIE_NAME)).toMatch(/Max-Age=0/);
   });
 
   it("does not call identity without a valid session", async () => {
     const { json } = await call("logout", { cookies: { [session.SESSION_COOKIE_NAME]: "tampered" } });
-    expect(json).toEqual({ ok: true, next: "/sign-in" });
+    expect(json).toEqual({ ok: true, next: "/sign-in?reason=signed_out" });
     expect(seen).toHaveLength(0);
   });
 
