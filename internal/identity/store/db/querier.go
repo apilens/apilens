@@ -17,6 +17,8 @@ type Querier interface {
 	ConsumeEmailToken(ctx context.Context, id uuid.UUID) (AuthEmailToken, error)
 	// Number of providers linked to a user.
 	CountOAuthIdentitiesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
+	// Number of passkeys registered to a user.
+	CountPasskeyCredentialsForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	// Stores the row behind one sign-in email (magic link + 6-digit code). Only
 	// identity reads or writes auth_email_tokens (ADR 0005); link_token_hash and
 	// code_hash are hashes, never the secrets. next_path must be a relative path
@@ -29,6 +31,10 @@ type Querier interface {
 	// user violates the unique constraint. Pass last_login_at when the link is
 	// made by a sign-in, NULL when it is made from settings.
 	CreateOAuthIdentity(ctx context.Context, arg CreateOAuthIdentityParams) (OauthIdentity, error)
+	// Stores a credential after a verified registration ceremony. Only identity
+	// reads or writes passkey_credentials (ADR 0005). A credential_id already
+	// registered (to any user) violates the unique constraint.
+	CreatePasskeyCredential(ctx context.Context, arg CreatePasskeyCredentialParams) (PasskeyCredential, error)
 	// Starts a new session family at sign-in: pass family_id = id. Only identity
 	// reads or writes sessions (ADR 0005); token_hash is the SHA-256 of the
 	// refresh token, never the token itself.
@@ -40,6 +46,9 @@ type Querier interface {
 	// another user's identity. Returns 0 when nothing matched. Check
 	// CountOAuthIdentitiesForUser first so a user keeps a way to sign in.
 	DeleteOAuthIdentity(ctx context.Context, arg DeleteOAuthIdentityParams) (int64, error)
+	// Removes one passkey of a user; scoped by user_id so a caller cannot remove
+	// another user's passkey. Returns 0 when nothing matched.
+	DeletePasskeyCredential(ctx context.Context, arg DeletePasskeyCredentialParams) (int64, error)
 	// Returns the row whatever its state, so the caller can tell a live link from
 	// a consumed or expired one.
 	GetEmailTokenByLinkHash(ctx context.Context, linkTokenHash string) (AuthEmailToken, error)
@@ -54,6 +63,9 @@ type Querier interface {
 	// Resolves a provider callback to the linked identity (and so its user).
 	// Returns pgx.ErrNoRows when the provider account is not linked.
 	GetOAuthIdentityByProviderSubject(ctx context.Context, arg GetOAuthIdentityByProviderSubjectParams) (OauthIdentity, error)
+	// Resolves the rawId of a sign-in assertion to its credential (and so its
+	// user). Returns pgx.ErrNoRows when the credential is not registered.
+	GetPasskeyCredentialByCredentialID(ctx context.Context, credentialID []byte) (PasskeyCredential, error)
 	// Returns the row whatever its state, so the caller can tell a live token
 	// from a revoked one (reuse) or an expired one.
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
@@ -79,10 +91,16 @@ type Querier interface {
 	ListAuditEventsForUser(ctx context.Context, arg ListAuditEventsForUserParams) ([]AuditEvent, error)
 	// A user's linked providers, oldest link first.
 	ListOAuthIdentitiesForUser(ctx context.Context, userID uuid.UUID) ([]OauthIdentity, error)
+	// A user's passkeys, oldest first. Also feeds the exclude list of a
+	// registration ceremony.
+	ListPasskeyCredentialsForUser(ctx context.Context, userID uuid.UUID) ([]PasskeyCredential, error)
 	// The keys served in JWKS: every key not yet retired, plus keys retired less
 	// than @retired_window_secs (identity.refresh_token_ttl) ago, measured on the
 	// database clock. Active key first.
 	ListPublishedSigningKeys(ctx context.Context, retiredWindowSecs float64) ([]SigningKey, error)
+	// Renames one passkey of a user; scoped by user_id so a caller cannot rename
+	// another user's passkey. Returns 0 when nothing matched.
+	RenamePasskeyCredential(ctx context.Context, arg RenamePasskeyCredentialParams) (int64, error)
 	// Undoes a soft delete inside the grace period. Fails with a unique
 	// violation if the email has since been taken by a new active account.
 	RestoreUser(ctx context.Context, id uuid.UUID) (User, error)
@@ -110,6 +128,10 @@ type Querier interface {
 	TouchLastLogin(ctx context.Context, id uuid.UUID) error
 	// Records activity on a live session. A NULL ip keeps the stored one.
 	TouchSession(ctx context.Context, arg TouchSessionParams) (int64, error)
+	// Records a verified sign-in: the new signature counter, the current backup
+	// state (BS) and last_used_at. The caller rejects a counter that went
+	// backwards before calling this. Returns 0 when the credential is gone.
+	UpdatePasskeySignCount(ctx context.Context, arg UpdatePasskeySignCountParams) (int64, error)
 	// Shallow-merges the patch object into the stored onboarding state.
 	UpdateUserOnboarding(ctx context.Context, arg UpdateUserOnboardingParams) (User, error)
 	// Shallow-merges the patch object into the stored preferences.
