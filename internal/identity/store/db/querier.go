@@ -15,12 +15,20 @@ type Querier interface {
 	// the row is already consumed or expired; of two concurrent consumes only one
 	// succeeds.
 	ConsumeEmailToken(ctx context.Context, id uuid.UUID) (AuthEmailToken, error)
+	// Number of providers linked to a user.
+	CountOAuthIdentitiesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	// Stores the row behind one sign-in email (magic link + 6-digit code). Only
 	// identity reads or writes auth_email_tokens (ADR 0005); link_token_hash and
 	// code_hash are hashes, never the secrets. next_path must be a relative path
 	// (the table check rejects anything else). Call InvalidateEmailTokensForEmail
 	// first so only the newest email works.
 	CreateEmailToken(ctx context.Context, arg CreateEmailTokenParams) (AuthEmailToken, error)
+	// Links a provider account to a user. Only identity reads or writes
+	// oauth_identities (ADR 0005). provider is 'google' or 'github' (the table
+	// check rejects anything else); a (provider, subject) already linked to any
+	// user violates the unique constraint. Pass last_login_at when the link is
+	// made by a sign-in, NULL when it is made from settings.
+	CreateOAuthIdentity(ctx context.Context, arg CreateOAuthIdentityParams) (OauthIdentity, error)
 	// Starts a new session family at sign-in: pass family_id = id. Only identity
 	// reads or writes sessions (ADR 0005); token_hash is the SHA-256 of the
 	// refresh token, never the token itself.
@@ -28,12 +36,19 @@ type Querier interface {
 	// Only the identity module reads or writes users (ADR 0005); every lookup
 	// and update below ignores soft-deleted rows.
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	// Unlinks one identity of a user; scoped by user_id so a caller cannot unlink
+	// another user's identity. Returns 0 when nothing matched. Check
+	// CountOAuthIdentitiesForUser first so a user keeps a way to sign in.
+	DeleteOAuthIdentity(ctx context.Context, arg DeleteOAuthIdentityParams) (int64, error)
 	// Returns the row whatever its state, so the caller can tell a live link from
 	// a consumed or expired one.
 	GetEmailTokenByLinkHash(ctx context.Context, linkTokenHash string) (AuthEmailToken, error)
 	// The newest live row for an address, used to check a typed 6-digit code.
 	// Returns pgx.ErrNoRows when the address has no live token.
 	GetLatestEmailTokenForEmail(ctx context.Context, email string) (AuthEmailToken, error)
+	// Resolves a provider callback to the linked identity (and so its user).
+	// Returns pgx.ErrNoRows when the provider account is not linked.
+	GetOAuthIdentityByProviderSubject(ctx context.Context, arg GetOAuthIdentityByProviderSubjectParams) (OauthIdentity, error)
 	// Returns the row whatever its state, so the caller can tell a live token
 	// from a revoked one (reuse) or an expired one.
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
@@ -57,6 +72,8 @@ type Querier interface {
 	// Newest first, keyset-paginated: pass the last row's (created_at, id) as the
 	// cursor for the next page, or NULLs for the first page.
 	ListAuditEventsForUser(ctx context.Context, arg ListAuditEventsForUserParams) ([]AuditEvent, error)
+	// A user's linked providers, oldest link first.
+	ListOAuthIdentitiesForUser(ctx context.Context, userID uuid.UUID) ([]OauthIdentity, error)
 	// The keys served in JWKS: every key not yet retired, plus keys retired less
 	// than @retired_window_secs (identity.refresh_token_ttl) ago, measured on the
 	// database clock. Active key first.

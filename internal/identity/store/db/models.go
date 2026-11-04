@@ -68,6 +68,17 @@ type Environment struct {
 	CreatedAt time.Time
 }
 
+type OauthIdentity struct {
+	ID          uuid.UUID
+	UserID      uuid.UUID
+	Provider    string
+	Subject     string
+	Email       *string
+	Profile     []byte
+	CreatedAt   time.Time
+	LastLoginAt *time.Time
+}
+
 type Organization struct {
 	ID        uuid.UUID
 	Slug      string
