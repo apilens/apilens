@@ -60,6 +60,11 @@ class ApiLensConfig:
     retry_backoff_max: float = 5.0
 
     enabled: bool = True
+    # Client IP privacy. ``capture_ip=False`` sends no IP at all;
+    # ``anonymize_ip=True`` truncates IPv4 to /24 and IPv6 to /48 in-process.
+    # Env APILENS_CAPTURE_IP=false / APILENS_ANONYMIZE_IP=true can only tighten these.
+    capture_ip: bool = True
+    anonymize_ip: bool = False
     user_agent: str = f"apilenss/{__version__}"
 
     def __post_init__(self) -> None:

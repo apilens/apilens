@@ -10,7 +10,8 @@ Observability tools see sensitive traffic, so this page is deliberately blunt ab
 | Data | Captured by default? | Control |
 |---|---|---|
 | Method, path template, status, response time | Yes | `enabled=False` disables everything |
-| Request/response sizes, client IP, user agent | Yes | — |
+| Request/response sizes, user agent | Yes | — |
+| Client IP | Yes, in full | `capture_ip=False` / `APILENS_CAPTURE_IP=false` to drop it, `anonymize_ip=True` / `APILENS_ANONYMIZE_IP=true` to truncate it (IPv4 /24, IPv6 /48) |
 | Request & response **headers** | Yes, with sensitive values redacted | `capture_headers=False`, plus `redact_headers=[…]` for your own patterns |
 | Request & response **bodies** | Yes, truncated at 64 KB | `capture_payloads=False`, `log_request_body` / `log_response_body` individually, or field-level `redact_body_fields=[…]` |
 | **Query strings** | Yes, as part of the exact request URL, with [default patterns](#default-masking-patterns) masked | `redact_query_params=[…]` per-parameter |
@@ -84,6 +85,29 @@ APILENS_REDACT_BODY_FIELDS = [r"^password$", r"^cvv$", r"card"]
 Redaction applies to values captured going forward — it cannot retroactively scrub requests that were already recorded without it. Configure it **before** pointing production traffic at APILens.
 </Note>
 
+## Client IP: `capture_ip` and `anonymize_ip`
+
+The client IP is taken from the first `X-Forwarded-For` entry, then `X-Real-IP`, then the socket peer. Two options control what is sent, both applied in your process before the record is built:
+
+| Option | Env var | Django setting | Effect |
+|---|---|---|---|
+| `capture_ip=False` | `APILENS_CAPTURE_IP=false` | `APILENS_CAPTURE_IP = False` | No IP is sent at all. Wins over `anonymize_ip`. |
+| `anonymize_ip=True` | `APILENS_ANONYMIZE_IP=true` | `APILENS_ANONYMIZE_IP = True` | IPv4 keeps its /24 (`203.0.113.42` → `203.0.113.0`); IPv6 keeps its /48 (`2001:db8:85a3:8d3::1` → `2001:db8:85a3::`). IPv4-mapped IPv6 is treated as IPv4. A value that is not a valid IP is dropped rather than sent. |
+
+Both are client options, so they cover every framework integration:
+
+```python
+from apilens import ApiLensClient, ApiLensConfig
+
+client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx", anonymize_ip=True))
+```
+
+With the one-line `ApiLensMiddleware` (which builds its own client), use the env vars. As with the other privacy switches, the env vars can only tighten capture: `APILENS_CAPTURE_IP=false` beats `capture_ip=True` in code, never the other way round.
+
+<Note>
+**Limitation:** an anonymised IP is a network, not a client. All callers in the same /24 (IPv4) or /48 (IPv6) show up as **one** IP in the consumer and IP filters and are counted together, so per-IP breakdowns become per-network breakdowns. Requests recorded before you turned anonymisation on keep their full IP, so the same caller can appear under both values for a while.
+</Note>
+
 ## Turning capture down (or off)
 
 ```python
@@ -100,10 +124,12 @@ app.add_middleware(
 )
 ```
 
-Two environment variables act as deploy-time kill switches, overriding code:
+These environment variables act as deploy-time kill switches, overriding code:
 
 - `APILENS_CAPTURE_SPANS=false` — stop all span and error-trace capture
 - `APILENS_PARAMETRIZE_PATHS=false` — disable heuristic path templating
+- `APILENS_CAPTURE_IP=false` — stop sending client IPs
+- `APILENS_ANONYMIZE_IP=true` — truncate client IPs (IPv4 /24, IPv6 /48)
 
 ## What APILens never does
 
