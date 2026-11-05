@@ -183,6 +183,10 @@ type Querier interface {
 	// The active apps of a project with an app-wide Apdex threshold.
 	ListProjectAppLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppLatencyThresholdsRow, error)
 	ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppsRow, error)
+	// Lists the route templates the apps of a project declared in their latest
+	// metadata reports, one row per app, method and path; an empty environment
+	// means every environment.
+	ListProjectDiscoveredRoutes(ctx context.Context, arg ListProjectDiscoveredRoutesParams) ([]ListProjectDiscoveredRoutesRow, error)
 	// The endpoints of a project's active apps with their own Apdex threshold.
 	ListProjectEndpointLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]ListProjectEndpointLatencyThresholdsRow, error)
 	// The settings that change what the dashboard counts (an expected status

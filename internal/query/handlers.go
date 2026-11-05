@@ -298,6 +298,9 @@ type endpoint struct {
 	P50Ms        float64  `json:"p50_ms"`
 	P95Ms        float64  `json:"p95_ms"`
 	Apdex        *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 against the endpoint's latency threshold (else its app's, else 500 ms); null without requests."`
+	// DiscoveredOnly marks a route an app declared in its metadata that had
+	// no traffic in the range; its counts are zero.
+	DiscoveredOnly bool `json:"discovered_only" doc:"True for a route an app declared (POST /v1/metadata) without traffic in the range; its counts are zero and it is listed after the endpoints with traffic."`
 }
 
 type endpointsOutput struct {
@@ -362,7 +365,17 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 		e.Apdex = apdex[e.Method+" "+e.Path].score()
 		out.Body.Endpoints = append(out.Body.Endpoints, e)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, internalError("endpoints", err)
+	}
+	if len(out.Body.Endpoints) < in.Limit {
+		routes, err := s.discoveredRoutes(ctx, p.ProjectID, in.Env)
+		if err != nil {
+			return nil, err
+		}
+		out.Body.Endpoints = withDiscovered(out.Body.Endpoints, routes, rules, in.Limit)
+	}
+	return out, nil
 }
 
 // statusClasses are the status code ranges of the status filters.

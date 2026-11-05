@@ -12,6 +12,50 @@ import (
 	"github.com/google/uuid"
 )
 
+const listProjectDiscoveredRoutes = `-- name: ListProjectDiscoveredRoutes :many
+SELECT DISTINCT m.app_id, r.method::text AS method, r.path::text AS path
+FROM app_metadata m,
+     jsonb_to_recordset(m.routes) AS r(method text, path text)
+WHERE m.project_id = $1
+  AND ($2::text = '' OR m.environment = $2::text)
+  AND r.method IS NOT NULL AND r.path IS NOT NULL
+ORDER BY r.path::text, r.method::text, m.app_id
+`
+
+type ListProjectDiscoveredRoutesParams struct {
+	ProjectID   uuid.UUID
+	Environment string
+}
+
+type ListProjectDiscoveredRoutesRow struct {
+	AppID  uuid.UUID
+	Method string
+	Path   string
+}
+
+// Lists the route templates the apps of a project declared in their latest
+// metadata reports, one row per app, method and path; an empty environment
+// means every environment.
+func (q *Queries) ListProjectDiscoveredRoutes(ctx context.Context, arg ListProjectDiscoveredRoutesParams) ([]ListProjectDiscoveredRoutesRow, error) {
+	rows, err := q.db.Query(ctx, listProjectDiscoveredRoutes, arg.ProjectID, arg.Environment)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectDiscoveredRoutesRow{}
+	for rows.Next() {
+		var i ListProjectDiscoveredRoutesRow
+		if err := rows.Scan(&i.AppID, &i.Method, &i.Path); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertAppMetadata = `-- name: UpsertAppMetadata :exec
 WITH app_framework AS (
     UPDATE apps

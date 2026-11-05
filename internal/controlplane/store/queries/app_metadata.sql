@@ -24,3 +24,15 @@ ON CONFLICT (app_id, environment) DO UPDATE SET
     routes            = EXCLUDED.routes,
     config            = EXCLUDED.config,
     received_at       = EXCLUDED.received_at;
+
+-- name: ListProjectDiscoveredRoutes :many
+-- Lists the route templates the apps of a project declared in their latest
+-- metadata reports, one row per app, method and path; an empty environment
+-- means every environment.
+SELECT DISTINCT m.app_id, r.method::text AS method, r.path::text AS path
+FROM app_metadata m,
+     jsonb_to_recordset(m.routes) AS r(method text, path text)
+WHERE m.project_id = @project_id
+  AND (@environment::text = '' OR m.environment = @environment::text)
+  AND r.method IS NOT NULL AND r.path IS NOT NULL
+ORDER BY r.path::text, r.method::text, m.app_id;
