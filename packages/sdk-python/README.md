@@ -478,6 +478,20 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `exclude_paths` | `None` | Regexes for paths to skip entirely (no record, span or log), e.g. `[r"^/health$"]`. Matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` (comma-separated env var) adds to it. An invalid regex raises at startup. |
 | `exclude_user_agents` | `None` | Regexes for `User-Agent` values to skip entirely, e.g. `[r"^uptimerobot"]`. Case-insensitive `re.search`. `APILENS_EXCLUDE_USER_AGENTS` (comma-separated env var) adds to it. |
 | `default_exclusions` | `True` | Skip the [built-in health/probe exclusions](#default-exclusions) (applied before `exclude_paths`). `False` turns them off; your own `exclude_paths` / `exclude_user_agents` still apply. |
+| `sample_rate` | `1.0` | Fraction (0.0–1.0) of requests whose detail — headers, bodies, spans, auto error log — is kept. See [sampling](#sampling). A value outside the range raises at startup. |
+
+### Sampling
+
+Sampling never changes metrics. Every request still sends its base record
+(method, path, status, latency, sizes, consumer, IP, user agent, trace id), so
+traffic counts, error rates and latency percentiles stay exact. With
+`sample_rate=0.1`, about 90% of requests are sent with `sampled=false` and no
+headers, bodies, spans or error log. Their bodies are never buffered.
+
+`1.0` (the default) sends exactly what earlier SDK versions sent, and `0.0`
+sends the base record only. A sampled-out request still continues the
+caller's `traceparent` and propagates it downstream, so child services decide
+independently.
 
 ### Default exclusions
 
@@ -532,6 +546,7 @@ kube-probe
 | `APILENS_EXCLUDE_PATHS` | `None` | Paths to skip entirely: a list of regexes or a comma-separated string. The env var of the same name adds to it. |
 | `APILENS_EXCLUDE_USER_AGENTS` | `None` | User agents to skip entirely: a list of regexes or a comma-separated string. The env var of the same name adds to it. |
 | `APILENS_DEFAULT_EXCLUSIONS` | `True` | `False` turns off the [built-in health/probe exclusions](#default-exclusions). |
+| `APILENS_SAMPLE_RATE` | `1.0` | Fraction of requests whose detail is kept; metrics always count every request (see [sampling](#sampling)). |
 | `APILENS_FLUSH_ON_SHUTDOWN` | `True` | Flush the queue from `atexit` when the process exits. The env var of the same name set to `false` also disables it. |
 | `APILENS_SHUTDOWN_TIMEOUT` | `5.0` | Upper bound, in seconds, on the shutdown flush. |
 

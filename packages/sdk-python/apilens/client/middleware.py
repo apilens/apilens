@@ -19,6 +19,7 @@ from ._capture import (
 )
 from ._exclusions import RequestExcluder
 from ._routes import resolve_endpoint_path
+from ._sampling import DetailSampler
 from ._sanitize import (
     BodyMasker,
     Redactor,
@@ -37,7 +38,12 @@ from ._shutdown import (
 )
 from .client import ApiLensClient
 from .spans import configure_spans, env_spans_enabled, record_error_log, record_span
-from .trace import begin_request_trace, end_request_trace
+from .trace import (
+    begin_request_trace,
+    end_request_trace,
+    reset_detail_sampled,
+    set_detail_sampled,
+)
 
 
 def _error_message(exc: BaseException | None, status_code: int, method: str, path: str) -> tuple[str, str]:
@@ -310,6 +316,7 @@ class ApiLensASGIMiddleware:
         exclude_paths: list[str] | None = None,
         exclude_user_agents: list[str] | None = None,
         default_exclusions: bool = True,
+        sample_rate: float = 1.0,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
@@ -351,6 +358,10 @@ class ApiLensASGIMiddleware:
         self.excluder = RequestExcluder(
             exclude_paths, exclude_user_agents, default_exclusions=default_exclusions
         )
+        # Fraction of requests (0.0-1.0) whose detail is kept. A sampled-out
+        # request still sends its base record (so metrics stay exact) with
+        # ``sampled=False`` and no headers, bodies, spans or error log.
+        self.sampler = DetailSampler(sample_rate)
         # Framework hook that maps a matched request scope to its route template
         # (``/product/{id}``). Runs after the app handled the request, when
         # routing has resolved. Heuristic fallback applies when it returns None.
@@ -440,6 +451,11 @@ class ApiLensASGIMiddleware:
         query = (scope.get("query_string") or b"").decode("latin-1")
         raw_path = f"{path}?{self.redactor.redact_query(query)}" if query else path
         trace_id, span_id, parent_span_id, trace_token = begin_request_trace(headers.get("traceparent"))
+        # Sampled out: base record only. Trace context above still propagates.
+        sampled = self.sampler.sample()
+        sampled_token = set_detail_sampled(sampled)
+        capture_headers = self.capture_headers and sampled
+        capture_payloads = self.capture_payloads and sampled
 
         request_payload_chunks: list[bytes] = []
         request_payload_len = 0
@@ -454,9 +470,10 @@ class ApiLensASGIMiddleware:
             ip_address=_extract_ip(headers, fallback=(scope.get("client") or ("", 0))[0] or ""),
             user_agent=_extract_user_agent(headers),
             base_url=_detect_base_url_from_headers(headers, default_scheme=scope.get("scheme", "https")),
-            request_headers=serialize_headers(headers, redactor=self.redactor) if self.capture_headers else "",
+            request_headers=serialize_headers(headers, redactor=self.redactor) if capture_headers else "",
             trace_id=trace_id,
             span_id=span_id,
+            sampled=sampled,
         )
 
         started_at = time.perf_counter()
@@ -472,7 +489,7 @@ class ApiLensASGIMiddleware:
             nonlocal request_payload_len
             message = await receive()
             if (
-                self.capture_payloads
+                capture_payloads
                 and self.log_request_body
                 and message.get("type") == "http.request"
                 and self.max_payload_bytes > 0
@@ -491,12 +508,12 @@ class ApiLensASGIMiddleware:
             if msg_type == "http.response.start":
                 status_code = int(message.get("status") or 500)
                 response_headers = _headers_to_dict(message.get("headers") or [])
-                if self.capture_headers:
+                if capture_headers:
                     response_headers_json = serialize_headers(response_headers, redactor=self.redactor)
             elif msg_type == "http.response.body":
                 body = message.get("body") or b""
                 response_size += len(body)
-                if self.capture_payloads and self.log_response_body and self.max_payload_bytes > 0 and response_payload_len < self.max_payload_bytes:
+                if capture_payloads and self.log_response_body and self.max_payload_bytes > 0 and response_payload_len < self.max_payload_bytes:
                     remaining = self.max_payload_bytes - response_payload_len
                     part = body[:remaining]
                     response_payload_chunks.append(part)
@@ -564,7 +581,7 @@ class ApiLensASGIMiddleware:
                 response_payload=response_payload,
                 response_headers=response_headers_json,
             )
-            if self.capture_spans:
+            if self.capture_spans and sampled:
                 is_error = captured_exc is not None or status_code >= 500
                 record_span(
                     name=f"{ctx.method} {ctx.path}",
@@ -586,6 +603,7 @@ class ApiLensASGIMiddleware:
                     consumer=consumer,
                 )
             _consumer_ctx.reset(token)
+            reset_detail_sampled(sampled_token)
             end_request_trace(trace_token)
 
 
@@ -616,6 +634,7 @@ class ApiLensWSGIMiddleware:
         exclude_paths: list[str] | None = None,
         exclude_user_agents: list[str] | None = None,
         default_exclusions: bool = True,
+        sample_rate: float = 1.0,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
@@ -648,6 +667,8 @@ class ApiLensWSGIMiddleware:
         self.excluder = RequestExcluder(
             exclude_paths, exclude_user_agents, default_exclusions=default_exclusions
         )
+        # Request-detail sampling — same semantics as the ASGI middleware.
+        self.sampler = DetailSampler(sample_rate)
         # Framework hook that maps a WSGI environ to its route template. Runs
         # after the app handled the request. Heuristic fallback when None.
         self.route_resolver = route_resolver
@@ -686,6 +707,11 @@ class ApiLensWSGIMiddleware:
         started_at = time.perf_counter()
         consumer_token = _consumer_ctx.set(None)
         trace_id, span_id, parent_span_id, trace_token = begin_request_trace(environ.get("HTTP_TRACEPARENT"))
+        # Sampled out: base record only. Trace context above still propagates.
+        sampled = self.sampler.sample()
+        sampled_token = set_detail_sampled(sampled)
+        capture_headers = self.capture_headers and sampled
+        capture_payloads = self.capture_payloads and sampled
 
         clean_path = _normalize_path(environ.get("PATH_INFO") or "/")
         query = environ.get("QUERY_STRING")
@@ -705,7 +731,7 @@ class ApiLensWSGIMiddleware:
             headers=request_headers,
         )
         request_payload = ""
-        if self.capture_payloads and self.log_request_body and self.max_payload_bytes > 0:
+        if capture_payloads and self.log_request_body and self.max_payload_bytes > 0:
             stream = environ.get("wsgi.input")
             if stream is not None and hasattr(stream, "read"):
                 body = stream.read(self.max_payload_bytes)
@@ -726,7 +752,7 @@ class ApiLensWSGIMiddleware:
 
         request_headers_json = (
             serialize_headers(request_headers, redactor=self.redactor)
-            if self.capture_headers
+            if capture_headers
             else ""
         )
 
@@ -744,6 +770,7 @@ class ApiLensWSGIMiddleware:
             base_url=_detect_base_url_from_environ(environ),
             trace_id=trace_id,
             span_id=span_id,
+            sampled=sampled,
         )
 
         status_code = 500
@@ -757,7 +784,7 @@ class ApiLensWSGIMiddleware:
             nonlocal status_code, response_headers_json, response_headers
             status_code = _to_int(status.split(" ", 1)[0], 500)
             response_headers = {str(k): str(v) for k, v in (headers or [])}
-            if self.capture_headers:
+            if capture_headers:
                 response_headers_json = serialize_headers(response_headers, redactor=self.redactor)
             return start_response(status, headers, exc_info)
 
@@ -767,7 +794,7 @@ class ApiLensWSGIMiddleware:
             result = self.app(environ, wrapped_start_response)
             for chunk in result:
                 response_size += len(chunk or b"")
-                if self.capture_payloads and self.log_response_body and self.max_payload_bytes > 0 and response_payload_len < self.max_payload_bytes:
+                if capture_payloads and self.log_response_body and self.max_payload_bytes > 0 and response_payload_len < self.max_payload_bytes:
                     piece = chunk or b""
                     remaining = self.max_payload_bytes - response_payload_len
                     part = piece[:remaining]
@@ -801,8 +828,9 @@ class ApiLensWSGIMiddleware:
                     consumer = normalize_consumer(resolved)
             _apply_consumer(ctx, consumer)
             _consumer_ctx.reset(consumer_token)
+            reset_detail_sampled(sampled_token)
             end_request_trace(trace_token)
-            if self.capture_spans:
+            if self.capture_spans and sampled:
                 is_error = captured_exc is not None or status_code >= 500
                 record_span(
                     name=f"{ctx.method} {ctx.path}",

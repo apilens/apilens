@@ -41,6 +41,7 @@ def instrument_app(
     exclude_paths: list[str] | None = None,
     exclude_user_agents: list[str] | None = None,
     default_exclusions: bool = True,
+    sample_rate: float = 1.0,
 ):
     """BlackSheep integration via ASGI middleware.
 
@@ -59,6 +60,7 @@ def instrument_app(
         exclude_paths=exclude_paths,
         exclude_user_agents=exclude_user_agents,
         default_exclusions=default_exclusions,
+        sample_rate=sample_rate,
         route_resolver=blacksheep_route_template,
     )
     if hasattr(app, "asgi"):

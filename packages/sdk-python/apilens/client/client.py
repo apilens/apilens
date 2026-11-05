@@ -430,6 +430,7 @@ class ApiLensClient:
         base_url: str = "",
         trace_id: str = "",
         span_id: str = "",
+        sampled: bool = True,
     ) -> None:
         record = RequestRecord(
             timestamp=timestamp or datetime.now(tz=timezone.utc),
@@ -455,6 +456,7 @@ class ApiLensClient:
             base_url=base_url,
             trace_id=trace_id,
             span_id=span_id,
+            sampled=sampled,
         )
         self.capture_record(record)
 

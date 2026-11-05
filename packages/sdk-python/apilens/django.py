@@ -6,6 +6,7 @@ from typing import Any
 from .client._capture import CaptureContext, _normalize_path, _to_int, capture_response
 from .client._exclusions import RequestExcluder
 from .client._routes import django_route_template, resolve_endpoint_path
+from .client._sampling import DetailSampler
 from .client._sanitize import (
     Redactor,
     RequestInfo,
@@ -26,7 +27,12 @@ from .client.middleware import (
 )
 from .client._shutdown import DEFAULT_SHUTDOWN_TIMEOUT, env_flush_on_shutdown, register_atexit
 from .client.spans import configure_spans, env_spans_enabled, record_span
-from .client.trace import begin_request_trace, end_request_trace
+from .client.trace import (
+    begin_request_trace,
+    end_request_trace,
+    reset_detail_sampled,
+    set_detail_sampled,
+)
 
 _client_singleton: ApiLensClient | None = None
 
@@ -189,6 +195,10 @@ class ApiLensDjangoMiddleware:
             getattr(settings, "APILENS_EXCLUDE_USER_AGENTS", None) or None,
             default_exclusions=bool(getattr(settings, "APILENS_DEFAULT_EXCLUSIONS", True)),
         )
+        # APILENS_SAMPLE_RATE (0.0-1.0): fraction of requests whose detail is
+        # kept. Sampled-out requests still send the base record (metrics stay
+        # exact) with no headers, bodies, spans or error log.
+        self.sampler = DetailSampler(getattr(settings, "APILENS_SAMPLE_RATE", 1.0))
         # Heuristic path parametrization when the URL resolver gives no route
         # (env APILENS_PARAMETRIZE_PATHS wins over this setting).
         self.parametrize_paths = bool(getattr(settings, "APILENS_PARAMETRIZE_PATHS", True))
@@ -235,6 +245,10 @@ class ApiLensDjangoMiddleware:
         response_size = 0
         consumer_token = _consumer_ctx.set(None)
         trace_id, span_id, parent_span_id, trace_token = begin_request_trace(request.META.get("HTTP_TRACEPARENT"))
+        # Sampled out: base record only. Trace context above still propagates.
+        sampled = self.sampler.sample()
+        sampled_token = set_detail_sampled(sampled)
+        capture_headers = self.capture_headers and sampled
 
         xff = (request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
         if xff:
@@ -264,12 +278,13 @@ class ApiLensDjangoMiddleware:
             base_url=base_url,
             trace_id=trace_id,
             span_id=span_id,
+            sampled=sampled,
         )
         try:
             request_headers = dict(request.headers.items())
         except Exception:
             request_headers = {}
-        if self.capture_headers:
+        if capture_headers:
             try:
                 ctx.request_headers = serialize_headers(request_headers, redactor=self.redactor)
             except Exception:
@@ -277,13 +292,14 @@ class ApiLensDjangoMiddleware:
         request_info = RequestInfo(
             method=ctx.method, path=clean_path, raw_path=raw_path, headers=lower_headers(request_headers)
         )
-        try:
-            body = request.body[: self.max_payload_bytes]
-            ctx.request_payload = mask_body(
-                body, redactor=self.redactor, masker=self.mask_request_body, info=request_info
-            )
-        except Exception:
-            ctx.request_payload = ""
+        if sampled:
+            try:
+                body = request.body[: self.max_payload_bytes]
+                ctx.request_payload = mask_body(
+                    body, redactor=self.redactor, masker=self.mask_request_body, info=request_info
+                )
+            except Exception:
+                ctx.request_payload = ""
 
         response_headers = ""
         try:
@@ -296,7 +312,7 @@ class ApiLensDjangoMiddleware:
             except Exception:
                 response_header_map = {}
             response_payload = mask_body(
-                content[: self.max_payload_bytes],
+                content[: self.max_payload_bytes] if sampled else b"",
                 redactor=self.redactor,
                 masker=self.mask_response_body,
                 info=ResponseInfo(
@@ -305,7 +321,7 @@ class ApiLensDjangoMiddleware:
                     headers=lower_headers(response_header_map),
                 ),
             )
-            if self.capture_headers:
+            if capture_headers:
                 try:
                     response_headers = serialize_headers(dict(response.items()), redactor=self.redactor)
                 except Exception:
@@ -327,9 +343,10 @@ class ApiLensDjangoMiddleware:
                     consumer = normalize_consumer(resolved)
             _apply_consumer(ctx, consumer)
             _consumer_ctx.reset(consumer_token)
+            reset_detail_sampled(sampled_token)
             end_request_trace(trace_token)
             captured_exc = getattr(request, "_apilens_exc", None)
-            if self.capture_spans:
+            if self.capture_spans and sampled:
                 is_error = captured_exc is not None or status_code >= 500
                 record_span(
                     name=f"{ctx.method} {ctx.path}",

@@ -16,6 +16,7 @@ Observability tools see sensitive traffic, so this page is deliberately blunt ab
 | Request & response **bodies** | Yes, truncated at 64 KB | `capture_payloads=False`, `log_request_body` / `log_response_body` individually, or field-level `redact_body_fields=[…]` |
 | **Query strings** | Yes, as part of the exact request URL, with [default patterns](#default-masking-patterns) masked | `redact_query_params=[…]` per-parameter |
 | Entire requests to matching paths / user agents | Yes, unless excluded; [health checks and probes](#default-exclusions) are excluded by default | `exclude_paths=[…]` / `exclude_user_agents=[…]` regexes, `APILENS_EXCLUDE_PATHS` / `APILENS_EXCLUDE_USER_AGENTS`, `default_exclusions=False` to record probes |
+| Detail of every request (headers, bodies, spans, error log) | Yes, for 100% of requests | `sample_rate=0.1` keeps detail for ~10%; see [sampling](#sampling-request-detail) |
 | Consumer identity | **No** — only what you explicitly set | `set_consumer(...)` |
 | Trace spans | Yes (timing + endpoint/URL names, no payloads) | `capture_spans=False` or `APILENS_CAPTURE_SPANS=false` |
 | Error stack traces | Yes, on unhandled exception or 5xx | disabled along with spans |
@@ -181,6 +182,25 @@ Health checks, probes and browser housekeeping files are excluded out of the box
 | `/\.well-known/` | |
 
 That covers `/health`, `/healthz`, `/health_checks`, `/heartbeat`, `/ping`, `/ready`, `/live`, favicon, robots, sitemap, manifest and service-worker files, anything under `/.well-known/`, and the Kubernetes, Google Cloud, Azure and generic health-check probe user agents. To record them, pass `default_exclusions=False` (Django: `APILENS_DEFAULT_EXCLUSIONS = False`); your own `exclude_paths` and `exclude_user_agents` still apply.
+
+## Sampling request detail
+
+`sample_rate` (0.0–1.0, default `1.0`) keeps the request **detail** — headers, bodies, spans and the auto error-trace log — for that fraction of requests. **Sampling never changes metrics:** every request still sends its base record (method, path, status, latency, sizes, consumer, IP, user agent, trace id), so request counts, error rates and latency percentiles stay exact. A sampled-out request reaches APILens with `sampled=false` and no detail.
+
+```python
+app.add_middleware(
+    ApiLensMiddleware,
+    api_key="apilens_xxx",
+    app_id="orders-api",
+    sample_rate=0.1,   # detail for ~10% of requests; metrics from 100%
+)
+```
+
+- **Decided once per request**, before the handler runs, with a fast PRNG. `1.0` and `0.0` are exact; `1.0` sends exactly what the SDK sent before sampling existed.
+- **Bodies of sampled-out requests are never buffered**, so a low rate also lowers the SDK's memory and CPU overhead.
+- **Trace context still flows.** A sampled-out request continues the caller's `traceparent` and propagates it to downstream calls, so child services make their own sampling decision.
+- **Validated at startup.** A value outside 0.0–1.0 raises when the middleware is constructed.
+- **Django:** `APILENS_SAMPLE_RATE = 0.1`.
 
 ## Turning capture down (or off)
 
