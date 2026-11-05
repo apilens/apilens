@@ -1,5 +1,6 @@
 package ai.apilens.spring;
 
+import ai.apilens.RequestExcluder;
 import java.util.List;
 
 /** Request-capture options used by the Spring servlet filter. */
@@ -18,6 +19,9 @@ public final class ApiLensSpringOptions {
   private final List<String> redactHeaders;
   private final List<String> redactBodyFields;
   private final boolean parametrizePaths;
+  private final List<String> excludePaths;
+  private final List<String> excludeUserAgents;
+  private final boolean defaultExclusions;
 
   private ApiLensSpringOptions(Builder builder) {
     this.environment = builder.environment;
@@ -34,6 +38,9 @@ public final class ApiLensSpringOptions {
     this.redactHeaders = List.copyOf(builder.redactHeaders);
     this.redactBodyFields = List.copyOf(builder.redactBodyFields);
     this.parametrizePaths = builder.parametrizePaths;
+    this.excludePaths = List.copyOf(builder.excludePaths);
+    this.excludeUserAgents = List.copyOf(builder.excludeUserAgents);
+    this.defaultExclusions = builder.defaultExclusions;
   }
 
   public static Builder builder() {
@@ -96,6 +103,21 @@ public final class ApiLensSpringOptions {
     return parametrizePaths;
   }
 
+  /** Extra case-insensitive path regexes; a matching request is not captured. */
+  public List<String> excludePaths() {
+    return excludePaths;
+  }
+
+  /** Extra case-insensitive User-Agent regexes; a matching request is not captured. */
+  public List<String> excludeUserAgents() {
+    return excludeUserAgents;
+  }
+
+  /** Whether the built-in health-check/probe/static-file exclusions apply. */
+  public boolean defaultExclusions() {
+    return defaultExclusions;
+  }
+
   public static final class Builder {
     private String environment = "";
     private boolean enabled = true;
@@ -111,6 +133,9 @@ public final class ApiLensSpringOptions {
     private List<String> redactHeaders = List.of();
     private List<String> redactBodyFields = List.of();
     private boolean parametrizePaths = true;
+    private List<String> excludePaths = List.of();
+    private List<String> excludeUserAgents = List.of();
+    private boolean defaultExclusions = true;
 
     private Builder() {}
 
@@ -181,6 +206,21 @@ public final class ApiLensSpringOptions {
 
     public Builder parametrizePaths(boolean parametrizePaths) {
       this.parametrizePaths = parametrizePaths;
+      return this;
+    }
+
+    public Builder excludePaths(List<String> excludePaths) {
+      this.excludePaths = RequestExcluder.splitPatterns(excludePaths);
+      return this;
+    }
+
+    public Builder excludeUserAgents(List<String> excludeUserAgents) {
+      this.excludeUserAgents = RequestExcluder.splitPatterns(excludeUserAgents);
+      return this;
+    }
+
+    public Builder defaultExclusions(boolean defaultExclusions) {
+      this.defaultExclusions = defaultExclusions;
       return this;
     }
 
