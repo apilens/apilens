@@ -82,6 +82,8 @@
 //   GET  /api/v1/requests?project=                 query reads as the session (#335): the rows the fake
 //   GET  /api/v1/traffic/summary?project=          edge stored for shop or a project the user created,
 //   GET  /api/v1/traffic/endpoints?project=        newest first, and totals/p95 over them; 404 otherwise
+//   GET  /api/v1/deploys/changes?project=          deploys with before/after numbers (#597), as seeded
+//   POST /__fake/deploys {project, deploys}        test hook: what that answers for `project`
 //   POST /__fake/query-down {project, down}        test hook: those reads answer 503 for `project`
 //   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?}
 //                                                  test hook: a code whose bundle carries any `next`;
@@ -446,6 +448,8 @@ const ingestedRows = new Map<
 >();
 /** Projects whose query reads answer 503, set by `/__fake/query-down` (#335). */
 const queryDown = new Set<string>();
+/** Project slug → the deploys `GET /deploys/changes` answers, as seeded by `/__fake/deploys` (#597). */
+const deployChanges = new Map<string, Record<string, unknown>[]>();
 
 function seedApiKey(input: Record<string, unknown>): FakeApiKey {
   return {
@@ -1205,6 +1209,21 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       p99_ms: p95(rows),
       requests_per_minute: rows.length / (7 * 24 * 60),
     });
+  }
+  // Deploys with their before/after numbers (#597), as seeded; same access rules as above.
+  if (req.method === "GET" && path === "/api/v1/deploys/changes") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = url.searchParams.get("project") ?? "";
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+    if (queryDown.has(slug)) return problem(res, 503, "unavailable");
+    return send(res, 200, { window_minutes: 60, deploys: deployChanges.get(slug) ?? [] });
+  }
+  if (req.method === "POST" && path === "/__fake/deploys") {
+    // Test hook: replaces what `GET /deploys/changes` answers for `project`.
+    const { project, deploys } = await readBody(req);
+    deployChanges.set(String(project), Array.isArray(deploys) ? deploys : []);
+    return send(res, 204);
   }
   if (req.method === "POST" && path === "/__fake/query-down") {
     // Test hook: the query API answers 503 for `project` (#335's error state), or again normally.

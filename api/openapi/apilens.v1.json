@@ -841,6 +841,87 @@
         ],
         "type": "object"
       },
+      "DeployChange": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/SideStats",
+            "description": "The hour after the deploy's minute; the minute itself is in neither side."
+          },
+          "after_partial": {
+            "description": "The after window is still open and covers less than an hour so far.",
+            "type": "boolean"
+          },
+          "app_id": {
+            "description": "The deployed app; empty for a project-wide deploy.",
+            "type": "string"
+          },
+          "before": {
+            "$ref": "#/components/schemas/SideStats",
+            "description": "The hour before the deploy's minute."
+          },
+          "commit": {
+            "type": "string"
+          },
+          "deployed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "deployed_at",
+          "release",
+          "commit",
+          "environment",
+          "url",
+          "app_id",
+          "before",
+          "after",
+          "after_partial"
+        ],
+        "type": "object"
+      },
+      "DeployChangesOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/DeployChangesOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "deploys": {
+            "items": {
+              "$ref": "#/components/schemas/DeployChange"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "window_minutes": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_minutes",
+          "deploys"
+        ],
+        "type": "object"
+      },
       "DeployOut": {
         "additionalProperties": false,
         "properties": {
@@ -4043,6 +4124,32 @@
           "last_seen_at",
           "expires_at",
           "current"
+        ],
+        "type": "object"
+      },
+      "SideStats": {
+        "additionalProperties": false,
+        "properties": {
+          "error_rate": {
+            "description": "(client_errors + server_errors) / requests; 0 without requests.",
+            "format": "double",
+            "type": "number"
+          },
+          "p95_ms": {
+            "description": "0 without requests.",
+            "format": "double",
+            "type": "number"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requests",
+          "error_rate",
+          "p95_ms"
         ],
         "type": "object"
       },
@@ -7710,6 +7817,100 @@
           }
         ],
         "summary": "Deploy markers in a time range",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/deploys/changes": {
+      "get": {
+        "operationId": "list-deploy-changes",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Most recent deploys to compare.",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 25,
+              "description": "Most recent deploys to compare.",
+              "format": "int64",
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployChangesOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Deploys with error rate and p95 one hour before and after each",
         "tags": [
           "Dashboard"
         ]

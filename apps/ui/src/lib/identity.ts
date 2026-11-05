@@ -838,6 +838,36 @@ export interface EndpointTraffic {
   p95_ms: number;
 }
 
+/** Traffic on one side of a deploy in `GET /deploys/changes`; rates and p95 are 0 without requests. */
+export interface DeploySide {
+  requests: number;
+  error_rate: number;
+  p95_ms: number;
+}
+
+/** One deploy of `GET /deploys/changes` (#597), newest first. */
+export interface DeployChange {
+  deployed_at: string;
+  release: string;
+  commit: string;
+  environment: string;
+  url: string;
+  /** The deployed app's id; empty for a project-wide deploy. */
+  app_id: string;
+  /** The hour before the deploy's minute. */
+  before: DeploySide;
+  /** The hour after the deploy's minute; the minute itself is in neither side. */
+  after: DeploySide;
+  /** The after window is still open: it covers less than an hour so far. */
+  after_partial: boolean;
+}
+
+/** `GET /deploys/changes`. */
+export interface DeployChanges {
+  window_minutes: number;
+  deploys: DeployChange[] | null;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Operations
 
@@ -1005,6 +1035,8 @@ export function createClient(config: ClientConfig) {
       request<TrafficSummary>("GET", "/traffic/summary", { ...o, query: { project: projectSlug, range } }),
     listEndpoints: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
       request<{ endpoints: EndpointTraffic[] | null }>("GET", "/traffic/endpoints", { ...o, query: { project: projectSlug, ...q } }),
+    deployChanges: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
+      request<DeployChanges>("GET", "/deploys/changes", { ...o, query: { project: projectSlug, ...q } }),
 
     // api: project API keys ---------------------------------------------------------------
     listApiKeys: (projectSlug: string, o: Authed) =>

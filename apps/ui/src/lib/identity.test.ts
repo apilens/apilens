@@ -397,6 +397,7 @@ describe("operations", () => {
     ["GET", "/requests", (c) => c.listRequests("web", { range: "7d", limit: 10 }, authed)],
     ["GET", "/traffic/summary", (c) => c.trafficSummary("web", "7d", authed)],
     ["GET", "/traffic/endpoints", (c) => c.listEndpoints("web", { range: "7d" }, authed)],
+    ["GET", "/deploys/changes", (c) => c.deployChanges("web", { range: "7d" }, authed)],
   ];
 
   it.each(routes)("%s %s", async (method, template, call) => {
@@ -426,10 +427,12 @@ describe("operations", () => {
     await client.listRequests("my-api", { range: "7d", limit: 10 }, authed);
     await client.trafficSummary("my-api", "24h", authed);
     await client.listEndpoints("my-api", { range: "7d", limit: 500 }, authed);
+    await client.deployChanges("my-api", { range: "7d", limit: 25 }, authed);
     expect(calls.map((c) => Object.fromEntries(new URL(c.url).searchParams))).toEqual([
       { project: "my-api", range: "7d", limit: "10" },
       { project: "my-api", range: "24h" },
       { project: "my-api", range: "7d", limit: "500" },
+      { project: "my-api", range: "7d", limit: "25" },
     ]);
     expect(calls.every((c) => c.headers.get("authorization") === "Bearer jwt")).toBe(true);
   });

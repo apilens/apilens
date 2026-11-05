@@ -1,0 +1,53 @@
+/* Changes (#597): deploys with before → after error rate and p95. Tokens from tokens.css only;
+   a worse change is --error on --error-soft, a better one --ok on --ok-soft, the rest muted. At
+   phone width each deploy stacks into labelled lines, so the page never scrolls sideways. */
+.ch { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
+.ch-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
+
+.ch-notice { display: flex; gap: 10px; align-items: flex-start; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); font: 400 14px/22px var(--font-sans); color: var(--ink); }
+.ch-notice p { margin: 0; }
+.ch-notice svg { flex: none; width: 16px; height: 16px; margin-top: 3px; color: var(--ink-muted); }
+.ch-notice--error { border-color: color-mix(in srgb, var(--error) 35%, var(--border)); background: var(--error-soft); }
+.ch-notice--error svg { color: var(--error); }
+
+.ch-card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); overflow: hidden; }
+.ch-table { width: 100%; border-collapse: collapse; font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.ch-table th { padding: 10px var(--space-4); border-bottom: 1px solid var(--border); background: var(--surface-2); text-align: left; font: 500 12px/16px var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
+.ch-table td { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); vertical-align: top; }
+.ch-table tbody tr:first-child td { border-top: 0; }
+.ch-table th.ch-num, .ch-table td.ch-num { text-align: right; }
+
+.ch-release b { display: block; font: 500 14px/20px var(--font-mono); overflow-wrap: anywhere; }
+.ch-meta { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: 2px; color: var(--ink-muted); }
+.ch-meta code { font: 400 12px/18px var(--font-mono); }
+.ch-env { font: 400 12px/18px var(--font-sans); }
+.ch-table time { white-space: nowrap; }
+.ch-partial { display: block; margin-top: 2px; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
+
+.ch-pair { display: inline-flex; gap: 6px; font: 400 13px/20px var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ch-arrow { color: var(--ink-muted); }
+.ch-delta { display: table; margin: 4px 0 0 auto; padding: 0 var(--space-2); border-radius: var(--radius-pill); font: 500 12px/20px var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ch-delta--worse { background: var(--error-soft); color: var(--error); }
+.ch-delta--better { background: var(--ok-soft); color: var(--ok); }
+.ch-delta--flat { background: var(--surface-2); color: var(--ink-muted); }
+.ch-delta--none { padding: 0; font-family: var(--font-sans); font-weight: 400; color: var(--ink-muted); }
+
+.ch-actions { text-align: right; white-space: nowrap; }
+.ch-actions .cp-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: var(--radius-sm); }
+.ch-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .ch { padding: var(--space-4) var(--space-4) var(--space-12); }
+  .ch-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .ch-table, .ch-table tbody, .ch-table tr, .ch-table td { display: block; width: auto; }
+  .ch-table tr.ch-row { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); }
+  .ch-table tbody tr:first-child { border-top: 0; }
+  .ch-table td { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px var(--space-3); padding: 2px 0; border: 0; text-align: left; }
+  .ch-table td.ch-num { text-align: left; }
+  .ch-table td[data-label]::before { content: attr(data-label); flex: none; width: 96px; color: var(--ink-muted); }
+  .ch-table td.ch-release { display: block; padding-bottom: var(--space-2); }
+  .ch-table td.ch-release::before { content: none; }
+  .ch-delta { display: inline-block; margin: 0; }
+  .ch-partial { display: inline; margin: 0; }
+  .ch-actions { padding-top: var(--space-2); text-align: left; }
+}
