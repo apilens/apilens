@@ -28,6 +28,7 @@ import (
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/identity/oidcprovider"
 	identitydb "github.com/apilens/apilens/internal/identity/store/db"
+	"github.com/apilens/apilens/internal/ingest"
 	"github.com/apilens/apilens/internal/migrations"
 	"github.com/apilens/apilens/internal/platform/buildinfo"
 	"github.com/apilens/apilens/internal/platform/cache"
@@ -527,6 +528,7 @@ func runOpenAPI(stdout io.Writer) error {
 	controlplaneapi.Register(srv.API(), controlplaneapi.Deps{})
 	identity.NewRecovery(config.IdentityConfig{}, nil, nil, nil, nil).Register(srv.API())
 	identity.NewOIDCRequests(nil, nil).Register(srv.API())
+	ingest.RegisterOpenAPI(srv.API())
 	b, err := json.MarshalIndent(srv.API().OpenAPI(), "", "  ")
 	if err != nil {
 		return err

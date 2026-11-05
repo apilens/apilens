@@ -320,7 +320,8 @@ func (a *App) initRelay(context.Context) (modules.Service, error) {
 }
 
 func (a *App) initEdge(context.Context) (modules.Service, error) {
-	ingest.New(a.verifier, a.apps, a.sink, a.cfg.Ingest, a.logger, a.registry).WithPrivacy(a.privacy).Register(a.server.Mux())
+	ingest.New(a.verifier, a.apps, a.sink, a.cfg.Ingest, a.logger, a.registry).WithPrivacy(a.privacy).WithMetadata(a.queries).Register(a.server.Mux())
+	ingest.RegisterOpenAPI(a.server.API())
 	return nil, nil
 }
 

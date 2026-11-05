@@ -182,6 +182,10 @@ type Querier interface {
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)
 	UpdateProjectName(ctx context.Context, arg UpdateProjectNameParams) (UpdateProjectNameRow, error)
 	UpsertApp(ctx context.Context, arg UpsertAppParams) (UpsertAppRow, error)
+	// Stores the latest metadata report of an app in an environment and, in the
+	// same statement, records the reported framework on the app when it has
+	// none yet.
+	UpsertAppMetadata(ctx context.Context, arg UpsertAppMetadataParams) error
 	UpsertEnvironment(ctx context.Context, arg UpsertEnvironmentParams) (Environment, error)
 	// Creates or replaces an organization's OIDC connection. created_at and
 	// last_login_at survive a replace.
