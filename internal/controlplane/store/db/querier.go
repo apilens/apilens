@@ -48,6 +48,11 @@ type Querier interface {
 	// Resolves an ingest key to its project. Revoked, expired and keys of
 	// deleted projects never match.
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error)
+	// An active app of an active project, with what authorizing a request on it
+	// needs (the project slug, which the authz guard resolves).
+	GetCaptureApp(ctx context.Context, id uuid.UUID) (GetCaptureAppRow, error)
+	// The capture policy row of an active app; no row means capture everything.
+	GetCapturePolicy(ctx context.Context, appID uuid.UUID) (GetCapturePolicyRow, error)
 	// Queries behind GET /api/v1/users/me/context: the signed-in user and every
 	// organization and project they can see, read in a fixed number of round
 	// trips whatever the number of organizations and projects.
@@ -186,6 +191,7 @@ type Querier interface {
 	// same statement, records the reported framework on the app when it has
 	// none yet.
 	UpsertAppMetadata(ctx context.Context, arg UpsertAppMetadataParams) error
+	UpsertCapturePolicy(ctx context.Context, arg UpsertCapturePolicyParams) (UpsertCapturePolicyRow, error)
 	UpsertEnvironment(ctx context.Context, arg UpsertEnvironmentParams) (Environment, error)
 	// Creates or replaces an organization's OIDC connection. created_at and
 	// last_login_at survive a replace.

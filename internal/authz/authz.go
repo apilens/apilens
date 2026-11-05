@@ -54,10 +54,11 @@ const (
 	OrgView          Permission = "view"
 
 	// project
-	ProjectDelete     Permission = "delete"
-	ProjectManageKeys Permission = "manage_keys"
-	ProjectEdit       Permission = "edit"
-	ProjectView       Permission = "view"
+	ProjectDelete        Permission = "delete"
+	ProjectManageKeys    Permission = "manage_keys"
+	ProjectManageCapture Permission = "manage_capture"
+	ProjectEdit          Permission = "edit"
+	ProjectView          Permission = "view"
 )
 
 // Object identifies a SpiceDB object.

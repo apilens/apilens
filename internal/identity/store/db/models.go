@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type ApiKey struct {
@@ -80,6 +81,18 @@ type BackupCode struct {
 	CodeHash  string
 	UsedAt    *time.Time
 	CreatedAt time.Time
+}
+
+type CapturePolicy struct {
+	AppID               uuid.UUID
+	Enabled             bool
+	SampleRate          pgtype.Numeric
+	CaptureHeaders      bool
+	CaptureRequestBody  bool
+	CaptureResponseBody bool
+	MaxPayloadBytes     *int32
+	UpdatedAt           time.Time
+	UpdatedBy           *uuid.UUID
 }
 
 type Environment struct {

@@ -22,6 +22,7 @@ import (
 	"github.com/apilens/apilens/internal/authz"
 	controlplaneapi "github.com/apilens/apilens/internal/controlplane/api"
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
+	"github.com/apilens/apilens/internal/controlplane/capture"
 	"github.com/apilens/apilens/internal/controlplane/catalog"
 	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/controlplane/outbox"
@@ -367,6 +368,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Projects: projects.New(a.pool),
 		APIKeys:  apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger),
 		Privacy:  privacy.NewService(a.pool),
+		Capture:  capture.NewService(a.pool, audit.New(a.pool)),
 		Context:  usercontext.New(a.pool, a.checker()),
 		Guard:    a.guard(),
 		Limiter:  limiter,

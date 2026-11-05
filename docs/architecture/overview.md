@@ -212,6 +212,7 @@ shipped; a test checks that this table lists every one.
 | `api_key.revoked` | a project API key is revoked |
 | `sso.updated` | an organization's SSO connection is created or changed (metadata has `created`, `enforce`, `secret_changed` and the changed `fields`; never the secret) |
 | `sso.deleted` | an organization's SSO connection is removed |
+| `capture_policy.updated` | an app's remote capture policy is saved (metadata has the app, its project and the new values) |
 
 ## Delivery
 
