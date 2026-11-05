@@ -50,6 +50,7 @@
               "setup-guides/nestjs",
               "setup-guides/koa",
               "setup-guides/hono",
+              "setup-guides/spring-mvc",
               "setup-guides/spring-webflux",
               "setup-guides/other-frameworks"
             ]

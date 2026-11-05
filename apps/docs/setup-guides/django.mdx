@@ -30,7 +30,7 @@ APILENS_API_KEY = os.environ["APILENS_API_KEY"]   # required
 APILENS_APP_ID = "billing-api"                    # required
 ```
 
-Both settings are required — the middleware raises a `RuntimeError` at startup if either is missing, so a misconfigured deploy fails loudly instead of silently reporting nothing.
+Both values are required, as a setting or as the environment variable of the same name. The middleware raises a `RuntimeError` at startup if either is missing, so a misconfigured deploy fails loudly instead of silently reporting nothing.
 
 ### Optional settings
 
@@ -51,6 +51,35 @@ APILENS_REDACT_QUERY_PARAMS = [r"^card_number$", r"token"]
 APILENS_REDACT_HEADERS = [r"^x-internal-secret$"]   # on top of the built-ins
 APILENS_REDACT_BODY_FIELDS = [r"^password$", r"^cvv$", r"card"]
 ```
+
+## Capture posture
+
+`capture_profile` picks what leaves the process in one word: `metadata` (no headers or bodies), `redacted` (headers and bodies with the [default masking](/getting-started/data-privacy#default-masking-patterns), 16 KB body cap) or `full` (the default). Every profile still sends the base record, so metrics and dashboards stay exact. For a first production rollout, start on `metadata`:
+
+```python
+# settings.py
+APILENS_CAPTURE_PROFILE = "metadata"   # metadata | redacted | full
+```
+
+A Django setting wins over the environment, so for a rollout leave `APILENS_CAPTURE_PROFILE` out of `settings.py` and set the environment variable instead: the posture can then be widened or tightened with a redeploy. A capture flag you set yourself (`APILENS_CAPTURE_HEADERS = True`, for example) wins over the profile, so drop those settings when the profile should decide. `metadata` still sends the URL with its query string, so add a `APILENS_REDACT_QUERY_PARAMS` pattern for any parameter that carries personal data. See [Capture profiles](/getting-started/data-privacy#capture-profiles) and [phase 2 of the rollout guide](/guides/third-party-rollout#phase-2-capture-posture).
+
+## Environment variables
+
+Every option has an `APILENS_*` variable of the same name, so keys, posture and patterns stay out of code. A typical deployment:
+
+```bash
+APILENS_API_KEY=apilens_...          # project key, from your secret store
+APILENS_APP_ID=billing-api
+APILENS_ENVIRONMENT=production
+APILENS_CAPTURE_PROFILE=metadata     # metadata | redacted | full
+APILENS_ANONYMIZE_IP=true            # truncate client IPs to /24 (IPv4), /48 (IPv6)
+APILENS_REDACT_QUERY_PARAMS=^email$,token
+# Kill switches. These win over code, in the direction that captures less:
+# APILENS_CAPTURE_IP=false           # send no client IP
+# APILENS_CAPTURE_SPANS=false        # no spans or error-trace logs
+```
+
+A Django setting wins over the variable of the same name, and the variable over the default, so leave a setting undefined when the environment should decide. With the variables set, `APILENS_API_KEY` and `APILENS_APP_ID` can be left out of `settings.py` too. `APILENS_ENABLED=false` turns the SDK off on the next deploy, as long as `enabled` is not set in code ([SDK runbook](/guides/sdk-runbook#stop-capture-kill-switch)). The full list is in [Environment variables](/sdk-reference/python-configuration#environment-variables).
 
 ## Identify consumers
 

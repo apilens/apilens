@@ -35,7 +35,7 @@ apilens.environment=production
 
 That's it. When the application is a reactive web app (`spring-boot-starter-webflux`) and `apilens.api-key` is set, the SDK auto-configures `ApiLensWebFilter`; the servlet filter backs off, so each request is captured once.
 
-Every `apilens.*` property of the Spring MVC integration applies unchanged: `capture-profile`, `capture-headers`, `capture-payloads`, `max-payload-bytes`, `redact-*`, `exclude-paths`, `exclude-user-agents`, `sample-rate`, `capture-ip`, `anonymize-ip` and the rest. Callbacks that properties cannot express (`maskRequestBody`, `sampleOnRequest`...) are set with an `ApiLensSpringOptionsCustomizer` bean.
+Every `apilens.*` property of the [Spring MVC integration](/setup-guides/spring-mvc) applies unchanged: `capture-profile`, `capture-headers`, `capture-payloads`, `max-payload-bytes`, `redact-*`, `exclude-paths`, `exclude-user-agents`, `sample-rate`, `capture-ip`, `anonymize-ip` and the rest. Callbacks that properties cannot express (`maskRequestBody`, `sampleOnRequest`...) are set with an `ApiLensSpringOptionsCustomizer` bean.
 
 ## How it captures
 
@@ -84,6 +84,35 @@ Mono.deferContextual(ctx -> {
   return client.get().header("traceparent", trace.traceparent()).retrieve().bodyToMono(String.class);
 });
 ```
+
+## Capture posture
+
+`apilens.capture-profile` picks what leaves the process in one word: `metadata` (no headers or bodies), `redacted` (headers and bodies with the [default masking](/getting-started/data-privacy#default-masking-patterns), 16 KB body cap) or `full` (the default). Every profile still sends the base record, so metrics and dashboards stay exact. For a first production rollout, start on `metadata`:
+
+```properties
+# metadata | redacted | full
+apilens.capture-profile=metadata
+```
+
+A capture flag you set yourself (`apilens.capture-headers`, `apilens.log-request-body`, ...) wins over the profile. `metadata` still sends the URL with its query string, so add an `apilens.redact-query-params` pattern for any parameter that carries personal data. See [Capture profiles](/getting-started/data-privacy#capture-profiles) and [phase 2 of the rollout guide](/guides/third-party-rollout#phase-2-capture-posture).
+
+## Environment variables
+
+Every property has an `APILENS_*` variable with the Python and TypeScript SDKs' names. Spring Boot binds `APILENS_CAPTURE_PROFILE` to `apilens.capture-profile`, and an OS environment variable overrides `application.properties`, so the posture can be widened or tightened with a redeploy. A typical deployment:
+
+```bash
+APILENS_API_KEY=apilens_...          # project key, from your secret store
+APILENS_APP_ID=orders-api
+APILENS_ENVIRONMENT=production
+APILENS_CAPTURE_PROFILE=metadata     # metadata | redacted | full
+APILENS_ANONYMIZE_IP=true            # truncate client IPs to /24 (IPv4), /48 (IPv6)
+APILENS_REDACT_QUERY_PARAMS=^email$,token
+# Kill switches. These win over code, in the direction that captures less:
+# APILENS_CAPTURE_IP=false           # send no client IP
+# APILENS_PARAMETRIZE_PATHS=false    # no heuristic path templating
+```
+
+`APILENS_ENABLED=false` (or `apilens.enabled=false`) turns the SDK off on the next deploy ([SDK runbook](/guides/sdk-runbook#stop-capture-kill-switch)). The full list is in the SDK's [environment variable reference](https://github.com/apilens/apilens/blob/v2/packages/sdk-java/README.md#environment-variables).
 
 ## Without Spring Boot
 

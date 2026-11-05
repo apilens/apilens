@@ -48,6 +48,39 @@ def identify_consumer():
 
 Capture options (`enable_request_logging`, `log_request_body`, `log_response_body`, `capture_headers`, `max_payload_bytes`, …) are passed through the underlying WSGI middleware; client behavior (batching, retries, TLS) through `ApiLensConfig`. Both are documented in the [Python configuration reference](/sdk-reference/python-configuration).
 
+## Capture posture
+
+`capture_profile` picks what leaves the process in one word: `metadata` (no headers or bodies), `redacted` (headers and bodies with the [default masking](/getting-started/data-privacy#default-masking-patterns), 16 KB body cap) or `full` (the default). Every profile still sends the base record, so metrics and dashboards stay exact. For a first production rollout, start on `metadata`:
+
+```python
+instrument_flask(
+    app,
+    client,
+    app_id="storefront-api",
+    capture_profile="metadata",   # metadata | redacted | full
+)
+```
+
+An explicit argument wins over the environment, so for a rollout leave the profile out of code and set `APILENS_CAPTURE_PROFILE` instead: the posture can then be widened or tightened with a redeploy. `metadata` still sends the URL with its query string, so add a `redact_query_params` pattern for any parameter that carries personal data. See [Capture profiles](/getting-started/data-privacy#capture-profiles) and [phase 2 of the rollout guide](/guides/third-party-rollout#phase-2-capture-posture).
+
+## Environment variables
+
+Every option has an `APILENS_*` variable of the same name, so keys, posture and patterns stay out of code. A typical deployment:
+
+```bash
+APILENS_API_KEY=apilens_...          # project key, from your secret store
+APILENS_APP_ID=storefront-api
+APILENS_ENVIRONMENT=production
+APILENS_CAPTURE_PROFILE=metadata     # metadata | redacted | full
+APILENS_ANONYMIZE_IP=true            # truncate client IPs to /24 (IPv4), /48 (IPv6)
+APILENS_REDACT_QUERY_PARAMS=^email$,token
+# Kill switches. These win over code, in the direction that captures less:
+# APILENS_CAPTURE_IP=false           # send no client IP
+# APILENS_CAPTURE_SPANS=false        # no spans or error-trace logs
+```
+
+Precedence is **explicit argument > env var > default**. `APILENS_ENABLED=false` turns the SDK off on the next deploy, as long as `enabled` is not set in code ([SDK runbook](/guides/sdk-runbook#stop-capture-kill-switch)). The full list is in [Environment variables](/sdk-reference/python-configuration#environment-variables).
+
 ## Verify
 
 Run the app, send a few requests, and open the **Traffic** page. Not seeing data? See [Troubleshooting](/support/troubleshooting).

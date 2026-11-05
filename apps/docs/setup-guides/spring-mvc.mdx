@@ -1,0 +1,149 @@
+---
+title: "Spring MVC"
+description: "Monitor a Spring Boot (Spring MVC) API with the APILens Java SDK."
+---
+
+The Java SDK (`ai.apilens:apilens-java-sdk`) captures servlet-based Spring Boot apps through `ApiLensSpringFilter`, a servlet filter. It records request metrics, route templates, consumers, headers and bodies (masked), a server span per request and an error log for exceptions and 5xx responses. For a reactive app, see [Spring WebFlux](/setup-guides/spring-webflux).
+
+## Install
+
+Maven:
+
+```xml
+<dependency>
+  <groupId>ai.apilens</groupId>
+  <artifactId>apilens-java-sdk</artifactId>
+  <version>0.1.0</version>
+</dependency>
+```
+
+Gradle:
+
+```kotlin
+implementation("ai.apilens:apilens-java-sdk:0.1.0")
+```
+
+<Info>
+Requires Java 17+ and Spring Boot 3 (Jakarta Servlet). The only hard dependency is Jackson; Spring and Micrometer are picked up when your app already has them.
+</Info>
+
+## Configure
+
+Set the project API key and the app's slug in `application.properties`:
+
+```properties
+apilens.api-key=${APILENS_API_KEY}
+apilens.app-id=orders-api
+apilens.environment=production
+```
+
+That's it. When `apilens.api-key` is set, the auto-configuration builds the client from the `apilens.*` properties and registers `ApiLensSpringFilter`. `api-key` is your **project-level** key (Settings → API keys); `app-id` attributes this service's traffic to the right app in the project. The client is flushed when the application context closes.
+
+## How it captures
+
+- **Route templates.** `GET /orders/123` is grouped as `GET /orders/{id}` from Spring's matched pattern (`HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE`). `raw_path` keeps the exact URL, with sensitive query parameters masked. Requests no handler matched fall back to a heuristic that replaces id-looking segments.
+- **Bodies.** JSON, text and form bodies are captured up to `max-payload-bytes` and masked; other content types are stored as `[<content-type>, N bytes omitted]`.
+- **Errors.** An exception that escapes the handler is recorded with its status and, for 5xx, an error log with the stack trace. The exception is re-thrown unchanged.
+- **Order.** `apilens.filter-order` sets the filter's order (default `Integer.MAX_VALUE - 100`, after Spring Security).
+
+## Identify consumers
+
+On Spring MVC the consumer is a thread-local, cleared after each request. Set it from your handler or an interceptor once your auth knows who is calling:
+
+```java
+import ai.apilens.ApiLensConsumers;
+
+@GetMapping("/orders/{id}")
+Order order(@PathVariable("id") String id, @AuthenticationPrincipal User user) {
+  ApiLensConsumers.setConsumer(user.getId(), user.getEmail(), user.getPlan());
+  return orders.find(id);
+}
+```
+
+Or centralize it with a bean, called after the handler when the thread-local was not set:
+
+```java
+import ai.apilens.ApiLensConsumer;
+import ai.apilens.spring.ApiLensConsumerResolver;
+
+@Bean
+ApiLensConsumerResolver apiLensConsumerResolver() {
+  return (request, response) -> {
+    String tenant = request.getHeader("X-Tenant-Id");
+    return tenant == null ? null : ApiLensConsumer.of(tenant);
+  };
+}
+```
+
+## Trace context
+
+Each request continues an incoming W3C `traceparent` or starts a new trace. Inside a handler, `TraceContext.current()` returns it; send `TraceContext.currentTraceparent()` as the `traceparent` header on outbound calls so downstream services join the trace.
+
+## Tune capture
+
+Properties cover the common adjustments:
+
+```properties
+apilens.max-payload-bytes=4096
+apilens.redact-query-params=^card_number$,token
+apilens.redact-body-fields=^password$,^cvv$,card
+apilens.exclude-paths=^/internal/
+apilens.sample-rate=0.5
+apilens.capture-spans=false
+```
+
+Callbacks that properties cannot express (`maskRequestBody`, `sampleOnRequest`, ...) are set with an `ApiLensSpringOptionsCustomizer` bean:
+
+```java
+@Bean
+ApiLensSpringOptionsCustomizer apiLensOptions() {
+  return options -> options
+      .maskRequestBody((info, body) -> info.path().startsWith("/payments") ? null : body);
+}
+```
+
+Every property, with its default, is listed in the [Java SDK README](https://github.com/apilens/apilens/blob/v2/packages/sdk-java/README.md#spring-boot-properties); your IDE completes them from the metadata the jar ships.
+
+## Capture posture
+
+`apilens.capture-profile` picks what leaves the process in one word: `metadata` (no headers or bodies), `redacted` (headers and bodies with the [default masking](/getting-started/data-privacy#default-masking-patterns), 16 KB body cap) or `full` (the default). Every profile still sends the base record, so metrics and dashboards stay exact. For a first production rollout, start on `metadata`:
+
+```properties
+# metadata | redacted | full
+apilens.capture-profile=metadata
+```
+
+A capture flag you set yourself (`apilens.capture-headers`, `apilens.log-request-body`, ...) wins over the profile. `metadata` still sends the URL with its query string, so add an `apilens.redact-query-params` pattern for any parameter that carries personal data. See [Capture profiles](/getting-started/data-privacy#capture-profiles) and [phase 2 of the rollout guide](/guides/third-party-rollout#phase-2-capture-posture).
+
+## Environment variables
+
+Every property has an `APILENS_*` variable with the Python and TypeScript SDKs' names. Spring Boot binds `APILENS_CAPTURE_PROFILE` to `apilens.capture-profile`, and an OS environment variable overrides `application.properties`, so the posture can be widened or tightened with a redeploy. A typical deployment:
+
+```bash
+APILENS_API_KEY=apilens_...          # project key, from your secret store
+APILENS_APP_ID=orders-api
+APILENS_ENVIRONMENT=production
+APILENS_CAPTURE_PROFILE=metadata     # metadata | redacted | full
+APILENS_ANONYMIZE_IP=true            # truncate client IPs to /24 (IPv4), /48 (IPv6)
+APILENS_REDACT_QUERY_PARAMS=^email$,token
+# Kill switches. These win over code, in the direction that captures less:
+# APILENS_CAPTURE_IP=false           # send no client IP
+# APILENS_PARAMETRIZE_PATHS=false    # no heuristic path templating
+```
+
+`APILENS_ENABLED=false` (or `apilens.enabled=false`) turns the SDK off on the next deploy ([SDK runbook](/guides/sdk-runbook#stop-capture-kill-switch)). The full list is in the SDK's [environment variable reference](https://github.com/apilens/apilens/blob/v2/packages/sdk-java/README.md#environment-variables).
+
+## Without Spring Boot
+
+Register the filter yourself in any servlet container, with the client and options read from the environment:
+
+```java
+var client = new ApiLensClient(ApiLensConfig.builderFromEnv().appId("orders-api").build());
+var filter = new ApiLensSpringFilter(client, ApiLensSpringOptions.fromEnv());
+```
+
+Call `client.shutdown()` when the application stops so buffered records are flushed.
+
+## Verify
+
+Send a few requests and open the **Traffic** page. Your endpoints appear with their route templates, and the request log shows the captured headers and bodies. If nothing shows up, raise the SDK's logging with `logging.level.apilens=DEBUG` and walk through [Troubleshooting](/support/troubleshooting).
