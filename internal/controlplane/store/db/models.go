@@ -364,6 +364,27 @@ type RecoveryRequest struct {
 	UserAgent   string
 }
 
+type RequestExport struct {
+	ID          uuid.UUID
+	ProjectID   uuid.UUID
+	CreatedBy   *uuid.UUID
+	Filter      []byte
+	RangeFrom   time.Time
+	RangeTo     time.Time
+	Status      string
+	RowLimit    int64
+	TotalRows   *int64
+	RowsWritten int64
+	SizeBytes   int64
+	FileKey     *string
+	Error       *string
+	SigningKey  []byte
+	CreatedAt   time.Time
+	StartedAt   *time.Time
+	FinishedAt  *time.Time
+	ExpiresAt   *time.Time
+}
+
 type SavedView struct {
 	ID        uuid.UUID
 	ProjectID uuid.UUID

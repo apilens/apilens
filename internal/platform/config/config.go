@@ -44,6 +44,7 @@ type Config struct {
 	Jobs       JobsConfig       `koanf:"jobs"`
 	Authz      AuthzConfig      `koanf:"authz"`
 	Email      EmailConfig      `koanf:"email"`
+	Exports    ExportsConfig    `koanf:"exports"`
 }
 
 // ServerConfig configures the shared HTTP server.
@@ -138,6 +139,15 @@ type OTelConfig struct {
 	Insecure    bool    `koanf:"insecure"`
 	ServiceName string  `koanf:"service_name"`
 	SampleRatio float64 `koanf:"sample_ratio"`
+}
+
+// ExportsConfig configures where request log exports (CSV, gzip) are kept
+// until they expire. Dir is a local directory, the store of a single-VM
+// install; empty means apilens-exports under the OS temp directory. The
+// query role both writes and serves the files, so every query process must
+// see the same directory.
+type ExportsConfig struct {
+	Dir string `koanf:"dir"`
 }
 
 // JobsConfig configures the River background-job client. Roles that run
@@ -453,6 +463,7 @@ func Defaults() map[string]any {
 		"jobs.enabled":                     true,
 		"jobs.max_workers":                 10,
 		"jobs.metrics_interval":            "15s",
+		"exports.dir":                      "",
 
 		"identity.oauth.google.client_id":     "",
 		"identity.oauth.google.client_secret": "",
