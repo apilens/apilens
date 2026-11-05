@@ -1,0 +1,245 @@
+---
+title: "SDK runbook"
+description: "On-call tasks for an app running the APILens SDK: stop capture, narrow it remotely, read stats and drops, add a masking pattern, and debug 401, 422 and 429 from ingest."
+---
+
+This is the hand-over page for whoever runs a service after the SDK is rolled out. Each section is one task: what to change, where, and the log line or counter that confirms it worked. The SDKs log under the logger named `apilens` (Python `logging`, Java `java.util.logging`; TypeScript uses the `logger` option, `console` by default). The log blocks below show the message text; `<…>` marks the parts that vary.
+
+Two places to change capture, and when to use which:
+
+| | Remote capture policy | SDK config (env var or code) |
+|---|---|---|
+| Where | **Project settings → Capture** (`/<project>/settings/capture`) | The service's environment or code |
+| Reaches running processes | Within about 2 minutes, no redeploy | On the next deploy or restart |
+| Can it widen capture? | No, it only narrows what the SDK config allows | Yes |
+| Who | Project admins, organization owners and admins | Whoever deploys the service |
+
+## Stop capture (kill switch)
+
+### From the dashboard, no deploy
+
+1. Open **Project settings → Capture**. With more than one app, pick it in **App** (each app has its own policy).
+2. Turn off **Capture requests**, then confirm **Stop capturing**.
+3. Within about 2 minutes (the edge's 60 s app cache, then the next heartbeat) every process of the app stops sending records, spans and logs. Heartbeats continue, so the app still shows its instances as **reporting**.
+
+Python and Java log the new policy at INFO once per process when it changes; `<policy>` is the whole policy, with `enabled` false. TypeScript applies it without logging.
+
+```log Python
+API Lens capture policy for app <app> is now <policy>
+```
+
+```log Java
+API Lens remote capture policy is now <policy>
+```
+
+Turn **Capture requests** back on to resume. Every save is recorded in the audit log as `capture_policy.updated`.
+
+### From the environment, on the next deploy
+
+Set `APILENS_ENABLED=false` (Python, TypeScript, Java) or `apilens.enabled=false` (Spring). Nothing is captured, no background worker starts and no heartbeats are sent, so the app turns **stale** and then **silent** in the dashboard. Nothing remote can turn it back on.
+
+<Warning>
+`APILENS_ENABLED` loses to a value passed in code: `enabled=True` in code keeps capture on whatever the variable says. Leave `enabled` out of code so the variable decides. In Django, the `APILENS_ENABLED` setting wins over the variable.
+</Warning>
+
+Narrower switches that **win over code**, in the direction that captures less, are listed under [Deploy-time kill switches](/getting-started/data-privacy#deploy-time-kill-switches): `APILENS_CAPTURE_SPANS=false`, `APILENS_CAPTURE_IP=false`, `APILENS_ANONYMIZE_IP=true`, and `APILENS_EXCLUDE_PATHS` / `APILENS_EXCLUDE_USER_AGENTS` (added to the patterns in code).
+
+## Narrow capture remotely
+
+Use this to cut volume or stop body capture during an incident without a deploy. In **Project settings → Capture**:
+
+| Setting | Effect on the SDKs | Remote field |
+|---|---|---|
+| **Sample rate** | Keeps detail for that share of requests; every request still counts in metrics. The lower of this and the SDK's `sample_rate` applies. | `sample_rate` (0 to 1) |
+| **Headers** | Off: no request or response headers. | `capture_headers` |
+| **Request bodies** / **Response bodies** | Off: no bodies on that side. | `capture_request_body`, `capture_response_body` |
+| **Body size cap** | Cuts each body to that many bytes (at most 1,048,576). The edge enforces it too. | `max_payload_bytes` |
+
+The card **What the SDKs run with** shows, per environment, the config each SDK reported at startup next to the policy and what **applies** (the narrower of the two). If a setting there does not change after you save, that environment's SDK already captures less than the policy allows.
+
+Rules worth knowing when something does not apply:
+
+- The policy only narrows. It cannot turn on headers, bodies or a higher sample rate that the SDK config turned off.
+- A failed heartbeat keeps the last policy the process received. A process that never got one captures everything its config allows.
+- The same endpoint exists for scripts, with a signed-in session: `PUT /api/v1/apps/{id}/capture-policy` (see [Data privacy](/getting-started/data-privacy#remote-capture-policy)).
+
+## Read stats and drops
+
+### In the dashboard
+
+**Project settings → Ingest health** shows, per app, what the ingest edge did with the records (**Accepted**, **Rejected**, **Truncated**, **Masked**, per UTC day) and what the SDKs could not deliver (**Sent**, **Waiting in queues**, **Failed batches**, **Dropped** by reason), summed over the instances seen in the last hour. Counter meanings: [Ingest health](/ingest/ingest-health).
+
+### In the process
+
+`client.stats()` returns a snapshot in all three SDKs; serve it from a health endpoint or export it with `on_stats` / `onStats` / Micrometer ([Delivery](/sdk-reference/delivery#stats)). Python and TypeScript also log it at DEBUG every flush interval (3 s):
+
+```log Python
+API Lens stats: <summary>
+```
+
+In Python, `<summary>` is `stats.summary()`, the snapshot on one line (`last_error` only after a failure):
+
+```log Python
+queued=<n> (<bytes>B) sent=<n> records/<n> batches failed_batches=<n> dropped=<n> [<drop counts>] last_success=<time> last_error=<error>
+```
+
+```log TypeScript
+API Lens stats: queued=<n> (<bytes> B) sent=<n> in <n> batches failed=<n> dropped=<n>
+```
+
+New drops are logged at INFO, at most once a minute, so this is the line to alert on:
+
+```log Python
+API Lens dropped <n> record(s) since the last report: <summary>
+```
+
+```log TypeScript
+API Lens dropped <n> records (total <n>)
+```
+
+```log Java
+API Lens dropped <n> records (total <n>): <drop counts>
+```
+
+To see the DEBUG lines in Python:
+
+```python
+import logging
+
+logging.getLogger("apilens").setLevel(logging.DEBUG)
+```
+
+### What each drop reason means
+
+| Reason | What happened | First thing to do |
+|---|---|---|
+| `queue_full` | The queue reached `max_queue_size`; the oldest record was dropped. | Read `last_error`: ingest is slow or unreachable. If it is healthy, raise `max_queue_size` or lower the sample rate. |
+| `queue_bytes` | The queue reached `max_queue_bytes`; the oldest records were dropped. | Usually bodies. Turn bodies off or set a **Body size cap** remotely, then size the queue ([Delivery](/sdk-reference/delivery#sizing-table)). |
+| `non_retryable` | Ingest refused a batch with a 4xx; it was not retried. | See [401](#401-unauthorized) and [422](#422-validation-error) below. |
+| `retries_exhausted` | The batch still failed after `max_retries` retries (5xx, 429, timeouts, network or TLS errors). | Check egress, proxy and CA bundle; for 429 see [below](#429-too-many-requests). |
+| `truncated` | Not a drop: a record larger than `max_batch_bytes` was cut and sent. | Raise `max_batch_bytes` or lower `max_payload_bytes` if the cut part matters. |
+
+**Healthy after a rollout:** `last_success` advances, `sent` grows, `dropped` stays flat. Alert when `dropped` rises or `last_success` stops moving for a few flush intervals.
+
+## Add a masking pattern
+
+When a field turns out to carry personal data (from the [PII audit](/guides/pii-audit), a ticket, or a look at the request log), mask it in one of two places. Both mask the value as `[redacted]` and keep the name.
+
+### At the ingest edge, no deploy
+
+1. Open **Project settings → Privacy**. Add the regex to the query parameter, header or body field list, for the whole project or for one app.
+2. Check it in the live tester on the same page, then save. Edges pick it up within 60 s.
+3. Confirm: new records show `[redacted]` in the request log, and the app's **Masked** counter in **Ingest health** rises.
+
+Patterns are case-insensitive RE2 regexes matched against the **name**, at most 50 per list and 256 bytes each. Anchor them (`^iban$`) unless you mean "contains". This covers every SDK and every client at once, but the value still leaves the service; the SDK option below keeps it in the process.
+
+### In the SDK, on the next deploy
+
+| Python | TypeScript | Java (Spring property) | Env var |
+|---|---|---|---|
+| `redact_query_params` | `redactQueryParams` | `apilens.redact-query-params` | `APILENS_REDACT_QUERY_PARAMS` |
+| `redact_headers` | `redactHeaders` | `apilens.redact-headers` | `APILENS_REDACT_HEADERS` |
+| `redact_body_fields` | `redactBodyFields` | `apilens.redact-body-fields` | `APILENS_REDACT_BODY_FIELDS` |
+
+```bash
+APILENS_REDACT_BODY_FIELDS='^iban$,^date_of_birth$'
+```
+
+<Warning>
+These lists add to the built-in defaults, but an env var and a list passed in code do not merge: when code passes `redact_body_fields`, `APILENS_REDACT_BODY_FIELDS` is ignored. Add the pattern wherever the service already sets the list. A regex with a literal comma (`\d{1,3}`) cannot go in an env var.
+</Warning>
+
+After the deploy, the new pattern shows in the SDK's reported config under **Project settings → Capture → What the SDKs run with**. Add a row for it to the service's [redaction manifest](/guides/redaction-manifest) and run the PII audit again. Pattern syntax and examples: [Masking](/sdk-reference/masking#your-own-patterns).
+
+## Debug ingest errors
+
+Every refused batch sets `last_error` in the stats to the status and the body ingest sent, for example `Non-retryable ingest error status=401: {"error":"authentication_error","detail":"Authentication required"}` in Python. Rejection log lines are rate-limited to one per status every 5 minutes, and heartbeat rejections to one per status per process, so one line can stand for many dropped batches: read the `non_retryable` count.
+
+### 401 Unauthorized
+
+The API key is missing, wrong or revoked. Records are dropped (`non_retryable`), not retried.
+
+```log Python
+API Lens ingest rejected the API key (401 Unauthorized), so telemetry is being dropped. Check that api_key is a valid project API key for <base_url>. Troubleshooting: <url>
+```
+
+```log TypeScript
+API Lens rejected the API key (401 Unauthorized); records are being dropped. Check apiKey / APILENS_API_KEY. See <url>
+```
+
+```log Java
+API Lens ingest rejected the API key (401 Unauthorized), so telemetry is being dropped. Check that apiKey is a valid project API key for <base_url>. Troubleshooting: <url>
+```
+
+The heartbeat logs its own line, once per process:
+
+```log Python
+API Lens ingest rejected the heartbeat with status <status>: <body>
+```
+
+1. Check the key the process actually sees: `APILENS_API_KEY`, or the value in code (code wins). Watch for quotes or whitespace from a secret manager.
+2. In **Project settings → API keys**, confirm the key exists, is not revoked, and belongs to the project you are looking at. Keys are per project.
+3. Check `base_url` in the log line: a key for one install (for example a self-hosted ingest) is not valid on another.
+4. A **403** `permission_denied` (`API key is not allowed to ingest`) is a valid key without the `ingest` scope: create an ingest key.
+
+After fixing the key, restart or redeploy; the next batch logs nothing and `last_success` moves.
+
+### 422 Validation error
+
+Ingest refused the batch as a whole (nothing in it is stored) and the SDK dropped it (`non_retryable`). The response body's `detail` says why:
+
+```log Python
+API Lens ingest rejected a batch of <n> records with status <status> (not retried): <body>
+```
+
+```log TypeScript
+API Lens ingest rejected a batch with status <status>; not retrying. <body>
+```
+
+```log Java
+API Lens ingest rejected a batch of <n> records with status <status> (not retried): <body>
+```
+
+`<status>` is `422` and `<body>` is `{"error":"validation_error","detail":"…"}`:
+
+| `detail` | Cause | Fix |
+|---|---|---|
+| `Invalid app identifiers: <ids>` | The `app_id` is not an app of the key's project. | Use an app slug that exists in the project, or create the app. |
+| `app_id is required for every record` | A record without an app. | Set `app_id` (or `APILENS_APP_ID`). |
+| `project_slug must match the API key project '<slug>'` | `project_slug` names another project. | Drop `project_slug`; the key identifies the project. |
+| `at most 1000 records per request (got <n>)` | `batch_size` above what ingest accepts. | Set `batch_size` to 1,000 or less. |
+| `requests[<i>].timestamp is missing or out of range` | The host clock is far off. | Fix NTP on the host. |
+| `heartbeat must not contain an api_key field` | A custom heartbeat or metadata payload carries a key. | Remove it; the SDKs strip such fields themselves. |
+
+### 429 Too Many Requests
+
+A 429 is retried, after the server's `Retry-After` (capped at 60 s), up to `max_retries` times. While it lasts, records queue; when retries run out the batch is dropped as `retries_exhausted`:
+
+```log Python
+API Lens ingest failed after <attempts> attempt(s); dropping batch of <n> records: <error>
+```
+
+```log Java
+API Lens ingest failed after retries; dropping batch of <n> <signal>
+```
+
+In Python `<error>` is the last failure, `Retryable ingest error status=429` here; `last_error` in the stats adds the response body.
+
+Two different limits answer 429:
+
+| Body `error` | Limit | What to do |
+|---|---|---|
+| `quota_exceeded`, detail `Project ingest quota exceeded (records_per_minute)` or `(bytes_per_day)` | The project's ingest quota. Counted as **Rejected** in **Ingest health**. | Lower the **Sample rate** or turn bodies off in **Project settings → Capture** (takes effect without a deploy), or raise the quota. Self-hosted: `APILENS_INGEST__QUOTA__RECORDS_PER_MINUTE` and `APILENS_INGEST__QUOTA__BYTES_PER_DAY` on the ingest service. |
+| `rate_limited`, detail `At most one heartbeat per instance every 10s` | Heartbeats from one instance less than 10 s apart. Only heartbeats are refused; records are not. | Usually several clients in one process (a client created per request or per worker thread). Create one client per process. |
+
+With DEBUG logging on, Python also logs each retry and the wait, which is the `Retry-After` the SDK is honouring:
+
+```log Python
+API Lens ingest attempt <n> failed (<error>); retrying in <seconds>s
+```
+
+## Related
+
+- [Delivery](/sdk-reference/delivery): queue and batch sizing, retries, shutdown.
+- [Ingest health](/ingest/ingest-health) and [Heartbeat](/ingest/heartbeat): the counters and the policy contract.
+- [Troubleshooting](/support/troubleshooting): no data on the dashboard, missing traces.
