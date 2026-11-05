@@ -55,6 +55,17 @@ var sampleData = map[string]map[string]any{
 		"started_at": "2026-11-04T09:30:00Z", "ended_at": "2026-11-04T09:52:00Z",
 		"project": "shop", "event": "7c4e2a10-1d3b-4f5a-8e6c-2b9d0f1a3c57",
 	},
+	"health_check_failing": {
+		"app": "storefront <eu>", "environment": "production", "check": "api.example.com/healthz?token=[redacted]",
+		"expected_status": "200", "result": "HTTP 503 (expected 200)", "latency": "41.2 ms", "attempts": "after 2 attempts",
+		"body": `{"status":"degraded","db":"<timeout>","password":"[redacted]"}`, "body_truncated": true,
+		"started_at": "2026-11-04T09:30:00Z", "project": "shop",
+	},
+	"health_check_passing": {
+		"app": "storefront <eu>", "environment": "production", "check": "api.example.com/healthz",
+		"expected_status": "200", "started_at": "2026-11-04T09:30:00Z", "ended_at": "2026-11-04T09:41:00Z",
+		"project": "shop",
+	},
 }
 
 func defaultRenderer(t *testing.T) *Renderer {

@@ -1,0 +1,15 @@
+[
+  {
+    "to": "oncall@example.com",
+    "template": "health_check_passing",
+    "data": {
+      "app": "storefront",
+      "check": "api.example.com/healthz?token=[redacted]&deep=1",
+      "ended_at": "2026-11-04T10:05:00Z",
+      "environment": "production",
+      "expected_status": "200",
+      "project": "shop",
+      "started_at": "2026-11-04T09:30:00Z"
+    }
+  }
+]

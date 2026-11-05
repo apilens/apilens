@@ -1,0 +1,24 @@
+Subject: Health check failing: storefront <eu> (production)
+
+APILens
+
+The health check of storefront <eu> (production) is failing: GET api.example.com/healthz?token=[redacted] failed after 2 attempts: HTTP 503 (expected 200).
+
+App: storefront <eu>
+Environment: production
+Check: GET api.example.com/healthz?token=[redacted]
+Expected status: 200
+Result: HTTP 503 (expected 200)
+Latency: 41.2 ms
+Started: Wed, 4 Nov 2026 09:30 UTC
+
+Response body (first 1 KB):
+{"status":"degraded","db":"<timeout>","password":"[redacted]"}
+
+View the health check:
+https://app.example.com/shop/settings/health-checks
+
+You get this email because this address is on a notification channel of the project.
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.

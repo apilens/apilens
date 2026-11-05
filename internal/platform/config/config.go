@@ -45,6 +45,7 @@ type Config struct {
 	Authz      AuthzConfig      `koanf:"authz"`
 	Email      EmailConfig      `koanf:"email"`
 	Exports    ExportsConfig    `koanf:"exports"`
+	Alerts     AlertsConfig     `koanf:"alerts"`
 }
 
 // ServerConfig configures the shared HTTP server.
@@ -148,6 +149,15 @@ type OTelConfig struct {
 // see the same directory.
 type ExportsConfig struct {
 	Dir string `koanf:"dir"`
+}
+
+// AlertsConfig configures alerting. HealthChecksAllowPrivate lets active
+// HTTP health checks reach loopback, private and link-local addresses: off
+// by default, since the probes run from the APILens server (server-side
+// request forgery); a self-hosted install checking services on its own
+// network turns it on.
+type AlertsConfig struct {
+	HealthChecksAllowPrivate bool `koanf:"health_checks_allow_private"`
 }
 
 // JobsConfig configures the River background-job client. Roles that run
@@ -464,6 +474,8 @@ func Defaults() map[string]any {
 		"jobs.max_workers":                 10,
 		"jobs.metrics_interval":            "15s",
 		"exports.dir":                      "",
+
+		"alerts.health_checks_allow_private": false,
 
 		"identity.oauth.google.client_id":     "",
 		"identity.oauth.google.client_secret": "",

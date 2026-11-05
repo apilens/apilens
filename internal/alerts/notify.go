@@ -32,7 +32,9 @@ import (
 //
 // Uptime events (kind uptime, see UptimeChecker) go through the same jobs.
 // They have no rule: they notify every channel of the project, and nothing
-// while their environment is muted.
+// while their environment is muted. Health check events (kind
+// health_check, see HealthChecker) do the same, and notify nothing while
+// their check is disabled.
 //
 // Job args carry ids only: channel configs (addresses, webhook URLs, signing
 // secrets) are opened in the worker and never stored in the job, logged or
@@ -96,6 +98,7 @@ type NotifyStore interface {
 	GetNotificationChannel(ctx context.Context, arg db.GetNotificationChannelParams) (db.NotificationChannel, error)
 	MarkAlertEventNotified(ctx context.Context, arg db.MarkAlertEventNotifiedParams) (int64, error)
 	GetUptimeEventNotification(ctx context.Context, id uuid.UUID) (db.GetUptimeEventNotificationRow, error)
+	GetHealthCheckEventNotification(ctx context.Context, id uuid.UUID) (db.GetHealthCheckEventNotificationRow, error)
 }
 
 // eventTarget is what the notification jobs need of an event of either
@@ -104,13 +107,15 @@ type eventTarget struct {
 	projectID  uuid.UUID
 	channelIDs []uuid.UUID
 	notifiedAt *time.Time
-	// muted is true for an uptime event whose environment is muted.
+	// muted is true for an uptime event whose environment is muted, and
+	// for a health check event whose check is disabled.
 	muted bool
 	note  func(kind NotificationKind, uiURL string) Notification
 }
 
 // target reads the event: a rule's (threshold) event, else an uptime
-// event. It returns pgx.ErrNoRows when the event, or its rule, is gone.
+// event, else a health check event. It returns pgx.ErrNoRows when the
+// event, or its rule or check, is gone.
 func (n *Notifier) target(ctx context.Context, id uuid.UUID) (eventTarget, error) {
 	row, err := n.store.GetAlertEventNotification(ctx, id)
 	if err == nil {
@@ -123,6 +128,18 @@ func (n *Notifier) target(ctx context.Context, id uuid.UUID) (eventTarget, error
 		return eventTarget{}, err
 	}
 	up, err := n.store.GetUptimeEventNotification(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		hc, err := n.store.GetHealthCheckEventNotification(ctx, id)
+		if err != nil {
+			return eventTarget{}, err
+		}
+		return eventTarget{
+			projectID: hc.ProjectID, channelIDs: hc.ChannelIds, notifiedAt: hc.NotifiedAt, muted: !hc.Enabled,
+			note: func(kind NotificationKind, uiURL string) Notification {
+				return HealthCheckNotificationFromRow(kind, hc, uiURL)
+			},
+		}, nil
+	}
 	if err != nil {
 		return eventTarget{}, err
 	}

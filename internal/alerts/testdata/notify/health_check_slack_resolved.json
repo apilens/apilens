@@ -1,0 +1,72 @@
+{
+  "method": "POST",
+  "path": "/services/T000/B000/XXXX",
+  "headers": {
+    "Content-Type": "application/json",
+    "User-Agent": "APILens-Alerts/1"
+  },
+  "body": {
+    "blocks": [
+      {
+        "text": {
+          "emoji": true,
+          "text": "Health check passing: storefront (production)",
+          "type": "plain_text"
+        },
+        "type": "header"
+      },
+      {
+        "text": {
+          "text": ":white_check_mark: GET https://api.example.com/healthz?token=[redacted]&amp;deep=1 on storefront (production) answers 200 again.",
+          "type": "mrkdwn"
+        },
+        "type": "section"
+      },
+      {
+        "fields": [
+          {
+            "text": "*App*\nstorefront",
+            "type": "mrkdwn"
+          },
+          {
+            "text": "*Environment*\nproduction",
+            "type": "mrkdwn"
+          },
+          {
+            "text": "*Check*\nGET https://api.example.com/healthz?token=[redacted]&amp;deep=1",
+            "type": "mrkdwn"
+          },
+          {
+            "text": "*Expected status*\n200",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "section"
+      },
+      {
+        "elements": [
+          {
+            "text": "Started <!date^1793784600^{date_short_pretty} {time}|4 Nov 2026 09:30 UTC> · Resolved <!date^1793786700^{date_short_pretty} {time}|4 Nov 2026 10:05 UTC>",
+            "type": "mrkdwn"
+          }
+        ],
+        "type": "context"
+      },
+      {
+        "elements": [
+          {
+            "action_id": "view_incident",
+            "text": {
+              "text": "View incident",
+              "type": "plain_text"
+            },
+            "type": "button",
+            "url": "https://app.example.com/shop/settings/health-checks"
+          }
+        ],
+        "type": "actions"
+      }
+    ],
+    "text": "Health check passing: storefront (production) — GET https://api.example.com/healthz?token=[redacted]&amp;deep=1 on storefront (production) answers 200 again."
+  }
+}

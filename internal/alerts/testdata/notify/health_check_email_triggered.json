@@ -1,0 +1,19 @@
+[
+  {
+    "to": "oncall@example.com",
+    "template": "health_check_failing",
+    "data": {
+      "app": "storefront",
+      "attempts": "after 2 attempts",
+      "body": "{\"status\":\"degraded\",\"password\":\"[redacted]\"}",
+      "body_truncated": true,
+      "check": "api.example.com/healthz?token=[redacted]&deep=1",
+      "environment": "production",
+      "expected_status": "200",
+      "latency": "41.2 ms",
+      "project": "shop",
+      "result": "HTTP 503 (expected 200)",
+      "started_at": "2026-11-04T09:30:00Z"
+    }
+  }
+]

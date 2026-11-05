@@ -46,7 +46,7 @@ func (q *Queries) EnsureUptimeMonitor(ctx context.Context, arg EnsureUptimeMonit
 }
 
 const getOpenUptimeEvent = `-- name: GetOpenUptimeEvent :one
-SELECT id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment FROM alert_events
+SELECT id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment, health_check_id, details FROM alert_events
 WHERE kind = 'uptime' AND monitor_app_id = $1::uuid AND monitor_environment = $2::text AND state = 'triggered'
 `
 
@@ -71,6 +71,8 @@ func (q *Queries) GetOpenUptimeEvent(ctx context.Context, arg GetOpenUptimeEvent
 		&i.Kind,
 		&i.MonitorAppID,
 		&i.MonitorEnvironment,
+		&i.HealthCheckID,
+		&i.Details,
 	)
 	return i, err
 }
@@ -206,7 +208,7 @@ func (q *Queries) ListUptimeTargets(ctx context.Context, since time.Time) ([]Lis
 const openUptimeEvent = `-- name: OpenUptimeEvent :one
 INSERT INTO alert_events (id, kind, monitor_app_id, monitor_environment, value, started_at)
 VALUES ($1, 'uptime', $2::uuid, $3::text, $4, $5)
-RETURNING id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment
+RETURNING id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment, health_check_id, details
 `
 
 type OpenUptimeEventParams struct {
@@ -240,6 +242,8 @@ func (q *Queries) OpenUptimeEvent(ctx context.Context, arg OpenUptimeEventParams
 		&i.Kind,
 		&i.MonitorAppID,
 		&i.MonitorEnvironment,
+		&i.HealthCheckID,
+		&i.Details,
 	)
 	return i, err
 }

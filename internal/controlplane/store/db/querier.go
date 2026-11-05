@@ -34,6 +34,9 @@ type Querier interface {
 	CreateConsumerGroup(ctx context.Context, arg CreateConsumerGroupParams) (ConsumerGroup, error)
 	// Adds the environment unless the project already has one of that name.
 	CreateEnvironment(ctx context.Context, arg CreateEnvironmentParams) (int64, error)
+	// Active HTTP health checks (internal/alerts: the alerts.health_checks job;
+	// internal/query: the health check operations).
+	CreateHealthCheck(ctx context.Context, arg CreateHealthCheckParams) (HealthCheck, error)
 	// token_hash is the SHA-256 of the emailed token, never the token itself.
 	// An invitation is pending while accepted_at IS NULL AND revoked_at IS NULL.
 	// Fails on invitations_org_email_pending if the address already has a
@@ -59,6 +62,8 @@ type Querier interface {
 	DeleteAlertRule(ctx context.Context, arg DeleteAlertRuleParams) (int64, error)
 	DeleteConsumerGroup(ctx context.Context, arg DeleteConsumerGroupParams) (int64, error)
 	DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentParams) (int64, error)
+	// Deletes a check and its events.
+	DeleteHealthCheck(ctx context.Context, arg DeleteHealthCheckParams) (int64, error)
 	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) (int64, error)
 	DeleteNotificationChannel(ctx context.Context, arg DeleteNotificationChannelParams) (int64, error)
 	DeleteOrgSSOConnection(ctx context.Context, orgID uuid.UUID) (int64, error)
@@ -102,6 +107,12 @@ type Querier interface {
 	GetContextUser(ctx context.Context, id uuid.UUID) (User, error)
 	// The settings row of one endpoint of an app; no row means the defaults.
 	GetEndpointSettings(ctx context.Context, arg GetEndpointSettingsParams) (EndpointSetting, error)
+	GetHealthCheck(ctx context.Context, arg GetHealthCheckParams) (HealthCheck, error)
+	// What a notification about a health check event says: the event (with the
+	// failed request's details), its check, app and project, and the channels
+	// it goes to, which are every notification channel of the project. Returns
+	// pgx.ErrNoRows when the event is not a health check event or was deleted.
+	GetHealthCheckEventNotification(ctx context.Context, id uuid.UUID) (GetHealthCheckEventNotificationRow, error)
 	GetInvitation(ctx context.Context, arg GetInvitationParams) (Invitation, error)
 	// Returns the row whatever its state, with its organization, so the caller
 	// can tell a pending invitation from an accepted, revoked or expired one.
@@ -122,6 +133,8 @@ type Querier interface {
 	GetNotificationChannel(ctx context.Context, arg GetNotificationChannelParams) (NotificationChannel, error)
 	// A rule's open (triggered) event. Returns pgx.ErrNoRows when none is open.
 	GetOpenAlertEvent(ctx context.Context, ruleID uuid.UUID) (AlertEvent, error)
+	// A check's open event. Returns pgx.ErrNoRows when none is open.
+	GetOpenHealthCheckEvent(ctx context.Context, healthCheckID uuid.UUID) (AlertEvent, error)
 	// An environment's open uptime event. Returns pgx.ErrNoRows when none is
 	// open.
 	GetOpenUptimeEvent(ctx context.Context, arg GetOpenUptimeEventParams) (AlertEvent, error)
@@ -198,6 +211,13 @@ type Querier interface {
 	// evaluator runs.
 	ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error)
 	ListExpiredRequestExports(ctx context.Context, arg ListExpiredRequestExportsParams) ([]RequestExport, error)
+	// A check's events, newest first.
+	ListHealthCheckEvents(ctx context.Context, arg ListHealthCheckEventsParams) ([]AlertEvent, error)
+	// The project's checks of active apps, by app, environment and URL.
+	ListHealthChecks(ctx context.Context, projectID uuid.UUID) ([]HealthCheck, error)
+	// Every enabled check of an active app of an active project: what the job
+	// probes.
+	ListHealthChecksToRun(ctx context.Context) ([]ListHealthChecksToRunRow, error)
 	// Active organizations with domain join on for the (lower-case) email
 	// domain that the user is not already a member of.
 	ListJoinableOrganizations(ctx context.Context, arg ListJoinableOrganizationsParams) ([]ListJoinableOrganizationsRow, error)
@@ -263,6 +283,10 @@ type Querier interface {
 	// cannot step its state at once. Returns pgx.ErrNoRows when the rule was
 	// deleted.
 	LockAlertRule(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	// Locks an enabled check for the transaction that records a probe, so two
+	// runs cannot step it at once. Returns pgx.ErrNoRows when the check was
+	// deleted or disabled since it was listed.
+	LockHealthCheck(ctx context.Context, id uuid.UUID) (HealthCheck, error)
 	// GetMemberOrganization, row-locking the organization (not the membership)
 	// for the rest of the transaction.
 	LockMemberOrganization(ctx context.Context, arg LockMemberOrganizationParams) (LockMemberOrganizationRow, error)
@@ -293,6 +317,10 @@ type Querier interface {
 	// Opens a triggered event for a rule. A rule has at most one open event, so
 	// this fails with a unique violation (alert_events_open) while one is open.
 	OpenAlertEvent(ctx context.Context, arg OpenAlertEventParams) (AlertEvent, error)
+	// Opens a check's event with the failed request's details. A check has at
+	// most one open event, so this fails with a unique violation
+	// (alert_events_health_check_open) while one is open.
+	OpenHealthCheckEvent(ctx context.Context, arg OpenHealthCheckEventParams) (AlertEvent, error)
 	// Opens an uptime event for an environment. An environment has at most one
 	// open uptime event, so this fails with a unique violation
 	// (alert_events_uptime_open) while one is open.
@@ -304,6 +332,8 @@ type Querier interface {
 	// Age of the oldest unprocessed row, 0 when the outbox is drained.
 	OutboxLagSeconds(ctx context.Context) (float64, error)
 	ProjectSlugTaken(ctx context.Context, slug string) (bool, error)
+	// Records a probe of a check and its status.
+	RecordHealthCheckResult(ctx context.Context, arg RecordHealthCheckResultParams) error
 	// Drops a deleted channel from every rule of its project that notifies it.
 	// Run in the same transaction as DeleteNotificationChannel.
 	RemoveChannelFromAlertRules(ctx context.Context, arg RemoveChannelFromAlertRulesParams) (int64, error)
@@ -342,6 +372,10 @@ type Querier interface {
 	// Replaces every editable field of a rule. The app and project never change.
 	UpdateAlertRule(ctx context.Context, arg UpdateAlertRuleParams) (AlertRule, error)
 	UpdateAppLatencyThreshold(ctx context.Context, arg UpdateAppLatencyThresholdParams) (UpdateAppLatencyThresholdRow, error)
+	// Replaces a check's editable fields. A changed URL or expected status
+	// clears the latest result (the check shows as not yet checked); its status
+	// and open event stay until the next probe decides.
+	UpdateHealthCheck(ctx context.Context, arg UpdateHealthCheckParams) (HealthCheck, error)
 	UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (Membership, error)
 	// Renames a channel and replaces its sealed config. The type never changes.
 	UpdateNotificationChannel(ctx context.Context, arg UpdateNotificationChannelParams) (NotificationChannel, error)

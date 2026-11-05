@@ -1,0 +1,37 @@
+{
+  "method": "POST",
+  "path": "/hooks/apilens",
+  "headers": {
+    "Content-Type": "application/json",
+    "User-Agent": "APILens-Alerts/1",
+    "X-APILens-Delivery": "1243c357-6267-5f12-aac8-a0de1dccf1dc",
+    "X-APILens-Event": "health_check.passing",
+    "X-APILens-Signature": "v1=2993734b94464bd206ee526673628480eac7929ddf54d0a52f2ca0b6d1e6e442",
+    "X-APILens-Timestamp": "1793786760"
+  },
+  "body": {
+    "type": "health_check.passing",
+    "event": {
+      "id": "0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41",
+      "kind": "health_check",
+      "state": "resolved",
+      "value": null,
+      "started_at": "2026-11-04T09:30:00Z",
+      "ended_at": "2026-11-04T10:05:00Z"
+    },
+    "app": {
+      "id": "1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b",
+      "name": "storefront"
+    },
+    "project": "shop",
+    "environment": "production",
+    "url": "https://app.example.com/shop/settings/health-checks",
+    "title": "Health check passing: storefront (production)",
+    "summary": "GET https://api.example.com/healthz?token=[redacted]&deep=1 on storefront (production) answers 200 again.",
+    "health_check": {
+      "id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "url": "https://api.example.com/healthz?token=[redacted]&deep=1",
+      "expected_status": 200
+    }
+  }
+}

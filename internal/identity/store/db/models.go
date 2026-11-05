@@ -23,6 +23,8 @@ type AlertEvent struct {
 	Kind               string
 	MonitorAppID       *uuid.UUID
 	MonitorEnvironment *string
+	HealthCheckID      *uuid.UUID
+	Details            []byte
 }
 
 type AlertRule struct {
@@ -191,6 +193,23 @@ type Environment struct {
 	ProjectID uuid.UUID
 	Name      string
 	CreatedAt time.Time
+}
+
+type HealthCheck struct {
+	ID             uuid.UUID
+	ProjectID      uuid.UUID
+	AppID          uuid.UUID
+	Environment    string
+	Url            string
+	ExpectedStatus int32
+	Enabled        bool
+	Status         string
+	StatusSince    time.Time
+	CheckedAt      *time.Time
+	LastResult     []byte
+	CreatedBy      *uuid.UUID
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type Invitation struct {

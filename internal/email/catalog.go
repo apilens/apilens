@@ -47,6 +47,17 @@ const (
 	// TemplateUptimeUp: app, environment, started_at (the last heartbeat
 	// before the gap), ended_at, project and event.
 	TemplateUptimeUp = "uptime_up"
+	// TemplateHealthCheckFailing: app, environment, check (the checked URL
+	// without its scheme, so the email links only to the UI),
+	// expected_status, result ("HTTP 503 (expected 200)" or the failure
+	// class), latency, attempts ("after 2 attempts"), body (the start of the
+	// response body, masked; may be empty), body_truncated, started_at,
+	// and project (slug, for the /<project>/settings/health-checks link),
+	// from internal/alerts.
+	TemplateHealthCheckFailing = "health_check_failing"
+	// TemplateHealthCheckPassing: app, environment, check, expected_status,
+	// started_at (when the check started failing), ended_at and project.
+	TemplateHealthCheckPassing = "health_check_passing"
 )
 
 // Values of the security_change template's change field. An unknown value

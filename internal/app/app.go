@@ -331,9 +331,9 @@ func (a *App) initRelay(context.Context) (modules.Service, error) {
 	return modules.ServiceFunc(relay.Listen), nil
 }
 
-// initAlerts registers the periodic alert rule evaluation and heartbeat
-// uptime jobs and the notification jobs they enqueue (email, Slack, Teams,
-// webhook).
+// initAlerts registers the periodic alert rule evaluation, heartbeat
+// uptime and HTTP health check jobs and the notification jobs they enqueue
+// (email, Slack, Teams, webhook).
 func (a *App) initAlerts(context.Context) (modules.Service, error) {
 	// Channel configs are sealed with the identity key-encryption key;
 	// without one in this process deliveries are dropped.
@@ -358,6 +358,10 @@ func (a *App) initAlerts(context.Context) (modules.Service, error) {
 	uptime := alerts.NewUptimeChecker(a.pool, a.logger, a.registry).WithNotifications(a.jobs)
 	jobs.Register(a.workers, alerts.NewUptimeWorker(uptime, a.logger))
 	a.workers.Periodic(alerts.UptimeInterval, alerts.UptimeArgs{})
+	prober := alerts.NewProber(alerts.ProberOptions{AllowPrivateNetworks: a.cfg.Alerts.HealthChecksAllowPrivate})
+	health := alerts.NewHealthChecker(a.pool, prober, a.logger, a.registry).WithPrivacy(a.privacy).WithNotifications(a.jobs)
+	jobs.Register(a.workers, alerts.NewHealthChecksWorker(health, a.logger))
+	a.workers.Periodic(alerts.HealthCheckInterval, alerts.HealthChecksArgs{})
 	return nil, nil
 }
 
@@ -429,6 +433,7 @@ func (a *App) initQuery(context.Context) (modules.Service, error) {
 		}
 	}
 	svc.WithAlerts(a.pool, sealer, query.NewTestSender(a.pool, a.jobs, nil, a.cfg.Identity.PublicUIURL))
+	svc.WithHealthCheckPrivateNetworks(a.cfg.Alerts.HealthChecksAllowPrivate)
 	query.Register(api, svc, guard)
 	return nil, nil
 }
