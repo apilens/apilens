@@ -6646,6 +6646,51 @@
         ],
         "type": "object"
       },
+      "RequestTimelineOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RequestTimelineOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "bucket_seconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "buckets": {
+            "description": "Oldest first, every bucket of the window, empty ones with zeros. The first and last may extend past the window; they count only rows inside it.",
+            "items": {
+              "$ref": "#/components/schemas/TimelineBucket"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "from": {
+            "description": "Start of the window (inclusive).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "to": {
+            "description": "End of the window (exclusive).",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "bucket_seconds",
+          "buckets"
+        ],
+        "type": "object"
+      },
       "RequestValidationError": {
         "additionalProperties": false,
         "properties": {
@@ -7444,6 +7489,47 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "TimelineBucket": {
+        "additionalProperties": false,
+        "properties": {
+          "client_errors": {
+            "description": "Status 400-499.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_errors": {
+            "description": "Status 500 and above.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "successful": {
+            "description": "Status below 400.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ts": {
+            "description": "Start of the bucket.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "requests",
+          "successful",
+          "client_errors",
+          "server_errors"
+        ],
         "type": "object"
       },
       "TimeseriesOutputBody": {
@@ -17810,6 +17896,28 @@
               "minimum": 1,
               "type": "integer"
             }
+          },
+          {
+            "description": "Only requests at or after this time (RFC 3339); clamped to the range.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Only requests at or after this time (RFC 3339); clamped to the range.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests before this time (RFC 3339); clamped to the range.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "Only requests before this time (RFC 3339); clamped to the range.",
+              "format": "date-time",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -17843,6 +17951,283 @@
           }
         ],
         "summary": "Request log: filtered requests, newest first, with cursor pagination",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/requests/timeline": {
+      "get": {
+        "operationId": "get-request-timeline",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Start of the window (RFC 3339, inclusive); clamped to the range.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Start of the window (RFC 3339, inclusive); clamped to the range.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "End of the window (RFC 3339, exclusive); clamped to the range.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "End of the window (RFC 3339, exclusive); clamped to the range.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "consumer_id",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "consumer_group",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "ip",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "method",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "pattern": "^[A-Za-z]{1,16}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "url_contains",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "payload_contains",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "request_size_min",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "request_size_max",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "response_size_min",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "response_size_max",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "default": "all",
+              "description": "As in GET /api/v1/requests.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "latency_min",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "format": "double",
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "latency_max",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "format": "double",
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          {
+            "description": "As in GET /api/v1/requests.",
+            "explode": false,
+            "in": "query",
+            "name": "sampled",
+            "schema": {
+              "description": "As in GET /api/v1/requests.",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestTimelineOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Request timeline: the filtered request log counted per time bucket by status class",
         "tags": [
           "Dashboard"
         ]

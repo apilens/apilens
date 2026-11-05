@@ -904,6 +904,30 @@ export type RequestLogFilters = Partial<
   >
 >;
 
+/** A narrower window inside the range (#587), RFC 3339; `GET /requests` and its timeline clamp it to the range. */
+export interface RequestWindow {
+  from?: string;
+  to?: string;
+}
+
+/** One bucket of `GET /requests/timeline` (#587), oldest first. */
+export interface RequestTimelineBucket {
+  ts: string;
+  requests: number;
+  /** Status below 400. */
+  successful: number;
+  client_errors: number;
+  server_errors: number;
+}
+
+/** `GET /requests/timeline` (#587): the filtered request log counted per bucket by status class. */
+export interface RequestTimeline {
+  from: string;
+  to: string;
+  bucket_seconds: number;
+  buckets: RequestTimelineBucket[] | null;
+}
+
 /** `GET /traffic/summary`. */
 export interface TrafficSummary {
   range: string;
@@ -1571,8 +1595,10 @@ export function createClient(config: ClientConfig) {
       request<IngestStatus>("GET", `/projects/${seg(projectSlug)}/ingest-status`, o),
 
     // query: dashboard reads as the signed-in user (#295) ----------------------------------
-    listRequests: (projectSlug: string, q: { range?: QueryRange; limit?: number } & RequestLogFilters, o: Authed) =>
+    listRequests: (projectSlug: string, q: { range?: QueryRange; limit?: number } & RequestWindow & RequestLogFilters, o: Authed) =>
       request<{ requests: RequestRow[] | null; next_cursor?: string }>("GET", "/requests", { ...o, query: { project: projectSlug, ...q } }),
+    requestTimeline: (projectSlug: string, q: { range?: QueryRange } & RequestWindow & RequestLogFilters, o: Authed) =>
+      request<RequestTimeline>("GET", "/requests/timeline", { ...o, query: { project: projectSlug, ...q } }),
     getRequest: (projectSlug: string, id: string, o: Authed) =>
       request<RequestDetailRead>("GET", `/requests/${seg(id)}`, { ...o, query: { project: projectSlug } }),
     trafficSummary: (projectSlug: string, q: QueryRange | TrafficQuery, o: Authed) =>

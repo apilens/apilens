@@ -205,3 +205,47 @@ span.rd-j-tog { cursor: default; }
   .ex-sampled { display: none; }
   .ex-chip > span { max-width: 220px; }
 }
+
+/* Timeline (#587): requests per bucket stacked by status class. Successful bars are muted ink
+   (context); 4xx and 5xx take the dataviz status palette's warning and critical steps, fixed in
+   both themes (validated: CVD dE 24 light / 19 dark between neighbours). Warning sits under 3:1 on
+   the light surface, so the legend, the per-bar tooltip and the log itself carry the numbers. Hover
+   and selection never animate unless the reader allows motion. */
+.ex-tl { --ex-tl-4xx: #fab219; --ex-tl-5xx: #d03b3b; margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
+.ex-tl[aria-busy="true"] .ex-tl__plot { opacity: .6; }
+.ex-tl__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-4); margin-bottom: var(--space-6); }
+.ex-tl__title { margin: 0; font: 600 14px/20px var(--font-sans); color: var(--ink); }
+.ex-tl__legend { display: flex; flex-wrap: wrap; gap: var(--space-4); margin: 0; padding: 0; list-style: none; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ex-tl__legend li { display: inline-flex; align-items: center; gap: 6px; }
+.ex-tl__swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.ex-tl__scope { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin-left: auto; font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.ex-tl__plot { position: relative; width: 100%; cursor: crosshair; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.ex-tl__plot:focus { outline: none; }
+.ex-tl__plot:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 4px; border-radius: 2px; }
+.ex-tl__plot svg { display: block; width: 100%; height: 96px; overflow: visible; }
+.ex-tl__top { position: absolute; top: -20px; right: 0; font: 400 11px/14px var(--font-mono); color: var(--ink-muted); }
+.ex-tl__grid { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ex-tl__base { stroke: var(--border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ex-tl__hover { fill: var(--surface-2); }
+.ex-tl-ok { fill: var(--ink-muted); background: var(--ink-muted); }
+.ex-tl-4xx { fill: var(--ex-tl-4xx); background: var(--ex-tl-4xx); }
+.ex-tl-5xx { fill: var(--ex-tl-5xx); background: var(--ex-tl-5xx); }
+.ex-tl__sel { fill: color-mix(in srgb, var(--accent) 14%, transparent); stroke: var(--accent-ink); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ex-tl__focus { fill: none; stroke: var(--accent-ink); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.ex-tl__cursor { stroke: var(--accent-ink); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.ex-tl__tip { position: absolute; bottom: calc(100% + 6px); z-index: 2; width: max-content; max-width: min(440px, 100%); box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-1); font: 400 12px/18px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); pointer-events: none; }
+.ex-tl__axis { display: flex; justify-content: space-between; margin-top: 4px; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }
+.ex-tl__hint { margin: var(--space-2) 0 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ex-tl__error { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 var(--space-2); font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.ex-tl__error svg { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--ink-muted); }
+.ex-tl__sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Motion only for readers who allow it (#587 acceptance: respects reduced motion). */
+@media (prefers-reduced-motion: no-preference) {
+  .ex-tl__plot { transition: opacity 120ms ease-out; }
+}
+
+@media (max-width: 760px) {
+  .ex-tl { padding: var(--space-3) var(--space-3) var(--space-2); }
+  .ex-tl__scope { margin-left: 0; }
+}

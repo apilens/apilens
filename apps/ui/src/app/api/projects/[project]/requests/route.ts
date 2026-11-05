@@ -16,8 +16,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ proj
     try {
       checkRequest(req);
       if (!isProjectSlug(project)) throw new InputError(422, ROUTE_ERROR_CODES.validation, "invalid project");
-      const { range, filters } = parseExploreQuery(Object.fromEntries(req.nextUrl.searchParams));
-      const page = await session.call((o) => identity().listRequests(project, { range, limit: LOG_LIMIT, ...filterQuery(filters) }, o));
+      // `from`/`to` (#587) are the window requestsPath already narrowed to the jump point.
+      const { range, from, to, filters } = parseExploreQuery(Object.fromEntries(req.nextUrl.searchParams));
+      const page = await session.call((o) => identity().listRequests(project, { range, from, to, limit: LOG_LIMIT, ...filterQuery(filters) }, o));
       return NextResponse.json({ ok: true, requests: page.requests ?? [] }, { headers: { "Cache-Control": "no-store" } });
     } catch (err) {
       if (isSessionExpired(err)) throw err;

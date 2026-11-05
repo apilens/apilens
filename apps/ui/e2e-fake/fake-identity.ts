@@ -129,6 +129,10 @@
 //   GET  /api/v1/requests/{id}?project=            one request (#588): the seeded row with that `id`, merged with
 //                                                  its `detail` ({request?, spans?, logs?}); 404 for any other id
 //   POST /__fake/query-down {project, down}        test hook: those reads answer 503 for `project`
+//   GET  /api/v1/requests/timeline?project=        the Explore timeline (#587): the seeded request rows in the
+//                                                  window counted per bucket by status class; the log's seed
+//                                                  also honours from/to
+//   POST /__fake/timeline-down {project, down}     test hook: only the timeline answers 503 for `project`
 //   GET  /api/v1/project?project=shop              shop's apps (#598): one app `shop` unless seeded
 //   GET|PUT /api/v1/apps/{id}/capture-policy       the app's capture policy (#598): everything captured
 //                                                  until saved; PUT answers 403 without capture.manage
@@ -502,6 +506,8 @@ const ingestedRows = new Map<
 >();
 /** Projects whose query reads answer 503, set by `/__fake/query-down` (#335). */
 const queryDown = new Set<string>();
+/** Projects whose `GET /requests/timeline` alone answers 503, set by `/__fake/timeline-down` (#587). */
+const timelineDown = new Set<string>();
 /** Project slug → the rows `GET /api/v1/requests` answers instead, as seeded by `/__fake/requests` (#585). */
 const requestsSeed = new Map<string, Record<string, unknown>[]>();
 /** Project slug → the deploys `GET /deploys/changes` answers, as seeded by `/__fake/deploys` (#597). */
@@ -1532,6 +1538,56 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     }
     return problem(res, 404, "not_found");
   }
+  // The Explore timeline (#587), as `GET /requests/timeline` answers it: the seeded rows inside the
+  // window (the range ending now, narrowed by from/to) counted per bucket by status class. The
+  // bucket width follows internal/query's steps (at most 100 bars). `/__fake/timeline-down` makes
+  // it alone answer 503.
+  if (req.method === "GET" && path === "/api/v1/requests/timeline") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = url.searchParams.get("project") ?? "";
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+    if (queryDown.has(slug) || timelineDown.has(slug)) return problem(res, 503, "unavailable");
+    const span = { "1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800 }[url.searchParams.get("range") ?? "24h"] ?? 86400;
+    const end = Math.floor(Date.now() / 60_000) * 60_000 + 60_000;
+    let lo = end - span * 1000;
+    let hi = end;
+    const from = Date.parse(url.searchParams.get("from") ?? "");
+    const to = Date.parse(url.searchParams.get("to") ?? "");
+    if (!Number.isNaN(from) && !Number.isNaN(to) && from >= to) return problem(res, 422, "validation_failed");
+    if (!Number.isNaN(from)) lo = Math.max(lo, from);
+    if (!Number.isNaN(to)) hi = Math.min(hi, to);
+    hi = Math.max(hi, lo);
+    const steps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400];
+    const step = steps.find((s) => (hi - lo) / 1000 <= s * 100) ?? 86400;
+    const status = (url.searchParams.get("status") ?? "").split(",").filter(Boolean);
+    const method = (url.searchParams.get("method") ?? "").toUpperCase();
+    const rows = (requestsSeed.get(slug) ?? []).filter((r) => {
+      const t = Date.parse(String(r.timestamp));
+      return (
+        t >= lo &&
+        t < hi &&
+        (!method || r.method === method) &&
+        (!status.length || status.some((s) => (/^[1-5]xx$/.test(s) ? String(r.status_code)[0] === s[0] : String(r.status_code) === s)))
+      );
+    });
+    const buckets = [];
+    for (let t = Math.floor(lo / 1000 / step) * step * 1000; t < hi; t += step * 1000) {
+      const inside = rows.filter((r) => {
+        const ts = Date.parse(String(r.timestamp));
+        return ts >= t && ts < t + step * 1000;
+      });
+      const code = (r: Record<string, unknown>) => Number(r.status_code);
+      buckets.push({
+        ts: new Date(t).toISOString(),
+        requests: inside.length,
+        successful: inside.filter((r) => code(r) < 400).length,
+        client_errors: inside.filter((r) => code(r) >= 400 && code(r) < 500).length,
+        server_errors: inside.filter((r) => code(r) >= 500).length,
+      });
+    }
+    return send(res, 200, { from: new Date(lo).toISOString(), to: new Date(hi).toISOString(), bucket_seconds: step, buckets });
+  }
   // One request of the log (#588), as `GET /requests/{id}` answers it: the seeded row with that id
   // plus what its `detail` seeds (headers, bodies, validation errors, spans and logs).
   const requestDetail = path.match(/^\/api\/v1\/requests\/([^/]+)$/);
@@ -1753,7 +1809,12 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         const method = (url.searchParams.get("method") ?? "").toUpperCase();
         const route = url.searchParams.get("path") ?? "";
         const status = (url.searchParams.get("status") ?? "").split(",").filter(Boolean);
+        // The timeline's zoom and jump point (#587): from (inclusive) and to (exclusive).
+        const from = Date.parse(url.searchParams.get("from") ?? "");
+        const to = Date.parse(url.searchParams.get("to") ?? "");
         const matches = (r: Record<string, unknown>) =>
+          (Number.isNaN(from) || Date.parse(String(r.timestamp)) >= from) &&
+          (Number.isNaN(to) || Date.parse(String(r.timestamp)) < to) &&
           (!method || r.method === method) &&
           (!route || r.path === route) &&
           (!status.length || status.some((t) => (/^[1-5]xx$/.test(t) ? String(r.status_code)[0] === t[0] : String(r.status_code) === t)));
@@ -1906,6 +1967,13 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const { project, down } = await readBody(req);
     if (down) queryDown.add(String(project));
     else queryDown.delete(String(project));
+    return send(res, 204);
+  }
+  if (req.method === "POST" && path === "/__fake/timeline-down") {
+    // Test hook: only the Explore timeline (#587) answers 503 for `project`, or again normally.
+    const { project, down } = await readBody(req);
+    if (down) timelineDown.add(String(project));
+    else timelineDown.delete(String(project));
     return send(res, 204);
   }
   const sessionPath = path.match(/^\/api\/v1\/users\/me\/sessions(?:\/([^/]+))?$/);
