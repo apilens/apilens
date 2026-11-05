@@ -25,6 +25,8 @@ export type ApiLensRecordInput = {
   response_payload?: string;
   request_headers?: string;
   response_headers?: string;
+  release?: string;
+  commit?: string;
 };
 
 export type ApiLensRecord = {
@@ -47,6 +49,8 @@ export type ApiLensRecord = {
   response_payload: string;
   request_headers: string;
   response_headers: string;
+  release: string;
+  commit: string;
 };
 
 export type ApiLensClientConfig = {
@@ -61,6 +65,13 @@ export type ApiLensClientConfig = {
   ingestPath?: string;
   ingest_path?: string;
   environment?: string;
+  /**
+   * Deploy correlation, stamped on every record. When omitted they are read
+   * from the environment: APILENS_RELEASE; APILENS_COMMIT / GIT_COMMIT /
+   * SOURCE_VERSION / RENDER_GIT_COMMIT / VERCEL_GIT_COMMIT_SHA / HEROKU_SLUG_COMMIT.
+   */
+  release?: string;
+  commit?: string;
   batchSize?: number;
   flushIntervalMs?: number;
   timeoutMs?: number;

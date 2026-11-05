@@ -74,6 +74,8 @@ function buildClient(config: ApiLensExpressConfig = {}): ApiLensClient {
     baseUrl: config.baseUrl || config.base_url,
     ingestPath: config.ingestPath || config.ingest_path,
     environment: config.environment || config.env,
+    release: config.release,
+    commit: config.commit,
     batchSize: config.batchSize,
     flushIntervalMs: config.flushIntervalMs,
     timeoutMs: config.timeoutMs,

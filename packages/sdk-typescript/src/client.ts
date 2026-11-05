@@ -6,6 +6,7 @@ import {
   toNonNegativeInt,
   toNumber,
 } from "./utils.js";
+import { detectCommit, detectRelease } from "./release.js";
 import type {
   ApiLensClientConfig,
   ApiLensRecord,
@@ -22,6 +23,8 @@ type RequiredConfig = {
   baseUrl: string;
   ingestPath: string;
   environment: string;
+  release: string;
+  commit: string;
   batchSize: number;
   flushIntervalMs: number;
   timeoutMs: number;
@@ -54,6 +57,8 @@ function normalizeRecord(
   defaultEnvironment: string,
   defaultProjectSlug: string,
   defaultAppId: string,
+  defaultRelease = "",
+  defaultCommit = "",
 ): ApiLensRecord {
   const payload = input || ({} as ApiLensRecordInput);
   return {
@@ -76,6 +81,8 @@ function normalizeRecord(
     response_payload: String(payload.response_payload || ""),
     request_headers: String(payload.request_headers || ""),
     response_headers: String(payload.response_headers || ""),
+    release: String(payload.release || defaultRelease || ""),
+    commit: String(payload.commit || defaultCommit || ""),
   };
 }
 
@@ -114,6 +121,8 @@ class ApiLensClient {
       ),
       ingestPath: String(config.ingestPath || config.ingest_path || "requests"),
       environment: String(config.environment || "production"),
+      release: String(config.release || "").trim() || detectRelease(),
+      commit: String(config.commit || "").trim() || detectCommit(),
       batchSize: Math.max(toNonNegativeInt(config.batchSize, 200), 1),
       flushIntervalMs: Math.max(toNonNegativeInt(config.flushIntervalMs, 3000), 50),
       timeoutMs: Math.max(toNonNegativeInt(config.timeoutMs, 5000), 1),
@@ -195,6 +204,10 @@ class ApiLensClient {
       return;
     }
 
+    // Records carry release/commit themselves so a batch can straddle a
+    // deploy; fill them in here too for callers that build records directly.
+    this.stampRelease(record);
+
     if (this.queue.length >= this.config.maxQueueSize) {
       this.queue.shift();
       this.droppedCount += 1;
@@ -207,6 +220,15 @@ class ApiLensClient {
     }
   }
 
+  private stampRelease(record: ApiLensRecord): void {
+    if (!record.release) {
+      record.release = this.config.release;
+    }
+    if (!record.commit) {
+      record.commit = this.config.commit;
+    }
+  }
+
   public captureMany(records: ApiLensRecordInput[]): void {
     const items = Array.isArray(records) ? records : [];
     for (const record of items) {
@@ -216,6 +238,8 @@ class ApiLensClient {
           this.config.environment,
           this.config.projectSlug,
           this.config.appId,
+          this.config.release,
+          this.config.commit,
         ),
       );
     }
