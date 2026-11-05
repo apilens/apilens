@@ -922,6 +922,34 @@ export interface AppReports {
   environments: AppEnvironmentReport[] | null;
 }
 
+/** The built-in patterns of `GET|PUT /projects/{slug}/privacy-policy`, applied always. */
+export interface PrivacyDefaults {
+  mask_query_params: string[] | null;
+  mask_headers: string[] | null;
+  /** Header names (lower case, matched exactly). */
+  sensitive_headers: string[] | null;
+  mask_body_fields: string[] | null;
+}
+
+/** `GET|PUT /projects/{slug}/privacy-policy` (#562): the project's server-side deny list. */
+export interface PrivacyPolicy {
+  /** The app slug the policy is scoped to; null for the project-wide policy. */
+  app: string | null;
+  /** Case-insensitive RE2 patterns, on top of the defaults. */
+  mask_query_params: string[] | null;
+  mask_headers: string[] | null;
+  mask_body_fields: string[] | null;
+  defaults: PrivacyDefaults;
+  /** Null when the policy was never saved (only the defaults apply). */
+  updated_at: string | null;
+}
+
+export interface PutPrivacyPolicyRequest {
+  mask_query_params: string[];
+  mask_headers: string[];
+  mask_body_fields: string[];
+}
+
 // ---------------------------------------------------------------------------------------------
 // Operations
 
@@ -1101,6 +1129,12 @@ export function createClient(config: ClientConfig) {
     putCapturePolicy: (appId: string, body: PutCapturePolicyRequest, o: Authed) =>
       request<CapturePolicy>("PUT", `/apps/${seg(appId)}/capture-policy`, { ...o, body }),
     appReports: (appId: string, o: Authed) => request<AppReports>("GET", `/apps/${seg(appId)}/metadata`, o),
+
+    // api: project privacy policy (#562, #599) -------------------------------------------
+    getPrivacyPolicy: (projectSlug: string, o: Authed) =>
+      request<PrivacyPolicy>("GET", `/projects/${seg(projectSlug)}/privacy-policy`, o),
+    putPrivacyPolicy: (projectSlug: string, body: PutPrivacyPolicyRequest, o: Authed) =>
+      request<PrivacyPolicy>("PUT", `/projects/${seg(projectSlug)}/privacy-policy`, { ...o, body }),
 
     // api: project API keys ---------------------------------------------------------------
     listApiKeys: (projectSlug: string, o: Authed) =>

@@ -394,6 +394,12 @@ describe("operations", () => {
       (c) => c.createApiKey("a/b?c", { name: "ingest", scopes: ["ingest"] }, authed),
     ],
     ["DELETE", "/projects/{slug}/api-keys/{id}", (c) => c.revokeApiKey("a/b?c", "a/b?c", authed)],
+    ["GET", "/projects/{slug}/privacy-policy", (c) => c.getPrivacyPolicy("a/b?c", authed)],
+    [
+      "PUT",
+      "/projects/{slug}/privacy-policy",
+      (c) => c.putPrivacyPolicy("a/b?c", { mask_query_params: [], mask_headers: [], mask_body_fields: [] }, authed),
+    ],
     ["GET", "/requests", (c) => c.listRequests("web", { range: "7d", limit: 10 }, authed)],
     ["GET", "/traffic/summary", (c) => c.trafficSummary("web", "7d", authed)],
     ["GET", "/traffic/endpoints", (c) => c.listEndpoints("web", { range: "7d" }, authed)],

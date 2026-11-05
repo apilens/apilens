@@ -1,0 +1,518 @@
+{
+  "_comment": "Shared vectors of the server-side privacy redactor (#599). Go (redact_vectors_test.go) and the UI's live tester (apps/ui/src/lib/privacy-redact.test.ts) must both turn `in` into `want`. Wants come from Go: go test ./internal/controlplane/privacy -run TestRedactVectors -update",
+  "vectors": [
+    {
+      "name": "path without query",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "raw_path",
+      "in": "/orders/42",
+      "want": "/orders/42"
+    },
+    {
+      "name": "default query params",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "raw_path",
+      "in": "/a?page=2&api_key=k1&apikey=k2&API-KEY=k3&x=1",
+      "want": "/a?page=2&api_key=[redacted]&apikey=[redacted]&API-KEY=[redacted]&x=1"
+    },
+    {
+      "name": "auth-like names",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "raw_path",
+      "in": "/a?Authorization=x&client_secret=s&password=p&pwd=q",
+      "want": "/a?Authorization=[redacted]&client_secret=[redacted]&password=[redacted]&pwd=[redacted]"
+    },
+    {
+      "name": "percent-encoded name",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "raw_path",
+      "in": "/a?access%5Ftoken=abc&q=caf%C3%A9",
+      "want": "/a?access%5Ftoken=[redacted]&q=caf%C3%A9"
+    },
+    {
+      "name": "plus in name",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "raw_path",
+      "in": "/a?my+token=abc&b=c+d",
+      "want": "/a?my+token=[redacted]&b=c+d"
+    },
+    {
+      "name": "fragment kept",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "raw_path",
+      "in": "/a?token=abc#frag",
+      "want": "/a?token=[redacted]#frag"
+    },
+    {
+      "name": "name without value",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "raw_path",
+      "in": "/a?token&x=1",
+      "want": "/a?token&x=1"
+    },
+    {
+      "name": "already redacted",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "raw_path",
+      "in": "/a?token=[redacted]",
+      "want": "/a?token=[redacted]"
+    },
+    {
+      "name": "empty value",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "raw_path",
+      "in": "/a?token=&b=1",
+      "want": "/a?token=[redacted]&b=1"
+    },
+    {
+      "name": "full URL",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "raw_path",
+      "in": "https://api.example.com/v1/login?user=ada&password=hunter2",
+      "want": "https://api.example.com/v1/login?user=ada&password=[redacted]"
+    },
+    {
+      "name": "custom query patterns",
+      "policy": {
+        "mask_query_params": [
+          "^session$",
+          "sig(nature)?"
+        ],
+        "mask_headers": [
+          "^x-tenant-.*$"
+        ],
+        "mask_body_fields": [
+          "^email$",
+          "phone"
+        ]
+      },
+      "op": "raw_path",
+      "in": "/a?session=s1&sessions=s2&sig=x&signature=y&page=1",
+      "want": "/a?session=[redacted]&sessions=s2&sig=[redacted]&signature=[redacted]&page=1"
+    },
+    {
+      "name": "custom query anchored",
+      "policy": {
+        "mask_query_params": [
+          "^session$",
+          "sig(nature)?"
+        ],
+        "mask_headers": [
+          "^x-tenant-.*$"
+        ],
+        "mask_body_fields": [
+          "^email$",
+          "phone"
+        ]
+      },
+      "op": "raw_path",
+      "in": "/a?SESSION=s1&my_session=s2",
+      "want": "/a?SESSION=[redacted]&my_session=s2"
+    },
+    {
+      "name": "headers json defaults",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "headers",
+      "in": "{\"authorization\":\"Bearer abc\",\"X-Api-Key\":\"k\",\"cookie\":\"s=1\",\"x-csrf-token\":\"c\",\"accept\":\"application/json\",\"x-forwarded-for\":[\"1.2.3.4\"]}",
+      "want": "{\"authorization\":\"[redacted]\",\"X-Api-Key\":\"[redacted]\",\"cookie\":\"[redacted]\",\"x-csrf-token\":\"[redacted]\",\"accept\":\"application/json\",\"x-forwarded-for\":[\"1.2.3.4\"]}"
+    },
+    {
+      "name": "headers json custom",
+      "policy": {
+        "mask_query_params": [
+          "^session$",
+          "sig(nature)?"
+        ],
+        "mask_headers": [
+          "^x-tenant-.*$"
+        ],
+        "mask_body_fields": [
+          "^email$",
+          "phone"
+        ]
+      },
+      "op": "headers",
+      "in": "{\"X-Tenant-Id\":\"t1\",\"x-tenant\":\"t2\",\"Content-Type\":\"text/plain\"}",
+      "want": "{\"X-Tenant-Id\":\"[redacted]\",\"x-tenant\":\"t2\",\"Content-Type\":\"text/plain\"}"
+    },
+    {
+      "name": "headers non-string values",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "headers",
+      "in": "{\"x-auth\":{\"a\":1},\"x-token\":[1,2],\"x-secret\":null,\"x-key\":true}",
+      "want": "{\"x-auth\":\"[redacted]\",\"x-token\":\"[redacted]\",\"x-secret\":\"[redacted]\",\"x-key\":true}"
+    },
+    {
+      "name": "headers formatting kept",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "headers",
+      "in": "{ \"Accept\" : \"*/*\" ,\n  \"Set-Cookie\" : \"a=b\" }",
+      "want": "{ \"Accept\" : \"*/*\" ,\n  \"Set-Cookie\" : \"[redacted]\" }"
+    },
+    {
+      "name": "headers clean",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "headers",
+      "in": "{\"b\":\"2\", \"a\":\"1\"}",
+      "want": "{\"b\":\"2\", \"a\":\"1\"}"
+    },
+    {
+      "name": "headers as text",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "headers",
+      "in": "Authorization: Bearer abc\nAccept: */*",
+      "want": "Authorization: [redacted]\nAccept: */*"
+    },
+    {
+      "name": "headers empty",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "headers",
+      "in": "",
+      "want": ""
+    },
+    {
+      "name": "body defaults",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "{\"user\":\"ada\",\"password\":\"p\",\"card_number\":\"4242\",\"cardNumber\":4242,\"cvv\":123,\"note\":\"ok\"}",
+      "want": "{\"user\":\"ada\",\"password\":\"[redacted]\",\"card_number\":\"[redacted]\",\"cardNumber\":\"[redacted]\",\"cvv\":\"[redacted]\",\"note\":\"ok\"}"
+    },
+    {
+      "name": "body nested",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "{\"user\":{\"name\":\"ada\",\"auth\":{\"token\":\"t\",\"expires\":3600}},\"items\":[{\"secret\":\"s1\"},{\"secret\":\"s2\",\"id\":1}]}",
+      "want": "{\"user\":{\"name\":\"ada\",\"auth\":{\"token\":\"[redacted]\",\"expires\":3600}},\"items\":[{\"secret\":\"[redacted]\"},{\"secret\":\"[redacted]\",\"id\":1}]}"
+    },
+    {
+      "name": "body containers under match walked",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "{\"auth\":{\"user\":\"ada\",\"password\":\"p\"},\"token\":[\"a\",\"b\"],\"secret\":null,\"pwd\":false}",
+      "want": "{\"auth\":{\"user\":\"ada\",\"password\":\"[redacted]\"},\"token\":[\"a\",\"b\"],\"secret\":null,\"pwd\":false}"
+    },
+    {
+      "name": "body escaped key",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "{\"pass\\u0077ord\":\"p\",\"to\\\"ken\":\"t\"}",
+      "want": "{\"pass\\u0077ord\":\"[redacted]\",\"to\\\"ken\":\"t\"}"
+    },
+    {
+      "name": "body negative and exponent numbers",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "{\"ssn\":-12.5e3,\"ok\":1}",
+      "want": "{\"ssn\":\"[redacted]\",\"ok\":1}"
+    },
+    {
+      "name": "body custom",
+      "policy": {
+        "mask_query_params": [
+          "^session$",
+          "sig(nature)?"
+        ],
+        "mask_headers": [
+          "^x-tenant-.*$"
+        ],
+        "mask_body_fields": [
+          "^email$",
+          "phone"
+        ]
+      },
+      "op": "body",
+      "in": "{\"email\":\"ada@example.com\",\"emails\":[\"a@example.com\"],\"phone_number\":\"555\",\"Phone\":5550100}",
+      "want": "{\"email\":\"[redacted]\",\"emails\":[\"a@example.com\"],\"phone_number\":\"[redacted]\",\"Phone\":\"[redacted]\"}"
+    },
+    {
+      "name": "body top-level array",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "[{\"token\":\"a\"},{\"token\":\"b\",\"n\":1}]",
+      "want": "[{\"token\":\"[redacted]\"},{\"token\":\"[redacted]\",\"n\":1}]"
+    },
+    {
+      "name": "body already redacted",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "{\"token\":\"[redacted]\"}",
+      "want": "{\"token\":\"[redacted]\"}"
+    },
+    {
+      "name": "body depth 30 masked",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"token\":\"x\"}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}",
+      "want": "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"token\":\"[redacted]\"}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}"
+    },
+    {
+      "name": "body deeper than limit kept",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"token\":\"x\"}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}",
+      "want": "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"token\":\"x\"}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}"
+    },
+    {
+      "name": "body form encoded",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "user=ada&password=hunter2&remember=1",
+      "want": "user=ada&password=[redacted]&remember=1"
+    },
+    {
+      "name": "body truncated json",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "{\"user\":\"ada\",\"password\":\"hunt",
+      "want": "{\"user\":\"ada\",\"password\":\"hunt"
+    },
+    {
+      "name": "body plain text",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "login failed for token=abc123, retry",
+      "want": "login failed for token=[redacted], retry"
+    },
+    {
+      "name": "body whitespace before json",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "  \n{\"token\":\"t\"}",
+      "want": "  \n{\"token\":\"[redacted]\"}"
+    },
+    {
+      "name": "body unicode values",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "body",
+      "in": "{\"name\":\"Zoë 名前\",\"secret\":\"ß😀\"}",
+      "want": "{\"name\":\"Zoë 名前\",\"secret\":\"[redacted]\"}"
+    },
+    {
+      "name": "text key value",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "text",
+      "in": "login failed for token=abc",
+      "want": "login failed for token=[redacted]"
+    },
+    {
+      "name": "text colon and bearer",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "text",
+      "in": "header Authorization: Bearer abc.def.ghi received",
+      "want": "header Authorization: [redacted] received"
+    },
+    {
+      "name": "text quoted values",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "text",
+      "in": "secret=\"a b c\" pwd='x y' user=ada",
+      "want": "secret=\"[redacted]\" pwd=[redacted] user=ada"
+    },
+    {
+      "name": "text json fragment",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "text",
+      "in": "payload {\"password\": \"p\", \"user\": \"ada\"}",
+      "want": "payload {\"password\": \"[redacted]\", \"user\": \"ada\"}"
+    },
+    {
+      "name": "text search continues from value",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "text",
+      "in": "failed: token=abc",
+      "want": "failed: token=[redacted]"
+    },
+    {
+      "name": "text exact sensitive header",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "text",
+      "in": "x-csrf-token=abc set-cookie: a",
+      "want": "x-csrf-token=[redacted] set-cookie: [redacted]"
+    },
+    {
+      "name": "text custom pattern",
+      "policy": {
+        "mask_query_params": [
+          "^session$",
+          "sig(nature)?"
+        ],
+        "mask_headers": [
+          "^x-tenant-.*$"
+        ],
+        "mask_body_fields": [
+          "^email$",
+          "phone"
+        ]
+      },
+      "op": "text",
+      "in": "email=ada@example.com phone: 555-0100 page=2",
+      "want": "email=[redacted] phone: [redacted] page=2"
+    },
+    {
+      "name": "text already redacted",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "text",
+      "in": "token=[redacted] secret=\"[redacted]\"",
+      "want": "token=[redacted] secret=\"[redacted]\""
+    },
+    {
+      "name": "text nothing to mask",
+      "policy": {
+        "mask_query_params": [],
+        "mask_headers": [],
+        "mask_body_fields": []
+      },
+      "op": "text",
+      "in": "GET /orders took 12ms",
+      "want": "GET /orders took 12ms"
+    }
+  ]
+}

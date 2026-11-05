@@ -1,0 +1,37 @@
+/* Project settings → Privacy (#599). Tokens from tokens.css only; cards and notes reuse .os-*
+   (org settings), inputs .ob-in, errors .ob-err. */
+.prv .os-card + .os-card { margin-top: var(--space-6); }
+.prv .os-card__head code { font: 400 12px/18px var(--font-mono); color: var(--ink); }
+
+.prv-list { margin: 0; padding: 0; border: 0; min-width: 0; }
+.prv-list + .prv-list { margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.prv-list h3 { margin: var(--space-4) 0 0; font: 500 14px/20px var(--font-sans); color: var(--ink); }
+.prv-help { margin: 2px 0 var(--space-3); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+
+.prv-rows { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-2); }
+.prv-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.prv-locked { margin: 0 0 var(--space-3); }
+.prv-kind { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.prv-locked ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.prv-locked li { display: inline-flex; align-items: center; height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.prv-locked code { font: 400 12px/1 var(--font-mono); color: var(--ink); }
+.prv-rows:empty { display: none; }
+.prv-in { flex: 1; min-width: 0; max-width: 480px; height: 34px; }
+.prv-in input { font-family: var(--font-mono); font-size: 13px; }
+.prv .ob-in.ro { background: var(--surface-2); }
+.prv .ob-in input:disabled { color: var(--ink-muted); cursor: not-allowed; }
+.prv-err { flex-basis: 100%; margin: 0; }
+.prv-add { margin-top: var(--space-3); }
+.prv-none { margin: var(--space-2) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.prv-audit { margin: var(--space-6) 0 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+
+.prv-tester { display: grid; gap: var(--space-6); }
+.prv-pair { min-width: 0; }
+.prv-textarea { display: block; width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-1); color: var(--ink); font: 400 13px/20px var(--font-mono); resize: vertical; }
+.prv-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.prv-out-label { margin: var(--space-3) 0 4px; font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
+.prv-out { margin: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); color: var(--ink); font: 400 13px/20px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+@media (max-width: 860px) {
+  .prv-in { max-width: none; }
+}
