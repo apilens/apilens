@@ -403,6 +403,7 @@ describe("operations", () => {
     ["GET", "/requests", (c) => c.listRequests("web", { range: "7d", limit: 10 }, authed)],
     ["GET", "/traffic/summary", (c) => c.trafficSummary("web", "7d", authed)],
     ["GET", "/traffic/endpoints", (c) => c.listEndpoints("web", { range: "7d" }, authed)],
+    ["GET", "/traffic/timeseries", (c) => c.trafficTimeseries("web", { range: "7d" }, authed)],
     ["GET", "/deploys/changes", (c) => c.deployChanges("web", { range: "7d" }, authed)],
     ["GET", "/consumers", (c) => c.listConsumers("web", { range: "7d" }, authed)],
     ["GET", "/consumers/{consumer_id}", (c) => c.getConsumer("web", "a/b?c", { range: "7d" }, authed)],
@@ -444,6 +445,9 @@ describe("operations", () => {
     await client.deployChanges("my-api", { range: "7d", limit: 25 }, authed);
     await client.listConsumers("my-api", { range: "6h", group: "g1", limit: 100 }, authed);
     await client.getConsumer("my-api", "acme", { range: "1h" }, authed);
+    await client.trafficSummary("my-api", { range: "6h", env: "production" }, authed);
+    await client.trafficTimeseries("my-api", { range: "1h", env: "" }, authed);
+    await client.listEndpoints("my-api", { range: "24h", env: "staging", limit: 100 }, authed);
     expect(calls.map((c) => Object.fromEntries(new URL(c.url).searchParams))).toEqual([
       { project: "my-api", range: "7d", limit: "10" },
       { project: "my-api", range: "24h" },
@@ -451,6 +455,9 @@ describe("operations", () => {
       { project: "my-api", range: "7d", limit: "25" },
       { project: "my-api", range: "6h", group: "g1", limit: "100" },
       { project: "my-api", range: "1h" },
+      { project: "my-api", range: "6h", env: "production" },
+      { project: "my-api", range: "1h" },
+      { project: "my-api", range: "24h", env: "staging", limit: "100" },
     ]);
     expect(calls.every((c) => c.headers.get("authorization") === "Bearer jwt")).toBe(true);
   });

@@ -824,6 +824,8 @@ export interface TrafficSummary {
   p95_ms: number;
   p99_ms: number;
   requests_per_minute: number;
+  /** Apdex from 0 to 1 against each endpoint's latency threshold (else its app's, else 500 ms); null without requests. */
+  apdex?: number | null;
 }
 
 /** One row of `GET /traffic/endpoints`. */
@@ -836,6 +838,30 @@ export interface EndpointTraffic {
   error_rate: number;
   p50_ms: number;
   p95_ms: number;
+  /** Apdex from 0 to 1 against the endpoint's latency threshold; null without requests. */
+  apdex?: number | null;
+}
+
+/** One bucket of `GET /traffic/timeseries`, oldest first. */
+export interface TrafficPoint {
+  ts: string;
+  requests: number;
+  client_errors: number;
+  server_errors: number;
+  p95_ms: number;
+}
+
+/** `GET /traffic/timeseries`. */
+export interface TrafficTimeseries {
+  range: string;
+  bucket_seconds: number;
+  points: TrafficPoint[] | null;
+}
+
+/** The scope of the traffic reads: a range ending now and an environment (empty or absent means all). */
+export interface TrafficQuery {
+  range?: QueryRange;
+  env?: string;
 }
 
 /** Traffic on one side of a deploy in `GET /deploys/changes`; rates and p95 are 0 without requests. */
@@ -1033,6 +1059,12 @@ export interface PutPrivacyPolicyRequest {
  * The typed client. Paths are relative to `/api/v1`. Each operation takes an optional
  * {@link CallOptions} last; authenticated ones require `accessToken`.
  */
+/** The traffic reads' `range` and `env` query parameters; an empty environment is left out (all). */
+function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?: string } {
+  const { range, env } = typeof q === "string" ? { range: q, env: undefined } : q;
+  return { ...(range ? { range } : {}), ...(env ? { env } : {}) };
+}
+
 export function createClient(config: ClientConfig) {
   const request = makeRequest(config);
   type Authed = CallOptions & { accessToken: string };
@@ -1189,10 +1221,15 @@ export function createClient(config: ClientConfig) {
     // query: dashboard reads as the signed-in user (#295) ----------------------------------
     listRequests: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
       request<{ requests: RequestRow[] | null }>("GET", "/requests", { ...o, query: { project: projectSlug, ...q } }),
-    trafficSummary: (projectSlug: string, range: QueryRange, o: Authed) =>
-      request<TrafficSummary>("GET", "/traffic/summary", { ...o, query: { project: projectSlug, range } }),
-    listEndpoints: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
-      request<{ endpoints: EndpointTraffic[] | null }>("GET", "/traffic/endpoints", { ...o, query: { project: projectSlug, ...q } }),
+    trafficSummary: (projectSlug: string, q: QueryRange | TrafficQuery, o: Authed) =>
+      request<TrafficSummary>("GET", "/traffic/summary", { ...o, query: { project: projectSlug, ...trafficScope(q) } }),
+    trafficTimeseries: (projectSlug: string, q: TrafficQuery, o: Authed) =>
+      request<TrafficTimeseries>("GET", "/traffic/timeseries", { ...o, query: { project: projectSlug, ...trafficScope(q) } }),
+    listEndpoints: (projectSlug: string, q: TrafficQuery & { limit?: number }, o: Authed) =>
+      request<{ endpoints: EndpointTraffic[] | null }>("GET", "/traffic/endpoints", {
+        ...o,
+        query: { project: projectSlug, ...trafficScope(q), ...(q.limit !== undefined ? { limit: q.limit } : {}) },
+      }),
     deployChanges: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
       request<DeployChanges>("GET", "/deploys/changes", { ...o, query: { project: projectSlug, ...q } }),
     listConsumers: (projectSlug: string, q: { range?: QueryRange; group?: string; limit?: number }, o: Authed) =>
