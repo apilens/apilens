@@ -38,6 +38,7 @@ from .client.middleware import (
     track_consumer,
 )
 from .client._shutdown import DEFAULT_SHUTDOWN_TIMEOUT, env_flush_on_shutdown, register_atexit
+from .client._profile import normalize_profile, profile_defaults
 from .client._validation import MAX_VALIDATION_BODY_BYTES, parse_validation_errors
 from .client.spans import (
     configure_spans,
@@ -204,13 +205,28 @@ class ApiLensDjangoMiddleware:
         if not self.app_id:
             raise RuntimeError("APILENS_APP_ID is required (Django setting or environment variable)")
         self.environment = _setting(settings, "ENVIRONMENT", None, env)
-        self.max_payload_bytes = max(0, int(_setting(settings, "MAX_PAYLOAD_BYTES", 65536, env)))
-        self.capture_headers = bool(_setting(settings, "CAPTURE_HEADERS", True, env))
+        # APILENS_CAPTURE_PROFILE ("metadata" | "redacted" | "full") sets the
+        # defaults of the capture flags below; each flag's own setting or env
+        # var still wins over it (see ``client._profile``).
+        self.capture_profile = normalize_profile(
+            _setting(settings, "CAPTURE_PROFILE", None, env), name="APILENS_CAPTURE_PROFILE"
+        )
+        preset = profile_defaults(self.capture_profile)
+        self.max_payload_bytes = max(
+            0, int(_setting(settings, "MAX_PAYLOAD_BYTES", preset.get("max_payload_bytes", 65536), env))
+        )
+        self.capture_headers = bool(_setting(settings, "CAPTURE_HEADERS", preset.get("capture_headers", True), env))
         # Body capture toggles: APILENS_CAPTURE_PAYLOADS gates both bodies,
         # APILENS_LOG_REQUEST_BODY / APILENS_LOG_RESPONSE_BODY each one.
         self.capture_payloads = bool(_setting(settings, "CAPTURE_PAYLOADS", True, env))
-        self.log_request_body = bool(_setting(settings, "LOG_REQUEST_BODY", True, env))
-        self.log_response_body = bool(_setting(settings, "LOG_RESPONSE_BODY", True, env))
+        self.log_request_body = bool(_setting(settings, "LOG_REQUEST_BODY", preset.get("log_request_body", True), env))
+        self.log_response_body = bool(
+            _setting(settings, "LOG_RESPONSE_BODY", preset.get("log_response_body", True), env)
+        )
+        # Parse Django Ninja 422 bodies into ``validation_errors``.
+        self.capture_validation_errors = bool(
+            _setting(settings, "CAPTURE_VALIDATION_ERRORS", preset.get("capture_validation_errors", True), env)
+        )
         # PII redaction — regexes matched (case-insensitive) against query
         # parameter / header / JSON body field names; matched values are stored
         # as ``[redacted]``. Built-in sensitive headers always apply.
@@ -405,12 +421,13 @@ class ApiLensDjangoMiddleware:
                 response_header_map = {}
             # Django Ninja's 422 field errors, parsed whether or not the body
             # itself is captured or the request's detail was sampled out.
-            ctx.validation_errors = parse_validation_errors(
-                status_code,
-                response_content[:MAX_VALIDATION_BODY_BYTES],
-                lower_headers(response_header_map).get("content-type"),
-                self.redactor,
-            )
+            if self.capture_validation_errors:
+                ctx.validation_errors = parse_validation_errors(
+                    status_code,
+                    response_content[:MAX_VALIDATION_BODY_BYTES],
+                    lower_headers(response_header_map).get("content-type"),
+                    self.redactor,
+                )
             return response
         finally:
             # resolver_match is populated once the request has been routed, so

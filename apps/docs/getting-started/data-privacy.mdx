@@ -22,8 +22,38 @@ Observability tools see sensitive traffic, so this page is deliberately blunt ab
 | Error stack traces | Yes, on unhandled exception or 5xx | disabled along with spans |
 
 <Warning>
-Unlike some tools that ship with request logging off, APILens captures headers and bodies **by default** so the request log is useful from minute one. If your API handles regulated data, decide deliberately: keep it, scope it down, or turn it off before deploying.
+Unlike some tools that ship with request logging off, APILens captures headers and bodies **by default** so the request log is useful from minute one. If your API handles regulated data, decide deliberately: keep it, scope it down, or turn it off before deploying. The quickest way is a [capture profile](#capture-profiles).
 </Warning>
+
+## Capture profiles
+
+`capture_profile` picks a whole capture posture in one word, so the choice is explicit and greppable in your config. It sets the defaults of the capture flags; any flag you set explicitly (keyword argument, its own `APILENS_*` env var or Django setting) wins over the preset.
+
+| Profile | Headers | Request / response bodies | Validation errors | Body cap |
+|---|---|---|---|---|
+| `metadata` | Off | Off | Off | — |
+| `redacted` | On, [sensitive headers](#automatic-header-redaction) masked | On, [default patterns](#default-masking-patterns) masked | On | 16 KB |
+| `full` (default) | On, [sensitive headers](#automatic-header-redaction) masked | On, [default patterns](#default-masking-patterns) masked | On | 64 KB |
+
+Every profile still sends the base record (method, route, status, latency, sizes, consumer, IP, user agent, trace id), so dashboards and metrics stay exact. The built-in masking patterns apply under every profile.
+
+<Tip>
+**Recommended first production rollout: `metadata`.** The SDK default stays `full` for backwards compatibility. Start with `metadata`, check the request log, then move to `redacted` once you know what your payloads contain.
+</Tip>
+
+```python
+app.add_middleware(
+    ApiLensMiddleware,
+    api_key=os.environ["APILENS_API_KEY"],
+    app_id="orders-api",
+    capture_profile="metadata",   # metadata | redacted | full
+)
+```
+
+- **Env var:** `APILENS_CAPTURE_PROFILE=metadata`
+- **Django:** `APILENS_CAPTURE_PROFILE = "metadata"`
+- **Precedence:** explicit flag > the flag's env var / Django setting > `capture_profile` > default. `capture_profile="metadata", log_response_body=True` keeps response bodies only.
+- **Validated at startup.** An unknown profile name raises when the middleware is constructed.
 
 ## Automatic header redaction
 
@@ -244,6 +274,8 @@ app.add_middleware(
     ApiLensMiddleware,
     api_key="apilens_xxx",
     app_id="orders-api",
+    capture_profile="metadata",     # no headers, bodies or validation errors
+    # or, with no preset:
     enable_request_logging=False,   # no headers, no bodies
     # or, more surgical:
     log_request_body=False,

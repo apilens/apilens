@@ -5,6 +5,7 @@ from typing import Any, Callable
 from ..client._sampling import SampleOnRequest, SampleOnResponse
 from ..client import ApiLensClient
 from ..client._env import env_defaults
+from ..client._profile import CaptureProfile
 from ..client._routes import flask_route_template
 from ..client.middleware import ApiLensWSGIMiddleware, set_consumer, track_consumer
 
@@ -17,6 +18,7 @@ def instrument_flask(
     project_slug: str = "",
     app_id: str = "",
     environment: str | None = None,
+    capture_profile: CaptureProfile | None = None,
     capture_spans: bool = True,
     service_name: str = "",
     redact_query_params: list[str] | None = None,
@@ -78,6 +80,7 @@ def instrument_flask(
         project_slug=project_slug,
         app_id=app_id,
         environment=environment,
+        capture_profile=capture_profile,
         capture_spans=capture_spans,
         service_name=service_name,
         redact_query_params=redact_query_params,

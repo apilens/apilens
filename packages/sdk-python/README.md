@@ -96,10 +96,13 @@ app.add_middleware(
     ApiLensMiddleware,
     api_key=os.environ["APILENS_API_KEY"],
     app_id="orders-api",
+    capture_profile="metadata",  # metadata | redacted | full
 )
 ```
 
 Deploy, send traffic, and requests appear in the dashboard within a few seconds.
+`capture_profile="metadata"` sends no headers or bodies, the recommended first
+production rollout; see [capture profiles](#capture-profiles).
 From here you'll typically add [consumer attribution](#consumer-attribution) (who
 called each endpoint) and lean on the automatic [distributed tracing](#distributed-tracing).
 
@@ -493,6 +496,43 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `app_id` | `""` | App to send heartbeats for when the client is used without a middleware (middlewares register their own `app_id`). |
 | `on_stats` | `None` | `(ClientStats) -> None`, called on the flush thread every `flush_interval` with a stats snapshot, e.g. to export to Prometheus or StatsD. Exceptions are logged at DEBUG and ignored. See [SDK health & stats](#sdk-health--stats). |
 
+### Capture profiles
+
+`capture_profile` picks a whole capture posture in one greppable word. It sets
+the *defaults* of the capture flags below; any flag you set explicitly (as a
+keyword argument, its own `APILENS_*` env var or Django setting) wins over the
+preset.
+
+| Profile | Headers | Request / response bodies | Validation errors | Body cap |
+|---|---|---|---|---|
+| `metadata` | off | off | off | — |
+| `redacted` | on, sensitive values masked | on, [default masking](#security--privacy) | on | 16 KB |
+| `full` (default) | on, sensitive values masked | on, [default masking](#security--privacy) | on | 64 KB |
+
+Under every profile the base record (method, route, status, latency, sizes,
+consumer, IP, user agent, trace id) is sent, so dashboards and metrics stay
+exact, and the built-in masking patterns always apply.
+
+**Default posture.** Without a profile the SDK behaves as `full`, unchanged for
+backwards compatibility. For a **first production rollout we recommend
+`metadata`**; move to `redacted` once you have checked what your payloads
+contain.
+
+```python
+app.add_middleware(
+    ApiLensMiddleware,
+    api_key=os.environ["APILENS_API_KEY"],
+    app_id="orders-api",
+    capture_profile="metadata",   # metadata | redacted | full
+    log_response_body=True,       # an explicit flag wins over the preset
+)
+```
+
+Env var: `APILENS_CAPTURE_PROFILE=metadata`; Django: `APILENS_CAPTURE_PROFILE =
+"metadata"`. Precedence: explicit flag > the flag's env var / Django setting >
+`capture_profile` > default. An unknown profile name raises `ValueError` at
+startup.
+
 ### Middleware options
 
 Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
@@ -502,10 +542,12 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 |--------|---------|-------------|
 | `app_id` | `""` | **Required for ingestion.** Which app the traffic belongs to. |
 | `environment` | client's | Override the environment label per app. |
+| `capture_profile` | `None` (= `full`) | `"metadata"`, `"redacted"` or `"full"`; sets the defaults of the capture flags (see [capture profiles](#capture-profiles)). |
 | `capture_payloads` | `True` | Capture request/response bodies (size-limited). |
 | `capture_headers` | `True` | Capture request/response headers (sensitive values redacted). |
 | `log_request_body` / `log_response_body` | `True` | Toggle each body independently. |
 | `max_payload_bytes` | `65536` | Per-body capture cap; set `0` to disable body capture. |
+| `capture_validation_errors` | `True` | Parse 400/422 framework validation responses into `validation_errors` (`loc`, `msg`, `type` only). ASGI and Django. |
 | `capture_content_types` | `DEFAULT_CAPTURE_CONTENT_TYPES` | Media-type globs whose bodies are captured (default `application/json`, `application/*+json`, `text/*`, `application/x-www-form-urlencoded`); replaces the defaults. Other bodies are never buffered and are stored as `[<content-type>, N bytes omitted]`. |
 | `capture_spans` | `True` | Emit trace spans for this app. |
 | `service_name` | `app_id` | Service name shown on spans. |
@@ -659,11 +701,13 @@ parsed values as a dict.
 | `APILENS_ENVIRONMENT` | `environment` | string | `"production"` |
 | `APILENS_BASE_URL` | `base_url` | string | `https://ingest.apilens.ai/v1` |
 | `APILENS_ENABLED` | `enabled` | bool | `true` |
+| `APILENS_CAPTURE_PROFILE` | `capture_profile` | `metadata`, `redacted` or `full` | none (= `full`) |
 | `APILENS_CAPTURE_HEADERS` | `capture_headers` | bool | `true` |
 | `APILENS_CAPTURE_PAYLOADS` | `capture_payloads` | bool | `true` |
 | `APILENS_LOG_REQUEST_BODY` | `log_request_body` | bool | `true` |
 | `APILENS_LOG_RESPONSE_BODY` | `log_response_body` | bool | `true` |
 | `APILENS_MAX_PAYLOAD_BYTES` | `max_payload_bytes` | int | `65536` |
+| `APILENS_CAPTURE_VALIDATION_ERRORS` | `capture_validation_errors` | bool | `true` |
 | `APILENS_CAPTURE_CONTENT_TYPES` | `capture_content_types` | list | JSON, `+json`, `text/*`, form-encoded |
 | `APILENS_REDACT_QUERY_PARAMS` | `redact_query_params` | list | none |
 | `APILENS_REDACT_HEADERS` | `redact_headers` | list | none |
@@ -700,9 +744,11 @@ the setting wins when both are set.
 | `APILENS_FLUSH_INTERVAL` | `3.0` | Seconds between flushes. |
 | `APILENS_MAX_PAYLOAD_BYTES` | `65536` | Body capture cap; `0` disables bodies. |
 | `APILENS_ENABLED` | `True` | Master switch for the client (`False` sends nothing). |
+| `APILENS_CAPTURE_PROFILE` | `None` (= `full`) | `"metadata"`, `"redacted"` or `"full"`; defaults for the capture settings below (see [capture profiles](#capture-profiles)). |
 | `APILENS_CAPTURE_HEADERS` | `True` | Capture headers (redacted). |
 | `APILENS_CAPTURE_PAYLOADS` | `True` | Capture request/response bodies. |
 | `APILENS_LOG_REQUEST_BODY` / `APILENS_LOG_RESPONSE_BODY` | `True` | Toggle each body independently. |
+| `APILENS_CAPTURE_VALIDATION_ERRORS` | `True` | Parse Django Ninja 422 responses into `validation_errors`. |
 | `APILENS_REDACT_QUERY_PARAMS` / `APILENS_REDACT_HEADERS` / `APILENS_REDACT_BODY_FIELDS` | `[]` | Redaction regexes (list, or comma-separated in the env var). |
 | `APILENS_CAPTURE_IP` / `APILENS_ANONYMIZE_IP` | `True` / `False` | Client IP privacy. |
 | `APILENS_CAPTURE_SPANS` | `True` | Emit trace spans. |

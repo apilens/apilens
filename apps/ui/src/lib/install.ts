@@ -52,6 +52,12 @@ export interface SnippetInput {
   ingestUrl: string;
 }
 
+/**
+ * The Python SDK's `capture_profile` the snippet sets: `metadata` (no headers, bodies or validation
+ * errors) is the documented first production rollout; the SDK's own default stays `full`.
+ */
+const PYTHON_CAPTURE_PROFILE = "metadata";
+
 /** `export APILENS_API_KEY=…`: the key goes in the environment, never in source. */
 function envSnippet(key: string): Snippet {
   return { id: "env", title: "Environment", code: `export APILENS_API_KEY=${key}` };
@@ -79,6 +85,7 @@ function sdkSnippets(language: string, key: string, appId: string, ingestUrl: st
             '    api_key=os.environ["APILENS_API_KEY"],',
             `    app_id="${appId}",`,
             `    base_url="${baseUrl}",`,
+            `    capture_profile="${PYTHON_CAPTURE_PROFILE}",  # metadata | redacted | full`,
             ")",
           ].join("\n"),
         },

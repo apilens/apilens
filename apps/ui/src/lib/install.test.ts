@@ -31,6 +31,7 @@ describe("snippetsFor: SDK", () => {
     expect(snippets[2].code).toContain('api_key=os.environ["APILENS_API_KEY"],');
     expect(snippets[2].code).toContain('app_id="checkout",');
     expect(snippets[2].code).toContain('base_url="https://ingest.example.com/v1",');
+    expect(snippets[2].code).toContain('capture_profile="metadata",  # metadata | redacted | full');
   });
 
   it("Node.js matches the TypeScript SDK README (Express useApiLens)", () => {

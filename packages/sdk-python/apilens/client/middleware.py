@@ -28,6 +28,7 @@ from ._capture import (
     capture_response,
 )
 from ._env import env_defaults
+from ._profile import CaptureProfile, normalize_profile
 from ._exclusions import RequestExcluder
 from ._metadata import start_asgi_metadata, start_wsgi_metadata
 from ._routes import resolve_endpoint_path
@@ -378,11 +379,13 @@ class ApiLensASGIMiddleware:
         project_slug: str = "",
         app_id: str = "",
         environment: str | None = None,
+        capture_profile: CaptureProfile | None = None,
         enable_request_logging: bool = True,
         log_request_body: bool = True,
         log_response_body: bool = True,
         capture_payloads: bool = True,
         capture_headers: bool = True,
+        capture_validation_errors: bool = True,
         capture_spans: bool = True,
         service_name: str = "",
         max_payload_bytes: int = 65536,
@@ -409,7 +412,13 @@ class ApiLensASGIMiddleware:
         self.project_slug = project_slug
         self.app_id = app_id
         self.environment = environment
+        # ``capture_profile`` ("metadata" | "redacted" | "full") already set the
+        # defaults of the capture flags below (see ``_profile``); flags passed
+        # explicitly won over it. Kept for reporting.
+        self.capture_profile = normalize_profile(capture_profile)
         self.enable_request_logging = enable_request_logging
+        # Parse 400/422 validation error bodies into ``validation_errors``.
+        self.capture_validation_errors = capture_validation_errors
         self.log_request_body = log_request_body
         self.log_response_body = log_response_body
         self.capture_payloads = capture_payloads and enable_request_logging
@@ -641,7 +650,9 @@ class ApiLensASGIMiddleware:
                 buffer_response_body = capture_response_body and self.content_types.allows(
                     response_headers.get("content-type")
                 )
-                buffer_validation_body = is_validation_response(status_code, response_headers.get("content-type"))
+                buffer_validation_body = self.capture_validation_errors and is_validation_response(
+                    status_code, response_headers.get("content-type")
+                )
                 if capture_headers:
                     response_headers_json = serialize_headers(response_headers, redactor=self.redactor)
             elif msg_type == "http.response.body":
@@ -813,6 +824,7 @@ class ApiLensWSGIMiddleware:
         project_slug: str = "",
         app_id: str = "",
         environment: str | None = None,
+        capture_profile: CaptureProfile | None = None,
         enable_request_logging: bool = True,
         log_request_body: bool = True,
         log_response_body: bool = True,
@@ -844,6 +856,7 @@ class ApiLensWSGIMiddleware:
         self.project_slug = project_slug
         self.app_id = app_id
         self.environment = environment
+        self.capture_profile = normalize_profile(capture_profile)
         self.enable_request_logging = enable_request_logging
         self.log_request_body = log_request_body
         self.log_response_body = log_response_body
