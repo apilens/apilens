@@ -45,12 +45,14 @@ type Querier interface {
 	// Upsert* queries in catalog.sql stay for the idempotent dev seed.
 	// Fails on projects_slug_active when an active project uses the slug.
 	CreateProject(ctx context.Context, arg CreateProjectParams) (CreateProjectRow, error)
+	CreateSavedView(ctx context.Context, arg CreateSavedViewParams) (SavedView, error)
 	// Deletes a rule and, by cascade, its events.
 	DeleteAlertRule(ctx context.Context, arg DeleteAlertRuleParams) (int64, error)
 	DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentParams) (int64, error)
 	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) (int64, error)
 	DeleteNotificationChannel(ctx context.Context, arg DeleteNotificationChannelParams) (int64, error)
 	DeleteOrgSSOConnection(ctx context.Context, orgID uuid.UUID) (int64, error)
+	DeleteSavedView(ctx context.Context, arg DeleteSavedViewParams) (int64, error)
 	// The domains among @domains that another active organization enforces SSO
 	// for. A domain is enforced by at most one organization.
 	EnforcedSSODomainsOfOtherOrgs(ctx context.Context, arg EnforcedSSODomainsOfOtherOrgsParams) ([]string, error)
@@ -108,6 +110,7 @@ type Querier interface {
 	// another project.
 	GetProjectApp(ctx context.Context, arg GetProjectAppParams) (GetProjectAppRow, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
+	GetSavedView(ctx context.Context, arg GetSavedViewParams) (SavedView, error)
 	// An active app of an active project, with the project slug that authorizing
 	// a settings change on it needs.
 	GetSettingsApp(ctx context.Context, id uuid.UUID) (GetSettingsAppRow, error)
@@ -169,6 +172,10 @@ type Querier interface {
 	// project#org per active project of an active organization.
 	ListReconcileMemberships(ctx context.Context) ([]ListReconcileMembershipsRow, error)
 	ListReconcileProjects(ctx context.Context) ([]ListReconcileProjectsRow, error)
+	// The views of a project that viewer may see: the shared ones, plus viewer's
+	// own private ones (a NULL viewer, a read key, sees the shared ones only).
+	// An empty surface lists every surface.
+	ListSavedViews(ctx context.Context, arg ListSavedViewsParams) ([]SavedView, error)
 	// The active organizations a user belongs to, with their role.
 	ListUserOrganizations(ctx context.Context, userID uuid.UUID) ([]ListUserOrganizationsRow, error)
 	// The active organizations a user belongs to, with their role and the
@@ -247,6 +254,7 @@ type Querier interface {
 	// lower-case (checked by the table).
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)
 	UpdateProjectName(ctx context.Context, arg UpdateProjectNameParams) (UpdateProjectNameRow, error)
+	UpdateSavedView(ctx context.Context, arg UpdateSavedViewParams) (SavedView, error)
 	UpsertApp(ctx context.Context, arg UpsertAppParams) (UpsertAppRow, error)
 	// Records a heartbeat of one SDK process: the latest report replaces the
 	// instance's previous one, first_seen_at is kept.
