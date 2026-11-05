@@ -59,13 +59,14 @@ type ApiKey struct {
 }
 
 type App struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
-	Slug      string
-	Name      string
-	Framework string
-	CreatedAt time.Time
-	DeletedAt *time.Time
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	Slug               string
+	Name               string
+	Framework          string
+	CreatedAt          time.Time
+	DeletedAt          *time.Time
+	LatencyThresholdMs *int32
 }
 
 type AppInstance struct {

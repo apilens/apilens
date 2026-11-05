@@ -62,6 +62,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	registerIngestStatus(api, s, guard)
 	registerAppStatus(api, s)
 	registerEndpointSettings(api, s, guard)
+	registerAppSettings(api, s, guard)
 	registerAppIngestStats(api, s)
 	registerSavedViews(api, s, guard)
 	registerConsumerGroups(api, s, guard)
@@ -142,6 +143,7 @@ type summaryOutput struct {
 		P95Ms             float64   `json:"p95_ms"`
 		P99Ms             float64   `json:"p99_ms"`
 		RequestsPerMinute float64   `json:"requests_per_minute"`
+		Apdex             *float64  `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied <= T < tolerating <= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; null without requests."`
 	}
 }
 
@@ -178,6 +180,14 @@ func (s *Service) summary(ctx context.Context, in *RangeInput) (*summaryOutput, 
 		return nil, err
 	}
 	expected[""].subtract(&clientErrors, &serverErrors)
+	thresholds, err := s.apdexThresholds(ctx, p.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	apdex, err := s.apdex(qctx, thresholds, where+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, args...), w.from, w.to), "''")
+	if err != nil {
+		return nil, err
+	}
 	out := &summaryOutput{}
 	b := &out.Body
 	b.Range, b.From, b.To = w.name, w.from, w.to
@@ -187,6 +197,7 @@ func (s *Service) summary(ctx context.Context, in *RangeInput) (*summaryOutput, 
 		b.P50Ms, b.P95Ms, b.P99Ms = quantile(q, 0), quantile(q, 3), quantile(q, 4)
 	}
 	b.RequestsPerMinute = float64(requests) / w.to.Sub(w.from).Minutes()
+	b.Apdex = apdex[""].score()
 	return out, nil
 }
 
@@ -278,14 +289,15 @@ type endpointsInput struct {
 }
 
 type endpoint struct {
-	Method       string  `json:"method"`
-	Path         string  `json:"path"`
-	Requests     uint64  `json:"requests"`
-	ClientErrors uint64  `json:"client_errors"`
-	ServerErrors uint64  `json:"server_errors"`
-	ErrorRate    float64 `json:"error_rate"`
-	P50Ms        float64 `json:"p50_ms"`
-	P95Ms        float64 `json:"p95_ms"`
+	Method       string   `json:"method"`
+	Path         string   `json:"path"`
+	Requests     uint64   `json:"requests"`
+	ClientErrors uint64   `json:"client_errors"`
+	ServerErrors uint64   `json:"server_errors"`
+	ErrorRate    float64  `json:"error_rate"`
+	P50Ms        float64  `json:"p50_ms"`
+	P95Ms        float64  `json:"p95_ms"`
+	Apdex        *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 against the endpoint's latency threshold (else its app's, else 500 ms); null without requests."`
 }
 
 type endpointsOutput struct {
@@ -315,6 +327,14 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 	if err != nil {
 		return nil, err
 	}
+	thresholds, err := s.apdexThresholds(ctx, p.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	apdex, err := s.apdex(qctx, thresholds, where+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, args...), w.from, w.to), "concat(method, ' ', path)")
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.ch.Query(qctx, fmt.Sprintf(`
 		SELECT method, path, sum(requests) AS total, sum(client_errors), sum(server_errors), %s
 		FROM %s WHERE %s AND bucket >= ? AND bucket < ?
@@ -339,6 +359,7 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 			e.ErrorRate = float64(e.ClientErrors+e.ServerErrors) / float64(e.Requests)
 		}
 		e.P50Ms, e.P95Ms = quantile(q, 0), quantile(q, 3)
+		e.Apdex = apdex[e.Method+" "+e.Path].score()
 		out.Body.Endpoints = append(out.Body.Endpoints, e)
 	}
 	return out, rows.Err()

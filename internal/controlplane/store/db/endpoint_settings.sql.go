@@ -11,6 +11,31 @@ import (
 	"github.com/google/uuid"
 )
 
+const getAppSettings = `-- name: GetAppSettings :one
+SELECT a.id, a.latency_threshold_ms
+FROM apps a
+WHERE a.id = $1 AND a.project_id = $2 AND a.deleted_at IS NULL
+`
+
+type GetAppSettingsParams struct {
+	ID        uuid.UUID
+	ProjectID uuid.UUID
+}
+
+type GetAppSettingsRow struct {
+	ID                 uuid.UUID
+	LatencyThresholdMs *int32
+}
+
+// The app-wide settings of an active app of a project; no row when the app
+// is unknown, deleted or in another project.
+func (q *Queries) GetAppSettings(ctx context.Context, arg GetAppSettingsParams) (GetAppSettingsRow, error) {
+	row := q.db.QueryRow(ctx, getAppSettings, arg.ID, arg.ProjectID)
+	var i GetAppSettingsRow
+	err := row.Scan(&i.ID, &i.LatencyThresholdMs)
+	return i, err
+}
+
 const getEndpointSettings = `-- name: GetEndpointSettings :one
 SELECT app_id, method, path, expected_status_codes, latency_threshold_ms, excluded, updated_at, updated_by
 FROM endpoint_settings
@@ -68,6 +93,80 @@ func (q *Queries) GetSettingsApp(ctx context.Context, id uuid.UUID) (GetSettings
 	return i, err
 }
 
+const listProjectAppLatencyThresholds = `-- name: ListProjectAppLatencyThresholds :many
+SELECT a.id, a.latency_threshold_ms::integer AS latency_threshold_ms
+FROM apps a
+WHERE a.project_id = $1 AND a.deleted_at IS NULL AND a.latency_threshold_ms IS NOT NULL
+ORDER BY a.id
+`
+
+type ListProjectAppLatencyThresholdsRow struct {
+	ID                 uuid.UUID
+	LatencyThresholdMs int32
+}
+
+// The active apps of a project with an app-wide Apdex threshold.
+func (q *Queries) ListProjectAppLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppLatencyThresholdsRow, error) {
+	rows, err := q.db.Query(ctx, listProjectAppLatencyThresholds, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectAppLatencyThresholdsRow{}
+	for rows.Next() {
+		var i ListProjectAppLatencyThresholdsRow
+		if err := rows.Scan(&i.ID, &i.LatencyThresholdMs); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectEndpointLatencyThresholds = `-- name: ListProjectEndpointLatencyThresholds :many
+SELECT es.app_id, es.method, es.path, es.latency_threshold_ms::integer AS latency_threshold_ms
+FROM endpoint_settings es
+JOIN apps a ON a.id = es.app_id
+WHERE a.project_id = $1 AND a.deleted_at IS NULL AND es.latency_threshold_ms IS NOT NULL
+ORDER BY es.app_id, es.method, es.path
+`
+
+type ListProjectEndpointLatencyThresholdsRow struct {
+	AppID              uuid.UUID
+	Method             string
+	Path               string
+	LatencyThresholdMs int32
+}
+
+// The endpoints of a project's active apps with their own Apdex threshold.
+func (q *Queries) ListProjectEndpointLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]ListProjectEndpointLatencyThresholdsRow, error) {
+	rows, err := q.db.Query(ctx, listProjectEndpointLatencyThresholds, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectEndpointLatencyThresholdsRow{}
+	for rows.Next() {
+		var i ListProjectEndpointLatencyThresholdsRow
+		if err := rows.Scan(
+			&i.AppID,
+			&i.Method,
+			&i.Path,
+			&i.LatencyThresholdMs,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjectEndpointSettings = `-- name: ListProjectEndpointSettings :many
 SELECT es.app_id, es.method, es.path, es.expected_status_codes, es.excluded
 FROM endpoint_settings es
@@ -111,6 +210,30 @@ func (q *Queries) ListProjectEndpointSettings(ctx context.Context, projectID uui
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateAppLatencyThreshold = `-- name: UpdateAppLatencyThreshold :one
+UPDATE apps
+SET latency_threshold_ms = $1::integer
+WHERE id = $2 AND deleted_at IS NULL
+RETURNING id, latency_threshold_ms
+`
+
+type UpdateAppLatencyThresholdParams struct {
+	LatencyThresholdMs *int32
+	ID                 uuid.UUID
+}
+
+type UpdateAppLatencyThresholdRow struct {
+	ID                 uuid.UUID
+	LatencyThresholdMs *int32
+}
+
+func (q *Queries) UpdateAppLatencyThreshold(ctx context.Context, arg UpdateAppLatencyThresholdParams) (UpdateAppLatencyThresholdRow, error) {
+	row := q.db.QueryRow(ctx, updateAppLatencyThreshold, arg.LatencyThresholdMs, arg.ID)
+	var i UpdateAppLatencyThresholdRow
+	err := row.Scan(&i.ID, &i.LatencyThresholdMs)
+	return i, err
 }
 
 const upsertEndpointSettings = `-- name: UpsertEndpointSettings :one

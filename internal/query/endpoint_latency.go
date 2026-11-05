@@ -24,14 +24,15 @@ var latencyEdgesMs = []float64{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5
 // LatencySummary are the response-time statistics of the range. Exported
 // so Huma reads the fields of the types embedding it.
 type LatencySummary struct {
-	Requests uint64  `json:"requests"`
-	AvgMs    float64 `json:"avg_ms"`
-	MaxMs    float64 `json:"max_ms"`
-	P50Ms    float64 `json:"p50_ms"`
-	P75Ms    float64 `json:"p75_ms"`
-	P90Ms    float64 `json:"p90_ms"`
-	P95Ms    float64 `json:"p95_ms"`
-	P99Ms    float64 `json:"p99_ms"`
+	Requests uint64   `json:"requests"`
+	AvgMs    float64  `json:"avg_ms"`
+	MaxMs    float64  `json:"max_ms"`
+	P50Ms    float64  `json:"p50_ms"`
+	P75Ms    float64  `json:"p75_ms"`
+	P90Ms    float64  `json:"p90_ms"`
+	P95Ms    float64  `json:"p95_ms"`
+	P99Ms    float64  `json:"p99_ms"`
+	Apdex    *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 over raw requests, against the endpoint's latency threshold (else its app's, else 500 ms); null without requests."`
 }
 
 type latencyPoint struct {
@@ -145,6 +146,15 @@ func (s *Service) endpointLatency(ctx context.Context, in *endpointRequestsInput
 	}
 
 	where, args = endpointFilter(p.ProjectID, in, method, "timestamp", w, true)
+	thresholds, err := s.apdexThresholds(ctx, p.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	apdex, err := s.apdex(qctx, thresholds, where, args, "''")
+	if err != nil {
+		return nil, err
+	}
+	b.Summary.Apdex = apdex[""].score()
 	hrows, err := s.ch.Query(qctx, `
 		SELECT `+bucketIndex("response_time_ms", latencyEdgesMs)+` AS i, count()
 		FROM api_requests WHERE `+where+` GROUP BY i`, args...)
