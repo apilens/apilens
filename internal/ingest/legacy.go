@@ -124,26 +124,30 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 	if aerr == nil {
 		aerr = e.checkCount(len(body.Requests))
 	}
-	if aerr == nil {
-		aerr = e.admit(r.Context(), p.ProjectID, len(body.Requests), size)
-	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}
+	t := tally{}
+	defer e.flushStats(r.Context(), t)
 	slugs, idents := make([]string, len(body.Requests)), make([]string, len(body.Requests))
 	for i, rec := range body.Requests {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
+	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Requests), size); aerr != nil {
+		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
+		e.fail(w, signal, aerr)
+		return
+	}
 	apps, aerr := e.resolveApps(r.Context(), p, slugs, idents, false)
 	if aerr == nil {
-		aerr = e.redactRequests(r.Context(), p.ProjectID, apps, body.Requests)
+		aerr = e.redactRequests(r.Context(), p.ProjectID, apps, body.Requests, t)
 	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}
-	e.capRequests(r.Context(), apps, body.Requests)
+	e.capRequests(r.Context(), apps, body.Requests, t)
 
 	now := e.now()
 	rows := make([]pipeline.RequestRow, 0, len(body.Requests))
@@ -194,6 +198,9 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 		e.fail(w, signal, e.submitError(err))
 		return
 	}
+	for _, row := range rows {
+		t.app(row.AppID).Accepted++
+	}
 	e.ok(w, signal, len(rows))
 }
 
@@ -211,20 +218,24 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if aerr == nil {
 		aerr = e.checkCount(len(body.Logs))
 	}
-	if aerr == nil {
-		aerr = e.admit(r.Context(), p.ProjectID, len(body.Logs), size)
-	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}
+	t := tally{}
+	defer e.flushStats(r.Context(), t)
 	slugs, idents := make([]string, len(body.Logs)), make([]string, len(body.Logs))
 	for i, rec := range body.Logs {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
+	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Logs), size); aerr != nil {
+		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
+		e.fail(w, signal, aerr)
+		return
+	}
 	apps, aerr := e.resolveApps(r.Context(), p, slugs, idents, false)
 	if aerr == nil {
-		aerr = e.redactLogs(r.Context(), p.ProjectID, apps, body.Logs)
+		aerr = e.redactLogs(r.Context(), p.ProjectID, apps, body.Logs, t)
 	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
@@ -265,6 +276,9 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 		e.fail(w, signal, e.submitError(err))
 		return
 	}
+	for _, row := range rows {
+		t.app(row.AppID).Accepted++
+	}
 	e.ok(w, signal, len(rows))
 }
 
@@ -282,16 +296,20 @@ func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
 	if aerr == nil {
 		aerr = e.checkCount(len(body.Spans))
 	}
-	if aerr == nil {
-		aerr = e.admit(r.Context(), p.ProjectID, len(body.Spans), size)
-	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}
+	t := tally{}
+	defer e.flushStats(r.Context(), t)
 	slugs, idents := make([]string, len(body.Spans)), make([]string, len(body.Spans))
 	for i, rec := range body.Spans {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
+	}
+	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Spans), size); aerr != nil {
+		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
+		e.fail(w, signal, aerr)
+		return
 	}
 	apps, aerr := e.resolveApps(r.Context(), p, slugs, idents, false)
 	if aerr != nil {
@@ -343,6 +361,9 @@ func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
 		e.fail(w, signal, e.submitError(err))
 		return
 	}
+	for _, row := range rows {
+		t.app(row.AppID).Accepted++
+	}
 	e.ok(w, signal, len(rows))
 }
 
@@ -360,16 +381,20 @@ func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
 	if aerr == nil {
 		aerr = e.checkCount(len(body.Deploys))
 	}
-	if aerr == nil {
-		aerr = e.admit(r.Context(), p.ProjectID, len(body.Deploys), size)
-	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}
+	t := tally{}
+	defer e.flushStats(r.Context(), t)
 	slugs, idents := make([]string, len(body.Deploys)), make([]string, len(body.Deploys))
 	for i, rec := range body.Deploys {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
+	}
+	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Deploys), size); aerr != nil {
+		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
+		e.fail(w, signal, aerr)
+		return
 	}
 	apps, aerr := e.resolveApps(r.Context(), p, slugs, idents, true)
 	if aerr != nil {
@@ -410,6 +435,9 @@ func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
 		e.records.WithLabelValues(signal, "failed").Add(float64(len(rows)))
 		e.fail(w, signal, e.submitError(err))
 		return
+	}
+	for _, row := range rows {
+		t.app(row.AppID).Accepted++
 	}
 	e.ok(w, signal, len(rows))
 }

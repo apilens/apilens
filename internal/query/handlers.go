@@ -59,6 +59,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	registerIngestStatus(api, s, guard)
 	registerAppStatus(api, s)
 	registerEndpointSettings(api, s, guard)
+	registerAppIngestStats(api, s)
 }
 
 // ---------------------------------------------------------------- project

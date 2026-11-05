@@ -149,6 +149,55 @@
         ],
         "type": "object"
       },
+      "AppIngestStats": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AppIngestStats.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "app": {
+            "description": "The app's slug.",
+            "type": "string"
+          },
+          "app_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "daily": {
+            "description": "One entry per day, oldest first; a day without traffic is all zero.",
+            "items": {
+              "$ref": "#/components/schemas/IngestDay"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "days": {
+            "description": "Number of UTC days covered, today included.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/IngestCounts",
+            "description": "Sum over the days."
+          }
+        },
+        "required": [
+          "app_id",
+          "app",
+          "days",
+          "totals",
+          "daily"
+        ],
+        "type": "object"
+      },
       "AppInstance": {
         "additionalProperties": false,
         "properties": {
@@ -2187,6 +2236,76 @@
           "capture_request_body",
           "capture_response_body",
           "max_payload_bytes"
+        ],
+        "type": "object"
+      },
+      "IngestCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "description": "Records stored (requests, logs, spans, deploys).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "masked": {
+            "description": "Records in which the server-side privacy policy masked at least one value.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "rejected": {
+            "description": "Records refused by the project's ingest quota (429) or dropped as invalid from an OTLP export.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "truncated": {
+            "description": "Request record fields (payloads, headers) cut to the server-side cap; a record can count up to four times.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "accepted",
+          "rejected",
+          "truncated",
+          "masked"
+        ],
+        "type": "object"
+      },
+      "IngestDay": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "description": "Records stored (requests, logs, spans, deploys).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "date": {
+            "description": "UTC day, YYYY-MM-DD.",
+            "format": "date",
+            "type": "string"
+          },
+          "masked": {
+            "description": "Records in which the server-side privacy policy masked at least one value.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "rejected": {
+            "description": "Records refused by the project's ingest quota (429) or dropped as invalid from an OTLP export.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "truncated": {
+            "description": "Request record fields (payloads, headers) cut to the server-side cap; a record can count up to four times.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "accepted",
+          "rejected",
+          "truncated",
+          "masked"
         ],
         "type": "object"
       },
@@ -6096,6 +6215,84 @@
         "summary": "Replace the settings of an endpoint",
         "tags": [
           "Projects"
+        ]
+      }
+    },
+    "/api/v1/apps/{id}/ingest-stats": {
+      "get": {
+        "description": "Counters the ingest edge keeps per app and UTC day, the per-app split of the Prometheus totals apilens_ingest_records_total (accepted, rejected), apilens_ingest_truncated_total and apilens_ingest_masked_total. Records not tied to an app (project-wide deploys, OTLP resources of unknown services) are not counted. Days are kept for 30 days. An app that is not in the project answers 404; 503 when the counter store (Valkey) is not configured.",
+        "operationId": "get-app-ingest-stats",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The app's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The app's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "UTC days to cover, today included.",
+            "explode": false,
+            "in": "query",
+            "name": "days",
+            "schema": {
+              "default": 7,
+              "description": "UTC days to cover, today included.",
+              "format": "int64",
+              "maximum": 30,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppIngestStats"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Per-app ingest health: accepted, rejected, truncated and masked records",
+        "tags": [
+          "Dashboard"
         ]
       }
     },
