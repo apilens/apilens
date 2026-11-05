@@ -672,6 +672,10 @@ down by reason (see [Reliability & performance](#reliability--performance)).
 
 ## Reliability & performance
 
+Sizing the queue and batches for your traffic, the memory math, shutdown,
+serverless and proxies are covered end to end in the
+[Delivery reference](https://apilens.ai/docs/sdk-reference/delivery).
+
 - **Non-blocking.** Capture only enqueues; all I/O happens on the
   `apilens-flush` daemon thread. Ingest latency and outages never slow or fail
   your requests.

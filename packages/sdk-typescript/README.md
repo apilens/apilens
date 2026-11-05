@@ -734,6 +734,10 @@ middleware does.
 
 ## Reliability & performance
 
+Sizing the queue and batches for your traffic, the memory math, shutdown,
+serverless and proxies are covered end to end in the
+[Delivery reference](https://apilens.ai/docs/sdk-reference/delivery).
+
 - **Non-blocking.** Capture only enqueues; all I/O happens from timers off the
   request path. Ingest latency and outages never slow or fail your requests.
 - **Bounded memory.** Queued records are capped both by count

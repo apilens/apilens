@@ -1,0 +1,258 @@
+---
+title: "Delivery"
+description: "How the SDKs queue, batch, compress, retry and flush records: the sizing table, the memory math, shutdown, serverless, proxies and the stats to watch."
+---
+
+Capturing a request only puts a record on an in-memory queue. A background worker sends queued records to ingest in batches, so your handlers never wait on the network and an ingest outage never fails a request. This page covers that pipeline: how big the queue and batches get, what happens when ingest is slow or down, and how to make sure nothing is lost when a process stops. The Python, TypeScript and Java SDKs share the same model and the same defaults; only option names differ.
+
+## The pipeline
+
+1. **Capture** builds the record (masked, sampled, size-capped) and appends it to one of three queues: requests, spans or logs.
+2. **Flush** runs every `flush_interval` (3 s), or as soon as a queue holds `batch_size` records. It cuts the queue into batches of at most `batch_size` records **and** at most `max_batch_bytes` of JSON.
+3. **Send** gzips each batch and POSTs it to `/v1/requests`, `/v1/traces` or `/v1/logs`. Failures that may succeed later are retried with backoff; the rest are dropped and counted.
+
+Each SDK delivers from one background worker (a daemon thread in Python and Java, timers in Node). Serverless runtimes swap that for an [inline flush](#serverless) at the end of each invocation.
+
+## Options and defaults
+
+| Python | TypeScript | Java (Spring property) | Default |
+|---|---|---|---|
+| `batch_size` | `batchSize` | `batchSize` (`apilens.batch-size`) | `200` records (ingest accepts at most 1,000) |
+| `max_batch_bytes` | `maxBatchBytes` | `maxBatchBytes` (`apilens.max-batch-bytes`) | 4 MB of uncompressed JSON |
+| `flush_interval` | `flushIntervalMs` | `flushInterval` (`apilens.flush-interval`) | 3 s |
+| `max_queue_size` | `maxQueueSize` | `maxQueueSize` (`apilens.max-queue-size`) | `10,000` records per queue |
+| `max_queue_bytes` | `maxQueueBytes` | `maxQueueBytes` (`apilens.max-queue-bytes`) | 64 MB, shared by the three queues |
+| `compress` | `compress` | `compress` (`apilens.compress`) | `true` (gzip, level 5) |
+| `timeout` | `timeoutMs` | `timeout` (`apilens.timeout`) | 5 s per POST |
+| `max_retries` | `maxRetries` | `maxRetries` (`apilens.max-retries`) | `3` |
+| `retry_backoff_base` / `retry_backoff_max` | `retryBackoffBaseMs` / `retryBackoffMaxMs` | `retryBackoffBase` / `retryBackoffMax` | 0.25 s / 5 s |
+| `mode` | `flushMode` | not available | `thread` / `background` |
+| `proxy_url` | not available (use `fetchImpl`) | not available (use JVM properties) | none |
+
+`max_batch_bytes` has a floor: 16 KB in Python, 1 KB in TypeScript and Java. Python and TypeScript also read `APILENS_BATCH_SIZE` and `APILENS_FLUSH_INTERVAL`; Python reads `APILENS_MODE` and `APILENS_PROXY` too.
+
+## Queue limits and the memory math
+
+Every queue is capped twice, by record count (`max_queue_size`) and by estimated bytes (`max_queue_bytes`, shared by all three queues). Whichever cap is reached first, the **oldest** records are dropped to make room, so the queue always holds the most recent traffic and memory never grows without limit.
+
+A record's size is estimated without encoding it: the length of its variable fields (bodies, header JSON, path, user agent; message, payload and attributes for logs and spans) plus a fixed 512 B for everything else.
+
+**Why both caps.** With body capture on, one request record can carry up to `max_payload_bytes` (64 KB) on each side plus up to 8 KB of header JSON per side:
+
+```text
+worst-case record   = 2 × 64 KB + 2 × 8 KB + 512 B   ≈ 145 KB
+count cap alone     = 10,000 × 145 KB                ≈ 1.5 GB per process
+with the byte cap   = 64 MB / 145 KB                 ≈ 450 records
+records w/o bodies  ≈ 512 B + a short path           → 64 MB holds ~120,000,
+                                                       so the 10,000 count cap binds first
+```
+
+**Size the process group, not the process.** Each worker process has its own client and its own queue. The worst case for a host or pod is:
+
+```text
+workers × max_queue_bytes        e.g. 8 gunicorn workers × 64 MB = 512 MB
+```
+
+That ceiling is only reached while ingest is unreachable or slower than your traffic. In steady state a queue holds at most one flush interval of traffic or one batch, whichever is smaller: at 100 rps with 10 KB records and `batch_size = 100`, about 1 MB. Lower `max_queue_bytes` for many-worker deployments on small pods; raise it (with `max_queue_size`) if you want to ride out longer ingest outages and have the memory.
+
+## Batch size
+
+A batch is cut at `batch_size` records or `max_batch_bytes`, whichever comes first. The byte cap is measured on the uncompressed JSON because that is what the ingest edge limits: it rejects bodies over 16 MB, counted both on the wire and after decompression. A backlog of large records therefore goes out as several requests rather than one oversized body that ingest would reject whole.
+
+A single record larger than `max_batch_bytes` on its own is not dropped. Its bodies are cut first (then headers, message and attributes), marked `...[truncated]`, and it is sent. Those records are counted under `truncated`, which is not a drop.
+
+With body capture on, start from **`batch_size = 100`, `max_batch_bytes = 4 MB`**. Worst-case records (about 145 KB) then go out about 28 per POST, well under the edge limit and cheap to retry; typical records with small bodies still fill the 100-record batch. Without bodies the defaults (200 records / 4 MB) rarely reach the byte cap.
+
+## Sizing table
+
+Starting values per worker process. The two record sizes assumed are about **1 KB** with bodies off (512 B overhead, path, user agent and redacted headers) and about **10 KB** with bodies on (a few KB of JSON each way). Measure yours: `queued_bytes / queued_records` from [stats](#stats) during a backlog gives your real average.
+
+| Bodies | Requests/s per worker | `batch_size` | `max_batch_bytes` | `max_queue_size` | `max_queue_bytes` | POSTs/s | Outage the queue rides out |
+|---|---|---|---|---|---|---|---|
+| Off | up to 10 | 200 | 4 MB | 10,000 | 64 MB | 1 per 3 s | ~16 min (count cap) |
+| Off | 100 | 200 | 4 MB | 10,000 | 64 MB | ~0.5 | ~100 s (count cap) |
+| Off | 100, longer outages | 200 | 4 MB | 60,000 | 64 MB | ~0.5 | ~10 min |
+| Off | 1,000 | 500 | 4 MB | 60,000 | 64 MB | ~2 | ~60 s |
+| On | up to 10 | 100 | 4 MB | 10,000 | 64 MB | 1 per 3 s | ~11 min (~45 s at worst-case 145 KB records) |
+| On | 100 | 100 | 4 MB | 10,000 | 64 MB | ~1 | ~65 s |
+| On | 100, longer outages | 100 | 4 MB | 30,000 | 256 MB | ~1 | ~4 min |
+| On, `sample_rate = 0.1` | 1,000 | 200 | 4 MB | 40,000 | 64 MB | ~5 | ~35 s |
+
+How the columns are derived:
+
+- **POSTs/s** is `rps / batch_size` once a flush interval holds more than a batch, otherwise one POST per `flush_interval`.
+- **Outage** is whichever cap fills first: `max_queue_size / rps` or `max_queue_bytes / (rps × record size)`. Spans and logs share `max_queue_bytes`, so treat the figure as an upper bound when tracing is on.
+- **1,000 rps with full bodies** fills 64 MB in under 7 s. Keep the detail for a fraction of requests with [sampling](/sdk-reference/sampling) instead of raising memory: at `sample_rate = 0.1` the average record drops to about 1.9 KB while every request is still counted in metrics.
+- Stay at or under 1,000 records per batch; ingest rejects larger batches with a 422.
+
+<CodeGroup>
+```python Python
+ApiLensConfig(
+    api_key="apilens_xxx",
+    batch_size=100,
+    max_batch_bytes=4 * 1024 * 1024,
+    max_queue_size=30_000,
+    max_queue_bytes=256 * 1024 * 1024,
+)
+```
+
+```ts TypeScript
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  appId: "orders-api",
+  batchSize: 100,
+  maxBatchBytes: 4 * 1024 * 1024,
+  maxQueueSize: 30_000,
+  maxQueueBytes: 256 * 1024 * 1024,
+});
+```
+
+```properties Java (Spring)
+apilens.batch-size=100
+apilens.max-batch-bytes=4194304
+apilens.max-queue-size=30000
+apilens.max-queue-bytes=268435456
+```
+</CodeGroup>
+
+## Compression
+
+Batches are gzipped at level 5 on the background worker, never on the request path, and sent with `Content-Encoding: gzip`. JSON batches compress well, so this mostly saves egress. In Python, a batch that fails to compress is sent as plain JSON instead.
+
+Set `compress` to `false` only when CPU matters more than bandwidth, for example a self-hosted ingest on the same network. The byte limits above do not change: both `max_batch_bytes` and the edge's 16 MB limit apply to the uncompressed body.
+
+## Retries
+
+| Outcome | What the SDK does | Counted as |
+|---|---|---|
+| 2xx | Done. | `sent_batches`, `sent_records` |
+| 408, 429, 5xx, timeout, network or TLS error | Retried up to `max_retries` times (so `max_retries + 1` attempts). | `retries_exhausted` if every attempt fails |
+| Any other 4xx (400, 401, 403, 413, 422…) | Dropped at once, not retried. The response body is logged at most once per status every 5 minutes; a 401 logs a single message pointing at [Troubleshooting](/support/troubleshooting). | `non_retryable` |
+
+The wait between attempts is full-jitter exponential backoff: a random time between 0 and `retry_backoff_base × 2^attempt`, capped at `retry_backoff_max` (0.25 s and 5 s by default), so many workers do not retry in lockstep. A `Retry-After` header (seconds or an HTTP date) takes precedence, capped at 60 s.
+
+While one batch is retrying, new records keep queueing under the [queue limits](#queue-limits-and-the-memory-math). A long outage therefore shows up first as `retries_exhausted`, then as `queue_full` or `queue_bytes` once the queue fills. None of these ever raises into your application: SDK errors are caught and logged under the `apilens` logger.
+
+## Shutdown
+
+Whatever is still queued when a process exits is lost unless it is flushed first.
+
+| SDK | What flushes on exit | Your part |
+|---|---|---|
+| Python, FastAPI / Starlette / any ASGI app | The ASGI `lifespan` shutdown event, after your own shutdown handlers. `atexit` too, for servers running with lifespan off. | Nothing. |
+| Python, Django | `atexit`. Settings `APILENS_FLUSH_ON_SHUTDOWN`, `APILENS_SHUTDOWN_TIMEOUT`. | Nothing. |
+| Python, Flask / any WSGI app | `atexit`. | Nothing. |
+| Python, manual client | `with ApiLensClient(...) as client:` | Or call `client.shutdown(flush=True)`. |
+| TypeScript | Nothing automatic. | `await client.handleShutdown({ flush: true })` from your `SIGTERM` handler or the framework's close hook. |
+| Java, Spring Boot | The client bean's destroy method flushes and sends the final heartbeat. | Nothing. |
+| Java, plain | try-with-resources (`ApiLensClient` is `AutoCloseable`). | Or call `client.shutdown()`. |
+
+In Python the hooks flush at most once per client and never take longer than `shutdown_timeout` (default **5 s**): if ingest is slow, the leftovers are dropped and the process exits on time. `flush_on_shutdown=False` (or `APILENS_FLUSH_ON_SHUTDOWN=false`, which wins over code) turns the hooks off. The TypeScript and Java shutdown calls have no deadline of their own; each remaining batch can take up to `(max_retries + 1) × timeout` plus backoff, so keep those low if your platform kills slow exits.
+
+**Give the flush time to run.** The orchestrator's grace period must cover the flush plus your app's own shutdown:
+
+- Kubernetes: `terminationGracePeriodSeconds` (default 30 s) above `shutdown_timeout` plus your shutdown time.
+- gunicorn: `--graceful-timeout` (default 30 s) above `shutdown_timeout`, or the worker is `SIGKILL`ed mid-flush. With uwsgi, enable `--enable-threads` and avoid `--skip-atexit`.
+- A process killed by `SIGKILL`, the OOM killer or a worker timeout runs no hooks and loses up to one `flush_interval` (3 s) of records.
+
+## Serverless
+
+AWS Lambda, Cloud Run, Cloud Functions and edge runtimes freeze or kill the process between invocations, so a background worker may never run and exit hooks are not reliable. Deliver at the end of each invocation instead.
+
+<CodeGroup>
+```python Python
+from fastapi import FastAPI
+from mangum import Mangum
+from apilens.fastapi import ApiLensMiddleware
+
+app = FastAPI()
+app.add_middleware(
+    ApiLensMiddleware,
+    api_key="apilens_xxx",
+    app_id="orders-api",
+    mode="inline",  # or APILENS_MODE=inline in the function's env
+)
+
+handler = Mangum(app, lifespan="off")
+```
+
+```ts TypeScript (Hono)
+import { Hono } from "hono";
+import { instrumentHono } from "apilens-js-sdk/hono";
+
+const app = new Hono();
+// flushMode defaults to "auto": inline on an edge runtime, background on Node.
+instrumentHono(app, { apiKey: "<key>", appId: "orders-api" });
+
+export default app;
+```
+
+```java Java
+// No inline mode: flush before the handler returns.
+public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent event, Context ctx) {
+  try {
+    return handle(event);
+  } finally {
+    client.flushAll();
+  }
+}
+```
+</CodeGroup>
+
+- **Python** `mode="inline"` starts no thread. The ASGI middlewares call a synchronous `client.flush()` after the final response body is sent (on a worker thread, so the event loop is not blocked); the WSGI middleware calls it after the last response chunk. The Django middleware does not: call `client.flush()` yourself, for example from a `request_finished` signal. Without a middleware, call `client.flush()` at the end of each invocation.
+- **TypeScript** `flushMode: "inline"` runs no timers. The Hono adapter sends each request's records, a due heartbeat and the metadata report at the end of the request through `c.executionCtx.waitUntil()` (pass `waitUntil` yourself on runtimes that expose it elsewhere). Elsewhere, `await client.flushInline()` at the end of each invocation.
+- **Java** always flushes from a background thread; call `client.flushAll()` before the invocation returns.
+
+An inline flush adds the ingest round trip to the invocation. Keep `timeout` and `max_retries` low so a slow ingest cannot stretch it, and keep `batch_size` at the default: one invocation rarely fills a batch.
+
+## Proxies and custom CAs
+
+The SDKs only make outbound HTTPS calls to `base_url` (`https://ingest.apilens.ai/v1` by default) on port 443. They never listen on a port.
+
+**Python** picks the proxy from, first match wins: `proxy_url` on `ApiLensConfig`, the `APILENS_PROXY` env var, then the standard `HTTPS_PROXY` / `HTTP_PROXY`. `NO_PROXY` is honoured. HTTPS ingest is tunnelled with `CONNECT`, so TLS stays end to end and the proxy never sees the API key or payloads. Credentials go in the URL (`http://user:pass@proxy.corp:3128`).
+
+**TypeScript** has no proxy option. Pass a `fetchImpl` that routes through your proxy, for example with undici:
+
+```ts
+import { ProxyAgent, fetch as undiciFetch } from "undici";
+
+const dispatcher = new ProxyAgent("http://proxy.corp:3128");
+
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  appId: "orders-api",
+  fetchImpl: (url, init) => undiciFetch(url, { ...init, dispatcher }),
+});
+```
+
+**Java** has no proxy option. The client uses the JVM's default proxy selector, so set `-Dhttps.proxyHost=proxy.corp -Dhttps.proxyPort=3128` (and `-Dhttp.nonProxyHosts` for exceptions), or route egress through a transparent proxy.
+
+**Custom CA.** If a TLS-inspecting proxy re-signs traffic with a corporate root, point `ca_bundle_path` (`caBundlePath`, `apilens.ca-bundle-path`) at a PEM bundle containing it. It replaces the system trust store for ingest calls, so include any public roots you still need. Do not turn off `verify_tls` in production.
+
+An unreachable proxy or a certificate error is a network error: retried with backoff, then dropped and counted under `retries_exhausted`.
+
+## Stats
+
+Each client keeps counters for its pipeline. `client.stats()` returns a cheap, thread-safe snapshot you can serve from a health endpoint; the same snapshot travels in every [heartbeat](/ingest/heartbeat), and the dashboard sums it across instances under [Ingest health](/ingest/ingest-health).
+
+| Python | TypeScript | Java | Meaning |
+|---|---|---|---|
+| `queued_records` / `queued_bytes` | `queuedRecords` / `queuedBytes` | `queuedRecords` / `queuedBytes` | What is waiting now, and its estimated size. |
+| `sent_batches` / `sent_records` | `sentBatches` / `sentRecords` | `sentBatches` / `sentRecords` | Accepted by ingest since start. |
+| `failed_batches` | `failedBatches` | `failedBatches` | Batches dropped after a non-retryable 4xx or after `max_retries`. |
+| `drop_counts` | `dropCounts` | `dropCounts` | Records dropped, by reason (table below). |
+| `dropped` | `droppedCount` | `droppedCount` | Sum of `drop_counts` except `truncated`. |
+| `last_error` | `lastError` | `lastError` | The most recent ingest failure; empty until one happens. |
+| `last_success_at` | `lastSuccessAt` | `lastSuccessAt` | Time of the last accepted batch. |
+
+| Reason | Meaning | First thing to try |
+|---|---|---|
+| `queue_full` | The count cap was reached; the oldest record was dropped. | Raise `max_queue_size`, or find why ingest is slow (`last_error`). |
+| `queue_bytes` | The byte cap was reached; the oldest record(s) were dropped. | Raise `max_queue_bytes` if memory allows, lower `max_payload_bytes`, or sample bodies. |
+| `non_retryable` | Ingest rejected the batch with a 4xx. | Read `last_error`: 401 is a bad key, 422 a batch over 1,000 records or a schema problem. |
+| `retries_exhausted` | Still failing after every retry. | Check egress, the proxy and the CA bundle; `last_error` names the failure. |
+| `truncated` | Not a drop: a record over `max_batch_bytes` was cut and still sent. | Raise `max_batch_bytes`, or lower `max_payload_bytes`. |
+
+Export them to your metrics system: Python takes an `on_stats` callback (run on the flush thread every `flush_interval`), TypeScript an `onStats` callback (after every flush), and Java registers a Micrometer binder (`apilens.queue.records`, `apilens.records.dropped{reason}` and so on) when Micrometer is on the classpath. The counters are cumulative; export them as gauges, or send the difference from the previous snapshot as a counter.
+
+**After a rollout**, confirm `last_success_at` advances and `sent_records` grows. Alert when `dropped` rises or `last_success_at` stops moving for a few flush intervals; `last_error` tells you why. In Python, new drops are also logged at INFO under the `apilens` logger, at most once a minute.
