@@ -212,7 +212,7 @@ func (q *Queries) GetAlertRule(ctx context.Context, arg GetAlertRuleParams) (Ale
 }
 
 const getAlertRuleState = `-- name: GetAlertRuleState :one
-SELECT rule_id, evaluated_at, window_start, window_end, value, requests, breached FROM alert_rule_state
+SELECT rule_id, evaluated_at, window_start, window_end, value, requests, breached, status, status_since FROM alert_rule_state
 WHERE rule_id = $1
 `
 
@@ -228,6 +228,8 @@ func (q *Queries) GetAlertRuleState(ctx context.Context, ruleID uuid.UUID) (Aler
 		&i.Value,
 		&i.Requests,
 		&i.Breached,
+		&i.Status,
+		&i.StatusSince,
 	)
 	return i, err
 }
@@ -610,6 +612,22 @@ func (q *Queries) ListNotificationChannelsByIDs(ctx context.Context, arg ListNot
 	return items, nil
 }
 
+const lockAlertRule = `-- name: LockAlertRule :one
+SELECT id FROM alert_rules
+WHERE id = $1
+FOR NO KEY UPDATE
+`
+
+// Locks a rule for the transaction that records its evaluation, so two runs
+// cannot step its state at once. Returns pgx.ErrNoRows when the rule was
+// deleted.
+func (q *Queries) LockAlertRule(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockAlertRule, id)
+	var id_2 uuid.UUID
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
 const markAlertEventNotified = `-- name: MarkAlertEventNotified :execrows
 UPDATE alert_events
 SET notified_at = $1::timestamptz
@@ -843,15 +861,19 @@ func (q *Queries) UpdateNotificationChannel(ctx context.Context, arg UpdateNotif
 }
 
 const upsertAlertRuleState = `-- name: UpsertAlertRuleState :exec
-INSERT INTO alert_rule_state (rule_id, evaluated_at, window_start, window_end, value, requests, breached)
-VALUES ($1, $2, $3, $4, $5::float8, $6, $7)
+INSERT INTO alert_rule_state (rule_id, evaluated_at, window_start, window_end, value, requests, breached,
+                              status, status_since)
+VALUES ($1, $2, $3, $4, $5::float8, $6, $7,
+        $8, $9)
 ON CONFLICT (rule_id) DO UPDATE
 SET evaluated_at = EXCLUDED.evaluated_at,
     window_start = EXCLUDED.window_start,
     window_end   = EXCLUDED.window_end,
     value        = EXCLUDED.value,
     requests     = EXCLUDED.requests,
-    breached     = EXCLUDED.breached
+    breached     = EXCLUDED.breached,
+    status       = EXCLUDED.status,
+    status_since = EXCLUDED.status_since
 `
 
 type UpsertAlertRuleStateParams struct {
@@ -862,9 +884,12 @@ type UpsertAlertRuleStateParams struct {
 	Value       *float64
 	Requests    int64
 	Breached    bool
+	Status      string
+	StatusSince time.Time
 }
 
-// Records the result of a rule's latest evaluation.
+// Records the result of a rule's latest evaluation and its trigger/resolve
+// state.
 func (q *Queries) UpsertAlertRuleState(ctx context.Context, arg UpsertAlertRuleStateParams) error {
 	_, err := q.db.Exec(ctx, upsertAlertRuleState,
 		arg.RuleID,
@@ -874,6 +899,8 @@ func (q *Queries) UpsertAlertRuleState(ctx context.Context, arg UpsertAlertRuleS
 		arg.Value,
 		arg.Requests,
 		arg.Breached,
+		arg.Status,
+		arg.StatusSince,
 	)
 	return err
 }

@@ -328,7 +328,7 @@ func (a *App) initRelay(context.Context) (modules.Service, error) {
 
 // initAlerts registers the periodic alert rule evaluation job.
 func (a *App) initAlerts(context.Context) (modules.Service, error) {
-	evaluator := alerts.NewEvaluator(a.chConn, a.queries, a.logger, a.registry)
+	evaluator := alerts.NewEvaluator(a.chConn, a.pool, a.logger, a.registry)
 	jobs.Register(a.workers, alerts.NewEvaluateWorker(evaluator, a.logger))
 	a.workers.Periodic(alerts.EvaluateInterval, alerts.EvaluateArgs{})
 	return nil, nil
