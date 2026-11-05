@@ -1,5 +1,5 @@
 from ._version import __version__
-from .client import ApiLensClient, ApiLensConfig
+from .client import ApiLensClient, ApiLensConfig, ClientStats
 from .client import LogRecord, RequestRecord
 from .client._sanitize import RequestInfo, ResponseInfo
 from .client.middleware import normalize_consumer
@@ -19,6 +19,7 @@ def install_apilens_exporter(*args, **kwargs):
 __all__ = [
     "ApiLensClient",
     "ApiLensConfig",
+    "ClientStats",
     "RequestRecord",
     "LogRecord",
     "RequestInfo",
