@@ -1,0 +1,104 @@
+---
+title: "Heartbeat"
+description: "How SDK processes report they are alive, and how they receive the app's remote capture policy."
+---
+
+Every SDK process sends `POST /v1/heartbeat` when it starts and then about **once a minute**. The heartbeat does two things:
+
+1. It marks the process (an **instance**) as last seen now. The app shows as **reporting** while any instance sent a heartbeat in the last **5 minutes**.
+2. Its response carries the app's **capture policy**, which the SDK applies until the next heartbeat. Changing the policy in APILens reaches running apps without a redeploy, within about two minutes (one edge cache refresh plus one heartbeat interval).
+
+This page is the contract the Python, TypeScript and Java SDKs implement.
+
+## Request
+
+`POST https://ingest.apilens.ai/v1/heartbeat` with the project API key in `X-API-Key` (scope `ingest`). The body is JSON and may be gzip or zstd encoded, like every ingest endpoint.
+
+```json
+{
+  "app_id": "storefront",
+  "environment": "production",
+  "instance_id": "4b0c7a8e-2f0d-4c1e-9a55-0d6f3b1f1a9e",
+  "sdk_name": "apilenss",
+  "sdk_version": "0.5.0",
+  "runtime": "python 3.13.1",
+  "release": "2026.11.05",
+  "commit": "9f2c1ab",
+  "pid": 4242,
+  "stats": { "queued": 3, "sent": 1200, "dropped": 0 }
+}
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `app_id` | yes | App UUID or slug. Must belong to the API key's project, or the call answers `422`. |
+| `instance_id` | yes | Stable id of the process, generated once per process start (a UUID is fine). At most 128 characters. |
+| `environment` | no | Defaults to `production`. |
+| `project_slug` | no | When sent, must match the API key's project. |
+| `sdk_name`, `sdk_version` | no | Which SDK sends the heartbeat. |
+| `runtime` | no | Language runtime and version, e.g. `node 22.11.0`. |
+| `release`, `commit` | no | Version and VCS commit of the monitored app. |
+| `pid` | no | OS process id; must not be negative. |
+| `stats` | no | The SDK's own counters since start, stored as sent. At most 16 KiB. |
+
+Unknown fields are ignored, so newer SDKs can send more. A body with an `api_key` field at any depth (`api_key`, `apiKey`, `api-key`, any case) is rejected with `422`: the key belongs in the header only.
+
+## Response
+
+```json
+{
+  "policy": {
+    "enabled": true,
+    "sample_rate": 1,
+    "capture_headers": true,
+    "capture_request_body": true,
+    "capture_response_body": true,
+    "max_payload_bytes": null
+  }
+}
+```
+
+| Field | SDK behaviour |
+|---|---|
+| `enabled` | `false`: stop sending requests, logs and spans. Heartbeats continue, so re-enabling takes effect on the next one. |
+| `sample_rate` | Keep this fraction of requests, from `0` to `1`. |
+| `capture_headers` | `false`: send no request or response headers. |
+| `capture_request_body`, `capture_response_body` | `false`: send no body of that kind. |
+| `max_payload_bytes` | Cut each captured body to this many bytes. `null`: no cap beyond the SDK's own setting. |
+
+The policy only narrows what the SDK captures: a local setting that captures less (for example `capture_request_body=False`) still wins. An app without a saved policy gets the capture-everything answer shown above.
+
+## Status codes
+
+| Status | Meaning | SDK behaviour |
+|---|---|---|
+| `200` | Recorded; the body carries the policy. | Apply the policy. |
+| `401` / `403` | Missing, invalid or non-ingest API key. | Log once; keep the previous policy. |
+| `422` | Invalid body or unknown app. | Log once; keep the previous policy. |
+| `429` | A heartbeat from this instance arrived less than **10 seconds** ago. | Wait `Retry-After` seconds; keep the previous policy. |
+| `503` | Storage or the capture policy is unavailable. | Retry after `Retry-After`; **keep the previous policy** (never fall back to capture-everything). |
+
+Errors use the ingest error body, `{"error": "<code>", "detail": ...}`.
+
+## Reading the status
+
+`GET /api/v1/apps/{id}/status` (a project read key, or a session with `?project=<slug>`) answers whether the app is reporting:
+
+```json
+{
+  "app_id": "0b6f…",
+  "app": "storefront",
+  "status": "reporting",
+  "last_seen_at": "2026-11-05T12:00:00Z",
+  "environments": [
+    { "environment": "production", "status": "reporting", "last_seen_at": "2026-11-05T12:00:00Z", "live_instances": 2 }
+  ],
+  "instances": [
+    { "environment": "production", "instance_id": "4b0c…", "status": "reporting", "sdk_name": "apilenss", "sdk_version": "0.5.0",
+      "runtime": "python 3.13.1", "release": "2026.11.05", "commit": "9f2c1ab", "pid": 4242, "stats": { "sent": 1200 },
+      "first_seen_at": "2026-11-05T09:00:00Z", "last_seen_at": "2026-11-05T12:00:00Z" }
+  ]
+}
+```
+
+`status` is `reporting` (a heartbeat in the last 5 minutes), `stale` (older) or `never`. `instances` lists the 100 most recently seen.

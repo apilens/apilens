@@ -56,6 +56,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	huma.Register(api, op("list-deploys", http.MethodGet, "/api/v1/deploys", "Deploy markers in a time range"), s.deploys)
 	registerDeployChanges(api, s)
 	registerIngestStatus(api, s, guard)
+	registerAppStatus(api, s)
 }
 
 // ---------------------------------------------------------------- project

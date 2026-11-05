@@ -327,6 +327,13 @@ func (a *App) initEdge(context.Context) (modules.Service, error) {
 	if a.cfg.Ingest.Quota.Enabled() && a.valkey != nil {
 		edge.WithQuota(ingest.NewValkeyQuota(a.valkey, a.cfg.Ingest.Quota))
 	}
+	// Without Valkey heartbeats are neither rate-limited nor mirrored to
+	// the last-seen key; Postgres stays the source of truth.
+	var heartbeats ingest.HeartbeatCache
+	if a.valkey != nil {
+		heartbeats = ingest.NewValkeyHeartbeats(a.valkey)
+	}
+	edge.WithHeartbeat(a.queries, heartbeats)
 	edge.Register(a.server.Mux())
 	ingest.RegisterOpenAPI(a.server.API())
 	return nil, nil

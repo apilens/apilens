@@ -118,6 +118,7 @@ func RegisterOpenAPI(api huma.API) {
 			"503": errResp("Temporarily unavailable; retry after Retry-After"),
 		},
 	})
+	addHeartbeatOperation(oapi, errBody)
 }
 
 func (e *Edge) handleMetadata(w http.ResponseWriter, r *http.Request) {
