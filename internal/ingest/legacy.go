@@ -143,6 +143,7 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 		e.fail(w, signal, aerr)
 		return
 	}
+	e.capRequests(r.Context(), apps, body.Requests)
 
 	now := e.now()
 	rows := make([]pipeline.RequestRow, 0, len(body.Requests))
@@ -174,10 +175,10 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 			ConsumerID:       truncate(strings.TrimSpace(rec.ConsumerID), 256),
 			ConsumerName:     truncate(strings.TrimSpace(rec.ConsumerName), 256),
 			ConsumerGroup:    truncate(strings.TrimSpace(rec.ConsumerGroup), 256),
-			RequestPayload:   truncate(rec.RequestPayload, maxPayloadChars),
-			ResponsePayload:  truncate(rec.ResponsePayload, maxPayloadChars),
-			RequestHeaders:   truncate(rec.RequestHeaders, maxPayloadChars),
-			ResponseHeaders:  truncate(rec.ResponseHeaders, maxPayloadChars),
+			RequestPayload:   rec.RequestPayload, // capped by capRequests
+			ResponsePayload:  rec.ResponsePayload,
+			RequestHeaders:   rec.RequestHeaders,
+			ResponseHeaders:  rec.ResponseHeaders,
 			BaseURL:          short(rec.BaseURL),
 			TraceID:          hexID(rec.TraceID, traceIDHexLen),
 			SpanID:           hexID(rec.SpanID, spanIDHexLen),
