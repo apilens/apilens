@@ -186,7 +186,7 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 			Commit:           commit(rec.Commit),
 			Sampled:          sampled(rec.Sampled),
 			Attributes:       attributesN(rec.Attributes, maxRequestAttributes),
-			ValidationErrors: validationErrors(rec.ValidationErrors),
+			ValidationErrors: requestValidationErrors(rec.StatusCode, rec.ValidationErrors, rec.ResponsePayload),
 		})
 	}
 	if err := e.sink.SubmitRequests(r.Context(), rows); err != nil {
