@@ -269,13 +269,15 @@ class RequestInfo:
     ``path`` is the request path without query string; ``raw_path`` is the
     exact URL with any sensitive query values already redacted. ``headers``
     are the request headers with lower-cased names, unredacted (the callback
-    runs in-process, nothing has left the app yet).
+    runs in-process, nothing has left the app yet). ``attributes`` holds the
+    custom attributes the handler set with ``set_request_attribute``.
     """
 
     method: str
     path: str
     raw_path: str = ""
     headers: Mapping[str, str] = field(default_factory=dict)
+    attributes: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def content_type(self) -> str:
@@ -284,11 +286,15 @@ class RequestInfo:
 
 @dataclass(frozen=True, slots=True)
 class ResponseInfo:
-    """What a ``mask_response_body`` callback is told about the response."""
+    """What a ``mask_response_body`` callback is told about the response.
+
+    ``attributes`` are the request's custom attributes (``set_request_attribute``).
+    """
 
     request: RequestInfo
     status_code: int
     headers: Mapping[str, str] = field(default_factory=dict)
+    attributes: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def content_type(self) -> str:

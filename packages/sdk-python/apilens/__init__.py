@@ -1,6 +1,7 @@
 from ._version import __version__
 from .client import ApiLensClient, ApiLensConfig, ClientStats
 from .client import LogRecord, RequestRecord
+from .client._attributes import set_request_attribute
 from .client._sanitize import RequestInfo, ResponseInfo
 from .client.middleware import normalize_consumer
 from .client.spans import instrument_outbound_http
@@ -31,6 +32,7 @@ __all__ = [
     "ApiLensMiddleware",
     "track_consumer",
     "set_consumer",
+    "set_request_attribute",
     "normalize_consumer",
     "current_trace_id",
     "current_span_id",

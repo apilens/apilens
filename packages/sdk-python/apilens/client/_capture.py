@@ -32,6 +32,8 @@ class CaptureContext:
     span_id: str = ""
     # False when sample_rate dropped this request's detail.
     sampled: bool = True
+    # Custom attributes from ``set_request_attribute`` (snapshot at response time).
+    attributes: dict | None = None
 
 
 
@@ -223,4 +225,5 @@ def capture_response(
         trace_id=ctx.trace_id,
         span_id=ctx.span_id,
         sampled=ctx.sampled,
+        attributes=ctx.attributes or None,
     )

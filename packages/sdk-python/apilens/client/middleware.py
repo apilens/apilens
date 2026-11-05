@@ -6,6 +6,13 @@ import traceback
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from ._attributes import (
+    begin_request_attributes,
+    current_request_attributes,
+    end_request_attributes,
+    set_request_attribute,  # noqa: F401 - re-exported for framework modules
+    span_attributes,
+)
 from ._capture import (
     CaptureContext,
     _detect_base_url_from_environ,
@@ -484,6 +491,7 @@ class ApiLensASGIMiddleware:
         response_headers_json = ""
         response_headers: dict[str, str] = {}
         token = _consumer_ctx.set(None)
+        attributes_token = begin_request_attributes()
 
         async def wrapped_receive():
             nonlocal request_payload_len
@@ -550,8 +558,14 @@ class ApiLensASGIMiddleware:
                     resolved = None
                 if resolved is not None:
                     consumer = normalize_consumer(resolved)
+            attributes = current_request_attributes()
+            ctx.attributes = attributes
             request_info = RequestInfo(
-                method=ctx.method, path=path, raw_path=raw_path, headers=lower_headers(headers)
+                method=ctx.method,
+                path=path,
+                raw_path=raw_path,
+                headers=lower_headers(headers),
+                attributes=attributes,
             )
             request_payload = mask_body(
                 b"".join(request_payload_chunks),
@@ -567,6 +581,7 @@ class ApiLensASGIMiddleware:
                     request=request_info,
                     status_code=status_code,
                     headers=lower_headers(response_headers),
+                    attributes=attributes,
                 ),
             )
             ctx.request_payload = request_payload
@@ -592,6 +607,7 @@ class ApiLensASGIMiddleware:
                     duration_ms=(time.perf_counter() - started_at) * 1000.0,
                     status="error" if is_error else "ok",
                     status_code=status_code,
+                    attributes=span_attributes(attributes),
                 )
                 _maybe_record_error(
                     exc=captured_exc,
@@ -603,6 +619,7 @@ class ApiLensASGIMiddleware:
                     consumer=consumer,
                 )
             _consumer_ctx.reset(token)
+            end_request_attributes(attributes_token)
             reset_detail_sampled(sampled_token)
             end_request_trace(trace_token)
 
@@ -706,6 +723,7 @@ class ApiLensWSGIMiddleware:
     def _capture(self, environ: dict[str, Any], start_response: Callable) -> Any:
         started_at = time.perf_counter()
         consumer_token = _consumer_ctx.set(None)
+        attributes_token = begin_request_attributes()
         trace_id, span_id, parent_span_id, trace_token = begin_request_trace(environ.get("HTTP_TRACEPARENT"))
         # Sampled out: base record only. Trace context above still propagates.
         sampled = self.sampler.sample()
@@ -724,24 +742,14 @@ class ApiLensWSGIMiddleware:
             ip_address = (environ.get("HTTP_X_REAL_IP") or "").strip() or (environ.get("REMOTE_ADDR") or "")
 
         request_headers = _wsgi_request_headers(environ)
-        request_info = RequestInfo(
-            method=(environ.get("REQUEST_METHOD") or "GET").upper(),
-            path=clean_path,
-            raw_path=path,
-            headers=request_headers,
-        )
-        request_payload = ""
+        # Captured raw here; masked after the app ran, so the mask callback
+        # sees the attributes the handler set (``set_request_attribute``).
+        request_body = b""
         if capture_payloads and self.log_request_body and self.max_payload_bytes > 0:
             stream = environ.get("wsgi.input")
             if stream is not None and hasattr(stream, "read"):
                 body = stream.read(self.max_payload_bytes)
-                if body:
-                    request_payload = mask_body(
-                        body,
-                        redactor=self.redactor,
-                        masker=self.mask_request_body,
-                        info=request_info,
-                    )
+                request_body = body or b""
                 # Reset stream so app can consume the same bytes.
                 try:
                     import io
@@ -765,7 +773,6 @@ class ApiLensWSGIMiddleware:
             request_size=_to_int(environ.get("CONTENT_LENGTH"), 0),
             ip_address=ip_address,
             user_agent=(environ.get("HTTP_USER_AGENT") or "").strip(),
-            request_payload=request_payload,
             request_headers=request_headers_json,
             base_url=_detect_base_url_from_environ(environ),
             trace_id=trace_id,
@@ -827,7 +834,10 @@ class ApiLensWSGIMiddleware:
                 if resolved is not None:
                     consumer = normalize_consumer(resolved)
             _apply_consumer(ctx, consumer)
+            attributes = current_request_attributes()
+            ctx.attributes = attributes
             _consumer_ctx.reset(consumer_token)
+            end_request_attributes(attributes_token)
             reset_detail_sampled(sampled_token)
             end_request_trace(trace_token)
             if self.capture_spans and sampled:
@@ -841,6 +851,7 @@ class ApiLensWSGIMiddleware:
                     duration_ms=(time.perf_counter() - started_at) * 1000.0,
                     status="error" if is_error else "ok",
                     status_code=status_code,
+                    attributes=span_attributes(attributes),
                 )
                 _maybe_record_error(
                     exc=captured_exc,
@@ -851,6 +862,19 @@ class ApiLensWSGIMiddleware:
                     path=ctx.path,
                     consumer=consumer,
                 )
+            request_info = RequestInfo(
+                method=ctx.method,
+                path=clean_path,
+                raw_path=path,
+                headers=request_headers,
+                attributes=attributes,
+            )
+            ctx.request_payload = mask_body(
+                request_body,
+                redactor=self.redactor,
+                masker=self.mask_request_body,
+                info=request_info,
+            )
             response_payload = mask_body(
                 b"".join(response_payload_chunks),
                 redactor=self.redactor,
@@ -859,6 +883,7 @@ class ApiLensWSGIMiddleware:
                     request=request_info,
                     status_code=status_code,
                     headers=lower_headers(response_headers),
+                    attributes=attributes,
                 ),
             )
             capture_response(
