@@ -61,6 +61,30 @@ ApiLensConsumerResolver apiLensConsumerResolver() {
 }
 ```
 
+## Spring WebFlux
+
+Reactive apps get `ApiLensWebFilter` instead of the servlet filter: the same
+`apilens.*` properties, `ApiLensSpringOptionsCustomizer` beans, exclusions,
+sampling, masking and remote policy apply. It is auto-configured when the app is
+a reactive web application and `apilens.api-key` is set (the servlet filter then
+backs off). Bodies are copied from the request and response `DataBuffer`
+streams as they pass, up to `maxPayloadBytes`; endpoints are grouped by the
+matched pattern of annotated controllers and router functions alike;
+`apilens.filter-order` sets its `WebFilter` order.
+
+Thread-locals do not follow a reactive request, so set the consumer on the
+exchange, or register an `ApiLensWebFluxConsumerResolver` bean:
+
+```java
+import ai.apilens.spring.ApiLensWebFilter;
+
+ApiLensWebFilter.setConsumer(exchange, "user-123", "Alice", "enterprise");
+```
+
+The trace context is `ApiLensWebFilter.traceContext(exchange)` (also in the
+Reactor context under `TraceContext.class`). See
+`apps/docs/setup-guides/spring-webflux.mdx` for the full guide.
+
 ## Plain Java capture
 
 ```java

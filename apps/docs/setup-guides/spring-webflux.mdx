@@ -1,0 +1,103 @@
+---
+title: "Spring WebFlux"
+description: "Monitor a reactive Spring Boot (WebFlux) API with the APILens Java SDK."
+---
+
+The Java SDK (`ai.apilens:apilens-java-sdk`) captures reactive Spring Boot apps through `ApiLensWebFilter`, a WebFlux `WebFilter`. It records the same data as the Spring MVC filter: request metrics, route templates, consumers, headers and bodies (masked), a server span per request and an error log for exceptions and 5xx responses.
+
+## Install
+
+Maven:
+
+```xml
+<dependency>
+  <groupId>ai.apilens</groupId>
+  <artifactId>apilens-java-sdk</artifactId>
+  <version>0.1.0</version>
+</dependency>
+```
+
+Gradle:
+
+```kotlin
+implementation("ai.apilens:apilens-java-sdk:0.1.0")
+```
+
+## Configure
+
+Set the project API key and the app's slug in `application.properties`:
+
+```properties
+apilens.api-key=${APILENS_API_KEY}
+apilens.app-id=orders-api
+apilens.environment=production
+```
+
+That's it. When the application is a reactive web app (`spring-boot-starter-webflux`) and `apilens.api-key` is set, the SDK auto-configures `ApiLensWebFilter`; the servlet filter backs off, so each request is captured once.
+
+Every `apilens.*` property of the Spring MVC integration applies unchanged: `capture-profile`, `capture-headers`, `capture-payloads`, `max-payload-bytes`, `redact-*`, `exclude-paths`, `exclude-user-agents`, `sample-rate`, `capture-ip`, `anonymize-ip` and the rest. Callbacks that properties cannot express (`maskRequestBody`, `sampleOnRequest`...) are set with an `ApiLensSpringOptionsCustomizer` bean.
+
+## How it captures
+
+- **Route templates.** `GET /orders/123` is grouped as `GET /orders/{id}` from the matched pattern, for annotated controllers and router functions alike. `raw_path` keeps the exact URL, with sensitive query parameters masked.
+- **Bodies.** The request and response `DataBuffer` streams are decorated: each buffer is copied as it passes, up to `max-payload-bytes`, without being consumed or buffered beyond that cap. Streaming responses are counted chunk by chunk. JSON, text and form bodies are masked; other content types are stored as `[<content-type>, N bytes omitted]`.
+- **Errors.** An exception that escapes the handler is recorded with its status (500, or the status of a `ResponseStatusException`) and, for 5xx, an error log with the stack trace. A 404 or other 4xx is a normal outcome, not an error log.
+- **Cancelled requests.** A client that disconnects before the response was sent is recorded with status `499`.
+- **Order.** `apilens.filter-order` sets the filter's `WebFilter` order (default `Integer.MAX_VALUE - 100`, after Spring Security).
+
+## Identify consumers
+
+Thread-locals do not follow a reactive request, so set the consumer on the exchange:
+
+```java
+import ai.apilens.spring.ApiLensWebFilter;
+
+@GetMapping("/orders/{id}")
+Mono<Order> order(@PathVariable("id") String id, ServerWebExchange exchange) {
+  ApiLensWebFilter.setConsumer(exchange, "user-123", "Alice", "enterprise");
+  return orders.find(id);
+}
+```
+
+Or centralize it with a bean, called once the exchange has completed:
+
+```java
+import ai.apilens.ApiLensConsumer;
+import ai.apilens.spring.ApiLensWebFluxConsumerResolver;
+
+@Bean
+ApiLensWebFluxConsumerResolver apiLensConsumerResolver() {
+  return exchange -> {
+    String tenant = exchange.getRequest().getHeaders().getFirst("X-Tenant-Id");
+    return tenant == null ? null : ApiLensConsumer.of(tenant);
+  };
+}
+```
+
+## Trace context
+
+Each request continues an incoming W3C `traceparent` or starts a new trace. Read it with `ApiLensWebFilter.traceContext(exchange)`, or from the Reactor context under `TraceContext.class`:
+
+```java
+Mono.deferContextual(ctx -> {
+  TraceContext trace = ctx.get(TraceContext.class);
+  return client.get().header("traceparent", trace.traceparent()).retrieve().bodyToMono(String.class);
+});
+```
+
+## Without Spring Boot
+
+Register the filter as a bean in your WebFlux configuration:
+
+```java
+ApiLensClient client = new ApiLensClient(ApiLensConfig.fromEnv());
+
+@Bean
+ApiLensWebFilter apiLensWebFilter() {
+  return new ApiLensWebFilter(client, ApiLensSpringOptions.fromEnv());
+}
+```
+
+## Verify
+
+Send a few requests and open the **Traffic** page. Your endpoints appear with their route templates, and the request log shows the captured headers and bodies.

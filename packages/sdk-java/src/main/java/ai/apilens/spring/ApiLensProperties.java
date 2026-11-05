@@ -105,7 +105,7 @@ public class ApiLensProperties {
   private boolean defaultExclusions = true;
   /** Fraction (0.0-1.0) of requests whose detail is kept; metrics always count every request. */
   private double sampleRate = 1.0;
-  /** Order of the servlet filter registration. */
+  /** Order of the servlet filter registration, or of the WebFlux {@code WebFilter}. */
   private int filterOrder = Integer.MAX_VALUE - 100;
 
   public ApiLensConfig toClientConfig() {
