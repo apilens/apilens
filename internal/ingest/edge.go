@@ -46,6 +46,7 @@ type Edge struct {
 	verifier Verifier
 	apps     AppResolver
 	sink     pipeline.Sink
+	privacy  PolicySource // nil: built-in defaults only
 	cfg      config.IngestConfig
 	logger   *slog.Logger
 	now      func() time.Time

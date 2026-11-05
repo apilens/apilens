@@ -78,6 +78,8 @@ type Querier interface {
 	// pgx.ErrNoRows when the organization has no connection.
 	GetOrgSSOConnection(ctx context.Context, orgID uuid.UUID) (OrgSsoConnection, error)
 	GetOrganizationBySlug(ctx context.Context, slug string) (Organization, error)
+	// The policy of one scope: the project (app_id NULL) or one of its apps.
+	GetPrivacyPolicy(ctx context.Context, arg GetPrivacyPolicyParams) (GetPrivacyPolicyRow, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
 	// The email of an active user and when it was verified (NULL when not).
 	GetUserEmail(ctx context.Context, id uuid.UUID) (GetUserEmailRow, error)
@@ -105,6 +107,9 @@ type Querier interface {
 	// Every key of the project, revoked ones included, newest first.
 	ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) ([]ListProjectAPIKeysRow, error)
 	ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppsRow, error)
+	// Every privacy policy row of a project: the project-wide one (app_id NULL)
+	// and the per-app ones. Rows of deleted apps are skipped.
+	ListProjectPrivacyPolicies(ctx context.Context, projectID uuid.UUID) ([]ListProjectPrivacyPoliciesRow, error)
 	// The environments of the given projects, by project then name.
 	ListProjectsEnvironments(ctx context.Context, projectIds []uuid.UUID) ([]ListProjectsEnvironmentsRow, error)
 	// The authz reconciler (ADR 0006) compares these with SpiceDB. They describe
@@ -182,6 +187,7 @@ type Querier interface {
 	// last_login_at survive a replace.
 	UpsertOrgSSOConnection(ctx context.Context, arg UpsertOrgSSOConnectionParams) (OrgSsoConnection, error)
 	UpsertOrganization(ctx context.Context, arg UpsertOrganizationParams) (UpsertOrganizationRow, error)
+	UpsertPrivacyPolicy(ctx context.Context, arg UpsertPrivacyPolicyParams) (UpsertPrivacyPolicyRow, error)
 	UpsertProject(ctx context.Context, arg UpsertProjectParams) (UpsertProjectRow, error)
 }
 
