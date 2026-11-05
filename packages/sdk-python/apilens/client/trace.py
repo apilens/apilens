@@ -20,6 +20,15 @@ _trace_ctx: contextvars.ContextVar[tuple[str, str] | None] = contextvars.Context
 )
 
 
+# Whether the current request's detail (spans, logs) is sampled in. Child
+# spans recorded during a sampled-out request are dropped; trace context is
+# still propagated downstream either way.
+_detail_sampled_ctx: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "apilens_detail_sampled",
+    default=True,
+)
+
+
 def parse_traceparent(header: str | None) -> tuple[str, str] | None:
     """Parse a W3C ``traceparent`` header into ``(trace_id, parent_span_id)``.
 
@@ -64,6 +73,20 @@ def begin_request_trace(traceparent: str | None) -> tuple[str, str, str, context
 
 def end_request_trace(token: contextvars.Token) -> None:
     _trace_ctx.reset(token)
+
+
+def set_detail_sampled(sampled: bool) -> contextvars.Token:
+    """Mark the current request as sampled in/out; undo with :func:`reset_detail_sampled`."""
+    return _detail_sampled_ctx.set(bool(sampled))
+
+
+def reset_detail_sampled(token: contextvars.Token) -> None:
+    _detail_sampled_ctx.reset(token)
+
+
+def detail_sampled() -> bool:
+    """False while handling a request whose detail was sampled out."""
+    return _detail_sampled_ctx.get()
 
 
 def current_trace_id() -> str:

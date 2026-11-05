@@ -30,6 +30,8 @@ class CaptureContext:
     base_url: str = ""
     trace_id: str = ""
     span_id: str = ""
+    # False when sample_rate dropped this request's detail.
+    sampled: bool = True
 
 
 
@@ -220,4 +222,5 @@ def capture_response(
         base_url=ctx.base_url,
         trace_id=ctx.trace_id,
         span_id=ctx.span_id,
+        sampled=ctx.sampled,
     )

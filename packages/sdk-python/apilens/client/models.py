@@ -33,6 +33,10 @@ class RequestRecord:
     # Deploy correlation; empty fields inherit the client config at capture time.
     release: str = ""
     commit: str = ""
+    # False when ``sample_rate`` dropped this request's detail (headers,
+    # bodies, spans, logs). The base record is always sent so metrics stay
+    # exact; only the request-log detail is sampled.
+    sampled: bool = True
 
     def to_wire(self) -> dict[str, object]:
         ts = self.timestamp
@@ -49,7 +53,7 @@ class RequestRecord:
         if not raw_path.startswith("/"):
             raw_path = f"/{raw_path}"
 
-        return {
+        wire: dict[str, object] = {
             "project_slug": self.project_slug or "",
             "app_id": self.app_id or "",
             "timestamp": iso,
@@ -76,6 +80,11 @@ class RequestRecord:
             "release": self.release or "",
             "commit": self.commit or "",
         }
+        # Only sent when False: ingest reads an absent flag as sampled in, so
+        # sampled-in records stay byte-identical to SDKs without sampling.
+        if not self.sampled:
+            wire["sampled"] = False
+        return wire
 
 
 def _iso_utc(ts: datetime) -> str:

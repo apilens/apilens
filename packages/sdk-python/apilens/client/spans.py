@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 from .models import LogRecord, SpanRecord
-from .trace import current_span_id, current_trace_id, generate_span_id
+from .trace import current_span_id, current_trace_id, detail_sampled, generate_span_id
 
 if TYPE_CHECKING:
     from .client import ApiLensClient
@@ -112,6 +112,10 @@ def record_span(
     """Queue one finished span (no-op when spans are not configured)."""
     recorder = _recorder
     if recorder is None or not trace_id or not span_id:
+        return
+    # Child spans of a sampled-out request are dropped (the outbound patches
+    # still propagate traceparent before this point).
+    if not detail_sampled():
         return
     ended = end_time or datetime.now(tz=timezone.utc)
     recorder.client.capture_span(
