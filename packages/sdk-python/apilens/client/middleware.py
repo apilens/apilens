@@ -25,6 +25,7 @@ from ._capture import (
     capture_response,
 )
 from ._exclusions import RequestExcluder
+from ._metadata import start_asgi_metadata, start_wsgi_metadata
 from ._routes import resolve_endpoint_path
 from ._sampling import DetailSampler
 from ._sanitize import (
@@ -396,6 +397,10 @@ class ApiLensASGIMiddleware:
         self.flush_on_shutdown = flush_on_shutdown and env_flush_on_shutdown()
         if self.flush_on_shutdown:
             register_atexit(client, shutdown_timeout)
+        # App metadata (POST /v1/metadata): framework, versions, route
+        # templates and the effective config above, once per process, sent
+        # from a background thread. ``__call__`` hands it ``scope["app"]``.
+        self._metadata_hint = start_asgi_metadata(self)
 
     async def _lifespan(self, scope, receive, send) -> None:
         """Pass the lifespan protocol through, draining the queue on shutdown.
@@ -443,6 +448,9 @@ class ApiLensASGIMiddleware:
         return self.excluder.matches(scope.get("path"), user_agent)
 
     async def __call__(self, scope, receive, send) -> None:
+        hint = getattr(self, "_metadata_hint", None)
+        if hint is not None and hint.waiting:
+            hint.note(scope.get("app"))
         if scope.get("type") == "lifespan" and self.flush_on_shutdown:
             await self._lifespan(scope, receive, send)
             return
@@ -712,6 +720,8 @@ class ApiLensWSGIMiddleware:
         self.flush_on_shutdown = flush_on_shutdown and env_flush_on_shutdown()
         if self.flush_on_shutdown:
             register_atexit(client, shutdown_timeout)
+        # App metadata (POST /v1/metadata), once per process, off-thread.
+        start_wsgi_metadata(self)
 
     def __call__(self, environ: dict[str, Any], start_response: Callable) -> Any:
         # Excluded requests go straight to the app: no wrapping, no body buffering.

@@ -274,3 +274,213 @@ def resolve_endpoint_path(
     if parametrize and parametrize_enabled():
         return parametrize_path(raw_path)
     return raw_path
+
+
+# ── Route discovery (app metadata) ──────────────────────────────────────────
+#
+# The resolvers above map ONE request to its template. The functions below
+# list EVERY route an app declares, once at startup, for the ``/v1/metadata``
+# report (endpoints with zero traffic, the app settings page). Templates are
+# spelled the way the per-request resolvers spell them, so a listed route and
+# its traffic group under the same endpoint.
+
+#: Most route templates reported per app; the ingest edge keeps the same cap.
+MAX_METADATA_ROUTES = 2000
+
+# Methods frameworks add implicitly (HEAD next to GET, OPTIONS everywhere).
+_IMPLICIT_METHODS = frozenset({"HEAD", "OPTIONS"})
+#: Method reported for a route that accepts any method (Django function views).
+ANY_METHOD = "*"
+
+
+def _methods(methods: Any) -> list[str]:
+    """Sorted upper-case methods without the implicit HEAD/OPTIONS (kept
+    when they are the only ones declared)."""
+    names = sorted(
+        {(m.decode() if isinstance(m, bytes) else str(m)).upper() for m in methods or ()}
+    )
+    explicit = [m for m in names if m not in _IMPLICIT_METHODS]
+    return explicit or names
+
+
+def cap_routes(
+    routes: Any, limit: int = MAX_METADATA_ROUTES
+) -> list[dict[str, str]]:
+    """Normalise ``routes`` (``{"method", "path"}`` mappings): upper-case
+    methods, entries without a method or path and duplicates dropped, at most
+    ``limit`` kept."""
+    out: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for route in routes or ():
+        if not isinstance(route, dict):
+            continue
+        method = str(route.get("method") or "").strip().upper()
+        path = str(route.get("path") or "").strip()
+        if not method or not path or (method, path) in seen:
+            continue
+        if len(out) >= limit:
+            break
+        seen.add((method, path))
+        out.append({"method": method, "path": path})
+    return out
+
+
+def list_starlette_routes(routes: Any, prefix: str = "") -> list[dict[str, str]]:
+    """Every HTTP route in a Starlette/FastAPI route list, recursing Mounts.
+
+    Paths are ``mount prefix + route.path``, as ``starlette_route_template``
+    reports them. WebSocket routes (no methods) are skipped.
+    """
+    out: list[dict[str, str]] = []
+    for route in routes or ():
+        path = getattr(route, "path", "") or ""
+        methods = getattr(route, "methods", None)
+        if methods:
+            for method in _methods(methods):
+                out.append({"method": method, "path": prefix + path})
+            continue
+        # FastAPI 0.138+ keeps an included router as one entry that resolves
+        # its routes (full paths, prefixes applied) on demand.
+        contexts = getattr(route, "effective_route_contexts", None)
+        if callable(contexts):
+            try:
+                out.extend(list_starlette_routes(contexts(), prefix))
+            except Exception:
+                pass
+            continue
+        try:
+            sub = getattr(route, "routes", None)
+        except Exception:
+            sub = None
+        if sub:
+            out.extend(list_starlette_routes(sub, prefix + path))
+    return out
+
+
+def list_flask_routes(flask_app: Any) -> list[dict[str, str]]:
+    """Every rule in a Flask app's ``url_map`` except the static files rule."""
+    out: list[dict[str, str]] = []
+    for rule in flask_app.url_map.iter_rules():
+        if getattr(rule, "endpoint", "") == "static":
+            continue
+        path = _transform_flask_rule(rule.rule)
+        for method in _methods(getattr(rule, "methods", None)):
+            out.append({"method": method, "path": path})
+    return out
+
+
+def _django_view_methods(callback: Any) -> list[str]:
+    """Methods a Django view answers: DRF viewset actions, then the handlers
+    of a class-based view, else ``*`` (a function view takes any method)."""
+    actions = getattr(callback, "actions", None)
+    if isinstance(actions, dict) and actions:
+        return _methods(actions.keys())
+    view_class = getattr(callback, "view_class", None) or getattr(callback, "cls", None)
+    if view_class is not None:
+        names = getattr(view_class, "http_method_names", ()) or ()
+        declared = [
+            m for m in names if m != "options" and callable(getattr(view_class, m, None))
+        ]
+        if declared:
+            return _methods(declared)
+    return [ANY_METHOD]
+
+
+def _walk_django_patterns(patterns: Any, prefix: str, out: list[dict[str, str]]) -> None:
+    for entry in patterns or ():
+        pattern = getattr(entry, "pattern", None)
+        route = prefix + (str(pattern) if pattern is not None else "")
+        if hasattr(entry, "url_patterns"):  # URLResolver (include())
+            _walk_django_patterns(entry.url_patterns, route, out)
+            continue
+        path = _transform_django_route(route)
+        for method in _django_view_methods(getattr(entry, "callback", None)):
+            out.append({"method": method, "path": path})
+
+
+def list_django_routes(urlconf: Any = None) -> list[dict[str, str]]:
+    """Every pattern in the Django URLconf, spelled as
+    ``django_route_template`` reports it."""
+    from django.urls import get_resolver
+
+    out: list[dict[str, str]] = []
+    _walk_django_patterns(get_resolver(urlconf).url_patterns, "", out)
+    return out
+
+
+def list_litestar_routes(app: Any) -> list[dict[str, str]]:
+    """Every HTTP route of a Litestar app (``app.routes``)."""
+    out: list[dict[str, str]] = []
+    for route in getattr(app, "routes", None) or ():
+        methods = getattr(route, "methods", None)
+        if not methods:  # websocket routes and ASGI mounts
+            continue
+        for method in _methods(methods):
+            out.append({"method": method, "path": route.path})
+    return out
+
+
+def list_blacksheep_routes(app: Any) -> list[dict[str, str]]:
+    """Every route registered on a BlackSheep app's router."""
+    out: list[dict[str, str]] = []
+    router = getattr(app, "router", None)
+    for method, routes in (getattr(router, "routes", None) or {}).items():
+        for route in routes or ():
+            pattern = getattr(route, "pattern", b"")
+            path = pattern.decode() if isinstance(pattern, bytes) else str(pattern)
+            if path and path != "*":
+                for name in _methods([method]):
+                    out.append({"method": name, "path": path})
+    return out
+
+
+_FRAMEWORKS = ("fastapi", "starlette", "flask", "django", "litestar", "blacksheep")
+
+
+def framework_of(app: Any) -> str:
+    """Framework of ``app`` from its class or the nearest framework base class
+    (``fastapi``, ``starlette``, ``flask``, ``litestar``, ``blacksheep``); the
+    class's top-level package otherwise, "" for ``None``."""
+    if app is None:
+        return ""
+    for cls in type(app).__mro__:
+        root = (cls.__module__ or "").split(".", 1)[0]
+        if root in _FRAMEWORKS:
+            return root
+    return (type(app).__module__ or "").split(".", 1)[0]
+
+
+def list_app_routes(app: Any) -> list[dict[str, str]]:
+    """Every route ``app`` declares, by framework; ``[]`` when unknown."""
+    framework = framework_of(app)
+    if framework == "flask":
+        return list_flask_routes(app)
+    if framework == "litestar":
+        return list_litestar_routes(app)
+    if framework == "blacksheep":
+        return list_blacksheep_routes(app)
+    routes = getattr(app, "routes", None)
+    if isinstance(routes, (list, tuple)):  # Starlette / FastAPI app or Router
+        return list_starlette_routes(routes, getattr(app, "root_path", "") or "")
+    return []
+
+
+def find_app(inner: Any, max_depth: int = 32) -> Any:
+    """Walk a middleware chain (``.app`` attributes; the ``__self__`` of a
+    bound ``wsgi_app``) to the first object that declares routes."""
+    current = inner
+    for _ in range(max_depth):
+        if current is None:
+            return None
+        # A bound method: Flask's ``wsgi_app``, BlackSheep's ``asgi``.
+        owner = getattr(current, "__self__", None)
+        if owner is not None and (
+            hasattr(owner, "url_map") or framework_of(owner) == "blacksheep"
+        ):
+            return owner
+        if hasattr(current, "url_map") or isinstance(
+            getattr(current, "routes", None), (list, tuple)
+        ):
+            return current
+        current = getattr(current, "app", None)
+    return None

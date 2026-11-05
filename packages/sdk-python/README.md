@@ -36,6 +36,7 @@ That is the whole setup. No agent, no sidecar, no code changes to your handlers.
 - [Manual capture](#manual-capture)
 - [Reliability & performance](#reliability--performance)
 - [SDK health & stats](#sdk-health--stats)
+- [App metadata](#app-metadata)
 - [Deployment shapes](#deployment-shapes)
 - [Security & privacy](#security--privacy)
 - [Network requirements](#network-requirements)
@@ -484,6 +485,7 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `ca_bundle_path` | `""` | Custom CA bundle (PEM) for TLS verification; replaces the system trust store. |
 | `proxy_url` | `""` | Egress proxy for ingest traffic, e.g. `http://proxy.corp:3128` or `http://user:pass@proxy.corp:3128`. Falls back to env `APILENS_PROXY`, then `HTTPS_PROXY` / `HTTP_PROXY`. See [network requirements](#network-requirements). |
 | `enabled` | `True` | Master switch; `False` disables capture and the worker entirely. |
+| `send_metadata` | `True` | Report framework, versions, route templates and the effective capture config once per process start (`POST /v1/metadata`). Env `APILENS_SEND_METADATA=false` also turns it off. See [App metadata](#app-metadata). |
 | `on_stats` | `None` | `(ClientStats) -> None`, called on the flush thread every `flush_interval` with a stats snapshot, e.g. to export to Prometheus or StatsD. Exceptions are logged at DEBUG and ignored. See [SDK health & stats](#sdk-health--stats). |
 
 ### Middleware options
@@ -725,6 +727,66 @@ gauges, or as counters by sending the difference from the previous snapshot.
 `sent_records` grows; `failed_batches` or `dropped` rising with a non-empty
 `last_error` points at the cause (a 401 means a bad key; network errors mean egress
 is blocked, see [Network requirements](#network-requirements)).
+
+---
+
+## App metadata
+
+Once per process start, each middleware (FastAPI, Starlette, Flask, Django,
+Litestar, BlackSheep, plain ASGI/WSGI) sends one report to `POST /v1/metadata`.
+The dashboard uses it to list endpoints that have had no traffic yet and to
+show the SDK config the app actually runs with.
+
+- **When:** about 1 s after the middleware is built, from a daemon thread, so
+  routes registered later are included and startup is never blocked. Only the
+  first middleware per app and environment in a process sends; a forked
+  worker sends its own. Failures (408, 429, 5xx, network) are retried up to 3
+  times; anything else is logged once and dropped. Requests are never affected.
+- **Routes:** discovered from the framework (route table, `url_map` or
+  URLconf), spelled the same way as the endpoint grouping above, at most 2000.
+  Django function views, which accept any method, are reported as `*`.
+- **Turn it off:** `send_metadata=False` on `ApiLensConfig`, or env
+  `APILENS_SEND_METADATA=false`.
+
+```json
+{
+  "app_id": "orders-api",
+  "environment": "production",
+  "framework": "fastapi",
+  "framework_version": "0.115.0",
+  "python_version": "3.13.1",
+  "sdk_version": "0.5.0",
+  "routes": [{"method": "GET", "path": "/orders/{order_id}"}],
+  "config": {
+    "capture_headers": true, "capture_request_body": true, "capture_response_body": true,
+    "max_payload_bytes": 65536, "capture_spans": true,
+    "capture_ip": true, "anonymize_ip": false,
+    "redact_query_params": ["...built-ins", "^card_number$"],
+    "redact_headers": ["...built-ins"],
+    "redact_body_fields": ["...built-ins", "^ssn$"],
+    "default_exclusions": true,
+    "exclude_paths": ["...built-ins", "^/internal/"],
+    "exclude_user_agents": ["...built-ins"],
+    "sample_rate": 1.0, "parametrize_paths": true,
+    "batch_size": 200, "flush_interval": 3.0, "max_queue_size": 10000,
+    "max_queue_bytes": 67108864, "max_batch_bytes": 4194304, "max_retries": 3,
+    "compress": true, "proxy": false, "custom_ca": false, "verify_tls": true,
+    "callbacks": {"mask_request_body": true, "mask_response_body": false,
+                  "mask_log_record": false, "get_consumer": false, "on_stats": false}
+  }
+}
+```
+
+`project_slug` is added when configured. `config` is the effective config:
+built-in redaction patterns and exclusions are listed with yours, and env
+overrides (`APILENS_CAPTURE_IP`, `APILENS_ANONYMIZE_IP`,
+`APILENS_PARAMETRIZE_PATHS`, `APILENS_EXCLUDE_PATHS`...) are applied.
+
+**Never sent:** the API key (it only travels in the `X-API-Key` header), the
+proxy URL (it may hold credentials, so only `proxy: true/false`), the CA bundle
+path, and anything about a callback beyond whether it is set: no names, no
+source. Before posting, the SDK also removes any field named like an API key
+(`api_key`, `apiKey`, `api-key`) at any depth.
 
 ---
 
