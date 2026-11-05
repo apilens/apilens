@@ -1072,6 +1072,201 @@
         ],
         "type": "object"
       },
+      "EndpointConsumer": {
+        "additionalProperties": false,
+        "properties": {
+          "client_errors": {
+            "description": "Requests with a 4xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "consumer_id": {
+            "type": "string"
+          },
+          "consumer_name": {
+            "description": "Most recently reported name of the consumer.",
+            "type": "string"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_errors": {
+            "description": "Requests with a 5xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "successful": {
+            "description": "Requests with a status code below 400.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "consumer_id",
+          "consumer_name",
+          "requests",
+          "successful",
+          "client_errors",
+          "server_errors"
+        ],
+        "type": "object"
+      },
+      "EndpointRequestsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/EndpointRequestsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "bucket_seconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "consumers": {
+            "description": "Top consumers by requests (at most 10); requests without a consumer are left out.",
+            "items": {
+              "$ref": "#/components/schemas/EndpointConsumer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "points": {
+            "description": "One point per bucket of the range, zero-filled.",
+            "items": {
+              "$ref": "#/components/schemas/EndpointRequestsPoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "range": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/EndpointRequestsSummary"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "path",
+          "range",
+          "from",
+          "to",
+          "bucket_seconds",
+          "summary",
+          "points",
+          "consumers"
+        ],
+        "type": "object"
+      },
+      "EndpointRequestsPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "client_errors": {
+            "description": "Requests with a 4xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_errors": {
+            "description": "Requests with a 5xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "successful": {
+            "description": "Requests with a status code below 400.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ts": {
+            "description": "Start of the bucket.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "requests",
+          "successful",
+          "client_errors",
+          "server_errors"
+        ],
+        "type": "object"
+      },
+      "EndpointRequestsSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "client_errors": {
+            "description": "Requests with a 4xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requests_per_minute": {
+            "format": "double",
+            "type": "number"
+          },
+          "server_errors": {
+            "description": "Requests with a 5xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "successful": {
+            "description": "Requests with a status code below 400.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requests_per_minute",
+          "requests",
+          "successful",
+          "client_errors",
+          "server_errors"
+        ],
+        "type": "object"
+      },
       "EndpointsOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -7129,6 +7324,138 @@
           }
         ],
         "summary": "Deploy markers in a time range",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/endpoints/{method}/{path}/requests": {
+      "get": {
+        "operationId": "get-endpoint-requests",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "HTTP method, e.g. GET (case-insensitive).",
+            "in": "path",
+            "name": "method",
+            "required": true,
+            "schema": {
+              "description": "HTTP method, e.g. GET (case-insensitive).",
+              "pattern": "^[A-Za-z]{1,16}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests with a status code in this class.",
+            "explode": false,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "default": "all",
+              "description": "Only requests with a status code in this class.",
+              "enum": [
+                "all",
+                "2xx",
+                "3xx",
+                "4xx",
+                "5xx"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests from this consumer id; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "consumer",
+            "schema": {
+              "description": "Only requests from this consumer id; empty means all.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointRequestsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Endpoint requests: totals, status split over time and top consumers",
         "tags": [
           "Dashboard"
         ]
