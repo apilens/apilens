@@ -868,6 +868,82 @@ export interface DeployChanges {
   deploys: DeployChange[] | null;
 }
 
+/** Requests split by status class, as the consumers operations report them. */
+export interface StatusSplit {
+  requests: number;
+  /** Status below 400. */
+  successful: number;
+  client_errors: number;
+  server_errors: number;
+}
+
+/** The consumer group a consumer is in. */
+export interface ConsumerGroupRef {
+  id: string;
+  name: string;
+}
+
+/** Unique consumers in a period, split by whether they were first seen in it. */
+export interface ConsumerCounts {
+  consumers: number;
+  new: number;
+  returning: number;
+}
+
+/** One consumer of `GET /consumers` (#580), by requests. */
+export interface ConsumerRow extends StatusSplit {
+  consumer_id: string;
+  consumer_name: string;
+  /** Absent when the consumer is in no group. */
+  group?: ConsumerGroupRef | null;
+  first_seen: string;
+  last_seen: string;
+  /** First seen within the range. */
+  new: boolean;
+  /** Requests per bucket of the range, oldest first. */
+  sparkline: number[] | null;
+}
+
+/** `GET /consumers`. */
+export interface ConsumersList {
+  range: string;
+  from: string;
+  to: string;
+  bucket_seconds: number;
+  summary: ConsumerCounts;
+  /** Unique consumers per bucket; new means first seen within that bucket. */
+  points: (ConsumerCounts & { ts: string })[] | null;
+  consumers: ConsumerRow[] | null;
+}
+
+/** `GET /consumers/{consumer_id}`. */
+export interface ConsumerDetail {
+  consumer_id: string;
+  consumer_name: string;
+  group?: ConsumerGroupRef | null;
+  first_seen: string;
+  last_seen: string;
+  new: boolean;
+  range: string;
+  from: string;
+  to: string;
+  bucket_seconds: number;
+  summary: StatusSplit & { requests_per_minute: number };
+  points: (StatusSplit & { ts: string })[] | null;
+  recent_requests: RequestRow[] | null;
+  recent_errors: RequestRow[] | null;
+}
+
+/** One group of `GET /projects/{slug}/consumer-groups`. */
+export interface ConsumerGroup {
+  id: string;
+  name: string;
+  /** How many consumers are assigned to it. */
+  consumers: number;
+  created_at: string;
+  updated_at: string;
+}
+
 /** An app of a project, as `GET /project` lists it. */
 export interface NamedApp {
   id: string;
@@ -1119,6 +1195,28 @@ export function createClient(config: ClientConfig) {
       request<{ endpoints: EndpointTraffic[] | null }>("GET", "/traffic/endpoints", { ...o, query: { project: projectSlug, ...q } }),
     deployChanges: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
       request<DeployChanges>("GET", "/deploys/changes", { ...o, query: { project: projectSlug, ...q } }),
+    listConsumers: (projectSlug: string, q: { range?: QueryRange; group?: string; limit?: number }, o: Authed) =>
+      request<ConsumersList>("GET", "/consumers", { ...o, query: { project: projectSlug, ...q } }),
+    getConsumer: (projectSlug: string, consumerId: string, q: { range?: QueryRange }, o: Authed) =>
+      request<ConsumerDetail>("GET", `/consumers/${seg(consumerId)}`, { ...o, query: { project: projectSlug, ...q } }),
+
+    // api: consumer groups (#580) ----------------------------------------------------------
+    listConsumerGroups: (projectSlug: string, o: Authed) =>
+      request<{ groups: ConsumerGroup[] | null }>("GET", `/projects/${seg(projectSlug)}/consumer-groups`, o),
+    createConsumerGroup: (projectSlug: string, name: string, o: Authed) =>
+      request<ConsumerGroup>("POST", `/projects/${seg(projectSlug)}/consumer-groups`, { ...o, body: { name } }),
+    renameConsumerGroup: (projectSlug: string, id: string, name: string, o: Authed) =>
+      request<ConsumerGroup>("PUT", `/projects/${seg(projectSlug)}/consumer-groups/${seg(id)}`, { ...o, body: { name } }),
+    deleteConsumerGroup: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("DELETE", `/projects/${seg(projectSlug)}/consumer-groups/${seg(id)}`, o),
+    assignConsumerGroup: (projectSlug: string, consumerId: string, groupId: string, o: Authed) =>
+      request<{ consumer_id: string; group: ConsumerGroupRef; assigned_at: string }>(
+        "PUT",
+        `/projects/${seg(projectSlug)}/consumers/${seg(consumerId)}/group`,
+        { ...o, body: { group_id: groupId } },
+      ),
+    unassignConsumerGroup: (projectSlug: string, consumerId: string, o: Authed) =>
+      request<void>("DELETE", `/projects/${seg(projectSlug)}/consumers/${seg(consumerId)}/group`, o),
 
     projectApps: (projectSlug: string, o: Authed) =>
       request<ProjectApps>("GET", "/project", { ...o, query: { project: projectSlug } }),

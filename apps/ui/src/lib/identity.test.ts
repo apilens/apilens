@@ -404,6 +404,14 @@ describe("operations", () => {
     ["GET", "/traffic/summary", (c) => c.trafficSummary("web", "7d", authed)],
     ["GET", "/traffic/endpoints", (c) => c.listEndpoints("web", { range: "7d" }, authed)],
     ["GET", "/deploys/changes", (c) => c.deployChanges("web", { range: "7d" }, authed)],
+    ["GET", "/consumers", (c) => c.listConsumers("web", { range: "7d" }, authed)],
+    ["GET", "/consumers/{consumer_id}", (c) => c.getConsumer("web", "a/b?c", { range: "7d" }, authed)],
+    ["GET", "/projects/{slug}/consumer-groups", (c) => c.listConsumerGroups("a/b?c", authed)],
+    ["POST", "/projects/{slug}/consumer-groups", (c) => c.createConsumerGroup("a/b?c", "Partners", authed)],
+    ["PUT", "/projects/{slug}/consumer-groups/{id}", (c) => c.renameConsumerGroup("a/b?c", "a/b?c", "Partners", authed)],
+    ["DELETE", "/projects/{slug}/consumer-groups/{id}", (c) => c.deleteConsumerGroup("a/b?c", "a/b?c", authed)],
+    ["PUT", "/projects/{slug}/consumers/{consumer_id}/group", (c) => c.assignConsumerGroup("a/b?c", "a/b?c", "g1", authed)],
+    ["DELETE", "/projects/{slug}/consumers/{consumer_id}/group", (c) => c.unassignConsumerGroup("a/b?c", "a/b?c", authed)],
   ];
 
   it.each(routes)("%s %s", async (method, template, call) => {
@@ -434,11 +442,15 @@ describe("operations", () => {
     await client.trafficSummary("my-api", "24h", authed);
     await client.listEndpoints("my-api", { range: "7d", limit: 500 }, authed);
     await client.deployChanges("my-api", { range: "7d", limit: 25 }, authed);
+    await client.listConsumers("my-api", { range: "6h", group: "g1", limit: 100 }, authed);
+    await client.getConsumer("my-api", "acme", { range: "1h" }, authed);
     expect(calls.map((c) => Object.fromEntries(new URL(c.url).searchParams))).toEqual([
       { project: "my-api", range: "7d", limit: "10" },
       { project: "my-api", range: "24h" },
       { project: "my-api", range: "7d", limit: "500" },
       { project: "my-api", range: "7d", limit: "25" },
+      { project: "my-api", range: "6h", group: "g1", limit: "100" },
+      { project: "my-api", range: "1h" },
     ]);
     expect(calls.every((c) => c.headers.get("authorization") === "Bearer jwt")).toBe(true);
   });
