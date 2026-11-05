@@ -63,6 +63,7 @@
               "sdk-reference/masking",
               "sdk-reference/sampling",
               "sdk-reference/exclusions",
+              "sdk-reference/delivery",
               "sdk-reference/tracing"
             ]
           },

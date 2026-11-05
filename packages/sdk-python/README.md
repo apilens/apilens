@@ -808,6 +808,10 @@ backpressure and `client.drop_counts()` breaks that total down by reason (see
 
 ## Reliability & performance
 
+Sizing the queue and batches for your traffic, the memory math, shutdown,
+serverless and proxies are covered end to end in the
+[Delivery reference](https://apilens.ai/docs/sdk-reference/delivery).
+
 - **Non-blocking.** Capture only enqueues; all I/O happens on a background daemon
   thread. Ingest latency and outages never slow or fail your requests.
 - **Bounded memory.** Queued records are capped both by count
