@@ -9,6 +9,7 @@ from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.trace import SpanKind, StatusCode
 
+from ._capture import apply_ip_policy
 from .client import ApiLensClient
 from .models import RequestRecord, SpanRecord
 from .spans import env_spans_enabled
@@ -141,7 +142,11 @@ class ApiLensSpanExporter(SpanExporter):
 
             ip_address = ""
             if self.capture_client_ip:
-                ip_address = str(_pick_attr(attrs, _HTTP_IP_KEYS, "") or "")
+                ip_address = apply_ip_policy(
+                    str(_pick_attr(attrs, _HTTP_IP_KEYS, "") or ""),
+                    capture_ip=getattr(self.client.config, "capture_ip", True),
+                    anonymize=getattr(self.client.config, "anonymize_ip", False),
+                )
 
             user_agent = ""
             if self.capture_user_agent:

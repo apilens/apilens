@@ -65,6 +65,8 @@ def _get_client_from_settings() -> ApiLensClient:
         commit=str(getattr(settings, "APILENS_COMMIT", "") or ""),
         batch_size=int(getattr(settings, "APILENS_BATCH_SIZE", 200)),
         flush_interval=float(getattr(settings, "APILENS_FLUSH_INTERVAL", 3.0)),
+        capture_ip=bool(getattr(settings, "APILENS_CAPTURE_IP", True)),
+        anonymize_ip=bool(getattr(settings, "APILENS_ANONYMIZE_IP", False)),
     )
     _client_singleton = ApiLensClient(cfg)
     return _client_singleton

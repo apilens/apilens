@@ -35,6 +35,8 @@ client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
 | `retry_backoff_base` | `0.25` | Exponential backoff base (seconds). |
 | `retry_backoff_max` | `5.0` | Backoff ceiling (seconds). |
 | `enabled` | `True` | Master kill switch — `False` disables capture and the background worker. |
+| `capture_ip` | `True` | `False` sends no client IP at all. See [Client IP](/getting-started/data-privacy#client-ip-capture_ip-and-anonymize_ip). |
+| `anonymize_ip` | `False` | Truncate client IPs in-process: IPv4 to /24 (last octet zeroed), IPv6 to /48. |
 | `ingest_path` / `spans_path` / `logs_path` | `"/requests"` / `"/traces"` / `"/logs"` | Endpoint paths, relative to `base_url`. |
 
 ## Middleware options (capture)
@@ -62,12 +64,14 @@ Accepted by `ApiLensMiddleware` (FastAPI), `instrument_app`/`instrument_flask`, 
 
 ## Environment variables
 
-Two variables act as **deploy-time kill switches** that override code (they can only turn features *off*):
+These variables act as **deploy-time kill switches** that override code (they can only tighten capture, never loosen it):
 
 | Variable | Effect |
 |---|---|
 | `APILENS_CAPTURE_SPANS` | `0`/`false`/`no`/`off`/`disabled` disables all span and error-trace capture. |
 | `APILENS_PARAMETRIZE_PATHS` | `0`/`false`/`no`/`off` disables the heuristic templating fallback. |
+| `APILENS_CAPTURE_IP` | `0`/`false`/`no`/`off`/`disabled` stops sending client IPs. |
+| `APILENS_ANONYMIZE_IP` | `1`/`true`/`yes`/`on`/`enabled` anonymises client IPs (IPv4 /24, IPv6 /48). |
 
 Django reads its entire configuration from settings instead — `APILENS_API_KEY`, `APILENS_APP_ID` (both required) and the optional set listed in the [Django guide](/setup-guides/django).
 
