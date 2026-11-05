@@ -29,6 +29,26 @@ DROP_QUEUE_BYTES = "queue_bytes"  # memory cap (max_queue_bytes) hit
 DROP_NON_RETRYABLE = "non_retryable"  # ingest rejected the batch with a 4xx
 DROP_RETRIES_EXHAUSTED = "retries_exhausted"  # batch still failing after max_retries
 DROP_REASONS = (DROP_QUEUE_FULL, DROP_QUEUE_BYTES, DROP_NON_RETRYABLE, DROP_RETRIES_EXHAUSTED)
+# Not a drop: a single record over ``max_batch_bytes`` was cut down (payloads
+# first) and still delivered. Reported by ``drop_counts()`` but not counted in
+# ``dropped_count``.
+DROP_TRUNCATED = "truncated"
+
+# Floor for ``max_batch_bytes``: room for one record with its variable-length
+# fields truncated (ids, scalars and field names stay intact).
+MIN_BATCH_BYTES = 16 * 1024
+# Appended to a string field cut down to fit ``max_batch_bytes``.
+TRUNCATION_MARKER = "...[truncated]"
+# Wire fields shrunk first when one record exceeds ``max_batch_bytes``, in
+# order; then attribute maps, then any other string field (largest first).
+_TRUNCATE_FIRST = (
+    "request_payload",
+    "response_payload",
+    "payload",
+    "request_headers",
+    "response_headers",
+    "message",
+)
 
 # Env fallback for ``ApiLensConfig.proxy_url``.
 ENV_PROXY = "APILENS_PROXY"
@@ -152,6 +172,54 @@ def estimate_record_bytes(record: RequestRecord | SpanRecord | LogRecord) -> int
     return RECORD_OVERHEAD_BYTES + variable
 
 
+def _dumps(obj) -> bytes:
+    return json.dumps(obj, separators=(",", ":")).encode("utf-8")
+
+
+def _envelope(key: str, records: list) -> bytes:
+    """``{"<key>":[...]}`` from records or already-encoded records (bytes)."""
+    items = [r if isinstance(r, bytes) else _dumps(r.to_wire()) for r in records]
+    return b'{"' + key.encode("ascii") + b'":[' + b",".join(items) + b"]}"
+
+
+def _shrink(value: str, excess: int) -> str:
+    """Cut ``value`` so its JSON encoding loses at least ``excess`` bytes.
+    Every character encodes to >= 1 byte, so dropping ``excess`` characters
+    (plus room for the marker) is always enough."""
+    keep = len(value) - excess - len(TRUNCATION_MARKER)
+    if keep <= 0:
+        return ""
+    return value[:keep] + TRUNCATION_MARKER
+
+
+def _truncate_wire(wire: dict, budget: int) -> bytes:
+    """Encode ``wire`` in at most ``budget`` bytes, shrinking payloads first,
+    then headers and message, then attribute maps, then any other string
+    field (largest first)."""
+    encoded = _dumps(wire)
+    strings = [k for k in _TRUNCATE_FIRST if isinstance(wire.get(k), str)]
+    rest = sorted(
+        (k for k, v in wire.items() if isinstance(v, str) and k not in _TRUNCATE_FIRST),
+        key=lambda k: len(wire[k]),
+        reverse=True,
+    )
+    maps = [k for k, v in wire.items() if isinstance(v, dict)]
+
+    def shrink(field: str) -> None:
+        nonlocal encoded
+        if len(encoded) <= budget or not wire[field]:
+            return
+        if isinstance(wire[field], dict):
+            wire[field] = {}
+        else:
+            wire[field] = _shrink(wire[field], len(encoded) - budget)
+        encoded = _dumps(wire)
+
+    for field in (*strings, *maps, *rest):
+        shrink(field)
+    return encoded
+
+
 def _detect_release() -> str:
     return (os.getenv("APILENS_RELEASE") or "").strip()
 
@@ -182,6 +250,11 @@ class ApiLensConfig:
     commit: str = ""
 
     batch_size: int = 200
+    # Cap on one POST's JSON body (uncompressed, which is also what the ingest
+    # edge's ``ingest.max_body_bytes`` limits). A batch is cut at
+    # ``batch_size`` records or ``max_batch_bytes``, whichever comes first; a
+    # single record over the cap is truncated (payloads first), never dropped.
+    max_batch_bytes: int = 4 * 1024 * 1024
     flush_interval: float = 3.0
     timeout: float = 5.0
     verify_tls: bool = True
@@ -258,6 +331,8 @@ class ApiLensClient:
 
         if config.batch_size <= 0:
             raise ValueError("batch_size must be > 0")
+        if config.max_batch_bytes < MIN_BATCH_BYTES:
+            raise ValueError(f"max_batch_bytes must be >= {MIN_BATCH_BYTES}")
         if config.max_queue_size <= 0:
             raise ValueError("max_queue_size must be > 0")
         if config.max_queue_bytes <= 0:
@@ -278,7 +353,7 @@ class ApiLensClient:
         self._stop = threading.Event()
         self._wakeup = threading.Event()
         self._thread: threading.Thread | None = None
-        self._drops: dict[str, int] = dict.fromkeys(DROP_REASONS, 0)
+        self._drops: dict[str, int] = dict.fromkeys((*DROP_REASONS, DROP_TRUNCATED), 0)
         # status -> monotonic time its rejection was last logged.
         self._non_retryable_logged_at: dict[int, float] = {}
 
@@ -311,13 +386,15 @@ class ApiLensClient:
 
     @property
     def dropped_count(self) -> int:
-        """Total records dropped for any reason (sum of ``drop_counts()``)."""
+        """Total records dropped for any reason (sum of ``drop_counts()``,
+        excluding ``truncated``: those records were still sent)."""
         with self._lock:
-            return sum(self._drops.values())
+            return sum(self._drops[reason] for reason in DROP_REASONS)
 
     def drop_counts(self) -> dict[str, int]:
         """Records dropped so far, by reason: ``queue_full``, ``queue_bytes``,
-        ``non_retryable`` and ``retries_exhausted``."""
+        ``non_retryable`` and ``retries_exhausted``; plus ``truncated``, the
+        records cut down to fit ``max_batch_bytes`` (sent, not dropped)."""
         with self._lock:
             return dict(self._drops)
 
@@ -487,18 +564,18 @@ class ApiLensClient:
 
     def flush_once(self) -> int:
         total = 0
-        batch = self._pop_batch(self.config.batch_size)
-        # A failed batch is dropped and logged by _send_batch_with_retry.
-        if batch and self._send_batch_with_retry(batch, self._send_batch):
-            total += len(batch)
-
-        span_batch = self._pop_span_batch(self.config.batch_size)
-        if span_batch and self._send_batch_with_retry(span_batch, self._send_span_batch):
-            total += len(span_batch)
-
-        log_batch = self._pop_log_batch(self.config.batch_size)
-        if log_batch and self._send_batch_with_retry(log_batch, self._send_log_batch):
-            total += len(log_batch)
+        size = self.config.batch_size
+        for popped, key, send in (
+            (self._pop_batch(size), "requests", self._send_batch),
+            (self._pop_span_batch(size), "spans", self._send_span_batch),
+            (self._pop_log_batch(size), "logs", self._send_log_batch),
+        ):
+            # The pop is bounded by the size estimate; the exact JSON split
+            # below guarantees no body exceeds max_batch_bytes. A failed chunk
+            # is dropped and logged by _send_batch_with_retry.
+            for chunk in self._split_by_bytes(popped, key):
+                if self._send_batch_with_retry(chunk, send):
+                    total += len(chunk)
         return total
 
     def flush_all(self) -> int:
@@ -529,10 +606,52 @@ class ApiLensClient:
         return self._pop_from(self._log_queue, size)
 
     def _pop_from(self, queue: deque, size: int) -> list:
+        """Pop up to ``size`` records whose estimated sizes fit in
+        ``max_batch_bytes`` (always at least one record)."""
+        max_bytes = self.config.max_batch_bytes
         with self._lock:
-            if not queue:
-                return []
-            return [self._popleft_locked(queue) for _ in range(min(size, len(queue)))]
+            sizes = self._sizes[id(queue)]
+            batch: list = []
+            used = 0
+            while queue and len(batch) < size:
+                if batch and used + sizes[0] > max_bytes:
+                    break
+                used += sizes[0]
+                batch.append(self._popleft_locked(queue))
+            return batch
+
+    def _split_by_bytes(self, batch: list, key: str) -> list[list[bytes]]:
+        """Encode ``batch`` and group it into chunks whose JSON body
+        (``{"<key>":[...]}``) is at most ``max_batch_bytes``. A record that
+        cannot fit even alone is truncated (``truncated`` counter)."""
+        if not batch:
+            return []
+        max_bytes = self.config.max_batch_bytes
+        envelope = len(_envelope(key, []))
+        chunks: list[list[bytes]] = []
+        current: list[bytes] = []
+        used = envelope
+        for record in batch:
+            encoded = _dumps(record.to_wire())
+            if envelope + len(encoded) > max_bytes:
+                encoded = _truncate_wire(record.to_wire(), max_bytes - envelope)
+                with self._lock:
+                    self._drops[DROP_TRUNCATED] += 1
+                logger.debug(
+                    "API Lens record exceeded max_batch_bytes=%d; truncated to %d bytes",
+                    max_bytes,
+                    len(encoded),
+                )
+            extra = len(encoded) + (1 if current else 0)  # "," separator
+            if current and used + extra > max_bytes:
+                chunks.append(current)
+                current, used = [], envelope
+                extra = len(encoded)
+            current.append(encoded)
+            used += extra
+        if current:
+            chunks.append(current)
+        return chunks
 
     def _send_batch_with_retry(self, batch, send=None) -> bool:
         """Send ``batch``; ``True`` on 2xx. 408/429/5xx/network errors retry up
@@ -609,17 +728,18 @@ class ApiLensClient:
             exc.body or "<empty body>",
         )
 
-    def _send_batch(self, batch: list[RequestRecord]) -> None:
-        self._post_json(self.config.ingest_path, {"requests": [r.to_wire() for r in batch]})
+    # ``batch`` is a list of records, or of already-encoded records (bytes)
+    # as produced by ``_split_by_bytes`` on the flush path.
+    def _send_batch(self, batch: list[RequestRecord] | list[bytes]) -> None:
+        self._post_body(self.config.ingest_path, _envelope("requests", batch))
 
-    def _send_span_batch(self, batch: list[SpanRecord]) -> None:
-        self._post_json(self.config.spans_path, {"spans": [s.to_wire() for s in batch]})
+    def _send_span_batch(self, batch: list[SpanRecord] | list[bytes]) -> None:
+        self._post_body(self.config.spans_path, _envelope("spans", batch))
 
-    def _send_log_batch(self, batch: list[LogRecord]) -> None:
-        self._post_json(self.config.logs_path, {"logs": [r.to_wire() for r in batch]})
+    def _send_log_batch(self, batch: list[LogRecord] | list[bytes]) -> None:
+        self._post_body(self.config.logs_path, _envelope("logs", batch))
 
-    def _post_json(self, path: str, payload: dict) -> None:
-        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    def _post_body(self, path: str, body: bytes) -> None:
         headers = {
             "Content-Type": "application/json",
             "X-API-Key": self.config.api_key,
@@ -629,8 +749,12 @@ class ApiLensClient:
             # Runs on the flush thread (or an explicit flush/shutdown), never
             # on the request path: capture only enqueues.
             try:
-                body = gzip.compress(body, compresslevel=GZIP_LEVEL)
-                headers["Content-Encoding"] = "gzip"
+                compressed = gzip.compress(body, compresslevel=GZIP_LEVEL)
+                # Incompressible data can grow by gzip's framing; never let
+                # that push a body past max_batch_bytes.
+                if len(compressed) < len(body):
+                    body = compressed
+                    headers["Content-Encoding"] = "gzip"
             except Exception as exc:  # identity fallback; never lose the batch
                 logger.debug("API Lens gzip failed, sending uncompressed: %s", exc)
 
