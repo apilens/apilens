@@ -1,3 +1,6 @@
+// Node builtins for the core (see runtime.ts); first, before the core runs.
+import "./node.js";
+
 export { ApiLensClient, DROP_REASONS } from "./client.js";
 export {
   CAPTURE_EVERYTHING,
@@ -105,6 +108,7 @@ export type {
   ApiLensConsumer,
   ApiLensDropReason,
   ApiLensExpressConfig,
+  ApiLensFlushMode,
   ApiLensLogRecord,
   ApiLensRecord,
   ApiLensRecordInput,

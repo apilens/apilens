@@ -20,6 +20,8 @@
  * error a handler throws so the error log of a 5xx carries its stack (Nest's
  * exception filter answers before Express / Fastify see the error).
  */
+// Node builtins for the core (see runtime.ts); first, before the core runs.
+import "./node.js";
 import type {
   CallHandler,
   DynamicModule,

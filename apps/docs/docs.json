@@ -48,6 +48,8 @@
               "setup-guides/express",
               "setup-guides/fastify",
               "setup-guides/nestjs",
+              "setup-guides/koa",
+              "setup-guides/hono",
               "setup-guides/spring-webflux",
               "setup-guides/other-frameworks"
             ]

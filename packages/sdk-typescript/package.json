@@ -1,7 +1,7 @@
 {
   "name": "apilens-js-sdk",
   "version": "0.1.1",
-  "description": "API Lens JavaScript SDK with Express, Fastify and NestJS adapters",
+  "description": "API Lens JavaScript SDK with Express, Fastify, NestJS, Koa and Hono adapters",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -54,6 +54,26 @@
         "default": "./dist/nestjs.cjs"
       }
     },
+    "./koa": {
+      "import": {
+        "types": "./dist/koa.d.ts",
+        "default": "./dist/koa.js"
+      },
+      "require": {
+        "types": "./dist/koa.d.cts",
+        "default": "./dist/koa.cjs"
+      }
+    },
+    "./hono": {
+      "import": {
+        "types": "./dist/hono.d.ts",
+        "default": "./dist/hono.js"
+      },
+      "require": {
+        "types": "./dist/hono.d.cts",
+        "default": "./dist/hono.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "typesVersions": {
@@ -66,6 +86,12 @@
       ],
       "nestjs": [
         "./dist/nestjs.d.ts"
+      ],
+      "koa": [
+        "./dist/koa.d.ts"
+      ],
+      "hono": [
+        "./dist/hono.d.ts"
       ]
     }
   },
@@ -79,8 +105,12 @@
   },
   "keywords": [
     "apilens",
+    "cloudflare-workers",
+    "edge",
     "express",
     "fastify",
+    "hono",
+    "koa",
     "monitoring",
     "nestjs",
     "sdk"
@@ -90,6 +120,8 @@
     "@nestjs/core": "^10 || ^11 || ^12",
     "express": "^4 || ^5",
     "fastify": "^4 || ^5",
+    "hono": "^4",
+    "koa": "^2 || ^3",
     "rxjs": "^7"
   },
   "peerDependenciesMeta": {
@@ -105,21 +137,32 @@
     "fastify": {
       "optional": true
     },
+    "hono": {
+      "optional": true
+    },
+    "koa": {
+      "optional": true
+    },
     "rxjs": {
       "optional": true
     }
   },
   "devDependencies": {
+    "@koa/bodyparser": "^6.1.0",
+    "@koa/router": "^15.7.1",
     "@nestjs/common": "^12.3.2",
     "@nestjs/core": "^12.3.2",
     "@nestjs/platform-express": "^12.3.2",
     "@nestjs/platform-fastify": "^12.3.2",
     "@types/express": "^5.0.0",
     "@types/express-serve-static-core": "^5.1.1",
+    "@types/koa": "^3.0.3",
     "@types/node": "^22.13.10",
     "@types/supertest": "^6.0.3",
     "express": "^5.1.0",
     "fastify": "^5.12.7",
+    "hono": "^4.13.16",
+    "koa": "^3.2.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "supertest": "^7.1.1",

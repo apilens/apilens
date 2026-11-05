@@ -1,0 +1,96 @@
+---
+title: "Hono"
+description: "Monitor a Hono API on Node, Bun, Deno, Cloudflare Workers or Vercel Edge with the APILens JavaScript SDK (beta)."
+---
+
+<Warning>
+The JavaScript SDK (`apilens-js-sdk`, v0.1.x) is **beta**. The Hono middleware is tested with Hono 4.
+</Warning>
+
+## Install
+
+```bash
+npm install apilens-js-sdk
+```
+
+## Add the middleware
+
+```typescript
+import { Hono } from "hono";
+import { instrumentHono } from "apilens-js-sdk/hono";
+
+const app = new Hono();
+
+instrumentHono(app, {
+  apiKey: "<your API key>",      // e.g. from a Workers secret or process.env.APILENS_API_KEY
+  appId: "storefront-api",       // the app's slug from your APILens project
+  environment: "production",
+});
+
+app.get("/orders/:id", (c) => c.json({ id: c.req.param("id") }));
+
+export default app;
+```
+
+Call `instrumentHono` **before** your routes. It is `app.use("*", apiLensHono(config))` plus your app's routes in the app metadata report; use `apiLensHono(config)` directly if you prefer to mount the middleware yourself.
+
+Requests are grouped by the Hono route that answered (`c.req.routePath`, including the base path of apps mounted with `app.route()`), so `/orders/42` and `/orders/43` both count towards `/orders/{id}`; a regex constraint such as `:id{[0-9]+}` is dropped from the template. Requests that no route answered (404s, or a catch-all middleware such as auth answering itself) are grouped by their path, with id-looking segments replaced. Request and response bodies are read from clones of the Fetch `Request` and `Response`, and only when they are captured.
+
+## Edge runtimes
+
+The `apilens-js-sdk/hono` entry point imports no `node:` module. It uses Node APIs only where the runtime has them, found by feature detection, and Web APIs otherwise:
+
+| Feature | With Node builtins | Without |
+|---|---|---|
+| Gzip of ingest requests | `node:zlib` | `CompressionStream` |
+| Trace and span ids | `node:crypto` | Web Crypto |
+| Trace context in handlers | `AsyncLocalStorage` | the synchronous part of the request only |
+| Outbound `http` / `fetch` spans | yes | no |
+
+<Note>
+On **Cloudflare Workers**, enable the `nodejs_compat` compatibility flag: the SDK's capture core uses `Buffer`. With the flag, Workers also provide `AsyncLocalStorage` and `node:zlib`.
+</Note>
+
+### Flush mode
+
+Edge runtimes do not run timers between requests, so on Cloudflare Workers, Vercel Edge and any runtime without Node's `process`, the middleware uses **inline flush mode**: the SDK starts no timer, and at the end of each request it sends that request's records, a heartbeat when one is due, and the app metadata report. That work is handed to `c.executionCtx.waitUntil()`, so the response is not held up.
+
+On runtimes that expose `waitUntil` somewhere else, pass it in:
+
+```typescript
+import { waitUntil } from "@vercel/functions";
+
+instrumentHono(app, { apiKey, appId: "storefront-api", waitUntil });
+```
+
+Without any `waitUntil`, inline mode finishes the work before the response is returned. On Node (`@hono/node-server`), Bun and Deno the middleware batches records from timers, like the other Node adapters. Set `flushMode: "inline"` or `"background"` to choose yourself.
+
+## Identify consumers
+
+Set the consumer on the context once your auth middleware knows who is calling:
+
+```typescript
+import { setConsumer } from "apilens-js-sdk/hono";
+
+app.use("*", async (c, next) => {
+  const user = c.get("user");
+  if (user) {
+    setConsumer(c, { id: user.id, name: user.email, group: user.plan });
+  }
+  await next();
+});
+```
+
+A string works too (`setConsumer(c, "acme-corp")`), or pass a centralized `getConsumer(c)` resolver in the config.
+
+## Errors
+
+An error thrown by a handler is caught by Hono (`app.onError`); the middleware reads it from `c.error` and sends it, with its stack, as the request's ERROR log.
+
+## Options
+
+The middleware takes the same options as the [Express middleware](/setup-guides/express) — delivery, header and body capture, redaction, exclusions, sampling and tracing — plus `flushMode` and `waitUntil`. Where the runtime has `process.env`, every option can also be set with its `APILENS_*` environment variable.
+
+## Verify
+
+Send a few requests and open the **Traffic** page — your Hono app's endpoints appear with their route templates alongside your other services in the project.

@@ -117,6 +117,9 @@ export type ApiLensLogRecord = {
   commit: string;
 };
 
+/** How the client delivers: from timers, or once per request (see `flushMode`). */
+export type ApiLensFlushMode = "background" | "inline";
+
 export type ApiLensClientConfig = {
   apiKey?: string;
   api_key?: string;
@@ -157,6 +160,13 @@ export type ApiLensClientConfig = {
   maxBatchBytes?: number;
   /** Gzip request bodies to ingest (default true). */
   compress?: boolean;
+  /**
+   * `"background"` (default): batches, heartbeats and the metadata report are
+   * sent from timers. `"inline"`: no timers at all; the adapter (Hono on an
+   * edge runtime) calls `client.flushInline()` at the end of each request,
+   * which sends what is queued plus a due heartbeat and the metadata report.
+   */
+  flushMode?: ApiLensFlushMode;
   maxRetries?: number;
   /** Full-jitter exponential backoff for 408/429/5xx/network errors. */
   retryBackoffBaseMs?: number;

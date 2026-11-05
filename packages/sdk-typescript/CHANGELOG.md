@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Koa middleware (`apilens-js-sdk/koa`: `apiLensKoa`, `instrumentKoa`,
+  `setConsumer`) with the route template from `@koa/router`'s
+  `ctx._matchedRoute` and the `routers` option's routes in the metadata report.
+- Hono middleware (`apilens-js-sdk/hono`: `apiLensHono`, `instrumentHono`,
+  `setConsumer`) with the route template from `c.req.routePath`, for Node,
+  Bun, Deno and edge runtimes. Its entry point imports no `node:` module.
+- Runtime feature detection (`src/runtime.ts`): the capture core finds Node
+  builtins at runtime (registered by the Node entry points, else
+  `process.getBuiltinModule`) and falls back to `CompressionStream`, Web
+  Crypto and a synchronous trace context without them.
+- `flushMode: "inline"` client option and `client.flushInline()`: no timers;
+  records, a due heartbeat and the metadata report are sent per request
+  (the Hono adapter's default on an edge runtime, via `waitUntil`).
+- `packageVersion()` also finds packages whose `exports` hide `package.json`.
+
 - Fastify plugin (`apilens-js-sdk/fastify`: `apiLensFastify`, `instrumentFastify`,
   `setConsumer`) on `onRequest` / `onSend` / `onError` / `onResponse`, with the
   route template from `request.routeOptions.url` and the app's routes in the

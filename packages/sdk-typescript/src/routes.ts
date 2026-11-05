@@ -12,6 +12,8 @@
  * off; framework templates are always used.
  */
 
+import { processEnv } from "./runtime.js";
+
 /** Env kill-switch for the heuristic fallback. */
 export const ENV_PARAMETRIZE_PATHS = "APILENS_PARAMETRIZE_PATHS";
 
@@ -61,7 +63,7 @@ export function parametrizePath(path: string): string {
 }
 
 /** False when `APILENS_PARAMETRIZE_PATHS` is `0`/`false`/`no`/`off`. */
-export function parametrizeEnabled(env: Record<string, string | undefined> = process.env): boolean {
+export function parametrizeEnabled(env: Record<string, string | undefined> = processEnv()): boolean {
   const raw = env[ENV_PARAMETRIZE_PATHS];
   if (raw === undefined) {
     return true;
