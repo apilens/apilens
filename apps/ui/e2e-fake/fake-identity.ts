@@ -91,11 +91,19 @@
 //                                                  one endpoint's detail reads (#593) as seeded, else empty;
 //                                                  every read is logged with its query
 //   POST /__fake/endpoint {project, method, path, tabs: {requests?, errors?, latency?, transfer?}}
-//                                                  test hook: what those answer; clears the log and the settings
+//                                                  test hook: what those answer; clears the log and that endpoint's settings
 //   GET  /__fake/endpoint-reads                    test hook: the logged reads [{tab, method, path, query}]
 //   GET|PUT /api/v1/apps/{id}/endpoints/{method}/{path}/settings
 //                                                  an endpoint's settings (#593): defaults until saved; PUT
 //                                                  answers 403 without capture.manage
+//   GET  /api/v1/errors/status?project=            the errors dashboard (#594), computed from the rows
+//   GET  /api/v1/errors/status/{code}?project=     `/__fake/errors` seeded: a status code an endpoint's
+//   GET  /api/v1/errors?project=                   saved settings (any app) mark as expected is no error
+//   POST /__fake/errors {project, buckets, requests, rows, down?}
+//                                                  test hook: bucket starts, requests per bucket and error
+//                                                  rows [{method, path, status_code, bucket, count, consumer_id?,
+//                                                  consumer_name?, validation_errors?, exceptions?}]; forgets
+//                                                  the settings of those endpoints; down: those reads answer 503
 //   GET  /api/v1/deploys/changes?project=          deploys with before/after numbers (#597), as seeded
 //   POST /__fake/deploys {project, deploys}        test hook: what that answers for `project`
 //   GET  /api/v1/consumers?project=&group=         consumers of shop (#596) as seeded, each with the group the
@@ -498,6 +506,37 @@ const endpointSeed = new Map<string, Record<string, unknown>>();
 const endpointReads: { tab: string; method: string; path: string; query: Record<string, string> }[] = [];
 /** "<app id> <METHOD> <path>" → the saved settings of that endpoint (#593). */
 const endpointSettings = new Map<string, Record<string, unknown>>();
+/** An error row the errors dashboard reads count (#594): `count` responses in bucket `bucket`. */
+type ErrorRow = {
+  method: string;
+  path: string;
+  status_code: number;
+  bucket: number;
+  count: number;
+  consumer_id?: string;
+  consumer_name?: string;
+  validation_errors?: number;
+  exceptions?: number;
+};
+/** Project slug → what the errors dashboard reads count (#594), as seeded by `/__fake/errors`. */
+const errorsSeed = new Map<string, { buckets: string[]; requests: number[]; rows: ErrorRow[]; down: boolean }>();
+
+/** Forgets the saved settings of one endpoint in every app. */
+function forgetSettings(method: string, path: string) {
+  for (const key of [...endpointSettings.keys()]) {
+    const [, m, ...rest] = key.split(" ");
+    if (m === method && rest.join(" ") === path) endpointSettings.delete(key);
+  }
+}
+
+/** Whether an endpoint's saved settings in any app mark `code` as expected (#593, #594). */
+function expectedFor(method: string, path: string, code: number): boolean {
+  for (const [key, saved] of endpointSettings) {
+    const [, m, ...rest] = key.split(" ");
+    if (m === method && rest.join(" ") === path && ((saved.expected_status_codes as number[] | undefined) ?? []).includes(code)) return true;
+  }
+  return false;
+}
 /** Project slug → what the consumers reads answer (#596), as seeded by `/__fake/consumers`. */
 const consumersSeed = new Map<
   string,
@@ -1415,7 +1454,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (Object.keys(tabs).length) endpointSeed.set(key, tabs);
     else endpointSeed.delete(key);
     endpointReads.length = 0;
-    endpointSettings.clear();
+    // Only this endpoint's settings: spec files run in parallel and others keep theirs (#594).
+    forgetSettings(String(b.method).toUpperCase(), String(b.path));
     return send(res, 204);
   }
   if (req.method === "GET" && path === "/__fake/endpoint-reads") return send(res, 200, { reads: endpointReads });
@@ -1493,6 +1533,122 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       ...detail?.request,
     };
     return send(res, 200, { request, spans: detail?.spans ?? [], logs: detail?.logs ?? [] });
+  }
+  // The errors dashboard (#594) over the seeded rows; same access rules as the traffic reads.
+  // Expected status codes of an endpoint are left out, as internal/query/error_status.go does.
+  const errorsStatus = path.match(/^\/api\/v1\/errors\/status(?:\/(\d{3}))?$/);
+  if (req.method === "GET" && (errorsStatus || path === "/api/v1/errors")) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = url.searchParams.get("project") ?? "";
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+    const seed = errorsSeed.get(slug) ?? { buckets: [], requests: [], rows: [], down: false };
+    // Only its own `down` seed: `/__fake/query-down` is shared with spec files running in parallel.
+    if (seed.down) return problem(res, 503, "unavailable");
+    const range = url.searchParams.get("range") ?? "24h";
+    const rows = seed.rows.filter((r) => !expectedFor(r.method, r.path, r.status_code));
+    const requests = seed.requests.reduce((a, b) => a + b, 0);
+    const lastSeen = (list: ErrorRow[]) => seed.buckets[Math.max(...list.map((r) => r.bucket))] ?? "";
+    const firstSeen = (list: ErrorRow[]) => seed.buckets[Math.min(...list.map((r) => r.bucket))] ?? "";
+    const sum = (list: ErrorRow[], f: (r: ErrorRow) => number = (r) => r.count) => list.reduce((a, r) => a + f(r), 0);
+    const consumers = (list: ErrorRow[]) => new Set(list.filter((r) => r.consumer_id).map((r) => r.consumer_id)).size;
+    const groupBy = <K,>(list: ErrorRow[], key: (r: ErrorRow) => K) => {
+      const out = new Map<K, ErrorRow[]>();
+      for (const r of list) out.set(key(r), [...(out.get(key(r)) ?? []), r]);
+      return [...out.entries()];
+    };
+    const split = (n: number, list: ErrorRow[]) => {
+      const client = sum(list.filter((r) => r.status_code < 500));
+      const server = sum(list.filter((r) => r.status_code >= 500));
+      return { requests: n, client_errors: client, server_errors: server, client_error_rate: n ? client / n : 0, server_error_rate: n ? server / n : 0 };
+    };
+    if (path === "/api/v1/errors") {
+      const groups = groupBy(rows, (r) => `${r.method} ${r.path} ${r.status_code}`).map(([, list]) => ({
+        method: list[0].method,
+        path: list[0].path,
+        status_code: list[0].status_code,
+        count: sum(list),
+        consumers: consumers(list),
+        last_seen: lastSeen(list),
+      }));
+      return send(res, 200, { errors: groups.sort((a, b) => b.count - a.count) });
+    }
+    const frame = { range, from: seed.buckets[0] ?? "", to: "", bucket_seconds: 900 };
+    if (errorsStatus && !errorsStatus[1]) {
+      const statuses = groupBy(rows, (r) => r.status_code)
+        .map(([code, list]) => ({
+          status_code: code,
+          count: sum(list),
+          share: requests ? sum(list) / requests : 0,
+          endpoints: new Set(list.map((r) => `${r.method} ${r.path}`)).size,
+          consumers: consumers(list),
+          first_seen: firstSeen(list),
+          last_seen: lastSeen(list),
+        }))
+        .sort((a, b) => b.count - a.count || a.status_code - b.status_code);
+      return send(res, 200, {
+        ...frame,
+        summary: split(requests, rows),
+        points: seed.buckets.map((ts, i) => ({ ts, ...split(seed.requests[i] ?? 0, rows.filter((r) => r.bucket === i)) })),
+        series: statuses.map((st) => ({ status_code: st.status_code, counts: seed.buckets.map((_, i) => sum(rows.filter((r) => r.bucket === i && r.status_code === st.status_code))) })),
+        statuses,
+      });
+    }
+    const code = Number(errorsStatus?.[1]);
+    if (code < 400 || code > 599) return problem(res, 422, "validation_failed");
+    const match = rows.filter((r) => r.status_code === code);
+    const occurrences = sum(match);
+    const hours = { "1h": 1, "6h": 6, "24h": 24, "7d": 168 }[range] ?? 24;
+    return send(res, 200, {
+      ...frame,
+      status_code: code,
+      occurrences,
+      requests,
+      share: requests ? occurrences / requests : 0,
+      per_hour: occurrences / hours,
+      consumers: consumers(match),
+      anonymous: sum(match.filter((r) => !r.consumer_id)),
+      endpoints: new Set(match.map((r) => `${r.method} ${r.path}`)).size,
+      first_seen: occurrences ? firstSeen(match) : null,
+      last_seen: occurrences ? lastSeen(match) : null,
+      points: seed.buckets.map((ts, i) => ({ ts, count: sum(match.filter((r) => r.bucket === i)) })),
+      endpoint_breakdown: groupBy(match, (r) => `${r.method} ${r.path}`)
+        .map(([, list]) => ({
+          method: list[0].method,
+          path: list[0].path,
+          count: sum(list),
+          consumers: consumers(list),
+          last_seen: lastSeen(list),
+          validation_errors: sum(list, (r) => r.validation_errors ?? 0),
+          exceptions: sum(list, (r) => r.exceptions ?? 0),
+        }))
+        .sort((a, b) => b.count - a.count),
+      consumer_breakdown: groupBy(
+        match.filter((r) => r.consumer_id),
+        (r) => r.consumer_id,
+      )
+        .map(([id, list]) => ({
+          consumer_id: id,
+          consumer_name: list[list.length - 1].consumer_name ?? "",
+          count: sum(list),
+          share: occurrences ? sum(list) / occurrences : 0,
+          first_seen: firstSeen(list),
+          last_seen: lastSeen(list),
+        }))
+        .sort((a, b) => b.count - a.count),
+    });
+  }
+  if (req.method === "POST" && path === "/__fake/errors") {
+    // Test hook: what the errors dashboard reads count for `project`; forgets the settings of its endpoints.
+    const b = await readBody(req);
+    errorsSeed.set(String(b.project), {
+      buckets: (b.buckets as string[] | undefined) ?? [],
+      requests: (b.requests as number[] | undefined) ?? [],
+      rows: (b.rows as ErrorRow[] | undefined) ?? [],
+      down: b.down === true,
+    });
+    for (const r of (b.rows as ErrorRow[] | undefined) ?? []) forgetSettings(r.method, r.path);
+    return send(res, 204);
   }
   // The query role's dashboard reads as a session (#295, #335): the project in `?project=`; a
   // project the user cannot view answers 404, as internal/query does.

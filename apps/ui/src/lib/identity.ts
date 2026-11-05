@@ -1291,6 +1291,87 @@ export interface PutEndpointSettingsRequest {
   excluded: boolean;
 }
 
+// Errors dashboard, status-centric (#581), read by the Errors page (#594). Expected status codes
+// of each endpoint are not errors and excluded endpoints are left out, as on every dashboard read.
+
+/** An error status code over the range: `GET /errors/status` → statuses. */
+export interface ErrorStatusRow {
+  status_code: number;
+  count: number;
+  /** count / requests of the range. */
+  share: number;
+  endpoints: number;
+  consumers: number;
+  first_seen: string;
+  last_seen: string;
+}
+
+/** `GET /errors/status`. */
+export interface ErrorStatuses {
+  range: string;
+  from: string;
+  to: string;
+  bucket_seconds: number;
+  summary: ErrorSplit;
+  points: (ErrorSplit & { ts: string })[] | null;
+  /** Occurrences of each error status code per bucket, aligned with points, in statuses order. */
+  series: { status_code: number; counts: number[] | null }[] | null;
+  statuses: ErrorStatusRow[] | null;
+}
+
+/** An endpoint that answered with the status code: `GET /errors/status/{code}` → endpoint_breakdown. */
+export interface ErrorStatusEndpoint {
+  method: string;
+  path: string;
+  count: number;
+  consumers: number;
+  last_seen: string;
+  validation_errors: number;
+  exceptions: number;
+}
+
+/** A consumer that got the status code: `GET /errors/status/{code}` → consumer_breakdown. */
+export interface ErrorStatusConsumer {
+  consumer_id: string;
+  consumer_name: string;
+  count: number;
+  /** count / occurrences. */
+  share: number;
+  first_seen: string;
+  last_seen: string;
+}
+
+/** `GET /errors/status/{code}`. */
+export interface ErrorStatusDetail {
+  status_code: number;
+  range: string;
+  from: string;
+  to: string;
+  bucket_seconds: number;
+  occurrences: number;
+  requests: number;
+  share: number;
+  per_hour: number;
+  consumers: number;
+  anonymous: number;
+  endpoints: number;
+  first_seen: string | null;
+  last_seen: string | null;
+  points: { ts: string; count: number }[] | null;
+  endpoint_breakdown: ErrorStatusEndpoint[] | null;
+  consumer_breakdown: ErrorStatusConsumer[] | null;
+}
+
+/** Failed requests grouped by endpoint and status: `GET /errors` → errors. */
+export interface ErrorGroup {
+  method: string;
+  path: string;
+  status_code: number;
+  count: number;
+  consumers: number;
+  last_seen: string;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Operations
 
@@ -1528,6 +1609,14 @@ export function createClient(config: ClientConfig) {
       request<EndpointSettings>("GET", `/apps/${seg(appId)}/endpoints/${seg(method)}/${seg(path)}/settings`, { ...o, query: { project: projectSlug } }),
     putEndpointSettings: (appId: string, method: string, path: string, body: PutEndpointSettingsRequest, o: Authed) =>
       request<EndpointSettings>("PUT", `/apps/${seg(appId)}/endpoints/${seg(method)}/${seg(path)}/settings`, { ...o, body }),
+
+    // query: the Errors dashboard (#581), read by the Errors page (#594) ---------------------
+    errorStatuses: (projectSlug: string, q: TrafficQuery, o: Authed) =>
+      request<ErrorStatuses>("GET", "/errors/status", { ...o, query: { project: projectSlug, ...trafficScope(q) } }),
+    errorStatus: (projectSlug: string, code: number, q: TrafficQuery, o: Authed) =>
+      request<ErrorStatusDetail>("GET", `/errors/status/${seg(String(code))}`, { ...o, query: { project: projectSlug, ...trafficScope(q) } }),
+    listErrors: (projectSlug: string, q: TrafficQuery, o: Authed) =>
+      request<{ errors: ErrorGroup[] | null }>("GET", "/errors", { ...o, query: { project: projectSlug, ...trafficScope(q) } }),
 
     // api: project privacy policy (#562, #599) -------------------------------------------
     getPrivacyPolicy: (projectSlug: string, o: Authed) =>

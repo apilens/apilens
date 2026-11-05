@@ -1,0 +1,61 @@
+/* Errors (#594), on top of traffic.css. Tokens from tokens.css only. Chart color carries meaning:
+   4xx --warn and 5xx --error, as on Traffic and the endpoint page. Every chart has a legend. */
+.er-tabs { padding: 0; margin-bottom: var(--space-6); overflow-x: auto; }
+.er-tabs a, .er-dtabs a { white-space: nowrap; }
+.er-tabs a:hover, .er-dtabs a:hover { color: var(--ink); }
+.er-tabs a:focus-visible, .er-dtabs a:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+
+.er-c-4xx { fill: var(--warn); background: var(--warn); }
+.er-c-5xx { fill: var(--error); background: var(--error); }
+
+.er-status { display: inline-block; padding: 1px 6px; border-radius: var(--radius-sm); font: 500 12px/18px var(--font-mono); color: var(--ink); }
+.er-status--4xx { background: var(--warn-soft); }
+.er-status--5xx { background: var(--error-soft); }
+.er-code-link { display: inline-flex; align-items: baseline; gap: var(--space-2); }
+.tr-row:hover .er-code-link span:last-child { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
+.er-code-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+
+/* The status code modal */
+.er-modal { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }
+.er-modal::backdrop { background: color-mix(in srgb, var(--bg) 55%, transparent); }
+.er-modal__in { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6); }
+.er-modal__head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); }
+.er-modal h2 { margin: 0; font: 600 18px/26px var(--font-sans); }
+.er-modal h3 { margin: 0 0 var(--space-3); font: 600 14px/20px var(--font-sans); }
+.er-modal__lead { margin: var(--space-1) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.er-done { margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--ok-soft); font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.er-done:empty { display: none; }
+.er-dtabs { padding: 0; overflow-x: auto; }
+.er-dpanel { min-width: 0; }
+.er-modal .tr-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: var(--space-4); }
+.er-modal .tr-tiles > div:nth-child(3) { border-left: 0; }
+.er-modal .tr-tiles > div:nth-child(n + 3) { border-top: 1px solid var(--border); }
+.er-modal .tr-table { border: 1px solid var(--border); border-radius: var(--radius-md); }
+.er-seen { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-6); margin: 0 0 var(--space-4); font: 400 13px/20px var(--font-sans); }
+.er-seen > div { display: flex; gap: var(--space-2); }
+.er-seen dt { color: var(--ink-muted); }
+.er-seen dd { margin: 0; }
+.er-note { margin: 0 0 var(--space-3); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+
+/* Details: one block per endpoint, with its pointers and the mark-as-expected action. */
+.er-eps { margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.er-ep { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); }
+.er-ep + .er-ep { border-top: 1px solid var(--border); }
+.er-ep__head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--space-1) var(--space-4); }
+.er-ep__name { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.er-ep__name b { font: 500 12px/18px var(--font-mono); color: var(--ink-muted); }
+.er-ep__name code { font: 400 13px/20px var(--font-mono); }
+.er-ep__facts, .er-ep__note { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.er-ep__note { margin-top: var(--space-1); }
+.er-ep__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.er-ep .cp-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.er-confirm { margin-top: var(--space-2); padding: var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-2); }
+.er-confirm__title { margin: 0; font: 600 13px/20px var(--font-sans); overflow-wrap: anywhere; }
+.er-confirm__body { margin: var(--space-1) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.er-err { margin: var(--space-2) 0 0; font: 400 13px/20px var(--font-sans); color: var(--error); }
+
+@media (max-width: 760px) {
+  .er-tabs, .er-dtabs { margin-left: calc(-1 * var(--space-4)); margin-right: calc(-1 * var(--space-4)); padding: 0 var(--space-4); }
+  .er-modal__in { padding: var(--space-4); }
+  .er-modal .tr-table { border: 0; }
+}
