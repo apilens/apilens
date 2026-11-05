@@ -330,7 +330,7 @@ func (q *Queries) GetNotificationChannel(ctx context.Context, arg GetNotificatio
 }
 
 const getOpenAlertEvent = `-- name: GetOpenAlertEvent :one
-SELECT id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment FROM alert_events
+SELECT id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment, health_check_id, details FROM alert_events
 WHERE rule_id = $1::uuid AND state = 'triggered'
 `
 
@@ -349,12 +349,14 @@ func (q *Queries) GetOpenAlertEvent(ctx context.Context, ruleID uuid.UUID) (Aler
 		&i.Kind,
 		&i.MonitorAppID,
 		&i.MonitorEnvironment,
+		&i.HealthCheckID,
+		&i.Details,
 	)
 	return i, err
 }
 
 const listAlertEvents = `-- name: ListAlertEvents :many
-SELECT e.id, e.rule_id, e.state, e.value, e.started_at, e.ended_at, e.notified_at, e.kind, e.monitor_app_id, e.monitor_environment, r.name AS rule_name, r.app_id, r.environment, r.metric
+SELECT e.id, e.rule_id, e.state, e.value, e.started_at, e.ended_at, e.notified_at, e.kind, e.monitor_app_id, e.monitor_environment, e.health_check_id, e.details, r.name AS rule_name, r.app_id, r.environment, r.metric
 FROM alert_events e
 JOIN alert_rules r ON r.id = e.rule_id
 WHERE r.project_id = $1
@@ -386,6 +388,8 @@ type ListAlertEventsRow struct {
 	Kind               string
 	MonitorAppID       *uuid.UUID
 	MonitorEnvironment *string
+	HealthCheckID      *uuid.UUID
+	Details            []byte
 	RuleName           string
 	AppID              uuid.UUID
 	Environment        string
@@ -422,6 +426,8 @@ func (q *Queries) ListAlertEvents(ctx context.Context, arg ListAlertEventsParams
 			&i.Kind,
 			&i.MonitorAppID,
 			&i.MonitorEnvironment,
+			&i.HealthCheckID,
+			&i.Details,
 			&i.RuleName,
 			&i.AppID,
 			&i.Environment,
@@ -864,7 +870,7 @@ const openAlertEvent = `-- name: OpenAlertEvent :one
 
 INSERT INTO alert_events (id, rule_id, value, started_at)
 VALUES ($1, $2::uuid, $3, $4)
-RETURNING id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment
+RETURNING id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment, health_check_id, details
 `
 
 type OpenAlertEventParams struct {
@@ -896,6 +902,8 @@ func (q *Queries) OpenAlertEvent(ctx context.Context, arg OpenAlertEventParams) 
 		&i.Kind,
 		&i.MonitorAppID,
 		&i.MonitorEnvironment,
+		&i.HealthCheckID,
+		&i.Details,
 	)
 	return i, err
 }
@@ -927,7 +935,7 @@ UPDATE alert_events
 SET state    = 'resolved',
     ended_at = $1::timestamptz
 WHERE id = $2 AND state = 'triggered'
-RETURNING id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment
+RETURNING id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment, health_check_id, details
 `
 
 type ResolveAlertEventParams struct {
@@ -950,6 +958,8 @@ func (q *Queries) ResolveAlertEvent(ctx context.Context, arg ResolveAlertEventPa
 		&i.Kind,
 		&i.MonitorAppID,
 		&i.MonitorEnvironment,
+		&i.HealthCheckID,
+		&i.Details,
 	)
 	return i, err
 }

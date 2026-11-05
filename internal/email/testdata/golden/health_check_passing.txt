@@ -1,0 +1,19 @@
+Subject: Health check passing: storefront <eu> (production)
+
+APILens
+
+The health check of storefront <eu> (production) is passing again: GET api.example.com/healthz answers 200.
+
+App: storefront <eu>
+Environment: production
+Check: GET api.example.com/healthz
+Failing since: Wed, 4 Nov 2026 09:30 UTC
+Passing again: Wed, 4 Nov 2026 09:41 UTC
+
+View the health check:
+https://app.example.com/shop/settings/health-checks
+
+You get this email because this address is on a notification channel of the project.
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.

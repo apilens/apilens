@@ -4,6 +4,7 @@ import { ChannelsSettings } from "@/components/alerts/channels";
 import { AppShell } from "@/components/app-shell";
 import { ApiKeysSettings } from "@/components/project-settings/api-keys";
 import { CaptureSettings, type CaptureLoad } from "@/components/project-settings/capture";
+import { HealthChecks, type HealthChecksLoad } from "@/components/project-settings/health-checks";
 import { IngestHealth, type IngestLoad } from "@/components/project-settings/ingest-health";
 import { PrivacySettings } from "@/components/project-settings/privacy";
 import { CHANNELS_SECTION } from "@/lib/alerts";
@@ -11,6 +12,7 @@ import { getContext, getSession } from "@/lib/auth/server";
 import { KEYS_SECTION } from "@/lib/api-keys";
 import { CAPTURE_SECTION } from "@/lib/capture-policy";
 import { PROJECT_SETTINGS } from "@/lib/data";
+import { EVENTS_SHOWN, HEALTH_CHECKS_SECTION } from "@/lib/health-checks";
 import { type ApiKey, type AppIngestStats, type NamedApp, type NotificationChannel, type PrivacyPolicy, identity, isApiError } from "@/lib/identity";
 import { INGEST_DAYS, INGEST_SECTION } from "@/lib/ingest-health";
 import { PRIVACY_SECTION } from "@/lib/privacy-policy";
@@ -19,7 +21,7 @@ import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 
 export const metadata: Metadata = { title: PROJECT_SETTINGS.label };
 
-const SECTIONS = ["", "environments", KEYS_SECTION, CAPTURE_SECTION, PRIVACY_SECTION, INGEST_SECTION, CHANNELS_SECTION, "sdk", "retention", "integrations", "danger"];
+const SECTIONS = ["", "environments", KEYS_SECTION, CAPTURE_SECTION, PRIVACY_SECTION, INGEST_SECTION, CHANNELS_SECTION, HEALTH_CHECKS_SECTION, "sdk", "retention", "integrations", "danger"];
 
 /** `GET /projects/{slug}/api-keys`, or null when the API could not answer (the card says so). */
 async function loadApiKeys(project: string, next: string): Promise<ApiKey[] | null> {
@@ -112,7 +114,38 @@ async function loadIngest(project: string, appSlug: string | undefined, next: st
   return { apps, app, stats, status };
 }
 
-// API keys (#350), capture (#598), privacy (#599), ingest health (#602) and alert channels (#610) have content; the other sections come later.
+/**
+ * The project's apps and environments, its health checks and each check's latest failures (#608).
+ * Each part is null when the API could not answer (the page says so).
+ */
+async function loadHealthChecks(project: string, next: string): Promise<HealthChecksLoad> {
+  const session = await getSession();
+  const attempt = async <T,>(fn: () => Promise<T>): Promise<T | null> => {
+    try {
+      return await fn();
+    } catch (err) {
+      if (isSessionExpired(err)) redirectToRefresh(next);
+      if (isApiError(err)) return null;
+      throw err;
+    }
+  };
+  const [listed, checked] = await Promise.all([
+    attempt(() => session.call((o) => identity().projectApps(project, o))),
+    attempt(() => session.call((o) => identity().listHealthChecks(project, o))),
+  ]);
+  const checks = checked ? (checked.health_checks ?? []) : null;
+  const events = Object.fromEntries(
+    await Promise.all(
+      (checks ?? []).map(async (c) => {
+        const got = await attempt(() => session.call((o) => identity().healthCheckEvents(project, c.id, EVENTS_SHOWN, o)));
+        return [c.id, got ? (got.events ?? []) : null] as const;
+      }),
+    ),
+  );
+  return { apps: listed ? (listed.apps ?? []) : null, environments: listed?.environments ?? [], checks, events };
+}
+
+// API keys (#350), capture (#598), privacy (#599), ingest health (#602), alert channels (#610) and health checks (#608) have content; the other sections come later.
 export default async function SettingsPage({
   params,
   searchParams,
@@ -157,6 +190,14 @@ export default async function SettingsPage({
     return (
       <AppShell context={context} project={project} view={PROJECT_SETTINGS.slug}>
         <ChannelsSettings project={project} projectName={found.project.name} channels={channels} />
+      </AppShell>
+    );
+  }
+  if (section?.[0] === HEALTH_CHECKS_SECTION) {
+    const load = await loadHealthChecks(project, next);
+    return (
+      <AppShell context={context} project={project} view={PROJECT_SETTINGS.slug}>
+        <HealthChecks project={project} projectName={found.project.name} load={load} />
       </AppShell>
     );
   }

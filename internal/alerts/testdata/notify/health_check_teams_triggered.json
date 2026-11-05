@@ -1,0 +1,88 @@
+{
+  "method": "POST",
+  "path": "/services/T000/B000/XXXX",
+  "headers": {
+    "Content-Type": "application/json",
+    "User-Agent": "APILens-Alerts/1"
+  },
+  "body": {
+    "attachments": [
+      {
+        "content": {
+          "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+          "actions": [
+            {
+              "title": "View incident",
+              "type": "Action.OpenUrl",
+              "url": "https://app.example.com/shop/settings/health-checks"
+            }
+          ],
+          "body": [
+            {
+              "color": "Attention",
+              "size": "Large",
+              "text": "Health check failing: storefront (production)",
+              "type": "TextBlock",
+              "weight": "Bolder",
+              "wrap": true
+            },
+            {
+              "text": "GET https://api.example.com/healthz?token=[redacted]&deep=1 on storefront (production) failed after 2 attempts: HTTP 503 (expected 200).",
+              "type": "TextBlock",
+              "wrap": true
+            },
+            {
+              "facts": [
+                {
+                  "title": "App",
+                  "value": "storefront"
+                },
+                {
+                  "title": "Environment",
+                  "value": "production"
+                },
+                {
+                  "title": "Check",
+                  "value": "GET https://api.example.com/healthz?token=[redacted]&deep=1"
+                },
+                {
+                  "title": "Expected status",
+                  "value": "200"
+                },
+                {
+                  "title": "Result",
+                  "value": "HTTP 503 (expected 200)"
+                },
+                {
+                  "title": "Latency",
+                  "value": "41.2 ms"
+                },
+                {
+                  "title": "Attempts",
+                  "value": "2"
+                },
+                {
+                  "title": "Response",
+                  "value": "{\"status\":\"degraded\",\"password\":\"[redacted]\"}…"
+                },
+                {
+                  "title": "Started",
+                  "value": "Wed, 04 Nov 2026 09:30:00 UTC"
+                }
+              ],
+              "type": "FactSet"
+            }
+          ],
+          "msteams": {
+            "width": "Full"
+          },
+          "type": "AdaptiveCard",
+          "version": "1.4"
+        },
+        "contentType": "application/vnd.microsoft.card.adaptive",
+        "contentUrl": null
+      }
+    ],
+    "type": "message"
+  }
+}

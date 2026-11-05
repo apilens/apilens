@@ -110,7 +110,7 @@ type Poster struct {
 func NewPoster(opts PosterOptions) *Poster {
 	p := &Poster{client: opts.Client, now: opts.Now}
 	if p.client == nil {
-		p.client = newGuardedClient(opts.AllowPrivateNetworks)
+		p.client = newGuardedClient(opts.AllowPrivateNetworks, deliverTimeout)
 	}
 	if p.now == nil {
 		p.now = time.Now
@@ -118,7 +118,12 @@ func NewPoster(opts PosterOptions) *Poster {
 	return p
 }
 
-func newGuardedClient(allowPrivate bool) *http.Client {
+// newGuardedClient returns a client whose requests time out after timeout,
+// that follows no redirects, uses no proxy and, unless allowPrivate, refuses
+// to connect to a non-public address. The address is checked when the
+// connection is dialed, after DNS resolution, so a public name that
+// resolves to a private address is refused too.
+func newGuardedClient(allowPrivate bool, timeout time.Duration) *http.Client {
 	dialer := &net.Dialer{Timeout: 5 * time.Second}
 	if !allowPrivate {
 		dialer.Control = func(_, address string, _ syscall.RawConn) error {
@@ -130,12 +135,12 @@ func newGuardedClient(allowPrivate bool) *http.Client {
 		}
 	}
 	return &http.Client{
-		Timeout: deliverTimeout,
+		Timeout: timeout,
 		Transport: &http.Transport{
 			Proxy:                 nil,
 			DialContext:           dialer.DialContext,
 			TLSHandshakeTimeout:   5 * time.Second,
-			ResponseHeaderTimeout: deliverTimeout,
+			ResponseHeaderTimeout: timeout,
 			MaxIdleConnsPerHost:   2,
 			IdleConnTimeout:       90 * time.Second,
 		},

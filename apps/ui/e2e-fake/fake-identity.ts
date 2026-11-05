@@ -170,6 +170,11 @@
 //                                                  until saved; PUT answers 403 without project.update and
 //                                                  invalid_request naming a pattern JavaScript cannot compile
 //   POST /__fake/privacy {}                        test hook: forgets shop's saved deny list
+//   GET|POST /api/v1/projects/shop/alerts/health-checks, DELETE .../{id}, GET .../{id}/events
+//                                                  shop's health checks and their failures (#608): none
+//                                                  unless seeded; POST answers 422 for a private address
+//   POST /__fake/health-checks {checks, events?}   test hook: replaces shop's health checks and, by
+//                                                  check id, their failures
 //   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?}
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  `role` is the user's role in acme (default owner);
@@ -642,6 +647,10 @@ function capturePolicyOf(app: { id: string; slug: string }): Record<string, unkn
 }
 
 /** shop's saved deny list (#599); null until saved. */
+/** shop's health checks (#608) and their failures by check id, newest first. */
+let healthChecks: Record<string, unknown>[] = [];
+let healthCheckEvents: Record<string, Record<string, unknown>[]> = {};
+
 let privacyPolicy: { mask_query_params: string[]; mask_headers: string[]; mask_body_fields: string[]; updated_at: string } | null = null;
 
 function privacyPolicyOf(): Record<string, unknown> {
@@ -1313,6 +1322,50 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     }
     privacyPolicy = saved;
     return send(res, 200, privacyPolicyOf());
+  }
+  if (req.method === "POST" && path === "/__fake/health-checks") {
+    const body = await readBody(req);
+    healthChecks = (body.checks as Record<string, unknown>[] | undefined) ?? [];
+    healthCheckEvents = (body.events as Record<string, Record<string, unknown>[]> | undefined) ?? {};
+    return send(res, 204);
+  }
+  // shop's health checks (#608). Like the API: another project answers forbidden and a URL to a
+  // private address answers 422 with the API's detail.
+  const hcPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/alerts\/health-checks(?:\/([^/]+)(\/events)?)?$/);
+  if (hcPath) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    if (decodeURIComponent(hcPath[1]) !== PROJECT) return problem(res, 403, "forbidden");
+    const id = hcPath[2] ? decodeURIComponent(hcPath[2]) : null;
+    if (!id && req.method === "GET") return send(res, 200, { health_checks: healthChecks });
+    if (!id && req.method === "POST") {
+      const body = await readBody(req);
+      const host = (() => {
+        try {
+          return new URL(String(body.url)).hostname;
+        } catch {
+          return "";
+        }
+      })();
+      if (/^(localhost|127\.|10\.|192\.168\.|169\.254\.)/.test(host)) {
+        return send(res, 422, { status: 422, title: "Unprocessable Entity", detail: "url must point to a public address" }, "application/problem+json");
+      }
+      const now = new Date().toISOString();
+      const check = {
+        id: randomUUID(), app_id: body.app_id, environment: body.environment, url: body.url, expected_status: body.expected_status ?? 200,
+        enabled: true, status: "up", status_since: now, checked_at: null, created_by: null, created_at: now, updated_at: now,
+      };
+      healthChecks.push(check);
+      return send(res, 201, check);
+    }
+    const found = healthChecks.find((c) => c.id === id);
+    if (!found) return problem(res, 404, "not_found");
+    if (hcPath[3] && req.method === "GET") return send(res, 200, { events: healthCheckEvents[id as string] ?? [] });
+    if (!hcPath[3] && req.method === "DELETE") {
+      healthChecks = healthChecks.filter((c) => c.id !== id);
+      return send(res, 204);
+    }
+    return problem(res, 404, "not_found");
   }
   if (req.method === "POST" && path === "/__fake/privacy") {
     privacyPolicy = null;

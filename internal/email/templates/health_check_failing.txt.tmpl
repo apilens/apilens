@@ -1,0 +1,24 @@
+{{- /* Data: app, environment, check (the URL without its scheme), expected_status, result, latency, attempts ("after 2 attempts"), body (masked, at most 1 KiB; may be empty), body_truncated, started_at, project (slug, for the health checks link). */ -}}
+{{define "subject"}}Health check failing: {{.app}} ({{.environment}}){{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+The health check of {{.app}} ({{.environment}}) is failing: GET {{.check}} failed {{.attempts}}: {{.result}}.
+
+App: {{.app}}
+Environment: {{.environment}}
+Check: GET {{.check}}
+Expected status: {{.expected_status}}
+Result: {{.result}}
+Latency: {{.latency}}
+Started: {{datetime .started_at}}
+{{- if .body}}
+
+Response body{{if .body_truncated}} (first 1 KB){{end}}:
+{{.body}}
+{{- end}}
+
+View the health check:
+{{link (print "/" (seg .project) "/settings/health-checks")}}
+
+You get this email because this address is on a notification channel of the project.
+{{- end}}

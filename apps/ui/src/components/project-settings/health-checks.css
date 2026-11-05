@@ -1,0 +1,44 @@
+/* Project settings → Health checks (#608). Tokens from tokens.css only; cards reuse .os-* (org
+   settings), form fields .ob-* (onboarding), the empty line .cps-empty (Capture). */
+.hc-lede { margin: var(--space-2) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+
+.hc-checks { margin: var(--space-2) 0 0; padding: 0; list-style: none; }
+.hc-check { padding: var(--space-4) 0; border-bottom: 1px solid var(--border); }
+.hc-check:last-child { border-bottom: 0; padding-bottom: 0; }
+.hc-check__head { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.hc-url { display: flex; align-items: baseline; gap: var(--space-2); flex: 1; min-width: 0; margin: 0; font: 500 13px/20px var(--font-sans); color: var(--ink); }
+.hc-url code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 13px/20px var(--font-mono); }
+.hc-method { font: 600 11px/20px var(--font-mono); color: var(--ink-muted); }
+.hc-confirm { display: inline-flex; align-items: center; gap: var(--space-2); font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.hc-meta { margin: var(--space-1) 0 0; font: 400 13px/20px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink-muted); }
+
+.hc-status { display: inline-flex; align-items: center; flex: none; height: 20px; padding: 0 var(--space-2); border-radius: var(--radius-pill); font: 500 11px/1 var(--font-sans); white-space: nowrap; }
+.hc-status--up { background: var(--ok-soft); color: var(--ok); }
+.hc-status--down { background: var(--error-soft); color: var(--error); }
+.hc-status--idle { background: var(--surface-2); color: var(--ink-muted); }
+
+.hc-failures { margin: var(--space-4) 0 0; }
+.hc-failures h4 { margin: 0; font: 500 12px/18px var(--font-sans); color: var(--ink-muted); }
+.hc-failures ol { margin: var(--space-2) 0 0; padding: 0; list-style: none; }
+.hc-failure { padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
+.hc-failure + .hc-failure { margin-top: var(--space-2); }
+.hc-failure__when { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; font: 500 13px/20px var(--font-sans); color: var(--ink); }
+.hc-open { font-weight: 500; color: var(--error); }
+.hc-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); margin: var(--space-2) 0 0; }
+.hc-facts dt { font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.hc-facts dd { margin: 0; font: 500 13px/20px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); }
+.hc-body { margin: var(--space-3) 0 0; }
+.hc-body figcaption { font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.hc-body pre { max-height: 240px; margin: var(--space-1) 0 0; padding: var(--space-3); overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); font: 400 12px/18px var(--font-mono); color: var(--ink); white-space: pre-wrap; word-break: break-all; }
+
+.hc-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: var(--space-4); }
+.hc-form .ob-f:nth-child(-n + 2) { margin-top: var(--space-4); }
+.hc-expected { max-width: 160px; }
+
+@media (max-width: 860px) {
+  .hc-check__head { flex-wrap: wrap; }
+  .hc-url { flex-basis: 100%; order: 2; }
+  .hc-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hc-form { grid-template-columns: minmax(0, 1fr); }
+  .hc-form .ob-f:nth-child(2) { margin-top: 0; }
+}

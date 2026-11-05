@@ -55,6 +55,9 @@ type Notification struct {
 	// Uptime is set for an uptime event, which has no rule: the rule,
 	// metric, condition, threshold and window fields are empty.
 	Uptime *UptimeDetails
+	// HealthCheck is set for a health check event, which has no rule
+	// either.
+	HealthCheck *HealthCheckDetails
 }
 
 // UptimeDetails is what an uptime notification says beyond the app and
@@ -220,6 +223,9 @@ func (n Notification) ThresholdText() string {
 
 // Title is the one-line summary every channel leads with.
 func (n Notification) Title() string {
+	if n.HealthCheck != nil {
+		return n.healthCheckTitle()
+	}
 	if n.Uptime != nil {
 		if n.Kind == NotifyResolved {
 			return "Up again: " + n.scope()
@@ -235,6 +241,9 @@ func (n Notification) Title() string {
 // Summary is one sentence on what happened.
 func (n Notification) Summary() string {
 	scope := n.scope()
+	if n.HealthCheck != nil {
+		return n.healthCheckSummary()
+	}
 	if n.Uptime != nil {
 		if n.Kind == NotifyResolved {
 			return scope + " is sending heartbeats again."
@@ -252,6 +261,9 @@ func (n Notification) Summary() string {
 type fact struct{ title, value string }
 
 func (n Notification) facts() []fact {
+	if n.HealthCheck != nil {
+		return n.healthCheckFacts()
+	}
 	if n.Uptime != nil {
 		f := []fact{
 			{"App", n.AppName},
@@ -287,6 +299,12 @@ func (n Notification) facts() []fact {
 
 // EmailTemplate is the email.send template for the notification.
 func (n Notification) EmailTemplate() string {
+	if n.HealthCheck != nil {
+		if n.Kind == NotifyResolved {
+			return email.TemplateHealthCheckPassing
+		}
+		return email.TemplateHealthCheckFailing
+	}
 	if n.Uptime != nil {
 		if n.Kind == NotifyResolved {
 			return email.TemplateUptimeUp
@@ -303,6 +321,9 @@ func (n Notification) EmailTemplate() string {
 // The template builds the link from project and event, so the job carries
 // no URL.
 func (n Notification) EmailData() map[string]any {
+	if n.HealthCheck != nil {
+		return n.healthCheckEmailData()
+	}
 	if n.Uptime != nil {
 		d := map[string]any{
 			"app":         n.AppName,
@@ -357,7 +378,9 @@ func (n Notification) SlackPayload() ([]byte, error) {
 		if f.title == "Started" || f.title == "Resolved" {
 			continue
 		}
-		fields = append(fields, map[string]any{"type": "mrkdwn", "text": "*" + f.title + "*\n" + slackEscape(f.value)})
+		// Slack refuses a field over 2000 characters (a health check's
+		// response body, once escaped, can be).
+		fields = append(fields, map[string]any{"type": "mrkdwn", "text": truncate("*"+f.title+"*\n"+slackEscape(f.value), 2000)})
 	}
 	context := "Started " + slackDate(n.StartedAt)
 	if n.EndedAt != nil {
@@ -449,7 +472,8 @@ func (n Notification) TeamsPayload() ([]byte, error) {
 // WebhookEvent is the JSON body of a generic webhook delivery.
 type WebhookEvent struct {
 	// Type is alert.triggered or alert.resolved; uptime.down or uptime.up
-	// for an uptime event.
+	// for an uptime event; health_check.failing or health_check.passing
+	// for a health check event.
 	Type  string    `json:"type"`
 	Event webhookEv `json:"event"`
 	// Rule is omitted for an uptime event.
@@ -461,11 +485,14 @@ type WebhookEvent struct {
 	URL         string `json:"url"`
 	Title       string `json:"title"`
 	Summary     string `json:"summary"`
+	// HealthCheck is set for a health check event only.
+	HealthCheck *webhookHC `json:"health_check,omitempty"`
 }
 
 type webhookEv struct {
 	ID uuid.UUID `json:"id"`
-	// Kind is set to uptime for an uptime event; omitted for a rule's.
+	// Kind is set to uptime or health_check for those events; omitted for
+	// a rule's.
 	Kind      string     `json:"kind,omitempty"`
 	State     string     `json:"state"`
 	Value     *float64   `json:"value"`
@@ -489,6 +516,12 @@ type webhookAp struct {
 
 // WebhookEventType is the type of the notification's webhook delivery.
 func (n Notification) WebhookEventType() string {
+	if n.HealthCheck != nil {
+		if n.Kind == NotifyResolved {
+			return "health_check.passing"
+		}
+		return "health_check.failing"
+	}
 	if n.Uptime != nil {
 		if n.Kind == NotifyResolved {
 			return "uptime.up"
@@ -513,9 +546,13 @@ func (n Notification) WebhookPayload() ([]byte, error) {
 		Project: n.ProjectSlug, Environment: n.Environment, URL: n.URL,
 		Title: n.Title(), Summary: n.Summary(),
 	}
-	if n.Uptime != nil {
+	switch {
+	case n.HealthCheck != nil:
+		ev.Event.Kind = "health_check"
+		ev.HealthCheck = n.webhookHealthCheck()
+	case n.Uptime != nil:
 		ev.Event.Kind = "uptime"
-	} else {
+	default:
 		ev.Rule = &webhookRl{
 			ID: n.RuleID, Name: n.RuleName, Metric: n.Metric, Condition: n.Condition,
 			Threshold: n.Threshold, WindowS: n.WindowS,

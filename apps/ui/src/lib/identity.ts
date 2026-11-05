@@ -1353,6 +1353,67 @@ export interface AppStatus extends AppHealthStatus {
   sdks: AppSdk[] | null;
 }
 
+// Health checks (#608): active HTTP checks of an app environment (`/projects/{project}/alerts/
+// health-checks`). Every minute APILens sends GET to the URL (5 s timeout, one retry); a check
+// whose retry fails too is down and opens an event carrying the failed request. Shapes as in
+// api/openapi/apilens.v1.json.
+
+/** What one probe of a check saw (`HealthCheckProbe`). */
+export interface HealthCheckProbe {
+  ok: boolean;
+  /** 0 when no response arrived. */
+  status_code: number;
+  expected_status: number;
+  latency_ms: number;
+  /** The failure class (`timeout`, `connection refused`, `unexpected status 503`, ...); absent when it passed. */
+  error?: string;
+  /** The start of a failed response's body, masked by the privacy policy, at most 1024 bytes. */
+  body_snippet?: string;
+  body_truncated?: boolean;
+  /** 1, or 2 with the retry. */
+  attempts: number;
+  checked_at: string;
+}
+
+/** `GET /projects/{project}/alerts/health-checks/{id}`. */
+export interface HealthCheck {
+  id: string;
+  app_id: string;
+  environment: string;
+  url: string;
+  expected_status: number;
+  enabled: boolean;
+  status: "up" | "down";
+  status_since: string;
+  /** Null before the first probe. */
+  checked_at: string | null;
+  /** Absent before the first probe. */
+  last_result?: HealthCheckProbe;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One failure of a check (`GET .../health-checks/{id}/events`), from the failed probe to the one that passed again. */
+export interface HealthCheckEvent {
+  id: string;
+  state: "triggered" | "resolved";
+  started_at: string;
+  ended_at: string | null;
+  notified_at: string | null;
+  /** The failed request that opened the event. */
+  failure: HealthCheckProbe;
+}
+
+/** `POST /projects/{project}/alerts/health-checks`. */
+export interface CreateHealthCheckRequest {
+  app_id: string;
+  environment: string;
+  url: string;
+  expected_status?: number;
+  enabled?: boolean;
+}
+
 /** The built-in patterns of `GET|PUT /projects/{slug}/privacy-policy`, applied always. */
 export interface PrivacyDefaults {
   mask_query_params: string[] | null;
@@ -1970,6 +2031,16 @@ export function createClient(config: ClientConfig) {
       request<AppIngestStats>("GET", `/apps/${seg(appId)}/ingest-stats`, { ...o, query: { project: projectSlug, days } }),
     appHealthStatus: (projectSlug: string, appId: string, o: Authed) =>
       request<AppStatus>("GET", `/apps/${seg(appId)}/status`, { ...o, query: { project: projectSlug } }),
+
+    // query: active HTTP health checks (#608), project settings → Health checks -------------
+    listHealthChecks: (projectSlug: string, o: Authed) =>
+      request<{ health_checks: HealthCheck[] | null }>("GET", `/projects/${seg(projectSlug)}/alerts/health-checks`, o),
+    createHealthCheck: (projectSlug: string, body: CreateHealthCheckRequest, o: Authed) =>
+      request<HealthCheck>("POST", `/projects/${seg(projectSlug)}/alerts/health-checks`, { ...o, body }),
+    deleteHealthCheck: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("DELETE", `/projects/${seg(projectSlug)}/alerts/health-checks/${seg(id)}`, o),
+    healthCheckEvents: (projectSlug: string, id: string, limit: number, o: Authed) =>
+      request<{ events: HealthCheckEvent[] | null }>("GET", `/projects/${seg(projectSlug)}/alerts/health-checks/${seg(id)}/events`, { ...o, query: { limit } }),
 
     // query: one endpoint's detail tabs (#571, #572, #573) and its settings (#593) ------------
     endpointRequests: (projectSlug: string, method: string, path: string, q: EndpointQuery, o: Authed) =>

@@ -56,7 +56,7 @@ func TestRecordEvaluationPostgres(t *testing.T) {
 	}
 	events := func(r Rule) []db.AlertEvent {
 		t.Helper()
-		rows, err := pool.Query(ctx, `SELECT id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment FROM alert_events WHERE rule_id = $1 ORDER BY started_at`, r.ID)
+		rows, err := pool.Query(ctx, `SELECT id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment, health_check_id, details FROM alert_events WHERE rule_id = $1 ORDER BY started_at`, r.ID)
 		if err != nil {
 			t.Fatal(err)
 		}

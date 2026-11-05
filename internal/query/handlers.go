@@ -131,6 +131,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	registerConsumerGroups(api, s, guard)
 	registerExports(api, s, guard)
 	registerAlerts(api, s, guard)
+	registerHealthChecks(api, s, guard)
 }
 
 // ---------------------------------------------------------------- project

@@ -1,0 +1,17 @@
+{{- /* Data: app, environment, check (the URL without its scheme), expected_status, started_at (when the check started failing), ended_at, project (slug, for the health checks link). */ -}}
+{{define "subject"}}Health check passing: {{.app}} ({{.environment}}){{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+The health check of {{.app}} ({{.environment}}) is passing again: GET {{.check}} answers {{.expected_status}}.
+
+App: {{.app}}
+Environment: {{.environment}}
+Check: GET {{.check}}
+Failing since: {{datetime .started_at}}
+Passing again: {{datetime .ended_at}}
+
+View the health check:
+{{link (print "/" (seg .project) "/settings/health-checks")}}
+
+You get this email because this address is on a notification channel of the project.
+{{- end}}

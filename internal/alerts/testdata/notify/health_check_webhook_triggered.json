@@ -1,0 +1,48 @@
+{
+  "method": "POST",
+  "path": "/hooks/apilens",
+  "headers": {
+    "Content-Type": "application/json",
+    "User-Agent": "APILens-Alerts/1",
+    "X-APILens-Delivery": "81821e1d-b3d1-5a6a-a35f-297c23c92eb3",
+    "X-APILens-Event": "health_check.failing",
+    "X-APILens-Signature": "v1=6e63b056d0bc331cc5dfbf4a700719045c21bff24a84e5dea9d9c5108c59f492",
+    "X-APILens-Timestamp": "1793786760"
+  },
+  "body": {
+    "type": "health_check.failing",
+    "event": {
+      "id": "0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41",
+      "kind": "health_check",
+      "state": "triggered",
+      "value": 41.2,
+      "started_at": "2026-11-04T09:30:00Z",
+      "ended_at": null
+    },
+    "app": {
+      "id": "1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b",
+      "name": "storefront"
+    },
+    "project": "shop",
+    "environment": "production",
+    "url": "https://app.example.com/shop/settings/health-checks",
+    "title": "Health check failing: storefront (production)",
+    "summary": "GET https://api.example.com/healthz?token=[redacted]&deep=1 on storefront (production) failed after 2 attempts: HTTP 503 (expected 200).",
+    "health_check": {
+      "id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "url": "https://api.example.com/healthz?token=[redacted]&deep=1",
+      "expected_status": 200,
+      "failure": {
+        "ok": false,
+        "status_code": 503,
+        "expected_status": 200,
+        "latency_ms": 41.2,
+        "error": "unexpected status 503",
+        "body_snippet": "{\"status\":\"degraded\",\"password\":\"[redacted]\"}",
+        "body_truncated": true,
+        "attempts": 2,
+        "checked_at": "2026-11-04T09:30:00Z"
+      }
+    }
+  }
+}

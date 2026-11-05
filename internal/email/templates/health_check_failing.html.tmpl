@@ -1,0 +1,19 @@
+{{template "layout" .}}
+{{- define "content" -}}
+<p style="margin:0 0 16px 0;">The health check of <strong>{{.app}} ({{.environment}})</strong> is failing: GET {{.check}} failed {{.attempts}}: <strong>{{.result}}</strong>.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">App</td><td style="padding:2px 0;">{{.app}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Environment</td><td style="padding:2px 0;">{{.environment}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Check</td><td style="padding:2px 0;">GET {{.check}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Expected status</td><td style="padding:2px 0;">{{.expected_status}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Result</td><td style="padding:2px 0;">{{.result}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Latency</td><td style="padding:2px 0;">{{.latency}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Started</td><td style="padding:2px 0;">{{datetime .started_at}}</td></tr>
+</table>
+{{- if .body}}
+<p class="muted" style="margin:0 0 8px 0;color:#556070;">Response body{{if .body_truncated}} (first 1 KB){{end}}</p>
+<pre style="margin:0 0 24px 0;padding:12px;border-radius:6px;background:#f3f4f6;color:#1f2937;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all;">{{.body}}</pre>
+{{- end}}
+<p style="margin:0 0 24px 0;"><a class="button" href="{{link (print "/" (seg .project) "/settings/health-checks")}}" style="display:inline-block;padding:10px 20px;border-radius:6px;background:#5b4bff;color:#ffffff;font-weight:600;text-decoration:none;">View health check</a></p>
+<p class="muted" style="margin:0;color:#556070;">You get this email because this address is on a notification channel of the project.</p>
+{{- end}}

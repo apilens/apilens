@@ -223,6 +223,7 @@ type fakeStore struct {
 	mu       sync.Mutex
 	events   map[uuid.UUID]db.GetAlertEventNotificationRow
 	uptime   map[uuid.UUID]db.GetUptimeEventNotificationRow
+	health   map[uuid.UUID]db.GetHealthCheckEventNotificationRow
 	channels map[uuid.UUID]db.NotificationChannel
 	notified map[uuid.UUID]time.Time
 	err      error
@@ -231,6 +232,7 @@ type fakeStore struct {
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		events: map[uuid.UUID]db.GetAlertEventNotificationRow{}, uptime: map[uuid.UUID]db.GetUptimeEventNotificationRow{},
+		health:   map[uuid.UUID]db.GetHealthCheckEventNotificationRow{},
 		channels: map[uuid.UUID]db.NotificationChannel{},
 		notified: map[uuid.UUID]time.Time{},
 	}
@@ -256,6 +258,19 @@ func (s *fakeStore) GetUptimeEventNotification(_ context.Context, id uuid.UUID) 
 		return db.GetUptimeEventNotificationRow{}, s.err
 	}
 	r, ok := s.uptime[id]
+	if !ok {
+		return r, pgx.ErrNoRows
+	}
+	return r, nil
+}
+
+func (s *fakeStore) GetHealthCheckEventNotification(_ context.Context, id uuid.UUID) (db.GetHealthCheckEventNotificationRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return db.GetHealthCheckEventNotificationRow{}, s.err
+	}
+	r, ok := s.health[id]
 	if !ok {
 		return r, pgx.ErrNoRows
 	}
