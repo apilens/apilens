@@ -109,6 +109,8 @@
 //   POST /__fake/requests {project, rows}          test hook: `GET /api/v1/requests` answers `rows` for
 //                                                  `project` (narrowed by method, path and status,
 //                                                  #586) instead of what the edge stored (#585); rows null forgets it
+//   GET  /api/v1/requests/{id}?project=            one request (#588): the seeded row with that `id`, merged with
+//                                                  its `detail` ({request?, spans?, logs?}); 404 for any other id
 //   POST /__fake/query-down {project, down}        test hook: those reads answer 503 for `project`
 //   GET  /api/v1/project?project=shop              shop's apps (#598): one app `shop` unless seeded
 //   GET|PUT /api/v1/apps/{id}/capture-policy       the app's capture policy (#598): everything captured
@@ -1462,6 +1464,36 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     }
     return problem(res, 404, "not_found");
   }
+  // One request of the log (#588), as `GET /requests/{id}` answers it: the seeded row with that id
+  // plus what its `detail` seeds (headers, bodies, validation errors, spans and logs).
+  const requestDetail = path.match(/^\/api\/v1\/requests\/([^/]+)$/);
+  if (req.method === "GET" && requestDetail) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = url.searchParams.get("project") ?? "";
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+    if (queryDown.has(slug)) return problem(res, 503, "unavailable");
+    const id = decodeURIComponent(requestDetail[1]);
+    const found = (requestsSeed.get(slug) ?? []).find((r) => r.id === id);
+    if (!found) return problem(res, 404, "not_found");
+    const { detail, ...row } = found as Record<string, unknown> & { detail?: { request?: Record<string, unknown>; spans?: unknown[]; logs?: unknown[] } };
+    const request = {
+      span_id: "",
+      user_agent: "",
+      base_url: "",
+      release: "",
+      commit: "",
+      request_headers: "",
+      response_headers: "",
+      request_body: "",
+      response_body: "",
+      attributes: {},
+      validation_errors: [],
+      ...row,
+      ...detail?.request,
+    };
+    return send(res, 200, { request, spans: detail?.spans ?? [], logs: detail?.logs ?? [] });
+  }
   // The query role's dashboard reads as a session (#295, #335): the project in `?project=`; a
   // project the user cannot view answers 404, as internal/query does.
   if (req.method === "GET" && (path === "/api/v1/requests" || path === "/api/v1/traffic/summary" || path === "/api/v1/traffic/endpoints")) {
@@ -1483,7 +1515,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
           (!method || r.method === method) &&
           (!route || r.path === route) &&
           (!status.length || status.some((t) => (/^[1-5]xx$/.test(t) ? String(r.status_code)[0] === t[0] : String(r.status_code) === t)));
-        return send(res, 200, { requests: seeded.filter(matches).slice(0, limit), next_cursor: "" });
+        // A row's `detail` seeds the request drawer (#588); the log does not carry it.
+        const listed = seeded.filter(matches).map(({ detail: _detail, ...r }) => r);
+        return send(res, 200, { requests: listed.slice(0, limit), next_cursor: "" });
       }
       return send(res, 200, { requests: rows.slice(0, limit) });
     }
