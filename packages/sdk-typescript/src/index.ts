@@ -15,6 +15,15 @@ export {
   splitPatterns,
 } from "./exclusions.js";
 export type { ExclusionOptions, ExclusionPatterns } from "./exclusions.js";
+export { Sampler, validateSampleRate } from "./sampling.js";
+export type {
+  SampleDecision,
+  SampleOnRequest,
+  SampleOnResponse,
+  SampleRequestInfo,
+  SampleResponseInfo,
+  SamplerOptions,
+} from "./sampling.js";
 export {
   DEFAULT_MASK_BODY_FIELDS,
   DEFAULT_MASK_HEADER_PATTERNS,

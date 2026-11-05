@@ -3,6 +3,7 @@ import type { NextFunction, Request, Response } from "express";
 
 import { ApiLensClient } from "./client.js";
 import { RequestExcluder } from "./exclusions.js";
+import { Sampler } from "./sampling.js";
 import { Redactor, serializeHeaders } from "./sanitize.js";
 import {
   firstForwardedIp,
@@ -120,6 +121,13 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
     headers: config.redactHeaders,
     bodyFields: config.redactBodyFields,
   });
+  // Validated here: an out-of-range sampleRate throws at startup.
+  const sampler = new Sampler({
+    sampleRate: config.sampleRate,
+    sampleOnRequest: config.sampleOnRequest,
+    sampleOnResponse: config.sampleOnResponse,
+    logger: client.config.logger,
+  });
 
   const middleware = ((req: Request, res: Response, next: NextFunction) => {
     if (!enabled || !client.isEnabled() || req.method.toUpperCase() === "OPTIONS") {
@@ -150,6 +158,20 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
       firstForwardedIp(req.headers["x-forwarded-for"]) ||
       String(req.headers["x-real-ip"] || req.ip || req.socket?.remoteAddress || "");
     const userAgent = String(req.headers["user-agent"] || "");
+    const url = String(req.originalUrl || req.url || "/");
+    const queryAt = url.indexOf("?");
+    const rawPath = queryAt === -1 ? url : url.slice(0, queryAt);
+
+    // Decided before any response body is buffered. Sampled-out requests are
+    // still recorded (base fields only), so metrics are unaffected.
+    let sampled = sampler.decideRequest(() => ({
+      method,
+      path: rawPath,
+      query: queryAt === -1 ? "" : url.slice(queryAt + 1),
+      userAgent,
+      headers: req.headers,
+      clientIp: ipAddress,
+    }));
 
     const responseChunks: Buffer[] = [];
     let responseSize = 0;
@@ -169,6 +191,7 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
       responseSize += byteLen;
 
       if (
+        sampled &&
         capturePayloads &&
         logResponseBody &&
         maxPayloadBytes > 0 &&
@@ -198,6 +221,7 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
       responseSize += byteLen;
 
       if (
+        sampled &&
         capturePayloads &&
         logResponseBody &&
         maxPayloadBytes > 0 &&
@@ -223,13 +247,26 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
           consumerFromStringOrObject(req.apilensConsumer) ||
           consumerFromStringOrObject(config.getConsumer?.(req, res));
 
+        sampled = sampler.decideResponse(sampled, () => ({
+          method,
+          route: path,
+          rawPath,
+          statusCode: res.statusCode,
+          responseTimeMs,
+          consumerId: consumer?.consumer_id || "",
+          consumerName: consumer?.consumer_name || "",
+          consumerGroup: consumer?.consumer_group || "",
+          sampled,
+        }));
+
         // Redacted here, before capture(): raw values never reach the queue.
+        // A sampled-out request sends only the base record: no headers or bodies.
         const requestPayload =
-          capturePayloads && logRequestBody
+          sampled && capturePayloads && logRequestBody
             ? redactor.redactBody(payloadToString(req.body, maxPayloadBytes))
             : "";
         const responsePayload =
-          capturePayloads && logResponseBody
+          sampled && capturePayloads && logResponseBody
             ? redactor.redactBody(Buffer.concat(responseChunks).toString("utf8"))
             : "";
 
@@ -254,10 +291,11 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
           consumer_group: consumer?.consumer_group || "",
           request_payload: requestPayload,
           response_payload: responsePayload,
-          request_headers: captureHeaders ? serializeHeaders(req.headers, { redactor }) : "",
-          response_headers: captureHeaders
-            ? serializeHeaders(res.getHeaders(), { redactor })
-            : "",
+          request_headers:
+            sampled && captureHeaders ? serializeHeaders(req.headers, { redactor }) : "",
+          response_headers:
+            sampled && captureHeaders ? serializeHeaders(res.getHeaders(), { redactor }) : "",
+          sampled,
         });
       } catch (error) {
         client.config.logger.error?.(

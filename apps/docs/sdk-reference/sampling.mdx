@@ -1,0 +1,101 @@
+---
+title: "Sampling"
+description: "Keep headers and bodies for a fraction of requests. Sampling never changes metrics."
+---
+
+Capturing every request body is often more than you need. Sampling lets you keep the **detail** (headers and bodies) for only some requests, while **every request is still recorded**.
+
+## Sampling never changes metrics
+
+APILens derives traffic counts, error rates and latency percentiles from the request records themselves. Dropping whole records would make a 10% sample look like a 90% traffic drop, so the SDKs never do that:
+
+| | Sampled in | Sampled out |
+|---|---|---|
+| Method, path, status, latency, sizes, consumer | sent | sent |
+| `sampled` field | `true` | `false` |
+| Request / response headers | sent (redacted) | dropped |
+| Request / response bodies | sent (redacted) | dropped, never buffered |
+
+The request log shows sampled-out requests like any other; their detail panes are empty.
+
+## How a request is decided
+
+1. **`sampleOnRequest`** runs when the request arrives, before any body is buffered. Return `true` / `false` (final), a number in `[0, 1]` (a probability), or `undefined` / `null` (fall back to the rate).
+2. **`sampleRate`** (default `1`) is the probability used when there is no request callback or it returned `undefined`. A value outside `[0, 1]` fails at startup.
+3. **`sampleOnResponse`** runs after the response, with the status code, latency and consumer. Same return values; `undefined` keeps the decision from steps 1–2. It can drop the detail of a sampled-in request but can never resurrect one that was sampled out on request (its body was never buffered).
+
+A callback that throws is logged once and treated as `undefined`. The error never reaches your handler.
+
+## Sample a fixed fraction
+
+<CodeGroup>
+```ts Express
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  appId: process.env.APILENS_APP_ID,
+  sampleRate: 0.1, // detail for 10% of requests; 100% still counted
+});
+```
+
+```python Python
+app.add_middleware(ApiLensMiddleware, ..., sample_rate=0.1)
+```
+</CodeGroup>
+
+## Keep detail only for errors
+
+Every request is still counted; only failing requests carry headers and bodies.
+
+<CodeGroup>
+```ts Express
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  appId: process.env.APILENS_APP_ID,
+  sampleOnResponse: (info) => info.statusCode >= 400,
+});
+```
+
+```python Python
+app.add_middleware(
+    ApiLensMiddleware, ...,
+    sample_on_response=lambda info: info.status_code >= 400,
+)
+```
+</CodeGroup>
+
+## Always keep some routes, sample the rest
+
+<CodeGroup>
+```ts Express
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  appId: process.env.APILENS_APP_ID,
+  sampleRate: 0.05,
+  sampleOnRequest: (info) => (info.path.startsWith("/billing") ? true : undefined),
+});
+```
+
+```python Python
+app.add_middleware(
+    ApiLensMiddleware, ...,
+    sample_rate=0.05,
+    sample_on_request=lambda info: True if info.path.startswith("/billing") else None,
+)
+```
+</CodeGroup>
+
+## Callback inputs
+
+| `sampleOnRequest` (TS) | `sample_on_request` (Python) |
+|---|---|
+| `method`, `path` (no query), `query`, `userAgent`, `headers`, `clientIp` | `method`, `path`, `query`, `user_agent`, `headers`, `client_ip` |
+
+| `sampleOnResponse` (TS) | `sample_on_response` (Python) |
+|---|---|
+| `method`, `route`, `rawPath`, `statusCode`, `responseTimeMs`, `consumerId`, `consumerName`, `consumerGroup`, `sampled` | `method`, `route`, `raw_path`, `status_code`, `response_time_ms`, `consumer_id`, `consumer_name`, `consumer_group`, `sampled` |
+
+<Note>
+Sampling is per SDK release. The TypeScript SDK (`apilens-js-sdk`) supports all three options; check your Python SDK version's changelog for `sample_rate`, `sample_on_request` and `sample_on_response`.
+</Note>
+
+Sampling is not exclusion: an [excluded](/sdk-reference/python-configuration) path (health checks, probes) is never recorded at all and does not count in metrics.

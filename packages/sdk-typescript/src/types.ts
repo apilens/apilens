@@ -1,3 +1,5 @@
+import type { SampleOnRequest, SampleOnResponse } from "./sampling.js";
+
 export type Logger = {
   debug?: (...args: unknown[]) => void;
   info?: (...args: unknown[]) => void;
@@ -27,6 +29,11 @@ export type ApiLensRecordInput = {
   response_headers?: string;
   release?: string;
   commit?: string;
+  /**
+   * False when the request was sampled out: the base record is still sent
+   * (it counts in metrics) but headers and payloads are dropped. Default true.
+   */
+  sampled?: boolean;
 };
 
 export type ApiLensRecord = {
@@ -51,6 +58,7 @@ export type ApiLensRecord = {
   response_headers: string;
   release: string;
   commit: string;
+  sampled: boolean;
 };
 
 export type ApiLensClientConfig = {
@@ -177,5 +185,24 @@ export type ApiLensExpressConfig = ApiLensClientConfig & {
   redactHeaders?: ReadonlyArray<string | RegExp>;
   /** JSON body field names to redact, at any depth (on top of `DEFAULT_MASK_BODY_FIELDS`). */
   redactBodyFields?: ReadonlyArray<string | RegExp>;
+  /*
+   * Sampling. A sampled-out request still sends its base record with
+   * `sampled: false` (so traffic, error and latency metrics are unchanged);
+   * only headers and bodies are dropped. See `sampling.ts`.
+   */
+  /** Probability in [0, 1] that a request keeps its detail (default 1). Throws if out of range. */
+  sampleRate?: number;
+  /**
+   * Runs when the request arrives. `true`/`false` is final, a number is a
+   * probability, `undefined`/`null` falls back to `sampleRate`. Throwing
+   * counts as `undefined`.
+   */
+  sampleOnRequest?: SampleOnRequest;
+  /**
+   * Runs after the response (status, latency, consumer). Same return values;
+   * `undefined` keeps the prior decision. Cannot resurrect a request sampled
+   * out at request time.
+   */
+  sampleOnResponse?: SampleOnResponse;
   getConsumer?: (req: unknown, res: unknown) => ApiLensConsumer | string | null | undefined;
 };
