@@ -36,6 +36,7 @@ That is the whole setup. No agent, no sidecar, no code changes to your handlers.
 - [Reliability & performance](#reliability--performance)
 - [Deployment shapes](#deployment-shapes)
 - [Security & privacy](#security--privacy)
+- [Network requirements](#network-requirements)
 - [OpenTelemetry interoperability](#opentelemetry-interoperability)
 - [Troubleshooting](#troubleshooting)
 - [Support](#support)
@@ -450,7 +451,8 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `max_retries` | `3` | Retry attempts per batch for 408, 429, 5xx and network errors (full-jitter exponential backoff, or the server's `Retry-After`). |
 | `compress` | `True` | gzip each batch (level 5, `Content-Encoding: gzip`) on the background flush thread; falls back to plain JSON if compression fails. `False` sends plain JSON. |
 | `verify_tls` | `True` | Verify the ingest server's TLS certificate. |
-| `ca_bundle_path` | `""` | Custom CA bundle for TLS verification. |
+| `ca_bundle_path` | `""` | Custom CA bundle (PEM) for TLS verification; replaces the system trust store. |
+| `proxy_url` | `""` | Egress proxy for ingest traffic, e.g. `http://proxy.corp:3128` or `http://user:pass@proxy.corp:3128`. Falls back to env `APILENS_PROXY`, then `HTTPS_PROXY` / `HTTP_PROXY`. See [network requirements](#network-requirements). |
 | `enabled` | `True` | Master switch; `False` disables capture and the worker entirely. |
 
 ### Middleware options
@@ -662,6 +664,52 @@ exit. In Kubernetes, `terminationGracePeriodSeconds` (default 30 s) must exceed
   `APILENS_MAX_PAYLOAD_BYTES=0` on Django).
 - **TLS by default.** Certificates are verified unless you set `verify_tls=False`
   (intended for local development only).
+
+---
+
+## Network requirements
+
+The SDK makes **outbound HTTPS calls only**; it never listens on a port.
+
+| | |
+|---|---|
+| Egress host | `ingest.apilens.ai` (or the host in your `base_url`) |
+| Port / protocol | `443/tcp`, HTTPS (TLS 1.2+) |
+| Requests | `POST /v1/requests`, `/v1/traces`, `/v1/logs` (gzip JSON batches) from a background thread |
+
+**Proxy.** Precedence, first match wins:
+
+1. `proxy_url` on `ApiLensConfig`.
+2. `APILENS_PROXY` env var (handy for Django and the framework helpers, which
+   build the config for you).
+3. The standard `HTTPS_PROXY` / `HTTP_PROXY` env vars (urllib's defaults).
+
+`NO_PROXY` is honoured in every case. `https` ingest is tunnelled through the
+proxy with `CONNECT`, so TLS stays end-to-end and the proxy never sees the API
+key or payloads. Proxy credentials go in the URL
+(`http://user:pass@proxy.corp:3128`) and are sent as `Proxy-Authorization: Basic`.
+
+```bash
+export APILENS_PROXY=http://proxy.corp:3128
+```
+
+**Custom CA.** If a TLS-inspecting proxy re-signs traffic with a corporate root,
+point `ca_bundle_path` at a PEM bundle containing that root. It replaces the
+system trust store for ingest calls, so include any public roots you still need.
+Do not reach for `verify_tls=False` in production.
+
+```python
+ApiLensConfig(
+    api_key="apilens_xxx",
+    proxy_url="http://proxy.corp:3128",
+    ca_bundle_path="/etc/ssl/certs/corp-root.pem",
+)
+```
+
+An unreachable proxy or a certificate error is treated as a network error: the
+batch is retried with backoff, then dropped and counted under
+`drop_counts()["retries_exhausted"]`. Like every SDK error, it never raises into
+your app; turn on the `apilens` logger to see it.
 
 ---
 
