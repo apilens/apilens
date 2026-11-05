@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added Spring WebFlux support: `ApiLensWebFilter` (a `WebFilter`) with the
+  servlet filter's options, body capture by `DataBuffer` decoration within
+  `maxPayloadBytes`, route templates from
+  `HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE`, consumers via
+  `ApiLensWebFilter.setConsumer(exchange, ...)` or an
+  `ApiLensWebFluxConsumerResolver` bean, and `ApiLensWebFluxAutoConfiguration`
+  for reactive apps (the servlet filter backs off). The metadata report lists
+  WebFlux `@RequestMapping` routes too.
 - Added `captureProfile` presets (`CaptureProfile.METADATA` / `REDACTED` /
   `FULL`, `apilens.capture-profile`, `APILENS_CAPTURE_PROFILE`) with the Python
   and TypeScript semantics: a preset only fills capture flags left unset.

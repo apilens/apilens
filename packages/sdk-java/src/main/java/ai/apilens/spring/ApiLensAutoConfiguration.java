@@ -25,7 +25,9 @@ public class ApiLensAutoConfiguration {
   }
 
   @Bean
-  @ConditionalOnMissingBean
+  // A reactive app is captured by ApiLensWebFluxAutoConfiguration's WebFilter instead. Matched
+  // by name, so the condition never loads WebFlux classes.
+  @ConditionalOnMissingBean(value = ApiLensSpringFilter.class, name = "apiLensWebFilter")
   @ConditionalOnBean(ApiLensClient.class)
   public ApiLensSpringFilter apiLensSpringFilter(
       ApiLensClient client,

@@ -41,22 +41,37 @@ import org.springframework.util.ClassUtils;
  * }</pre>
  *
  * <p>Routes come from every {@code RequestMappingHandlerMapping} in the context (Spring MVC
- * {@code @RequestMapping} methods); a mapping without a method condition is reported as
- * {@code "*"}. Never sent: the API key, the CA bundle path, and anything about callbacks beyond
+ * and Spring WebFlux {@code @RequestMapping} methods); a mapping without a method condition is
+ * reported as {@code "*"}. Never sent: the API key, the CA bundle path, and anything about callbacks beyond
  * whether one is set.
  */
 public class ApiLensMetadataReporter implements ApplicationListener<ApplicationReadyEvent> {
   private static final Logger LOGGER = Logger.getLogger("apilens");
   private static final String HANDLER_MAPPING_CLASS =
       "org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping";
+  private static final String REACTIVE_HANDLER_MAPPING_CLASS =
+      "org.springframework.web.reactive.result.method.annotation.RequestMappingHandlerMapping";
 
+  // Options and exclusions rather than the filter, so no servlet or WebFlux type is a field.
   private final ApiLensClient client;
-  private final ApiLensSpringFilter filter;
+  private final ApiLensSpringOptions options;
+  private final RequestExcluder excluder;
   private final boolean consumerResolver;
 
   public ApiLensMetadataReporter(ApiLensClient client, ApiLensSpringFilter filter, boolean consumerResolver) {
+    this(client, filter.options(), filter.excluder(), consumerResolver);
+  }
+
+  /** Reporter for the Spring WebFlux filter. */
+  public ApiLensMetadataReporter(ApiLensClient client, ApiLensWebFilter filter, boolean consumerResolver) {
+    this(client, filter.options(), filter.excluder(), consumerResolver);
+  }
+
+  private ApiLensMetadataReporter(
+      ApiLensClient client, ApiLensSpringOptions options, RequestExcluder excluder, boolean consumerResolver) {
     this.client = client;
-    this.filter = filter;
+    this.options = options;
+    this.excluder = excluder;
     this.consumerResolver = consumerResolver;
   }
 
@@ -68,11 +83,10 @@ public class ApiLensMetadataReporter implements ApplicationListener<ApplicationR
   /** Starts the report for {@code context}; {@code false} when it was already sent or is off. */
   public boolean report(ApplicationContext context) {
     try {
-      ApiLensSpringOptions options = filter.options();
       if (!options.enabled()) {
         return false;
       }
-      Map<String, Object> config = effectiveConfig(client.config(), options, filter.excluder(), consumerResolver);
+      Map<String, Object> config = effectiveConfig(client.config(), options, excluder, consumerResolver);
       return client.reportMetadata(options.environment(), () -> payload(context, options, config));
     } catch (RuntimeException ex) {
       LOGGER.log(Level.FINE, "API Lens could not start the app metadata report", ex);
@@ -100,17 +114,28 @@ public class ApiLensMetadataReporter implements ApplicationListener<ApplicationR
     return body;
   }
 
-  /** Route templates of every Spring MVC handler mapping in {@code context}. */
+  /** Route templates of every Spring MVC and Spring WebFlux handler mapping in {@code context}. */
   static List<Map<String, String>> routes(ApplicationContext context) {
-    if (context == null || !ClassUtils.isPresent(HANDLER_MAPPING_CLASS, ApiLensMetadataReporter.class.getClassLoader())) {
+    if (context == null) {
       return List.of();
     }
-    try {
-      return SpringMvcRoutes.list(context);
-    } catch (RuntimeException | LinkageError ex) {
-      LOGGER.log(Level.FINE, "API Lens could not list the Spring MVC routes", ex);
-      return List.of();
+    ClassLoader loader = ApiLensMetadataReporter.class.getClassLoader();
+    List<Map<String, String>> out = new ArrayList<>();
+    if (ClassUtils.isPresent(HANDLER_MAPPING_CLASS, loader)) {
+      try {
+        out.addAll(SpringMvcRoutes.list(context));
+      } catch (RuntimeException | LinkageError ex) {
+        LOGGER.log(Level.FINE, "API Lens could not list the Spring MVC routes", ex);
+      }
     }
+    if (ClassUtils.isPresent(REACTIVE_HANDLER_MAPPING_CLASS, loader)) {
+      try {
+        out.addAll(SpringWebFluxRoutes.list(context));
+      } catch (RuntimeException | LinkageError ex) {
+        LOGGER.log(Level.FINE, "API Lens could not list the Spring WebFlux routes", ex);
+      }
+    }
+    return out;
   }
 
   /**

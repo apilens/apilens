@@ -46,6 +46,7 @@
               "setup-guides/litestar",
               "setup-guides/blacksheep",
               "setup-guides/express",
+              "setup-guides/spring-webflux",
               "setup-guides/other-frameworks"
             ]
           },
