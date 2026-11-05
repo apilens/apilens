@@ -82,6 +82,11 @@
 //   GET  /api/v1/requests?project=                 query reads as the session (#335): the rows the fake
 //   GET  /api/v1/traffic/summary?project=          edge stored for shop or a project the user created,
 //   GET  /api/v1/traffic/endpoints?project=        newest first, and totals/p95 over them; 404 otherwise
+//   GET  /api/v1/traffic/timeseries?project=       with a `/__fake/traffic` seed for the project (#592), the
+//                                                  summary, endpoints and timeseries reads answer the seed of
+//                                                  `env` (else of "", all environments); without one, no points
+//   POST /__fake/traffic {project, envs: {"": {summary, points, endpoints}, production: …}}
+//                                                  test hook: what those answer for `project`; envs {} forgets it
 //   GET  /api/v1/deploys/changes?project=          deploys with before/after numbers (#597), as seeded
 //   POST /__fake/deploys {project, deploys}        test hook: what that answers for `project`
 //   GET  /api/v1/consumers?project=&group=         consumers of shop (#596) as seeded, each with the group the
@@ -468,6 +473,9 @@ const ingestedRows = new Map<
 const queryDown = new Set<string>();
 /** Project slug → the deploys `GET /deploys/changes` answers, as seeded by `/__fake/deploys` (#597). */
 const deployChanges = new Map<string, Record<string, unknown>[]>();
+/** Project slug → environment ("" for all) → what the traffic reads answer (#592), as seeded by `/__fake/traffic`. */
+type TrafficSeed = { summary: Record<string, unknown>; points: unknown[]; endpoints: unknown[] };
+const trafficSeed = new Map<string, Record<string, TrafficSeed>>();
 /** Project slug → what the consumers reads answer (#596), as seeded by `/__fake/consumers`. */
 const consumersSeed = new Map<
   string,
@@ -1320,6 +1328,31 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (typeof a.policy === "object" && a.policy !== null) capturePolicies.set(id, a.policy as Record<string, unknown>);
       if (Array.isArray(a.environments)) appReports.set(id, a.environments as Record<string, unknown>[]);
     });
+    return send(res, 204);
+  }
+  // The traffic reads as seeded (#592), by environment; same access rules as below.
+  if (req.method === "GET" && (path === "/api/v1/traffic/summary" || path === "/api/v1/traffic/endpoints" || path === "/api/v1/traffic/timeseries")) {
+    const slug = url.searchParams.get("project") ?? "";
+    const seeded = trafficSeed.get(slug);
+    if (seeded || path === "/api/v1/traffic/timeseries") {
+      const user = signedInUser(req);
+      if (!user) return problem(res, 401, "unauthenticated");
+      if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+      if (queryDown.has(slug)) return problem(res, 503, "unavailable");
+      const range = url.searchParams.get("range") ?? "24h";
+      const env = url.searchParams.get("env") ?? "";
+      const seed = seeded?.[env] ?? seeded?.[""];
+      if (path === "/api/v1/traffic/timeseries") return send(res, 200, { range, bucket_seconds: 900, points: seed?.points ?? [] });
+      if (path === "/api/v1/traffic/endpoints") return send(res, 200, { endpoints: seed?.endpoints ?? [] });
+      return send(res, 200, { ...seed?.summary, range });
+    }
+  }
+  if (req.method === "POST" && path === "/__fake/traffic") {
+    // Test hook: replaces what the traffic reads answer for `project`, per environment.
+    const b = await readBody(req);
+    const envs = (b.envs as Record<string, TrafficSeed> | undefined) ?? {};
+    if (Object.keys(envs).length) trafficSeed.set(String(b.project), envs);
+    else trafficSeed.delete(String(b.project));
     return send(res, 204);
   }
   // The query role's dashboard reads as a session (#295, #335): the project in `?project=`; a
