@@ -86,7 +86,7 @@ func TestIngestStatus(t *testing.T) {
 	checker := projectChecker{live.ProjectID.String(): true, empty.ProjectID.String(): true}
 	guard := authz.NewGuard(checker, authz.NewPGResolver(pool), authz.GuardOptions{}, logger)
 	api.UseMiddleware(query.AuthMiddleware(api, verifier, guard))
-	query.Register(api, query.NewService(conn, q), guard)
+	query.Register(api, query.NewService(conn, q).WithQuota(config.QuotaConfig{RecordsPerMinute: 6000, BytesPerDay: 1 << 30}), guard)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -95,6 +95,10 @@ func TestIngestStatus(t *testing.T) {
 		FirstAt  *time.Time `json:"first_at"`
 		LastAt   *time.Time `json:"last_at"`
 		Count1h  uint64     `json:"count_1h"`
+		Quota    struct {
+			RecordsPerMinute int64 `json:"records_per_minute"`
+			BytesPerDay      int64 `json:"bytes_per_day"`
+		} `json:"quota"`
 	}
 	get := func(header, value, slug string) (int, status) {
 		t.Helper()
@@ -121,6 +125,9 @@ func TestIngestStatus(t *testing.T) {
 	h, v := bearer(empty.ReadKey)
 	if code, s := get(h, v, "fresh"); code != http.StatusOK || s.Received || s.FirstAt != nil || s.LastAt != nil || s.Count1h != 0 {
 		t.Fatalf("empty project = %d %+v", code, s)
+	}
+	if code, s := get(h, v, "fresh"); code != http.StatusOK || s.Quota.RecordsPerMinute != 6000 || s.Quota.BytesPerDay != 1<<30 {
+		t.Fatalf("quota = %d %+v, want the configured ingest limits", code, s.Quota)
 	}
 	best := time.Hour
 	for range 5 {

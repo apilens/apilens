@@ -47,6 +47,7 @@ type Catalog interface {
 type Service struct {
 	ch      driver.Conn
 	catalog Catalog
+	quota   IngestQuota // ingest limits reported by ingest-status
 	now     func() time.Time
 }
 

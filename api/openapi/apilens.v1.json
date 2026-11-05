@@ -1582,6 +1582,26 @@
         ],
         "type": "object"
       },
+      "IngestQuota": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes_per_day": {
+            "description": "Decompressed ingest body bytes accepted per day; 0 means unlimited.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "records_per_minute": {
+            "description": "Records (requests, logs, spans, deploys) accepted per minute; 0 means unlimited.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "records_per_minute",
+          "bytes_per_day"
+        ],
+        "type": "object"
+      },
       "IngestStatus": {
         "additionalProperties": false,
         "properties": {
@@ -1616,6 +1636,10 @@
               "null"
             ]
           },
+          "quota": {
+            "$ref": "#/components/schemas/IngestQuota",
+            "description": "Ingest limits that apply to the project."
+          },
           "received": {
             "description": "Whether any request was ever stored for the project (within retention).",
             "type": "boolean"
@@ -1625,7 +1649,8 @@
           "received",
           "first_at",
           "last_at",
-          "count_1h"
+          "count_1h",
+          "quota"
         ],
         "type": "object"
       },

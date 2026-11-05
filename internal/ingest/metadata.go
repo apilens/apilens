@@ -132,7 +132,7 @@ func (e *Edge) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var raw json.RawMessage
-	if aerr = e.decodeJSON(w, r, &raw); aerr != nil {
+	if _, aerr = e.decodeJSON(w, r, &raw); aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}

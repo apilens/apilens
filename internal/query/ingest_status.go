@@ -10,6 +10,7 @@ import (
 	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/platform/authn"
+	"github.com/apilens/apilens/internal/platform/config"
 	"github.com/apilens/apilens/internal/platform/server"
 )
 
@@ -19,10 +20,24 @@ const IngestStatusPath = server.APIPrefix + "/projects/{" + authz.ParamProject +
 
 // IngestStatus says whether a project has received traffic yet.
 type IngestStatus struct {
-	Received bool       `json:"received" doc:"Whether any request was ever stored for the project (within retention)."`
-	FirstAt  *time.Time `json:"first_at" doc:"Timestamp of the oldest stored request; null when none."`
-	LastAt   *time.Time `json:"last_at" doc:"Timestamp of the newest stored request; null when none."`
-	Count1h  uint64     `json:"count_1h" doc:"Requests stored with a timestamp in the last hour."`
+	Received bool        `json:"received" doc:"Whether any request was ever stored for the project (within retention)."`
+	FirstAt  *time.Time  `json:"first_at" doc:"Timestamp of the oldest stored request; null when none."`
+	LastAt   *time.Time  `json:"last_at" doc:"Timestamp of the newest stored request; null when none."`
+	Count1h  uint64      `json:"count_1h" doc:"Requests stored with a timestamp in the last hour."`
+	Quota    IngestQuota `json:"quota" doc:"Ingest limits that apply to the project."`
+}
+
+// IngestQuota is the per-project ingest limit set (ingest.quota.*). Ingest
+// answers 429 with Retry-After once a limit is reached.
+type IngestQuota struct {
+	RecordsPerMinute int64 `json:"records_per_minute" doc:"Records (requests, logs, spans, deploys) accepted per minute; 0 means unlimited."`
+	BytesPerDay      int64 `json:"bytes_per_day" doc:"Decompressed ingest body bytes accepted per day; 0 means unlimited."`
+}
+
+// WithQuota sets the ingest limits ingest-status reports.
+func (s *Service) WithQuota(q config.QuotaConfig) *Service {
+	s.quota = IngestQuota{RecordsPerMinute: q.RecordsPerMinute, BytesPerDay: q.BytesPerDay}
+	return s
 }
 
 type ingestStatusInput struct {
@@ -68,7 +83,7 @@ func (s *Service) ingestStatus(ctx context.Context, _ *ingestStatusInput) (*inge
 	if err != nil {
 		return nil, internalError("ingest status", err)
 	}
-	out := &ingestStatusOutput{Body: IngestStatus{Received: count > 0, Count1h: count1h}}
+	out := &ingestStatusOutput{Body: IngestStatus{Received: count > 0, Count1h: count1h, Quota: s.quota}}
 	if count > 0 {
 		first, last = first.UTC(), last.UTC()
 		out.Body.FirstAt, out.Body.LastAt = &first, &last
