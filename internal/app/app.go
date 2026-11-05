@@ -19,6 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/valkey-io/valkey-go"
 
+	"github.com/apilens/apilens/internal/alerts"
 	"github.com/apilens/apilens/internal/authz"
 	controlplaneapi "github.com/apilens/apilens/internal/controlplane/api"
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
@@ -79,6 +80,7 @@ const (
 	modJobs       = "jobs"
 	modAuthz      = "authz"
 	modRelay      = "outbox-relay"
+	modAlerts     = "alerts"
 )
 
 // PlannedTargets are roles of the target architecture that later milestones
@@ -161,8 +163,12 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	// identity runs the M2 job workers (email, outbox relay, authz
 	// reconciler); the M4 worker role will too.
 	m.Register(TargetIdentity, a.initIdentity, modules.DependsOn(modServer, modPostgres, modValkey, modJobs, modRelay))
+	// Alert rule evaluation is a periodic job over ClickHouse. Until the M4
+	// worker role exists it runs only in the all-in-one process, the one
+	// role that has both ClickHouse and the job workers.
+	m.Register(modAlerts, a.initAlerts, modules.Invisible(), modules.DependsOn(modPostgres, modClickHouse, modCatalog, modJobs))
 	m.Register(TargetAll, func(context.Context) (modules.Service, error) { return nil, nil },
-		modules.DependsOn(TargetEdge, TargetQuery, TargetAPI, TargetIdentity))
+		modules.DependsOn(TargetEdge, TargetQuery, TargetAPI, TargetIdentity, modAlerts))
 	return a
 }
 
@@ -318,6 +324,14 @@ func (a *App) initRelay(context.Context) (modules.Service, error) {
 		return nil, nil
 	}
 	return modules.ServiceFunc(relay.Listen), nil
+}
+
+// initAlerts registers the periodic alert rule evaluation job.
+func (a *App) initAlerts(context.Context) (modules.Service, error) {
+	evaluator := alerts.NewEvaluator(a.chConn, a.queries, a.logger, a.registry)
+	jobs.Register(a.workers, alerts.NewEvaluateWorker(evaluator, a.logger))
+	a.workers.Periodic(alerts.EvaluateInterval, alerts.EvaluateArgs{})
+	return nil, nil
 }
 
 func (a *App) initEdge(context.Context) (modules.Service, error) {

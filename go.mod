@@ -35,6 +35,7 @@ require (
 	github.com/riverqueue/river v0.51.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.51.0
 	github.com/riverqueue/river/rivertype v0.51.0
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/cors v1.11.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/clickhouse v0.44.0

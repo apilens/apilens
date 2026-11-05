@@ -45,6 +45,16 @@ type AlertRule struct {
 	UpdatedAt     time.Time
 }
 
+type AlertRuleState struct {
+	RuleID      uuid.UUID
+	EvaluatedAt time.Time
+	WindowStart time.Time
+	WindowEnd   time.Time
+	Value       *float64
+	Requests    int64
+	Breached    bool
+}
+
 type ApiKey struct {
 	ID         uuid.UUID
 	ProjectID  uuid.UUID
