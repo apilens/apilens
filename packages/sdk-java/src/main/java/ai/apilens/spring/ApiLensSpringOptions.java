@@ -1,7 +1,10 @@
 package ai.apilens.spring;
 
 import ai.apilens.RequestExcluder;
+import ai.apilens.RequestInfo;
+import ai.apilens.ResponseInfo;
 import java.util.List;
+import java.util.function.BiFunction;
 
 /** Request-capture options used by the Spring servlet filter. */
 public final class ApiLensSpringOptions {
@@ -22,6 +25,8 @@ public final class ApiLensSpringOptions {
   private final List<String> excludePaths;
   private final List<String> excludeUserAgents;
   private final boolean defaultExclusions;
+  private final BiFunction<RequestInfo, byte[], byte[]> maskRequestBody;
+  private final BiFunction<ResponseInfo, byte[], byte[]> maskResponseBody;
 
   private ApiLensSpringOptions(Builder builder) {
     this.environment = builder.environment;
@@ -41,10 +46,36 @@ public final class ApiLensSpringOptions {
     this.excludePaths = List.copyOf(builder.excludePaths);
     this.excludeUserAgents = List.copyOf(builder.excludeUserAgents);
     this.defaultExclusions = builder.defaultExclusions;
+    this.maskRequestBody = builder.maskRequestBody;
+    this.maskResponseBody = builder.maskResponseBody;
   }
 
   public static Builder builder() {
     return new Builder();
+  }
+
+  /** A builder pre-filled with these options. */
+  public Builder toBuilder() {
+    return new Builder()
+        .environment(environment)
+        .enabled(enabled)
+        .enableRequestLogging(enableRequestLogging)
+        .logRequestBody(logRequestBody)
+        .logResponseBody(logResponseBody)
+        .capturePayloads(capturePayloads)
+        .captureHeaders(captureHeaders)
+        .captureSpans(captureSpans)
+        .serviceName(serviceName)
+        .maxPayloadBytes(maxPayloadBytes)
+        .redactQueryParams(redactQueryParams)
+        .redactHeaders(redactHeaders)
+        .redactBodyFields(redactBodyFields)
+        .parametrizePaths(parametrizePaths)
+        .excludePaths(excludePaths)
+        .excludeUserAgents(excludeUserAgents)
+        .defaultExclusions(defaultExclusions)
+        .maskRequestBody(maskRequestBody)
+        .maskResponseBody(maskResponseBody);
   }
 
   public String environment() {
@@ -118,6 +149,20 @@ public final class ApiLensSpringOptions {
     return defaultExclusions;
   }
 
+  /**
+   * Callback run on the captured raw request body before the regex masking; return the bytes to
+   * store, or {@code null} to store {@code [masked]}. A thrown exception also stores
+   * {@code [masked]}. {@code null} when unset.
+   */
+  public BiFunction<RequestInfo, byte[], byte[]> maskRequestBody() {
+    return maskRequestBody;
+  }
+
+  /** Response-side counterpart of {@link #maskRequestBody()}, with the same semantics. */
+  public BiFunction<ResponseInfo, byte[], byte[]> maskResponseBody() {
+    return maskResponseBody;
+  }
+
   public static final class Builder {
     private String environment = "";
     private boolean enabled = true;
@@ -136,6 +181,8 @@ public final class ApiLensSpringOptions {
     private List<String> excludePaths = List.of();
     private List<String> excludeUserAgents = List.of();
     private boolean defaultExclusions = true;
+    private BiFunction<RequestInfo, byte[], byte[]> maskRequestBody;
+    private BiFunction<ResponseInfo, byte[], byte[]> maskResponseBody;
 
     private Builder() {}
 
@@ -221,6 +268,16 @@ public final class ApiLensSpringOptions {
 
     public Builder defaultExclusions(boolean defaultExclusions) {
       this.defaultExclusions = defaultExclusions;
+      return this;
+    }
+
+    public Builder maskRequestBody(BiFunction<RequestInfo, byte[], byte[]> maskRequestBody) {
+      this.maskRequestBody = maskRequestBody;
+      return this;
+    }
+
+    public Builder maskResponseBody(BiFunction<ResponseInfo, byte[], byte[]> maskResponseBody) {
+      this.maskResponseBody = maskResponseBody;
       return this;
     }
 

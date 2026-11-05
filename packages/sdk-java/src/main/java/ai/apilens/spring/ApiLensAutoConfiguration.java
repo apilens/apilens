@@ -30,8 +30,11 @@ public class ApiLensAutoConfiguration {
   public ApiLensSpringFilter apiLensSpringFilter(
       ApiLensClient client,
       ApiLensProperties properties,
-      ObjectProvider<ApiLensConsumerResolver> consumerResolver) {
-    return new ApiLensSpringFilter(client, properties.toSpringOptions(), consumerResolver.getIfAvailable());
+      ObjectProvider<ApiLensConsumerResolver> consumerResolver,
+      ObjectProvider<ApiLensSpringOptionsCustomizer> optionsCustomizers) {
+    ApiLensSpringOptions.Builder options = properties.toSpringOptions().toBuilder();
+    optionsCustomizers.orderedStream().forEach(customizer -> customizer.customize(options));
+    return new ApiLensSpringFilter(client, options.build(), consumerResolver.getIfAvailable());
   }
 
   @Bean

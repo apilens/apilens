@@ -9,14 +9,18 @@ import ai.apilens.ApiLensClient;
 import ai.apilens.ApiLensConfig;
 import ai.apilens.ApiLensConsumers;
 import ai.apilens.ApiLensClientTest.IngestServer;
+import ai.apilens.RequestInfo;
+import ai.apilens.ResponseInfo;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
@@ -158,6 +162,170 @@ class ApiLensSpringFilterTest {
     assertFalse(options.defaultExclusions());
     assertEquals(List.of("^/internal/"), options.excludePaths());
     assertEquals(List.of("uptimerobot"), options.excludeUserAgents());
+  }
+
+  @Test
+  void maskCallbacksRunBeforeRegexMaskingWithRequestAndResponseInfo() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      AtomicReference<RequestInfo> seenRequest = new AtomicReference<>();
+      AtomicReference<ResponseInfo> seenResponse = new AtomicReference<>();
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(
+          client,
+          ApiLensSpringOptions.builder()
+              .captureSpans(false)
+              .redactQueryParams(List.of("token"))
+              .redactBodyFields(List.of("password"))
+              .maskRequestBody((info, body) -> {
+                seenRequest.set(info);
+                return new String(body, StandardCharsets.UTF_8)
+                    .replace("4111111111111111", "****")
+                    .getBytes(StandardCharsets.UTF_8);
+              })
+              .maskResponseBody((info, body) -> {
+                seenResponse.set(info);
+                return null;
+              })
+              .build());
+
+      MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
+      request.setQueryString("token=abc");
+      request.setContentType("application/json");
+      request.addHeader("X-Tenant", "acme");
+      request.setContent("{\"card\":\"4111111111111111\",\"password\":\"pw\"}".getBytes(StandardCharsets.UTF_8));
+      filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> {
+        req.getInputStream().readAllBytes();
+        HttpServletResponse http = (HttpServletResponse) res;
+        http.setStatus(402);
+        http.setContentType("application/json");
+        http.getWriter().write("{\"secret\":\"response\"}");
+      });
+      client.flushAll();
+
+      String body = server.bodies().get(0);
+      assertTrue(body.contains("\"request_payload\":\"{\\\"card\\\":\\\"****\\\",\\\"password\\\":\\\"[redacted]\\\"}\""), body);
+      assertTrue(body.contains("\"response_payload\":\"[masked]\""), body);
+      assertFalse(body.contains("4111111111111111"));
+      assertFalse(body.contains("response\\\"}"));
+
+      assertEquals("POST", seenRequest.get().method());
+      assertEquals("/pay", seenRequest.get().path());
+      assertEquals("/pay?token=[redacted]", seenRequest.get().rawPath());
+      assertEquals("acme", seenRequest.get().headers().get("x-tenant"));
+      assertEquals("application/json", seenRequest.get().contentType());
+      assertEquals(402, seenResponse.get().statusCode());
+      assertTrue(seenResponse.get().contentType().startsWith("application/json"));
+      assertEquals(seenRequest.get(), seenResponse.get().request());
+
+      client.shutdown(false);
+    }
+  }
+
+  @Test
+  void throwingMaskCallbackStoresMaskedNotRawBody() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(
+          client,
+          ApiLensSpringOptions.builder()
+              .captureSpans(false)
+              .maskRequestBody((info, body) -> {
+                throw new IllegalStateException("mask bug");
+              })
+              .build());
+
+      MockHttpServletRequest request = new MockHttpServletRequest("POST", "/notes");
+      request.setContentType("text/plain");
+      request.setContent("raw-secret-note".getBytes(StandardCharsets.UTF_8));
+      MockHttpServletResponse response = new MockHttpServletResponse();
+      filter.doFilter(request, response, (req, res) -> {
+        req.getInputStream().readAllBytes();
+        ((HttpServletResponse) res).setStatus(204);
+      });
+      client.flushAll();
+
+      assertEquals(204, response.getStatus(), "a failing callback never breaks the request");
+      String body = server.bodies().get(0);
+      assertTrue(body.contains("\"request_payload\":\"[masked]\""), body);
+      assertFalse(body.contains("raw-secret-note"));
+
+      client.shutdown(false);
+    }
+  }
+
+  @Test
+  void capturesOnlyJsonTextAndFormBodies() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      AtomicInteger callbacks = new AtomicInteger();
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(
+          client,
+          ApiLensSpringOptions.builder()
+              .captureSpans(false)
+              .redactBodyFields(List.of("password"))
+              .maskResponseBody((info, body) -> {
+                callbacks.incrementAndGet();
+                return body;
+              })
+              .build());
+
+      MockHttpServletRequest form = new MockHttpServletRequest("POST", "/login");
+      form.setContentType("application/x-www-form-urlencoded");
+      form.setContent("user=alice&password=hunter2".getBytes(StandardCharsets.UTF_8));
+      filter.doFilter(form, new MockHttpServletResponse(), (req, res) -> {
+        req.getInputStream().readAllBytes();
+        HttpServletResponse http = (HttpServletResponse) res;
+        http.setContentType("image/png");
+        http.getOutputStream().write(new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+      });
+
+      MockHttpServletRequest upload = new MockHttpServletRequest("POST", "/upload");
+      upload.setContentType("multipart/form-data; boundary=xyz");
+      upload.setContent("--xyz\r\nbinary\r\n--xyz--".getBytes(StandardCharsets.UTF_8));
+      filter.doFilter(upload, new MockHttpServletResponse(), okChain());
+      client.flushAll();
+
+      String body = server.bodies().get(0);
+      assertTrue(body.contains("\"request_payload\":\"user=alice&password=[redacted]\""), body);
+      assertTrue(body.contains("\"response_payload\":\"[image/png, 4 bytes omitted]\""), body);
+      assertTrue(body.contains("\"request_payload\":\"[multipart/form-data, 22 bytes omitted]\""), body);
+      assertFalse(body.contains("hunter2"));
+      assertFalse(body.contains("binary"));
+      assertEquals(0, callbacks.get(), "callbacks never see non-captured content types");
+
+      client.shutdown(false);
+    }
+  }
+
+  @Test
+  void optionsCustomizerBeansSetCallbacksPropertiesCannotExpress() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      StaticListableBeanFactory beans = new StaticListableBeanFactory();
+      ApiLensSpringOptionsCustomizer customizer =
+          options -> options.maskRequestBody((info, body) -> "{\"replaced\":true}".getBytes(StandardCharsets.UTF_8));
+      beans.addBean("bodyMasking", customizer);
+      ApiLensProperties properties = new ApiLensProperties();
+      properties.setCaptureSpans(false);
+
+      ApiLensSpringFilter filter = new ApiLensAutoConfiguration().apiLensSpringFilter(
+          client,
+          properties,
+          beans.getBeanProvider(ApiLensConsumerResolver.class),
+          beans.getBeanProvider(ApiLensSpringOptionsCustomizer.class));
+
+      MockHttpServletRequest request = new MockHttpServletRequest("POST", "/orders");
+      request.setContentType("application/json");
+      request.setContent("{\"original\":true}".getBytes(StandardCharsets.UTF_8));
+      filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> req.getInputStream().readAllBytes());
+      client.flushAll();
+
+      String body = server.bodies().get(0);
+      assertTrue(body.contains("\"request_payload\":\"{\\\"replaced\\\":true}\""), body);
+      assertFalse(body.contains("original"));
+
+      client.shutdown(false);
+    }
   }
 
   private static ApiLensClient testClient(IngestServer server) {

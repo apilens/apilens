@@ -118,6 +118,46 @@ apilens.redact-body-fields[0]=password
 Built-in sensitive headers such as `authorization`, `cookie`, and `x-api-key`
 are always redacted.
 
+## Body capture and mask callbacks
+
+Only JSON (`application/json`, `*+json`), `text/*` and
+`application/x-www-form-urlencoded` bodies are captured. Any other content
+type (multipart uploads, images, PDFs, a body with no `Content-Type`) is stored
+as a placeholder such as `[multipart/form-data, 2048 bytes omitted]`.
+Form-encoded bodies are masked with the query redactor: a field is redacted
+when its name matches `redact-query-params` or `redact-body-fields`.
+
+`maskRequestBody` / `maskResponseBody` handle what field patterns can't (XML,
+free text, card numbers inside values). Each is a `BiFunction` called with a
+`RequestInfo` (`method`, `path`, `rawPath`, `headers`, `contentType()`) or a
+`ResponseInfo` (`request`, `statusCode`, `headers`, `contentType()`) and the
+captured bytes (truncated to `max-payload-bytes`); return the bytes to store.
+The order is fixed: callback, then the regex masking, so the patterns still
+apply to whatever the callback returns. Fail closed: returning `null` or
+throwing stores the whole body as `[masked]`, never the raw body. Callbacks are
+not called for bodies that are not captured.
+
+Spring properties cannot express callbacks. Register an
+`ApiLensSpringOptionsCustomizer` bean; the auto-configuration applies every
+customizer (in `@Order`) on top of the `apilens.*` properties:
+
+```java
+@Bean
+ApiLensSpringOptionsCustomizer apiLensBodyMasking() {
+  return options -> options
+      .maskRequestBody((info, body) -> {
+        if (info.path().startsWith("/payments")) {
+          return null; // stored as [masked]
+        }
+        return body;
+      })
+      .maskResponseBody((info, body) -> info.statusCode() >= 400 ? body : null);
+}
+```
+
+Without auto-configuration, pass the callbacks to
+`ApiLensSpringOptions.builder()` directly.
+
 ## Excluding requests
 
 Health checks, probes and static well-known files are not captured. An

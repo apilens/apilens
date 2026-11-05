@@ -7,7 +7,9 @@ import ai.apilens.LogRecord;
 import ai.apilens.PathTemplates;
 import ai.apilens.Redactor;
 import ai.apilens.RequestExcluder;
+import ai.apilens.RequestInfo;
 import ai.apilens.RequestRecord;
+import ai.apilens.ResponseInfo;
 import ai.apilens.SpanRecord;
 import ai.apilens.TraceContext;
 import ai.apilens.internal.Strings;
@@ -19,10 +21,14 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.function.BiFunction;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -150,12 +156,24 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
 
     String requestPayload = "";
     String responsePayload = "";
-    if (options.capturePayloads()) {
+    if (options.capturePayloads() && options.maxPayloadBytes() > 0) {
+      // Content-type aware: JSON / text / form-encoded bodies go through the mask callback and
+      // then the regex masking; anything else is stored as "[<content-type>, N bytes omitted]".
+      RequestInfo requestInfo = new RequestInfo(
+          method, rawRequestPath, rawPath, lowerHeaders(requestHeaders(request)));
       if (options.logRequestBody()) {
-        requestPayload = redactor.redactBody(Redactor.decodeUtf8Safe(request.getContentAsByteArray(), options.maxPayloadBytes()));
+        String contentType = Strings.clean(request.getContentType());
+        requestPayload = capturedPayload(
+            request.getContentAsByteArray(), contentType, requestSize(request),
+            options.maskRequestBody(), requestInfo);
       }
       if (options.logResponseBody()) {
-        responsePayload = redactor.redactBody(Redactor.decodeUtf8Safe(response.getContentAsByteArray(), options.maxPayloadBytes()));
+        String contentType = Strings.clean(response.getContentType());
+        ResponseInfo responseInfo = new ResponseInfo(
+            requestInfo, finalStatusCode, lowerHeaders(responseHeaders(response)));
+        responsePayload = capturedPayload(
+            response.getContentAsByteArray(), contentType, responseSize(response),
+            options.maskResponseBody(), responseInfo);
       }
     }
 
@@ -237,6 +255,41 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         .appId(client.config().appId())
         .payload(payload)
         .build());
+  }
+
+  private <T> String capturedPayload(
+      byte[] body,
+      String contentType,
+      long declaredSize,
+      BiFunction<? super T, byte[], byte[]> masker,
+      T info) {
+    if (!Redactor.isCapturableContentType(contentType)) {
+      // The body may not have been cached at all (e.g. multipart parsed by the container), so
+      // report the larger of the declared and the cached size.
+      long size = Math.max(declaredSize, body == null ? 0 : body.length);
+      return size > 0 ? Redactor.omittedPlaceholder(contentType, size) : "";
+    }
+    return redactor.maskBody(body, contentType, masker, info, options.maxPayloadBytes());
+  }
+
+  private static Map<String, String> lowerHeaders(Map<String, Object> headers) {
+    Map<String, String> out = new LinkedHashMap<>();
+    headers.forEach((name, value) -> {
+      String key = Strings.clean(name).toLowerCase(Locale.ROOT);
+      if (key.isEmpty()) {
+        return;
+      }
+      String text;
+      if (value instanceof Iterable<?> iterable) {
+        List<String> parts = new ArrayList<>();
+        iterable.forEach(item -> parts.add(String.valueOf(item)));
+        text = String.join(", ", parts);
+      } else {
+        text = String.valueOf(value);
+      }
+      out.merge(key, text, (a, b) -> a + ", " + b);
+    });
+    return out;
   }
 
   private ApiLensConsumer resolveConsumer(HttpServletRequest request, HttpServletResponse response) {
