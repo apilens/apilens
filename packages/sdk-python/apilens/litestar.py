@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .client._sampling import SampleOnRequest
+from .client._sampling import SampleOnRequest, SampleOnResponse
 from .client import ApiLensClient
 from .client._env import apply_env_defaults, env_defaults
 from .client._routes import litestar_route_template
@@ -39,6 +39,7 @@ class ApiLensPlugin:
     default_exclusions: bool = True
     sample_rate: float = 1.0
     sample_on_request: SampleOnRequest | None = None
+    sample_on_response: SampleOnResponse | None = None
 
     def on_app_init(self, app_config):
         try:
@@ -63,6 +64,7 @@ class ApiLensPlugin:
                 default_exclusions=self.default_exclusions,
                 sample_rate=self.sample_rate,
                 sample_on_request=self.sample_on_request,
+                sample_on_response=self.sample_on_response,
                 route_resolver=litestar_route_template,
             )
         )
@@ -85,6 +87,7 @@ def instrument_app(
     default_exclusions: bool = True,
     sample_rate: float = 1.0,
     sample_on_request: SampleOnRequest | None = None,
+    sample_on_response: SampleOnResponse | None = None,
 ):
     """Fallback direct installation for Litestar ASGI apps."""
     app.asgi_handler = ApiLensASGIMiddleware(
@@ -100,6 +103,7 @@ def instrument_app(
         default_exclusions=default_exclusions,
         sample_rate=sample_rate,
         sample_on_request=sample_on_request,
+        sample_on_response=sample_on_response,
         route_resolver=litestar_route_template,
     )
     return app

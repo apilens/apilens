@@ -17,12 +17,11 @@ from .client._capture import CaptureContext, _normalize_path, _to_int, capture_r
 from .client._exclusions import RequestExcluder
 from .client._metadata import start_django_metadata
 from .client._routes import django_route_template, resolve_endpoint_path
-from .client._sampling import RequestSampler
+from .client._sampling import RequestSampler, ResponseSampler
 from .client._sanitize import (
     ContentTypeFilter,
     Redactor,
     RequestInfo,
-    ResponseInfo,
     capture_body,
     lower_headers,
     serialize_headers,
@@ -33,13 +32,20 @@ from .client.middleware import (
     _consumer_ctx,
     _maybe_record_error,
     _read_consumer,
+    _response_info,
     normalize_consumer,
     set_consumer,
     track_consumer,
 )
 from .client._shutdown import DEFAULT_SHUTDOWN_TIMEOUT, env_flush_on_shutdown, register_atexit
 from .client._validation import MAX_VALIDATION_BODY_BYTES, parse_validation_errors
-from .client.spans import configure_spans, env_spans_enabled, record_span
+from .client.spans import (
+    configure_spans,
+    env_spans_enabled,
+    hold_child_spans,
+    record_span,
+    release_child_spans,
+)
 from .client.trace import (
     begin_request_trace,
     end_request_trace,
@@ -247,6 +253,12 @@ class ApiLensDjangoMiddleware:
             _setting(settings, "SAMPLE_RATE", 1.0, env),
             _resolve_body_masker(settings, "APILENS_SAMPLE_ON_REQUEST"),
         )
+        # APILENS_SAMPLE_ON_RESPONSE (a callable or its dotted path)
+        # ``(ResponseInfo) -> bool | float | None`` runs after the view with the
+        # route, status, latency, consumer and attributes; it can drop a kept
+        # request's detail but never un-drop one. ``None`` (or an exception,
+        # logged once) keeps the request-stage decision.
+        self.response_sampler = ResponseSampler(_resolve_body_masker(settings, "APILENS_SAMPLE_ON_RESPONSE"))
         # Heuristic path parametrization when the URL resolver gives no route
         # (env APILENS_PARAMETRIZE_PATHS wins over this setting).
         self.parametrize_paths = bool(getattr(settings, "APILENS_PARAMETRIZE_PATHS", True))
@@ -332,6 +344,9 @@ class ApiLensDjangoMiddleware:
             )
         )
         sampled_token = set_detail_sampled(sampled)
+        # sample_on_response may still drop this request's detail: hold its
+        # child spans until it has answered.
+        held_spans_token = hold_child_spans() if self.response_sampler.defers(sampled) else None
         capture_headers = self.capture_headers and sampled
         ctx = CaptureContext(
             method=method,
@@ -374,14 +389,16 @@ class ApiLensDjangoMiddleware:
         )
 
         response_headers = ""
+        response_header_map: dict = {}
+        response_content = b""
         attributes: dict = {}
         try:
             response = self.get_response(request)
             attributes = current_request_attributes()
             request_info = replace(request_info, attributes=attributes)
             status_code = int(getattr(response, "status_code", 500) or 500)
-            content = getattr(response, "content", b"") or b""
-            response_size = len(content)
+            response_content = getattr(response, "content", b"") or b""
+            response_size = len(response_content)
             try:
                 response_header_map = dict(response.items())
             except Exception:
@@ -390,34 +407,10 @@ class ApiLensDjangoMiddleware:
             # itself is captured or the request's detail was sampled out.
             ctx.validation_errors = parse_validation_errors(
                 status_code,
-                content[:MAX_VALIDATION_BODY_BYTES],
+                response_content[:MAX_VALIDATION_BODY_BYTES],
                 lower_headers(response_header_map).get("content-type"),
                 self.redactor,
             )
-            response_info = ResponseInfo(
-                request=request_info,
-                status_code=status_code,
-                headers=lower_headers(response_header_map),
-                attributes=attributes,
-            )
-            response_payload = (
-                capture_body(
-                    content[: self.max_payload_bytes],
-                    size=response_size,
-                    content_type=response_info.content_type,
-                    content_types=self.content_types,
-                    redactor=self.redactor,
-                    masker=self.mask_response_body,
-                    info=response_info,
-                )
-                if capture_response_body
-                else ""
-            )
-            if capture_headers:
-                try:
-                    response_headers = serialize_headers(dict(response.items()), redactor=self.redactor)
-                except Exception:
-                    response_headers = ""
             return response
         finally:
             # resolver_match is populated once the request has been routed, so
@@ -439,6 +432,43 @@ class ApiLensDjangoMiddleware:
                 attributes = current_request_attributes()
                 request_info = replace(request_info, attributes=attributes)
             ctx.attributes = attributes
+            response_time_ms = (time.perf_counter() - started_at) * 1000.0
+            response_info = _response_info(
+                ctx,
+                request_info,
+                status_code=status_code,
+                headers=response_header_map,
+                attributes=attributes,
+                response_time_ms=response_time_ms,
+                sampled=sampled,
+            )
+            kept = self.response_sampler.decide(sampled, lambda: response_info)
+            release_child_spans(held_spans_token, kept)
+            if not kept:
+                # Dropped after the response: base record only, as if it had
+                # been sampled out at request start.
+                ctx.sampled = False
+                ctx.request_headers = ""
+                capture_request_body = capture_response_body = False
+            response_payload = ""
+            if response is not None and capture_response_body:
+                try:
+                    response_payload = capture_body(
+                        response_content[: self.max_payload_bytes],
+                        size=response_size,
+                        content_type=response_info.content_type,
+                        content_types=self.content_types,
+                        redactor=self.redactor,
+                        masker=self.mask_response_body,
+                        info=response_info,
+                    )
+                except Exception:
+                    response_payload = ""
+            if response is not None and capture_headers and kept:
+                try:
+                    response_headers = serialize_headers(response_header_map, redactor=self.redactor)
+                except Exception:
+                    response_headers = ""
             try:
                 ctx.request_payload = (
                     capture_body(
@@ -460,7 +490,7 @@ class ApiLensDjangoMiddleware:
             reset_detail_sampled(sampled_token)
             end_request_trace(trace_token)
             captured_exc = getattr(request, "_apilens_exc", None)
-            if self.capture_spans and sampled:
+            if self.capture_spans and kept:
                 is_error = captured_exc is not None or status_code >= 500
                 record_span(
                     name=f"{ctx.method} {ctx.path}",
@@ -488,8 +518,9 @@ class ApiLensDjangoMiddleware:
                 status_code=status_code,
                 response_size=response_size,
                 started_at=started_at,
-                response_payload=locals().get("response_payload", ""),
+                response_payload=response_payload,
                 response_headers=response_headers,
+                response_time_ms=response_time_ms,
             )
 
 

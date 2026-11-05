@@ -381,19 +381,43 @@ class RequestInfo:
 
 @dataclass(frozen=True, slots=True)
 class ResponseInfo:
-    """What a ``mask_response_body`` callback is told about the response.
+    """What a ``sample_on_response`` / ``mask_response_body`` callback is told
+    about the response.
 
     ``attributes`` are the request's custom attributes (``set_request_attribute``).
+    ``route`` is the endpoint the request is grouped under (the route template,
+    e.g. ``/orders/{id}``); ``raw_path`` (from ``request``) the exact URL.
+    ``response_time_ms`` is the latency measured so far, ``consumer_*`` the
+    resolved consumer (empty when none) and ``sampled`` the request-stage
+    sampling decision (``sample_rate`` / ``sample_on_request``).
     """
 
     request: RequestInfo
     status_code: int
     headers: Mapping[str, str] = field(default_factory=dict)
     attributes: Mapping[str, Any] = field(default_factory=dict)
+    route: str = ""
+    response_time_ms: float = 0.0
+    consumer_id: str = ""
+    consumer_name: str = ""
+    consumer_group: str = ""
+    sampled: bool = True
 
     @property
     def content_type(self) -> str:
         return str(self.headers.get("content-type") or "")
+
+    @property
+    def method(self) -> str:
+        return self.request.method
+
+    @property
+    def path(self) -> str:
+        return self.request.path
+
+    @property
+    def raw_path(self) -> str:
+        return self.request.raw_path
 
 
 # ``(info, body) -> bytes | None``: return the (possibly rewritten) body bytes,

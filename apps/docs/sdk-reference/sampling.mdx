@@ -92,7 +92,7 @@ app.add_middleware(
 
 | `sampleOnResponse` (TS) | `sample_on_response` (Python) |
 |---|---|
-| `method`, `route`, `rawPath`, `statusCode`, `responseTimeMs`, `consumerId`, `consumerName`, `consumerGroup`, `sampled` | `method`, `route`, `raw_path`, `status_code`, `response_time_ms`, `consumer_id`, `consumer_name`, `consumer_group`, `sampled` |
+| `method`, `route`, `rawPath`, `statusCode`, `responseTimeMs`, `consumerId`, `consumerName`, `consumerGroup`, `sampled` | `method`, `route`, `raw_path`, `status_code`, `response_time_ms`, `consumer_id`, `consumer_name`, `consumer_group`, `attributes`, `sampled` |
 
 <Note>
 Sampling is per SDK release. The TypeScript SDK (`apilens-js-sdk`) supports all three options; check your Python SDK version's changelog for `sample_rate`, `sample_on_request` and `sample_on_response`.

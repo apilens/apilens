@@ -194,8 +194,13 @@ def capture_response(
     environment: str | None = None,
     response_payload: str = "",
     response_headers: str = "",
+    response_time_ms: float | None = None,
 ) -> None:
-    elapsed_ms = max((time.perf_counter() - started_at) * 1000.0, 0.0)
+    # ``response_time_ms`` lets the caller pass the latency it already showed
+    # ``sample_on_response``, so the callback and the record agree.
+    if response_time_ms is None:
+        response_time_ms = (time.perf_counter() - started_at) * 1000.0
+    elapsed_ms = max(response_time_ms, 0.0)
     # IP privacy is applied here, once, so every integration (ASGI, WSGI,
     # Django) honours ``capture_ip`` / ``anonymize_ip`` before the record exists.
     ip_address = apply_ip_policy(

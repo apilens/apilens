@@ -14,6 +14,7 @@ the only thing written to ``/v1/logs``; it is not a general logging API.
 
 from __future__ import annotations
 
+import contextvars
 import os
 import threading
 import time
@@ -96,6 +97,49 @@ def _clean_attributes(attributes: dict[str, Any] | None) -> dict[str, str]:
     return output
 
 
+class _HeldSpans:
+    """Child spans recorded while a request awaits ``sample_on_response``.
+
+    ``keep`` is None while the decision is pending; a span finishing later (a
+    background thread outliving the request) follows the decision.
+    """
+
+    __slots__ = ("spans", "keep", "lock")
+
+    def __init__(self) -> None:
+        self.spans: list[SpanRecord] = []
+        self.keep: bool | None = None
+        self.lock = threading.Lock()
+
+
+_held_spans_ctx: contextvars.ContextVar[_HeldSpans | None] = contextvars.ContextVar(
+    "apilens_held_spans", default=None
+)
+
+
+def hold_child_spans() -> contextvars.Token:
+    """Hold the current request's child spans until :func:`release_child_spans`
+    (used while ``sample_on_response`` may still drop the request's detail)."""
+    return _held_spans_ctx.set(_HeldSpans())
+
+
+def release_child_spans(token: contextvars.Token | None, keep: bool) -> None:
+    """Send (``keep``) or discard the spans held since :func:`hold_child_spans`."""
+    if token is None:
+        return
+    held = _held_spans_ctx.get()
+    _held_spans_ctx.reset(token)
+    if held is None:
+        return
+    with held.lock:
+        held.keep = bool(keep)
+        spans, held.spans = held.spans, []
+    recorder = _recorder
+    if keep and recorder is not None:
+        for span in spans:
+            recorder.client.capture_span(span)
+
+
 def record_span(
     *,
     name: str,
@@ -118,24 +162,31 @@ def record_span(
     if not detail_sampled():
         return
     ended = end_time or datetime.now(tz=timezone.utc)
-    recorder.client.capture_span(
-        SpanRecord(
-            timestamp=ended - timedelta(milliseconds=max(duration_ms, 0.0)),
-            environment=recorder.environment,
-            trace_id=trace_id,
-            span_id=span_id,
-            parent_span_id=parent_span_id,
-            name=(name or "")[:256],
-            kind=(kind or "internal").lower()[:16],
-            service_name=recorder.service_name,
-            duration_ms=max(float(duration_ms or 0.0), 0.0),
-            status="error" if status == "error" else "ok",
-            status_code=int(status_code or 0),
-            project_slug=recorder.client.config.project_slug,
-            app_id=recorder.app_id,
-            attributes=_clean_attributes(attributes),
-        )
+    record = SpanRecord(
+        timestamp=ended - timedelta(milliseconds=max(duration_ms, 0.0)),
+        environment=recorder.environment,
+        trace_id=trace_id,
+        span_id=span_id,
+        parent_span_id=parent_span_id,
+        name=(name or "")[:256],
+        kind=(kind or "internal").lower()[:16],
+        service_name=recorder.service_name,
+        duration_ms=max(float(duration_ms or 0.0), 0.0),
+        status="error" if status == "error" else "ok",
+        status_code=int(status_code or 0),
+        project_slug=recorder.client.config.project_slug,
+        app_id=recorder.app_id,
+        attributes=_clean_attributes(attributes),
     )
+    held = _held_spans_ctx.get()
+    if held is not None:
+        with held.lock:
+            if held.keep is None:
+                held.spans.append(record)
+                return
+            if not held.keep:
+                return
+    recorder.client.capture_span(record)
 
 
 def record_error_log(

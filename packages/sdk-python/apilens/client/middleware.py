@@ -31,7 +31,7 @@ from ._env import env_defaults
 from ._exclusions import RequestExcluder
 from ._metadata import start_asgi_metadata, start_wsgi_metadata
 from ._routes import resolve_endpoint_path
-from ._sampling import RequestSampler, SampleOnRequest
+from ._sampling import RequestSampler, ResponseSampler, SampleOnRequest, SampleOnResponse
 from ._sanitize import (
     BodyMasker,
     ContentTypeFilter,
@@ -55,7 +55,14 @@ from ._validation import (
     parse_validation_errors,
 )
 from .client import ApiLensClient
-from .spans import configure_spans, env_spans_enabled, record_error_log, record_span
+from .spans import (
+    configure_spans,
+    env_spans_enabled,
+    hold_child_spans,
+    record_error_log,
+    record_span,
+    release_child_spans,
+)
 from .trace import (
     begin_request_trace,
     end_request_trace,
@@ -237,6 +244,32 @@ def _apply_consumer(ctx: Any, consumer: dict[str, str]) -> None:
     ctx.consumer_group = str(consumer.get("consumer_group") or "")
 
 
+def _response_info(
+    ctx: Any,
+    request_info: RequestInfo,
+    *,
+    status_code: int,
+    headers: dict[str, str],
+    attributes: dict,
+    response_time_ms: float,
+    sampled: bool,
+) -> ResponseInfo:
+    """The ResponseInfo for ``sample_on_response`` / ``mask_response_body``,
+    once ``ctx`` carries the route template and the resolved consumer."""
+    return ResponseInfo(
+        request=request_info,
+        status_code=status_code,
+        headers=lower_headers(headers),
+        attributes=attributes,
+        route=ctx.path,
+        response_time_ms=max(response_time_ms, 0.0),
+        consumer_id=ctx.consumer_id,
+        consumer_name=ctx.consumer_name,
+        consumer_group=ctx.consumer_group,
+        sampled=sampled,
+    )
+
+
 def track_consumer(
     request: Any | None = None,
     *,
@@ -364,6 +397,7 @@ class ApiLensASGIMiddleware:
         default_exclusions: bool = True,
         sample_rate: float = 1.0,
         sample_on_request: SampleOnRequest | None = None,
+        sample_on_response: SampleOnResponse | None = None,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
@@ -418,6 +452,12 @@ class ApiLensASGIMiddleware:
         # request before the app runs: a bool is final, a float is a keep
         # probability, ``None`` (or an exception, logged once) uses the rate.
         self.sampler = RequestSampler(sample_rate, sample_on_request)
+        # ``sample_on_response(ResponseInfo) -> bool | float | None`` runs after
+        # the response (route, status, latency, consumer, attributes known) and
+        # can drop a kept request's detail; it never un-drops one. ``None`` (or
+        # an exception, logged once) keeps the request-stage decision. Child
+        # spans are held until it has answered.
+        self.response_sampler = ResponseSampler(sample_on_response)
         # Framework hook that maps a matched request scope to its route template
         # (``/product/{id}``). Runs after the app handled the request, when
         # routing has resolved. Heuristic fallback applies when it returns None.
@@ -529,6 +569,9 @@ class ApiLensASGIMiddleware:
             )
         )
         sampled_token = set_detail_sampled(sampled)
+        # sample_on_response may still drop this request's detail: hold its
+        # child spans until it has answered.
+        held_spans_token = hold_child_spans() if self.response_sampler.defers(sampled) else None
         capture_headers = self.capture_headers and sampled
         capture_payloads = self.capture_payloads and sampled
         capture_request_body = capture_payloads and self.log_request_body and self.max_payload_bytes > 0
@@ -649,6 +692,7 @@ class ApiLensASGIMiddleware:
                     resolved = None
                 if resolved is not None:
                     consumer = normalize_consumer(resolved)
+            _apply_consumer(ctx, consumer)
             attributes = current_request_attributes()
             ctx.attributes = attributes
             request_info = RequestInfo(
@@ -660,6 +704,25 @@ class ApiLensASGIMiddleware:
                 query=query,
                 client_ip=client_ip,
             )
+            response_time_ms = (time.perf_counter() - started_at) * 1000.0
+            response_info = _response_info(
+                ctx,
+                request_info,
+                status_code=status_code,
+                headers=response_headers,
+                attributes=attributes,
+                response_time_ms=response_time_ms,
+                sampled=sampled,
+            )
+            kept = self.response_sampler.decide(sampled, lambda: response_info)
+            release_child_spans(held_spans_token, kept)
+            if not kept:
+                # Dropped after the response: base record only, as if it had
+                # been sampled out at request start.
+                ctx.sampled = False
+                ctx.request_headers = ""
+                response_headers_json = ""
+                capture_request_body = capture_response_body = False
             request_payload = (
                 capture_body(
                     b"".join(request_payload_chunks),
@@ -681,12 +744,7 @@ class ApiLensASGIMiddleware:
                     content_types=self.content_types,
                     redactor=self.redactor,
                     masker=self.mask_response_body,
-                    info=ResponseInfo(
-                        request=request_info,
-                        status_code=status_code,
-                        headers=lower_headers(response_headers),
-                        attributes=attributes,
-                    ),
+                    info=response_info,
                 )
                 if capture_response_body
                 else ""
@@ -699,7 +757,6 @@ class ApiLensASGIMiddleware:
                     response_headers.get("content-type"),
                     self.redactor,
                 )
-            _apply_consumer(ctx, consumer)
             capture_response(
                 self.client,
                 ctx,
@@ -709,8 +766,9 @@ class ApiLensASGIMiddleware:
                 environment=self.environment,
                 response_payload=response_payload,
                 response_headers=response_headers_json,
+                response_time_ms=response_time_ms,
             )
-            if self.capture_spans and sampled:
+            if self.capture_spans and kept:
                 is_error = captured_exc is not None or status_code >= 500
                 record_span(
                     name=f"{ctx.method} {ctx.path}",
@@ -774,6 +832,7 @@ class ApiLensWSGIMiddleware:
         default_exclusions: bool = True,
         sample_rate: float = 1.0,
         sample_on_request: SampleOnRequest | None = None,
+        sample_on_response: SampleOnResponse | None = None,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
@@ -808,9 +867,10 @@ class ApiLensWSGIMiddleware:
         self.excluder = RequestExcluder(
             exclude_paths, exclude_user_agents, default_exclusions=default_exclusions
         )
-        # Request-detail sampling (``sample_rate`` + ``sample_on_request``) —
-        # same semantics as the ASGI middleware.
+        # Request-detail sampling (``sample_rate`` + ``sample_on_request`` +
+        # ``sample_on_response``) — same semantics as the ASGI middleware.
         self.sampler = RequestSampler(sample_rate, sample_on_request)
+        self.response_sampler = ResponseSampler(sample_on_response)
         # Framework hook that maps a WSGI environ to its route template. Runs
         # after the app handled the request. Heuristic fallback when None.
         self.route_resolver = route_resolver
@@ -878,6 +938,9 @@ class ApiLensWSGIMiddleware:
             )
         )
         sampled_token = set_detail_sampled(sampled)
+        # sample_on_response may still drop this request's detail: hold its
+        # child spans until it has answered.
+        held_spans_token = hold_child_spans() if self.response_sampler.defers(sampled) else None
         capture_headers = self.capture_headers and sampled
         capture_payloads = self.capture_payloads and sampled
         request_content_type = environ.get("CONTENT_TYPE") or ""
@@ -983,11 +1046,39 @@ class ApiLensWSGIMiddleware:
             _apply_consumer(ctx, consumer)
             attributes = current_request_attributes()
             ctx.attributes = attributes
+            request_info = RequestInfo(
+                method=ctx.method,
+                path=clean_path,
+                raw_path=path,
+                headers=request_headers,
+                attributes=attributes,
+                query=query or "",
+                client_ip=ip_address,
+            )
+            response_time_ms = (time.perf_counter() - started_at) * 1000.0
+            response_info = _response_info(
+                ctx,
+                request_info,
+                status_code=status_code,
+                headers=response_headers,
+                attributes=attributes,
+                response_time_ms=response_time_ms,
+                sampled=sampled,
+            )
+            kept = self.response_sampler.decide(sampled, lambda: response_info)
+            release_child_spans(held_spans_token, kept)
+            if not kept:
+                # Dropped after the response: base record only, as if it had
+                # been sampled out at request start.
+                ctx.sampled = False
+                ctx.request_headers = ""
+                response_headers_json = ""
+                capture_request_body = capture_response_body = False
             _consumer_ctx.reset(consumer_token)
             end_request_attributes(attributes_token)
             reset_detail_sampled(sampled_token)
             end_request_trace(trace_token)
-            if self.capture_spans and sampled:
+            if self.capture_spans and kept:
                 is_error = captured_exc is not None or status_code >= 500
                 record_span(
                     name=f"{ctx.method} {ctx.path}",
@@ -1009,15 +1100,6 @@ class ApiLensWSGIMiddleware:
                     path=ctx.path,
                     consumer=consumer,
                 )
-            request_info = RequestInfo(
-                method=ctx.method,
-                path=clean_path,
-                raw_path=path,
-                headers=request_headers,
-                attributes=attributes,
-                query=query or "",
-                client_ip=ip_address,
-            )
             ctx.request_payload = (
                 capture_body(
                     request_body,
@@ -1039,12 +1121,7 @@ class ApiLensWSGIMiddleware:
                     content_types=self.content_types,
                     redactor=self.redactor,
                     masker=self.mask_response_body,
-                    info=ResponseInfo(
-                        request=request_info,
-                        status_code=status_code,
-                        headers=lower_headers(response_headers),
-                        attributes=attributes,
-                    ),
+                    info=response_info,
                 )
                 if capture_response_body
                 else ""
@@ -1058,6 +1135,7 @@ class ApiLensWSGIMiddleware:
                 environment=self.environment,
                 response_payload=response_payload,
                 response_headers=response_headers_json,
+                response_time_ms=response_time_ms,
             )
             # Inline (serverless) mode: every chunk has been handed to the
             # server by now, so deliver this request's records before the
