@@ -12,11 +12,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
 from .._version import __version__
+from ._sanitize import mask_log_attributes, mask_log_text
 from .models import LogRecord, RequestRecord, SpanRecord
 
 logger = logging.getLogger("apilens")
@@ -209,6 +211,11 @@ class ApiLensConfig:
     # Env APILENS_CAPTURE_IP=false / APILENS_ANONYMIZE_IP=true can only tighten these.
     capture_ip: bool = True
     anonymize_ip: bool = False
+    # ``(record) -> record | None`` applied to every LogRecord before it is
+    # queued (auto error-trace logs today, application logs later). Edit the
+    # message / payload / attributes and return the record, or return
+    # ``None`` to drop it. Built-in ``key=value`` masking runs afterwards.
+    mask_log_record: Callable[[LogRecord], LogRecord | None] | None = None
     user_agent: str = f"apilenss/{__version__}"
 
     def __post_init__(self) -> None:
@@ -401,8 +408,38 @@ class ApiLensClient:
     def capture_log(self, record: LogRecord) -> None:
         if not self.config.enabled:
             return
-        self._stamp_release(record)
-        self._enqueue(self._log_queue, record)
+        masked = self._mask_log(record)
+        if masked is None:
+            return
+        self._stamp_release(masked)
+        self._enqueue(self._log_queue, masked)
+
+    def _mask_log(self, record: LogRecord) -> LogRecord | None:
+        """Run ``mask_log_record`` then the built-in masking on one log record.
+
+        Order is fixed: the user callback first (it may edit the record or
+        return ``None`` to drop it), then the built-in ``key=value`` masking
+        on the message, payload and attributes, which the callback can never
+        switch off. Fail closed: a callback that raises or returns something
+        other than a ``LogRecord`` drops the record.
+        """
+        callback = self.config.mask_log_record
+        if callback is not None:
+            try:
+                result = callback(record)
+            except Exception:
+                logger.debug("apilens: mask_log_record raised; log record dropped", exc_info=True)
+                return None
+            if result is None:
+                return None
+            if not isinstance(result, LogRecord):
+                logger.debug("apilens: mask_log_record returned %r; log record dropped", type(result))
+                return None
+            record = result
+        record.message = mask_log_text(record.message or "")
+        record.payload = mask_log_text(record.payload or "")
+        record.attributes = mask_log_attributes(record.attributes)
+        return record
 
     def _enqueue(self, queue: deque, record) -> None:
         size = estimate_record_bytes(record)

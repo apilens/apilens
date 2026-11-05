@@ -63,6 +63,15 @@ DEFAULT_MASK_BODY_FIELDS: tuple[str, ...] = (
     r"cvc",
     r"ssn",
 )
+# Names whose ``key=value`` / ``key: value`` VALUES are masked inside log text
+# (auto error-trace logs): every built-in query, header and body pattern,
+# de-duplicated. Always on; a ``mask_log_record`` callback runs first and can
+# never switch these off.
+DEFAULT_MASK_LOG_NAMES: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        (*DEFAULT_MASK_QUERY_PARAMS, *DEFAULT_MASK_HEADER_PATTERNS, *DEFAULT_MASK_BODY_FIELDS)
+    )
+)
 
 # Cap on the serialized header JSON so a pathological request can't bloat a row.
 _MAX_HEADER_BYTES = 8192
@@ -88,6 +97,65 @@ def _compile(defaults: Sequence[str], extra: Sequence[str] | None) -> re.Pattern
 
 
 _DEFAULT_HEADER_RE = _compile(DEFAULT_MASK_HEADER_PATTERNS, ())
+_DEFAULT_LOG_NAME_RE = _compile(DEFAULT_MASK_LOG_NAMES, ())
+
+# A ``name=value`` / ``name: value`` pair in free text whose name contains one
+# of the default sensitive names. The name may be quoted (``'password': 'x'``
+# as in a dict repr); the value is a quoted string or a bare token, optionally
+# behind an auth scheme (``Authorization: Bearer abc``) so the credential is
+# masked rather than just the scheme word. Names ending in Error / Exception /
+# Warning are exception types (``InvalidTokenError: expired``), not pairs.
+_LOG_NAME_CHARS = r"[A-Za-z0-9_.\-]"
+_LOG_PAIR_RE = re.compile(
+    r"(?P<name>(?<![A-Za-z0-9_.\-])[\"']?"
+    + _LOG_NAME_CHARS
+    + r"*?(?:"
+    + "|".join(f"(?:{p})" for p in DEFAULT_MASK_LOG_NAMES)
+    + r")"
+    + _LOG_NAME_CHARS
+    + r"*(?<!error)(?<!exception)(?<!warning)[\"']?)"
+    + r"(?P<sep>\s*[=:]\s*)"
+    + r"(?:(?:bearer|basic|digest|token)\s+)?"
+    + r"(?P<value>\"[^\"]*\"|'[^']*'|[^\s&,;\"'()\[\]{}<>]+)",
+    re.IGNORECASE,
+)
+
+
+def _mask_log_pair(match: re.Match[str]) -> str:
+    value = match.group("value")
+    q = value[0] if value[:1] in ("'", '"') else ""
+    return f"{match.group('name')}{match.group('sep')}{q}{REDACTED}{q}"
+
+
+def mask_log_text(text: str) -> str:
+    """Mask sensitive ``key=value`` / ``key: value`` values in log text.
+
+    Applied to every outgoing log record's message and payload (stack trace):
+    ``token=abc`` becomes ``token=[redacted]``, ``{'password': 'x'}`` becomes
+    ``{'password': '[redacted]'}`` and ``Authorization: Bearer abc`` becomes
+    ``Authorization: [redacted]``. Names are matched case-insensitively with
+    the built-in :data:`DEFAULT_MASK_LOG_NAMES`; text with no match is
+    returned unchanged.
+    """
+    if not text:
+        return text
+    return _LOG_PAIR_RE.sub(_mask_log_pair, text)
+
+
+def mask_log_attributes(attributes: dict[str, str] | None) -> dict[str, str] | None:
+    """Mask log attribute values whose key is a default sensitive name, and
+    sensitive ``key=value`` pairs inside the remaining string values."""
+    if not attributes:
+        return attributes
+    out: dict[str, str] = {}
+    for key, value in attributes.items():
+        if _DEFAULT_LOG_NAME_RE.search(str(key)):
+            out[key] = REDACTED
+        elif isinstance(value, str):
+            out[key] = mask_log_text(value)
+        else:
+            out[key] = value
+    return out
 
 
 class Redactor:
