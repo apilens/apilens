@@ -445,6 +445,7 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `max_queue_size` | `10_000` | Record cap per queue; oldest records drop once full. |
 | `max_queue_bytes` | `64 * 1024 * 1024` | Memory cap shared by the request, span and log queues (estimated bytes); oldest records drop once exceeded. |
 | `max_retries` | `3` | Retry attempts per batch (exponential backoff). |
+| `compress` | `True` | gzip each batch (level 5, `Content-Encoding: gzip`) on the background flush thread; falls back to plain JSON if compression fails. `False` sends plain JSON. |
 | `verify_tls` | `True` | Verify the ingest server's TLS certificate. |
 | `ca_bundle_path` | `""` | Custom CA bundle for TLS verification. |
 | `enabled` | `True` | Master switch; `False` disables capture and the worker entirely. |
