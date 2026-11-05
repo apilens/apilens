@@ -1060,6 +1060,152 @@ export interface PutPrivacyPolicyRequest {
   mask_body_fields: string[];
 }
 
+// Endpoint detail (#571, #572, #573), read by the endpoint page (#593). Shapes as in
+// api/openapi/apilens.v1.json; the path is the route template, sent as one encoded segment.
+
+/** Status class filter of the endpoint reads (the errors read takes none). */
+export type StatusClass = "all" | "2xx" | "3xx" | "4xx" | "5xx";
+
+/** The scope of the endpoint reads: range, environment, status class and consumer; empty means all. */
+export interface EndpointQuery {
+  range?: QueryRange;
+  env?: string;
+  status?: StatusClass;
+  consumer?: string;
+}
+
+/** The time frame every endpoint read answers with. */
+interface EndpointFrame {
+  method: string;
+  path: string;
+  range: string;
+  from: string;
+  to: string;
+  bucket_seconds: number;
+}
+
+/** A top consumer of an endpoint. */
+export interface EndpointConsumer extends StatusSplit {
+  consumer_id: string;
+  consumer_name: string;
+}
+
+/** `GET /endpoints/{method}/{path}/requests`. */
+export interface EndpointRequests extends EndpointFrame {
+  summary: StatusSplit & { requests_per_minute: number };
+  points: (StatusSplit & { ts: string })[] | null;
+  /** Top consumers by requests (at most 10). */
+  consumers: EndpointConsumer[] | null;
+}
+
+/** Errors with their rates; expected status codes are not errors. */
+export interface ErrorSplit {
+  requests: number;
+  client_errors: number;
+  server_errors: number;
+  client_error_rate: number;
+  server_error_rate: number;
+}
+
+/** An error status code of an endpoint. */
+export interface EndpointStatusCount {
+  status_code: number;
+  count: number;
+  share: number;
+  consumers: number;
+  last_seen: string;
+}
+
+/** Validation errors grouped by (loc, msg, type). */
+export interface EndpointValidationError {
+  loc: string;
+  msg: string;
+  type: string;
+  count: number;
+  consumers: number;
+  last_seen: string;
+}
+
+/** Server exceptions grouped by (exception_type, message), with the latest stack trace. */
+export interface EndpointException {
+  exception_type: string;
+  message: string;
+  count: number;
+  consumers: number;
+  first_seen: string;
+  last_seen: string;
+  stack_trace: string;
+  trace_id: string;
+}
+
+/** `GET /endpoints/{method}/{path}/errors`. */
+export interface EndpointErrors extends EndpointFrame {
+  summary: ErrorSplit;
+  points: (ErrorSplit & { ts: string })[] | null;
+  statuses: EndpointStatusCount[] | null;
+  validation_errors: EndpointValidationError[] | null;
+  exceptions: EndpointException[] | null;
+}
+
+/** A response-time histogram bucket; the last has no `to_ms`. */
+export interface LatencyBucket {
+  from_ms: number;
+  to_ms?: number;
+  count: number;
+}
+
+/** `GET /endpoints/{method}/{path}/latency`. */
+export interface EndpointLatency extends EndpointFrame {
+  summary: {
+    requests: number;
+    avg_ms: number;
+    max_ms: number;
+    p50_ms: number;
+    p75_ms: number;
+    p90_ms: number;
+    p95_ms: number;
+    p99_ms: number;
+    apdex: number | null;
+  };
+  points: { ts: string; requests: number; p50_ms: number; p75_ms: number; p95_ms: number }[] | null;
+  /** 14 log-spaced buckets. */
+  histogram: LatencyBucket[] | null;
+}
+
+/** A body-size histogram bucket; the last has no `to_bytes`. */
+export interface SizeBucket {
+  from_bytes: number;
+  to_bytes?: number;
+  count: number;
+}
+
+/** `GET /endpoints/{method}/{path}/transfer`. */
+export interface EndpointTransfer extends EndpointFrame {
+  summary: { requests: number; request_bytes: number; response_bytes: number; avg_request_bytes: number; avg_response_bytes: number };
+  points: { ts: string; requests: number; request_bytes: number; response_bytes: number }[] | null;
+  request_size_histogram: SizeBucket[] | null;
+  response_size_histogram: SizeBucket[] | null;
+}
+
+/** `GET|PUT /apps/{id}/endpoints/{method}/{path}/settings`. */
+export interface EndpointSettings {
+  app_id: string;
+  method: string;
+  path: string;
+  expected_status_codes: number[] | null;
+  /** Null means the app default. */
+  latency_threshold_ms: number | null;
+  excluded: boolean;
+  /** Null when never saved (the defaults apply). */
+  updated_at: string | null;
+}
+
+export interface PutEndpointSettingsRequest {
+  expected_status_codes: number[];
+  latency_threshold_ms: number | null;
+  excluded: boolean;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Operations
 
@@ -1071,6 +1217,15 @@ export interface PutPrivacyPolicyRequest {
 function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?: string } {
   const { range, env } = typeof q === "string" ? { range: q, env: undefined } : q;
   return { ...(range ? { range } : {}), ...(env ? { env } : {}) };
+}
+
+/** The endpoint reads' query parameters; empty values and the `all` status are left out. */
+function endpointScope(q: EndpointQuery): Query {
+  return {
+    ...trafficScope(q),
+    ...(q.status && q.status !== "all" ? { status: q.status } : {}),
+    ...(q.consumer ? { consumer: q.consumer } : {}),
+  };
 }
 
 export function createClient(config: ClientConfig) {
@@ -1272,6 +1427,20 @@ export function createClient(config: ClientConfig) {
     putCapturePolicy: (appId: string, body: PutCapturePolicyRequest, o: Authed) =>
       request<CapturePolicy>("PUT", `/apps/${seg(appId)}/capture-policy`, { ...o, body }),
     appReports: (appId: string, o: Authed) => request<AppReports>("GET", `/apps/${seg(appId)}/metadata`, o),
+
+    // query: one endpoint's detail tabs (#571, #572, #573) and its settings (#593) ------------
+    endpointRequests: (projectSlug: string, method: string, path: string, q: EndpointQuery, o: Authed) =>
+      request<EndpointRequests>("GET", `/endpoints/${seg(method)}/${seg(path)}/requests`, { ...o, query: { project: projectSlug, ...endpointScope(q) } }),
+    endpointErrors: (projectSlug: string, method: string, path: string, q: Omit<EndpointQuery, "status">, o: Authed) =>
+      request<EndpointErrors>("GET", `/endpoints/${seg(method)}/${seg(path)}/errors`, { ...o, query: { project: projectSlug, ...endpointScope(q) } }),
+    endpointLatency: (projectSlug: string, method: string, path: string, q: EndpointQuery, o: Authed) =>
+      request<EndpointLatency>("GET", `/endpoints/${seg(method)}/${seg(path)}/latency`, { ...o, query: { project: projectSlug, ...endpointScope(q) } }),
+    endpointTransfer: (projectSlug: string, method: string, path: string, q: EndpointQuery, o: Authed) =>
+      request<EndpointTransfer>("GET", `/endpoints/${seg(method)}/${seg(path)}/transfer`, { ...o, query: { project: projectSlug, ...endpointScope(q) } }),
+    getEndpointSettings: (projectSlug: string, appId: string, method: string, path: string, o: Authed) =>
+      request<EndpointSettings>("GET", `/apps/${seg(appId)}/endpoints/${seg(method)}/${seg(path)}/settings`, { ...o, query: { project: projectSlug } }),
+    putEndpointSettings: (appId: string, method: string, path: string, body: PutEndpointSettingsRequest, o: Authed) =>
+      request<EndpointSettings>("PUT", `/apps/${seg(appId)}/endpoints/${seg(method)}/${seg(path)}/settings`, { ...o, body }),
 
     // api: project privacy policy (#562, #599) -------------------------------------------
     getPrivacyPolicy: (projectSlug: string, o: Authed) =>

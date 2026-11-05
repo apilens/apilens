@@ -87,6 +87,15 @@
 //                                                  `env` (else of "", all environments); without one, no points
 //   POST /__fake/traffic {project, envs: {"": {summary, points, endpoints}, production: …}}
 //                                                  test hook: what those answer for `project`; envs {} forgets it
+//   GET  /api/v1/endpoints/{method}/{path}/{requests|errors|latency|transfer}?project=
+//                                                  one endpoint's detail reads (#593) as seeded, else empty;
+//                                                  every read is logged with its query
+//   POST /__fake/endpoint {project, method, path, tabs: {requests?, errors?, latency?, transfer?}}
+//                                                  test hook: what those answer; clears the log and the settings
+//   GET  /__fake/endpoint-reads                    test hook: the logged reads [{tab, method, path, query}]
+//   GET|PUT /api/v1/apps/{id}/endpoints/{method}/{path}/settings
+//                                                  an endpoint's settings (#593): defaults until saved; PUT
+//                                                  answers 403 without capture.manage
 //   GET  /api/v1/deploys/changes?project=          deploys with before/after numbers (#597), as seeded
 //   POST /__fake/deploys {project, deploys}        test hook: what that answers for `project`
 //   GET  /api/v1/consumers?project=&group=         consumers of shop (#596) as seeded, each with the group the
@@ -480,6 +489,12 @@ const deployChanges = new Map<string, Record<string, unknown>[]>();
 /** Project slug → environment ("" for all) → what the traffic reads answer (#592), as seeded by `/__fake/traffic`. */
 type TrafficSeed = { summary: Record<string, unknown>; points: unknown[]; endpoints: unknown[] };
 const trafficSeed = new Map<string, Record<string, TrafficSeed>>();
+/** "<project> <METHOD> <path>" → tab → what that endpoint read answers (#593), as seeded by `/__fake/endpoint`. */
+const endpointSeed = new Map<string, Record<string, unknown>>();
+/** Every endpoint read since the last seed, oldest first (#593). */
+const endpointReads: { tab: string; method: string; path: string; query: Record<string, string> }[] = [];
+/** "<app id> <METHOD> <path>" → the saved settings of that endpoint (#593). */
+const endpointSettings = new Map<string, Record<string, unknown>>();
 /** Project slug → what the consumers reads answer (#596), as seeded by `/__fake/consumers`. */
 const consumersSeed = new Map<
   string,
@@ -1365,6 +1380,86 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (Object.keys(envs).length) trafficSeed.set(String(b.project), envs);
     else trafficSeed.delete(String(b.project));
     return send(res, 204);
+  }
+  // One endpoint's detail reads (#593), as seeded; same access rules as the traffic reads. Every
+  // read is logged, so a test can tell which tabs read their data.
+  const endpointRead = path.match(/^\/api\/v1\/endpoints\/([^/]+)\/([^/]+)\/(requests|errors|latency|transfer)$/);
+  if (req.method === "GET" && endpointRead) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = url.searchParams.get("project") ?? "";
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+    const method = decodeURIComponent(endpointRead[1]).toUpperCase();
+    const route = decodeURIComponent(endpointRead[2]);
+    const tab = endpointRead[3];
+    endpointReads.push({ tab, method, path: route, query: Object.fromEntries([...url.searchParams].filter(([k]) => k !== "project")) });
+    if (queryDown.has(slug)) return problem(res, 503, "unavailable");
+    const range = url.searchParams.get("range") ?? "24h";
+    const seeded = endpointSeed.get(`${slug} ${method} ${route}`)?.[tab];
+    const empty: Record<string, unknown> = {
+      requests: { summary: { requests: 0, successful: 0, client_errors: 0, server_errors: 0, requests_per_minute: 0 }, points: [], consumers: [] },
+      errors: { summary: { requests: 0, client_errors: 0, server_errors: 0, client_error_rate: 0, server_error_rate: 0 }, points: [], statuses: [], validation_errors: [], exceptions: [] },
+      latency: { summary: { requests: 0, avg_ms: 0, max_ms: 0, p50_ms: 0, p75_ms: 0, p90_ms: 0, p95_ms: 0, p99_ms: 0, apdex: null }, points: [], histogram: [] },
+      transfer: { summary: { requests: 0, request_bytes: 0, response_bytes: 0, avg_request_bytes: 0, avg_response_bytes: 0 }, points: [], request_size_histogram: [], response_size_histogram: [] },
+    };
+    return send(res, 200, { method, path: route, range, from: "", to: "", bucket_seconds: 900, ...(seeded ?? (empty[tab] as object)) });
+  }
+  if (req.method === "POST" && path === "/__fake/endpoint") {
+    // Test hook: what one endpoint's reads answer, by tab; forgets the read log and its settings.
+    const b = await readBody(req);
+    const key = `${String(b.project)} ${String(b.method).toUpperCase()} ${String(b.path)}`;
+    const tabs = (b.tabs as Record<string, unknown> | undefined) ?? {};
+    if (Object.keys(tabs).length) endpointSeed.set(key, tabs);
+    else endpointSeed.delete(key);
+    endpointReads.length = 0;
+    endpointSettings.clear();
+    return send(res, 204);
+  }
+  if (req.method === "GET" && path === "/__fake/endpoint-reads") return send(res, 200, { reads: endpointReads });
+  // An endpoint's settings for an app (#593): the defaults until saved; saving needs `capture.manage`.
+  const settingsPath = path.match(/^\/api\/v1\/apps\/([^/]+)\/endpoints\/([^/]+)\/([^/]+)\/settings$/);
+  if (settingsPath) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const app = shopApps.find((a) => a.id === decodeURIComponent(settingsPath[1]));
+    if (!app) return problem(res, 404, "not_found");
+    const method = decodeURIComponent(settingsPath[2]).toUpperCase();
+    const route = decodeURIComponent(settingsPath[3]);
+    const key = `${app.id} ${method} ${route}`;
+    const out = () => ({
+      app_id: app.id,
+      method,
+      path: route,
+      expected_status_codes: [],
+      latency_threshold_ms: null,
+      excluded: false,
+      updated_at: null,
+      updated_by: null,
+      ...endpointSettings.get(key),
+    });
+    if (req.method === "GET") return send(res, 200, out());
+    if (req.method === "PUT") {
+      if (!capabilitiesOf(user).includes("capture.manage")) return problem(res, 403, "forbidden");
+      const body = await readBody(req);
+      const codes = body.expected_status_codes ?? [];
+      const threshold = body.latency_threshold_ms ?? null;
+      const valid =
+        typeof body.excluded === "boolean" &&
+        Array.isArray(codes) &&
+        codes.length <= 32 &&
+        codes.every((c) => Number.isInteger(c) && c >= 100 && c <= 599) &&
+        (threshold === null || (Number.isInteger(threshold) && (threshold as number) >= 1 && (threshold as number) <= 600_000));
+      if (!valid) return problem(res, 422, "validation_failed");
+      endpointSettings.set(key, {
+        expected_status_codes: [...new Set(codes as number[])].sort((a, b) => a - b),
+        latency_threshold_ms: threshold,
+        excluded: body.excluded,
+        updated_at: new Date().toISOString(),
+        updated_by: user,
+      });
+      return send(res, 200, out());
+    }
+    return problem(res, 404, "not_found");
   }
   // The query role's dashboard reads as a session (#295, #335): the project in `?project=`; a
   // project the user cannot view answers 404, as internal/query does.

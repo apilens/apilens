@@ -535,3 +535,42 @@ describe("helpers", () => {
     expect(contextFromHeaders(new Headers())).toEqual({});
   });
 });
+
+describe("endpoint detail operations (#593)", () => {
+  const authed = { accessToken: "jwt" };
+  const ROUTE = "%2Forders%2F%7Bid%7D";
+
+  it("sends method and route template as one encoded segment each, with the scope as query parameters", async () => {
+    const { client, calls } = recordingClient(() => json({}));
+    const scope = { range: "1h", env: "production", status: "5xx", consumer: "acme" } as const;
+    await client.endpointRequests("my-api", "GET", "/orders/{id}", scope, authed);
+    await client.endpointErrors("my-api", "GET", "/orders/{id}", { range: "7d", env: "", consumer: "" }, authed);
+    await client.endpointLatency("my-api", "GET", "/orders/{id}", { ...scope, status: "all" }, authed);
+    await client.endpointTransfer("my-api", "GET", "/orders/{id}", { range: "24h" }, authed);
+    expect(calls.map((c) => new URL(c.url).pathname)).toEqual([
+      `/api/v1/endpoints/GET/${ROUTE}/requests`,
+      `/api/v1/endpoints/GET/${ROUTE}/errors`,
+      `/api/v1/endpoints/GET/${ROUTE}/latency`,
+      `/api/v1/endpoints/GET/${ROUTE}/transfer`,
+    ]);
+    expect(calls.map((c) => Object.fromEntries(new URL(c.url).searchParams))).toEqual([
+      { project: "my-api", range: "1h", env: "production", status: "5xx", consumer: "acme" },
+      { project: "my-api", range: "7d" },
+      { project: "my-api", range: "1h", env: "production", consumer: "acme" },
+      { project: "my-api", range: "24h" },
+    ]);
+    expect(calls.every((c) => c.method === "GET" && c.headers.get("authorization") === "Bearer jwt")).toBe(true);
+  });
+
+  it("reads and replaces an endpoint's settings for an app", async () => {
+    const { client, calls } = recordingClient(() => json({}));
+    const body = { expected_status_codes: [404], latency_threshold_ms: null, excluded: true };
+    await client.getEndpointSettings("my-api", "a/b?c", "POST", "/charge", authed);
+    await client.putEndpointSettings("a/b?c", "POST", "/charge", body, authed);
+    expect(calls.map((c) => [c.method, new URL(c.url).pathname, new URL(c.url).search])).toEqual([
+      ["GET", "/api/v1/apps/a%2Fb%3Fc/endpoints/POST/%2Fcharge/settings", "?project=my-api"],
+      ["PUT", "/api/v1/apps/a%2Fb%3Fc/endpoints/POST/%2Fcharge/settings", ""],
+    ]);
+    expect(calls[1].body).toEqual(body);
+  });
+});

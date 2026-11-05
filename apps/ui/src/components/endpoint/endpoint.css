@@ -1,0 +1,97 @@
+/* Endpoint detail (#593), on top of traffic.css. Tokens from tokens.css only. Chart color carries
+   meaning: 4xx --warn and 5xx --error as on Traffic; latency percentiles step from muted ink (p50)
+   to the accent (p95); bytes in are muted ink and bytes out the accent. Every chart has a legend. */
+.ep-head { margin-bottom: var(--space-6); }
+.ep-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-3); overflow-wrap: anywhere; }
+.ep-title code { font: 500 1em/1.25 var(--font-mono); }
+.ep-method { font: 600 0.7em/1 var(--font-mono); color: var(--ink-muted); }
+
+.ep-scope { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); margin-top: var(--space-4); }
+.ep-locked { display: flex; flex-wrap: wrap; margin: 0; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); }
+.ep-locked > div { display: flex; align-items: baseline; gap: var(--space-2); padding: 6px var(--space-3); min-width: 0; }
+.ep-locked > div + div { border-left: 1px solid var(--border); }
+.ep-locked dt { font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ep-locked dd { margin: 0; font: 500 13px/20px var(--font-sans); color: var(--ink); overflow-wrap: anywhere; }
+.ep-locked code { font: 400 13px/20px var(--font-mono); }
+.ep-badge { white-space: nowrap; }
+.ep-note { margin: var(--space-3) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.ep-settings { display: inline-flex; align-items: center; gap: var(--space-3); margin-left: auto; }
+.ep-saved { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.ep-saved:empty { display: none; }
+
+.ep-chip { display: inline-flex; align-items: center; gap: var(--space-2); height: 30px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-1); font: 400 13px/1 var(--font-sans); color: var(--ink-muted); }
+.ep-chip b { font: 500 13px/1 var(--font-mono); color: var(--ink); }
+.ep-chip .cp-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+
+.ep-tabs { padding: 0; margin-bottom: var(--space-6); overflow-x: auto; }
+.ep-tabs a { white-space: nowrap; }
+.ep-tabs a:hover { color: var(--ink); }
+.ep-tabs a:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+
+/* Series colors */
+.ep-c-4xx { fill: var(--warn); stroke: var(--warn); background: var(--warn); }
+.ep-c-5xx { fill: var(--error); stroke: var(--error); background: var(--error); }
+.ep-c-p50 { stroke: var(--ink-muted); background: var(--ink-muted); }
+.ep-c-p75 { stroke: var(--info); background: var(--info); }
+.ep-c-p95 { stroke: var(--accent); background: var(--accent); }
+.ep-c-in { fill: var(--ink-muted); background: var(--ink-muted); }
+.ep-c-out { fill: var(--accent); background: var(--accent); }
+.ep-c-bar { fill: var(--accent); }
+.ep-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.ep-swatch-line { height: 2px; border-radius: 1px; }
+
+.ep-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6); }
+.ep-pair .tr-card { margin-bottom: var(--space-6); }
+
+.ep-status { display: inline-block; padding: 1px 6px; border-radius: var(--radius-sm); font: 500 12px/18px var(--font-mono); }
+.ep-status--4xx { background: var(--warn-soft); color: var(--ink); }
+.ep-status--5xx { background: var(--error-soft); color: var(--ink); }
+.ep-code { font: 400 12px/18px var(--font-mono); overflow-wrap: anywhere; }
+.ep .tr-table td { overflow-wrap: anywhere; }
+
+/* Exceptions: one line each, the latest stack trace on open. */
+.ep-exc { margin: 0; padding: 0; list-style: none; }
+.ep-exc li { border-top: 1px solid var(--border); }
+.ep-exc summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1) var(--space-4); padding: var(--space-3) var(--space-4); cursor: pointer; font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.ep-exc summary:hover { background: var(--surface-2); }
+.ep-exc summary:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.ep-exc__name { min-width: 0; overflow-wrap: anywhere; }
+.ep-exc__name b { font: 500 13px/20px var(--font-mono); }
+.ep-exc__msg { color: var(--ink-muted); }
+.ep-exc__meta { color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.ep-stack { margin: 0 var(--space-4) var(--space-4); padding: var(--space-3); max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); font: 400 12px/18px var(--font-mono); color: var(--ink); white-space: pre; }
+.ep-exc details > .tr-empty { padding: 0 var(--space-4) var(--space-4); }
+
+/* Settings dialog */
+.ep-dialog { width: min(520px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }
+.ep-dialog::backdrop { background: color-mix(in srgb, var(--bg) 55%, transparent); }
+.ep-dialog__in { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6); }
+.ep-dialog h2 { margin: 0; font: 600 16px/24px var(--font-sans); }
+.ep-dialog__lead { margin: -8px 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); overflow-wrap: anywhere; }
+.ep-dialog__lead b, .ep-dialog__lead code { font-family: var(--font-mono); color: var(--ink); }
+.ep-dialog .ep-note { margin: 0; }
+.ep-fields { display: flex; flex-direction: column; gap: var(--space-4); margin: 0; padding: 0; border: 0; min-width: 0; }
+.ep-field { display: flex; flex-direction: column; gap: 6px; }
+.ep-field label { font: 500 13px/20px var(--font-sans); }
+.ep-field--check { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: var(--space-2); }
+.ep-field--check .ep-hint { grid-column: 2; }
+.ep-field--check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.ep-input { height: 34px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-1); color: var(--ink); font: 400 14px/1 var(--font-mono); }
+.ep-input--short { max-width: 200px; }
+.ep-input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ep-input[aria-invalid="true"] { border-color: var(--error); }
+.ep-fields:disabled .ep-input { background: var(--surface-2); color: var(--ink-muted); }
+.ep-hint { margin: 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ep-err { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--error); }
+.ep-dialog__actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+
+@media (max-width: 900px) {
+  .ep-pair { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+
+@media (max-width: 760px) {
+  .ep-settings { margin-left: 0; }
+  .ep-locked { flex-direction: column; width: 100%; }
+  .ep-locked > div + div { border-left: 0; border-top: 1px solid var(--border); }
+  .ep-tabs { margin-left: calc(-1 * var(--space-4)); margin-right: calc(-1 * var(--space-4)); padding: 0 var(--space-4); }
+}
