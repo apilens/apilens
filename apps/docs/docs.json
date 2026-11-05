@@ -99,7 +99,8 @@
             "pages": [
               "ingest/ingest-api",
               "ingest/request-schema",
-              "ingest/heartbeat"
+              "ingest/heartbeat",
+              "ingest/ingest-health"
             ]
           },
           {

@@ -1141,6 +1141,53 @@ export interface AppReports {
   environments: AppEnvironmentReport[] | null;
 }
 
+// Ingest health (#602): the ingest edge's per-app counters (`GET /apps/{id}/ingest-stats`, #569)
+// and the SDK delivery counters of `GET /apps/{id}/status` (#582). Shapes as in
+// api/openapi/apilens.v1.json.
+
+/** Records the ingest edge accepted, rejected, truncated and masked for an app. */
+export interface IngestCounts {
+  accepted: number;
+  rejected: number;
+  truncated: number;
+  masked: number;
+}
+
+/** One UTC day of `IngestCounts`; `date` is `YYYY-MM-DD`. */
+export interface IngestDay extends IngestCounts {
+  date: string;
+}
+
+/** `GET /apps/{id}/ingest-stats?days=`: oldest day first; 503 when the counter store is not configured. */
+export interface AppIngestStats {
+  app_id: string;
+  app: string;
+  days: number;
+  totals: IngestCounts;
+  daily: IngestDay[] | null;
+}
+
+/** SDK delivery counters summed over the instances seen in the last hour. */
+export interface AppSdkStats {
+  instances: number;
+  queued_records: number;
+  sent_records: number;
+  failed_batches: number;
+  dropped_records: number;
+  /** `dropped_records` by reason, as the SDKs name them (`queue_full`, `retries_exhausted`, ...). */
+  drop_counts: Record<string, number>;
+}
+
+/** The part of `GET /apps/{id}/status` the ingest health panel reads. */
+export interface AppHealthStatus {
+  app_id: string;
+  app: string;
+  status: "reporting" | "stale" | "silent" | "never";
+  last_seen_at: string | null;
+  sdk_stats: AppSdkStats;
+  ingest_today?: IngestCounts;
+}
+
 /** The built-in patterns of `GET|PUT /projects/{slug}/privacy-policy`, applied always. */
 export interface PrivacyDefaults {
   mask_query_params: string[] | null;
@@ -1644,6 +1691,12 @@ export function createClient(config: ClientConfig) {
     putCapturePolicy: (appId: string, body: PutCapturePolicyRequest, o: Authed) =>
       request<CapturePolicy>("PUT", `/apps/${seg(appId)}/capture-policy`, { ...o, body }),
     appReports: (appId: string, o: Authed) => request<AppReports>("GET", `/apps/${seg(appId)}/metadata`, o),
+
+    // query: ingest health of an app (#569, #582), read by the ingest health panel (#602) ----
+    appIngestStats: (projectSlug: string, appId: string, days: number, o: Authed) =>
+      request<AppIngestStats>("GET", `/apps/${seg(appId)}/ingest-stats`, { ...o, query: { project: projectSlug, days } }),
+    appHealthStatus: (projectSlug: string, appId: string, o: Authed) =>
+      request<AppHealthStatus>("GET", `/apps/${seg(appId)}/status`, { ...o, query: { project: projectSlug } }),
 
     // query: one endpoint's detail tabs (#571, #572, #573) and its settings (#593) ------------
     endpointRequests: (projectSlug: string, method: string, path: string, q: EndpointQuery, o: Authed) =>

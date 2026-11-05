@@ -1,0 +1,38 @@
+---
+title: "Ingest health"
+description: "What the ingest health counters mean, and what to do when one of them moves."
+---
+
+**Project settings → Ingest health** shows, per app, what reached APILens and what was lost on the way. It has two parts:
+
+- **At the ingest edge**: what the edge did with the records the app sent, per UTC day over the last 7 days. Read from `GET /api/v1/apps/{id}/ingest-stats`.
+- **In the SDKs**: what the app's SDKs could not deliver, summed over the instances that sent a heartbeat in the last hour. Read from `sdk_stats` of `GET /api/v1/apps/{id}/status` (see [Heartbeat](/ingest/heartbeat)). These counters run since each process started.
+
+## At the ingest edge
+
+| Counter | Counts | When it moves |
+|---|---|---|
+| **Accepted** | Records stored (requests, logs, spans, deploys). | This is the app's traffic. A sudden drop to zero with the app still serving requests means the SDK stopped sending: check **In the SDKs** and the app's capture policy. |
+| **Rejected** | Records refused by the project's ingest quota (HTTP 429), or dropped as invalid from an OTLP export. | Lower the volume with a sample rate in **Project settings → Capture**, or raise the quota. Invalid OTLP records point at the exporter's configuration. |
+| **Truncated** | Request fields (payloads, headers) cut to the server-side size cap. A record can count up to four times. | Expected for large bodies. If the cut part matters, capture less (headers or bodies off) or lower the body size cap in the SDK so it trims first. |
+| **Masked** | Records in which the project's privacy policy masked at least one value. | Expected when the deny list matches. A jump after a release usually means a new field matches a pattern; check **Project settings → Privacy**. |
+
+The edge keeps these counters in Valkey. On a self-hosted install without Valkey the panel says that no counters are kept.
+
+## In the SDKs
+
+| Counter | Counts |
+|---|---|
+| **Sent** | Records delivered. |
+| **Waiting in queues** | Records buffered in the SDK, not yet sent. |
+| **Failed batches** | Batches that failed to send. A failed batch is retried, so it is not always lost. |
+| **Dropped** | Records lost, by reason below. |
+
+| Reason | Meaning | What to do |
+|---|---|---|
+| `queue_full` | The SDK queue hit its record limit (`max_queue_size`). | The app produces records faster than they are sent. Raise the queue size, lower the sample rate, or check the network path to ingest. |
+| `queue_bytes` | The SDK queue hit its memory limit (`max_queue_bytes`). | Usually large bodies. Capture fewer bodies or set a body size cap. |
+| `non_retryable` | Ingest refused a batch with a 4xx (for example a revoked API key or an unknown app). | Check the SDK's API key and app id. The SDK logs the refusal. |
+| `retries_exhausted` | A batch still failed after every retry (network errors, 5xx, 429). | Check that the app can reach `ingest.apilens.ai` (or your ingest host), and the **Rejected** counter for quota refusals. |
+
+Records the SDK shortened to fit a batch (`truncated` in the SDK's drop counts) are still sent and are not counted as dropped.

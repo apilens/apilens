@@ -137,8 +137,14 @@
 //   GET|PUT /api/v1/apps/{id}/capture-policy       the app's capture policy (#598): everything captured
 //                                                  until saved; PUT answers 403 without capture.manage
 //   GET  /api/v1/apps/{id}/metadata                what the app's SDKs reported, per environment (#598)
+//   GET  /api/v1/apps/{id}/ingest-stats?project=shop&days=
+//                                                  the app's ingest-edge counters per UTC day (#602):
+//                                                  all zero unless seeded; 503 when seeded `ingest: "off"`
+//   GET  /api/v1/apps/{id}/status?project=shop     the app's status with its SDK counters (#602): no
+//                                                  instance seen unless seeded `sdk_stats`
 //   POST /__fake/apps {apps}                       test hook: replaces shop's apps [{id, slug, name,
-//                                                  policy?, environments?}], their policies and reports
+//                                                  policy?, environments?, ingest?, sdk_stats?}], their
+//                                                  policies, reports and health counters
 //   GET|PUT /api/v1/projects/shop/privacy-policy   shop's server-side deny list (#599): only the defaults
 //                                                  until saved; PUT answers 403 without project.update and
 //                                                  invalid_request naming a pattern JavaScript cannot compile
@@ -575,6 +581,9 @@ const DEFAULT_APP = { id: "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d", slug: PROJECT,
 let shopApps: { id: string; slug: string; name: string }[] = [DEFAULT_APP];
 const capturePolicies = new Map<string, Record<string, unknown>>();
 const appReports = new Map<string, Record<string, unknown>[]>();
+/** Ingest health (#602): seeded edge counters per day, newest last ("off": 503), and SDK counters. */
+const appIngest = new Map<string, Record<string, unknown>[] | "off">();
+const appSdkStats = new Map<string, Record<string, unknown>>();
 
 function capturePolicyOf(app: { id: string; slug: string }): Record<string, unknown> {
   return {
@@ -1396,17 +1405,56 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     }
     return problem(res, 404, "not_found");
   }
+  // An app's ingest health (#602): the edge's counters per UTC day and its status's SDK counters.
+  const healthPath = path.match(/^\/api\/v1\/apps\/([^/]+)\/(ingest-stats|status)$/);
+  if (healthPath && req.method === "GET") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    if (url.searchParams.get("project") !== PROJECT) return problem(res, 404, "not_found");
+    const app = shopApps.find((a) => a.id === decodeURIComponent(healthPath[1]));
+    if (!app) return problem(res, 404, "not_found");
+    if (healthPath[2] === "ingest-stats") {
+      const seeded = appIngest.get(app.id) ?? [];
+      if (seeded === "off") return problem(res, 503, "unavailable");
+      const days = Number(url.searchParams.get("days") ?? 7);
+      const zero = { accepted: 0, rejected: 0, truncated: 0, masked: 0 };
+      const keys = Object.keys(zero) as (keyof typeof zero)[];
+      const daily = Array.from({ length: days }, (_, i) => {
+        const date = new Date(Date.now() - (days - 1 - i) * 86_400_000).toISOString().slice(0, 10);
+        const fromEnd = days - 1 - i;
+        const day = seeded[seeded.length - 1 - fromEnd];
+        return { date, ...zero, ...(day ?? {}) };
+      });
+      const totals = Object.fromEntries(keys.map((k) => [k, daily.reduce((n, d) => n + Number(d[k]), 0)]));
+      return send(res, 200, { app_id: app.id, app: app.slug, days, totals, daily });
+    }
+    const stats = appSdkStats.get(app.id);
+    return send(res, 200, {
+      app_id: app.id,
+      app: app.slug,
+      status: stats ? "reporting" : "never",
+      last_seen_at: stats ? new Date().toISOString() : null,
+      environments: [],
+      instances: [],
+      sdks: [],
+      sdk_stats: { instances: 0, queued_records: 0, sent_records: 0, failed_batches: 0, dropped_records: 0, drop_counts: {}, ...stats },
+    });
+  }
   if (req.method === "POST" && path === "/__fake/apps") {
-    // Test hook: replaces shop's apps, their saved policies and their SDK reports.
+    // Test hook: replaces shop's apps, their saved policies, their SDK reports and health counters.
     const { apps } = await readBody(req);
     const list = Array.isArray(apps) ? (apps as Record<string, unknown>[]) : [];
     capturePolicies.clear();
     appReports.clear();
+    appIngest.clear();
+    appSdkStats.clear();
     shopApps = list.length ? list.map((a) => ({ id: String(a.id ?? randomUUID()), slug: String(a.slug), name: String(a.name ?? a.slug) })) : [DEFAULT_APP];
     list.forEach((a, i) => {
       const id = shopApps[i].id;
       if (typeof a.policy === "object" && a.policy !== null) capturePolicies.set(id, a.policy as Record<string, unknown>);
       if (Array.isArray(a.environments)) appReports.set(id, a.environments as Record<string, unknown>[]);
+      if (a.ingest === "off" || Array.isArray(a.ingest)) appIngest.set(id, a.ingest as Record<string, unknown>[] | "off");
+      if (typeof a.sdk_stats === "object" && a.sdk_stats !== null) appSdkStats.set(id, a.sdk_stats as Record<string, unknown>);
     });
     return send(res, 204);
   }
