@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from ..client._sampling import SampleOnRequest
+from ..client._sampling import SampleOnRequest, SampleOnResponse
 from ..client import ApiLensClient
 from ..client._env import env_defaults
 from ..client._routes import starlette_route_template
@@ -34,6 +34,7 @@ def instrument_fastapi(
     default_exclusions: bool = True,
     sample_rate: float = 1.0,
     sample_on_request: SampleOnRequest | None = None,
+    sample_on_response: SampleOnResponse | None = None,
     get_consumer: Callable[..., Any] | None = None,
     flush_on_shutdown: bool = True,
     shutdown_timeout: float = 5.0,
@@ -101,6 +102,7 @@ def instrument_fastapi(
         default_exclusions=default_exclusions,
         sample_rate=sample_rate,
         sample_on_request=sample_on_request,
+        sample_on_response=sample_on_response,
         get_consumer=get_consumer,
         route_resolver=starlette_route_template,
         flush_on_shutdown=flush_on_shutdown,

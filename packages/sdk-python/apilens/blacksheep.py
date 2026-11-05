@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .client._sampling import SampleOnRequest
+from .client._sampling import SampleOnRequest, SampleOnResponse
 from .client import ApiLensClient
 from .client._env import env_defaults
 from .client._routes import blacksheep_route_template, blacksheep_set_route_pattern
@@ -46,6 +46,7 @@ def instrument_app(
     default_exclusions: bool = True,
     sample_rate: float = 1.0,
     sample_on_request: SampleOnRequest | None = None,
+    sample_on_response: SampleOnResponse | None = None,
 ):
     """BlackSheep integration via ASGI middleware.
 
@@ -66,6 +67,7 @@ def instrument_app(
         default_exclusions=default_exclusions,
         sample_rate=sample_rate,
         sample_on_request=sample_on_request,
+        sample_on_response=sample_on_response,
         route_resolver=blacksheep_route_template,
     )
     if hasattr(app, "asgi"):

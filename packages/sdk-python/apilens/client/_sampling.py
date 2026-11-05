@@ -10,7 +10,10 @@ Trace context is still resolved and propagated downstream for sampled-out
 requests, so child services decide independently.
 
 ``sample_on_request`` (see :class:`RequestSampler`) overrides the rate per
-request at request start, before any body is buffered.
+request at request start, before any body is buffered. ``sample_on_response``
+(see :class:`ResponseSampler`) can then drop a kept request's detail after the
+response, once route, status, latency and consumer are known; it can never
+keep a request that was already sampled out.
 """
 
 from __future__ import annotations
@@ -28,6 +31,30 @@ _rng = random.Random()
 # ``(RequestInfo) -> bool | float | None``: True/False keep/drop the detail
 # outright, a number is a keep probability, None defers to ``sample_rate``.
 SampleOnRequest = Callable[[Any], Union[bool, float, None]]
+
+# ``(ResponseInfo) -> bool | float | None``: same answers as
+# ``SampleOnRequest``; None keeps the request-stage decision.
+SampleOnResponse = Callable[[Any], Union[bool, float, None]]
+
+_UNUSABLE = object()
+
+
+def _verdict(value: Any, draw: Callable[[], float]) -> Any:
+    """Turn a callback's answer into True/False, None (defer) or ``_UNUSABLE``.
+
+    A bool is final; a number is a keep probability (clamped to 0.0-1.0).
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not math.isnan(value):
+        if value >= 1:
+            return True
+        if value <= 0:
+            return False
+        return draw() < value
+    return _UNUSABLE
 
 
 def validate_sample_rate(rate: float) -> float:
@@ -111,22 +138,81 @@ class RequestSampler(DetailSampler):
         except Exception:
             self._warn("apilens: sample_on_request raised; falling back to sample_rate", exc_info=True)
             return self.sample()
-        if verdict is None:
+        decision = _verdict(verdict, self._random)
+        if decision is None:
             return self.sample()
-        if isinstance(verdict, bool):
-            return verdict
-        if isinstance(verdict, (int, float)) and not math.isnan(verdict):
-            if verdict >= 1:
-                return True
-            if verdict <= 0:
-                return False
-            return self._random() < verdict
+        if decision is not _UNUSABLE:
+            return decision
         self._warn(
             "apilens: sample_on_request returned %r (expected bool, float or None); "
             "falling back to sample_rate",
             verdict,
         )
         return self.sample()
+
+    def _warn(self, message: str, *args: Any, exc_info: bool = False) -> None:
+        if self._warned:
+            return
+        self._warned = True
+        logger.warning(message, *args, exc_info=exc_info)
+
+
+class ResponseSampler:
+    """The optional ``sample_on_response`` callback, run after the response.
+
+    It receives a :class:`~apilens.ResponseInfo` (route template, raw path,
+    status code, latency, consumer, custom attributes and ``sampled``, the
+    request-stage decision) and answers like ``sample_on_request``:
+
+    * ``True`` / ``False`` — keep / drop the detail.
+    * a number — probability of keeping (clamped to 0.0-1.0).
+    * ``None`` — keep the request-stage decision.
+
+    A request sampled out at request stage stays out whatever the callback
+    answers: its headers and bodies were never captured. An exception (or an
+    unusable return value) is logged once and treated as ``None``.
+    """
+
+    __slots__ = ("callback", "_random", "_warned")
+
+    def __init__(self, callback: SampleOnResponse | None = None, *, rng: random.Random | None = None) -> None:
+        if callback is not None and not callable(callback):
+            raise TypeError(f"sample_on_response must be callable, got {type(callback).__name__}")
+        self.callback = callback
+        self._random = (rng or _rng).random
+        self._warned = False
+
+    def defers(self, sampled: bool) -> bool:
+        """Whether a request with this request-stage decision still awaits the
+        callback (so its child spans must be held until :meth:`decide`)."""
+        return sampled and self.callback is not None
+
+    def decide(self, sampled: bool, info: Callable[[], Any]) -> bool:
+        """Final decision for one request. ``info`` builds its ResponseInfo;
+        it is only called when a callback is configured. The callback also
+        runs for requests sampled out at request stage (``info.sampled`` is
+        False), but its answer cannot bring their detail back."""
+        callback = self.callback
+        if callback is None:
+            return sampled
+        try:
+            verdict = callback(info())
+        except Exception:
+            self._warn("apilens: sample_on_response raised; keeping the request-stage decision", exc_info=True)
+            return sampled
+        if not sampled:
+            return False  # never un-drop: its headers and bodies were not captured
+        decision = _verdict(verdict, self._random)
+        if decision is None:
+            return sampled
+        if decision is _UNUSABLE:
+            self._warn(
+                "apilens: sample_on_response returned %r (expected bool, float or None); "
+                "keeping the request-stage decision",
+                verdict,
+            )
+            return sampled
+        return decision
 
     def _warn(self, message: str, *args: Any, exc_info: bool = False) -> None:
         if self._warned:

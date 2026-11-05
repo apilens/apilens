@@ -518,6 +518,7 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `default_exclusions` | `True` | Skip the [built-in health/probe exclusions](#default-exclusions) (applied before `exclude_paths`). `False` turns them off; your own `exclude_paths` / `exclude_user_agents` still apply. |
 | `sample_rate` | `1.0` | Fraction (0.0–1.0) of requests whose detail — headers, bodies, spans, auto error log — is kept. See [sampling](#sampling). A value outside the range raises at startup. |
 | `sample_on_request` | `None` | `(RequestInfo) -> bool \| float \| None` evaluated before the handler; overrides `sample_rate` per request. See [sampling](#sampling). |
+| `sample_on_response` | `None` | `(ResponseInfo) -> bool \| float \| None` evaluated after the response; can drop a kept request's detail, never un-drop one. See [sampling](#sampling). |
 
 ### Sampling
 
@@ -556,6 +557,52 @@ app.add_middleware(ApiLensMiddleware, api_key="apilens_xxx", app_id="orders-api"
 An exception raised by the callback never reaches your handler: it is logged
 once (logger `apilens`) and treated as `None`. As with `sample_rate`, a
 sampled-out request still sends its base record.
+
+`sample_on_response` runs after the response, once the route, status and
+consumer are known. It receives an `apilens.ResponseInfo`:
+
+| Field | Meaning |
+|---|---|
+| `route` | Endpoint the request is grouped under (route template, e.g. `/orders/{id}`) |
+| `raw_path`, `method`, `path` | The exact URL (sensitive query values redacted), method and path |
+| `status_code`, `headers` | Response status and headers (lower-cased names) |
+| `response_time_ms` | Latency, the same value the request record carries |
+| `consumer_id`, `consumer_name`, `consumer_group` | The resolved consumer (empty when none) |
+| `attributes` | Custom attributes set with `apilens.set_request_attribute` |
+| `sampled` | The request-stage decision (`sample_rate` / `sample_on_request`) |
+| `request` | The `RequestInfo` (query, request headers, client IP) |
+
+It returns the same answers as `sample_on_request`: `True` / `False` keep or
+drop the detail, a float is the probability of keeping it, and `None` keeps the
+request-stage decision. It cannot bring back a request that was sampled out at
+request stage (its headers and bodies were never captured): for those it still
+runs, with `sampled=False`, but the request stays out. Exceptions are logged
+once and treated as `None`. Child spans of a request are held until it answers.
+
+Keep the detail of failed requests only:
+
+```python
+def sample(info):
+    return info.status_code >= 400
+
+app.add_middleware(ApiLensMiddleware, api_key="apilens_xxx", app_id="orders-api",
+                   sample_on_response=sample)
+```
+
+Drop internal consumers and keep 10% of the free tier (the tier set by your
+handler with `apilens.set_request_attribute("tenant.tier", ...)`):
+
+```python
+def sample(info):
+    if info.consumer_group == "internal":
+        return False         # never keep detail
+    if info.attributes.get("tenant.tier") == "free":
+        return 0.1           # keep 10%
+    return None              # keep the request-stage decision
+
+app.add_middleware(ApiLensMiddleware, api_key="apilens_xxx", app_id="orders-api",
+                   sample_on_response=sample)
+```
 
 ### Default exclusions
 
@@ -668,6 +715,7 @@ the setting wins when both are set.
 | `APILENS_DEFAULT_EXCLUSIONS` | `True` | `False` turns off the [built-in health/probe exclusions](#default-exclusions). |
 | `APILENS_SAMPLE_RATE` | `1.0` | Fraction of requests whose detail is kept; metrics always count every request (see [sampling](#sampling)). |
 | `APILENS_SAMPLE_ON_REQUEST` | `None` | Per-request sampling callback (callable or dotted path), see [sampling](#sampling). An unimportable path raises at startup. |
+| `APILENS_SAMPLE_ON_RESPONSE` | `None` | Response-stage sampling callback (callable or dotted path), see [sampling](#sampling). An unimportable path raises at startup. |
 | `APILENS_FLUSH_ON_SHUTDOWN` | `True` | Flush the queue from `atexit` when the process exits. The env var of the same name set to `false` also disables it. |
 | `APILENS_SHUTDOWN_TIMEOUT` | `5.0` | Upper bound, in seconds, on the shutdown flush. |
 
