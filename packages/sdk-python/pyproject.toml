@@ -71,3 +71,9 @@ path = "apilens/_version.py"
 # lives in the `apilens` Python package. The empty `apilenss/` mirror was a
 # placeholder from the initial scaffold and got removed in the cleanup pass.
 packages = ["apilens"]
+
+[dependency-groups]
+# `uv run pytest` (local dev + merge gate) needs pytest in the default group.
+dev = [
+  "pytest>=8.0.0",
+]

@@ -13,7 +13,7 @@ Observability tools see sensitive traffic, so this page is deliberately blunt ab
 | Request/response sizes, client IP, user agent | Yes | — |
 | Request & response **headers** | Yes, with sensitive values redacted | `capture_headers=False`, plus `redact_headers=[…]` for your own patterns |
 | Request & response **bodies** | Yes, truncated at 64 KB | `capture_payloads=False`, `log_request_body` / `log_response_body` individually, or field-level `redact_body_fields=[…]` |
-| **Query strings** | Yes, as part of the exact request URL | `redact_query_params=[…]` per-parameter |
+| **Query strings** | Yes, as part of the exact request URL, with [default patterns](#default-masking-patterns) masked | `redact_query_params=[…]` per-parameter |
 | Consumer identity | **No** — only what you explicitly set | `set_consumer(...)` |
 | Trace spans | Yes (timing + endpoint/URL names, no payloads) | `capture_spans=False` or `APILENS_CAPTURE_SPANS=false` |
 | Error stack traces | Yes, on unhandled exception or 5xx | disabled along with spans |
@@ -30,9 +30,26 @@ Values of these headers are replaced with `[redacted]` before leaving your proce
 
 These built-ins always apply — you can only add to them (see [PII redaction](#pii-redaction-query-params-headers-body-fields) below), never remove them. Serialized headers are additionally capped at 8 KB per side, dropping the longest values first.
 
+## Default masking patterns
+
+On top of the exact header names above, the SDK ships regex patterns that are **always on** — no configuration needed. Each is matched case-insensitively (`re.search`) against the query parameter, header, or JSON body field **name**, and a matching value is stored as `[redacted]`:
+
+| Applies to | Built-in patterns |
+|---|---|
+| Query params (`DEFAULT_MASK_QUERY_PARAMS`) | `auth`, `api.?key`, `secret`, `token`, `password`, `pwd` |
+| Headers (`DEFAULT_MASK_HEADER_PATTERNS`) | `auth`, `api.?key`, `secret`, `token`, `cookie` |
+| JSON body fields (`DEFAULT_MASK_BODY_FIELDS`) | `password`, `pwd`, `token`, `secret`, `auth`, `card.?number`, `ccv`, `cvv`, `cvc`, `ssn` |
+
+So a request to `/search?token=abc&q=shoes` is stored as `/search?token=[redacted]&q=shoes` with no config at all. Patterns are unanchored, so `token` also covers `access_token` and `auth` covers `x-auth-user`.
+
+- **Body masking covers strings and numbers.** `{"card_number": 4242424242424242}` is masked just like `{"card_number": "4242…"}`. A nested object or array under a matching name is masked whole; booleans and `null` stay visible.
+- **Unchanged when nothing matches.** A query string or body with no matching name is passed through byte-for-byte.
+- **Your patterns extend these, never replace them.** `redact_query_params`, `redact_headers` and `redact_body_fields` below are added to the defaults.
+- **Compiled once.** Defaults and your patterns are compiled into one regex per category when the middleware is created; nothing is compiled per request. An invalid pattern raises at startup.
+
 ## PII redaction: query params, headers, body fields
 
-Beyond the built-in header list, you can redact **individual values by name** — query parameters, extra headers, and JSON body fields — with three middleware options:
+Beyond the built-in header list and default patterns, you can redact **more values by name** — query parameters, extra headers, and JSON body fields — with three middleware options:
 
 ```python
 app.add_middleware(
