@@ -164,5 +164,18 @@ export type ApiLensExpressConfig = ApiLensClientConfig & {
    * `DEFAULT_EXCLUDED_PATHS` and `DEFAULT_EXCLUDED_USER_AGENTS`.
    */
   defaultExclusions?: boolean;
+  /*
+   * PII redaction. Each list holds regexes (strings or `RegExp`, matched
+   * case-insensitively anywhere in the NAME; anchor for exact matches) that
+   * EXTEND the built-in `DEFAULT_MASK_*` patterns, which always apply. Matching
+   * values become `[redacted]` before the record is queued. An invalid regex
+   * throws when the middleware is created.
+   */
+  /** Query-parameter names to redact (on top of `DEFAULT_MASK_QUERY_PARAMS`). */
+  redactQueryParams?: ReadonlyArray<string | RegExp>;
+  /** Header names to redact (on top of `SENSITIVE_HEADERS` / `DEFAULT_MASK_HEADER_PATTERNS`). */
+  redactHeaders?: ReadonlyArray<string | RegExp>;
+  /** JSON body field names to redact, at any depth (on top of `DEFAULT_MASK_BODY_FIELDS`). */
+  redactBodyFields?: ReadonlyArray<string | RegExp>;
   getConsumer?: (req: unknown, res: unknown) => ApiLensConsumer | string | null | undefined;
 };
