@@ -65,3 +65,12 @@ APILENS_E2E_EXAMPLES=http://127.0.0.1:18001,http://127.0.0.1:18002,http://127.0.
 ```
 
 (plus the usual `APILENS_E2E_*` variables, see `test/e2e/ingest_e2e_test.go`).
+
+`task test:e2e:privacy` proves masked fields never reach ClickHouse through
+all three SDKs. It seeds a query parameter, a header and top-level and nested
+JSON body fields named `e2e_pii` through every app twice: first with the SDK
+masking patterns set (`APILENS_EXAMPLES_REDACT_*`) and no server-side policy,
+then with the client patterns deliberately missing and the project's
+server-side privacy policy naming them. Each run requires `[redacted]` in
+every row and fails on any seeded value found in any column of
+`api_requests`, `api_logs` or `api_spans`.

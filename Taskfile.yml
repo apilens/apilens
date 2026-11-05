@@ -176,6 +176,38 @@ tasks:
     cmds:
       - bash examples/smoke.sh {{.CLI_ARGS}}
 
+  # Masked fields never reach ClickHouse (test/e2e/privacy_e2e_test.go): the
+  # example apps first with client masking patterns for e2e_pii and no
+  # server-side policy, then without the client patterns behind the
+  # project's server-side privacy policy. Any seeded value in any table fails.
+  test:e2e:privacy:
+    desc: "e2e: PII seeded through the three SDKs' example apps reaches ClickHouse masked (SDK masking, then server-side policy)"
+    cmds:
+      - APILENS_EXAMPLES_REDACT_QUERY_PARAMS='^e2e_pii$' APILENS_EXAMPLES_REDACT_HEADERS='^x-e2e-pii$' APILENS_EXAMPLES_REDACT_BODY_FIELDS='^e2e_pii$' "{{.TASK_EXE}}" examples:up
+      - task: e2e:privacy:run
+        vars: {MODE: sdk}
+      - APILENS_EXAMPLES_REDACT_QUERY_PARAMS= APILENS_EXAMPLES_REDACT_HEADERS= APILENS_EXAMPLES_REDACT_BODY_FIELDS= "{{.TASK_EXE}}" examples:up
+      - task: e2e:privacy:run
+        vars: {MODE: server}
+
+  e2e:privacy:run:
+    internal: true
+    cmds:
+      - |
+        set -eu
+        set -a; . examples/.env; set +a
+        APILENS_E2E_PRIVACY={{.MODE}} \
+        APILENS_E2E_BASE_URL="http://127.0.0.1:${APILENS_INGEST_PORT:-8080}" \
+        APILENS_E2E_API_KEY="$APILENS_EXAMPLES_API_KEY" \
+        APILENS_E2E_READ_KEY="$APILENS_EXAMPLES_READ_KEY" \
+        APILENS_E2E_APP=example-fastapi \
+        APILENS_E2E_CLICKHOUSE_HTTP=http://127.0.0.1:8123 \
+        APILENS_E2E_CLICKHOUSE_USER=apilens \
+        APILENS_E2E_CLICKHOUSE_PASSWORD=ci-clickhouse \
+        APILENS_E2E_MAILPIT_URL="http://127.0.0.1:${APILENS_E2E_MAILPIT_PORT:-8025}" \
+        APILENS_E2E_EXAMPLES="http://127.0.0.1:${APILENS_EXAMPLES_FASTAPI_PORT:-18001},http://127.0.0.1:${APILENS_EXAMPLES_EXPRESS_PORT:-18002},http://127.0.0.1:${APILENS_EXAMPLES_SPRING_PORT:-18003}" \
+          go test -count=1 -tags=e2e ./test/e2e/... -run '^TestExamplePrivacy$' -v
+
   examples:down:
     desc: Stop the example apps (the e2e stack keeps running; task e2e:down stops it)
     cmds:
