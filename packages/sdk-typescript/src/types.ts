@@ -114,5 +114,18 @@ export type ApiLensExpressConfig = ApiLensClientConfig & {
   clientId?: string;
   client_id?: string;
   requestLogging?: RequestLoggingConfig;
+  /**
+   * Regexes (case-insensitive, searched against the request path without the
+   * query string) whose matching requests bypass capture entirely. A string is
+   * split on commas. `APILENS_EXCLUDE_PATHS` adds patterns on top.
+   */
+  excludePaths?: string | ReadonlyArray<string | RegExp>;
+  /** Regexes (case-insensitive) on the User-Agent header; matches bypass capture. */
+  excludeUserAgents?: string | ReadonlyArray<string | RegExp>;
+  /**
+   * Apply the built-in health-check / probe exclusions (default true). See
+   * `DEFAULT_EXCLUDED_PATHS` and `DEFAULT_EXCLUDED_USER_AGENTS`.
+   */
+  defaultExclusions?: boolean;
   getConsumer?: (req: unknown, res: unknown) => ApiLensConsumer | string | null | undefined;
 };
