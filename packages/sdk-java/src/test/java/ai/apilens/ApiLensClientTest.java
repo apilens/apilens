@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.sun.net.httpserver.HttpServer;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -14,6 +15,7 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.zip.GZIPInputStream;
 import org.junit.jupiter.api.Test;
 
 public class ApiLensClientTest {
@@ -162,7 +164,11 @@ public class ApiLensClientTest {
       server.createContext("/", exchange -> {
         ingest.attempts.incrementAndGet();
         ingest.paths.add(exchange.getRequestURI().getPath());
-        ingest.bodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+        byte[] raw = exchange.getRequestBody().readAllBytes();
+        if ("gzip".equalsIgnoreCase(exchange.getRequestHeaders().getFirst("Content-Encoding"))) {
+          raw = new GZIPInputStream(new ByteArrayInputStream(raw)).readAllBytes();
+        }
+        ingest.bodies.add(new String(raw, StandardCharsets.UTF_8));
         int status = ingest.statuses.isEmpty() ? 200 : ingest.statuses.remove();
         exchange.sendResponseHeaders(status, -1);
         exchange.close();

@@ -6,6 +6,9 @@ import java.util.Locale;
 
 /** Runtime configuration for {@link ApiLensClient}. */
 public final class ApiLensConfig {
+  /** Smallest accepted {@code maxBatchBytes}. */
+  public static final int MIN_BATCH_BYTES = 1024;
+
   private final String apiKey;
   private final String projectSlug;
   private final String appId;
@@ -22,6 +25,9 @@ public final class ApiLensConfig {
   private final boolean verifyTls;
   private final String caBundlePath;
   private final int maxQueueSize;
+  private final long maxQueueBytes;
+  private final int maxBatchBytes;
+  private final boolean compress;
   private final int maxRetries;
   private final Duration retryBackoffBase;
   private final Duration retryBackoffMax;
@@ -45,6 +51,9 @@ public final class ApiLensConfig {
     this.verifyTls = builder.verifyTls;
     this.caBundlePath = Strings.clean(builder.caBundlePath);
     this.maxQueueSize = builder.maxQueueSize;
+    this.maxQueueBytes = builder.maxQueueBytes;
+    this.maxBatchBytes = builder.maxBatchBytes;
+    this.compress = builder.compress;
     this.maxRetries = builder.maxRetries;
     this.retryBackoffBase = builder.retryBackoffBase;
     this.retryBackoffMax = builder.retryBackoffMax;
@@ -120,6 +129,21 @@ public final class ApiLensConfig {
     return maxQueueSize;
   }
 
+  /** Estimated bytes all three queues (requests, spans, logs) may hold together. */
+  public long maxQueueBytes() {
+    return maxQueueBytes;
+  }
+
+  /** Upper bound on one ingest request body (uncompressed JSON). */
+  public int maxBatchBytes() {
+    return maxBatchBytes;
+  }
+
+  /** Whether batch bodies are gzipped ({@code Content-Encoding: gzip}). */
+  public boolean compress() {
+    return compress;
+  }
+
   public int maxRetries() {
     return maxRetries;
   }
@@ -171,6 +195,9 @@ public final class ApiLensConfig {
     private boolean verifyTls = true;
     private String caBundlePath = "";
     private int maxQueueSize = 10_000;
+    private long maxQueueBytes = 64L * 1024 * 1024;
+    private int maxBatchBytes = 4 * 1024 * 1024;
+    private boolean compress = true;
     private int maxRetries = 3;
     private Duration retryBackoffBase = Duration.ofMillis(250);
     private Duration retryBackoffMax = Duration.ofSeconds(5);
@@ -259,6 +286,21 @@ public final class ApiLensConfig {
       return this;
     }
 
+    public Builder maxQueueBytes(long maxQueueBytes) {
+      this.maxQueueBytes = maxQueueBytes;
+      return this;
+    }
+
+    public Builder maxBatchBytes(int maxBatchBytes) {
+      this.maxBatchBytes = maxBatchBytes;
+      return this;
+    }
+
+    public Builder compress(boolean compress) {
+      this.compress = compress;
+      return this;
+    }
+
     public Builder maxRetries(int maxRetries) {
       this.maxRetries = maxRetries;
       return this;
@@ -290,6 +332,12 @@ public final class ApiLensConfig {
       }
       if (maxQueueSize <= 0) {
         throw new IllegalArgumentException("maxQueueSize must be > 0");
+      }
+      if (maxQueueBytes <= 0) {
+        throw new IllegalArgumentException("maxQueueBytes must be > 0");
+      }
+      if (maxBatchBytes < MIN_BATCH_BYTES) {
+        throw new IllegalArgumentException("maxBatchBytes must be >= " + MIN_BATCH_BYTES);
       }
       if (maxRetries < 0) {
         throw new IllegalArgumentException("maxRetries must be >= 0");
