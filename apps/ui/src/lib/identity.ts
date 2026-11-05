@@ -809,6 +809,14 @@ export interface RequestRow {
   consumer_id: string;
   consumer_name: string;
   trace_id: string;
+  /** Request and response body sizes in bytes (#576). */
+  request_size?: number;
+  response_size?: number;
+  /** False when the SDK sampled the request out: a base record without headers or bodies. */
+  sampled?: boolean;
+  consumer_group?: string;
+  ip_address?: string;
+  app_id?: string;
 }
 
 /** `GET /traffic/summary`. */
@@ -1220,7 +1228,7 @@ export function createClient(config: ClientConfig) {
 
     // query: dashboard reads as the signed-in user (#295) ----------------------------------
     listRequests: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
-      request<{ requests: RequestRow[] | null }>("GET", "/requests", { ...o, query: { project: projectSlug, ...q } }),
+      request<{ requests: RequestRow[] | null; next_cursor?: string }>("GET", "/requests", { ...o, query: { project: projectSlug, ...q } }),
     trafficSummary: (projectSlug: string, q: QueryRange | TrafficQuery, o: Authed) =>
       request<TrafficSummary>("GET", "/traffic/summary", { ...o, query: { project: projectSlug, ...trafficScope(q) } }),
     trafficTimeseries: (projectSlug: string, q: TrafficQuery, o: Authed) =>
