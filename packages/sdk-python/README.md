@@ -495,6 +495,12 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `heartbeat_interval` | `60.0` | Seconds between heartbeats. Minimum 10 (ingest answers 429 to faster ones). |
 | `app_id` | `""` | App to send heartbeats for when the client is used without a middleware (middlewares register their own `app_id`). |
 | `on_stats` | `None` | `(ClientStats) -> None`, called on the flush thread every `flush_interval` with a stats snapshot, e.g. to export to Prometheus or StatsD. Exceptions are logged at DEBUG and ignored. See [SDK health & stats](#sdk-health--stats). |
+| `retry_backoff_base` / `retry_backoff_max` | `0.25` / `5.0` | Base and ceiling, in seconds, of the exponential retry backoff. |
+| `mask_log_record` | `None` | `(LogRecord) -> LogRecord \| None` applied to every log record (auto error-trace logs) before it is queued: edit and return it, or return `None` to drop it. Built-in `key=value` masking runs afterwards; a callback that raises drops the record. |
+| `release` / `commit` | `""` | Deploy correlation stamped on every record. Empty auto-detects from `APILENS_RELEASE` / `APILENS_COMMIT` (also `GIT_COMMIT`, `SOURCE_VERSION`, `RENDER_GIT_COMMIT`). |
+| `user_agent` | `"apilenss/<version>"` | `User-Agent` header the SDK sends to ingest. |
+| `ingest_path` / `spans_path` / `logs_path` | `"/requests"` / `"/traces"` / `"/logs"` | Endpoint paths, relative to `base_url`. |
+| `metadata_path` / `heartbeat_path` | `"/metadata"` / `"/heartbeat"` | Metadata and heartbeat endpoint paths, relative to `base_url`. |
 
 ### Capture profiles
 
@@ -542,6 +548,7 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 |--------|---------|-------------|
 | `app_id` | `""` | **Required for ingestion.** Which app the traffic belongs to. |
 | `environment` | client's | Override the environment label per app. |
+| `enable_request_logging` | `True` | Master switch for header and body capture; `False` keeps only the base record. |
 | `capture_profile` | `None` (= `full`) | `"metadata"`, `"redacted"` or `"full"`; sets the defaults of the capture flags (see [capture profiles](#capture-profiles)). |
 | `capture_payloads` | `True` | Capture request/response bodies (size-limited). |
 | `capture_headers` | `True` | Capture request/response headers (sensitive values redacted). |
@@ -561,6 +568,8 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `sample_rate` | `1.0` | Fraction (0.0–1.0) of requests whose detail — headers, bodies, spans, auto error log — is kept. See [sampling](#sampling). A value outside the range raises at startup. |
 | `sample_on_request` | `None` | `(RequestInfo) -> bool \| float \| None` evaluated before the handler; overrides `sample_rate` per request. See [sampling](#sampling). |
 | `sample_on_response` | `None` | `(ResponseInfo) -> bool \| float \| None` evaluated after the response; can drop a kept request's detail, never un-drop one. See [sampling](#sampling). |
+| `route_resolver` | `None` | `(scope_or_environ) -> str \| None` returning the route template for a request; overrides the framework template. See [endpoint grouping](#endpoint-grouping-path-templating). |
+| `parametrize_paths` | `True` | Heuristic templating fallback (`/orders/123` → `/orders/{id}`) when no framework template is known. `APILENS_PARAMETRIZE_PATHS=false` (env var) disables it. |
 
 ### Sampling
 
