@@ -32,6 +32,7 @@ assertions:
     - project:web#manage_keys@user:olivia
     - project:web#delete@user:olivia
     - project:api#delete@user:olivia
+    - project:web#manage_capture@user:olivia
 
     # org admin: everything except billing
     - organization:acme#manage@user:adam
@@ -43,6 +44,7 @@ assertions:
     - project:web#edit@user:adam
     - project:web#manage_keys@user:adam
     - project:web#delete@user:adam
+    - project:web#manage_capture@user:adam
 
     # org member: create and work on projects
     - organization:acme#create_project@user:mia
@@ -62,6 +64,7 @@ assertions:
     - project:web#edit@user:paula
     - project:web#manage_keys@user:paula
     - project:web#delete@user:paula
+    - project:web#manage_capture@user:paula
 
     # project editor (web only)
     - project:web#view@user:ed
@@ -81,6 +84,7 @@ assertions:
     - organization:acme#invite@user:mia
     - organization:acme#manage_billing@user:mia
     - project:web#delete@user:mia
+    - project:web#manage_capture@user:mia
 
     # org viewer cannot write anything
     - organization:acme#manage@user:vic
@@ -91,6 +95,7 @@ assertions:
     - project:web#edit@user:vic
     - project:web#manage_keys@user:vic
     - project:web#delete@user:vic
+    - project:web#manage_capture@user:vic
 
     # project-scoped roles stay on their project and never reach the org
     - project:api#view@user:paula
@@ -100,9 +105,12 @@ assertions:
     - organization:acme#create_project@user:paula
     - organization:acme#invite@user:paula
     - project:web#delete@user:ed
+    - project:web#manage_capture@user:ed
     - project:web#edit@user:val
     - project:web#manage_keys@user:val
     - project:web#delete@user:val
+    - project:web#manage_capture@user:val
+    - project:api#manage_capture@user:paula
 
     # orgs are isolated from each other
     - project:shop#view@user:olivia

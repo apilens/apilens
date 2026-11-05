@@ -336,6 +336,94 @@
         ],
         "type": "object"
       },
+      "CapturePolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/CapturePolicy.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "app": {
+            "description": "The app's slug.",
+            "type": "string"
+          },
+          "app_id": {
+            "description": "The app's id.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "capture_headers": {
+            "description": "Whether request and response headers are captured.",
+            "type": "boolean"
+          },
+          "capture_request_body": {
+            "description": "Whether request bodies are captured.",
+            "type": "boolean"
+          },
+          "capture_response_body": {
+            "description": "Whether response bodies are captured.",
+            "type": "boolean"
+          },
+          "enabled": {
+            "description": "Whether the app's SDKs capture at all; false tells them to stop sending records.",
+            "type": "boolean"
+          },
+          "max_payload_bytes": {
+            "description": "Cap on each captured body in bytes; null means no cap beyond the SDK's own.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "project": {
+            "description": "The slug of the app's project.",
+            "type": "string"
+          },
+          "sample_rate": {
+            "description": "Fraction of requests the SDKs keep, from 0 to 1.",
+            "format": "double",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "updated_at": {
+            "description": "When the policy was last saved; null if it never was (the app captures everything).",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_by": {
+            "description": "The user who last saved the policy; null if it never was saved or that user is gone.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "app_id",
+          "app",
+          "project",
+          "enabled",
+          "sample_rate",
+          "capture_headers",
+          "capture_request_body",
+          "capture_response_body",
+          "max_payload_bytes",
+          "updated_at",
+          "updated_by"
+        ],
+        "type": "object"
+      },
       "ChangeRoleInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -3198,6 +3286,61 @@
         ],
         "type": "object"
       },
+      "PutCapturePolicyInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/PutCapturePolicyInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "capture_headers": {
+            "description": "Whether request and response headers are captured.",
+            "type": "boolean"
+          },
+          "capture_request_body": {
+            "description": "Whether request bodies are captured.",
+            "type": "boolean"
+          },
+          "capture_response_body": {
+            "description": "Whether response bodies are captured.",
+            "type": "boolean"
+          },
+          "enabled": {
+            "description": "Whether the app's SDKs capture at all.",
+            "type": "boolean"
+          },
+          "max_payload_bytes": {
+            "description": "Cap on each captured body in bytes (1 to 1048576); omitted or null means no cap beyond the SDK's own.",
+            "format": "int64",
+            "maximum": 1048576,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sample_rate": {
+            "description": "Fraction of requests the SDKs keep, from 0 to 1, at most 4 decimal places.",
+            "format": "double",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "enabled",
+          "sample_rate",
+          "capture_headers",
+          "capture_request_body",
+          "capture_response_body"
+        ],
+        "type": "object"
+      },
       "PutPrivacyPolicyInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -4630,6 +4773,224 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/apps/{id}/capture-policy": {
+      "get": {
+        "description": "Returns the remote capture policy of the app. Needs `view` on its project (any member, including viewers). An app without a saved policy captures everything (enabled, `sample_rate` 1, headers and bodies on, no extra payload cap). SDKs receive the policy on heartbeat; edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). An unknown app, or one in a project the caller cannot view, answers 404 `not_found`, so the cases cannot be told apart.",
+        "operationId": "get-capture-policy",
+        "parameters": [
+          {
+            "description": "The app's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The app's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapturePolicy"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Get an app's capture policy",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "put": {
+        "description": "Replaces the remote capture policy of the app. Needs `manage_capture` on its project (project admins, organization owners and admins; 403 `forbidden` for other members). A `sample_rate` with more than 4 decimal places answers `invalid_request`. Audited as `capture_policy.updated`. An app without a saved policy captures everything (enabled, `sample_rate` 1, headers and bodies on, no extra payload cap). SDKs receive the policy on heartbeat; edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). An unknown app, or one in a project the caller cannot view, answers 404 `not_found`, so the cases cannot be told apart.",
+        "operationId": "put-capture-policy",
+        "parameters": [
+          {
+            "description": "The app's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The app's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutCapturePolicyInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapturePolicy"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Replace an app's capture policy",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
     "/api/v1/auth/2fa/backup-codes/regenerate": {
       "post": {
         "description": "Needs a fresh code from the authenticator app. Replaces the backup codes: every old code stops working and ten new single-use codes are returned, shown this once. A security alert is emailed. Answers `invalid_totp` for a wrong code and `not_enabled` when 2FA is off.",

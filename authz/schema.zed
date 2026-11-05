@@ -50,6 +50,9 @@ definition project {
 	/** manage_keys: api_keys.create, api_keys.revoke. */
 	permission manage_keys = admin + editor + org->create_project
 
+	/** manage_capture: change an app's remote capture policy (project admins, org owners and admins). */
+	permission manage_capture = admin + org->manage
+
 	/** edit: project.update. */
 	permission edit = admin + editor + org->create_project
 

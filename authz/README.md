@@ -46,6 +46,12 @@ The org-level permissions are not part of the UI vocabulary. They gate the org s
 | `organization#create_project` | ✓ | ✓ | ✓ | |
 | `organization#view` | ✓ | ✓ | ✓ | ✓ |
 
+Project-level permissions outside the UI vocabulary:
+
+| Permission | Org owner | Org admin | Org member | Org viewer | Project admin | Project editor | Project viewer |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| `project#manage_capture` (an app's remote capture policy, `PUT /api/v1/apps/{id}/capture-policy`) | ✓ | ✓ | | | ✓ | | |
+
 ## Enforcement in the API
 
 Typed API operations on one organization or project declare their permission with an `authz.Guard` middleware (`internal/authz/require.go`): `guard.RequireOrg(api, authz.OrgManage)` or `guard.RequireProject(api, authz.ProjectEdit)`. The guard reads the resource from the path (`{org}`, else `{slug}`, for the organization; `{project}`, else `{slug}` under `{org}`, for the project), resolves the slug to an id through a short-lived cache, and asks SpiceDB. The answers are stable:
