@@ -144,6 +144,17 @@ type CapturePolicy struct {
 	UpdatedBy           *uuid.UUID
 }
 
+type EndpointSetting struct {
+	AppID               uuid.UUID
+	Method              string
+	Path                string
+	ExpectedStatusCodes []int32
+	LatencyThresholdMs  *int32
+	Excluded            bool
+	UpdatedAt           time.Time
+	UpdatedBy           *uuid.UUID
+}
+
 type Environment struct {
 	ID        uuid.UUID
 	ProjectID uuid.UUID

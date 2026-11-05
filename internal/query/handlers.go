@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,6 +58,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	registerDeployChanges(api, s)
 	registerIngestStatus(api, s, guard)
 	registerAppStatus(api, s)
+	registerEndpointSettings(api, s, guard)
 }
 
 // ---------------------------------------------------------------- project
@@ -127,8 +129,8 @@ type summaryOutput struct {
 		From              time.Time `json:"from"`
 		To                time.Time `json:"to"`
 		Requests          uint64    `json:"requests"`
-		ClientErrors      uint64    `json:"client_errors"`
-		ServerErrors      uint64    `json:"server_errors"`
+		ClientErrors      uint64    `json:"client_errors" doc:"4xx responses, leaving out the expected status codes of each endpoint."`
+		ServerErrors      uint64    `json:"server_errors" doc:"5xx responses, leaving out the expected status codes of each endpoint."`
 		ErrorRate         float64   `json:"error_rate" doc:"(client_errors + server_errors) / requests"`
 		P50Ms             float64   `json:"p50_ms"`
 		P95Ms             float64   `json:"p95_ms"`
@@ -146,7 +148,12 @@ func (s *Service) summary(ctx context.Context, in *RangeInput) (*summaryOutput, 
 	if err != nil {
 		return nil, err
 	}
-	where, args := tenantFilter(p.ProjectID, in.Env)
+	rules, err := s.endpointRules(ctx, p.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	tenant, targs := tenantFilter(p.ProjectID, in.Env)
+	where, args := rules.withoutExcluded(tenant, targs)
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
 	var (
@@ -160,6 +167,11 @@ func (s *Service) summary(ctx context.Context, in *RangeInput) (*summaryOutput, 
 	if err != nil {
 		return nil, internalError("summary", err)
 	}
+	expected, err := s.expectedErrors(qctx, rules, tenant, targs, w.from, w.to, "''")
+	if err != nil {
+		return nil, err
+	}
+	expected[""].subtract(&clientErrors, &serverErrors)
 	out := &summaryOutput{}
 	b := &out.Body
 	b.Range, b.From, b.To = w.name, w.from, w.to
@@ -199,10 +211,20 @@ func (s *Service) timeseries(ctx context.Context, in *RangeInput) (*timeseriesOu
 	if err != nil {
 		return nil, err
 	}
-	where, args := tenantFilter(p.ProjectID, in.Env)
+	rules, err := s.endpointRules(ctx, p.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	tenant, targs := tenantFilter(p.ProjectID, in.Env)
+	where, args := rules.withoutExcluded(tenant, targs)
 	seconds := int(w.bucket.Seconds())
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
+	expected, err := s.expectedErrors(qctx, rules, tenant, targs, w.from, w.to,
+		fmt.Sprintf("toString(toUnixTimestamp(toStartOfInterval(timestamp, INTERVAL %d SECOND)))", seconds))
+	if err != nil {
+		return nil, err
+	}
 	// table and bucket width come from the fixed ranges map, never from input.
 	rows, err := s.ch.Query(qctx, fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket, INTERVAL %d SECOND) AS ts,
@@ -223,6 +245,7 @@ func (s *Service) timeseries(ctx context.Context, in *RangeInput) (*timeseriesOu
 			return nil, internalError("timeseries", err)
 		}
 		pt.P95Ms = quantile(q, 3)
+		expected[strconv.FormatInt(pt.TS.UTC().Unix(), 10)].subtract(&pt.ClientErrors, &pt.ServerErrors)
 		got[pt.TS.UTC().Unix()] = pt
 	}
 	if err := rows.Err(); err != nil {
@@ -274,9 +297,18 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 	if err != nil {
 		return nil, err
 	}
-	where, args := tenantFilter(p.ProjectID, in.Env)
+	rules, err := s.endpointRules(ctx, p.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	tenant, targs := tenantFilter(p.ProjectID, in.Env)
+	where, args := rules.withoutExcluded(tenant, targs)
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
+	expected, err := s.expectedErrors(qctx, rules, tenant, targs, w.from, w.to, "concat(method, ' ', path)")
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.ch.Query(qctx, fmt.Sprintf(`
 		SELECT method, path, sum(requests) AS total, sum(client_errors), sum(server_errors), %s
 		FROM %s WHERE %s AND bucket >= ? AND bucket < ?
@@ -296,6 +328,7 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 		if err := rows.Scan(&e.Method, &e.Path, &e.Requests, &e.ClientErrors, &e.ServerErrors, &q); err != nil {
 			return nil, internalError("endpoints", err)
 		}
+		expected[e.Method+" "+e.Path].subtract(&e.ClientErrors, &e.ServerErrors)
 		if e.Requests > 0 {
 			e.ErrorRate = float64(e.ClientErrors+e.ServerErrors) / float64(e.Requests)
 		}
@@ -404,13 +437,23 @@ func (s *Service) errors(ctx context.Context, in *RangeInput) (*errorsOutput, er
 	if err != nil {
 		return nil, err
 	}
-	where, args := tenantFilter(p.ProjectID, in.Env)
+	rules, err := s.endpointRules(ctx, p.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	where, args := rules.withoutExcluded(tenantFilter(p.ProjectID, in.Env))
+	where += " AND timestamp >= ? AND timestamp < ? AND status_code >= 400"
+	args = append(args, w.from, w.to)
+	if pred, pargs := rules.expectedPredicate(); pred != "" {
+		where += " AND NOT " + pred
+		args = append(args, pargs...)
+	}
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
 	rows, err := s.ch.Query(qctx, `
 		SELECT method, path, status_code, count() AS c, uniqIf(consumer_id, consumer_id != ''), max(timestamp)
-		FROM api_requests WHERE `+where+` AND timestamp >= ? AND timestamp < ? AND status_code >= 400
-		GROUP BY method, path, status_code ORDER BY c DESC LIMIT 200`, append(args, w.from, w.to)...)
+		FROM api_requests WHERE `+where+`
+		GROUP BY method, path, status_code ORDER BY c DESC LIMIT 200`, args...)
 	if err != nil {
 		return nil, internalError("errors", err)
 	}

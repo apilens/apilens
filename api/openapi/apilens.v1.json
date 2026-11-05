@@ -1675,6 +1675,83 @@
         ],
         "type": "object"
       },
+      "EndpointSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/EndpointSettings.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "app_id": {
+            "description": "The app's id.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "excluded": {
+            "description": "Whether the endpoint is left out of the summary, timeseries, endpoint list and error list. Its requests stay in the request log.",
+            "type": "boolean"
+          },
+          "expected_status_codes": {
+            "description": "Status codes that are expected for this endpoint, ascending: requests answered with them do not count as client or server errors in the summary, timeseries, endpoint list and error list.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "latency_threshold_ms": {
+            "description": "Response time in milliseconds above which a request of this endpoint is slow; null means the project default.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "method": {
+            "description": "HTTP method, upper case.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Route template.",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When the settings were last saved; null if they never were (the defaults apply).",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_by": {
+            "description": "The user who last saved the settings; null if they never were saved or that user is gone.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "app_id",
+          "method",
+          "path",
+          "expected_status_codes",
+          "latency_threshold_ms",
+          "excluded",
+          "updated_at",
+          "updated_by"
+        ],
+        "type": "object"
+      },
       "EndpointTransferOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -4035,6 +4112,50 @@
         ],
         "type": "object"
       },
+      "PutEndpointSettingsInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/PutEndpointSettingsInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "excluded": {
+            "description": "Leave the endpoint out of the summary, timeseries, endpoint list and error list.",
+            "type": "boolean"
+          },
+          "expected_status_codes": {
+            "description": "Status codes (100 to 599, at most 32) that are expected for this endpoint; duplicates are dropped. Omitted means none.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "maxItems": 32,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "latency_threshold_ms": {
+            "description": "Response time in milliseconds (1 to 600000) above which a request is slow; omitted or null means the project default.",
+            "format": "int64",
+            "maximum": 600000,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "excluded"
+        ],
+        "type": "object"
+      },
       "PutPrivacyPolicyInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -4917,6 +5038,7 @@
             "type": "string"
           },
           "client_errors": {
+            "description": "4xx responses, leaving out the expected status codes of each endpoint.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -4955,6 +5077,7 @@
             "type": "number"
           },
           "server_errors": {
+            "description": "5xx responses, leaving out the expected status codes of each endpoint.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -5803,6 +5926,174 @@
           }
         ],
         "summary": "Replace an app's capture policy",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/apps/{id}/endpoints/{method}/{path}/settings": {
+      "get": {
+        "description": "Expected status codes, latency threshold and exclusion of one endpoint of an app. Open to project viewers and the project's read key. Settings are keyed by app, method and route template; an endpoint without saved settings has no expected status codes, no latency threshold and is not excluded. An unknown app, or one in another project, answers 404.",
+        "operationId": "get-endpoint-settings",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The app's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The app's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "HTTP method, e.g. GET (case-insensitive).",
+            "in": "path",
+            "name": "method",
+            "required": true,
+            "schema": {
+              "description": "HTTP method, e.g. GET (case-insensitive).",
+              "pattern": "^[A-Za-z]{1,16}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointSettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Get the settings of an endpoint",
+        "tags": [
+          "Dashboard"
+        ]
+      },
+      "put": {
+        "description": "Replaces the expected status codes, latency threshold and exclusion of one endpoint of an app. Needs a user session with `manage_capture` on the app's project (project admins, organization owners and admins; 403 for other members). Dashboard reads apply the change on their next query. Settings are keyed by app, method and route template; an endpoint without saved settings has no expected status codes, no latency threshold and is not excluded. An unknown app, or one in another project, answers 404.",
+        "operationId": "put-endpoint-settings",
+        "parameters": [
+          {
+            "description": "The app's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The app's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "HTTP method, e.g. GET (case-insensitive).",
+            "in": "path",
+            "name": "method",
+            "required": true,
+            "schema": {
+              "description": "HTTP method, e.g. GET (case-insensitive).",
+              "pattern": "^[A-Za-z]{1,16}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutEndpointSettingsInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointSettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Replace the settings of an endpoint",
         "tags": [
           "Projects"
         ]

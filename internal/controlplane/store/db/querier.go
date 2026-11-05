@@ -71,6 +71,8 @@ type Querier interface {
 	// The active user. The control plane only reads the profile columns of
 	// users (ADR 0005); identity owns every write.
 	GetContextUser(ctx context.Context, id uuid.UUID) (User, error)
+	// The settings row of one endpoint of an app; no row means the defaults.
+	GetEndpointSettings(ctx context.Context, arg GetEndpointSettingsParams) (EndpointSetting, error)
 	GetInvitation(ctx context.Context, arg GetInvitationParams) (Invitation, error)
 	// Returns the row whatever its state, with its organization, so the caller
 	// can tell a pending invitation from an accepted, revoked or expired one.
@@ -106,6 +108,9 @@ type Querier interface {
 	// another project.
 	GetProjectApp(ctx context.Context, arg GetProjectAppParams) (GetProjectAppRow, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
+	// An active app of an active project, with the project slug that authorizing
+	// a settings change on it needs.
+	GetSettingsApp(ctx context.Context, id uuid.UUID) (GetSettingsAppRow, error)
 	// The email of an active user and when it was verified (NULL when not).
 	GetUserEmail(ctx context.Context, id uuid.UUID) (GetUserEmailRow, error)
 	// Whether user signed in through organization org's SSO connection (a
@@ -148,6 +153,9 @@ type Querier interface {
 	// Every key of the project, revoked ones included, newest first.
 	ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) ([]ListProjectAPIKeysRow, error)
 	ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppsRow, error)
+	// The settings that change what the dashboard counts (an expected status
+	// code or exclusion) for the active apps of a project.
+	ListProjectEndpointSettings(ctx context.Context, projectID uuid.UUID) ([]ListProjectEndpointSettingsRow, error)
 	// Every privacy policy row of a project: the project-wide one (app_id NULL)
 	// and the per-app ones. Rows of deleted apps are skipped.
 	ListProjectPrivacyPolicies(ctx context.Context, projectID uuid.UUID) ([]ListProjectPrivacyPoliciesRow, error)
@@ -248,6 +256,7 @@ type Querier interface {
 	// none yet.
 	UpsertAppMetadata(ctx context.Context, arg UpsertAppMetadataParams) error
 	UpsertCapturePolicy(ctx context.Context, arg UpsertCapturePolicyParams) (UpsertCapturePolicyRow, error)
+	UpsertEndpointSettings(ctx context.Context, arg UpsertEndpointSettingsParams) (EndpointSetting, error)
 	UpsertEnvironment(ctx context.Context, arg UpsertEnvironmentParams) (Environment, error)
 	// Creates or replaces an organization's OIDC connection. created_at and
 	// last_login_at survive a replace.
