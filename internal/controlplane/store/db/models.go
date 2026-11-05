@@ -68,6 +68,22 @@ type App struct {
 	DeletedAt *time.Time
 }
 
+type AppInstance struct {
+	AppID       uuid.UUID
+	Environment string
+	InstanceID  string
+	ProjectID   uuid.UUID
+	SdkName     string
+	SdkVersion  string
+	Runtime     string
+	Release     string
+	Commit      string
+	Pid         *int64
+	Stats       []byte
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
+}
+
 type AppMetadatum struct {
 	AppID            uuid.UUID
 	Environment      string

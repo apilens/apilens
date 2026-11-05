@@ -116,6 +116,107 @@
         ],
         "type": "object"
       },
+      "AppEnvironmentStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "environment": {
+            "type": "string"
+          },
+          "last_seen_at": {
+            "description": "Time of the last heartbeat in the environment.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "live_instances": {
+            "description": "Instances that sent a heartbeat in the last 5 minutes.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "status": {
+            "description": "reporting when a heartbeat arrived in the last 5 minutes.",
+            "enum": [
+              "reporting",
+              "stale"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "environment",
+          "status",
+          "last_seen_at",
+          "live_instances"
+        ],
+        "type": "object"
+      },
+      "AppInstance": {
+        "additionalProperties": false,
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "pid": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "release": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "sdk_name": {
+            "type": "string"
+          },
+          "sdk_version": {
+            "type": "string"
+          },
+          "stats": {
+            "additionalProperties": {},
+            "description": "SDK counters as the last heartbeat sent them.",
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "reporting",
+              "stale"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "environment",
+          "instance_id",
+          "status",
+          "sdk_name",
+          "sdk_version",
+          "runtime",
+          "release",
+          "commit",
+          "pid",
+          "stats",
+          "first_seen_at",
+          "last_seen_at"
+        ],
+        "type": "object"
+      },
       "AppMetadata": {
         "additionalProperties": true,
         "properties": {
@@ -260,6 +361,73 @@
         "required": [
           "method",
           "path"
+        ],
+        "type": "object"
+      },
+      "AppStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AppStatus.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "app": {
+            "description": "The app's slug.",
+            "type": "string"
+          },
+          "app_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "environments": {
+            "items": {
+              "$ref": "#/components/schemas/AppEnvironmentStatus"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "instances": {
+            "description": "The 100 most recently seen instances, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/AppInstance"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "last_seen_at": {
+            "description": "Time of the last heartbeat; null when none arrived.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "reporting when any instance sent a heartbeat in the last 5 minutes, stale when the last one is older, never when none arrived.",
+            "enum": [
+              "reporting",
+              "stale",
+              "never"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_id",
+          "app",
+          "status",
+          "last_seen_at",
+          "environments",
+          "instances"
         ],
         "type": "object"
       },
@@ -1783,6 +1951,165 @@
         },
         "required": [
           "code"
+        ],
+        "type": "object"
+      },
+      "Heartbeat": {
+        "additionalProperties": true,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Heartbeat.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "app_id": {
+            "description": "App UUID or slug",
+            "examples": [
+              "storefront"
+            ],
+            "type": "string"
+          },
+          "commit": {
+            "description": "VCS commit of the app being monitored",
+            "examples": [
+              "9f2c1ab"
+            ],
+            "type": "string"
+          },
+          "environment": {
+            "description": "Defaults to production",
+            "examples": [
+              "production"
+            ],
+            "type": "string"
+          },
+          "instance_id": {
+            "description": "Stable id of the SDK process, generated once per process start",
+            "examples": [
+              "4b0c7a8e-2f0d-4c1e-9a55-0d6f3b1f1a9e"
+            ],
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "pid": {
+            "description": "OS process id",
+            "examples": [
+              4242
+            ],
+            "format": "int64",
+            "type": "integer"
+          },
+          "project_slug": {
+            "description": "Optional; must match the API key's project",
+            "type": "string"
+          },
+          "release": {
+            "description": "Version of the app being monitored",
+            "examples": [
+              "2026.11.05"
+            ],
+            "type": "string"
+          },
+          "runtime": {
+            "description": "Language runtime and version",
+            "examples": [
+              "python 3.13.1"
+            ],
+            "type": "string"
+          },
+          "sdk_name": {
+            "examples": [
+              "apilenss"
+            ],
+            "type": "string"
+          },
+          "sdk_version": {
+            "examples": [
+              "0.5.0"
+            ],
+            "type": "string"
+          },
+          "stats": {
+            "additionalProperties": {},
+            "description": "SDK counters since start (records queued, sent, dropped). At most 16 KiB.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "app_id",
+          "instance_id"
+        ],
+        "type": "object"
+      },
+      "HeartbeatAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/HeartbeatAccepted.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/HeartbeatPolicy",
+            "description": "The app's remote capture policy."
+          }
+        },
+        "required": [
+          "policy"
+        ],
+        "type": "object"
+      },
+      "HeartbeatPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "capture_headers": {
+            "description": "Whether request and response headers are captured.",
+            "type": "boolean"
+          },
+          "capture_request_body": {
+            "description": "Whether request bodies are captured.",
+            "type": "boolean"
+          },
+          "capture_response_body": {
+            "description": "Whether response bodies are captured.",
+            "type": "boolean"
+          },
+          "enabled": {
+            "description": "False tells the SDK to stop sending records (heartbeats continue).",
+            "type": "boolean"
+          },
+          "max_payload_bytes": {
+            "description": "Cap on each captured body in bytes; null means no cap beyond the SDK's own.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sample_rate": {
+            "description": "Fraction of requests to keep, from 0 to 1.",
+            "format": "double",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "enabled",
+          "sample_rate",
+          "capture_headers",
+          "capture_request_body",
+          "capture_response_body",
+          "max_payload_bytes"
         ],
         "type": "object"
       },
@@ -5478,6 +5805,70 @@
         "summary": "Replace an app's capture policy",
         "tags": [
           "Projects"
+        ]
+      }
+    },
+    "/api/v1/apps/{id}/status": {
+      "get": {
+        "description": "Reporting state of the app from SDK heartbeats (POST /v1/heartbeat): overall, per environment and per instance. An app is reporting while a heartbeat arrived in the last 5 minutes. An app that is not in the project answers 404.",
+        "operationId": "get-app-status",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The app's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The app's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Whether an app's SDKs are reporting",
+        "tags": [
+          "Dashboard"
         ]
       }
     },
@@ -14011,6 +14402,103 @@
         "summary": "Sign out a session",
         "tags": [
           "Users"
+        ]
+      }
+    },
+    "/v1/heartbeat": {
+      "post": {
+        "description": "Sent by every SDK process on start and then about once a minute. Records the instance as last seen now (the app shows as reporting for 5 minutes) and answers the app's remote capture policy, which the SDK applies until the next heartbeat. At most one heartbeat per instance every 10 seconds; a faster one answers 429 with Retry-After. On 503 the SDK keeps its previous policy. A body with an `api_key` field at any depth is rejected with 422.",
+        "operationId": "ingest-heartbeat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Heartbeat"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeartbeatAccepted"
+                }
+              }
+            },
+            "description": "Recorded; the body carries the capture policy"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestError"
+                }
+              }
+            },
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestError"
+                }
+              }
+            },
+            "description": "API key lacks the ingest scope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestError"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestError"
+                }
+              }
+            },
+            "description": "Invalid payload, unknown app, or an api_key field"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestError"
+                }
+              }
+            },
+            "description": "Heartbeat of this instance less than 10 seconds after the previous one; retry after Retry-After"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestError"
+                }
+              }
+            },
+            "description": "Temporarily unavailable; retry after Retry-After"
+          }
+        },
+        "security": [
+          {
+            "ingestKey": []
+          }
+        ],
+        "summary": "Report an SDK instance is alive and fetch the capture policy",
+        "tags": [
+          "Ingest"
         ]
       }
     },

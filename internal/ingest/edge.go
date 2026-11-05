@@ -55,6 +55,9 @@ type Edge struct {
 	logger   *slog.Logger
 	now      func() time.Time
 
+	heartbeats     HeartbeatStore // nil: /v1/heartbeat answers 503
+	heartbeatCache HeartbeatCache // nil: no heartbeat rate limit or last-seen key
+
 	records   *prometheus.CounterVec
 	batches   *prometheus.CounterVec
 	rejected  *prometheus.CounterVec
@@ -104,6 +107,7 @@ func (e *Edge) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/traces", e.handleSpans)
 	mux.HandleFunc("POST /v1/deploys", e.handleDeploys)
 	mux.HandleFunc("POST /v1/metadata", e.handleMetadata)
+	mux.HandleFunc("POST /v1/heartbeat", e.handleHeartbeat)
 	mux.HandleFunc("POST /otlp/v1/traces", e.handleOTLPTraces)
 	mux.HandleFunc("POST /otlp/v1/logs", e.handleOTLPLogs)
 }

@@ -102,6 +102,9 @@ type Querier interface {
 	GetOrganizationBySlug(ctx context.Context, slug string) (Organization, error)
 	// The policy of one scope: the project (app_id NULL) or one of its apps.
 	GetPrivacyPolicy(ctx context.Context, arg GetPrivacyPolicyParams) (GetPrivacyPolicyRow, error)
+	// An active app of a project; no row when the app is unknown, deleted or in
+	// another project.
+	GetProjectApp(ctx context.Context, arg GetProjectAppParams) (GetProjectAppRow, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
 	// The email of an active user and when it was verified (NULL when not).
 	GetUserEmail(ctx context.Context, id uuid.UUID) (GetUserEmailRow, error)
@@ -119,6 +122,9 @@ type Querier interface {
 	ListAlertEvents(ctx context.Context, arg ListAlertEventsParams) ([]ListAlertEventsRow, error)
 	// A project's rules; rules of deleted apps are skipped.
 	ListAlertRules(ctx context.Context, projectID uuid.UUID) ([]AlertRule, error)
+	// The last heartbeat of an app per environment, and how many of its
+	// instances were seen since @since.
+	ListAppEnvironmentsLastSeen(ctx context.Context, arg ListAppEnvironmentsLastSeenParams) ([]ListAppEnvironmentsLastSeenRow, error)
 	// Every enabled rule of an active app of an active project: what the
 	// evaluator runs.
 	ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error)
@@ -147,6 +153,8 @@ type Querier interface {
 	ListProjectPrivacyPolicies(ctx context.Context, projectID uuid.UUID) ([]ListProjectPrivacyPoliciesRow, error)
 	// The environments of the given projects, by project then name.
 	ListProjectsEnvironments(ctx context.Context, projectIds []uuid.UUID) ([]ListProjectsEnvironmentsRow, error)
+	// The most recently seen instances of an app.
+	ListRecentAppInstances(ctx context.Context, arg ListRecentAppInstancesParams) ([]ListRecentAppInstancesRow, error)
 	// The authz reconciler (ADR 0006) compares these with SpiceDB. They describe
 	// the relationships the outbox relay leaves behind once it has applied every
 	// row: one org role per membership of an active organization, and one
@@ -232,6 +240,9 @@ type Querier interface {
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)
 	UpdateProjectName(ctx context.Context, arg UpdateProjectNameParams) (UpdateProjectNameRow, error)
 	UpsertApp(ctx context.Context, arg UpsertAppParams) (UpsertAppRow, error)
+	// Records a heartbeat of one SDK process: the latest report replaces the
+	// instance's previous one, first_seen_at is kept.
+	UpsertAppInstance(ctx context.Context, arg UpsertAppInstanceParams) error
 	// Stores the latest metadata report of an app in an environment and, in the
 	// same statement, records the reported framework on the app when it has
 	// none yet.

@@ -18,6 +18,7 @@ Every request needs your project-level API key in the `X-API-Key` header. Create
 | `POST /v1/requests` | Request telemetry (metrics + request logs) | `{"requests": [RequestRecord, ...]}` |
 | `POST /v1/traces` | Trace spans | `{"spans": [SpanRecord, ...]}` |
 | `POST /v1/logs` | Error/trace log messages | `{"logs": [LogRecord, ...]}` |
+| `POST /v1/heartbeat` | SDK instance liveness; answers the remote capture policy ([Heartbeat](/ingest/heartbeat)) | `Heartbeat` |
 | `GET /v1/health` | Service health | — |
 
 Each batch endpoint accepts up to **1,000 records** per call and responds with `{"accepted": <count>}`.

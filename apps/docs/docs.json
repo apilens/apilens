@@ -94,7 +94,8 @@
             "group": "Ingest API",
             "pages": [
               "ingest/ingest-api",
-              "ingest/request-schema"
+              "ingest/request-schema",
+              "ingest/heartbeat"
             ]
           },
           {
