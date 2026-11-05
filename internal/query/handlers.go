@@ -51,6 +51,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	huma.Register(api, op("get-endpoint-requests", http.MethodGet, "/api/v1/endpoints/{method}/{path}/requests", "Endpoint requests: totals, status split over time and top consumers"), s.endpointRequests)
 	huma.Register(api, op("get-endpoint-latency", http.MethodGet, "/api/v1/endpoints/{method}/{path}/latency", "Endpoint response time: percentiles, p50/p75/p95 trend and histogram"), s.endpointLatency)
 	huma.Register(api, op("get-endpoint-transfer", http.MethodGet, "/api/v1/endpoints/{method}/{path}/transfer", "Endpoint data transferred: byte totals, in/out series and size histograms"), s.endpointTransfer)
+	huma.Register(api, op("get-endpoint-errors", http.MethodGet, "/api/v1/endpoints/{method}/{path}/errors", "Endpoint errors: status breakdown, error-rate trend, validation errors and server exceptions"), s.endpointErrors)
 	huma.Register(api, op("list-consumers", http.MethodGet, "/api/v1/consumers", "Consumers: traffic with sparklines, and unique consumers over time split new vs returning"), s.consumers)
 	huma.Register(api, op("get-consumer", http.MethodGet, "/api/v1/consumers/{consumer_id}", "Consumer detail: first/last seen, requests and errors over time, recent requests and errors"), s.consumer)
 	huma.Register(api, op("list-requests", http.MethodGet, "/api/v1/requests", "Most recent requests"), s.requests)
