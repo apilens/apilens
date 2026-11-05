@@ -15,6 +15,7 @@ describe("ApiLensClient", () => {
       appId: "test",
       enabled: true,
       batchSize: 10,
+      compress: false,
       fetchImpl: async (_url, options) => {
         calls.push({ body: String(options?.body || "") });
         return new Response(null, { status: 200 });

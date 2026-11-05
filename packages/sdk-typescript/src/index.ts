@@ -1,4 +1,4 @@
-export { ApiLensClient } from "./client.js";
+export { ApiLensClient, DROP_REASONS } from "./client.js";
 export {
   createApiLensMiddleware,
   createExpressMiddleware,
@@ -25,7 +25,9 @@ export {
 export type { HeaderMap, HeaderValue, SerializeHeadersOptions } from "./sanitize.js";
 export type {
   ApiLensClientConfig,
+  ApiLensClientStats,
   ApiLensConsumer,
+  ApiLensDropReason,
   ApiLensExpressConfig,
   ApiLensRecord,
   ApiLensRecordInput,

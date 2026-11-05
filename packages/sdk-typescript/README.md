@@ -142,6 +142,49 @@ useApiLens(app, {
 `APILENS_EXCLUDE_PATHS` (comma-separated) adds path patterns on top. An
 invalid regex throws when the middleware is created, never per request.
 
+## Delivery and health
+
+The client never blocks your request path and never grows without bound:
+
+- `maxQueueSize` (default `10000` records) and `maxQueueBytes` (default 64 MB,
+  estimated) cap the in-memory queue. When either is full the oldest records
+  are dropped.
+- `maxBatchBytes` (default 4 MB) caps one ingest request body. Batches are cut
+  at `batchSize` records or `maxBatchBytes`, whichever comes first. A single
+  record larger than the limit is truncated (payloads first), not dropped.
+  With bodies on, `batchSize: 100` / `maxBatchBytes: 4 * 1024 * 1024` is a
+  good starting point.
+- `compress` (default `true`) gzips request bodies off the request path.
+- 408, 429, 5xx and network errors are retried up to `maxRetries` with
+  full-jitter exponential backoff, honouring `Retry-After` (capped at 60 s).
+  Other 4xx responses are not retried; a 401 logs one clear message.
+
+`client.stats()` returns a snapshot for dashboards and alerts:
+
+```ts
+const client = ApiLensClient.getInstance();
+client.stats();
+// { queuedRecords, queuedBytes, sentBatches, sentRecords, failedBatches,
+//   droppedCount, dropCounts: { queue_full, queue_bytes, non_retryable,
+//   retries_exhausted, truncated }, lastError, lastSuccessAt }
+```
+
+Pass `onStats` to export them after every flush:
+
+```ts
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  appId: "my-app",
+  onStats: (s) => {
+    gauge("apilens_queued_records", s.queuedRecords);
+    counter("apilens_dropped_records", s.droppedCount);
+  },
+});
+```
+
+`truncated` counts records that were shortened and still sent, so it is not
+part of `droppedCount`.
+
 ## API
 
 - `useApiLens(app, config)`

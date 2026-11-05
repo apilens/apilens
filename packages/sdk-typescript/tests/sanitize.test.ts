@@ -113,6 +113,7 @@ describe("Express header capture", () => {
       appId: "test-app",
       batchSize: 100,
       requestLogging: captureHeaders === undefined ? {} : { captureHeaders },
+      compress: false,
       fetchImpl: async (_url, options) => {
         bodies.push(String(options?.body || ""));
         return new Response(null, { status: 200 });

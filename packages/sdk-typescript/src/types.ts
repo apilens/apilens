@@ -76,13 +76,50 @@ export type ApiLensClientConfig = {
   flushIntervalMs?: number;
   timeoutMs?: number;
   maxQueueSize?: number;
+  /**
+   * Memory cap for the queue, in estimated bytes (default 64 MB). When full,
+   * the oldest records are dropped (counted as `queue_bytes`).
+   */
+  maxQueueBytes?: number;
+  /**
+   * Upper bound for one ingest request body before compression (default
+   * 4 MB). Batches are cut at `batchSize` or this, whichever comes first; a
+   * single larger record is truncated, payloads first (counted as `truncated`).
+   */
+  maxBatchBytes?: number;
+  /** Gzip request bodies to ingest (default true). */
+  compress?: boolean;
   maxRetries?: number;
+  /** Full-jitter exponential backoff for 408/429/5xx/network errors. */
   retryBackoffBaseMs?: number;
   retryBackoffMaxMs?: number;
   enabled?: boolean;
   userAgent?: string;
   fetchImpl?: typeof fetch;
   logger?: Logger;
+  /** Called with a `stats()` snapshot after every flush (e.g. to export metrics). */
+  onStats?: (stats: ApiLensClientStats) => void;
+};
+
+export type ApiLensDropReason =
+  | "queue_full"
+  | "queue_bytes"
+  | "non_retryable"
+  | "retries_exhausted"
+  | "truncated";
+
+export type ApiLensClientStats = {
+  queuedRecords: number;
+  queuedBytes: number;
+  sentBatches: number;
+  sentRecords: number;
+  failedBatches: number;
+  /** Records lost for any reason (sum of dropCounts minus `truncated`). */
+  droppedCount: number;
+  dropCounts: Record<ApiLensDropReason, number>;
+  lastError: string | null;
+  /** ISO 8601 time of the last accepted batch. */
+  lastSuccessAt: string | null;
 };
 
 export type ApiLensConsumer = {
