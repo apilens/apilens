@@ -12,6 +12,7 @@ import {
 } from "./utils.js";
 import { detectCommit, detectRelease } from "./release.js";
 import { resolveConfig } from "./env.js";
+import { runWithoutTrace } from "./trace.js";
 import {
   applyRemotePolicy,
   narrowPayloadBytes,
@@ -22,8 +23,10 @@ import type {
   ApiLensClientConfig,
   ApiLensClientStats,
   ApiLensDropReason,
+  ApiLensLogRecord,
   ApiLensRecord,
   ApiLensRecordInput,
+  ApiLensSpanRecord,
   Logger,
 } from "./types.js";
 
@@ -78,6 +81,12 @@ const BATCH_PREFIX = '{"requests":[';
 const BATCH_SUFFIX = "]}";
 const BATCH_WRAPPER_BYTES = BATCH_PREFIX.length + BATCH_SUFFIX.length;
 
+/** W3C ids: lower-case hex of the given length, else "". */
+function hexId(value: unknown, length: number): string {
+  const raw = String(value || "").trim().toLowerCase();
+  return raw.length === length && /^[0-9a-f]+$/.test(raw) ? raw : "";
+}
+
 // Fields shortened first when a single record exceeds maxBatchBytes.
 const TRUNCATE_FIELDS: readonly string[] = [
   "response_payload",
@@ -92,6 +101,8 @@ type RequiredConfig = {
   appId: string;
   baseUrl: string;
   ingestPath: string;
+  tracesPath: string;
+  logsPath: string;
   heartbeatPath: string;
   metadataPath: string;
   sendHeartbeat: boolean;
@@ -309,6 +320,8 @@ function normalizeRecord(
     response_headers: detail(payload.response_headers),
     release: String(payload.release || defaultRelease || ""),
     commit: String(payload.commit || defaultCommit || ""),
+    trace_id: hexId(payload.trace_id, 32),
+    span_id: hexId(payload.span_id, 16),
     sampled,
   };
 }
@@ -331,6 +344,10 @@ class ApiLensClient {
 
   public config: RequiredConfig;
   public queue: ApiLensRecord[];
+  /** Spans waiting for `POST /v1/traces` (bounded by `maxQueueSize`). */
+  public spanQueue: ApiLensSpanRecord[] = [];
+  /** Logs waiting for `POST /v1/logs` (bounded by `maxQueueSize`). */
+  public logQueue: ApiLensLogRecord[] = [];
   /** Overridable in tests: the wait between retries and its jitter source. */
   public sleepFn: (ms: number) => Promise<void> = sleep;
   public randomFn: () => number = Math.random;
@@ -376,6 +393,8 @@ class ApiLensClient {
         config.baseUrl || config.base_url || "https://ingest.apilens.ai/v1",
       ),
       ingestPath: String(config.ingestPath || config.ingest_path || "requests"),
+      tracesPath: String(config.tracesPath || "traces"),
+      logsPath: String(config.logsPath || "logs"),
       heartbeatPath: String(config.heartbeatPath || "heartbeat"),
       metadataPath: String(config.metadataPath || "metadata"),
       sendHeartbeat: config.sendHeartbeat !== false,
@@ -532,8 +551,9 @@ class ApiLensClient {
     this.flushIntervalId = undefined;
   }
 
-  public capture(payload: ApiLensRecordInput): void {
-    this.captureRecord(
+  /** Queue one request record; true when it was queued with its detail (sampled in). */
+  public capture(payload: ApiLensRecordInput): boolean {
+    return this.captureRecord(
       normalizeRecord(
         payload,
         this.config.environment,
@@ -543,9 +563,10 @@ class ApiLensClient {
     );
   }
 
-  public captureRecord(record: ApiLensRecord): void {
+  /** Queue one request record; true when it was queued with its detail (sampled in). */
+  public captureRecord(record: ApiLensRecord): boolean {
     if (!this.isEnabled()) {
-      return;
+      return false;
     }
 
     // Records carry release/commit themselves so a batch can straddle a
@@ -555,7 +576,7 @@ class ApiLensClient {
     // The remote policy only narrows: it can drop the record, sample it out
     // or strip detail, never add any back.
     if (this.remotePolicyState && !applyRemotePolicy(record, this.remotePolicyState, this.randomFn)) {
-      return;
+      return false;
     }
 
     const size = estimateRecordBytes(record);
@@ -564,7 +585,7 @@ class ApiLensClient {
       // A single record over the whole budget would evict everything and
       // still not fit: shed it instead.
       this.drops[DROP_QUEUE_BYTES] += 1;
-      return;
+      return false;
     }
 
     if (this.queue.length >= this.config.maxQueueSize) {
@@ -582,6 +603,37 @@ class ApiLensClient {
     this.queuedBytesTotal += size;
 
     if (this.queue.length >= this.config.batchSize) {
+      void this.flushOnce();
+    }
+    return record.sampled;
+  }
+
+  /** Queue one span for `POST /v1/traces` (dropped while not capturing). */
+  public captureSpan(record: ApiLensSpanRecord): void {
+    this.captureSignal(this.spanQueue, record);
+  }
+
+  /** Queue one log for `POST /v1/logs` (dropped while not capturing). */
+  public captureLog(record: ApiLensLogRecord): void {
+    this.captureSignal(this.logQueue, record);
+  }
+
+  private captureSignal<T extends { release: string; commit: string }>(queue: T[], record: T): void {
+    if (!this.isCapturing()) {
+      return;
+    }
+    if (!record.release) {
+      record.release = this.config.release;
+    }
+    if (!record.commit) {
+      record.commit = this.config.commit;
+    }
+    if (queue.length >= this.config.maxQueueSize) {
+      queue.shift();
+      this.drops[DROP_QUEUE_FULL] += 1;
+    }
+    queue.push(record);
+    if (queue.length >= this.config.batchSize) {
       void this.flushOnce();
     }
   }
@@ -618,29 +670,42 @@ class ApiLensClient {
     }
   }
 
+  /**
+   * Send the next batch of each queue (requests, spans, logs). Returns the
+   * number of items delivered.
+   */
   public async flushOnce(): Promise<number> {
-    const batch = this.takeBatch();
-    if (!batch.count) {
-      this.emitStats();
-      return 0;
+    const batches: Array<{ batch: PreparedBatch; path?: string; label: string }> = [];
+    const requests = this.takeBatch();
+    if (requests.count) {
+      batches.push({ batch: requests, label: "records" });
+    }
+    const spans = this.takeSignalBatch(this.spanQueue, "spans");
+    if (spans.count) {
+      batches.push({ batch: spans, path: this.config.tracesPath, label: "spans" });
+    }
+    const logs = this.takeSignalBatch(this.logQueue, "logs");
+    if (logs.count) {
+      batches.push({ batch: logs, path: this.config.logsPath, label: "logs" });
     }
 
-    const sent = await this.sendBatchWithRetry(batch);
+    let total = 0;
+    for (const { batch, path, label } of batches) {
+      if (await this.sendBatchWithRetry(batch, path)) {
+        total += batch.count;
+      } else {
+        this.config.logger.warn?.(
+          `API Lens ingest failed; dropping batch of ${batch.count} ${label}`,
+        );
+      }
+    }
     this.emitStats();
-
-    if (!sent) {
-      this.config.logger.warn?.(
-        `API Lens ingest failed; dropping batch of ${batch.count} records`,
-      );
-      return 0;
-    }
-
-    return batch.count;
+    return total;
   }
 
   public async flushAll(): Promise<number> {
     let total = 0;
-    while (this.queue.length > 0) {
+    while (this.queue.length > 0 || this.spanQueue.length > 0 || this.logQueue.length > 0) {
       const sent = await this.flushOnce();
       if (sent <= 0) {
         break;
@@ -992,14 +1057,43 @@ class ApiLensClient {
     };
   }
 
-  private async sendBatchWithRetry(batch: PreparedBatch): Promise<boolean> {
+  /**
+   * Cut the next `{"<key>": [...]}` batch off a span or log queue, by
+   * `batchSize` and `maxBatchBytes`. An item larger than the limit is dropped.
+   */
+  private takeSignalBatch(queue: unknown[], key: string): PreparedBatch {
+    const prefix = `{"${key}":[`;
+    const limit = this.config.maxBatchBytes - prefix.length - BATCH_SUFFIX.length;
+    const parts: string[] = [];
+    let total = 0;
+
+    while (queue.length > 0 && parts.length < this.config.batchSize) {
+      const json = JSON.stringify(queue[0]);
+      const bytes = Buffer.byteLength(json);
+      const separator = parts.length > 0 ? 1 : 0;
+      if (parts.length > 0 && total + separator + bytes > limit) {
+        break;
+      }
+      queue.shift();
+      if (bytes > limit) {
+        this.drops[DROP_QUEUE_BYTES] += 1;
+        continue;
+      }
+      parts.push(json);
+      total += separator + bytes;
+    }
+
+    return { count: parts.length, body: `${prefix}${parts.join(",")}${BATCH_SUFFIX}` };
+  }
+
+  private async sendBatchWithRetry(batch: PreparedBatch, path?: string): Promise<boolean> {
     const payload = await this.encodeBody(batch.body);
     let reason: ApiLensDropReason = DROP_RETRIES_EXHAUSTED;
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= this.config.maxRetries; attempt += 1) {
       try {
-        await this.post(payload);
+        await this.post(payload, path);
         this.sentBatches += 1;
         this.sentRecords += batch.count;
         this.lastSuccessAt = new Date().toISOString();
@@ -1136,12 +1230,13 @@ class ApiLensClient {
 
     let response: Response;
     try {
-      response = await this.config.fetchImpl(endpoint, {
+      // Outside any trace context: the SDK's own uploads are never traced.
+      response = await runWithoutTrace(() => this.config.fetchImpl(endpoint, {
         method: "POST",
         headers,
         body: payload.body,
         signal: controller.signal,
-      });
+      }));
     } catch (error) {
       // Network error or timeout (abort): retryable.
       throw new IngestError(

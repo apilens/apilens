@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Tracing: W3C `trace_id` / `span_id` on every record (an incoming
+  `traceparent` is continued), a `server` span per request and child `http`
+  spans for outbound `http`/`https`/`fetch` calls (with `traceparent`
+  propagated) sent to `POST /v1/traces`, and an ERROR log with the stack on
+  an unhandled error or 5xx sent to `POST /v1/logs`. `captureSpans: false` /
+  `APILENS_CAPTURE_SPANS=false` turn it off; `serviceName` names the spans.
 - `APILENS_*` env-var config loader (`src/env.ts`, same names and syntax as
   the Python SDK) for the client and the Express middleware; precedence is
   explicit option > env var > default. `loadEnvConfig()` / `resolveConfig()`

@@ -334,6 +334,7 @@ the parsed values and `resolveConfig(config)` the effective config.
 | `APILENS_EXCLUDE_USER_AGENTS` | `excludeUserAgents` | list, **added to** the code value | none |
 | `APILENS_DEFAULT_EXCLUSIONS` | `defaultExclusions` | bool | `true` |
 | `APILENS_SAMPLE_RATE` | `sampleRate` | number 0–1 | `1` |
+| `APILENS_CAPTURE_SPANS` | `captureSpans` | bool, `false` **wins over code** | `true` |
 | `APILENS_BATCH_SIZE` | `batchSize` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flushIntervalMs` | number, **seconds** | `3` (3000 ms) |
 
@@ -383,6 +384,32 @@ useApiLens(app, {
 
 `truncated` counts records that were shortened and still sent, so it is not
 part of `droppedCount`.
+
+## Tracing
+
+Every captured request carries a W3C `trace_id` and `span_id`. An incoming
+`traceparent` header is continued; otherwise a new trace starts. On top of the
+request record the middleware sends, through the same batching client:
+
+- a `server` span per request to `POST /v1/traces`;
+- a child `http` span for every outbound call made while handling it, with
+  `http`/`https` (`request`, `get`, so axios and most clients) and
+  `fetch`/undici (observed through `diagnostics_channel`). Each call gets a
+  `traceparent` header, so an instrumented downstream service joins the same
+  trace. Span names carry the URL without query string or credentials;
+- one ERROR log to `POST /v1/logs` when the response is a 5xx, with the error
+  message and stack when the handler threw (`logger_name`
+  `apilens.exception`), else `HTTP 503 on GET /path` (`apilens.http`).
+
+Spans and the error log are request detail: a sampled-out request keeps its
+trace ids and still propagates `traceparent`, but sends neither. Calls made
+outside a request and the SDK's own uploads are never traced.
+`currentTraceId()`, `currentSpanId()` and `currentTraceparent()` return the
+current request's ids, e.g. to stamp your own logs.
+
+`captureSpans: false` turns all of it off (no trace ids, spans, propagation or
+error log); `APILENS_CAPTURE_SPANS=false` does too, whatever the code says.
+`serviceName` sets the spans' `service_name` (default: the app id).
 
 ## Heartbeat, metadata and remote capture policy
 

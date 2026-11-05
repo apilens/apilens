@@ -6,6 +6,14 @@ import { resolveConfig } from "./env.js";
 import { RequestExcluder } from "./exclusions.js";
 import { buildExpressMetadata, effectiveConfig } from "./metadata.js";
 import { Sampler } from "./sampling.js";
+import {
+  RequestSpans,
+  SpanRecorder,
+  envSpansEnabled,
+  errorLogContent,
+  instrumentOutboundHttp,
+} from "./spans.js";
+import { beginRequestTrace, runWithTrace, type TraceContext } from "./trace.js";
 import { expressRouteTemplate, parametrizeEnabled, resolveEndpointPath } from "./routes.js";
 import {
   ContentTypeFilter,
@@ -115,6 +123,68 @@ function requestBodyBytes(body: unknown, contentType: string, maxBytes: number):
   return Buffer.from(payloadToString(body, maxBytes), "utf8");
 }
 
+/** The error that reached the APILens error layer, by request. */
+const requestErrors = new WeakMap<object, unknown>();
+const errorLayerApps = new WeakSet<object>();
+
+type ExpressLayer = { handle?: unknown };
+type ExpressRouter = { stack?: ExpressLayer[] };
+type ExpressAppLike = {
+  use?: (fn: unknown) => unknown;
+  _router?: ExpressRouter;
+  router?: ExpressRouter;
+};
+
+/** Records the error and passes it on unchanged. Arity 4 marks it as error middleware. */
+function apilensErrorRecorder(err: unknown, req: Request, _res: Response, next: NextFunction): void {
+  requestErrors.set(req, err);
+  next(err);
+}
+
+/**
+ * Put `apilensErrorRecorder` after the app's routes, just before its first
+ * error handler following `middleware` (or last), so the error log of a
+ * failing request carries the error and its stack. Done on the first
+ * request, once all routes exist. It is never inserted at or before the
+ * layer being run (that would shift the router's position), so when
+ * `middleware` is not on the app's own stack it is appended. Never throws:
+ * without it the 5xx log is still sent, without a stack.
+ */
+function installErrorRecorder(app: unknown, middleware: unknown): void {
+  const target = app as ExpressAppLike | undefined;
+  if (!target || typeof target.use !== "function" || errorLayerApps.has(target)) {
+    return;
+  }
+  errorLayerApps.add(target);
+  try {
+    target.use(apilensErrorRecorder);
+    let router = target._router;
+    if (!router) {
+      // Express 5 (`app.router`); Express 4 throws on this getter.
+      router = target.router;
+    }
+    const stack = router?.stack;
+    if (!Array.isArray(stack) || stack.length === 0) {
+      return;
+    }
+    const layer = stack.pop() as ExpressLayer;
+    const own = stack.findIndex((l) => l?.handle === middleware);
+    const firstHandler =
+      own === -1
+        ? -1
+        : stack.findIndex(
+            (l, i) => i > own && typeof l?.handle === "function" && l.handle.length === 4,
+          );
+    if (firstHandler === -1) {
+      stack.push(layer);
+    } else {
+      stack.splice(firstHandler, 0, layer);
+    }
+  } catch {
+    // Leave error capture to the 5xx fallback.
+  }
+}
+
 function buildClient(config: ApiLensExpressConfig = {}): ApiLensClient {
   if (config.client instanceof ApiLensClient) {
     return config.client;
@@ -196,6 +266,21 @@ function createMiddleware(options: ApiLensExpressConfig, app?: unknown): Middlew
   // Heuristic fallback for unmatched routes; APILENS_PARAMETRIZE_PATHS=false
   // overrides it. Matched Express routes are always used.
   const parametrizePaths = config.parametrizePaths !== false;
+  // Trace ids, request + outbound spans and the error log. Spans need an app
+  // id; APILENS_CAPTURE_SPANS=false wins over code.
+  const captureSpans =
+    enabled && config.captureSpans !== false && envSpansEnabled() && Boolean(client.config.appId);
+  const spanRecorder = captureSpans
+    ? new SpanRecorder(
+        client,
+        client.config.appId,
+        environment || client.config.environment,
+        String(config.serviceName || "").trim() || client.config.appId,
+      )
+    : undefined;
+  if (captureSpans) {
+    instrumentOutboundHttp();
+  }
 
   // Heartbeats for this app and environment; app metadata once per process,
   // from `app` when known (useApiLens) or else the first request's `req.app`.
@@ -233,6 +318,9 @@ function createMiddleware(options: ApiLensExpressConfig, app?: unknown): Middlew
     if (enabled && !metadataStarted && req.app) {
       reportMetadata(req.app);
     }
+    if (captureSpans && req.app) {
+      installErrorRecorder(req.app, middleware);
+    }
     // isCapturing(): also false while the remote capture policy disables
     // capture (heartbeats continue).
     if (!enabled || !client.isCapturing() || req.method.toUpperCase() === "OPTIONS") {
@@ -253,6 +341,15 @@ function createMiddleware(options: ApiLensExpressConfig, app?: unknown): Middlew
     }
 
     const startedAt = performance.now();
+    const startedAtDate = new Date();
+    // Continues an incoming `traceparent`, else starts a trace. Child spans
+    // wait in `requestSpans` until the request is known to be sampled in.
+    const requestSpans = spanRecorder ? new RequestSpans(spanRecorder) : undefined;
+    let trace: TraceContext | undefined;
+    if (requestSpans) {
+      trace = beginRequestTrace(req.headers.traceparent, requestSpans);
+      requestSpans.bind(trace);
+    }
     const method = String(req.method || "GET").toUpperCase();
     const requestSize = toNonNegativeInt(
       req.get?.("content-length") || req.headers["content-length"],
@@ -451,7 +548,7 @@ function createMiddleware(options: ApiLensExpressConfig, app?: unknown): Middlew
           });
         }
 
-        client.capture({
+        const kept = client.capture({
           timestamp: new Date(),
           environment,
           project_slug: client.config.projectSlug,
@@ -474,8 +571,44 @@ function createMiddleware(options: ApiLensExpressConfig, app?: unknown): Middlew
             sampled && captureHeaders ? serializeHeaders(req.headers, { redactor }) : "",
           response_headers:
             sampled && captureHeaders ? serializeHeaders(res.getHeaders(), { redactor }) : "",
+          trace_id: trace?.traceId,
+          span_id: trace?.spanId,
           sampled,
         });
+
+        // Spans and the error log are detail: only for a sampled-in request.
+        if (spanRecorder && requestSpans && trace) {
+          requestSpans.finish(kept);
+          if (kept) {
+            const statusCode = res.statusCode;
+            spanRecorder.span(trace, {
+              spanId: trace.spanId,
+              parentSpanId: trace.parentSpanId,
+              name: `${method} ${path}`,
+              kind: "server",
+              startedAt: startedAtDate,
+              durationMs: responseTimeMs,
+              status: statusCode >= 500 ? "error" : "ok",
+              statusCode,
+              attributes: {
+                "http.method": method,
+                "http.route": path,
+                "http.status_code": String(statusCode),
+              },
+            });
+            if (statusCode >= 500) {
+              spanRecorder.errorLog(trace, {
+                ...errorLogContent(requestErrors.get(req), statusCode, method, path),
+                method,
+                path,
+                statusCode,
+                consumerId: consumer?.consumer_id || "",
+                consumerName: consumer?.consumer_name || "",
+                consumerGroup: consumer?.consumer_group || "",
+              });
+            }
+          }
+        }
       } catch (error) {
         client.config.logger.error?.(
           "Error while logging request in API Lens middleware",
@@ -484,7 +617,11 @@ function createMiddleware(options: ApiLensExpressConfig, app?: unknown): Middlew
       }
     });
 
-    next();
+    if (trace) {
+      runWithTrace(trace, () => next());
+    } else {
+      next();
+    }
   }) as MiddlewareWithClient;
 
   middleware.apilensClient = client;

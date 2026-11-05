@@ -44,6 +44,22 @@ export {
   parametrizePath,
   resolveEndpointPath,
 } from "./routes.js";
+export {
+  ENV_CAPTURE_SPANS,
+  MAX_PENDING_SPANS,
+  envSpansEnabled,
+  instrumentOutboundHttp,
+  stripUrl,
+} from "./spans.js";
+export {
+  currentSpanId,
+  currentTraceId,
+  currentTraceparent,
+  formatTraceparent,
+  generateSpanId,
+  generateTraceId,
+  parseTraceparent,
+} from "./trace.js";
 export { Sampler, validateSampleRate } from "./sampling.js";
 export type {
   SampleDecision,
@@ -89,8 +105,10 @@ export type {
   ApiLensConsumer,
   ApiLensDropReason,
   ApiLensExpressConfig,
+  ApiLensLogRecord,
   ApiLensRecord,
   ApiLensRecordInput,
+  ApiLensSpanRecord,
   CaptureProfile,
   Logger,
   RequestLoggingConfig,

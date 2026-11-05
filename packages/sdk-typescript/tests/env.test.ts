@@ -63,6 +63,7 @@ describe("loadEnvConfig", () => {
       "APILENS_EXCLUDE_USER_AGENTS",
       "APILENS_DEFAULT_EXCLUSIONS",
       "APILENS_SAMPLE_RATE",
+      "APILENS_CAPTURE_SPANS",
       "APILENS_BATCH_SIZE",
       "APILENS_FLUSH_INTERVAL",
     ]);
@@ -253,9 +254,10 @@ function ingestApp(config: ApiLensExpressConfig): { app: express.Express; calls:
     appId: "test-app",
     compress: false,
     // beforeEach clears every APILENS_* var, including the setup.ts
-    // heartbeat/metadata kill switches, so turn them off explicitly here.
+    // heartbeat/metadata/spans kill switches, so turn them off explicitly here.
     sendHeartbeat: false,
     sendMetadata: false,
+    captureSpans: false,
     fetchImpl: async (_url, options) => {
       calls.push(String(options?.body || ""));
       return new Response(null, { status: 200 });
