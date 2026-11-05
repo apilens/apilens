@@ -160,7 +160,8 @@ def test_asgi_excluded_5xx_records_no_error_log():
 
 def test_asgi_non_matching_path_is_captured():
     client, seen = FakeClient(), {}
-    mw = _asgi_mw(client, seen, exclude_paths=[r"^/health$"])
+    # Built-in defaults would exclude /healthz; isolate the user pattern.
+    mw = _asgi_mw(client, seen, exclude_paths=[r"^/health$"], default_exclusions=False)
     _run_asgi(mw, "/healthz")
     assert len(client.records) == 1
     assert client.records[0]["raw_path"] == "/healthz"
@@ -219,7 +220,9 @@ def test_wsgi_excluded_path_bypasses_capture():
 
 def test_wsgi_non_matching_path_is_captured():
     client, seen = FakeClient(), {}
-    mw = ApiLensWSGIMiddleware(_wsgi_app(seen), client, app_id="orders-api", exclude_paths=[r"^/health$"])
+    mw = ApiLensWSGIMiddleware(
+        _wsgi_app(seen), client, app_id="orders-api", exclude_paths=[r"^/health$"], default_exclusions=False
+    )
     _, _, statuses, body = _run_wsgi(mw, "/api/health")
     assert statuses == ["200 OK"] and body == b"ok"
     assert len(client.records) == 1

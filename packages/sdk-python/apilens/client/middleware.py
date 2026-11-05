@@ -17,7 +17,7 @@ from ._capture import (
     _to_int,
     capture_response,
 )
-from ._exclude import PathExcluder
+from ._exclusions import RequestExcluder
 from ._routes import resolve_endpoint_path
 from ._sanitize import (
     BodyMasker,
@@ -308,6 +308,8 @@ class ApiLensASGIMiddleware:
         mask_request_body: BodyMasker | None = None,
         mask_response_body: BodyMasker | None = None,
         exclude_paths: list[str] | None = None,
+        exclude_user_agents: list[str] | None = None,
+        default_exclusions: bool = True,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
@@ -343,7 +345,12 @@ class ApiLensASGIMiddleware:
         # Regexes (case-insensitive, matched against the path without query
         # string) whose requests bypass capture entirely — no record, span or
         # log. Compiled once here; APILENS_EXCLUDE_PATHS adds to them.
-        self.exclude_paths = PathExcluder(exclude_paths)
+        # ``exclude_user_agents`` does the same for the User-Agent header
+        # (APILENS_EXCLUDE_USER_AGENTS adds to it). Built-in health/probe
+        # exclusions apply first unless ``default_exclusions=False``.
+        self.excluder = RequestExcluder(
+            exclude_paths, exclude_user_agents, default_exclusions=default_exclusions
+        )
         # Framework hook that maps a matched request scope to its route template
         # (``/product/{id}``). Runs after the app handled the request, when
         # routing has resolved. Heuristic fallback applies when it returns None.
@@ -408,11 +415,20 @@ class ApiLensASGIMiddleware:
             if shutting_down:
                 await flush()
 
+    def _excluded(self, scope) -> bool:
+        user_agent = None
+        if self.excluder.checks_user_agent:
+            for key, value in scope.get("headers") or ():
+                if key.lower() == b"user-agent":
+                    user_agent = value.decode("latin-1")
+                    break
+        return self.excluder.matches(scope.get("path"), user_agent)
+
     async def __call__(self, scope, receive, send) -> None:
         if scope.get("type") == "lifespan" and self.flush_on_shutdown:
             await self._lifespan(scope, receive, send)
             return
-        if scope.get("type") != "http" or self.exclude_paths.matches(scope.get("path")):
+        if scope.get("type") != "http" or self._excluded(scope):
             await self.app(scope, receive, send)
             return
 
@@ -598,6 +614,8 @@ class ApiLensWSGIMiddleware:
         mask_request_body: BodyMasker | None = None,
         mask_response_body: BodyMasker | None = None,
         exclude_paths: list[str] | None = None,
+        exclude_user_agents: list[str] | None = None,
+        default_exclusions: bool = True,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
@@ -625,8 +643,11 @@ class ApiLensWSGIMiddleware:
         # Body mask callbacks — same semantics as the ASGI middleware.
         self.mask_request_body = mask_request_body
         self.mask_response_body = mask_response_body
-        # Excluded paths bypass capture entirely — same semantics as ASGI.
-        self.exclude_paths = PathExcluder(exclude_paths)
+        # Excluded paths / user agents (plus the built-in defaults) bypass
+        # capture entirely — same semantics as ASGI.
+        self.excluder = RequestExcluder(
+            exclude_paths, exclude_user_agents, default_exclusions=default_exclusions
+        )
         # Framework hook that maps a WSGI environ to its route template. Runs
         # after the app handled the request. Heuristic fallback when None.
         self.route_resolver = route_resolver
@@ -655,8 +676,9 @@ class ApiLensWSGIMiddleware:
             register_atexit(client, shutdown_timeout)
 
     def __call__(self, environ: dict[str, Any], start_response: Callable) -> Any:
-        # Excluded paths go straight to the app: no wrapping, no body buffering.
-        if self.exclude_paths.matches(environ.get("PATH_INFO")):
+        # Excluded requests go straight to the app: no wrapping, no body buffering.
+        user_agent = environ.get("HTTP_USER_AGENT") if self.excluder.checks_user_agent else None
+        if self.excluder.matches(environ.get("PATH_INFO"), user_agent):
             return self.app(environ, start_response)
         return self._capture(environ, start_response)
 

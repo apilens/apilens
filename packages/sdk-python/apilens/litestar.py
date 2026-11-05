@@ -31,6 +31,8 @@ class ApiLensPlugin:
     capture_spans: bool = True
     service_name: str = ""
     exclude_paths: list[str] | None = None
+    exclude_user_agents: list[str] | None = None
+    default_exclusions: bool = True
 
     def on_app_init(self, app_config):
         try:
@@ -51,6 +53,8 @@ class ApiLensPlugin:
                 capture_spans=self.capture_spans,
                 service_name=self.service_name,
                 exclude_paths=self.exclude_paths,
+                exclude_user_agents=self.exclude_user_agents,
+                default_exclusions=self.default_exclusions,
                 route_resolver=litestar_route_template,
             )
         )
@@ -68,6 +72,8 @@ def instrument_app(
     capture_spans: bool = True,
     service_name: str = "",
     exclude_paths: list[str] | None = None,
+    exclude_user_agents: list[str] | None = None,
+    default_exclusions: bool = True,
 ):
     """Fallback direct installation for Litestar ASGI apps."""
     app.asgi_handler = ApiLensASGIMiddleware(
@@ -79,6 +85,8 @@ def instrument_app(
         capture_spans=capture_spans,
         service_name=service_name,
         exclude_paths=exclude_paths,
+        exclude_user_agents=exclude_user_agents,
+        default_exclusions=default_exclusions,
         route_resolver=litestar_route_template,
     )
     return app

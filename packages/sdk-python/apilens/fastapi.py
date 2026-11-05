@@ -61,6 +61,8 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         mask_request_body: Callable[[Any, bytes], bytes | None] | None = None,
         mask_response_body: Callable[[Any, bytes], bytes | None] | None = None,
         exclude_paths: list[str] | None = None,
+        exclude_user_agents: list[str] | None = None,
+        default_exclusions: bool = True,
         get_consumer: Callable[..., Any] | None = None,
         flush_on_shutdown: bool = True,
         shutdown_timeout: float = 5.0,
@@ -104,6 +106,8 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
             mask_request_body=mask_request_body,
             mask_response_body=mask_response_body,
             exclude_paths=exclude_paths,
+            exclude_user_agents=exclude_user_agents,
+            default_exclusions=default_exclusions,
             get_consumer=get_consumer,
             route_resolver=starlette_route_template,
             flush_on_shutdown=flush_on_shutdown,
@@ -129,6 +133,8 @@ def instrument_app(
     service_name: str = "",
     max_payload_bytes: int = 65536,
     exclude_paths: list[str] | None = None,
+    exclude_user_agents: list[str] | None = None,
+    default_exclusions: bool = True,
 ):
     """Compatibility wrapper: prefer apilens.frameworks.fastapi.instrument_fastapi."""
     return instrument_fastapi(
@@ -144,6 +150,8 @@ def instrument_app(
         service_name=service_name,
         max_payload_bytes=max_payload_bytes,
         exclude_paths=exclude_paths,
+        exclude_user_agents=exclude_user_agents,
+        default_exclusions=default_exclusions,
     )
 
 
