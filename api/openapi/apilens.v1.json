@@ -2137,6 +2137,196 @@
         ],
         "type": "object"
       },
+      "EndpointErrorsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/EndpointErrorsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "bucket_seconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "exceptions": {
+            "description": "Server exceptions grouped by (exception_type, message), most frequent first (at most 50).",
+            "items": {
+              "$ref": "#/components/schemas/EndpointException"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "points": {
+            "description": "One point per bucket of the range, zero-filled.",
+            "items": {
+              "$ref": "#/components/schemas/EndpointErrorsPoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "range": {
+            "type": "string"
+          },
+          "statuses": {
+            "description": "Error status codes (400 and above) by count, expected status codes left out.",
+            "items": {
+              "$ref": "#/components/schemas/EndpointStatusCount"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ErrorSplit"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "validation_errors": {
+            "description": "Validation errors of rejected requests grouped by (loc, msg, type), most frequent first (at most 50).",
+            "items": {
+              "$ref": "#/components/schemas/EndpointValidationError"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "method",
+          "path",
+          "range",
+          "from",
+          "to",
+          "bucket_seconds",
+          "summary",
+          "points",
+          "statuses",
+          "validation_errors",
+          "exceptions"
+        ],
+        "type": "object"
+      },
+      "EndpointErrorsPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "client_error_rate": {
+            "description": "client_errors / requests, 0 without requests.",
+            "format": "double",
+            "type": "number"
+          },
+          "client_errors": {
+            "description": "Requests with a 4xx status code that is not expected for the endpoint.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_error_rate": {
+            "description": "server_errors / requests, 0 without requests.",
+            "format": "double",
+            "type": "number"
+          },
+          "server_errors": {
+            "description": "Requests with a 5xx status code that is not expected for the endpoint.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ts": {
+            "description": "Start of the bucket.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "requests",
+          "client_errors",
+          "server_errors",
+          "client_error_rate",
+          "server_error_rate"
+        ],
+        "type": "object"
+      },
+      "EndpointException": {
+        "additionalProperties": false,
+        "properties": {
+          "consumers": {
+            "description": "Distinct consumers whose requests raised it.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "count": {
+            "description": "Occurrences in the range.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "exception_type": {
+            "description": "Exception class, e.g. ValueError or IllegalStateException; empty when the SDK reported none.",
+            "type": "string"
+          },
+          "first_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "message": {
+            "description": "Exception message.",
+            "type": "string"
+          },
+          "stack_trace": {
+            "description": "Stack trace of the latest occurrence.",
+            "type": "string"
+          },
+          "trace_id": {
+            "description": "Trace of the latest occurrence; empty if it had none.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "exception_type",
+          "message",
+          "count",
+          "consumers",
+          "first_seen",
+          "last_seen",
+          "stack_trace",
+          "trace_id"
+        ],
+        "type": "object"
+      },
       "EndpointLatencyOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -2436,6 +2626,44 @@
         ],
         "type": "object"
       },
+      "EndpointStatusCount": {
+        "additionalProperties": false,
+        "properties": {
+          "consumers": {
+            "description": "Distinct consumers that got this status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "share": {
+            "description": "count / requests of the range.",
+            "format": "double",
+            "type": "number"
+          },
+          "status_code": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status_code",
+          "count",
+          "share",
+          "consumers",
+          "last_seen"
+        ],
+        "type": "object"
+      },
       "EndpointTransferOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -2514,6 +2742,46 @@
           "points",
           "request_size_histogram",
           "response_size_histogram"
+        ],
+        "type": "object"
+      },
+      "EndpointValidationError": {
+        "additionalProperties": false,
+        "properties": {
+          "consumers": {
+            "description": "Distinct consumers that sent the invalid field.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "count": {
+            "description": "Occurrences in the range.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "loc": {
+            "description": "Location of the invalid field, path segments joined with dots, e.g. body.items.0.name.",
+            "type": "string"
+          },
+          "msg": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type",
+          "count",
+          "consumers",
+          "last_seen"
         ],
         "type": "object"
       },
@@ -2662,6 +2930,46 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "ErrorSplit": {
+        "additionalProperties": false,
+        "properties": {
+          "client_error_rate": {
+            "description": "client_errors / requests, 0 without requests.",
+            "format": "double",
+            "type": "number"
+          },
+          "client_errors": {
+            "description": "Requests with a 4xx status code that is not expected for the endpoint.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_error_rate": {
+            "description": "server_errors / requests, 0 without requests.",
+            "format": "double",
+            "type": "number"
+          },
+          "server_errors": {
+            "description": "Requests with a 5xx status code that is not expected for the endpoint.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requests",
+          "client_errors",
+          "server_errors",
+          "client_error_rate",
+          "server_error_rate"
+        ],
         "type": "object"
       },
       "ErrorsOutputBody": {
@@ -10204,6 +10512,120 @@
           }
         ],
         "summary": "Deploys with error rate and p95 one hour before and after each",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/endpoints/{method}/{path}/errors": {
+      "get": {
+        "operationId": "get-endpoint-errors",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "HTTP method, e.g. GET (case-insensitive).",
+            "in": "path",
+            "name": "method",
+            "required": true,
+            "schema": {
+              "description": "HTTP method, e.g. GET (case-insensitive).",
+              "pattern": "^[A-Za-z]{1,16}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests and exceptions from this consumer id; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "consumer",
+            "schema": {
+              "description": "Only requests and exceptions from this consumer id; empty means all.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointErrorsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Endpoint errors: status breakdown, error-rate trend, validation errors and server exceptions",
         "tags": [
           "Dashboard"
         ]
