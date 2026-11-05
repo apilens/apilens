@@ -31,7 +31,9 @@ func (k NotificationKind) Valid() bool { return k == NotifyTriggered || k == Not
 
 // Notification is what every channel says about an alert event. Value is
 // the metric value that triggered the event, or for a resolved event the
-// latest evaluated value (nil when the window had no data).
+// latest evaluated value (nil when the window had no data). For a
+// triggered uptime event it is the seconds since the last heartbeat; a
+// resolved one has none.
 type Notification struct {
 	Kind        NotificationKind
 	EventID     uuid.UUID
@@ -50,7 +52,48 @@ type Notification struct {
 	EndedAt     *time.Time
 	// URL is the incident's page in the UI.
 	URL string
+	// Uptime is set for an uptime event, which has no rule: the rule,
+	// metric, condition, threshold and window fields are empty.
+	Uptime *UptimeDetails
 }
+
+// UptimeDetails is what an uptime notification says beyond the app and
+// environment.
+type UptimeDetails struct {
+	// LastHeartbeat is the last heartbeat before the gap (the event's
+	// started_at).
+	LastHeartbeat time.Time
+	// DownAfter is how long the environment went without a heartbeat
+	// before it counted as down.
+	DownAfter time.Duration
+}
+
+// UptimeNotificationFromRow builds the notification of kind about the
+// uptime event in row. The deep link is the same incidents page as a
+// rule's events.
+func UptimeNotificationFromRow(kind NotificationKind, row db.GetUptimeEventNotificationRow, uiURL string) Notification {
+	n := Notification{
+		Kind: kind, EventID: row.ID, ProjectSlug: row.ProjectSlug, AppID: row.AppID, AppName: row.AppName,
+		Environment: row.Environment, StartedAt: row.StartedAt.UTC(),
+		Uptime: &UptimeDetails{LastHeartbeat: row.StartedAt.UTC(), DownAfter: UptimeDownAfter},
+	}
+	if kind == NotifyTriggered {
+		v := row.Value
+		n.Value = &v
+	} else if row.EndedAt != nil {
+		t := row.EndedAt.UTC()
+		n.EndedAt = &t
+	}
+	n.URL = IncidentURL(uiURL, row.ProjectSlug, row.ID)
+	return n
+}
+
+// formatDuration formats a duration of whole seconds for people: "3
+// minutes", "1 hour".
+func formatDuration(d time.Duration) string { return FormatWindow(int32(d / time.Second)) }
+
+// scope is the app and environment for people: "storefront (production)".
+func (n Notification) scope() string { return n.AppName + " (" + n.Environment + ")" }
 
 // NotificationFromRow builds the notification of kind about the event in
 // row. uiURL is identity.public_ui_url; the deep link is
@@ -177,6 +220,12 @@ func (n Notification) ThresholdText() string {
 
 // Title is the one-line summary every channel leads with.
 func (n Notification) Title() string {
+	if n.Uptime != nil {
+		if n.Kind == NotifyResolved {
+			return "Up again: " + n.scope()
+		}
+		return "Down: " + n.scope()
+	}
 	if n.Kind == NotifyResolved {
 		return "Resolved: " + n.RuleName
 	}
@@ -185,7 +234,13 @@ func (n Notification) Title() string {
 
 // Summary is one sentence on what happened.
 func (n Notification) Summary() string {
-	scope := n.AppName + " (" + n.Environment + ")"
+	scope := n.scope()
+	if n.Uptime != nil {
+		if n.Kind == NotifyResolved {
+			return scope + " is sending heartbeats again."
+		}
+		return fmt.Sprintf("%s has sent no heartbeat for over %s.", scope, formatDuration(n.Uptime.DownAfter))
+	}
 	window := FormatWindow(n.WindowS)
 	if n.Kind == NotifyResolved {
 		return fmt.Sprintf("%s on %s is no longer %s over the last %s.", n.Metric.Label(), scope, n.ThresholdText(), window)
@@ -197,6 +252,20 @@ func (n Notification) Summary() string {
 type fact struct{ title, value string }
 
 func (n Notification) facts() []fact {
+	if n.Uptime != nil {
+		f := []fact{
+			{"App", n.AppName},
+			{"Environment", n.Environment},
+			{"Check", "Heartbeat"},
+			{"Last heartbeat", n.Uptime.LastHeartbeat.Format(time.RFC1123)},
+			{"Down after", formatDuration(n.Uptime.DownAfter) + " without a heartbeat"},
+			{"Started", n.StartedAt.Format(time.RFC1123)},
+		}
+		if n.EndedAt != nil {
+			f = append(f, fact{"Resolved", n.EndedAt.Format(time.RFC1123)})
+		}
+		return f
+	}
 	valueTitle := "Value"
 	if n.Kind == NotifyResolved {
 		valueTitle = "Latest value"
@@ -218,6 +287,12 @@ func (n Notification) facts() []fact {
 
 // EmailTemplate is the email.send template for the notification.
 func (n Notification) EmailTemplate() string {
+	if n.Uptime != nil {
+		if n.Kind == NotifyResolved {
+			return email.TemplateUptimeUp
+		}
+		return email.TemplateUptimeDown
+	}
 	if n.Kind == NotifyResolved {
 		return email.TemplateAlertResolved
 	}
@@ -228,6 +303,26 @@ func (n Notification) EmailTemplate() string {
 // The template builds the link from project and event, so the job carries
 // no URL.
 func (n Notification) EmailData() map[string]any {
+	if n.Uptime != nil {
+		d := map[string]any{
+			"app":         n.AppName,
+			"environment": n.Environment,
+			"project":     n.ProjectSlug,
+			"event":       n.EventID.String(),
+		}
+		if n.Kind == NotifyResolved {
+			ended := n.StartedAt
+			if n.EndedAt != nil {
+				ended = *n.EndedAt
+			}
+			d["started_at"] = n.StartedAt.Format(time.RFC3339)
+			d["ended_at"] = ended.Format(time.RFC3339)
+		} else {
+			d["last_heartbeat"] = n.Uptime.LastHeartbeat.Format(time.RFC3339)
+			d["down_after"] = formatDuration(n.Uptime.DownAfter)
+		}
+		return d
+	}
 	d := map[string]any{
 		"rule":        n.RuleName,
 		"app":         n.AppName,
@@ -353,11 +448,13 @@ func (n Notification) TeamsPayload() ([]byte, error) {
 
 // WebhookEvent is the JSON body of a generic webhook delivery.
 type WebhookEvent struct {
-	// Type is alert.triggered or alert.resolved.
+	// Type is alert.triggered or alert.resolved; uptime.down or uptime.up
+	// for an uptime event.
 	Type  string    `json:"type"`
 	Event webhookEv `json:"event"`
-	Rule  webhookRl `json:"rule"`
-	App   webhookAp `json:"app"`
+	// Rule is omitted for an uptime event.
+	Rule *webhookRl `json:"rule,omitempty"`
+	App  webhookAp  `json:"app"`
 	// Project is the project's slug.
 	Project     string `json:"project"`
 	Environment string `json:"environment"`
@@ -367,7 +464,9 @@ type WebhookEvent struct {
 }
 
 type webhookEv struct {
-	ID        uuid.UUID  `json:"id"`
+	ID uuid.UUID `json:"id"`
+	// Kind is set to uptime for an uptime event; omitted for a rule's.
+	Kind      string     `json:"kind,omitempty"`
 	State     string     `json:"state"`
 	Value     *float64   `json:"value"`
 	StartedAt time.Time  `json:"started_at"`
@@ -389,7 +488,15 @@ type webhookAp struct {
 }
 
 // WebhookEventType is the type of the notification's webhook delivery.
-func (n Notification) WebhookEventType() string { return "alert." + string(n.Kind) }
+func (n Notification) WebhookEventType() string {
+	if n.Uptime != nil {
+		if n.Kind == NotifyResolved {
+			return "uptime.up"
+		}
+		return "uptime.down"
+	}
+	return "alert." + string(n.Kind)
+}
 
 // WebhookPayload is the JSON body of the generic webhook delivery.
 func (n Notification) WebhookPayload() ([]byte, error) {
@@ -397,17 +504,22 @@ func (n Notification) WebhookPayload() ([]byte, error) {
 	if n.Kind == NotifyResolved {
 		state = "resolved"
 	}
-	return marshalJSON(WebhookEvent{
+	ev := WebhookEvent{
 		Type: n.WebhookEventType(),
 		Event: webhookEv{
 			ID: n.EventID, State: state, Value: n.Value, StartedAt: n.StartedAt, EndedAt: n.EndedAt,
 		},
-		Rule: webhookRl{
-			ID: n.RuleID, Name: n.RuleName, Metric: n.Metric, Condition: n.Condition,
-			Threshold: n.Threshold, WindowS: n.WindowS,
-		},
 		App:     webhookAp{ID: n.AppID, Name: n.AppName},
 		Project: n.ProjectSlug, Environment: n.Environment, URL: n.URL,
 		Title: n.Title(), Summary: n.Summary(),
-	})
+	}
+	if n.Uptime != nil {
+		ev.Event.Kind = "uptime"
+	} else {
+		ev.Rule = &webhookRl{
+			ID: n.RuleID, Name: n.RuleName, Metric: n.Metric, Condition: n.Condition,
+			Threshold: n.Threshold, WindowS: n.WindowS,
+		}
+	}
+	return marshalJSON(ev)
 }

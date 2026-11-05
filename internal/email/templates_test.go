@@ -46,6 +46,15 @@ var sampleData = map[string]map[string]any{
 		"value": "1.2%", "threshold": "> 5%", "window": "5 minutes", "started_at": "2026-11-04T09:30:00Z",
 		"ended_at": "2026-11-04T10:05:00Z", "project": "shop", "event": "0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41",
 	},
+	"uptime_down": {
+		"app": "storefront <eu>", "environment": "production", "last_heartbeat": "2026-11-04T09:30:00Z",
+		"down_after": "3 minutes", "project": "shop", "event": "7c4e2a10-1d3b-4f5a-8e6c-2b9d0f1a3c57",
+	},
+	"uptime_up": {
+		"app": "storefront <eu>", "environment": "production",
+		"started_at": "2026-11-04T09:30:00Z", "ended_at": "2026-11-04T09:52:00Z",
+		"project": "shop", "event": "7c4e2a10-1d3b-4f5a-8e6c-2b9d0f1a3c57",
+	},
 }
 
 func defaultRenderer(t *testing.T) *Renderer {

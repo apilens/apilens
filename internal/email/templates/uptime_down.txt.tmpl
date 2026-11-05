@@ -1,0 +1,17 @@
+{{- /* Data: app, environment, last_heartbeat, down_after, project (slug), event (id). */ -}}
+{{define "subject"}}Down: {{.app}} ({{.environment}}){{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+{{.app}} ({{.environment}}) is down: it has sent no heartbeat for over {{.down_after}}.
+
+App: {{.app}}
+Environment: {{.environment}}
+Check: Heartbeat
+Last heartbeat: {{datetime .last_heartbeat}}
+Down after: {{.down_after}} without a heartbeat
+
+View the incident:
+{{link (print "/" (seg .project) "/incidents") "event" .event}}
+
+You get this email because this address is on a notification channel of the project.
+{{- end}}

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>APILens</title>
+<style>
+  :root { color-scheme: light dark; supported-color-schemes: light dark; }
+  body, .wrap { margin: 0; padding: 0; background: #ffffff; color: #0d1117; }
+  .card { border: 1px solid #dde2e9; }
+  .muted { color: #556070; }
+  .mark { color: #0d1117; }
+  a { color: #4a3ae6; }
+  .button { background: #5b4bff; color: #ffffff !important; }
+  .code { background: #f2f2f5; color: #0d1117; }
+  @media (prefers-color-scheme: dark) {
+    body, .wrap { background: #0b0b0d !important; color: #f2f2f5 !important; }
+    .card { background: #131316 !important; border-color: #2a2a31 !important; }
+    .muted { color: #a3abb8 !important; }
+    .mark { color: #f2f2f5 !important; }
+    a { color: #8d82ff !important; }
+    .button { background: #5b4bff !important; color: #ffffff !important; }
+    .code { background: #0b0b0d !important; color: #f2f2f5 !important; }
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;">
+<table role="presentation" class="wrap" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;">
+<tr><td class="mark" style="padding:0 4px 16px 4px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;color:#0d1117;">APILens</td></tr>
+<tr><td class="card" style="border:1px solid #dde2e9;border-radius:8px;padding:28px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;">
+<p style="margin:0 0 16px 0;"><strong>storefront &lt;eu&gt; (production)</strong> is down: it has sent no heartbeat for over 3 minutes.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">App</td><td style="padding:2px 0;">storefront &lt;eu&gt;</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Environment</td><td style="padding:2px 0;">production</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Check</td><td style="padding:2px 0;">Heartbeat</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Last heartbeat</td><td style="padding:2px 0;">Wed, 4 Nov 2026 09:30 UTC</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Down after</td><td style="padding:2px 0;">3 minutes without a heartbeat</td></tr>
+</table>
+<p style="margin:0 0 24px 0;"><a class="button" href="https://app.example.com/shop/incidents?event=7c4e2a10-1d3b-4f5a-8e6c-2b9d0f1a3c57" style="display:inline-block;padding:10px 20px;border-radius:6px;background:#5b4bff;color:#ffffff;font-weight:600;text-decoration:none;">View incident</a></p>
+<p class="muted" style="margin:0;color:#556070;">You get this email because this address is on a notification channel of the project.</p>
+</td></tr>
+<tr><td class="muted" style="padding:16px 4px 0 4px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#556070;">
+This is an automated message from <a href="https://app.example.com/" style="color:#4a3ae6;">APILens</a>. Replies are not read.
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

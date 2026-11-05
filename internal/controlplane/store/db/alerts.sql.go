@@ -330,8 +330,8 @@ func (q *Queries) GetNotificationChannel(ctx context.Context, arg GetNotificatio
 }
 
 const getOpenAlertEvent = `-- name: GetOpenAlertEvent :one
-SELECT id, rule_id, state, value, started_at, ended_at, notified_at FROM alert_events
-WHERE rule_id = $1 AND state = 'triggered'
+SELECT id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment FROM alert_events
+WHERE rule_id = $1::uuid AND state = 'triggered'
 `
 
 // A rule's open (triggered) event. Returns pgx.ErrNoRows when none is open.
@@ -346,12 +346,15 @@ func (q *Queries) GetOpenAlertEvent(ctx context.Context, ruleID uuid.UUID) (Aler
 		&i.StartedAt,
 		&i.EndedAt,
 		&i.NotifiedAt,
+		&i.Kind,
+		&i.MonitorAppID,
+		&i.MonitorEnvironment,
 	)
 	return i, err
 }
 
 const listAlertEvents = `-- name: ListAlertEvents :many
-SELECT e.id, e.rule_id, e.state, e.value, e.started_at, e.ended_at, e.notified_at, r.name AS rule_name, r.app_id, r.environment, r.metric
+SELECT e.id, e.rule_id, e.state, e.value, e.started_at, e.ended_at, e.notified_at, e.kind, e.monitor_app_id, e.monitor_environment, r.name AS rule_name, r.app_id, r.environment, r.metric
 FROM alert_events e
 JOIN alert_rules r ON r.id = e.rule_id
 WHERE r.project_id = $1
@@ -373,17 +376,20 @@ type ListAlertEventsParams struct {
 }
 
 type ListAlertEventsRow struct {
-	ID          uuid.UUID
-	RuleID      uuid.UUID
-	State       string
-	Value       float64
-	StartedAt   time.Time
-	EndedAt     *time.Time
-	NotifiedAt  *time.Time
-	RuleName    string
-	AppID       uuid.UUID
-	Environment string
-	Metric      string
+	ID                 uuid.UUID
+	RuleID             *uuid.UUID
+	State              string
+	Value              float64
+	StartedAt          time.Time
+	EndedAt            *time.Time
+	NotifiedAt         *time.Time
+	Kind               string
+	MonitorAppID       *uuid.UUID
+	MonitorEnvironment *string
+	RuleName           string
+	AppID              uuid.UUID
+	Environment        string
+	Metric             string
 }
 
 // A project's incidents feed, newest first, with the rule each belongs to.
@@ -413,6 +419,9 @@ func (q *Queries) ListAlertEvents(ctx context.Context, arg ListAlertEventsParams
 			&i.StartedAt,
 			&i.EndedAt,
 			&i.NotifiedAt,
+			&i.Kind,
+			&i.MonitorAppID,
+			&i.MonitorEnvironment,
 			&i.RuleName,
 			&i.AppID,
 			&i.Environment,
@@ -854,8 +863,8 @@ func (q *Queries) MarkAlertEventNotified(ctx context.Context, arg MarkAlertEvent
 const openAlertEvent = `-- name: OpenAlertEvent :one
 
 INSERT INTO alert_events (id, rule_id, value, started_at)
-VALUES ($1, $2, $3, $4)
-RETURNING id, rule_id, state, value, started_at, ended_at, notified_at
+VALUES ($1, $2::uuid, $3, $4)
+RETURNING id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment
 `
 
 type OpenAlertEventParams struct {
@@ -884,6 +893,9 @@ func (q *Queries) OpenAlertEvent(ctx context.Context, arg OpenAlertEventParams) 
 		&i.StartedAt,
 		&i.EndedAt,
 		&i.NotifiedAt,
+		&i.Kind,
+		&i.MonitorAppID,
+		&i.MonitorEnvironment,
 	)
 	return i, err
 }
@@ -915,7 +927,7 @@ UPDATE alert_events
 SET state    = 'resolved',
     ended_at = $1::timestamptz
 WHERE id = $2 AND state = 'triggered'
-RETURNING id, rule_id, state, value, started_at, ended_at, notified_at
+RETURNING id, rule_id, state, value, started_at, ended_at, notified_at, kind, monitor_app_id, monitor_environment
 `
 
 type ResolveAlertEventParams struct {
@@ -935,6 +947,9 @@ func (q *Queries) ResolveAlertEvent(ctx context.Context, arg ResolveAlertEventPa
 		&i.StartedAt,
 		&i.EndedAt,
 		&i.NotifiedAt,
+		&i.Kind,
+		&i.MonitorAppID,
+		&i.MonitorEnvironment,
 	)
 	return i, err
 }

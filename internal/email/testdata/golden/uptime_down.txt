@@ -1,0 +1,19 @@
+Subject: Down: storefront <eu> (production)
+
+APILens
+
+storefront <eu> (production) is down: it has sent no heartbeat for over 3 minutes.
+
+App: storefront <eu>
+Environment: production
+Check: Heartbeat
+Last heartbeat: Wed, 4 Nov 2026 09:30 UTC
+Down after: 3 minutes without a heartbeat
+
+View the incident:
+https://app.example.com/shop/incidents?event=7c4e2a10-1d3b-4f5a-8e6c-2b9d0f1a3c57
+
+You get this email because this address is on a notification channel of the project.
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.

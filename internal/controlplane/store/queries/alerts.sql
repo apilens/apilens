@@ -111,13 +111,13 @@ WHERE project_id = @project_id AND id = @id;
 -- Opens a triggered event for a rule. A rule has at most one open event, so
 -- this fails with a unique violation (alert_events_open) while one is open.
 INSERT INTO alert_events (id, rule_id, value, started_at)
-VALUES (@id, @rule_id, @value, @started_at)
+VALUES (@id, @rule_id::uuid, @value, @started_at)
 RETURNING *;
 
 -- name: GetOpenAlertEvent :one
 -- A rule's open (triggered) event. Returns pgx.ErrNoRows when none is open.
 SELECT * FROM alert_events
-WHERE rule_id = @rule_id AND state = 'triggered';
+WHERE rule_id = @rule_id::uuid AND state = 'triggered';
 
 -- name: MarkAlertEventNotified :execrows
 -- Records the first notification of an event; later calls change nothing.

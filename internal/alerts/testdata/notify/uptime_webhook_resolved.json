@@ -1,0 +1,32 @@
+{
+  "method": "POST",
+  "path": "/hooks/apilens",
+  "headers": {
+    "Content-Type": "application/json",
+    "User-Agent": "APILens-Alerts/1",
+    "X-APILens-Delivery": "1243c357-6267-5f12-aac8-a0de1dccf1dc",
+    "X-APILens-Event": "uptime.up",
+    "X-APILens-Signature": "v1=140021c1dbfbd2a9aa5ed9b3cc70a919c270b2547b77fe5f8ce3fc5f32a29263",
+    "X-APILens-Timestamp": "1793786760"
+  },
+  "body": {
+    "type": "uptime.up",
+    "event": {
+      "id": "0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41",
+      "kind": "uptime",
+      "state": "resolved",
+      "value": null,
+      "started_at": "2026-11-04T09:30:00Z",
+      "ended_at": "2026-11-04T10:05:00Z"
+    },
+    "app": {
+      "id": "1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b",
+      "name": "storefront"
+    },
+    "project": "shop",
+    "environment": "production",
+    "url": "https://app.example.com/shop/incidents?event=0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41",
+    "title": "Up again: storefront (production)",
+    "summary": "storefront (production) is sending heartbeats again."
+  }
+}

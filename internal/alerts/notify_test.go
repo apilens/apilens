@@ -222,6 +222,7 @@ func checkGolden(t *testing.T, file string, v any) {
 type fakeStore struct {
 	mu       sync.Mutex
 	events   map[uuid.UUID]db.GetAlertEventNotificationRow
+	uptime   map[uuid.UUID]db.GetUptimeEventNotificationRow
 	channels map[uuid.UUID]db.NotificationChannel
 	notified map[uuid.UUID]time.Time
 	err      error
@@ -229,7 +230,8 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		events: map[uuid.UUID]db.GetAlertEventNotificationRow{}, channels: map[uuid.UUID]db.NotificationChannel{},
+		events: map[uuid.UUID]db.GetAlertEventNotificationRow{}, uptime: map[uuid.UUID]db.GetUptimeEventNotificationRow{},
+		channels: map[uuid.UUID]db.NotificationChannel{},
 		notified: map[uuid.UUID]time.Time{},
 	}
 }
@@ -241,6 +243,19 @@ func (s *fakeStore) GetAlertEventNotification(_ context.Context, id uuid.UUID) (
 		return db.GetAlertEventNotificationRow{}, s.err
 	}
 	r, ok := s.events[id]
+	if !ok {
+		return r, pgx.ErrNoRows
+	}
+	return r, nil
+}
+
+func (s *fakeStore) GetUptimeEventNotification(_ context.Context, id uuid.UUID) (db.GetUptimeEventNotificationRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return db.GetUptimeEventNotificationRow{}, s.err
+	}
+	r, ok := s.uptime[id]
 	if !ok {
 		return r, pgx.ErrNoRows
 	}

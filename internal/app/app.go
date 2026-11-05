@@ -331,8 +331,9 @@ func (a *App) initRelay(context.Context) (modules.Service, error) {
 	return modules.ServiceFunc(relay.Listen), nil
 }
 
-// initAlerts registers the periodic alert rule evaluation job and the
-// notification jobs it enqueues (email, Slack, Teams, webhook).
+// initAlerts registers the periodic alert rule evaluation and heartbeat
+// uptime jobs and the notification jobs they enqueue (email, Slack, Teams,
+// webhook).
 func (a *App) initAlerts(context.Context) (modules.Service, error) {
 	// Channel configs are sealed with the identity key-encryption key;
 	// without one in this process deliveries are dropped.
@@ -354,6 +355,9 @@ func (a *App) initAlerts(context.Context) (modules.Service, error) {
 	evaluator := alerts.NewEvaluator(a.chConn, a.pool, a.logger, a.registry).WithNotifications(a.jobs)
 	jobs.Register(a.workers, alerts.NewEvaluateWorker(evaluator, a.logger))
 	a.workers.Periodic(alerts.EvaluateInterval, alerts.EvaluateArgs{})
+	uptime := alerts.NewUptimeChecker(a.pool, a.logger, a.registry).WithNotifications(a.jobs)
+	jobs.Register(a.workers, alerts.NewUptimeWorker(uptime, a.logger))
+	a.workers.Periodic(alerts.UptimeInterval, alerts.UptimeArgs{})
 	return nil, nil
 }
 

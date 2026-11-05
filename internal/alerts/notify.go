@@ -30,6 +30,10 @@ import (
 //     channels enqueue one email.send job per address; Slack, Teams and
 //     webhook channels are posted over HTTP.
 //
+// Uptime events (kind uptime, see UptimeChecker) go through the same jobs.
+// They have no rule: they notify every channel of the project, and nothing
+// while their environment is muted.
+//
 // Job args carry ids only: channel configs (addresses, webhook URLs, signing
 // secrets) are opened in the worker and never stored in the job, logged or
 // put in an error.
@@ -91,6 +95,43 @@ type NotifyStore interface {
 	ListNotificationChannelsByIDs(ctx context.Context, arg db.ListNotificationChannelsByIDsParams) ([]db.NotificationChannel, error)
 	GetNotificationChannel(ctx context.Context, arg db.GetNotificationChannelParams) (db.NotificationChannel, error)
 	MarkAlertEventNotified(ctx context.Context, arg db.MarkAlertEventNotifiedParams) (int64, error)
+	GetUptimeEventNotification(ctx context.Context, id uuid.UUID) (db.GetUptimeEventNotificationRow, error)
+}
+
+// eventTarget is what the notification jobs need of an event of either
+// kind.
+type eventTarget struct {
+	projectID  uuid.UUID
+	channelIDs []uuid.UUID
+	notifiedAt *time.Time
+	// muted is true for an uptime event whose environment is muted.
+	muted bool
+	note  func(kind NotificationKind, uiURL string) Notification
+}
+
+// target reads the event: a rule's (threshold) event, else an uptime
+// event. It returns pgx.ErrNoRows when the event, or its rule, is gone.
+func (n *Notifier) target(ctx context.Context, id uuid.UUID) (eventTarget, error) {
+	row, err := n.store.GetAlertEventNotification(ctx, id)
+	if err == nil {
+		return eventTarget{
+			projectID: row.ProjectID, channelIDs: row.ChannelIds, notifiedAt: row.NotifiedAt,
+			note: func(kind NotificationKind, uiURL string) Notification { return NotificationFromRow(kind, row, uiURL) },
+		}, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return eventTarget{}, err
+	}
+	up, err := n.store.GetUptimeEventNotification(ctx, id)
+	if err != nil {
+		return eventTarget{}, err
+	}
+	return eventTarget{
+		projectID: up.ProjectID, channelIDs: up.ChannelIds, notifiedAt: up.NotifiedAt, muted: up.Muted,
+		note: func(kind NotificationKind, uiURL string) Notification {
+			return UptimeNotificationFromRow(kind, up, uiURL)
+		},
+	}, nil
 }
 
 // NotifierOptions configures a Notifier.
@@ -152,26 +193,27 @@ const (
 	resultDropped = "dropped" // not retried: channel gone, bad config, permanent HTTP error
 )
 
-// FanOut enqueues one alerts.deliver job per channel of the event's rule.
-// It returns how many it enqueued.
+// FanOut enqueues one alerts.deliver job per channel of the event's rule
+// (for an uptime event, of its project; none while its environment is
+// muted). It returns how many it enqueued.
 func (n *Notifier) FanOut(ctx context.Context, args NotifyArgs) (int, error) {
 	if !args.Notification.Valid() {
 		return 0, river.JobCancel(fmt.Errorf("alerts: unknown notification kind %q", args.Notification))
 	}
-	row, err := n.store.GetAlertEventNotification(ctx, args.EventID)
+	row, err := n.target(ctx, args.EventID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil // the rule (and its events) was deleted
 	}
 	if err != nil {
 		return 0, fmt.Errorf("alerts: read event: %w", err)
 	}
-	if len(row.ChannelIds) == 0 {
+	if len(row.channelIDs) == 0 || row.muted {
 		return 0, nil
 	}
 	count := 0
 	err = n.inTx(ctx, func(tx pgx.Tx, q NotifyStore) error {
 		count = 0
-		chans, err := q.ListNotificationChannelsByIDs(ctx, db.ListNotificationChannelsByIDsParams{ProjectID: row.ProjectID, Ids: row.ChannelIds})
+		chans, err := q.ListNotificationChannelsByIDs(ctx, db.ListNotificationChannelsByIDsParams{ProjectID: row.projectID, Ids: row.channelIDs})
 		if err != nil {
 			return fmt.Errorf("alerts: list channels: %w", err)
 		}
@@ -188,23 +230,24 @@ func (n *Notifier) FanOut(ctx context.Context, args NotifyArgs) (int, error) {
 
 // Deliver sends one notification to one channel. It reports false, with no
 // error, when there is nothing to send any more (the event, the channel or
-// its place on the rule is gone). Errors that a retry cannot fix are wrapped
+// its place on the rule is gone, or the uptime event's environment was
+// muted since). Errors that a retry cannot fix are wrapped
 // in river.JobCancel.
 func (n *Notifier) Deliver(ctx context.Context, args DeliverArgs) (bool, error) {
 	if !args.Notification.Valid() {
 		return false, river.JobCancel(fmt.Errorf("alerts: unknown notification kind %q", args.Notification))
 	}
-	row, err := n.store.GetAlertEventNotification(ctx, args.EventID)
+	row, err := n.target(ctx, args.EventID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("alerts: read event: %w", err)
 	}
-	if !slices.Contains(row.ChannelIds, args.ChannelID) {
-		return false, nil // removed from the rule since the event changed
+	if !slices.Contains(row.channelIDs, args.ChannelID) || row.muted {
+		return false, nil // removed from the rule since the event changed, or muted
 	}
-	ch, err := n.store.GetNotificationChannel(ctx, db.GetNotificationChannelParams{ProjectID: row.ProjectID, ID: args.ChannelID})
+	ch, err := n.store.GetNotificationChannel(ctx, db.GetNotificationChannelParams{ProjectID: row.projectID, ID: args.ChannelID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil // deleted
 	}
@@ -221,7 +264,7 @@ func (n *Notifier) Deliver(ctx context.Context, args DeliverArgs) (bool, error) 
 		n.sent.WithLabelValues(label, resultDropped).Inc()
 		return false, river.JobCancel(err)
 	}
-	note := NotificationFromRow(args.Notification, row, n.opts.PublicUIURL)
+	note := row.note(args.Notification, n.opts.PublicUIURL)
 
 	if typ == ChannelEmail {
 		err = n.inTx(ctx, func(tx pgx.Tx, q NotifyStore) error {
@@ -260,8 +303,8 @@ func (n *Notifier) Deliver(ctx context.Context, args DeliverArgs) (bool, error) 
 }
 
 // markNotified records the event's first triggered notification.
-func (n *Notifier) markNotified(ctx context.Context, q NotifyStore, args DeliverArgs, row db.GetAlertEventNotificationRow) error {
-	if args.Notification != NotifyTriggered || row.NotifiedAt != nil {
+func (n *Notifier) markNotified(ctx context.Context, q NotifyStore, args DeliverArgs, row eventTarget) error {
+	if args.Notification != NotifyTriggered || row.notifiedAt != nil {
 		return nil
 	}
 	if _, err := q.MarkAlertEventNotified(ctx, db.MarkAlertEventNotifiedParams{ID: args.EventID, NotifiedAt: n.opts.Now()}); err != nil {
