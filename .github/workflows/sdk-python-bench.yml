@@ -1,0 +1,67 @@
+# Nightly overhead benchmark for the Python SDK (packages/sdk-python/benchmarks/overhead.py).
+#
+# Measures the latency the FastAPI middleware adds per request (1 KB and 32 KB
+# JSON bodies; metadata, redacted and full capture profiles) and uploads the
+# markdown table + raw JSON as an artifact. The table is also written to the
+# job summary.
+#
+# Threshold: p50 added latency < 0.5 ms at 1 KB. For the first month (until
+# 2026-12-05) a breach is a ::warning:: annotation, not a red build; after that,
+# add --fail-on-threshold to the run step to make it blocking.
+name: Python SDK overhead benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: Timed requests per table row
+        type: number
+        default: 5000
+  schedule:
+    - cron: '17 3 * * *'
+
+permissions: {}
+
+concurrency:
+  group: sdk-python-bench-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  overhead:
+    name: Python SDK overhead (FastAPI)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: packages/sdk-python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.5"
+          python-version: "3.12"
+          enable-cache: false
+      - name: Run benchmark
+        env:
+          ITERATIONS: ${{ inputs.iterations || 5000 }}
+        run: |
+          uv run --frozen --extra fastapi python benchmarks/overhead.py \
+            --iterations "$ITERATIONS" \
+            --threshold-ms 0.5 \
+            --output overhead.md \
+            --json overhead.json
+          cat overhead.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sdk-python-overhead
+          path: |
+            packages/sdk-python/overhead.md
+            packages/sdk-python/overhead.json
+          retention-days: 90
+          if-no-files-found: warn
