@@ -2,6 +2,7 @@
 
 import { type KeyboardEvent, type ReactNode, useRef, useState } from "react";
 import type { OnboardingAnswers } from "@/lib/identity";
+import { DEFAULT_POSTURE, POSTURES, POSTURE_PARAM, type Posture, privacyDocsUrl } from "@/lib/install";
 import {
   LANGUAGES,
   METHODS,
@@ -15,6 +16,7 @@ import {
   recommendReason,
   savedInstrument,
 } from "@/lib/instrument";
+import { LINKS, extLink } from "@/lib/links";
 import { radioKeyTarget, radioTabStop } from "@/lib/radio-group";
 import { BackNext, Brand, ObIcon, type ObIconName, ObShell, type StepProps } from "./ob";
 import { useOnboardingContinue } from "./progress";
@@ -96,6 +98,8 @@ const METHOD_COPY: Record<Method, { title: string; icon: ObIconName }> = {
   "url-check": { title: "Check a URL", icon: "eye" },
 };
 
+const POSTURE_ICON: Record<Posture, ObIconName> = { metadata: "lock", redacted: "eye", full: "code" };
+
 function methodDetail(method: Method, language: string | undefined): string {
   const lang = languageOf(language);
   if (method === "sdk") return lang?.sdk ? `Install ${lang.sdk} and add its middleware.` : "No APILens SDK for this language yet.";
@@ -113,15 +117,19 @@ function listOf(items: string[]): string {
  * or an OpenTelemetry path can be picked), where it runs, and the method, which starts on the one
  * `recommend` picks for the two. Continue saves `language`, `runtime` and `method` and goes on to
  * `/onboarding/install`. `answers` are the saved onboarding answers (#327), so a refresh resumes
- * with them; `project` is the project being instrumented.
+ * with them; `project` is the project being instrumented. With the SDK it also asks for the capture
+ * posture (#601), which goes on to the install step as `?capture=` and sets its snippets'
+ * `capture_profile`; `posture` is the one to start on (from that parameter when coming back).
  */
 export function Instrument({
   step = 3,
   reached = step,
   answers = {},
   project = "",
-}: Partial<StepProps> & { answers?: OnboardingAnswers; project?: string }) {
+  posture: initialPosture = DEFAULT_POSTURE,
+}: Partial<StepProps> & { answers?: OnboardingAnswers; project?: string; posture?: Posture }) {
   const [choice, setChoice] = useState(() => savedInstrument(answers));
+  const [posture, setPosture] = useState<Posture>(initialPosture);
   const { go, pending } = useOnboardingContinue(reached);
   const method = effectiveMethod(choice);
   const recommended = recommend(choice.language, choice.runtime);
@@ -135,7 +143,8 @@ export function Instrument({
   const next = () => {
     if (!ok || !method) return;
     // The install step renders from these answers, so it opens once they are saved.
-    go("install", "/onboarding/install", { language: choice.language, runtime: choice.runtime, method }, undefined, true);
+    const href = method === "sdk" ? `/onboarding/install?${POSTURE_PARAM}=${posture}` : "/onboarding/install";
+    go("install", href, { language: choice.language, runtime: choice.runtime, method }, undefined, true);
   };
 
   return (
@@ -245,6 +254,41 @@ export function Instrument({
           </div>
         )}
       </div>
+      {method === "sdk" ? (
+        <div className="ob-f">
+          <p className="ob-l" id="ins-posture">
+            What the SDK captures<small>change it any time with one setting</small>
+          </p>
+          <RadioGroup
+            labelledBy="ins-posture"
+            className="ob-opts ins-methods"
+            items={POSTURES}
+            value={posture}
+            onChange={(id) => setPosture(id as Posture)}
+            render={(p, { key, ...props }) => (
+              <button key={key} {...props} className={`ob-opt ins-opt${props["aria-checked"] ? " on" : ""}`}>
+                <span className="ti">
+                  <ObIcon name={POSTURE_ICON[p.id]} />
+                </span>
+                <span className="ins-tx">
+                  <b>
+                    {p.label}
+                    {p.id === DEFAULT_POSTURE ? <span className="ins-tag">Recommended</span> : null}
+                  </b>
+                  <small>{p.consequence}</small>
+                </span>
+                <span className="mk">{props["aria-checked"] ? <ObIcon name="done" /> : null}</span>
+              </button>
+            )}
+          />
+          <p className="ins-soon">
+            The next step’s snippet sets this posture and a starter redaction list.{" "}
+            <a className="cp-link" {...extLink(privacyDocsUrl(LINKS.docs))}>
+              What each posture sends
+            </a>
+          </p>
+        </div>
+      ) : null}
     </ObShell>
   );
 }
