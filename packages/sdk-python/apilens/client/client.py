@@ -28,6 +28,9 @@ DROP_NON_RETRYABLE = "non_retryable"  # ingest rejected the batch with a 4xx
 DROP_RETRIES_EXHAUSTED = "retries_exhausted"  # batch still failing after max_retries
 DROP_REASONS = (DROP_QUEUE_FULL, DROP_QUEUE_BYTES, DROP_NON_RETRYABLE, DROP_RETRIES_EXHAUSTED)
 
+# Env fallback for ``ApiLensConfig.proxy_url``.
+ENV_PROXY = "APILENS_PROXY"
+
 # Fixed per-record overhead added to the variable-length string fields when
 # estimating a queued record's size (object headers, scalars, short fields).
 RECORD_OVERHEAD_BYTES = 512
@@ -181,6 +184,12 @@ class ApiLensConfig:
     timeout: float = 5.0
     verify_tls: bool = True
     ca_bundle_path: str = ""
+    # Explicit egress proxy for ingest traffic, e.g. ``http://proxy:3128`` or
+    # ``http://user:pass@proxy:3128``. Used for both http and https base URLs
+    # (https is tunnelled with CONNECT). Empty falls back to env
+    # ``APILENS_PROXY``, then to the standard ``HTTPS_PROXY`` / ``HTTP_PROXY`` /
+    # ``NO_PROXY`` variables that urllib honours.
+    proxy_url: str = ""
 
     # Queue bounds, applied to the request, span and log queues. The record cap
     # is per queue; the byte cap is shared by all three (estimated size of the
@@ -207,6 +216,30 @@ class ApiLensConfig:
             self.release = _detect_release()
         if not self.commit:
             self.commit = _detect_commit()
+        if not self.proxy_url:
+            self.proxy_url = (os.getenv(ENV_PROXY) or "").strip()
+
+
+def _ssl_context(config: ApiLensConfig) -> ssl.SSLContext:
+    """TLS context for ingest: custom CA bundle, or verification off."""
+    if config.verify_tls:
+        return ssl.create_default_context(cafile=config.ca_bundle_path or None)
+    return ssl._create_unverified_context()  # noqa: SLF001
+
+
+def _open(req: urllib.request.Request, config: ApiLensConfig):
+    """Send ``req``. With ``proxy_url`` set, an explicit ``ProxyHandler`` routes
+    both http and https (CONNECT) through it; otherwise ``urlopen`` installs
+    urllib's default ``ProxyHandler``, which honours ``HTTPS_PROXY`` /
+    ``HTTP_PROXY`` / ``NO_PROXY`` from the environment."""
+    ssl_context = _ssl_context(config)
+    if not config.proxy_url:
+        return urllib.request.urlopen(req, timeout=config.timeout, context=ssl_context)
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({"http": config.proxy_url, "https": config.proxy_url}),
+        urllib.request.HTTPSHandler(context=ssl_context),
+    )
+    return opener.open(req, timeout=config.timeout)
 
 
 class ApiLensClient:
@@ -577,15 +610,7 @@ class ApiLensClient:
         )
 
         try:
-            ssl_context = None
-            if self.config.verify_tls:
-                ssl_context = ssl.create_default_context(
-                    cafile=self.config.ca_bundle_path or None
-                )
-            else:
-                ssl_context = ssl._create_unverified_context()  # noqa: SLF001
-
-            with urllib.request.urlopen(req, timeout=self.config.timeout, context=ssl_context) as resp:
+            with _open(req, self.config) as resp:
                 status = getattr(resp, "status", 200)
                 if status >= 400:
                     raise _RetryableIngestError(
