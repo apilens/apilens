@@ -819,6 +819,33 @@ export interface RequestRow {
   app_id?: string;
 }
 
+/**
+ * The filters of `GET /requests` (#576), as query parameters: equality on env, method, path,
+ * consumer, group and IP; case-insensitive substrings on the URL and the bodies; status codes,
+ * classes and ranges (`4xx,500-503`); inclusive size and latency bounds; sampled `true`/`false`.
+ */
+export type RequestLogFilters = Partial<
+  Record<
+    | "env"
+    | "method"
+    | "status"
+    | "path"
+    | "url_contains"
+    | "payload_contains"
+    | "consumer_id"
+    | "consumer_group"
+    | "ip"
+    | "request_size_min"
+    | "request_size_max"
+    | "response_size_min"
+    | "response_size_max"
+    | "latency_min"
+    | "latency_max"
+    | "sampled",
+    string
+  >
+>;
+
 /** `GET /traffic/summary`. */
 export interface TrafficSummary {
   range: string;
@@ -1382,7 +1409,7 @@ export function createClient(config: ClientConfig) {
       request<IngestStatus>("GET", `/projects/${seg(projectSlug)}/ingest-status`, o),
 
     // query: dashboard reads as the signed-in user (#295) ----------------------------------
-    listRequests: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
+    listRequests: (projectSlug: string, q: { range?: QueryRange; limit?: number } & RequestLogFilters, o: Authed) =>
       request<{ requests: RequestRow[] | null; next_cursor?: string }>("GET", "/requests", { ...o, query: { project: projectSlug, ...q } }),
     trafficSummary: (projectSlug: string, q: QueryRange | TrafficQuery, o: Authed) =>
       request<TrafficSummary>("GET", "/traffic/summary", { ...o, query: { project: projectSlug, ...trafficScope(q) } }),

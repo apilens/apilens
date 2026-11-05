@@ -10,12 +10,14 @@ import "./explore.css";
 export function ExploreView({
   project,
   projectName,
+  environments,
   query,
   rows,
   now,
 }: {
   project: string;
   projectName: string;
+  environments: readonly string[];
   query: ExploreState;
   rows: RequestRow[] | null;
   now: number;
@@ -27,7 +29,7 @@ export function ExploreView({
         <h1 className="cp-lede">Explore</h1>
         <p className="ex-lead">Every request your API served, newest first, as the SDK reported it.</p>
       </header>
-      <RequestLog project={project} query={query} initial={rows} now={now} />
+      <RequestLog project={project} environments={environments} query={query} initial={rows} now={now} />
     </div>
   );
 }

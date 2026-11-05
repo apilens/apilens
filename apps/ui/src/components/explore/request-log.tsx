@@ -23,10 +23,12 @@ import {
   statusClass,
   visibleWindow,
 } from "@/lib/explore";
+import { NO_FILTERS, activeCount } from "@/lib/explore-filters";
 import { formatAgo, shownPath } from "@/lib/first-data";
 import type { RequestRow } from "@/lib/identity";
 import { formatLatency } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
+import { FilterBar } from "./filter-bar";
 
 /** How many skeleton rows stand in while another range loads. */
 const SKELETON_ROWS = 8;
@@ -40,14 +42,28 @@ const SKELETON_ROWS = 8;
  * the row in focus and the rows in view where they are; Pause stops it (WCAG 2.2.2).
  * `initial` is null when the API could not answer the first read.
  */
-export function RequestLog({ project, query: q, initial, now: serverNow }: { project: string; query: ExploreState; initial: RequestRow[] | null; now: number }) {
+export function RequestLog({
+  project,
+  environments,
+  query: q,
+  initial,
+  now: serverNow,
+}: {
+  project: string;
+  environments: readonly string[];
+  query: ExploreState;
+  initial: RequestRow[] | null;
+  now: number;
+}) {
   const router = useRouter();
   const [rows, setRows] = useState<RequestRow[] | null>(initial);
   const [now, setNow] = useState(serverNow);
   const [paused, setPaused] = useState(false);
   const [pollFailed, setPollFailed] = useState(false);
   const [loading, startLoading] = useTransition();
-  const range = q.range;
+  // The poll reads the same range and filters as the page (#586).
+  const pollPath = requestsPath(project, q);
+  const filtered = activeCount(q.filters) > 0;
 
   // A new server read (another range, Try again) replaces what the poller had.
   useEffect(() => {
@@ -63,7 +79,7 @@ export function RequestLog({ project, query: q, initial, now: serverNow }: { pro
       if (document.visibilityState !== "visible" || inflight) return;
       inflight = new AbortController();
       try {
-        const res = await fetch(requestsPath(project, { range }), { signal: inflight.signal, cache: "no-store", headers: { accept: "application/json" } });
+        const res = await fetch(pollPath, { signal: inflight.signal, cache: "no-store", headers: { accept: "application/json" } });
         const result = logPoll(res.status, await res.json().catch(() => null));
         if (result.kind === "expired") {
           window.location.assign(result.next);
@@ -87,13 +103,21 @@ export function RequestLog({ project, query: q, initial, now: serverNow }: { pro
       window.clearInterval(id);
       inflight?.abort();
     };
-  }, [paused, project, range]);
+  }, [paused, pollPath]);
 
   const go = (e: MouseEvent<HTMLAnchorElement>, href: string) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
     e.preventDefault();
     startLoading(() => router.push(href));
   };
+
+  // The filter bar's changes: typing replaces the history entry, a chip or Clear all adds one.
+  const navigate = useCallback(
+    (href: string, replace: boolean) => startLoading(() => (replace ? router.replace(href, { scroll: false }) : router.push(href, { scroll: false }))),
+    [router],
+  );
+
+  const clearHref = exploreHref(project, { ...q, filters: NO_FILTERS });
 
   return (
     <>
@@ -119,6 +143,8 @@ export function RequestLog({ project, query: q, initial, now: serverNow }: { pro
         </div>
       </div>
 
+      <FilterBar project={project} environments={environments} query={q} navigate={navigate} />
+
       {pollFailed && rows !== null ? (
         <div className="ex-notice" role="status">
           <ObIcon name="info" />
@@ -141,10 +167,19 @@ export function RequestLog({ project, query: q, initial, now: serverNow }: { pro
       ) : rows.length === 0 ? (
         <div className="ex-notice" role="status">
           <ObIcon name="info" />
-          <p>No requests in {scopeText(q)}. Once your app reports requests through the SDK, they show up here within seconds.</p>
+          {filtered ? (
+            <p>
+              No requests in {scopeText(q)} match these filters.{" "}
+              <a className="cp-link" href={clearHref} onClick={(e) => go(e, clearHref)}>
+                Clear all filters
+              </a>
+            </p>
+          ) : (
+            <p>No requests in {scopeText(q)}. Once your app reports requests through the SDK, they show up here within seconds.</p>
+          )}
         </div>
       ) : (
-        <LogGrid rows={rows} now={now} caption={`The newest ${rows.length === 1 ? "request" : `${rows.length} requests`} in ${scopeText(q)}, newest first.`} />
+        <LogGrid rows={rows} now={now} caption={`The newest ${rows.length === 1 ? "request" : `${rows.length} requests`} in ${scopeText(q)}${filtered ? " matching the filters" : ""}, newest first.`} />
       )}
     </>
   );

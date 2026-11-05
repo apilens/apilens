@@ -1,7 +1,8 @@
-// Explore (#585): the project's request log, newest first, read again every 5 s while live.
+// Explore (#585, filters #586): the project's request log, newest first, read again every 5 s while live.
 // Pure helpers (URL state, row formatting, the virtual window, keyboard moves, the poll answer),
 // unit-tested in explore.test.ts.
 import { RANGE_LABEL } from "./consumers";
+import { type ExploreFilters, NO_FILTERS, filterEntries, parseFilters } from "./explore-filters";
 import type { QueryRange, RequestRow } from "./identity";
 
 export const EXPLORE_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
@@ -21,33 +22,42 @@ export const OVERSCAN = 8;
 export const LATENCY_SLOW_MS = 500;
 export const LATENCY_FRUSTRATED_MS = 2_000;
 
-/** The page's state, in the URL: `?range=`. */
+/** The page's state, all of it in the URL: `?range=` and the filters (#586) under their API names. */
 export interface ExploreState {
   range: QueryRange;
+  filters: ExploreFilters;
 }
 
 type SearchParams = Record<string, string | string[] | undefined>;
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
-/** Reads the page state from search params; anything unknown falls back to the default. */
+/** Reads the page state from search params; anything unknown or invalid falls back to the default. */
 export function parseExploreQuery(params: SearchParams): ExploreState {
   const range = first(params.range);
-  return { range: EXPLORE_RANGES.includes(range as QueryRange) ? (range as QueryRange) : DEFAULT_RANGE };
+  return { range: EXPLORE_RANGES.includes(range as QueryRange) ? (range as QueryRange) : DEFAULT_RANGE, filters: parseFilters(params) };
+}
+
+/** The search string of `q` (with its `?`, or ""), defaults left out, filters in a fixed order. */
+function exploreSearch(q: Partial<ExploreState>, withRange: boolean): string {
+  const p = new URLSearchParams();
+  if (q.range && (withRange || q.range !== DEFAULT_RANGE)) p.set("range", q.range);
+  for (const [k, v] of filterEntries(q.filters ?? NO_FILTERS)) p.set(k, v);
+  const s = p.toString();
+  return s ? `?${s}` : "";
 }
 
 /** The page URL for `q`, leaving defaults out. */
 export function exploreHref(project: string, q: Partial<ExploreState>): string {
-  const s = q.range && q.range !== DEFAULT_RANGE ? `?range=${q.range}` : "";
-  return `/${encodeURIComponent(project)}/explore${s}`;
+  return `/${encodeURIComponent(project)}/explore${exploreSearch(q, false)}`;
 }
 
-/** The Route Handler the browser polls: `GET /api/projects/{slug}/requests?range=`. */
-export function requestsPath(project: string, q: ExploreState): string {
-  return `/api/projects/${encodeURIComponent(project)}/requests?range=${q.range}`;
+/** The Route Handler the browser polls: `GET /api/projects/{slug}/requests?range=&<filters>`. */
+export function requestsPath(project: string, q: Pick<ExploreState, "range"> & Partial<ExploreState>): string {
+  return `/api/projects/${encodeURIComponent(project)}/requests${exploreSearch(q, true)}`;
 }
 
 /** The scope in words: `the last 1 hour`. */
-export const scopeText = (q: ExploreState) => `the last ${RANGE_LABEL[q.range]}`;
+export const scopeText = (q: Pick<ExploreState, "range">) => `the last ${RANGE_LABEL[q.range]}`;
 
 /** A stable key for a row: its trace id (one request row per trace), else its time and position. */
 export const rowKey = (r: Pick<RequestRow, "timestamp" | "trace_id">, i: number) => r.trace_id || `${r.timestamp}#${i}`;
