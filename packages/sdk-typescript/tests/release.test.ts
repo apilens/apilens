@@ -17,6 +17,7 @@ function makeClient(config: { release?: string; commit?: string } = {}) {
     apiKey: "test",
     appId: "test",
     batchSize: 10,
+    compress: false,
     fetchImpl: async (_url, options) => {
       bodies.push(String(options?.body || ""));
       return new Response(null, { status: 200 });

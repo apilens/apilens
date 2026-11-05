@@ -21,6 +21,7 @@ describe("Express E2E", () => {
       appId: "test-app",
       environment: "test",
       batchSize: 100,
+      compress: false,
       fetchImpl: async (_url, options) => {
         ingestCalls.push(String(options?.body || ""));
         return new Response(null, { status: 200 });
@@ -69,6 +70,7 @@ describe("Express E2E", () => {
       projectSlug: "test-project",
       appId: "test-app",
       batchSize: 100,
+      compress: false,
       fetchImpl: async (_url, options) => {
         ingestCalls.push(String(options?.body || ""));
         return new Response(null, { status: 200 });

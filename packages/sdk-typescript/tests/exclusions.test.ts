@@ -196,6 +196,7 @@ describe("Express middleware", () => {
       projectSlug: "test-project",
       appId: "test-app",
       batchSize: 100,
+      compress: false,
       fetchImpl: async (_url, options) => {
         ingestCalls.push(String(options?.body || ""));
         return new Response(null, { status: 200 });
