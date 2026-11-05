@@ -1372,6 +1372,29 @@ export interface ErrorGroup {
   last_seen: string;
 }
 
+// Performance (#595): the project's response times and the app-wide Apdex threshold.
+
+/** `GET /traffic/latency`: the project's response-time report, excluded endpoints left out. */
+export interface TrafficLatency {
+  range: string;
+  from: string;
+  to: string;
+  bucket_seconds: number;
+  summary: EndpointLatency["summary"];
+  points: EndpointLatency["points"];
+  /** 14 log-spaced buckets. */
+  histogram: LatencyBucket[] | null;
+}
+
+/** `GET|PUT /apps/{id}/settings`: the app-wide latency (Apdex) threshold. */
+export interface AppSettings {
+  app_id: string;
+  /** Null means the default of 500 ms. */
+  latency_threshold_ms: number | null;
+  /** The threshold in effect for the app's endpoints without their own. */
+  apdex_threshold_ms: number;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Operations
 
@@ -1617,6 +1640,14 @@ export function createClient(config: ClientConfig) {
       request<ErrorStatusDetail>("GET", `/errors/status/${seg(String(code))}`, { ...o, query: { project: projectSlug, ...trafficScope(q) } }),
     listErrors: (projectSlug: string, q: TrafficQuery, o: Authed) =>
       request<{ errors: ErrorGroup[] | null }>("GET", "/errors", { ...o, query: { project: projectSlug, ...trafficScope(q) } }),
+
+    // query: the Performance page (#595) ---------------------------------------------------
+    trafficLatency: (projectSlug: string, q: TrafficQuery, o: Authed) =>
+      request<TrafficLatency>("GET", "/traffic/latency", { ...o, query: { project: projectSlug, ...trafficScope(q) } }),
+    getAppSettings: (projectSlug: string, appId: string, o: Authed) =>
+      request<AppSettings>("GET", `/apps/${seg(appId)}/settings`, { ...o, query: { project: projectSlug } }),
+    putAppSettings: (appId: string, body: { latency_threshold_ms: number | null }, o: Authed) =>
+      request<AppSettings>("PUT", `/apps/${seg(appId)}/settings`, { ...o, body }),
 
     // api: project privacy policy (#562, #599) -------------------------------------------
     getPrivacyPolicy: (projectSlug: string, o: Authed) =>

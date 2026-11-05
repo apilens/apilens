@@ -42,6 +42,7 @@ export const VIEWS = [
   { slug: "explore", label: "Explore", section: "Monitor" },
   { slug: "traffic", label: "Traffic", section: "Monitor" },
   { slug: "errors", label: "Errors", section: "Monitor" },
+  { slug: "performance", label: "Performance", section: "Monitor" },
   { slug: "consumers", label: "Consumers", section: "Monitor" },
   { slug: "apps", label: "Apps", section: "Catalog" },
   { slug: "changes", label: "Changes", section: "Catalog" },

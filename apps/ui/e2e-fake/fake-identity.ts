@@ -104,6 +104,15 @@
 //                                                  rows [{method, path, status_code, bucket, count, consumer_id?,
 //                                                  consumer_name?, validation_errors?, exceptions?}]; forgets
 //                                                  the settings of those endpoints; down: those reads answer 503
+//   GET  /api/v1/traffic/latency?project=&env=     the Performance page's report (#595) as seeded, its Apdex
+//                                                  scored over the seed's response times against shop's
+//                                                  first app threshold (else 500 ms); empty without a seed
+//   POST /__fake/performance {project, latency?, samples_ms?, endpoints?, down?}
+//                                                  test hook: what that answers, and what the Performance
+//                                                  page's `/traffic/endpoints?limit=500` read answers
+//                                                  (`down`: both answer 503); clears the app thresholds
+//   GET|PUT /api/v1/apps/{id}/settings             an app's response time threshold (#595): null until
+//                                                  saved; PUT answers 403 without capture.manage
 //   GET  /api/v1/deploys/changes?project=          deploys with before/after numbers (#597), as seeded
 //   POST /__fake/deploys {project, deploys}        test hook: what that answers for `project`
 //   GET  /api/v1/consumers?project=&group=         consumers of shop (#596) as seeded, each with the group the
@@ -506,6 +515,10 @@ const endpointSeed = new Map<string, Record<string, unknown>>();
 const endpointReads: { tab: string; method: string; path: string; query: Record<string, string> }[] = [];
 /** "<app id> <METHOD> <path>" → the saved settings of that endpoint (#593). */
 const endpointSettings = new Map<string, Record<string, unknown>>();
+/** Project slug → the response-time report and raw response times of `/traffic/latency` (#595). */
+const performanceSeed = new Map<string, { latency: Record<string, unknown>; samples: number[]; endpoints?: unknown[]; down: boolean }>();
+/** App id → its saved response time threshold in ms (#595); absent means the default. */
+const appThresholds = new Map<string, number>();
 /** An error row the errors dashboard reads count (#594): `count` responses in bucket `bucket`. */
 type ErrorRow = {
   method: string;
@@ -1391,6 +1404,17 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     });
     return send(res, 204);
   }
+  // The Performance page's endpoints read (#595, `limit=500`) answers the `/__fake/performance`
+  // seed when it has endpoints, so its tests never share the Traffic tests' seed.
+  if (req.method === "GET" && path === "/api/v1/traffic/endpoints" && url.searchParams.get("limit") === "500") {
+    const slug = url.searchParams.get("project") ?? "";
+    const endpoints = performanceSeed.get(slug)?.endpoints;
+    const user = signedInUser(req);
+    if (endpoints && user && slug === PROJECT) {
+      if (queryDown.has(slug) || performanceSeed.get(slug)?.down) return problem(res, 503, "unavailable");
+      return send(res, 200, { endpoints });
+    }
+  }
   // The traffic reads as seeded (#592), by environment; same access rules as below.
   if (req.method === "GET" && (path === "/api/v1/traffic/summary" || path === "/api/v1/traffic/endpoints" || path === "/api/v1/traffic/timeseries")) {
     const slug = url.searchParams.get("project") ?? "";
@@ -1649,6 +1673,64 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     });
     for (const r of (b.rows as ErrorRow[] | undefined) ?? []) forgetSettings(r.method, r.path);
     return send(res, 204);
+  }
+  // The Performance page's report (#595): the seed, its Apdex scored like internal/query does
+  // (satisfied <= T, tolerating <= 4T) over the seeded response times against the threshold of
+  // shop's first app, so a saved threshold changes what the next read answers.
+  if (req.method === "GET" && path === "/api/v1/traffic/latency") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = url.searchParams.get("project") ?? "";
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+    const seed = performanceSeed.get(slug);
+    if (queryDown.has(slug) || seed?.down) return problem(res, 503, "unavailable");
+    const range = url.searchParams.get("range") ?? "24h";
+    const empty = { requests: 0, avg_ms: 0, max_ms: 0, p50_ms: 0, p75_ms: 0, p90_ms: 0, p95_ms: 0, p99_ms: 0, apdex: null };
+    const latency = seed?.latency ?? { summary: empty, points: [], histogram: [] };
+    const t = appThresholds.get(shopApps[0]?.id ?? "") ?? 500;
+    const samples = seed?.samples ?? [];
+    const satisfied = samples.filter((ms) => ms <= t).length;
+    const tolerating = samples.filter((ms) => ms > t && ms <= 4 * t).length;
+    const apdex = samples.length ? Math.round(((satisfied + tolerating / 2) / samples.length) * 100) / 100 : null;
+    const summary = { ...empty, ...(latency.summary as Record<string, unknown>), apdex };
+    return send(res, 200, { range, from: "", to: "", bucket_seconds: 900, ...latency, summary });
+  }
+  if (req.method === "POST" && path === "/__fake/performance") {
+    // Test hook: what the Performance report answers for `project`; forgets the app thresholds.
+    const b = await readBody(req);
+    if (b.latency) {
+      performanceSeed.set(String(b.project), {
+        latency: b.latency as Record<string, unknown>,
+        samples: Array.isArray(b.samples_ms) ? (b.samples_ms as number[]) : [],
+        endpoints: Array.isArray(b.endpoints) ? b.endpoints : undefined,
+        down: b.down === true,
+      });
+    } else performanceSeed.delete(String(b.project));
+    appThresholds.clear();
+    return send(res, 204);
+  }
+  // An app's response time threshold (#595): null until saved; saving needs `capture.manage`.
+  const appSettingsPath = path.match(/^\/api\/v1\/apps\/([^/]+)\/settings$/);
+  if (appSettingsPath) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const app = shopApps.find((a) => a.id === decodeURIComponent(appSettingsPath[1]));
+    if (!app) return problem(res, 404, "not_found");
+    const out = () => {
+      const ms = appThresholds.get(app.id) ?? null;
+      return { app_id: app.id, latency_threshold_ms: ms, apdex_threshold_ms: ms ?? 500 };
+    };
+    if (req.method === "GET") return send(res, 200, out());
+    if (req.method === "PUT") {
+      if (!capabilitiesOf(user).includes("capture.manage")) return problem(res, 403, "forbidden");
+      const body = await readBody(req);
+      const ms = body.latency_threshold_ms ?? null;
+      if (ms !== null && !(Number.isInteger(ms) && (ms as number) >= 1 && (ms as number) <= 600_000)) return problem(res, 422, "validation_failed");
+      if (ms === null) appThresholds.delete(app.id);
+      else appThresholds.set(app.id, ms as number);
+      return send(res, 200, out());
+    }
+    return problem(res, 404, "not_found");
   }
   // The query role's dashboard reads as a session (#295, #335): the project in `?project=`; a
   // project the user cannot view answers 404, as internal/query does.
