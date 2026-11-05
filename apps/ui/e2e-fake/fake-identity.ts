@@ -1428,7 +1428,11 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       const env = url.searchParams.get("env") ?? "";
       const seed = seeded?.[env] ?? seeded?.[""];
       if (path === "/api/v1/traffic/timeseries") return send(res, 200, { range, bucket_seconds: 900, points: seed?.points ?? [] });
-      if (path === "/api/v1/traffic/endpoints") return send(res, 200, { endpoints: seed?.endpoints ?? [] });
+      if (path === "/api/v1/traffic/endpoints") {
+        // Endpoints excluded from metrics (#600) leave the list, as the query role does.
+        const excluded = (e: Record<string, unknown>) => shopApps.some((a) => endpointSettings.get(`${a.id} ${String(e.method).toUpperCase()} ${String(e.path)}`)?.excluded === true);
+        return send(res, 200, { endpoints: ((seed?.endpoints ?? []) as Record<string, unknown>[]).filter((e) => !excluded(e)) });
+      }
       return send(res, 200, { ...seed?.summary, range });
     }
   }

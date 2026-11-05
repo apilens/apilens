@@ -6,13 +6,20 @@ import {
   endpointScopeText,
   formatBytes,
   formatShare,
+  isExpected,
   latencyBucketLabel,
+  loadSettingsError,
   parseEndpointQuery,
   parseEndpointRef,
+  QUICK_EXPECTED,
+  settingsBody,
   settingsDraft,
   settingsError,
   sizeBucketLabel,
   tabLoadFailed,
+  thresholdText,
+  toggleExpected,
+  withThreshold,
 } from "./endpoint-detail";
 import { endpointHref } from "./traffic";
 
@@ -163,5 +170,35 @@ describe("settings", () => {
     expect(settingsError("forbidden")).toBe("Only project admins can change endpoint settings.");
     expect(settingsError("timeout")).toBe("We couldn’t reach APILens. Check your connection and try again.");
     expect(settingsError("whatever")).toBe("Something went wrong. Try again in a moment.");
+  });
+});
+
+describe("row menu settings", () => {
+  const saved = { expected_status_codes: [409], latency_threshold_ms: 250, excluded: false };
+
+  it("keeps every other setting when it toggles 404", () => {
+    expect(isExpected(saved, QUICK_EXPECTED)).toBe(false);
+    const marked = toggleExpected(saved, QUICK_EXPECTED);
+    expect(marked).toEqual({ expected_status_codes: [404, 409], latency_threshold_ms: 250, excluded: false });
+    expect(toggleExpected(marked, QUICK_EXPECTED)).toEqual({ expected_status_codes: [409], latency_threshold_ms: 250, excluded: false });
+    expect(toggleExpected({ expected_status_codes: null, latency_threshold_ms: null, excluded: true }, 404)).toEqual({ expected_status_codes: [404], latency_threshold_ms: null, excluded: true });
+  });
+
+  it("sends the saved settings back unchanged", () => {
+    expect(settingsBody({ expected_status_codes: [409, 404], latency_threshold_ms: null, excluded: true })).toEqual({ expected_status_codes: [404, 409], latency_threshold_ms: null, excluded: true });
+  });
+
+  it("checks a typed threshold, empty meaning the app default", () => {
+    expect(withThreshold(saved, " 900 ")).toEqual({ ok: true, settings: { expected_status_codes: [409], latency_threshold_ms: 900, excluded: false } });
+    expect(withThreshold(saved, "")).toEqual({ ok: true, settings: { expected_status_codes: [409], latency_threshold_ms: null, excluded: false } });
+    expect(withThreshold(saved, "0")).toEqual({ ok: false, error: "Enter whole milliseconds from 1 to 600,000, or leave it empty for the app default." });
+    expect(withThreshold(saved, "1.5s").ok).toBe(false);
+  });
+
+  it("words the threshold and read failures", () => {
+    expect(thresholdText(null)).toBe("App default");
+    expect(thresholdText(1500)).toBe("1,500 ms");
+    expect(loadSettingsError("forbidden")).toBe("We couldn’t load this endpoint’s settings just now. Try again in a moment.");
+    expect(loadSettingsError("timeout")).toBe("We couldn’t reach APILens. Check your connection and try again.");
   });
 });

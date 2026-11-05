@@ -1,5 +1,5 @@
 import { RANGE_LABEL, formatCount, formatPerMinute, formatRate } from "@/lib/consumers";
-import type { EndpointTraffic, TrafficPoint, TrafficSummary } from "@/lib/identity";
+import type { EndpointTraffic, NamedApp, TrafficPoint, TrafficSummary } from "@/lib/identity";
 import {
   ENDPOINTS_LOAD_FAILED,
   TIMESERIES_LOAD_FAILED,
@@ -14,6 +14,7 @@ import {
   statusRows,
   trafficHref,
 } from "@/lib/traffic";
+import { EndpointRowMenu, EndpointRowMenus } from "../endpoint/row-menu";
 import { ObIcon } from "../onboarding/ob";
 import { LatencyChart, Sparkline, StatusChart } from "./charts";
 import { EnvPicker } from "./env-picker";
@@ -35,6 +36,7 @@ export function TrafficView({
   summary,
   points,
   endpoints,
+  apps = null,
 }: {
   project: string;
   projectName: string;
@@ -43,6 +45,8 @@ export function TrafficView({
   summary: TrafficSummary | null;
   points: TrafficPoint[] | null;
   endpoints: EndpointTraffic[] | null;
+  /** The project's apps, whose endpoint settings each row's menu edits (#600); null hides the menus. */
+  apps?: NamedApp[] | null;
 }) {
   return (
     <div className="tr">
@@ -105,6 +109,10 @@ export function TrafficView({
               <p className="tr-empty" role="status">
                 No endpoints with requests in {scopeText(q)}.
               </p>
+            ) : apps && apps.length > 0 ? (
+              <EndpointRowMenus project={project} apps={apps}>
+                <EndpointsTable project={project} q={q} endpoints={endpoints} menus />
+              </EndpointRowMenus>
             ) : (
               <EndpointsTable project={project} q={q} endpoints={endpoints} />
             )}
@@ -182,7 +190,7 @@ function Tiles({ summary: s, points }: { summary: TrafficSummary; points: Traffi
   );
 }
 
-function EndpointsTable({ project, q, endpoints }: { project: string; q: TrafficState; endpoints: EndpointTraffic[] }) {
+function EndpointsTable({ project, q, endpoints, menus = false }: { project: string; q: TrafficState; endpoints: EndpointTraffic[]; menus?: boolean }) {
   return (
     <table className="tr-table" aria-label="Endpoints">
       <thead>
@@ -206,6 +214,11 @@ function EndpointsTable({ project, q, endpoints }: { project: string; q: Traffic
           <th scope="col" className="tr-num">
             Apdex
           </th>
+          {menus ? (
+            <th scope="col">
+              <span className="ep-vh">Settings</span>
+            </th>
+          ) : null}
         </tr>
       </thead>
       <tbody>
@@ -234,6 +247,11 @@ function EndpointsTable({ project, q, endpoints }: { project: string; q: Traffic
             <td className="tr-num" data-label="Apdex">
               {formatApdex(ep.apdex)}
             </td>
+            {menus ? (
+              <td className="ep-rowmenu__cell">
+                <EndpointRowMenu method={ep.method} path={ep.path} />
+              </td>
+            ) : null}
           </tr>
         ))}
       </tbody>

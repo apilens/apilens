@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/identity";
 
 const putEndpointSettings = vi.fn();
+const getEndpointSettings = vi.fn();
 
 vi.mock("@/lib/identity", async (orig) => ({
   ...(await orig<typeof import("@/lib/identity")>()),
-  identity: () => ({ putEndpointSettings }),
+  identity: () => ({ putEndpointSettings, getEndpointSettings }),
 }));
 vi.mock("@/lib/server-session", async (orig) => {
   const real = await orig<typeof import("@/lib/server-session")>();
@@ -13,7 +14,7 @@ vi.mock("@/lib/server-session", async (orig) => {
   return { ...real, withActionSession: async <T,>(fn: (s: typeof session) => Promise<T>) => fn(session) };
 });
 
-const { saveEndpointSettings } = await import("./actions");
+const { loadEndpointSettings, saveEndpointSettings } = await import("./actions");
 
 const APP = "7f1c2a3b-4d5e-4f60-8a9b-0c1d2e3f4a5b";
 const BODY = { expected_status_codes: [409, 404], latency_threshold_ms: 250, excluded: false };
@@ -44,5 +45,27 @@ describe("saveEndpointSettings", () => {
       throw new ApiError({ status: 403, code: "forbidden" });
     });
     await expect(saveEndpointSettings("shop", APP, "GET", "/x", BODY)).resolves.toEqual({ ok: false, error: "Only project admins can change endpoint settings.", code: "forbidden" });
+  });
+});
+
+describe("loadEndpointSettings", () => {
+  it("reads the settings as the signed-in user", async () => {
+    const saved = { app_id: APP, method: "GET", path: "/orders/{id}", expected_status_codes: [404], latency_threshold_ms: null, excluded: false, updated_at: null };
+    getEndpointSettings.mockResolvedValue(saved);
+    await expect(loadEndpointSettings("shop", APP, "get", "/orders/{id}")).resolves.toEqual({ ok: true, settings: saved });
+    expect(getEndpointSettings).toHaveBeenCalledWith("shop", APP, "GET", "/orders/{id}", { accessToken: "a" });
+  });
+
+  it("refuses bad input without calling the API", async () => {
+    await expect(loadEndpointSettings("shop", "shop", "GET", "/x")).resolves.toMatchObject({ ok: false, code: "not_found" });
+    await expect(loadEndpointSettings("shop", APP, "GET", "x")).resolves.toMatchObject({ ok: false, code: "not_found" });
+    expect(getEndpointSettings).not.toHaveBeenCalled();
+  });
+
+  it("answers a sentence for API errors", async () => {
+    getEndpointSettings.mockImplementation(async () => {
+      throw new ApiError({ status: 503, code: "unavailable" });
+    });
+    await expect(loadEndpointSettings("shop", APP, "GET", "/x")).resolves.toEqual({ ok: false, error: "We couldn’t reach APILens. Check your connection and try again.", code: "unavailable" });
   });
 });

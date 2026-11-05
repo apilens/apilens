@@ -244,5 +244,49 @@ export function settingsError(code: string): string {
   }
 }
 
+// The endpoint row menu (#600): one-step changes to saved settings ---------------------------
+
+/** The status code the row menu's "Mark 404 as expected" toggles. */
+export const QUICK_EXPECTED = 404;
+
+type SavedSettings = Pick<EndpointSettings, "expected_status_codes" | "latency_threshold_ms" | "excluded">;
+
+/** The settings as the API takes them back, unchanged. */
+export function settingsBody(s: SavedSettings): PutEndpointSettingsRequest {
+  return { expected_status_codes: [...(s.expected_status_codes ?? [])].sort((a, b) => a - b), latency_threshold_ms: s.latency_threshold_ms, excluded: s.excluded };
+}
+
+/** Whether `code` is one of the endpoint's expected status codes. */
+export function isExpected(s: SavedSettings, code: number): boolean {
+  return (s.expected_status_codes ?? []).includes(code);
+}
+
+/** The settings with `code` added to the expected codes, or taken out when it is already there. */
+export function toggleExpected(s: SavedSettings, code: number): PutEndpointSettingsRequest {
+  const body = settingsBody(s);
+  const codes = isExpected(s, code) ? body.expected_status_codes.filter((c) => c !== code) : [...body.expected_status_codes, code];
+  return { ...body, expected_status_codes: codes.sort((a, b) => a - b) };
+}
+
+/** The settings with the latency threshold typed in `raw` (empty means the app default), or the error to show. */
+export function withThreshold(s: SavedSettings, raw: string): { ok: true; settings: PutEndpointSettingsRequest } | { ok: false; error: string } {
+  const checked = checkSettingsDraft({ ...settingsDraft(s), threshold: raw });
+  if (!checked.ok) return { ok: false, error: checked.errors.threshold ?? checked.errors.codes ?? settingsError("invalid_request") };
+  return { ok: true, settings: { ...settingsBody(s), latency_threshold_ms: checked.settings.latency_threshold_ms } };
+}
+
+/** A sentence for an API error code when the row menu reads an endpoint's settings. */
+export function loadSettingsError(code: string): string {
+  if (code === "forbidden" || code === "invalid_request" || code === "validation_failed" || code === "bad_request") {
+    return "We couldn’t load this endpoint’s settings just now. Try again in a moment.";
+  }
+  return settingsError(code);
+}
+
+/** The threshold as the row menu shows it: `250 ms`, or `App default`. */
+export function thresholdText(ms: number | null): string {
+  return ms === null ? "App default" : `${ms.toLocaleString("en-US")} ms`;
+}
+
 export const tabLoadFailed = (tab: EndpointTab) =>
   `We couldn’t load ${ENDPOINT_TABS.find((t) => t.slug === tab)?.label.toLowerCase() ?? "this tab"} just now.`;
