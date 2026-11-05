@@ -19,6 +19,7 @@ from email.utils import parsedate_to_datetime
 
 from .._version import __version__
 from ._sanitize import mask_log_attributes, mask_log_text
+from ._stats import ClientStats
 from .models import LogRecord, RequestRecord, SpanRecord
 
 logger = logging.getLogger("apilens")
@@ -71,6 +72,11 @@ NON_RETRYABLE_LOG_INTERVAL_SECONDS = 300.0
 # Response bodies quoted in logs are truncated to this many bytes.
 MAX_LOGGED_BODY_BYTES = 1024
 TROUBLESHOOTING_URL = "https://apilens.ai/docs/support/troubleshooting"
+# New drops are logged at INFO at most once per window (the DEBUG summary
+# runs every flush interval regardless).
+DROP_LOG_INTERVAL_SECONDS = 60.0
+# ``last_error`` strings are truncated to this many characters.
+MAX_LAST_ERROR_CHARS = 512
 
 
 class _IngestError(RuntimeError):
@@ -170,6 +176,15 @@ def estimate_record_bytes(record: RequestRecord | SpanRecord | LogRecord) -> int
     else:  # pragma: no cover - defensive
         variable = 0
     return RECORD_OVERHEAD_BYTES + variable
+
+
+def _describe_error(exc: BaseException) -> str:
+    """``last_error`` text: the message, plus the response body ingest sent."""
+    text = str(exc) or type(exc).__name__
+    body = getattr(exc, "body", "")
+    if body:
+        text = f"{text}: {body}"
+    return text[:MAX_LAST_ERROR_CHARS]
 
 
 def _dumps(obj) -> bytes:
@@ -289,6 +304,10 @@ class ApiLensConfig:
     # message / payload / attributes and return the record, or return
     # ``None`` to drop it. Built-in ``key=value`` masking runs afterwards.
     mask_log_record: Callable[[LogRecord], LogRecord | None] | None = None
+    # ``(stats) -> None`` called on the flush thread with a ``ClientStats``
+    # snapshot every ``flush_interval`` (e.g. to export to Prometheus/StatsD).
+    # Exceptions it raises are logged at DEBUG and ignored.
+    on_stats: Callable[[ClientStats], None] | None = None
     user_agent: str = f"apilenss/{__version__}"
 
     def __post_init__(self) -> None:
@@ -356,6 +375,16 @@ class ApiLensClient:
         self._drops: dict[str, int] = dict.fromkeys((*DROP_REASONS, DROP_TRUNCATED), 0)
         # status -> monotonic time its rejection was last logged.
         self._non_retryable_logged_at: dict[int, float] = {}
+        # Delivery counters for ``stats()``; written on the flush path only.
+        self._sent_batches = 0
+        self._sent_records = 0
+        self._failed_batches = 0
+        self._last_error = ""
+        self._last_success_at: datetime | None = None
+        # Stats reporting state (flush thread only).
+        self._stats_reported_at: float | None = None
+        self._drops_logged_total = 0
+        self._drops_logged_at: float | None = None
 
         if start_worker and self.config.enabled:
             self.start()
@@ -397,6 +426,57 @@ class ApiLensClient:
         records cut down to fit ``max_batch_bytes`` (sent, not dropped)."""
         with self._lock:
             return dict(self._drops)
+
+    def stats(self) -> ClientStats:
+        """Snapshot of queue depth, delivery counters, drops and the last error.
+
+        Cheap and thread-safe: one short hold of the client lock, which the
+        capture path already takes per record."""
+        with self._lock:
+            return ClientStats(
+                queued_records=len(self._queue) + len(self._span_queue) + len(self._log_queue),
+                queued_bytes=self._queued_bytes,
+                sent_batches=self._sent_batches,
+                sent_records=self._sent_records,
+                failed_batches=self._failed_batches,
+                drop_counts=dict(self._drops),
+                last_error=self._last_error,
+                last_success_at=self._last_success_at,
+            )
+
+    def _report_stats(self, *, force: bool = False) -> None:
+        """Log the stats summary (DEBUG every ``flush_interval``, INFO when new
+        drops happened, rate-limited) and call ``on_stats``. Flush thread only."""
+        now = time.monotonic()
+        if (
+            not force
+            and self._stats_reported_at is not None
+            and now - self._stats_reported_at < self.config.flush_interval
+        ):
+            return
+        self._stats_reported_at = now
+        stats = self.stats()
+        dropped = stats.dropped
+        if dropped > self._drops_logged_total and (
+            force
+            or self._drops_logged_at is None
+            or now - self._drops_logged_at >= DROP_LOG_INTERVAL_SECONDS
+        ):
+            logger.info(
+                "API Lens dropped %d record(s) since the last report: %s",
+                dropped - self._drops_logged_total,
+                stats.summary(),
+            )
+            self._drops_logged_total = dropped
+            self._drops_logged_at = now
+        elif logger.isEnabledFor(logging.DEBUG):
+            logger.debug("API Lens stats: %s", stats.summary())
+        callback = self.config.on_stats
+        if callback is not None:
+            try:
+                callback(stats)
+            except Exception:
+                logger.debug("API Lens on_stats callback raised", exc_info=True)
 
     @property
     def queued_bytes(self) -> int:
@@ -597,6 +677,10 @@ class ApiLensClient:
                 self.flush_once()
             except Exception:  # pragma: no cover
                 logger.exception("Unexpected error while flushing API Lens queue")
+            try:
+                self._report_stats()
+            except Exception:  # pragma: no cover
+                logger.debug("API Lens stats reporting failed", exc_info=True)
 
     def _pop_batch(self, size: int) -> list[RequestRecord]:
         return self._pop_from(self._queue, size)
@@ -665,14 +749,22 @@ class ApiLensClient:
         for attempt in range(self.config.max_retries + 1):
             try:
                 send(batch)
+                with self._lock:
+                    self._sent_batches += 1
+                    self._sent_records += len(batch)
+                    self._last_success_at = datetime.now(tz=timezone.utc)
                 return True
             except _NonRetryableIngestError as exc:
                 with self._lock:
                     self._drops[DROP_NON_RETRYABLE] += len(batch)
+                    self._failed_batches += 1
+                    self._last_error = _describe_error(exc)
                 self._log_non_retryable(exc, len(batch))
                 return False
             except Exception as exc:
                 last_error = exc
+                with self._lock:
+                    self._last_error = _describe_error(exc)
                 if attempt >= self.config.max_retries:
                     break
                 retry_after = getattr(exc, "retry_after", None)
@@ -692,6 +784,7 @@ class ApiLensClient:
 
         with self._lock:
             self._drops[DROP_RETRIES_EXHAUSTED] += len(batch)
+            self._failed_batches += 1
         logger.warning(
             "API Lens ingest failed after %d attempt(s); dropping batch of %d records: %s",
             self.config.max_retries + 1,

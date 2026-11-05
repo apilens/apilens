@@ -34,6 +34,7 @@ That is the whole setup. No agent, no sidecar, no code changes to your handlers.
 - [Configuration reference](#configuration-reference)
 - [Manual capture](#manual-capture)
 - [Reliability & performance](#reliability--performance)
+- [SDK health & stats](#sdk-health--stats)
 - [Deployment shapes](#deployment-shapes)
 - [Security & privacy](#security--privacy)
 - [Network requirements](#network-requirements)
@@ -455,6 +456,7 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `ca_bundle_path` | `""` | Custom CA bundle (PEM) for TLS verification; replaces the system trust store. |
 | `proxy_url` | `""` | Egress proxy for ingest traffic, e.g. `http://proxy.corp:3128` or `http://user:pass@proxy.corp:3128`. Falls back to env `APILENS_PROXY`, then `HTTPS_PROXY` / `HTTP_PROXY`. See [network requirements](#network-requirements). |
 | `enabled` | `True` | Master switch; `False` disables capture and the worker entirely. |
+| `on_stats` | `None` | `(ClientStats) -> None`, called on the flush thread every `flush_interval` with a stats snapshot, e.g. to export to Prometheus or StatsD. Exceptions are logged at DEBUG and ignored. See [SDK health & stats](#sdk-health--stats). |
 
 ### Middleware options
 
@@ -636,6 +638,65 @@ backpressure and `client.drop_counts()` breaks that total down by reason (see
 - **Graceful shutdown.** The framework integrations drain the queue when the
   app shuts down, never blocking longer than `shutdown_timeout`; see
   [Deployment shapes](#deployment-shapes).
+
+---
+
+## SDK health & stats
+
+`client.stats()` returns a `ClientStats` snapshot of the delivery pipeline. It is
+thread-safe and cheap (one short hold of the lock the capture path already uses),
+so it is fine to call from a health or metrics endpoint.
+
+| Field | Meaning |
+|---|---|
+| `queued_records` | Records waiting in the request, span and log queues. |
+| `queued_bytes` | Estimated size of those records (bounded by `max_queue_bytes`). |
+| `sent_batches` / `sent_records` | Batches and records ingest accepted (2xx), since start. |
+| `failed_batches` | Batches dropped after a non-retryable 4xx or after `max_retries`. |
+| `drop_counts` | Records dropped, by reason (same keys as `client.drop_counts()`). |
+| `dropped` | Sum of `drop_counts`, excluding `truncated` (those were still sent). |
+| `last_error` | The most recent ingest failure (including retried attempts); empty until one happens. |
+| `last_success_at` | UTC `datetime` of the last accepted batch, or `None`. |
+
+`stats.to_dict()` gives a JSON-ready form and `stats.summary()` a one-line string.
+
+**Logging.** With the `apilens` logger at DEBUG, the flush thread logs
+`API Lens stats: queued=… sent=… failed_batches=… dropped=… last_success=…` every
+`flush_interval`. When records were dropped since the last report it logs the same
+line at INFO instead, at most once a minute, so drops show up with default logging
+without flooding it.
+
+**Exporting.** Pass `on_stats` to push each snapshot to your metrics system. It runs
+on the background flush thread every `flush_interval`; keep it quick and non-blocking.
+
+```python
+from prometheus_client import Gauge
+
+from apilens import ApiLensClient, ApiLensConfig, ClientStats
+
+queued = Gauge("apilens_queued_records", "Records waiting to be sent")
+sent = Gauge("apilens_sent_records", "Records accepted by ingest")
+failed = Gauge("apilens_failed_batches", "Batches dropped after failing")
+dropped = Gauge("apilens_dropped_records", "Records dropped", ["reason"])
+
+def export(stats: ClientStats) -> None:
+    queued.set(stats.queued_records)
+    sent.set(stats.sent_records)
+    failed.set(stats.failed_batches)
+    for reason, count in stats.drop_counts.items():
+        dropped.labels(reason).set(count)
+
+client = ApiLensClient(ApiLensConfig(api_key="...", on_stats=export))
+```
+
+With StatsD the callback is the same shape (`statsd.gauge("apilens.queued_records",
+stats.queued_records)` and so on). The counters are cumulative, so export them as
+gauges, or as counters by sending the difference from the previous snapshot.
+
+**Rollout checklist.** After deploying, confirm `last_success_at` advances and
+`sent_records` grows; `failed_batches` or `dropped` rising with a non-empty
+`last_error` points at the cause (a 401 means a bad key; network errors mean egress
+is blocked, see [Network requirements](#network-requirements)).
 
 ---
 
