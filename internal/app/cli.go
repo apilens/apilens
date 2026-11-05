@@ -62,6 +62,10 @@ Usage:
                                               (the identity role also runs it hourly)
   apilens identity create-client [flags]      register a client of the built-in OIDC provider
                                               and print its id and secret
+  apilens pii-audit -project=... [-since=1h] | -csv=file
+                                              scan captured requests for value-level PII
+                                              (emails, cards, IBANs, JWTs, national ids);
+                                              exits 1 when anything is found
   apilens healthcheck [-url=...]              exit 0 if the readiness endpoint answers 200
   apilens openapi                             print the OpenAPI 3.1 document
   apilens version                             print build information
@@ -95,6 +99,8 @@ func Main(args []string, stdout, stderr io.Writer, environ []string) int {
 		err = runIdentity(ctx, args, stdout, stderr, environ)
 	case "authz":
 		err = runAuthz(ctx, args, stdout, stderr, environ)
+	case "pii-audit":
+		err = runPIIAudit(ctx, args, stdout, stderr, environ)
 	case "healthcheck":
 		err = runHealthcheck(ctx, args, stderr)
 	case "openapi":

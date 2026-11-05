@@ -1,0 +1,86 @@
+---
+title: "PII audit"
+description: "Phase 3 gate of a third-party rollout: scan captured data for values that look like personal data, and promote to the redacted posture only at zero hits."
+---
+
+Masking in the SDK works by field **name**: the [redaction manifest](/guides/redaction-manifest) lists the query parameters, headers and body fields to mask. Values that slip past it, such as an email inside a free-text `note`, a card number in a query string, or a bearer token echoed in a response, can only be found by looking at the values themselves. `apilens pii-audit` does that.
+
+Run it at the end of phase 3, after the manifest's patterns are in the SDK configuration and the service has sent real traffic to a staging project. **The phase is done when the audit reports zero hits.** Every hit becomes a new manifest row, an exclusion, or a fix in the service, and then the audit runs again.
+
+## What it detects
+
+| Pattern | Matches | Validation |
+|---|---|---|
+| `email` | `jane.doe@example.com` | — |
+| `card` | 13 to 19 digits, optionally grouped with spaces or dashes | Luhn checksum; runs of one repeated digit are ignored |
+| `iban` | `GB82 WEST 1234 5698 7654 32` | ISO 13616 mod-97 checksum |
+| `jwt` | `eyJ….eyJ….signature` | header and payload must be base64url JSON objects |
+| `us_ssn` | `123-45-6789` | rejects area 000, 666 and 9xx, group 00, serial 0000 |
+| `uk_nino` | `AB 12 34 56 C` | HMRC letter rules and unallocated prefixes |
+| `in_pan` | `ABCPE1234F` | the fourth letter must be a valid holder type |
+
+The detectors run in that order and each match is blanked before the next detector runs, so the digits inside a JWT or an IBAN are not reported a second time as a card number. Query strings in `raw_path` are percent-decoded first, so `?email=jane%40example.com` is found.
+
+## Running it
+
+Against the newest captured requests of a project in ClickHouse (the project is an id or a slug; slugs are resolved in Postgres). It reads the same configuration as the server: `APILENS_CLICKHOUSE__*`, `APILENS_POSTGRES__URL`, or `-config.file`.
+
+```bash
+apilens pii-audit -project=checkout-staging -since=1h -limit=10000
+```
+
+Against a CSV export, for example rows exported from the request log, or a sample someone sent you. The file needs a header row with a `path` (or `raw_path`) column; a `method` column is used for the endpoint when present. Every other column except identifiers, timings and sizes is scanned. Use `-csv=-` to read standard input.
+
+```bash
+apilens pii-audit -csv=requests.csv
+```
+
+From ClickHouse it scans `raw_path`, `request_headers`, `response_headers`, `request_payload` and `response_payload`. Either way it prints one row per endpoint, field and pattern:
+
+```
+ENDPOINT          FIELD             PATTERN  COUNT  SAMPLE
+POST /users       request_payload   email    214    ja********om
+GET /search       raw_path          email    37     bo********om
+POST /payouts     request_payload   iban     5      GB********32
+```
+
+Samples are masked: at most two characters are kept at each end. The report is safe to paste into a ticket.
+
+The command exits with status 1 when it finds anything, so it can gate a pipeline. A summary line (`pii-audit: scanned N records, M hits`) goes to standard error.
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-project` | | project id or slug to sample from ClickHouse |
+| `-since` | `1h` | how far back to sample |
+| `-limit` | `10000` | most recent requests to sample |
+| `-csv` | | scan this CSV export instead (`-` for stdin); give exactly one of `-csv` and `-project` |
+| `-format` | `table` | `table` or `json` |
+| `-pattern` | | extra detector as `name=regex`, repeatable |
+| `-patterns-file` | | file of extra detectors, one `name=regex` per line, `#` comments |
+| `-no-defaults` | `false` | run only the extra detectors |
+
+## Adding patterns
+
+Identifiers specific to the service (member numbers, policy ids, a national id format not built in) go in a patterns file kept next to the redaction manifest:
+
+```text
+# pii-patterns.txt
+member_id=\bM-\d{6}\b
+policy_no=\bPOL\d{8}\b
+```
+
+```bash
+apilens pii-audit -project=checkout-staging -patterns-file=pii-patterns.txt
+```
+
+Patterns use [Go regular expression syntax](https://pkg.go.dev/regexp/syntax) and are case-sensitive; prefix with `(?i)` to ignore case.
+
+## Reading the results
+
+For each row:
+
+1. **A named field** (an email in `request_payload` under a key you can see): add the field to the manifest and its pattern to `redact_body_fields`, `redact_headers` or `redact_query_params`.
+2. **A value in `raw_path`'s path part** (an email in `/users/jane@example.com`): it cannot be masked by name. Exclude the route or change it, and record the decision under the manifest's exclusions.
+3. **A false positive** (an order number that happens to pass Luhn): note it in the manifest's review table with the endpoint and field, so the next audit's reader does not chase it again.
+
+Then deploy the new configuration, let fresh traffic arrive, and run the audit with a `-since` window that starts after the deploy. Record the date of the clean run in the manifest's **Verified** column.
