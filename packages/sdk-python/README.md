@@ -536,6 +536,22 @@ backpressure.
   `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key`,
   `api-key`, `x-auth-token`, `x-amz-security-token`, and `x-csrf-token` are
   replaced with `[redacted]`. Header JSON is capped at 8 KB.
+- **Default masking patterns always apply** (no configuration needed). Each
+  regex is matched case-insensitively (`re.search`) against the *name*; matched
+  values are stored as `[redacted]`:
+
+  | Applies to | Built-in patterns (`apilens.client._sanitize`) |
+  |---|---|
+  | Query params (`DEFAULT_MASK_QUERY_PARAMS`) | `auth`, `api.?key`, `secret`, `token`, `password`, `pwd` |
+  | Headers (`DEFAULT_MASK_HEADER_PATTERNS`) | `auth`, `api.?key`, `secret`, `token`, `cookie` |
+  | JSON body fields (`DEFAULT_MASK_BODY_FIELDS`) | `password`, `pwd`, `token`, `secret`, `auth`, `card.?number`, `ccv`, `cvv`, `cvc`, `ssn` |
+
+  So `/search?token=abc` is stored as `/search?token=[redacted]`. Body masking
+  covers string **and** number values (plus nested objects/arrays under a
+  matching name); booleans and `null` stay visible. `redact_query_params`,
+  `redact_headers` and `redact_body_fields` (Django: `APILENS_REDACT_*`) add
+  your own patterns on top — they extend the defaults, never replace them.
+  Patterns are compiled once per middleware, never per request.
 - **Bodies are size-limited** to `max_payload_bytes` (64 KB default). Disable body
   capture entirely with `capture_payloads=False` (or `max_payload_bytes=0`, or
   `APILENS_MAX_PAYLOAD_BYTES=0` on Django).

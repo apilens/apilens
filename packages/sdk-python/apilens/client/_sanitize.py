@@ -28,6 +28,37 @@ SENSITIVE_HEADERS = frozenset(
     }
 )
 
+# Built-in name patterns that are ALWAYS masked (Apitally parity). User-supplied
+# patterns extend these, never replace them. Each is matched case-insensitively
+# with ``re.search`` against the parameter / header / JSON field *name*.
+DEFAULT_MASK_QUERY_PARAMS: tuple[str, ...] = (
+    r"auth",
+    r"api.?key",
+    r"secret",
+    r"token",
+    r"password",
+    r"pwd",
+)
+DEFAULT_MASK_HEADER_PATTERNS: tuple[str, ...] = (
+    r"auth",
+    r"api.?key",
+    r"secret",
+    r"token",
+    r"cookie",
+)
+DEFAULT_MASK_BODY_FIELDS: tuple[str, ...] = (
+    r"password",
+    r"pwd",
+    r"token",
+    r"secret",
+    r"auth",
+    r"card.?number",
+    r"ccv",
+    r"cvv",
+    r"cvc",
+    r"ssn",
+)
+
 # Cap on the serialized header JSON so a pathological request can't bloat a row.
 _MAX_HEADER_BYTES = 8192
 
@@ -36,10 +67,29 @@ _MAX_HEADER_BYTES = 8192
 _MAX_BODY_DEPTH = 32
 
 
+def _compile(defaults: Sequence[str], extra: Sequence[str] | None) -> re.Pattern[str]:
+    """Combine built-in and user patterns into ONE case-insensitive regex.
+
+    Each source pattern is wrapped in its own non-capturing group so alternation
+    can't change its meaning; ``search`` on the union is equivalent to "any
+    pattern matches" but costs a single regex call per name.
+    """
+    patterns = [*defaults, *(extra or ())]
+    # Validate each pattern on its own so a bad user regex fails loudly at
+    # middleware construction with a precise error, not a confusing union one.
+    for p in patterns:
+        re.compile(p)
+    return re.compile("|".join(f"(?:{p})" for p in patterns), re.IGNORECASE)
+
+
+_DEFAULT_HEADER_RE = _compile(DEFAULT_MASK_HEADER_PATTERNS, ())
+
+
 class Redactor:
     """Compiled PII redaction rules for captured request data.
 
-    Built once per middleware from user-supplied regex lists; every pattern is
+    Built once per middleware: the built-in ``DEFAULT_MASK_*`` patterns always
+    apply and the user-supplied regex lists extend them. Every pattern is
     matched case-insensitively with ``re.search`` against the *name* of the
     thing being redacted (query parameter, header, or JSON body field). Use
     anchors for exact matches (``r"^card_number$"``).
@@ -56,16 +106,15 @@ class Redactor:
         headers: Sequence[str] = (),
         body_fields: Sequence[str] = (),
     ) -> None:
-        self.query_params = [re.compile(p, re.IGNORECASE) for p in (query_params or ())]
-        self.headers = [re.compile(p, re.IGNORECASE) for p in (headers or ())]
-        self.body_fields = [re.compile(p, re.IGNORECASE) for p in (body_fields or ())]
-
-    @staticmethod
-    def _matches(patterns: list[re.Pattern[str]], name: str) -> bool:
-        return any(p.search(name) for p in patterns)
+        # Compiled exactly once here; nothing is compiled per request.
+        self.query_params = _compile(DEFAULT_MASK_QUERY_PARAMS, query_params)
+        self.headers = (
+            _DEFAULT_HEADER_RE if not headers else _compile(DEFAULT_MASK_HEADER_PATTERNS, headers)
+        )
+        self.body_fields = _compile(DEFAULT_MASK_BODY_FIELDS, body_fields)
 
     def header_matches(self, name: str) -> bool:
-        return bool(self.headers) and self._matches(self.headers, name)
+        return self.headers.search(name) is not None
 
     def redact_query(self, query: str) -> str:
         """Redact matching parameter values within a raw query string.
@@ -73,14 +122,19 @@ class Redactor:
         Unparseable input is passed through untouched — capture must never
         break a request over a weird query string.
         """
-        if not query or not self.query_params:
+        if not query:
             return query
         try:
             pairs = parse_qsl(query, keep_blank_values=True)
             if not pairs:
                 return query
+            pattern = self.query_params
+            if not any(pattern.search(k) for k, _ in pairs):
+                # Nothing sensitive: keep the original encoding byte-for-byte.
+                return query
+            redacted = [(k, REDACTED if pattern.search(k) else v) for k, v in pairs]
             return urlencode(
-                [(k, REDACTED if self._matches(self.query_params, k) else v) for k, v in pairs],
+                redacted,
                 # Keep "[redacted]" readable in the request log instead of %5Bredacted%5D.
                 quote_via=lambda s, safe, enc, err: quote(s, safe=str(safe) + "[]", encoding=enc, errors=err),
             )
@@ -90,10 +144,15 @@ class Redactor:
     def redact_body(self, payload: str) -> str:
         """Redact matching field values in a JSON body (recursively).
 
-        Non-JSON payloads are returned unchanged — field-level redaction only
-        makes sense for structured bodies.
+        A matching field's value is masked when it is a string or a number
+        (stricter than string-only masking: numeric card numbers / PINs are
+        caught too) and also when it is a nested object or array, which is
+        masked whole. Booleans and ``null`` carry no secret and stay visible.
+        Bodies with no matching field are returned byte-for-byte. Non-JSON
+        payloads are returned unchanged — field-level redaction only makes
+        sense for structured bodies.
         """
-        if not payload or not self.body_fields:
+        if not payload:
             return payload
         try:
             data = json.loads(payload)
@@ -101,21 +160,31 @@ class Redactor:
             return payload
         if not isinstance(data, (dict, list)):
             return payload
+        pattern = self.body_fields
+        changed = False
 
         def walk(node, depth: int):
+            nonlocal changed
             if depth > _MAX_BODY_DEPTH:
                 return node
             if isinstance(node, dict):
-                return {
-                    k: REDACTED if self._matches(self.body_fields, str(k)) else walk(v, depth + 1)
-                    for k, v in node.items()
-                }
+                out = {}
+                for k, v in node.items():
+                    if v is not None and not isinstance(v, bool) and pattern.search(str(k)):
+                        out[k] = REDACTED
+                        changed = True
+                    else:
+                        out[k] = walk(v, depth + 1)
+                return out
             if isinstance(node, list):
                 return [walk(v, depth + 1) for v in node]
             return node
 
         try:
-            return json.dumps(walk(data, 0), separators=(",", ":"), ensure_ascii=False)
+            result = walk(data, 0)
+            if not changed:
+                return payload
+            return json.dumps(result, separators=(",", ":"), ensure_ascii=False)
         except Exception:
             return payload
 
@@ -153,8 +222,9 @@ def serialize_headers(
     """Serialize a header map to a compact JSON string, redacting secrets.
 
     Returns ``""`` when there are no headers. Sensitive values are replaced with
-    ``[redacted]`` — the built-in :data:`SENSITIVE_HEADERS` always apply, and a
-    ``redactor`` adds the app's own header patterns on top. The whole blob is
+    ``[redacted]`` — the exact-name :data:`SENSITIVE_HEADERS` and the
+    :data:`DEFAULT_MASK_HEADER_PATTERNS` always apply, and a ``redactor`` adds
+    the app's own header patterns on top. The whole blob is
     capped so it can't dominate a row.
     """
     if not headers:
@@ -164,7 +234,12 @@ def serialize_headers(
         name = (key or "").lower()
         if not name:
             continue
-        sensitive = name in SENSITIVE_HEADERS or (redactor is not None and redactor.header_matches(name))
+        if name in SENSITIVE_HEADERS:
+            sensitive = True
+        elif redactor is not None:
+            sensitive = redactor.header_matches(name)
+        else:
+            sensitive = _DEFAULT_HEADER_RE.search(name) is not None
         safe[name] = REDACTED if sensitive else str(value)
     if not safe:
         return ""
