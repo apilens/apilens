@@ -31,6 +31,9 @@ services:
     environment:
       # Flush quickly so tests don't wait on the batching interval.
       APILENS_SINK__FLUSH_INTERVAL: 100ms
+      # A low per-project quota so test/e2e/quota_e2e_test.go can reach the
+      # 429 with two full batches; the other e2e tests stay far below it.
+      APILENS_INGEST__QUOTA__RECORDS_PER_MINUTE: "2000"
       APILENS_EMAIL__PROVIDER: smtp
       APILENS_EMAIL__HOST: mailpit
       APILENS_EMAIL__PORT: "1025"
