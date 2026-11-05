@@ -40,6 +40,10 @@ class RequestRecord:
     # Custom metadata from ``set_request_attribute`` (str/int/float/bool
     # values). Sent as a JSON object; omitted when empty.
     attributes: dict[str, str | int | float | bool] | None = None
+    # Field errors parsed from a framework validation response (FastAPI /
+    # Django Ninja 422, Litestar 400): ``[{loc, msg, type}]``, at most 20,
+    # ``loc`` dotted. Sent only when non-empty.
+    validation_errors: list[dict[str, str]] | None = None
 
     def to_wire(self) -> dict[str, object]:
         ts = self.timestamp
@@ -89,6 +93,11 @@ class RequestRecord:
             wire["sampled"] = False
         if self.attributes:
             wire["attributes"] = dict(self.attributes)
+        if self.validation_errors:
+            wire["validation_errors"] = [
+                {"loc": str(e.get("loc") or ""), "msg": str(e.get("msg") or ""), "type": str(e.get("type") or "")}
+                for e in self.validation_errors[:20]
+            ]
         return wire
 
 

@@ -34,6 +34,8 @@ class CaptureContext:
     sampled: bool = True
     # Custom attributes from ``set_request_attribute`` (snapshot at response time).
     attributes: dict | None = None
+    # Parsed framework validation errors (``_validation.parse_validation_errors``).
+    validation_errors: list[dict[str, str]] | None = None
 
 
 
@@ -226,4 +228,5 @@ def capture_response(
         span_id=ctx.span_id,
         sampled=ctx.sampled,
         attributes=ctx.attributes or None,
+        validation_errors=ctx.validation_errors or None,
     )
