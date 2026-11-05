@@ -517,6 +517,7 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `exclude_user_agents` | `None` | Regexes for `User-Agent` values to skip entirely, e.g. `[r"^uptimerobot"]`. Case-insensitive `re.search`. `APILENS_EXCLUDE_USER_AGENTS` (comma-separated env var) adds to it. |
 | `default_exclusions` | `True` | Skip the [built-in health/probe exclusions](#default-exclusions) (applied before `exclude_paths`). `False` turns them off; your own `exclude_paths` / `exclude_user_agents` still apply. |
 | `sample_rate` | `1.0` | Fraction (0.0–1.0) of requests whose detail — headers, bodies, spans, auto error log — is kept. See [sampling](#sampling). A value outside the range raises at startup. |
+| `sample_on_request` | `None` | `(RequestInfo) -> bool \| float \| None` evaluated before the handler; overrides `sample_rate` per request. See [sampling](#sampling). |
 
 ### Sampling
 
@@ -530,6 +531,31 @@ headers, bodies, spans or error log. Their bodies are never buffered.
 sends the base record only. A sampled-out request still continues the
 caller's `traceparent` and propagates it downstream, so child services decide
 independently.
+
+`sample_on_request` decides per request, at request start — before the handler
+runs and before any body is buffered. It receives an `apilens.RequestInfo`
+(`method`, `path`, `query`, `user_agent`, `headers`, `client_ip`; the query and
+headers are unredacted since nothing has left the app yet) and returns:
+
+- `True` / `False` — final: keep / drop this request's detail.
+- a float — the probability of keeping it (clamped to 0.0–1.0).
+- `None` — fall back to `sample_rate`.
+
+```python
+def sample(info):
+    if info.path.startswith("/admin"):
+        return True          # always keep
+    if info.user_agent.startswith("kube-probe"):
+        return False         # never keep detail
+    return None              # use sample_rate
+
+app.add_middleware(ApiLensMiddleware, api_key="apilens_xxx", app_id="orders-api",
+                   sample_rate=0.1, sample_on_request=sample)
+```
+
+An exception raised by the callback never reaches your handler: it is logged
+once (logger `apilens`) and treated as `None`. As with `sample_rate`, a
+sampled-out request still sends its base record.
 
 ### Default exclusions
 
@@ -641,6 +667,7 @@ the setting wins when both are set.
 | `APILENS_EXCLUDE_USER_AGENTS` | `None` | User agents to skip entirely: a list of regexes or a comma-separated string. The env var of the same name adds to it. |
 | `APILENS_DEFAULT_EXCLUSIONS` | `True` | `False` turns off the [built-in health/probe exclusions](#default-exclusions). |
 | `APILENS_SAMPLE_RATE` | `1.0` | Fraction of requests whose detail is kept; metrics always count every request (see [sampling](#sampling)). |
+| `APILENS_SAMPLE_ON_REQUEST` | `None` | Per-request sampling callback (callable or dotted path), see [sampling](#sampling). An unimportable path raises at startup. |
 | `APILENS_FLUSH_ON_SHUTDOWN` | `True` | Flush the queue from `atexit` when the process exits. The env var of the same name set to `false` also disables it. |
 | `APILENS_SHUTDOWN_TIMEOUT` | `5.0` | Upper bound, in seconds, on the shutdown flush. |
 

@@ -349,13 +349,17 @@ def omitted_body(content_type: str | None, size: int) -> str:
 
 @dataclass(frozen=True, slots=True)
 class RequestInfo:
-    """What a ``mask_request_body`` callback is told about the request.
+    """What a ``sample_on_request`` / ``mask_request_body`` callback is told
+    about the request.
 
     ``path`` is the request path without query string; ``raw_path`` is the
-    exact URL with any sensitive query values already redacted. ``headers``
-    are the request headers with lower-cased names, unredacted (the callback
-    runs in-process, nothing has left the app yet). ``attributes`` holds the
-    custom attributes the handler set with ``set_request_attribute``.
+    exact URL with any sensitive query values already redacted. ``query`` is
+    the raw query string (no ``?``) and ``headers`` the request headers with
+    lower-cased names, both unredacted (callbacks run in-process, nothing has
+    left the app yet). ``client_ip`` is the client address (first
+    ``X-Forwarded-For`` hop when present). ``attributes`` holds the custom
+    attributes the handler set with ``set_request_attribute`` (always empty
+    for ``sample_on_request``, which runs before the handler).
     """
 
     method: str
@@ -363,10 +367,16 @@ class RequestInfo:
     raw_path: str = ""
     headers: Mapping[str, str] = field(default_factory=dict)
     attributes: Mapping[str, Any] = field(default_factory=dict)
+    query: str = ""
+    client_ip: str = ""
 
     @property
     def content_type(self) -> str:
         return str(self.headers.get("content-type") or "")
+
+    @property
+    def user_agent(self) -> str:
+        return str(self.headers.get("user-agent") or "").strip()
 
 
 @dataclass(frozen=True, slots=True)
