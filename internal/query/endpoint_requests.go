@@ -30,8 +30,8 @@ const topConsumers = 10
 
 type endpointRequestsInput struct {
 	RangeInput
-	Method   string `path:"method" pattern:"^[A-Za-z]{1,16}$" doc:"HTTP method, e.g. GET (case-insensitive)."`
-	Path     string `path:"path" minLength:"1" maxLength:"1024" doc:"Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}."`
+	Method   string `path:"method" pattern:"^[A-Za-z]{1,16}$" example:"GET" doc:"HTTP method, e.g. GET (case-insensitive)."`
+	Path     string `path:"path" minLength:"1" maxLength:"1024" example:"/orders/{id}" doc:"Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}."`
 	Status   string `query:"status" enum:"all,2xx,3xx,4xx,5xx" default:"all" doc:"Only requests with a status code in this class."`
 	Consumer string `query:"consumer" maxLength:"256" doc:"Only requests from this consumer id; empty means all."`
 }
@@ -39,7 +39,7 @@ type endpointRequestsInput struct {
 // StatusSplit counts requests by outcome. Exported so Huma reads the fields
 // of the types embedding it.
 type StatusSplit struct {
-	Requests     uint64 `json:"requests"`
+	Requests     uint64 `json:"requests" doc:"All requests."`
 	Successful   uint64 `json:"successful" doc:"Requests with a status code below 400."`
 	ClientErrors uint64 `json:"client_errors" doc:"Requests with a 4xx status code."`
 	ServerErrors uint64 `json:"server_errors" doc:"Requests with a 5xx status code."`
@@ -47,7 +47,7 @@ type StatusSplit struct {
 
 type endpointRequestsSummary struct {
 	StatusSplit
-	RequestsPerMinute float64 `json:"requests_per_minute"`
+	RequestsPerMinute float64 `json:"requests_per_minute" doc:"requests / minutes of the range."`
 }
 
 type endpointRequestsPoint struct {
@@ -56,20 +56,20 @@ type endpointRequestsPoint struct {
 }
 
 type endpointConsumer struct {
-	ConsumerID   string `json:"consumer_id"`
+	ConsumerID   string `json:"consumer_id" doc:"Consumer id the SDK reported."`
 	ConsumerName string `json:"consumer_name" doc:"Most recently reported name of the consumer."`
 	StatusSplit
 }
 
 type endpointRequestsOutput struct {
 	Body struct {
-		Method        string                  `json:"method"`
-		Path          string                  `json:"path"`
-		Range         string                  `json:"range"`
-		From          time.Time               `json:"from"`
-		To            time.Time               `json:"to"`
-		BucketSeconds int                     `json:"bucket_seconds"`
-		Summary       endpointRequestsSummary `json:"summary"`
+		Method        string                  `json:"method" doc:"HTTP method of the endpoint, upper case."`
+		Path          string                  `json:"path" doc:"Route template of the endpoint, e.g. /orders/{id}."`
+		Range         string                  `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
+		From          time.Time               `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
+		To            time.Time               `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
+		BucketSeconds int                     `json:"bucket_seconds" doc:"Width of each series bucket, in seconds."`
+		Summary       endpointRequestsSummary `json:"summary" doc:"Requests of the whole range by outcome."`
 		Points        []endpointRequestsPoint `json:"points" doc:"One point per bucket of the range, zero-filled."`
 		Consumers     []endpointConsumer      `json:"consumers" doc:"Top consumers by requests (at most 10); requests without a consumer are left out."`
 	}

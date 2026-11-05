@@ -623,6 +623,7 @@
         "additionalProperties": false,
         "properties": {
           "environment": {
+            "description": "Environment name the heartbeats reported.",
             "type": "string"
           },
           "last_seen_at": {
@@ -670,6 +671,7 @@
             "type": "string"
           },
           "app_id": {
+            "description": "The app's id.",
             "format": "uuid",
             "type": "string"
           },
@@ -706,23 +708,29 @@
         "additionalProperties": false,
         "properties": {
           "commit": {
+            "description": "Commit of the app the instance runs; empty when not configured.",
             "type": "string"
           },
           "environment": {
+            "description": "Environment the instance reports from.",
             "type": "string"
           },
           "first_seen_at": {
+            "description": "Time of the instance's first heartbeat.",
             "format": "date-time",
             "type": "string"
           },
           "instance_id": {
+            "description": "Instance id the SDK generated for its process.",
             "type": "string"
           },
           "last_seen_at": {
+            "description": "Time of the instance's last heartbeat.",
             "format": "date-time",
             "type": "string"
           },
           "pid": {
+            "description": "Operating-system process id; null when the SDK did not send one.",
             "format": "int64",
             "type": [
               "integer",
@@ -730,9 +738,11 @@
             ]
           },
           "release": {
+            "description": "Release of the app the instance runs; empty when not configured.",
             "type": "string"
           },
           "runtime": {
+            "description": "Language runtime and version, e.g. python 3.13.1.",
             "type": "string"
           },
           "sdk_latest_version": {
@@ -740,6 +750,7 @@
             "type": "string"
           },
           "sdk_name": {
+            "description": "SDK package name, e.g. apilenss, apilens-js-sdk, apilens-java-sdk.",
             "type": "string"
           },
           "sdk_outdated": {
@@ -747,6 +758,7 @@
             "type": "boolean"
           },
           "sdk_version": {
+            "description": "SDK version the instance runs.",
             "type": "string"
           },
           "stats": {
@@ -755,6 +767,7 @@
             "type": "object"
           },
           "status": {
+            "description": "reporting when the instance sent a heartbeat in the last 2 minutes, stale in the last hour, silent when older.",
             "enum": [
               "reporting",
               "stale",
@@ -1099,10 +1112,12 @@
             "type": "string"
           },
           "app_id": {
+            "description": "The app's id.",
             "format": "uuid",
             "type": "string"
           },
           "environments": {
+            "description": "Reporting state per environment the app sent heartbeats from, by name.",
             "items": {
               "$ref": "#/components/schemas/AppEnvironmentStatus"
             },
@@ -1504,14 +1519,17 @@
             "type": "string"
           },
           "assigned_at": {
+            "description": "When the consumer was put in the group.",
             "format": "date-time",
             "type": "string"
           },
           "consumer_id": {
+            "description": "Consumer id the SDK reported.",
             "type": "string"
           },
           "group": {
-            "$ref": "#/components/schemas/ConsumerGroupRef"
+            "$ref": "#/components/schemas/ConsumerGroupRef",
+            "description": "The group the consumer is now in."
           }
         },
         "required": [
@@ -1568,17 +1586,21 @@
             "type": "integer"
           },
           "created_at": {
+            "description": "When the group was created.",
             "format": "date-time",
             "type": "string"
           },
           "id": {
+            "description": "The group's id.",
             "format": "uuid",
             "type": "string"
           },
           "name": {
+            "description": "Display name, unique in the project ignoring case.",
             "type": "string"
           },
           "updated_at": {
+            "description": "When the group was last renamed.",
             "format": "date-time",
             "type": "string"
           }
@@ -1620,10 +1642,12 @@
         "additionalProperties": false,
         "properties": {
           "id": {
+            "description": "The group's id.",
             "format": "uuid",
             "type": "string"
           },
           "name": {
+            "description": "The group's display name.",
             "type": "string"
           }
         },
@@ -1674,10 +1698,12 @@
             "type": "string"
           },
           "bucket_seconds": {
+            "description": "Width of each series bucket, in seconds.",
             "format": "int64",
             "type": "integer"
           },
           "consumer_id": {
+            "description": "Consumer id the SDK reported.",
             "type": "string"
           },
           "consumer_name": {
@@ -1685,10 +1711,12 @@
             "type": "string"
           },
           "first_seen": {
+            "description": "First request ever seen from the consumer in the project.",
             "format": "date-time",
             "type": "string"
           },
           "from": {
+            "description": "Start of the range (inclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           },
@@ -1697,6 +1725,7 @@
             "description": "The consumer group the consumer is assigned to; absent when none."
           },
           "last_seen": {
+            "description": "Last request ever seen from the consumer in the project.",
             "format": "date-time",
             "type": "string"
           },
@@ -1715,6 +1744,7 @@
             ]
           },
           "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
           },
           "recent_errors": {
@@ -1738,9 +1768,11 @@
             ]
           },
           "summary": {
-            "$ref": "#/components/schemas/ConsumerSummary"
+            "$ref": "#/components/schemas/ConsumerSummary",
+            "description": "The consumer's requests of the range by outcome."
           },
           "to": {
+            "description": "End of the range (exclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           }
@@ -1772,6 +1804,7 @@
             "type": "integer"
           },
           "consumer_id": {
+            "description": "Consumer id the SDK reported.",
             "type": "string"
           },
           "consumer_name": {
@@ -1797,6 +1830,7 @@
             "type": "boolean"
           },
           "requests": {
+            "description": "All requests.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -1850,11 +1884,13 @@
             "type": "integer"
           },
           "requests": {
+            "description": "All requests.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "requests_per_minute": {
+            "description": "requests / minutes of the range.",
             "format": "double",
             "type": "number"
           },
@@ -1893,6 +1929,7 @@
             "type": "string"
           },
           "bucket_seconds": {
+            "description": "Width of each series bucket, in seconds.",
             "format": "int64",
             "type": "integer"
           },
@@ -1907,6 +1944,7 @@
             ]
           },
           "from": {
+            "description": "Start of the range (inclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           },
@@ -1921,6 +1959,7 @@
             ]
           },
           "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
           },
           "summary": {
@@ -1928,6 +1967,7 @@
             "description": "Unique consumers of the whole range; new means first seen within the range."
           },
           "to": {
+            "description": "End of the range (exclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           }
@@ -2437,19 +2477,24 @@
             "description": "The hour before the deploy's minute."
           },
           "commit": {
+            "description": "Commit that was deployed; empty when not reported.",
             "type": "string"
           },
           "deployed_at": {
+            "description": "When the deploy happened, as reported.",
             "format": "date-time",
             "type": "string"
           },
           "environment": {
+            "description": "Environment deployed to.",
             "type": "string"
           },
           "release": {
+            "description": "Release name or version that was deployed.",
             "type": "string"
           },
           "url": {
+            "description": "Link to the release or CI run; empty when not reported.",
             "type": "string"
           }
         },
@@ -2479,6 +2524,7 @@
             "type": "string"
           },
           "deploys": {
+            "description": "Deploys of the range, newest first, with traffic before and after each.",
             "items": {
               "$ref": "#/components/schemas/DeployChange"
             },
@@ -2488,6 +2534,7 @@
             ]
           },
           "window_minutes": {
+            "description": "Length of the before and after windows, in minutes.",
             "format": "int64",
             "type": "integer"
           }
@@ -2502,19 +2549,24 @@
         "additionalProperties": false,
         "properties": {
           "commit": {
+            "description": "Commit that was deployed; empty when not reported.",
             "type": "string"
           },
           "deployed_at": {
+            "description": "When the deploy happened, as reported.",
             "format": "date-time",
             "type": "string"
           },
           "environment": {
+            "description": "Environment deployed to.",
             "type": "string"
           },
           "release": {
+            "description": "Release name or version that was deployed.",
             "type": "string"
           },
           "url": {
+            "description": "Link to the release or CI run; empty when not reported.",
             "type": "string"
           }
         },
@@ -2540,6 +2592,7 @@
             "type": "string"
           },
           "deploys": {
+            "description": "Deploys of the range, newest first (at most 100).",
             "items": {
               "$ref": "#/components/schemas/DeployOut"
             },
@@ -2780,6 +2833,7 @@
             ]
           },
           "client_errors": {
+            "description": "4xx responses, expected status codes of the endpoint left out.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -2789,29 +2843,36 @@
             "type": "boolean"
           },
           "error_rate": {
+            "description": "(client_errors + server_errors) / requests; 0 without requests.",
             "format": "double",
             "type": "number"
           },
           "method": {
+            "description": "HTTP method of the endpoint, upper case.",
             "type": "string"
           },
           "p50_ms": {
+            "description": "Median response time, in milliseconds.",
             "format": "double",
             "type": "number"
           },
           "p95_ms": {
+            "description": "95th percentile response time, in milliseconds.",
             "format": "double",
             "type": "number"
           },
           "path": {
+            "description": "Route template of the endpoint, e.g. /orders/{id}.",
             "type": "string"
           },
           "requests": {
+            "description": "Requests in the range.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "server_errors": {
+            "description": "5xx responses, expected status codes of the endpoint left out.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -2841,6 +2902,7 @@
             "type": "integer"
           },
           "consumer_id": {
+            "description": "Consumer id the SDK reported.",
             "type": "string"
           },
           "consumer_name": {
@@ -2848,6 +2910,7 @@
             "type": "string"
           },
           "requests": {
+            "description": "All requests.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -2888,6 +2951,7 @@
             "type": "string"
           },
           "bucket_seconds": {
+            "description": "Width of each series bucket, in seconds.",
             "format": "int64",
             "type": "integer"
           },
@@ -2902,13 +2966,16 @@
             ]
           },
           "from": {
+            "description": "Start of the range (inclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           },
           "method": {
+            "description": "HTTP method of the endpoint, upper case.",
             "type": "string"
           },
           "path": {
+            "description": "Route template of the endpoint, e.g. /orders/{id}.",
             "type": "string"
           },
           "points": {
@@ -2922,6 +2989,7 @@
             ]
           },
           "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
           },
           "statuses": {
@@ -2935,9 +3003,11 @@
             ]
           },
           "summary": {
-            "$ref": "#/components/schemas/ErrorSplit"
+            "$ref": "#/components/schemas/ErrorSplit",
+            "description": "Requests and errors of the whole range."
           },
           "to": {
+            "description": "End of the range (exclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           },
@@ -2982,6 +3052,7 @@
             "type": "integer"
           },
           "requests": {
+            "description": "All requests.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -3033,10 +3104,12 @@
             "type": "string"
           },
           "first_seen": {
+            "description": "First occurrence in the range.",
             "format": "date-time",
             "type": "string"
           },
           "last_seen": {
+            "description": "Latest occurrence in the range.",
             "format": "date-time",
             "type": "string"
           },
@@ -3078,10 +3151,12 @@
             "type": "string"
           },
           "bucket_seconds": {
+            "description": "Width of each series bucket, in seconds.",
             "format": "int64",
             "type": "integer"
           },
           "from": {
+            "description": "Start of the range (inclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           },
@@ -3096,9 +3171,11 @@
             ]
           },
           "method": {
+            "description": "HTTP method of the endpoint, upper case.",
             "type": "string"
           },
           "path": {
+            "description": "Route template of the endpoint, e.g. /orders/{id}.",
             "type": "string"
           },
           "points": {
@@ -3112,6 +3189,7 @@
             ]
           },
           "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
           },
           "summary": {
@@ -3119,6 +3197,7 @@
             "description": "Percentiles are t-digest estimates."
           },
           "to": {
+            "description": "End of the range (exclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           }
@@ -3149,6 +3228,7 @@
             "type": "string"
           },
           "bucket_seconds": {
+            "description": "Width of each series bucket, in seconds.",
             "format": "int64",
             "type": "integer"
           },
@@ -3163,13 +3243,16 @@
             ]
           },
           "from": {
+            "description": "Start of the range (inclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           },
           "method": {
+            "description": "HTTP method of the endpoint, upper case.",
             "type": "string"
           },
           "path": {
+            "description": "Route template of the endpoint, e.g. /orders/{id}.",
             "type": "string"
           },
           "points": {
@@ -3183,12 +3266,15 @@
             ]
           },
           "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
           },
           "summary": {
-            "$ref": "#/components/schemas/EndpointRequestsSummary"
+            "$ref": "#/components/schemas/EndpointRequestsSummary",
+            "description": "Requests of the whole range by outcome."
           },
           "to": {
+            "description": "End of the range (exclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           }
@@ -3216,6 +3302,7 @@
             "type": "integer"
           },
           "requests": {
+            "description": "All requests.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -3257,11 +3344,13 @@
             "type": "integer"
           },
           "requests": {
+            "description": "All requests.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "requests_per_minute": {
+            "description": "requests / minutes of the range.",
             "format": "double",
             "type": "number"
           },
@@ -3374,11 +3463,13 @@
             "type": "integer"
           },
           "count": {
+            "description": "Occurrences in the range.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "last_seen": {
+            "description": "Latest occurrence in the range.",
             "format": "date-time",
             "type": "string"
           },
@@ -3388,6 +3479,7 @@
             "type": "number"
           },
           "status_code": {
+            "description": "HTTP status code.",
             "format": "int32",
             "minimum": 0,
             "type": "integer"
@@ -3415,17 +3507,21 @@
             "type": "string"
           },
           "bucket_seconds": {
+            "description": "Width of each series bucket, in seconds.",
             "format": "int64",
             "type": "integer"
           },
           "from": {
+            "description": "Start of the range (inclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           },
           "method": {
+            "description": "HTTP method of the endpoint, upper case.",
             "type": "string"
           },
           "path": {
+            "description": "Route template of the endpoint, e.g. /orders/{id}.",
             "type": "string"
           },
           "points": {
@@ -3439,6 +3535,7 @@
             ]
           },
           "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
           },
           "request_size_histogram": {
@@ -3462,9 +3559,11 @@
             ]
           },
           "summary": {
-            "$ref": "#/components/schemas/TransferSummary"
+            "$ref": "#/components/schemas/TransferSummary",
+            "description": "Byte totals and averages of the whole range."
           },
           "to": {
+            "description": "End of the range (exclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           }
@@ -3499,6 +3598,7 @@
             "type": "integer"
           },
           "last_seen": {
+            "description": "Latest occurrence in the range.",
             "format": "date-time",
             "type": "string"
           },
@@ -3507,9 +3607,11 @@
             "type": "string"
           },
           "msg": {
+            "description": "Error message the framework reported.",
             "type": "string"
           },
           "type": {
+            "description": "Error type the framework reported, e.g. missing or value_error.",
             "type": "string"
           }
         },
@@ -3536,6 +3638,7 @@
             "type": "string"
           },
           "endpoints": {
+            "description": "Endpoints by requests, most first, then routes discovered without traffic; endpoints excluded from metrics are left out.",
             "items": {
               "$ref": "#/components/schemas/Endpoint"
             },
@@ -3571,26 +3674,32 @@
         "additionalProperties": false,
         "properties": {
           "consumers": {
+            "description": "Distinct consumers that got the error.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "count": {
+            "description": "Occurrences in the range.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "last_seen": {
+            "description": "Latest occurrence in the range.",
             "format": "date-time",
             "type": "string"
           },
           "method": {
+            "description": "HTTP method of the endpoint, upper case.",
             "type": "string"
           },
           "path": {
+            "description": "Route template of the endpoint, e.g. /orders/{id}.",
             "type": "string"
           },
           "status_code": {
+            "description": "Error status code (400 and above).",
             "format": "int32",
             "minimum": 0,
             "type": "integer"
@@ -3685,6 +3794,7 @@
             "type": "integer"
           },
           "requests": {
+            "description": "All requests.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -3714,6 +3824,7 @@
         "additionalProperties": false,
         "properties": {
           "consumer_id": {
+            "description": "Consumer id the SDK reported.",
             "type": "string"
           },
           "consumer_name": {
@@ -3721,15 +3832,18 @@
             "type": "string"
           },
           "count": {
+            "description": "Occurrences for this consumer in the range.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "first_seen": {
+            "description": "First occurrence in the range.",
             "format": "date-time",
             "type": "string"
           },
           "last_seen": {
+            "description": "Latest occurrence in the range.",
             "format": "date-time",
             "type": "string"
           },
@@ -3753,6 +3867,7 @@
         "additionalProperties": false,
         "properties": {
           "count": {
+            "description": "Occurrences in the bucket.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -3779,6 +3894,7 @@
             "type": "integer"
           },
           "count": {
+            "description": "Occurrences from this endpoint in the range.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -3790,10 +3906,12 @@
             "type": "integer"
           },
           "last_seen": {
+            "description": "Latest occurrence in the range.",
             "format": "date-time",
             "type": "string"
           },
           "method": {
+            "description": "HTTP method of the endpoint, upper case.",
             "type": "string"
           },
           "path": {
@@ -3837,6 +3955,7 @@
             "type": "integer"
           },
           "bucket_seconds": {
+            "description": "Width of each series bucket, in seconds.",
             "format": "int64",
             "type": "integer"
           },
@@ -3881,6 +4000,7 @@
             ]
           },
           "from": {
+            "description": "Start of the range (inclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           },
@@ -3914,6 +4034,7 @@
             ]
           },
           "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
           },
           "requests": {
@@ -3928,10 +4049,12 @@
             "type": "number"
           },
           "status_code": {
+            "description": "The error status code.",
             "format": "int64",
             "type": "integer"
           },
           "to": {
+            "description": "End of the range (exclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           }
@@ -3972,6 +4095,7 @@
             "type": "integer"
           },
           "requests": {
+            "description": "All requests.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -4013,6 +4137,7 @@
             "type": "integer"
           },
           "count": {
+            "description": "Occurrences in the range, where the code is not expected for the endpoint.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -4024,10 +4149,12 @@
             "type": "integer"
           },
           "first_seen": {
+            "description": "First occurrence in the range.",
             "format": "date-time",
             "type": "string"
           },
           "last_seen": {
+            "description": "Latest occurrence in the range.",
             "format": "date-time",
             "type": "string"
           },
@@ -4037,6 +4164,7 @@
             "type": "number"
           },
           "status_code": {
+            "description": "Error status code, 400 to 599.",
             "format": "int32",
             "minimum": 0,
             "type": "integer"
@@ -4069,6 +4197,7 @@
             ]
           },
           "status_code": {
+            "description": "The error status code the counts are for.",
             "format": "int32",
             "minimum": 0,
             "type": "integer"
@@ -4093,10 +4222,12 @@
             "type": "string"
           },
           "bucket_seconds": {
+            "description": "Width of each series bucket, in seconds.",
             "format": "int64",
             "type": "integer"
           },
           "from": {
+            "description": "Start of the range (inclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           },
@@ -4111,6 +4242,7 @@
             ]
           },
           "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
           },
           "series": {
@@ -4134,9 +4266,11 @@
             ]
           },
           "summary": {
-            "$ref": "#/components/schemas/ErrorSplit"
+            "$ref": "#/components/schemas/ErrorSplit",
+            "description": "Requests and errors of the whole range."
           },
           "to": {
+            "description": "End of the range (exclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           }
@@ -4166,6 +4300,7 @@
             "type": "string"
           },
           "errors": {
+            "description": "Error groups by (endpoint, status code), most frequent first (at most 200).",
             "items": {
               "$ref": "#/components/schemas/ErrorGroup"
             },
@@ -5003,6 +5138,7 @@
         "additionalProperties": false,
         "properties": {
           "count": {
+            "description": "Requests whose response time falls in the bucket.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -5028,18 +5164,22 @@
         "additionalProperties": false,
         "properties": {
           "p50_ms": {
+            "description": "Median response time of the bucket, in milliseconds; 0 without requests.",
             "format": "double",
             "type": "number"
           },
           "p75_ms": {
+            "description": "75th percentile response time of the bucket, in milliseconds; 0 without requests.",
             "format": "double",
             "type": "number"
           },
           "p95_ms": {
+            "description": "95th percentile response time of the bucket, in milliseconds; 0 without requests.",
             "format": "double",
             "type": "number"
           },
           "requests": {
+            "description": "Requests in the bucket.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -5071,34 +5211,42 @@
             ]
           },
           "avg_ms": {
+            "description": "Mean response time, in milliseconds.",
             "format": "double",
             "type": "number"
           },
           "max_ms": {
+            "description": "Slowest response time, in milliseconds.",
             "format": "double",
             "type": "number"
           },
           "p50_ms": {
+            "description": "Median response time, in milliseconds.",
             "format": "double",
             "type": "number"
           },
           "p75_ms": {
+            "description": "75th percentile response time, in milliseconds.",
             "format": "double",
             "type": "number"
           },
           "p90_ms": {
+            "description": "90th percentile response time, in milliseconds.",
             "format": "double",
             "type": "number"
           },
           "p95_ms": {
+            "description": "95th percentile response time, in milliseconds.",
             "format": "double",
             "type": "number"
           },
           "p99_ms": {
+            "description": "99th percentile response time, in milliseconds.",
             "format": "double",
             "type": "number"
           },
           "requests": {
+            "description": "Requests in the range.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -5444,12 +5592,15 @@
         "additionalProperties": false,
         "properties": {
           "id": {
+            "description": "Id (UUID).",
             "type": "string"
           },
           "name": {
+            "description": "Display name.",
             "type": "string"
           },
           "slug": {
+            "description": "URL-safe slug.",
             "type": "string"
           }
         },
@@ -6147,25 +6298,30 @@
         "additionalProperties": false,
         "properties": {
           "client_errors": {
+            "description": "4xx responses in the bucket, expected status codes left out.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "p95_ms": {
+            "description": "95th percentile response time of the bucket, in milliseconds; 0 without requests.",
             "format": "double",
             "type": "number"
           },
           "requests": {
+            "description": "Requests in the bucket.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "server_errors": {
+            "description": "5xx responses in the bucket, expected status codes left out.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "ts": {
+            "description": "Start of the bucket.",
             "format": "date-time",
             "type": "string"
           }
@@ -6518,6 +6674,7 @@
             "type": "string"
           },
           "apps": {
+            "description": "The project's active apps.",
             "items": {
               "$ref": "#/components/schemas/Named"
             },
@@ -6537,10 +6694,12 @@
             ]
           },
           "org": {
-            "$ref": "#/components/schemas/Named"
+            "$ref": "#/components/schemas/Named",
+            "description": "The organization that owns the project."
           },
           "project": {
-            "$ref": "#/components/schemas/Named"
+            "$ref": "#/components/schemas/Named",
+            "description": "The project."
           }
         },
         "required": [
@@ -6961,6 +7120,7 @@
         "additionalProperties": false,
         "properties": {
           "app_id": {
+            "description": "The app that served the request.",
             "format": "uuid",
             "type": "string"
           },
@@ -6972,21 +7132,27 @@
             "type": "object"
           },
           "base_url": {
+            "description": "Scheme and host the request was made to; empty when not captured.",
             "type": "string"
           },
           "commit": {
+            "description": "Commit of the app that served the request; empty when not configured.",
             "type": "string"
           },
           "consumer_group": {
+            "description": "Consumer group the SDK reported; empty when none.",
             "type": "string"
           },
           "consumer_id": {
+            "description": "Consumer id the SDK reported; empty when none.",
             "type": "string"
           },
           "consumer_name": {
+            "description": "Consumer name the SDK reported; empty when none.",
             "type": "string"
           },
           "environment": {
+            "description": "Environment the app reported from.",
             "type": "string"
           },
           "id": {
@@ -6994,18 +7160,23 @@
             "type": "string"
           },
           "ip_address": {
+            "description": "Client IP address; empty when not captured.",
             "type": "string"
           },
           "method": {
+            "description": "HTTP method.",
             "type": "string"
           },
           "path": {
+            "description": "Route template the request matched, e.g. /orders/{id}.",
             "type": "string"
           },
           "raw_path": {
+            "description": "Requested path with its query string, as the SDK sent it after redaction.",
             "type": "string"
           },
           "release": {
+            "description": "Release of the app that served the request; empty when not configured.",
             "type": "string"
           },
           "request_body": {
@@ -7037,6 +7208,7 @@
             "type": "integer"
           },
           "response_time_ms": {
+            "description": "Response time, in milliseconds.",
             "format": "double",
             "type": "number"
           },
@@ -7045,21 +7217,26 @@
             "type": "boolean"
           },
           "span_id": {
+            "description": "Server span id of the request in its trace; empty when none.",
             "type": "string"
           },
           "status_code": {
+            "description": "HTTP status code.",
             "format": "int32",
             "minimum": 0,
             "type": "integer"
           },
           "timestamp": {
+            "description": "When the request was received.",
             "format": "date-time",
             "type": "string"
           },
           "trace_id": {
+            "description": "W3C trace id; empty when the request had none.",
             "type": "string"
           },
           "user_agent": {
+            "description": "User-Agent header; empty when not captured.",
             "type": "string"
           },
           "validation_errors": {
@@ -7125,7 +7302,8 @@
             ]
           },
           "request": {
-            "$ref": "#/components/schemas/RequestDetail"
+            "$ref": "#/components/schemas/RequestDetail",
+            "description": "The request record."
           },
           "spans": {
             "description": "Spans of the request's trace, oldest first (at most 2000); empty without a trace id.",
@@ -7158,6 +7336,7 @@
             "type": "string"
           },
           "created_at": {
+            "description": "When the export was asked for.",
             "format": "date-time",
             "type": "string"
           },
@@ -7196,6 +7375,7 @@
             "description": "The filter the export was asked with."
           },
           "finished_at": {
+            "description": "When it completed, failed or was cancelled; null before.",
             "format": "date-time",
             "type": [
               "string",
@@ -7208,6 +7388,7 @@
             "type": "string"
           },
           "id": {
+            "description": "The export's id.",
             "format": "uuid",
             "type": "string"
           },
@@ -7232,6 +7413,7 @@
             "type": "integer"
           },
           "started_at": {
+            "description": "When a worker started writing it; null while queued.",
             "format": "date-time",
             "type": [
               "string",
@@ -7289,19 +7471,24 @@
         "additionalProperties": false,
         "properties": {
           "app_id": {
+            "description": "The app that served the request.",
             "format": "uuid",
             "type": "string"
           },
           "consumer_group": {
+            "description": "Consumer group the SDK reported; empty when none.",
             "type": "string"
           },
           "consumer_id": {
+            "description": "Consumer id the SDK reported; empty when none.",
             "type": "string"
           },
           "consumer_name": {
+            "description": "Consumer name the SDK reported; empty when none.",
             "type": "string"
           },
           "environment": {
+            "description": "Environment the app reported from.",
             "type": "string"
           },
           "id": {
@@ -7309,15 +7496,19 @@
             "type": "string"
           },
           "ip_address": {
+            "description": "Client IP address; empty when not captured.",
             "type": "string"
           },
           "method": {
+            "description": "HTTP method.",
             "type": "string"
           },
           "path": {
+            "description": "Route template the request matched, e.g. /orders/{id}.",
             "type": "string"
           },
           "raw_path": {
+            "description": "Requested path with its query string, as the SDK sent it after redaction.",
             "type": "string"
           },
           "request_size": {
@@ -7333,6 +7524,7 @@
             "type": "integer"
           },
           "response_time_ms": {
+            "description": "Response time, in milliseconds.",
             "format": "double",
             "type": "number"
           },
@@ -7341,15 +7533,18 @@
             "type": "boolean"
           },
           "status_code": {
+            "description": "HTTP status code.",
             "format": "int32",
             "minimum": 0,
             "type": "integer"
           },
           "timestamp": {
+            "description": "When the request was received.",
             "format": "date-time",
             "type": "string"
           },
           "trace_id": {
+            "description": "W3C trace id; empty when the request had none.",
             "type": "string"
           }
         },
@@ -7387,6 +7582,7 @@
             "type": "string"
           },
           "bucket_seconds": {
+            "description": "Width of each series bucket, in seconds.",
             "format": "int64",
             "type": "integer"
           },
@@ -7423,12 +7619,15 @@
         "additionalProperties": false,
         "properties": {
           "loc": {
+            "description": "Location of the invalid field, path segments joined with dots, e.g. body.qty.",
             "type": "string"
           },
           "msg": {
+            "description": "Error message the framework reported.",
             "type": "string"
           },
           "type": {
+            "description": "Error type the framework reported, e.g. missing or value_error.",
             "type": "string"
           }
         },
@@ -7772,6 +7971,7 @@
             "type": "string"
           },
           "created_at": {
+            "description": "When the view was created.",
             "format": "date-time",
             "type": "string"
           },
@@ -7814,6 +8014,7 @@
             "type": "string"
           },
           "updated_at": {
+            "description": "When the view was last changed.",
             "format": "date-time",
             "type": "string"
           }
@@ -7938,6 +8139,7 @@
             "type": "number"
           },
           "requests": {
+            "description": "Requests in the window.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -8001,6 +8203,7 @@
         "additionalProperties": false,
         "properties": {
           "count": {
+            "description": "Requests whose body size falls in the bucket.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -8065,35 +8268,45 @@
             "additionalProperties": {
               "type": "string"
             },
+            "description": "Span attributes, as strings.",
             "type": "object"
           },
           "duration_ms": {
+            "description": "Duration, in milliseconds.",
             "format": "double",
             "type": "number"
           },
           "kind": {
+            "description": "OpenTelemetry span kind: server, client, internal, producer or consumer.",
             "type": "string"
           },
           "name": {
+            "description": "Span name, e.g. GET /orders/{id} or SELECT orders.",
             "type": "string"
           },
           "parent_span_id": {
+            "description": "Parent span id; empty for a root span.",
             "type": "string"
           },
           "service_name": {
+            "description": "Service that recorded the span.",
             "type": "string"
           },
           "span_id": {
+            "description": "Span id (16 lowercase hex characters).",
             "type": "string"
           },
           "start": {
+            "description": "Start time of the span.",
             "format": "date-time",
             "type": "string"
           },
           "status": {
+            "description": "Span status: ok, error or unset.",
             "type": "string"
           },
           "status_code": {
+            "description": "HTTP status code of an HTTP span; 0 otherwise.",
             "format": "int32",
             "minimum": 0,
             "type": "integer"
@@ -8145,30 +8358,37 @@
             "type": "number"
           },
           "from": {
+            "description": "Start of the range (inclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           },
           "p50_ms": {
+            "description": "Median response time, in milliseconds (t-digest estimate).",
             "format": "double",
             "type": "number"
           },
           "p95_ms": {
+            "description": "95th percentile response time, in milliseconds (t-digest estimate).",
             "format": "double",
             "type": "number"
           },
           "p99_ms": {
+            "description": "99th percentile response time, in milliseconds (t-digest estimate).",
             "format": "double",
             "type": "number"
           },
           "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
           },
           "requests": {
+            "description": "Requests in the range.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "requests_per_minute": {
+            "description": "requests / minutes of the range.",
             "format": "double",
             "type": "number"
           },
@@ -8179,6 +8399,7 @@
             "type": "integer"
           },
           "to": {
+            "description": "End of the range (exclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           }
@@ -8229,6 +8450,7 @@
             "type": "integer"
           },
           "requests": {
+            "description": "Requests in the bucket.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -8273,10 +8495,12 @@
             "type": "string"
           },
           "bucket_seconds": {
+            "description": "Width of each series bucket, in seconds.",
             "format": "int64",
             "type": "integer"
           },
           "points": {
+            "description": "One point per bucket of the range, oldest first, zero-filled.",
             "items": {
               "$ref": "#/components/schemas/Point"
             },
@@ -8286,6 +8510,7 @@
             ]
           },
           "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
           }
         },
@@ -8338,15 +8563,19 @@
         "additionalProperties": false,
         "properties": {
           "level": {
+            "description": "Log level, e.g. INFO, WARNING, ERROR.",
             "type": "string"
           },
           "message": {
+            "description": "Log message.",
             "type": "string"
           },
           "span_id": {
+            "description": "Span the record was emitted in; empty when none.",
             "type": "string"
           },
           "timestamp": {
+            "description": "When the log record was emitted.",
             "format": "date-time",
             "type": "string"
           }
@@ -8372,6 +8601,7 @@
             "type": "string"
           },
           "logs": {
+            "description": "Log records correlated with the trace, oldest first (at most 500).",
             "items": {
               "$ref": "#/components/schemas/TraceLog"
             },
@@ -8381,6 +8611,7 @@
             ]
           },
           "spans": {
+            "description": "Spans of the trace in the project, oldest first (at most 2000).",
             "items": {
               "$ref": "#/components/schemas/SpanOut"
             },
@@ -8390,6 +8621,7 @@
             ]
           },
           "trace_id": {
+            "description": "The trace id asked for.",
             "type": "string"
           }
         },
@@ -8413,10 +8645,12 @@
             "type": "string"
           },
           "bucket_seconds": {
+            "description": "Width of each series bucket, in seconds.",
             "format": "int64",
             "type": "integer"
           },
           "from": {
+            "description": "Start of the range (inclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           },
@@ -8441,6 +8675,7 @@
             ]
           },
           "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
             "type": "string"
           },
           "summary": {
@@ -8448,6 +8683,7 @@
             "description": "Percentiles are t-digest estimates; apdex scores each request against its endpoint's latency threshold, else its app's, else 500 ms."
           },
           "to": {
+            "description": "End of the range (exclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
           }
@@ -8490,16 +8726,19 @@
         "additionalProperties": false,
         "properties": {
           "request_bytes": {
+            "description": "Bytes received in request bodies in the bucket.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "requests": {
+            "description": "Requests in the bucket.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
           },
           "response_bytes": {
+            "description": "Bytes sent in response bodies in the bucket.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -8522,10 +8761,12 @@
         "additionalProperties": false,
         "properties": {
           "avg_request_bytes": {
+            "description": "request_bytes / requests; 0 without requests.",
             "format": "double",
             "type": "number"
           },
           "avg_response_bytes": {
+            "description": "response_bytes / requests; 0 without requests.",
             "format": "double",
             "type": "number"
           },
@@ -8536,6 +8777,7 @@
             "type": "integer"
           },
           "requests": {
+            "description": "Requests in the range.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -9206,6 +9448,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -9228,6 +9473,9 @@
             "required": true,
             "schema": {
               "description": "HTTP method, e.g. GET (case-insensitive).",
+              "examples": [
+                "GET"
+              ],
               "pattern": "^[A-Za-z]{1,16}$",
               "type": "string"
             }
@@ -9239,6 +9487,9 @@
             "required": true,
             "schema": {
               "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+              "examples": [
+                "/orders/{id}"
+              ],
               "maxLength": 1024,
               "minLength": 1,
               "type": "string"
@@ -9302,6 +9553,9 @@
             "required": true,
             "schema": {
               "description": "HTTP method, e.g. GET (case-insensitive).",
+              "examples": [
+                "GET"
+              ],
               "pattern": "^[A-Za-z]{1,16}$",
               "type": "string"
             }
@@ -9313,6 +9567,9 @@
             "required": true,
             "schema": {
               "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+              "examples": [
+                "/orders/{id}"
+              ],
               "maxLength": 1024,
               "minLength": 1,
               "type": "string"
@@ -9374,6 +9631,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -9544,6 +9804,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -9666,6 +9929,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -12339,6 +12605,7 @@
     },
     "/api/v1/consumers": {
       "get": {
+        "description": "Consumers with requests in the range, most requests first, each with an outcome split and a sparkline; plus unique consumers per bucket split into new (first seen in the bucket) and returning. group narrows to one consumer group. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "list-consumers",
         "parameters": [
           {
@@ -12348,6 +12615,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -12444,6 +12714,7 @@
     },
     "/api/v1/consumers/{consumer_id}": {
       "get": {
+        "description": "One consumer: when it was first and last seen, its group, requests by outcome per bucket and its latest requests and errors. A consumer the project never saw answers 404. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-consumer",
         "parameters": [
           {
@@ -12453,6 +12724,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -12492,6 +12766,9 @@
             "required": true,
             "schema": {
               "description": "The consumer id the SDK reports, URL-encoded as one path segment.",
+              "examples": [
+                "acme-mobile"
+              ],
               "maxLength": 256,
               "minLength": 1,
               "type": "string"
@@ -12536,6 +12813,7 @@
     },
     "/api/v1/deploys": {
       "get": {
+        "description": "Deploy markers (POST /v1/deploys) of the range, newest first, to draw on charts. env narrows to one environment. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "list-deploys",
         "parameters": [
           {
@@ -12545,6 +12823,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -12616,6 +12897,7 @@
     },
     "/api/v1/deploys/changes": {
       "get": {
+        "description": "The most recent deploys of the range, newest first, each with requests, error rate and p95 of its app (or the project for a project-wide deploy) in the hour before and the hour after the deploy's minute, to spot releases that changed behaviour. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "list-deploy-changes",
         "parameters": [
           {
@@ -12625,6 +12907,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -12710,6 +12995,7 @@
     },
     "/api/v1/endpoints/{method}/{path}/errors": {
       "get": {
+        "description": "The errors tab of an endpoint: the 4xx/5xx split per bucket, error status codes by count, validation errors grouped by field and server exceptions grouped by type and message. Expected status codes of the endpoint are left out. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-endpoint-errors",
         "parameters": [
           {
@@ -12719,6 +13005,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -12758,6 +13047,9 @@
             "required": true,
             "schema": {
               "description": "HTTP method, e.g. GET (case-insensitive).",
+              "examples": [
+                "GET"
+              ],
               "pattern": "^[A-Za-z]{1,16}$",
               "type": "string"
             }
@@ -12769,6 +13061,9 @@
             "required": true,
             "schema": {
               "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+              "examples": [
+                "/orders/{id}"
+              ],
               "maxLength": 1024,
               "minLength": 1,
               "type": "string"
@@ -12824,6 +13119,7 @@
     },
     "/api/v1/endpoints/{method}/{path}/latency": {
       "get": {
+        "description": "The response-time tab of an endpoint: summary percentiles and Apdex, the p50/p75/p95 trend per bucket and a fixed 14-bucket histogram over raw requests. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-endpoint-latency",
         "parameters": [
           {
@@ -12833,6 +13129,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -12872,6 +13171,9 @@
             "required": true,
             "schema": {
               "description": "HTTP method, e.g. GET (case-insensitive).",
+              "examples": [
+                "GET"
+              ],
               "pattern": "^[A-Za-z]{1,16}$",
               "type": "string"
             }
@@ -12883,6 +13185,9 @@
             "required": true,
             "schema": {
               "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+              "examples": [
+                "/orders/{id}"
+              ],
               "maxLength": 1024,
               "minLength": 1,
               "type": "string"
@@ -12956,6 +13261,7 @@
     },
     "/api/v1/endpoints/{method}/{path}/requests": {
       "get": {
+        "description": "The requests tab of an endpoint: totals by outcome, requests per minute, the outcome split per bucket and the top consumers. An endpoint without traffic answers zeros, not 404. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-endpoint-requests",
         "parameters": [
           {
@@ -12965,6 +13271,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -13004,6 +13313,9 @@
             "required": true,
             "schema": {
               "description": "HTTP method, e.g. GET (case-insensitive).",
+              "examples": [
+                "GET"
+              ],
               "pattern": "^[A-Za-z]{1,16}$",
               "type": "string"
             }
@@ -13015,6 +13327,9 @@
             "required": true,
             "schema": {
               "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+              "examples": [
+                "/orders/{id}"
+              ],
               "maxLength": 1024,
               "minLength": 1,
               "type": "string"
@@ -13088,6 +13403,7 @@
     },
     "/api/v1/endpoints/{method}/{path}/transfer": {
       "get": {
+        "description": "The data-transferred tab of an endpoint: request and response byte totals and averages, bytes per bucket and fixed 10-bucket size histograms for request and response bodies. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-endpoint-transfer",
         "parameters": [
           {
@@ -13097,6 +13413,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -13136,6 +13455,9 @@
             "required": true,
             "schema": {
               "description": "HTTP method, e.g. GET (case-insensitive).",
+              "examples": [
+                "GET"
+              ],
               "pattern": "^[A-Za-z]{1,16}$",
               "type": "string"
             }
@@ -13147,6 +13469,9 @@
             "required": true,
             "schema": {
               "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+              "examples": [
+                "/orders/{id}"
+              ],
               "maxLength": 1024,
               "minLength": 1,
               "type": "string"
@@ -13220,6 +13545,7 @@
     },
     "/api/v1/errors": {
       "get": {
+        "description": "Requests answered with 400 or above, grouped by endpoint and status code, most frequent first, with distinct consumers and the last occurrence. Expected status codes and excluded endpoints are left out. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "list-errors",
         "parameters": [
           {
@@ -13229,6 +13555,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -13300,6 +13629,7 @@
     },
     "/api/v1/errors/status": {
       "get": {
+        "description": "The errors dashboard of the range: the 4xx/5xx split per bucket, one occurrence series per error status code and the status codes by count with their share, endpoints and consumers. Expected status codes of each endpoint are left out. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-error-statuses",
         "parameters": [
           {
@@ -13309,6 +13639,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -13380,6 +13713,7 @@
     },
     "/api/v1/errors/status/{code}": {
       "get": {
+        "description": "One error status code over the range: occurrences, share of requests, frequency per hour, affected consumers, occurrences per bucket and the endpoints and consumers that got it. A code with no occurrences answers zeros. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-error-status",
         "parameters": [
           {
@@ -13389,6 +13723,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -13428,6 +13765,9 @@
             "required": true,
             "schema": {
               "description": "Error status code, 400 to 599.",
+              "examples": [
+                404
+              ],
               "format": "int64",
               "maximum": 599,
               "minimum": 400,
@@ -16070,6 +16410,7 @@
     },
     "/api/v1/project": {
       "get": {
+        "description": "The project the caller reads, its org, its active apps and the environments with traffic in the last 7 days. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-project",
         "parameters": [
           {
@@ -16079,6 +16420,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -17800,6 +18144,9 @@
             "required": true,
             "schema": {
               "description": "The consumer id the SDK reports, URL-encoded as one path segment.",
+              "examples": [
+                "acme-mobile"
+              ],
               "maxLength": 256,
               "minLength": 1,
               "type": "string"
@@ -17895,6 +18242,9 @@
             "required": true,
             "schema": {
               "description": "The consumer id the SDK reports, URL-encoded as one path segment.",
+              "examples": [
+                "acme-mobile"
+              ],
               "maxLength": 256,
               "minLength": 1,
               "type": "string"
@@ -19691,6 +20041,7 @@
     },
     "/api/v1/requests": {
       "get": {
+        "description": "The raw request log of the range, newest first, narrowed by any combination of filters (consumer, group, IP, method, route, URL and payload substrings, sizes, status, latency, sampling, trace). Pages with next_cursor; from and to narrow the window inside the range. An invalid status filter or cursor answers 422. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "list-requests",
         "parameters": [
           {
@@ -19700,6 +20051,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -20004,6 +20358,7 @@
     },
     "/api/v1/requests/timeline": {
       "get": {
+        "description": "The same filters as list-requests, counted per bucket by status class, for the timeline above the log. Every bucket of the window is listed, empty ones with zeros. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-request-timeline",
         "parameters": [
           {
@@ -20013,6 +20368,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -20281,6 +20639,7 @@
     },
     "/api/v1/requests/{id}": {
       "get": {
+        "description": "One request of the log by its id, with what was captured of it (headers, bodies, attributes, validation errors) and the spans and logs of its trace in the project. An unknown id or another project's answers 404. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-request",
         "parameters": [
           {
@@ -20290,6 +20649,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -20344,6 +20706,7 @@
     },
     "/api/v1/traces/{trace_id}": {
       "get": {
+        "description": "The spans and correlated log records of one trace, restricted to the caller's project even when another project shares the trace id. 404 when the project has neither spans nor logs for it. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-trace",
         "parameters": [
           {
@@ -20353,6 +20716,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -20364,6 +20730,9 @@
             "required": true,
             "schema": {
               "description": "W3C trace id (32 lowercase hex characters).",
+              "examples": [
+                "4bf92f3577b34da6a3ce929d0e0e4736"
+              ],
               "pattern": "^[0-9a-f]{32}$",
               "type": "string"
             }
@@ -20407,6 +20776,7 @@
     },
     "/api/v1/traffic/endpoints": {
       "get": {
+        "description": "Per endpoint (method and route template) traffic, error split, latency percentiles and Apdex over the range, most requests first. Routes an app declared with POST /v1/metadata but that had no traffic follow with zero counts. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "list-endpoints",
         "parameters": [
           {
@@ -20416,6 +20786,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -20449,11 +20822,13 @@
             }
           },
           {
+            "description": "Most endpoints to list, by requests.",
             "explode": false,
             "in": "query",
             "name": "limit",
             "schema": {
               "default": 100,
+              "description": "Most endpoints to list, by requests.",
               "format": "int64",
               "maximum": 500,
               "minimum": 1,
@@ -20499,6 +20874,7 @@
     },
     "/api/v1/traffic/latency": {
       "get": {
+        "description": "Response time of the project (or one environment) over the range: summary percentiles and Apdex, the p50/p75/p95 trend per bucket and a fixed 14-bucket histogram over raw requests. Endpoints excluded from metrics are left out. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-traffic-latency",
         "parameters": [
           {
@@ -20508,6 +20884,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -20579,6 +20958,7 @@
     },
     "/api/v1/traffic/summary": {
       "get": {
+        "description": "Totals of the range from the minute or hour rollups: requests, 4xx and 5xx errors (expected status codes of each endpoint left out), latency percentiles, requests per minute and Apdex. Endpoints excluded from metrics are left out; app narrows to one app. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-traffic-summary",
         "parameters": [
           {
@@ -20588,6 +20968,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }
@@ -20670,6 +21053,7 @@
     },
     "/api/v1/traffic/timeseries": {
       "get": {
+        "description": "Requests, errors and p95 per bucket of the range (1 minute for 1h, 5 minutes for 6h, 15 minutes for 24h, 1 hour for 7d), oldest first and zero-filled. app narrows to one app. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-traffic-timeseries",
         "parameters": [
           {
@@ -20679,6 +21063,9 @@
             "name": "project",
             "schema": {
               "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
               "maxLength": 63,
               "type": "string"
             }

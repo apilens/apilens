@@ -52,11 +52,11 @@ type ConsumerGroupStore interface {
 
 // ConsumerGroup is a named group of a project's consumers.
 type ConsumerGroup struct {
-	ID        string    `json:"id" format:"uuid"`
-	Name      string    `json:"name"`
+	ID        string    `json:"id" format:"uuid" doc:"The group's id."`
+	Name      string    `json:"name" doc:"Display name, unique in the project ignoring case."`
 	Consumers int64     `json:"consumers" doc:"How many consumers are assigned to the group."`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time `json:"created_at" doc:"When the group was created."`
+	UpdatedAt time.Time `json:"updated_at" doc:"When the group was last renamed."`
 }
 
 type consumerGroupOutput struct {
@@ -95,12 +95,12 @@ type renameConsumerGroupInput struct {
 
 type consumerAssignmentInput struct {
 	Project    string `path:"project" maxLength:"63" doc:"Project slug."`
-	ConsumerID string `path:"consumer_id" minLength:"1" maxLength:"256" doc:"The consumer id the SDK reports, URL-encoded as one path segment."`
+	ConsumerID string `path:"consumer_id" minLength:"1" maxLength:"256" example:"acme-mobile" doc:"The consumer id the SDK reports, URL-encoded as one path segment."`
 }
 
 type assignConsumerGroupInput struct {
 	Project    string `path:"project" maxLength:"63" doc:"Project slug."`
-	ConsumerID string `path:"consumer_id" minLength:"1" maxLength:"256" doc:"The consumer id the SDK reports, URL-encoded as one path segment."`
+	ConsumerID string `path:"consumer_id" minLength:"1" maxLength:"256" example:"acme-mobile" doc:"The consumer id the SDK reports, URL-encoded as one path segment."`
 	Body       struct {
 		GroupID string `json:"group_id" format:"uuid" doc:"The group to put the consumer in; it leaves the group it was in."`
 	}
@@ -108,9 +108,9 @@ type assignConsumerGroupInput struct {
 
 type consumerAssignmentOutput struct {
 	Body struct {
-		ConsumerID string           `json:"consumer_id"`
-		Group      ConsumerGroupRef `json:"group"`
-		AssignedAt time.Time        `json:"assigned_at"`
+		ConsumerID string           `json:"consumer_id" doc:"Consumer id the SDK reported."`
+		Group      ConsumerGroupRef `json:"group" doc:"The group the consumer is now in."`
+		AssignedAt time.Time        `json:"assigned_at" doc:"When the consumer was put in the group."`
 	}
 }
 

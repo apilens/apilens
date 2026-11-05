@@ -83,6 +83,12 @@ tasks:
       - mkdir -p api/openapi
       - go run ./cmd/apilens openapi > api/openapi/apilens.v1.json
 
+  openapi:check:
+    desc: Fail when api/openapi/apilens.v1.json differs from the Huma operations, or a query operation is undocumented
+    cmds:
+      - go run ./cmd/apilens openapi | diff -u api/openapi/apilens.v1.json - || (echo "api/openapi/apilens.v1.json is out of date; run 'task gen:openapi'" >&2; exit 1)
+      - go test -count=1 -run TestOpenAPIDocumentsQueryOperations ./internal/query/
+
   # ------------------------------------------------------------- quality
   lint:
     desc: All linters

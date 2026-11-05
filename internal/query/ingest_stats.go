@@ -48,7 +48,7 @@ type IngestDay struct {
 
 // AppIngestStats is the ingest health of an app over the last days.
 type AppIngestStats struct {
-	AppID  string       `json:"app_id" format:"uuid"`
+	AppID  string       `json:"app_id" format:"uuid" doc:"The app's id."`
 	App    string       `json:"app" doc:"The app's slug."`
 	Days   int          `json:"days" doc:"Number of UTC days covered, today included."`
 	Totals IngestCounts `json:"totals" doc:"Sum over the days."`

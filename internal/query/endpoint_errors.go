@@ -40,8 +40,8 @@ const exceptionLogger = "apilens.exception"
 
 type endpointErrorsInput struct {
 	RangeInput
-	Method   string `path:"method" pattern:"^[A-Za-z]{1,16}$" doc:"HTTP method, e.g. GET (case-insensitive)."`
-	Path     string `path:"path" minLength:"1" maxLength:"1024" doc:"Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}."`
+	Method   string `path:"method" pattern:"^[A-Za-z]{1,16}$" example:"GET" doc:"HTTP method, e.g. GET (case-insensitive)."`
+	Path     string `path:"path" minLength:"1" maxLength:"1024" example:"/orders/{id}" doc:"Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}."`
 	Consumer string `query:"consumer" maxLength:"256" doc:"Only requests and exceptions from this consumer id; empty means all."`
 }
 
@@ -49,7 +49,7 @@ type endpointErrorsInput struct {
 // status codes left out. Exported so Huma reads the fields of the types
 // embedding it.
 type ErrorSplit struct {
-	Requests        uint64  `json:"requests"`
+	Requests        uint64  `json:"requests" doc:"All requests."`
 	ClientErrors    uint64  `json:"client_errors" doc:"Requests with a 4xx status code that is not expected for the endpoint."`
 	ServerErrors    uint64  `json:"server_errors" doc:"Requests with a 5xx status code that is not expected for the endpoint."`
 	ClientErrorRate float64 `json:"client_error_rate" doc:"client_errors / requests, 0 without requests."`
@@ -69,20 +69,20 @@ type endpointErrorsPoint struct {
 }
 
 type endpointStatusCount struct {
-	StatusCode uint16    `json:"status_code"`
-	Count      uint64    `json:"count"`
+	StatusCode uint16    `json:"status_code" doc:"HTTP status code."`
+	Count      uint64    `json:"count" doc:"Occurrences in the range."`
 	Share      float64   `json:"share" doc:"count / requests of the range."`
 	Consumers  uint64    `json:"consumers" doc:"Distinct consumers that got this status code."`
-	LastSeen   time.Time `json:"last_seen"`
+	LastSeen   time.Time `json:"last_seen" doc:"Latest occurrence in the range."`
 }
 
 type endpointValidationError struct {
 	Loc       string    `json:"loc" doc:"Location of the invalid field, path segments joined with dots, e.g. body.items.0.name."`
-	Msg       string    `json:"msg"`
-	Type      string    `json:"type"`
+	Msg       string    `json:"msg" doc:"Error message the framework reported."`
+	Type      string    `json:"type" doc:"Error type the framework reported, e.g. missing or value_error."`
 	Count     uint64    `json:"count" doc:"Occurrences in the range."`
 	Consumers uint64    `json:"consumers" doc:"Distinct consumers that sent the invalid field."`
-	LastSeen  time.Time `json:"last_seen"`
+	LastSeen  time.Time `json:"last_seen" doc:"Latest occurrence in the range."`
 }
 
 type endpointException struct {
@@ -90,21 +90,21 @@ type endpointException struct {
 	Message       string    `json:"message" doc:"Exception message."`
 	Count         uint64    `json:"count" doc:"Occurrences in the range."`
 	Consumers     uint64    `json:"consumers" doc:"Distinct consumers whose requests raised it."`
-	FirstSeen     time.Time `json:"first_seen"`
-	LastSeen      time.Time `json:"last_seen"`
+	FirstSeen     time.Time `json:"first_seen" doc:"First occurrence in the range."`
+	LastSeen      time.Time `json:"last_seen" doc:"Latest occurrence in the range."`
 	StackTrace    string    `json:"stack_trace" doc:"Stack trace of the latest occurrence."`
 	TraceID       string    `json:"trace_id" doc:"Trace of the latest occurrence; empty if it had none."`
 }
 
 type endpointErrorsOutput struct {
 	Body struct {
-		Method           string                    `json:"method"`
-		Path             string                    `json:"path"`
-		Range            string                    `json:"range"`
-		From             time.Time                 `json:"from"`
-		To               time.Time                 `json:"to"`
-		BucketSeconds    int                       `json:"bucket_seconds"`
-		Summary          ErrorSplit                `json:"summary"`
+		Method           string                    `json:"method" doc:"HTTP method of the endpoint, upper case."`
+		Path             string                    `json:"path" doc:"Route template of the endpoint, e.g. /orders/{id}."`
+		Range            string                    `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
+		From             time.Time                 `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
+		To               time.Time                 `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
+		BucketSeconds    int                       `json:"bucket_seconds" doc:"Width of each series bucket, in seconds."`
+		Summary          ErrorSplit                `json:"summary" doc:"Requests and errors of the whole range."`
 		Points           []endpointErrorsPoint     `json:"points" doc:"One point per bucket of the range, zero-filled."`
 		Statuses         []endpointStatusCount     `json:"statuses" doc:"Error status codes (400 and above) by count, expected status codes left out."`
 		ValidationErrors []endpointValidationError `json:"validation_errors" doc:"Validation errors of rejected requests grouped by (loc, msg, type), most frequent first (at most 50)."`

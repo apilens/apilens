@@ -17,16 +17,19 @@ import (
 func registerTrafficLatency(api huma.API, s *Service) {
 	huma.Register(api, huma.Operation{
 		OperationID: "get-traffic-latency", Method: http.MethodGet, Path: "/api/v1/traffic/latency",
-		Summary: "Response time: percentiles, p50/p75/p95 trend, Apdex and histogram", Tags: []string{"Dashboard"}, Security: security,
+		Summary: "Response time: percentiles, p50/p75/p95 trend, Apdex and histogram",
+		Description: "Response time of the project (or one environment) over the range: summary percentiles and Apdex, the " +
+			"p50/p75/p95 trend per bucket and a fixed 14-bucket histogram over raw requests. Endpoints excluded from metrics are left out." + readAccess,
+		Tags: []string{"Dashboard"}, Security: security,
 	}, s.trafficLatency)
 }
 
 type trafficLatencyOutput struct {
 	Body struct {
-		Range         string          `json:"range"`
-		From          time.Time       `json:"from"`
-		To            time.Time       `json:"to"`
-		BucketSeconds int             `json:"bucket_seconds"`
+		Range         string          `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
+		From          time.Time       `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
+		To            time.Time       `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
+		BucketSeconds int             `json:"bucket_seconds" doc:"Width of each series bucket, in seconds."`
 		Summary       LatencySummary  `json:"summary" doc:"Percentiles are t-digest estimates; apdex scores each request against its endpoint's latency threshold, else its app's, else 500 ms."`
 		Points        []latencyPoint  `json:"points" doc:"One point per bucket of the range, zero-filled."`
 		Histogram     []latencyBucket `json:"histogram" doc:"Response-time histogram over raw requests, always 14 log-spaced buckets with edges (ms) 0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, +inf; empty buckets have count 0."`

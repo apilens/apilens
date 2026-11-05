@@ -25,8 +25,11 @@ func registerDeployChanges(api huma.API, s *Service) {
 		Method:      http.MethodGet,
 		Path:        "/api/v1/deploys/changes",
 		Summary:     "Deploys with error rate and p95 one hour before and after each",
-		Tags:        []string{"Dashboard"},
-		Security:    security,
+		Description: "The most recent deploys of the range, newest first, each with requests, error rate and p95 of its app " +
+			"(or the project for a project-wide deploy) in the hour before and the hour after the deploy's minute, to spot " +
+			"releases that changed behaviour." + readAccess,
+		Tags:     []string{"Dashboard"},
+		Security: security,
 	}, s.deployChanges)
 }
 
@@ -38,17 +41,17 @@ type DeployChangesInput struct {
 }
 
 type sideStats struct {
-	Requests  uint64  `json:"requests"`
+	Requests  uint64  `json:"requests" doc:"Requests in the window."`
 	ErrorRate float64 `json:"error_rate" doc:"(client_errors + server_errors) / requests; 0 without requests."`
 	P95Ms     float64 `json:"p95_ms" doc:"0 without requests."`
 }
 
 type deployChange struct {
-	DeployedAt   time.Time `json:"deployed_at"`
-	Release      string    `json:"release"`
-	Commit       string    `json:"commit"`
-	Environment  string    `json:"environment"`
-	URL          string    `json:"url"`
+	DeployedAt   time.Time `json:"deployed_at" doc:"When the deploy happened, as reported."`
+	Release      string    `json:"release" doc:"Release name or version that was deployed."`
+	Commit       string    `json:"commit" doc:"Commit that was deployed; empty when not reported."`
+	Environment  string    `json:"environment" doc:"Environment deployed to."`
+	URL          string    `json:"url" doc:"Link to the release or CI run; empty when not reported."`
 	AppID        string    `json:"app_id" doc:"The deployed app; empty for a project-wide deploy."`
 	Before       sideStats `json:"before" doc:"The hour before the deploy's minute."`
 	After        sideStats `json:"after" doc:"The hour after the deploy's minute; the minute itself is in neither side."`
@@ -57,8 +60,8 @@ type deployChange struct {
 
 type deployChangesOutput struct {
 	Body struct {
-		WindowMinutes int            `json:"window_minutes"`
-		Deploys       []deployChange `json:"deploys"`
+		WindowMinutes int            `json:"window_minutes" doc:"Length of the before and after windows, in minutes."`
+		Deploys       []deployChange `json:"deploys" doc:"Deploys of the range, newest first, with traffic before and after each."`
 	}
 }
 

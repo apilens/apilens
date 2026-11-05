@@ -22,35 +22,35 @@ import (
 var sizeEdgesBytes = []uint64{1, 256, 1 << 10, 4 << 10, 16 << 10, 64 << 10, 256 << 10, 1 << 20, 4 << 20}
 
 type transferSummary struct {
-	Requests         uint64  `json:"requests"`
+	Requests         uint64  `json:"requests" doc:"Requests in the range."`
 	RequestBytes     uint64  `json:"request_bytes" doc:"Bytes received in request bodies."`
 	ResponseBytes    uint64  `json:"response_bytes" doc:"Bytes sent in response bodies."`
-	AvgRequestBytes  float64 `json:"avg_request_bytes"`
-	AvgResponseBytes float64 `json:"avg_response_bytes"`
+	AvgRequestBytes  float64 `json:"avg_request_bytes" doc:"request_bytes / requests; 0 without requests."`
+	AvgResponseBytes float64 `json:"avg_response_bytes" doc:"response_bytes / requests; 0 without requests."`
 }
 
 type transferPoint struct {
 	TS            time.Time `json:"ts" doc:"Start of the bucket."`
-	Requests      uint64    `json:"requests"`
-	RequestBytes  uint64    `json:"request_bytes"`
-	ResponseBytes uint64    `json:"response_bytes"`
+	Requests      uint64    `json:"requests" doc:"Requests in the bucket."`
+	RequestBytes  uint64    `json:"request_bytes" doc:"Bytes received in request bodies in the bucket."`
+	ResponseBytes uint64    `json:"response_bytes" doc:"Bytes sent in response bodies in the bucket."`
 }
 
 type sizeBucket struct {
 	FromBytes uint64  `json:"from_bytes" doc:"Inclusive lower edge."`
 	ToBytes   *uint64 `json:"to_bytes,omitempty" doc:"Exclusive upper edge; absent on the last, open bucket."`
-	Count     uint64  `json:"count"`
+	Count     uint64  `json:"count" doc:"Requests whose body size falls in the bucket."`
 }
 
 type endpointTransferOutput struct {
 	Body struct {
-		Method                string          `json:"method"`
-		Path                  string          `json:"path"`
-		Range                 string          `json:"range"`
-		From                  time.Time       `json:"from"`
-		To                    time.Time       `json:"to"`
-		BucketSeconds         int             `json:"bucket_seconds"`
-		Summary               transferSummary `json:"summary"`
+		Method                string          `json:"method" doc:"HTTP method of the endpoint, upper case."`
+		Path                  string          `json:"path" doc:"Route template of the endpoint, e.g. /orders/{id}."`
+		Range                 string          `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
+		From                  time.Time       `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
+		To                    time.Time       `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
+		BucketSeconds         int             `json:"bucket_seconds" doc:"Width of each series bucket, in seconds."`
+		Summary               transferSummary `json:"summary" doc:"Byte totals and averages of the whole range."`
 		Points                []transferPoint `json:"points" doc:"Bytes in and out per bucket of the range, zero-filled."`
 		RequestSizeHistogram  []sizeBucket    `json:"request_size_histogram" doc:"Request body sizes over raw requests, always 10 log-spaced buckets with edges (bytes) 0, 1, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, +inf; empty buckets have count 0."`
 		ResponseSizeHistogram []sizeBucket    `json:"response_size_histogram" doc:"Response body sizes over raw requests, always 10 log-spaced buckets with edges (bytes) 0, 1, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, +inf; empty buckets have count 0."`

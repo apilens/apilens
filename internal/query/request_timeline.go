@@ -82,7 +82,7 @@ func (in *requestTimelineInput) filter() *requestsInput {
 
 type timelineBucket struct {
 	TS           time.Time `json:"ts" doc:"Start of the bucket."`
-	Requests     uint64    `json:"requests"`
+	Requests     uint64    `json:"requests" doc:"Requests in the bucket."`
 	Successful   uint64    `json:"successful" doc:"Status below 400."`
 	ClientErrors uint64    `json:"client_errors" doc:"Status 400-499."`
 	ServerErrors uint64    `json:"server_errors" doc:"Status 500 and above."`
@@ -92,7 +92,7 @@ type requestTimelineOutput struct {
 	Body struct {
 		From          time.Time        `json:"from" doc:"Start of the window (inclusive)."`
 		To            time.Time        `json:"to" doc:"End of the window (exclusive)."`
-		BucketSeconds int              `json:"bucket_seconds"`
+		BucketSeconds int              `json:"bucket_seconds" doc:"Width of each series bucket, in seconds."`
 		Buckets       []timelineBucket `json:"buckets" doc:"Oldest first, every bucket of the window, empty ones with zeros. The first and last may extend past the window; they count only rows inside it."`
 	}
 }

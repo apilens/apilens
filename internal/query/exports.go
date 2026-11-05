@@ -181,7 +181,7 @@ func (f ExportFilter) input() *requestsInput {
 
 // RequestExport is an export of the request log.
 type RequestExport struct {
-	ID                   string       `json:"id" format:"uuid"`
+	ID                   string       `json:"id" format:"uuid" doc:"The export's id."`
 	Status               string       `json:"status" enum:"queued,running,completed,failed,cancelled,expired" doc:"queued until a worker starts it; completed exports expire 24 hours after they finish."`
 	Filter               ExportFilter `json:"filter" doc:"The filter the export was asked with."`
 	From                 time.Time    `json:"from" doc:"Start of the exported time range (inclusive)."`
@@ -192,9 +192,9 @@ type RequestExport struct {
 	Progress             float64      `json:"progress" doc:"rows_written / total_rows, from 0 to 1; 1 once completed."`
 	SizeBytes            int64        `json:"size_bytes" doc:"Size of the gzip-compressed CSV once completed."`
 	Error                *string      `json:"error" required:"true" nullable:"true" doc:"Why a failed export failed."`
-	CreatedAt            time.Time    `json:"created_at"`
-	StartedAt            *time.Time   `json:"started_at" required:"true" nullable:"true"`
-	FinishedAt           *time.Time   `json:"finished_at" required:"true" nullable:"true"`
+	CreatedAt            time.Time    `json:"created_at" doc:"When the export was asked for."`
+	StartedAt            *time.Time   `json:"started_at" required:"true" nullable:"true" doc:"When a worker started writing it; null while queued."`
+	FinishedAt           *time.Time   `json:"finished_at" required:"true" nullable:"true" doc:"When it completed, failed or was cancelled; null before."`
 	ExpiresAt            *time.Time   `json:"expires_at" required:"true" nullable:"true" doc:"When a completed export stops being downloadable."`
 	DownloadURL          *string      `json:"download_url" required:"true" nullable:"true" doc:"Signed URL of the gzip-compressed CSV, relative to the API origin, while completed; it needs no Authorization header. Fetch this export again for a fresh one once it expires."`
 	DownloadURLExpiresAt *time.Time   `json:"download_url_expires_at" required:"true" nullable:"true" doc:"When download_url stops working."`
