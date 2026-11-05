@@ -40,9 +40,9 @@ client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
 | `compress` | `True` | gzip each batch (`Content-Encoding: gzip`); `False` sends plain JSON. |
 | `proxy_url` | `""` | Egress proxy for ingest traffic. Falls back to `APILENS_PROXY`, then `HTTPS_PROXY` / `HTTP_PROXY`. |
 | `enabled` | `True` | Master kill switch — `False` disables capture and the background worker. |
-| `capture_ip` | `True` | `False` sends no client IP at all. See [Client IP](/getting-started/data-privacy#client-ip-capture_ip-and-anonymize_ip). |
+| `capture_ip` | `True` | `False` sends no client IP at all. See [Client IP](/getting-started/data-privacy#client-ip). |
 | `anonymize_ip` | `False` | Truncate client IPs in-process: IPv4 to /24 (last octet zeroed), IPv6 to /48. |
-| `mask_log_record` | `None` | `(LogRecord) -> LogRecord \| None` run on every log record (auto error-trace logs) before it is queued: edit and return it, or return `None` to drop it. Built-in `key=value` masking runs afterwards; a callback that raises drops the record. See [Data privacy](/getting-started/data-privacy#masking-error-trace-logs-mask_log_record). |
+| `mask_log_record` | `None` | `(LogRecord) -> LogRecord \| None` run on every log record (auto error-trace logs) before it is queued: edit and return it, or return `None` to drop it. Built-in `key=value` masking runs afterwards; a callback that raises drops the record. See [Data privacy](/getting-started/data-privacy#masking-error-trace-logs). |
 | `send_metadata` | `True` | Report framework, versions, route templates and the effective capture config once per process start. Env `APILENS_SEND_METADATA=false` also turns it off. |
 | `send_heartbeat` | `True` | Send a heartbeat on start, every `heartbeat_interval` and on shutdown; its response carries the remote capture policy. Env `APILENS_SEND_HEARTBEAT=false` also turns it off. |
 | `heartbeat_interval` | `60.0` | Seconds between heartbeats (minimum 10). |
