@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- README restructured to match the Python SDK's: the `ApiLensConfig` and
+  filter option tables list the same options in the same order (options the
+  Java SDK does not offer are marked), plus the full environment-variable and
+  `apilens.*` property tables. `ReadmeTest` fails when a builder option,
+  Spring property or `APILENS_*` variable is missing from the README.
 - Added Spring WebFlux support: `ApiLensWebFilter` (a `WebFilter`) with the
   servlet filter's options, body capture by `DataBuffer` decoration within
   `maxPayloadBytes`, route templates from
