@@ -559,6 +559,29 @@
         ],
         "type": "object"
       },
+      "AssignConsumerGroupInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AssignConsumerGroupInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "group_id": {
+            "description": "The group to put the consumer in; it leaves the group it was in.",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id"
+        ],
+        "type": "object"
+      },
       "AuthProviders": {
         "additionalProperties": false,
         "properties": {
@@ -804,6 +827,493 @@
           "avatar_url",
           "created_at",
           "last_login_at"
+        ],
+        "type": "object"
+      },
+      "ConsumerAssignmentOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ConsumerAssignmentOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "assigned_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "consumer_id": {
+            "type": "string"
+          },
+          "group": {
+            "$ref": "#/components/schemas/ConsumerGroupRef"
+          }
+        },
+        "required": [
+          "consumer_id",
+          "group",
+          "assigned_at"
+        ],
+        "type": "object"
+      },
+      "ConsumerCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "consumers": {
+            "description": "Unique consumers with requests in the period.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "new": {
+            "description": "Consumers whose first request ever falls in the period.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "returning": {
+            "description": "Consumers first seen before the period.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "consumers",
+          "new",
+          "returning"
+        ],
+        "type": "object"
+      },
+      "ConsumerGroup": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ConsumerGroup.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "consumers": {
+            "description": "How many consumers are assigned to the group.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "consumers",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "ConsumerGroupBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ConsumerGroupBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name, 1 to 128 characters; surrounding spaces are dropped. Unique in the project, ignoring case.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "ConsumerGroupRef": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "ConsumerGroupsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ConsumerGroupsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "groups": {
+            "description": "The project's consumer groups, by name.",
+            "items": {
+              "$ref": "#/components/schemas/ConsumerGroup"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "groups"
+        ],
+        "type": "object"
+      },
+      "ConsumerOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ConsumerOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "bucket_seconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "consumer_id": {
+            "type": "string"
+          },
+          "consumer_name": {
+            "description": "Most recently reported name of the consumer.",
+            "type": "string"
+          },
+          "first_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "group": {
+            "$ref": "#/components/schemas/ConsumerGroupRef",
+            "description": "The consumer group the consumer is assigned to; absent when none."
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "new": {
+            "description": "Whether first_seen falls within the range.",
+            "type": "boolean"
+          },
+          "points": {
+            "description": "One point per bucket of the range, zero-filled.",
+            "items": {
+              "$ref": "#/components/schemas/EndpointRequestsPoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "range": {
+            "type": "string"
+          },
+          "recent_errors": {
+            "description": "The consumer's latest 4xx and 5xx requests in the range (at most 50), newest first.",
+            "items": {
+              "$ref": "#/components/schemas/RequestRow"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "recent_requests": {
+            "description": "The consumer's latest requests in the range (at most 50), newest first.",
+            "items": {
+              "$ref": "#/components/schemas/RequestRow"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ConsumerSummary"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "consumer_id",
+          "consumer_name",
+          "first_seen",
+          "last_seen",
+          "new",
+          "range",
+          "from",
+          "to",
+          "bucket_seconds",
+          "summary",
+          "points",
+          "recent_requests",
+          "recent_errors"
+        ],
+        "type": "object"
+      },
+      "ConsumerRow": {
+        "additionalProperties": false,
+        "properties": {
+          "client_errors": {
+            "description": "Requests with a 4xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "consumer_id": {
+            "type": "string"
+          },
+          "consumer_name": {
+            "description": "Most recently reported name of the consumer in the range.",
+            "type": "string"
+          },
+          "first_seen": {
+            "description": "First request ever seen from the consumer in the project.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "group": {
+            "$ref": "#/components/schemas/ConsumerGroupRef",
+            "description": "The consumer group the consumer is assigned to; absent when none."
+          },
+          "last_seen": {
+            "description": "Last request ever seen from the consumer in the project.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "new": {
+            "description": "Whether first_seen falls within the range.",
+            "type": "boolean"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_errors": {
+            "description": "Requests with a 5xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sparkline": {
+            "description": "Requests per bucket of the range (bucket_seconds wide), oldest first, zero-filled.",
+            "items": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "successful": {
+            "description": "Requests with a status code below 400.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "consumer_id",
+          "consumer_name",
+          "first_seen",
+          "last_seen",
+          "new",
+          "sparkline",
+          "requests",
+          "successful",
+          "client_errors",
+          "server_errors"
+        ],
+        "type": "object"
+      },
+      "ConsumerSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "client_errors": {
+            "description": "Requests with a 4xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requests_per_minute": {
+            "format": "double",
+            "type": "number"
+          },
+          "server_errors": {
+            "description": "Requests with a 5xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "successful": {
+            "description": "Requests with a status code below 400.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requests_per_minute",
+          "requests",
+          "successful",
+          "client_errors",
+          "server_errors"
+        ],
+        "type": "object"
+      },
+      "ConsumersOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ConsumersOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "bucket_seconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "consumers": {
+            "description": "Consumers by requests, most first.",
+            "items": {
+              "$ref": "#/components/schemas/ConsumerRow"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "points": {
+            "description": "Unique consumers per bucket, zero-filled; new means first seen within that bucket.",
+            "items": {
+              "$ref": "#/components/schemas/ConsumersPoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "range": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ConsumerCounts",
+            "description": "Unique consumers of the whole range; new means first seen within the range."
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "range",
+          "from",
+          "to",
+          "bucket_seconds",
+          "summary",
+          "points",
+          "consumers"
+        ],
+        "type": "object"
+      },
+      "ConsumersPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "consumers": {
+            "description": "Unique consumers with requests in the period.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "new": {
+            "description": "Consumers whose first request ever falls in the period.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "returning": {
+            "description": "Consumers first seen before the period.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ts": {
+            "description": "Start of the bucket.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "consumers",
+          "new",
+          "returning"
         ],
         "type": "object"
       },
@@ -9328,6 +9838,203 @@
         ]
       }
     },
+    "/api/v1/consumers": {
+      "get": {
+        "operationId": "list-consumers",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the consumers in this consumer group (an id from list-consumer-groups); empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "group",
+            "schema": {
+              "description": "Only the consumers in this consumer group (an id from list-consumer-groups); empty means all.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Most consumers to list, by requests.",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "description": "Most consumers to list, by requests.",
+              "format": "int64",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsumersOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Consumers: traffic with sparklines, and unique consumers over time split new vs returning",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/consumers/{consumer_id}": {
+      "get": {
+        "operationId": "get-consumer",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The consumer id the SDK reports, URL-encoded as one path segment.",
+            "in": "path",
+            "name": "consumer_id",
+            "required": true,
+            "schema": {
+              "description": "The consumer id the SDK reports, URL-encoded as one path segment.",
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsumerOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Consumer detail: first/last seen, requests and errors over time, recent requests and errors",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
     "/api/v1/deploys": {
       "get": {
         "operationId": "list-deploys",
@@ -12542,6 +13249,604 @@
           }
         ],
         "summary": "Check whether a project slug is free",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project}/consumer-groups": {
+      "get": {
+        "description": "The project's consumer groups by name, with how many consumers each holds. Open to a session that can view the project or to the project's read key.",
+        "operationId": "list-consumer-groups",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsumerGroupsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "List the consumer groups of a project",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "post": {
+        "description": "Creates an empty consumer group. Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers. A name the project already uses answers 409.",
+        "operationId": "create-consumer-group",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsumerGroupBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsumerGroup"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Create a consumer group",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project}/consumer-groups/{id}": {
+      "delete": {
+        "description": "Deletes a group; its consumers become ungrouped. Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers.",
+        "operationId": "delete-consumer-group",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The group's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The group's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Delete a consumer group",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "put": {
+        "description": "Renames a group; its consumers stay. Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers. A name the project already uses answers 409.",
+        "operationId": "rename-consumer-group",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The group's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The group's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsumerGroupBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsumerGroup"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Rename a consumer group",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project}/consumers/{consumer_id}/group": {
+      "delete": {
+        "description": "Leaves the consumer ungrouped. Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers. A consumer without a group answers 404.",
+        "operationId": "unassign-consumer-group",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The consumer id the SDK reports, URL-encoded as one path segment.",
+            "in": "path",
+            "name": "consumer_id",
+            "required": true,
+            "schema": {
+              "description": "The consumer id the SDK reports, URL-encoded as one path segment.",
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Take a consumer out of its group",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "put": {
+        "description": "Assigns a consumer to a group of the project, moving it out of the group it was in (a consumer is in at most one group). Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers. A group that is not one of the project's answers 404.",
+        "operationId": "assign-consumer-group",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The consumer id the SDK reports, URL-encoded as one path segment.",
+            "in": "path",
+            "name": "consumer_id",
+            "required": true,
+            "schema": {
+              "description": "The consumer id the SDK reports, URL-encoded as one path segment.",
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignConsumerGroupInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsumerAssignmentOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Put a consumer in a group",
         "tags": [
           "Projects"
         ]

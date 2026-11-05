@@ -73,7 +73,7 @@ func TestMigrationsApplyAndAreIdempotent(t *testing.T) {
 		names = append(names, name)
 	}
 	_ = chRows.Close()
-	for _, want := range []string{"api_deploys", "api_logs", "api_requests", "api_requests_1h", "api_requests_1h_mv", "api_requests_1m", "api_requests_1m_mv", "api_spans"} {
+	for _, want := range []string{"api_consumers", "api_consumers_mv", "api_deploys", "api_logs", "api_requests", "api_requests_1h", "api_requests_1h_mv", "api_requests_1m", "api_requests_1m_mv", "api_spans"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("clickhouse table %q missing (have %v)", want, names)
 		}
