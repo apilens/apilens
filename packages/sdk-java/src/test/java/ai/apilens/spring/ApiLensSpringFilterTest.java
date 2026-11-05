@@ -3,6 +3,7 @@ package ai.apilens.spring;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.apilens.ApiLensClient;
@@ -11,6 +12,7 @@ import ai.apilens.ApiLensConsumers;
 import ai.apilens.ApiLensClientTest.IngestServer;
 import ai.apilens.RequestInfo;
 import ai.apilens.ResponseInfo;
+import ai.apilens.SampleDecision;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletResponse;
@@ -326,6 +328,204 @@ class ApiLensSpringFilterTest {
 
       client.shutdown(false);
     }
+  }
+
+  @Test
+  void sampledOutRequestSendsOnlyTheBaseRecordAndSkipsBodyBuffering() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(
+          client, ApiLensSpringOptions.builder().sampleRate(0.0).build());
+
+      MockHttpServletRequest request = new MockHttpServletRequest("POST", "/orders/42");
+      request.setContentType("application/json");
+      request.setContent("{\"item\":\"book\"}".getBytes(StandardCharsets.UTF_8));
+      request.addHeader("Authorization", "Bearer secret");
+      request.addHeader("traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01");
+      request.setAttribute(BEST_MATCHING_PATTERN_ATTRIBUTE, "/orders/{id}");
+      AtomicReference<Object> seenRequest = new AtomicReference<>();
+      AtomicReference<String> seenTrace = new AtomicReference<>();
+      MockHttpServletResponse response = new MockHttpServletResponse();
+      filter.doFilter(request, response, (req, res) -> {
+        seenRequest.set(req);
+        seenTrace.set(ai.apilens.TraceContext.currentTraceId());
+        req.getInputStream().readAllBytes();
+        HttpServletResponse http = (HttpServletResponse) res;
+        http.setStatus(500);
+        http.setContentType("application/json");
+        http.getWriter().write("{\"error\":true}");
+      });
+      client.flushAll();
+
+      assertSame(request, seenRequest.get(), "a sampled-out request body must not be buffered");
+      assertEquals("0af7651916cd43dd8448eb211c80319c", seenTrace.get(), "trace context still propagates");
+      assertEquals("{\"error\":true}", response.getContentAsString());
+      assertEquals(List.of("/v1/requests"), server.paths(), "no span and no error log");
+      String body = server.bodies().get(0);
+      assertTrue(body.contains("\"sampled\":false"), body);
+      assertTrue(body.contains("\"path\":\"/orders/{id}\""));
+      assertTrue(body.contains("\"status_code\":500"));
+      assertTrue(body.contains("\"request_size\":15"));
+      assertTrue(body.contains("\"response_size\":14"));
+      assertTrue(body.contains("\"request_payload\":\"\""));
+      assertTrue(body.contains("\"response_payload\":\"\""));
+      assertTrue(body.contains("\"request_headers\":\"\""));
+      assertTrue(body.contains("\"response_headers\":\"\""));
+      assertTrue(body.contains("\"trace_id\":\"0af7651916cd43dd8448eb211c80319c\""));
+
+      client.shutdown(false);
+    }
+  }
+
+  @Test
+  void sampleRateOneKeepsFullDetail() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(
+          client, ApiLensSpringOptions.builder().sampleRate(1.0).build());
+
+      MockHttpServletRequest request = new MockHttpServletRequest("POST", "/orders");
+      request.setContentType("application/json");
+      request.setContent("{\"item\":\"book\"}".getBytes(StandardCharsets.UTF_8));
+      filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> {
+        req.getInputStream().readAllBytes();
+        ((HttpServletResponse) res).setStatus(500);
+      });
+      client.flushAll();
+
+      assertEquals(List.of("/v1/requests", "/v1/traces", "/v1/logs"), server.paths());
+      String body = server.bodies().get(0);
+      assertTrue(body.contains("\"sampled\":true"), body);
+      assertTrue(body.contains("\"request_payload\":\"{\\\"item\\\":\\\"book\\\"}\""), body);
+
+      client.shutdown(false);
+    }
+  }
+
+  @Test
+  void sampleOnResponseKeepsOnlyErrors() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      AtomicReference<ai.apilens.SampleResponseInfo> seen = new AtomicReference<>();
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(
+          client,
+          ApiLensSpringOptions.builder()
+              .sampleRate(0.0)
+              .captureSpans(false)
+              .sampleOnResponse(info -> {
+                seen.set(info);
+                return SampleDecision.of(info.statusCode() >= 500);
+              })
+              .build());
+
+      MockHttpServletRequest ok = new MockHttpServletRequest("GET", "/orders/1");
+      ok.setAttribute(BEST_MATCHING_PATTERN_ATTRIBUTE, "/orders/{id}");
+      ok.addHeader("X-Tenant", "acme");
+      filter.doFilter(ok, new MockHttpServletResponse(), okChain());
+      assertEquals("/orders/{id}", seen.get().route());
+      assertEquals(200, seen.get().statusCode());
+      assertEquals("acme", seen.get().request().headers().get("x-tenant"));
+      assertEquals(SampleDecision.UNDECIDED, seen.get().requestDecision());
+
+      filter.doFilter(new MockHttpServletRequest("GET", "/orders/2"), new MockHttpServletResponse(),
+          (req, res) -> ((HttpServletResponse) res).setStatus(503));
+      client.flushAll();
+
+      String body = server.bodies().get(0);
+      assertTrue(body.contains("\"raw_path\":\"/orders/1\""));
+      assertTrue(body.contains("\"raw_path\":\"/orders/2\""));
+      assertEquals(1, count(body, "\"sampled\":false"), body);
+      assertEquals(1, count(body, "\"sampled\":true"), body);
+      assertTrue(body.indexOf("\"sampled\":false") < body.indexOf("/orders/2"), "the 200 is dropped");
+
+      client.shutdown(false);
+    }
+  }
+
+  @Test
+  void sampleOnRequestDropIsFinalAndThrowingCallbacksAreUndecided() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      AtomicInteger responseCalls = new AtomicInteger();
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(
+          client,
+          ApiLensSpringOptions.builder()
+              .captureSpans(false)
+              .sampleOnRequest(info -> {
+                if (info.path().startsWith("/internal")) {
+                  return SampleDecision.DROP;
+                }
+                throw new IllegalStateException("boom");
+              })
+              .sampleOnResponse(info -> {
+                responseCalls.incrementAndGet();
+                if (info.statusCode() == 201) {
+                  throw new IllegalStateException("boom");
+                }
+                return SampleDecision.KEEP;
+              })
+              .build());
+
+      filter.doFilter(new MockHttpServletRequest("GET", "/internal/jobs"), new MockHttpServletResponse(),
+          (req, res) -> ((HttpServletResponse) res).setStatus(500));
+      MockHttpServletResponse created = new MockHttpServletResponse();
+      filter.doFilter(new MockHttpServletRequest("POST", "/orders"), created,
+          (req, res) -> ((HttpServletResponse) res).setStatus(201));
+      client.flushAll();
+
+      assertEquals(201, created.getStatus(), "callback exceptions never reach the handler");
+      assertEquals(1, responseCalls.get(), "a request dropped on request is not offered to sampleOnResponse");
+      String body = server.bodies().get(0);
+      assertTrue(body.indexOf("\"sampled\":false") < body.indexOf("\"raw_path\":\"/orders\""), body);
+      assertEquals(1, count(body, "\"sampled\":false"), body);
+      assertEquals(1, count(body, "\"sampled\":true"), body);
+
+      client.shutdown(false);
+    }
+  }
+
+  @Test
+  void sampleRateUsesTheRandomSourcePerRequest() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      double[] rolls = {0.1, 0.6, 0.2, 0.9};
+      AtomicInteger next = new AtomicInteger();
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(
+          client,
+          ApiLensSpringOptions.builder().sampleRate(0.5).captureSpans(false).build(),
+          null,
+          () -> rolls[next.getAndIncrement()]);
+      for (int i = 0; i < rolls.length; i++) {
+        filter.doFilter(new MockHttpServletRequest("GET", "/r" + i), new MockHttpServletResponse(), okChain());
+      }
+      client.flushAll();
+
+      String body = server.bodies().get(0);
+      assertEquals(2, count(body, "\"sampled\":true"), body);
+      assertEquals(2, count(body, "\"sampled\":false"), body);
+
+      client.shutdown(false);
+    }
+  }
+
+  @Test
+  void propertiesMapSampleRateAndBuilderValidatesIt() {
+    ApiLensProperties properties = new ApiLensProperties();
+    assertEquals(1.0, properties.toSpringOptions().sampleRate());
+    properties.setSampleRate(0.25);
+    assertEquals(0.25, properties.toSpringOptions().sampleRate());
+    assertEquals(0.25, properties.toSpringOptions().toBuilder().build().sampleRate());
+    properties.setSampleRate(1.5);
+    assertThrows(IllegalArgumentException.class, properties::toSpringOptions);
+    assertThrows(IllegalArgumentException.class, () -> ApiLensSpringOptions.builder().sampleRate(-0.1));
+  }
+
+  private static int count(String haystack, String needle) {
+    int count = 0;
+    for (int i = haystack.indexOf(needle); i >= 0; i = haystack.indexOf(needle, i + 1)) {
+      count++;
+    }
+    return count;
   }
 
   private static ApiLensClient testClient(IngestServer server) {

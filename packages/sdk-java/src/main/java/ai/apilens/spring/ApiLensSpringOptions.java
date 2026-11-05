@@ -2,7 +2,10 @@ package ai.apilens.spring;
 
 import ai.apilens.RequestExcluder;
 import ai.apilens.RequestInfo;
+import ai.apilens.RequestSampler;
 import ai.apilens.ResponseInfo;
+import ai.apilens.ResponseSampler;
+import ai.apilens.Sampler;
 import java.util.List;
 import java.util.function.BiFunction;
 
@@ -27,6 +30,9 @@ public final class ApiLensSpringOptions {
   private final boolean defaultExclusions;
   private final BiFunction<RequestInfo, byte[], byte[]> maskRequestBody;
   private final BiFunction<ResponseInfo, byte[], byte[]> maskResponseBody;
+  private final double sampleRate;
+  private final RequestSampler sampleOnRequest;
+  private final ResponseSampler sampleOnResponse;
 
   private ApiLensSpringOptions(Builder builder) {
     this.environment = builder.environment;
@@ -48,6 +54,9 @@ public final class ApiLensSpringOptions {
     this.defaultExclusions = builder.defaultExclusions;
     this.maskRequestBody = builder.maskRequestBody;
     this.maskResponseBody = builder.maskResponseBody;
+    this.sampleRate = builder.sampleRate;
+    this.sampleOnRequest = builder.sampleOnRequest;
+    this.sampleOnResponse = builder.sampleOnResponse;
   }
 
   public static Builder builder() {
@@ -75,7 +84,10 @@ public final class ApiLensSpringOptions {
         .excludeUserAgents(excludeUserAgents)
         .defaultExclusions(defaultExclusions)
         .maskRequestBody(maskRequestBody)
-        .maskResponseBody(maskResponseBody);
+        .maskResponseBody(maskResponseBody)
+        .sampleRate(sampleRate)
+        .sampleOnRequest(sampleOnRequest)
+        .sampleOnResponse(sampleOnResponse);
   }
 
   public String environment() {
@@ -163,6 +175,25 @@ public final class ApiLensSpringOptions {
     return maskResponseBody;
   }
 
+  /**
+   * Fraction of requests, in {@code [0.0, 1.0]}, whose detail (headers, bodies, span, error log)
+   * is kept when no sampling callback decides. Every request still sends its base record
+   * ({@code sampled=false} when dropped), so metrics are unaffected. Defaults to {@code 1.0}.
+   */
+  public double sampleRate() {
+    return sampleRate;
+  }
+
+  /** Request-stage sampling callback, run before the handler; {@code null} when unset. */
+  public RequestSampler sampleOnRequest() {
+    return sampleOnRequest;
+  }
+
+  /** Response-stage sampling callback, run after the handler; {@code null} when unset. */
+  public ResponseSampler sampleOnResponse() {
+    return sampleOnResponse;
+  }
+
   public static final class Builder {
     private String environment = "";
     private boolean enabled = true;
@@ -183,6 +214,9 @@ public final class ApiLensSpringOptions {
     private boolean defaultExclusions = true;
     private BiFunction<RequestInfo, byte[], byte[]> maskRequestBody;
     private BiFunction<ResponseInfo, byte[], byte[]> maskResponseBody;
+    private double sampleRate = 1.0;
+    private RequestSampler sampleOnRequest;
+    private ResponseSampler sampleOnResponse;
 
     private Builder() {}
 
@@ -278,6 +312,24 @@ public final class ApiLensSpringOptions {
 
     public Builder maskResponseBody(BiFunction<ResponseInfo, byte[], byte[]> maskResponseBody) {
       this.maskResponseBody = maskResponseBody;
+      return this;
+    }
+
+    /**
+     * @throws IllegalArgumentException when {@code sampleRate} is outside {@code [0.0, 1.0]}
+     */
+    public Builder sampleRate(double sampleRate) {
+      this.sampleRate = Sampler.validateRate(sampleRate);
+      return this;
+    }
+
+    public Builder sampleOnRequest(RequestSampler sampleOnRequest) {
+      this.sampleOnRequest = sampleOnRequest;
+      return this;
+    }
+
+    public Builder sampleOnResponse(ResponseSampler sampleOnResponse) {
+      this.sampleOnResponse = sampleOnResponse;
       return this;
     }
 

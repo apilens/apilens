@@ -44,6 +44,7 @@ public class ApiLensProperties {
   private List<String> excludePaths = List.of();
   private List<String> excludeUserAgents = List.of();
   private boolean defaultExclusions = true;
+  private double sampleRate = 1.0;
   private int filterOrder = Integer.MAX_VALUE - 100;
 
   public ApiLensConfig toClientConfig() {
@@ -91,6 +92,7 @@ public class ApiLensProperties {
         .excludePaths(excludePaths)
         .excludeUserAgents(excludeUserAgents)
         .defaultExclusions(defaultExclusions)
+        .sampleRate(sampleRate)
         .build();
   }
 
@@ -380,6 +382,14 @@ public class ApiLensProperties {
 
   public void setDefaultExclusions(boolean defaultExclusions) {
     this.defaultExclusions = defaultExclusions;
+  }
+
+  public double getSampleRate() {
+    return sampleRate;
+  }
+
+  public void setSampleRate(double sampleRate) {
+    this.sampleRate = sampleRate;
   }
 
   public int getFilterOrder() {

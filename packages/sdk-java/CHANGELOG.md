@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added sampling: `sampleRate` (`apilens.sample-rate`) plus `sampleOnRequest` /
+  `sampleOnResponse` callbacks returning `SampleDecision` (`KEEP`, `DROP`,
+  `probability(p)`, `UNDECIDED`). A sampled-out request still sends its base
+  record with `sampled: false` but no headers, bodies, span or error log, so
+  metrics are unchanged. Callback exceptions count as `UNDECIDED`.
+  `RequestRecord` gained `sampled` (wire field `sampled`, default `true`).
 - Added `maskRequestBody` / `maskResponseBody` callbacks
   (`BiFunction<RequestInfo|ResponseInfo, byte[], byte[]>`) that run on the
   captured raw body before the regex masking; `null` or an exception stores
