@@ -1,0 +1,1 @@
+{"name":"ZodError","issues":[{"code":"invalid_type","expected":"string","received":"undefined","path":["user","email"],"message":"Required"},{"code":"too_small","minimum":1,"type":"array","inclusive":true,"exact":false,"path":["items"],"message":"Array must contain at least 1 element(s)"}]}

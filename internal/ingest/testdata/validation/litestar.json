@@ -1,0 +1,1 @@
+{"status_code":422,"detail":"Validation failed for POST http://localhost:8000/orders","extra":[{"message":"Expected `int`, got `str`","key":"quantity","source":"body"},{"message":"Object missing required field `sku`"}]}
