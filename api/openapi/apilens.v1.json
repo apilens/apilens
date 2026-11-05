@@ -1285,6 +1285,77 @@
         ],
         "type": "object"
       },
+      "EndpointLatencyOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/EndpointLatencyOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "bucket_seconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "histogram": {
+            "description": "Response-time histogram over raw requests, always 14 log-spaced buckets with edges (ms) 0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, +inf; empty buckets have count 0.",
+            "items": {
+              "$ref": "#/components/schemas/LatencyBucket"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "points": {
+            "description": "One point per bucket of the range, zero-filled.",
+            "items": {
+              "$ref": "#/components/schemas/LatencyPoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "range": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/LatencySummary",
+            "description": "Percentiles are t-digest estimates."
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "path",
+          "range",
+          "from",
+          "to",
+          "bucket_seconds",
+          "summary",
+          "points",
+          "histogram"
+        ],
+        "type": "object"
+      },
       "EndpointRequestsOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -1433,6 +1504,87 @@
           "successful",
           "client_errors",
           "server_errors"
+        ],
+        "type": "object"
+      },
+      "EndpointTransferOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/EndpointTransferOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "bucket_seconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "points": {
+            "description": "Bytes in and out per bucket of the range, zero-filled.",
+            "items": {
+              "$ref": "#/components/schemas/TransferPoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "range": {
+            "type": "string"
+          },
+          "request_size_histogram": {
+            "description": "Request body sizes over raw requests, always 10 log-spaced buckets with edges (bytes) 0, 1, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, +inf; empty buckets have count 0.",
+            "items": {
+              "$ref": "#/components/schemas/SizeBucket"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "response_size_histogram": {
+            "description": "Response body sizes over raw requests, always 10 log-spaced buckets with edges (bytes) 0, 1, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, +inf; empty buckets have count 0.",
+            "items": {
+              "$ref": "#/components/schemas/SizeBucket"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "summary": {
+            "$ref": "#/components/schemas/TransferSummary"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "path",
+          "range",
+          "from",
+          "to",
+          "bucket_seconds",
+          "summary",
+          "points",
+          "request_size_histogram",
+          "response_size_histogram"
         ],
         "type": "object"
       },
@@ -1975,6 +2127,115 @@
           "member_count",
           "project_count",
           "member_initials"
+        ],
+        "type": "object"
+      },
+      "LatencyBucket": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "from_ms": {
+            "description": "Inclusive lower edge.",
+            "format": "double",
+            "type": "number"
+          },
+          "to_ms": {
+            "description": "Exclusive upper edge; absent on the last, open bucket.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "from_ms",
+          "count"
+        ],
+        "type": "object"
+      },
+      "LatencyPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "p50_ms": {
+            "format": "double",
+            "type": "number"
+          },
+          "p75_ms": {
+            "format": "double",
+            "type": "number"
+          },
+          "p95_ms": {
+            "format": "double",
+            "type": "number"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ts": {
+            "description": "Start of the bucket.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "requests",
+          "p50_ms",
+          "p75_ms",
+          "p95_ms"
+        ],
+        "type": "object"
+      },
+      "LatencySummary": {
+        "additionalProperties": false,
+        "properties": {
+          "avg_ms": {
+            "format": "double",
+            "type": "number"
+          },
+          "max_ms": {
+            "format": "double",
+            "type": "number"
+          },
+          "p50_ms": {
+            "format": "double",
+            "type": "number"
+          },
+          "p75_ms": {
+            "format": "double",
+            "type": "number"
+          },
+          "p90_ms": {
+            "format": "double",
+            "type": "number"
+          },
+          "p95_ms": {
+            "format": "double",
+            "type": "number"
+          },
+          "p99_ms": {
+            "format": "double",
+            "type": "number"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requests",
+          "avg_ms",
+          "max_ms",
+          "p50_ms",
+          "p75_ms",
+          "p90_ms",
+          "p95_ms",
+          "p99_ms"
         ],
         "type": "object"
       },
@@ -4200,6 +4461,33 @@
         },
         "type": "object"
       },
+      "SizeBucket": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "from_bytes": {
+            "description": "Inclusive lower edge.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "to_bytes": {
+            "description": "Exclusive upper edge; absent on the last, open bucket.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from_bytes",
+          "count"
+        ],
+        "type": "object"
+      },
       "SlugAvailableOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -4544,6 +4832,76 @@
         },
         "required": [
           "user_id"
+        ],
+        "type": "object"
+      },
+      "TransferPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "request_bytes": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "response_bytes": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ts": {
+            "description": "Start of the bucket.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "requests",
+          "request_bytes",
+          "response_bytes"
+        ],
+        "type": "object"
+      },
+      "TransferSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "avg_request_bytes": {
+            "format": "double",
+            "type": "number"
+          },
+          "avg_response_bytes": {
+            "format": "double",
+            "type": "number"
+          },
+          "request_bytes": {
+            "description": "Bytes received in request bodies.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "response_bytes": {
+            "description": "Bytes sent in response bodies.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requests",
+          "request_bytes",
+          "response_bytes",
+          "avg_request_bytes",
+          "avg_response_bytes"
         ],
         "type": "object"
       },
@@ -7916,6 +8274,138 @@
         ]
       }
     },
+    "/api/v1/endpoints/{method}/{path}/latency": {
+      "get": {
+        "operationId": "get-endpoint-latency",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "HTTP method, e.g. GET (case-insensitive).",
+            "in": "path",
+            "name": "method",
+            "required": true,
+            "schema": {
+              "description": "HTTP method, e.g. GET (case-insensitive).",
+              "pattern": "^[A-Za-z]{1,16}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests with a status code in this class.",
+            "explode": false,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "default": "all",
+              "description": "Only requests with a status code in this class.",
+              "enum": [
+                "all",
+                "2xx",
+                "3xx",
+                "4xx",
+                "5xx"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests from this consumer id; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "consumer",
+            "schema": {
+              "description": "Only requests from this consumer id; empty means all.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointLatencyOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Endpoint response time: percentiles, p50/p75/p95 trend and histogram",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
     "/api/v1/endpoints/{method}/{path}/requests": {
       "get": {
         "operationId": "get-endpoint-requests",
@@ -8043,6 +8533,138 @@
           }
         ],
         "summary": "Endpoint requests: totals, status split over time and top consumers",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/endpoints/{method}/{path}/transfer": {
+      "get": {
+        "operationId": "get-endpoint-transfer",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "HTTP method, e.g. GET (case-insensitive).",
+            "in": "path",
+            "name": "method",
+            "required": true,
+            "schema": {
+              "description": "HTTP method, e.g. GET (case-insensitive).",
+              "pattern": "^[A-Za-z]{1,16}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}.",
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests with a status code in this class.",
+            "explode": false,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "default": "all",
+              "description": "Only requests with a status code in this class.",
+              "enum": [
+                "all",
+                "2xx",
+                "3xx",
+                "4xx",
+                "5xx"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests from this consumer id; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "consumer",
+            "schema": {
+              "description": "Only requests from this consumer id; empty means all.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndpointTransferOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Endpoint data transferred: byte totals, in/out series and size histograms",
         "tags": [
           "Dashboard"
         ]
