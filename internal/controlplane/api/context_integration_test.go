@@ -136,7 +136,7 @@ func TestUserContext(t *testing.T) {
 	// Answered by SpiceDB from the relayed memberships: owner gets every
 	// action, member the project writes, viewer only project.read.
 	owner := []string{
-		"project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage",
+		"project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage",
 		"members.invite", "members.remove", "billing.manage",
 	}
 	wantCaps := map[string][]string{
@@ -231,7 +231,7 @@ func TestUserContextViewer(t *testing.T) {
 		t.Fatalf("promote: %d %s", resp.Code, resp.Body)
 	}
 	admin := []string{
-		"project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage",
+		"project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage",
 		"members.invite", "members.remove",
 	}
 	c = f.userContext(t, viewer)
@@ -287,7 +287,7 @@ func TestUserContextLatency(t *testing.T) {
 		t.Fatalf("orgs = %d, capabilities = %d", len(c.Orgs), len(c.Capabilities))
 	}
 	admin := []string{
-		"project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage",
+		"project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage",
 		"members.invite", "members.remove",
 	}
 	for slug, caps := range c.Capabilities {

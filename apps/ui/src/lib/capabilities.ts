@@ -20,6 +20,8 @@ export const ACTIONS = [
   "api_keys.revoke",
   /** `project#manage_capture`: edit an app's remote capture policy. */
   "capture.manage",
+  /** `project#manage_alerts`: alert rules, notification channels and test notifications. */
+  "alerts.manage",
   /** `organization#invite`: the invite dialog and Invitations page. */
   "members.invite",
   /** `organization#manage_members`: role changes and removal on Members. */
