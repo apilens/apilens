@@ -31,6 +31,10 @@ x-example: &example
   security_opt: ["no-new-privileges:true"]
   tmpfs:
     - /tmp:size=64m
+  # The failure drills (`task test:e2e:drills`) point the SDKs at a fault
+  # proxy on the host: APILENS_EXAMPLES_INGEST_URL=http://host.docker.internal:18090/v1.
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   depends_on:
     apilens:
       condition: service_healthy

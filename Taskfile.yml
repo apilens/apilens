@@ -230,6 +230,31 @@ tasks:
         APILENS_E2E_EXAMPLES="http://127.0.0.1:${APILENS_EXAMPLES_FASTAPI_PORT:-18001},http://127.0.0.1:${APILENS_EXAMPLES_EXPRESS_PORT:-18002},http://127.0.0.1:${APILENS_EXAMPLES_SPRING_PORT:-18003}" \
           go test -count=1 -tags=e2e ./test/e2e/... -run '^TestExampleSampling$' -v
 
+  # Failure drills (test/e2e/drills_e2e_test.go): the example apps send to a
+  # fault proxy the test runs on the host (port 18090), which takes ingest
+  # down, answers 5xx, then 429 with Retry-After; the apps must stay fast,
+  # count the drops and flush without duplicates once ingest is back.
+  test:e2e:drills:
+    desc: "e2e: failure drills (ingest down, 5xx, 429 with Retry-After) through the three SDKs' example apps"
+    cmds:
+      - |
+        set -eu
+        env_name="e2e-drills-$(date +%s)"
+        port="${APILENS_E2E_DRILL_PROXY_PORT:-18090}"
+        APILENS_EXAMPLES_INGEST_URL="http://host.docker.internal:$port/v1" APILENS_EXAMPLES_ENVIRONMENT="$env_name" "{{.TASK_EXE}}" examples:up
+        set -a; . examples/.env; set +a
+        APILENS_E2E_DRILLS_ENV="$env_name" \
+        APILENS_E2E_DRILL_PROXY_ADDR="0.0.0.0:$port" \
+        APILENS_E2E_BASE_URL="http://127.0.0.1:${APILENS_INGEST_PORT:-8080}" \
+        APILENS_E2E_API_KEY="$APILENS_EXAMPLES_API_KEY" \
+        APILENS_E2E_READ_KEY="$APILENS_EXAMPLES_READ_KEY" \
+        APILENS_E2E_APP=example-fastapi \
+        APILENS_E2E_CLICKHOUSE_HTTP=http://127.0.0.1:8123 \
+        APILENS_E2E_CLICKHOUSE_USER=apilens \
+        APILENS_E2E_CLICKHOUSE_PASSWORD=ci-clickhouse \
+        APILENS_E2E_EXAMPLES="http://127.0.0.1:${APILENS_EXAMPLES_FASTAPI_PORT:-18001},http://127.0.0.1:${APILENS_EXAMPLES_EXPRESS_PORT:-18002},http://127.0.0.1:${APILENS_EXAMPLES_SPRING_PORT:-18003}" \
+          go test -count=1 -tags=e2e ./test/e2e/... -run '^TestIngestFailureDrills$' -v -timeout 30m
+
   examples:down:
     desc: Stop the example apps (the e2e stack keeps running; task e2e:down stops it)
     cmds:

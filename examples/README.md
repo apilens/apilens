@@ -74,3 +74,14 @@ then with the client patterns deliberately missing and the project's
 server-side privacy policy naming them. Each run requires `[redacted]` in
 every row and fails on any seeded value found in any column of
 `api_requests`, `api_logs` or `api_spans`.
+
+`task test:e2e:drills` runs the failure drills (also nightly in CI,
+`.github/workflows/e2e-drills.yml`). The apps send to a fault proxy the test
+runs on the host (`APILENS_EXAMPLES_INGEST_URL=http://host.docker.internal:18090/v1`),
+which forwards to the edge until each drill takes ingest down (connections
+refused), answers 503, or answers 429 with `Retry-After: 2` for 25 s while
+every app keeps serving traffic. Each drill requires the apps to keep
+answering 200 with p99 latency within 2x (or +100 ms) of the baseline, the
+SDK stats in the heartbeats (`/api/v1/apps/{id}/status`) to count every lost
+request as a drop (`retries_exhausted`), retries after a 429 to wait
+`Retry-After`, and everything sent around the fault to arrive exactly once.
