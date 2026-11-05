@@ -1,0 +1,89 @@
+---
+title: "NestJS"
+description: "Monitor a NestJS API with the APILens JavaScript SDK (beta)."
+---
+
+<Warning>
+The JavaScript SDK (`apilens-js-sdk`, v0.1.x) is **beta**. The NestJS module supports both HTTP platforms, `@nestjs/platform-express` and `@nestjs/platform-fastify` (tested with NestJS 12).
+</Warning>
+
+## Install
+
+```bash
+npm install apilens-js-sdk
+```
+
+## Import the module
+
+Import `ApiLensModule.forRoot()` once, in your root module:
+
+```typescript
+import { Module } from "@nestjs/common";
+import { ApiLensModule } from "apilens-js-sdk/nestjs";
+
+@Module({
+  imports: [
+    ApiLensModule.forRoot({
+      apiKey: process.env.APILENS_API_KEY,
+      appId: "storefront-api",      // the app's slug from your APILens project
+      environment: "production",
+    }),
+  ],
+  controllers: [OrdersController],
+})
+export class AppModule {}
+```
+
+Nothing changes in `main.ts`. When the application is created, the module instruments the platform underneath Nest, before Nest registers its routes:
+
+- on **Express**, it mounts the APILens Express middleware;
+- on **Fastify**, it attaches the APILens Fastify hooks.
+
+Requests are grouped by the controller route that matched, so `GET /orders/42` counts towards `/orders/{id}`, with any global prefix included. The module also binds `ApiLensInterceptor` globally: it keeps an error a handler throws, so the error log of a 5xx carries that error's stack even though Nest's exception filter sends the response.
+
+The module is global and exports the client under the `APILENS_CLIENT` token if you need it, for example to flush on shutdown:
+
+```typescript
+import { Inject, Injectable, OnApplicationShutdown } from "@nestjs/common";
+import { APILENS_CLIENT } from "apilens-js-sdk/nestjs";
+import type { ApiLensClient } from "apilens-js-sdk";
+
+@Injectable()
+export class ApiLensShutdown implements OnApplicationShutdown {
+  constructor(@Inject(APILENS_CLIENT) private readonly client: ApiLensClient) {}
+
+  async onApplicationShutdown() {
+    await this.client.handleShutdown({ flush: true });
+  }
+}
+```
+
+## Identify consumers
+
+Set the consumer on the request once your guard or middleware knows who is calling. `setConsumer` works with the request of either platform:
+
+```typescript
+import { Controller, Get, Param, Req } from "@nestjs/common";
+import { setConsumer } from "apilens-js-sdk/nestjs";
+
+@Controller("orders")
+export class OrdersController {
+  @Get(":id")
+  find(@Param("id") id: string, @Req() req: { user?: { id: string; email: string; plan: string } }) {
+    if (req.user) {
+      setConsumer(req, { id: req.user.id, name: req.user.email, group: req.user.plan });
+    }
+    return { id };
+  }
+}
+```
+
+A string works too (`setConsumer(req, "acme-corp")`), or pass a centralized `getConsumer(req, res)` resolver in the config.
+
+## Options
+
+`forRoot()` takes the same options as the [Express middleware](/setup-guides/express): delivery (`batchSize`, `flushIntervalMs`, `maxQueueSize`, …), header and body capture (`requestLogging`, `captureProfile`), redaction, exclusions, sampling and tracing. Every option can also be set with its `APILENS_*` environment variable.
+
+## Verify
+
+Send a few requests and open the **Traffic** page — your NestJS app appears with framework `nestjs` and its controller routes alongside your other services in the project.

@@ -227,24 +227,41 @@ export function effectiveConfig(client: ApiLensClient, settings: CaptureSettings
   };
 }
 
-/** The `POST /v1/metadata` body for an Express app. */
-export function buildExpressMetadata(
+/** The web framework named in the metadata report. */
+export type FrameworkInfo = { name: string; version: string };
+
+/** The `POST /v1/metadata` body for an app on `framework` declaring `routes`. */
+export function buildAppMetadata(
   client: ApiLensClient,
-  app: unknown,
+  framework: FrameworkInfo,
+  routes: AppRoute[],
   { environment, config }: { environment?: string; config: Record<string, unknown> },
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     app_id: client.config.appId,
     environment: environment || client.config.environment,
-    framework: "express",
-    framework_version: packageVersion("express"),
+    framework: framework.name,
+    framework_version: framework.version,
     node_version: process.versions.node,
     sdk_version: SDK_VERSION,
-    routes: listExpressRoutes(app),
+    routes: routes.slice(0, MAX_METADATA_ROUTES),
     config,
   };
   if (client.config.projectSlug) {
     payload.project_slug = client.config.projectSlug;
   }
   return payload;
+}
+
+/**
+ * The `POST /v1/metadata` body for an Express app (`framework` overrides the
+ * reported framework, e.g. NestJS on its Express platform).
+ */
+export function buildExpressMetadata(
+  client: ApiLensClient,
+  app: unknown,
+  options: { environment?: string; config: Record<string, unknown> },
+  framework: FrameworkInfo = { name: "express", version: packageVersion("express") },
+): Record<string, unknown> {
+  return buildAppMetadata(client, framework, listExpressRoutes(app), options);
 }
