@@ -108,3 +108,50 @@ func TestDirectSinkWritesAllTablesAndRollups(t *testing.T) {
 		t.Errorf("1h rollup requests = %d", n)
 	}
 }
+
+func TestRequestNewFieldsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	logger := testutil.Logger(t)
+	chCfg := testutil.ClickHouse(t)
+	if err := migrations.UpClickHouse(ctx, chCfg, logger); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := ch.Connect(ctx, chCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	project, app := uuid.New(), uuid.New()
+	row := pipeline.RequestRow{
+		ProjectID: project, AppID: app, Environment: "production", Timestamp: time.Now().UTC(), Method: "POST", Path: "/users",
+		StatusCode: 422, Sampled: false, Attributes: map[string]string{"tenant.id": "acme"},
+		ValidationErrors: []pipeline.ValidationError{{Loc: "body.email", Msg: "field required", Type: "missing"}},
+	}
+	if err := pipeline.ClickHouseInserters(conn).Requests(ctx, []pipeline.RequestRow{row}); err != nil {
+		t.Fatal(err)
+	}
+	var sampled uint8
+	var attrs map[string]string
+	var verrs string
+	if err := conn.QueryRow(ctx, `SELECT sampled, attributes, validation_errors FROM api_requests WHERE project_id = ?`, project).
+		Scan(&sampled, &attrs, &verrs); err != nil {
+		t.Fatal(err)
+	}
+	if sampled != 0 || attrs["tenant.id"] != "acme" || verrs != `[{"loc":"body.email","msg":"field required","type":"missing"}]` {
+		t.Fatalf("got sampled=%d attributes=%v validation_errors=%s", sampled, attrs, verrs)
+	}
+
+	// Rows written without the new columns (older writers) default to sampled.
+	old := uuid.New()
+	if err := conn.Exec(ctx, `INSERT INTO api_requests (project_id, app_id, environment, timestamp, method, path)
+		VALUES (?, ?, 'production', now64(3), 'GET', '/old')`, old, app); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.QueryRow(ctx, `SELECT sampled, validation_errors FROM api_requests WHERE project_id = ?`, old).Scan(&sampled, &verrs); err != nil {
+		t.Fatal(err)
+	}
+	if sampled != 1 || verrs != "" {
+		t.Fatalf("defaults: sampled=%d validation_errors=%q", sampled, verrs)
+	}
+}

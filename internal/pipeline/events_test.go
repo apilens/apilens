@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -15,7 +16,8 @@ func TestRequestEventRoundTrip(t *testing.T) {
 		ProjectID: uuid.New(), AppID: uuid.New(), Environment: "production",
 		Timestamp: time.Date(2026, 10, 22, 10, 0, 0, 123_000_000, time.UTC), Method: "GET", Path: "/orders/{id}",
 		StatusCode: 503, ResponseTimeMs: 12.5, RequestSize: 10, ResponseSize: 20, TraceID: "4bf92f3577b34da6a3ce929d0e0e4736",
-		Release: "v1", ConsumerID: "user-1",
+		Release: "v1", ConsumerID: "user-1", Sampled: true, Attributes: map[string]string{"tenant.id": "acme"},
+		ValidationErrors: []ValidationError{{Loc: "body.email", Msg: "field required", Type: "missing"}},
 	}
 	b, err := proto.Marshal(&eventv1.RequestBatch{Events: []*eventv1.RequestEvent{row.Event()}})
 	if err != nil {
@@ -29,8 +31,24 @@ func TestRequestEventRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != row {
+	if !reflect.DeepEqual(got, row) {
 		t.Fatalf("round trip changed the row:\n got %+v\nwant %+v", got, row)
+	}
+
+	row.Sampled = false
+	if got, _ := RequestRowFromEvent(row.Event()); got.Sampled {
+		t.Fatal("sampled=false lost in the event")
+	}
+}
+
+func TestRequestEventWithoutSampledIsSampled(t *testing.T) {
+	// Events from producers that predate the field leave it unset.
+	got, err := RequestRowFromEvent(&eventv1.RequestEvent{ProjectId: uuid.NewString(), AppId: uuid.NewString()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Sampled {
+		t.Fatal("unset sampled should mean sampled in")
 	}
 }
 

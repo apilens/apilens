@@ -38,6 +38,22 @@ message RequestEvent {
   string span_id = 23;
   string release = 24;
   string commit = 25;
+  // False when the SDK sampled the request out (headers, bodies, spans and
+  // logs dropped; the base record still counts in metrics). Unset means
+  // sampled, so events from older producers keep their meaning.
+  optional bool sampled = 26;
+  // Custom request attributes set by the application (at most 32).
+  map<string, string> attributes = 27;
+  // Structured framework validation errors of a 422 (at most 20).
+  repeated ValidationError validation_errors = 28;
+}
+
+// ValidationError is one field error of a rejected request, e.g.
+// {loc: "body.email", msg: "field required", type: "missing"}.
+message ValidationError {
+  string loc = 1;
+  string msg = 2;
+  string type = 3;
 }
 
 // LogEvent is one log record (table api_logs).

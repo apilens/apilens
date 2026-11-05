@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	eventv1 "github.com/apilens/apilens/internal/gen/pb/apilens/event/v1"
@@ -20,6 +21,7 @@ func (r RequestRow) Event() *eventv1.RequestEvent {
 		ConsumerName: r.ConsumerName, ConsumerGroup: r.ConsumerGroup, RequestPayload: r.RequestPayload,
 		ResponsePayload: r.ResponsePayload, RequestHeaders: r.RequestHeaders, ResponseHeaders: r.ResponseHeaders,
 		BaseUrl: r.BaseURL, TraceId: r.TraceID, SpanId: r.SpanID, Release: r.Release, Commit: r.Commit,
+		Sampled: proto.Bool(r.Sampled), Attributes: r.Attributes, ValidationErrors: validationErrorEvents(r.ValidationErrors),
 	}
 }
 
@@ -37,7 +39,32 @@ func RequestRowFromEvent(e *eventv1.RequestEvent) (RequestRow, error) {
 		ConsumerName: e.GetConsumerName(), ConsumerGroup: e.GetConsumerGroup(), RequestPayload: e.GetRequestPayload(),
 		ResponsePayload: e.GetResponsePayload(), RequestHeaders: e.GetRequestHeaders(), ResponseHeaders: e.GetResponseHeaders(),
 		BaseURL: e.GetBaseUrl(), TraceID: e.GetTraceId(), SpanID: e.GetSpanId(), Release: e.GetRelease(), Commit: e.GetCommit(),
+		// Unset (older producers) means sampled.
+		Sampled: e.Sampled == nil || e.GetSampled(), Attributes: e.GetAttributes(),
+		ValidationErrors: validationErrorRows(e.GetValidationErrors()),
 	}, nil
+}
+
+func validationErrorEvents(in []ValidationError) []*eventv1.ValidationError {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*eventv1.ValidationError, len(in))
+	for i, v := range in {
+		out[i] = &eventv1.ValidationError{Loc: v.Loc, Msg: v.Msg, Type: v.Type}
+	}
+	return out
+}
+
+func validationErrorRows(in []*eventv1.ValidationError) []ValidationError {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]ValidationError, len(in))
+	for i, v := range in {
+		out[i] = ValidationError{Loc: v.GetLoc(), Msg: v.GetMsg(), Type: v.GetType()}
+	}
+	return out
 }
 
 // Event converts a log row to its wire event.

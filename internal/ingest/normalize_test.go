@@ -3,9 +3,12 @@ package ingest
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/apilens/apilens/internal/pipeline"
 )
 
 func TestTruncateIsRuneSafe(t *testing.T) {
@@ -76,5 +79,61 @@ func TestAttributesBounds(t *testing.T) {
 		if len(k) > maxAttributeKeyChars || len(v) > maxAttributeValueChars {
 			t.Fatalf("unbounded attribute %q=%d chars", k, len(v))
 		}
+	}
+}
+
+func TestRequestAttributesCap(t *testing.T) {
+	in := map[string]json.RawMessage{}
+	for i := range 50 {
+		in[fmt.Sprintf("key%03d", i)] = json.RawMessage(`"v"`)
+	}
+	if out := attributesN(in, maxRequestAttributes); len(out) != maxRequestAttributes {
+		t.Fatalf("len = %d, want %d", len(out), maxRequestAttributes)
+	}
+}
+
+func TestSampled(t *testing.T) {
+	yes, no := true, false
+	if !sampled(nil) || !sampled(&yes) || sampled(&no) {
+		t.Fatal("sampled: absent and true mean sampled in, false means sampled out")
+	}
+}
+
+func TestValidationErrors(t *testing.T) {
+	// A real FastAPI 422 detail entry (loc as a path array) next to the
+	// SDK's flattened form and assorted junk that must be dropped.
+	raw := json.RawMessage(`[
+		{"loc":["body","items",0,"name"],"msg":"Field required","type":"missing","input":{}},
+		{"loc":"query.limit","msg":"Input should be a valid integer","type":"int_parsing"},
+		"not an object",
+		{},
+		{"loc":{"nested":true},"msg":42,"type":null}
+	]`)
+	got := validationErrors(raw)
+	want := []pipeline.ValidationError{
+		{Loc: "body.items.0.name", Msg: "Field required", Type: "missing"},
+		{Loc: "query.limit", Msg: "Input should be a valid integer", Type: "int_parsing"},
+		{Loc: "", Msg: "42", Type: ""},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v\nwant %+v", got, want)
+	}
+
+	for _, bad := range []string{``, `null`, `{"loc":"x"}`, `"x"`, `[`, `[]`} {
+		if got := validationErrors(json.RawMessage(bad)); got != nil {
+			t.Errorf("validationErrors(%q) = %+v, want nil", bad, got)
+		}
+	}
+
+	many := make([]string, 30)
+	for i := range many {
+		many[i] = fmt.Sprintf(`{"loc":%q,"msg":%q,"type":"t"}`, strings.Repeat("l", 400), strings.Repeat("m", 2000))
+	}
+	got = validationErrors(json.RawMessage("[" + strings.Join(many, ",") + "]"))
+	if len(got) != maxValidationErrors {
+		t.Fatalf("len = %d, want %d", len(got), maxValidationErrors)
+	}
+	if len(got[0].Loc) != maxValidationLocChars || len(got[0].Msg) != maxShortFieldChars {
+		t.Fatalf("entries not bounded: loc %d, msg %d chars", len(got[0].Loc), len(got[0].Msg))
 	}
 }

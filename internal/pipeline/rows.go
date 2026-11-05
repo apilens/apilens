@@ -37,6 +37,20 @@ type RequestRow struct {
 	SpanID          string
 	Release         string
 	Commit          string
+	// Sampled is false when the SDK sampled the request out: the base
+	// record still counts in metrics but carries no headers or bodies.
+	// Producers must set it; the zero value means "sampled out".
+	Sampled          bool
+	Attributes       map[string]string
+	ValidationErrors []ValidationError
+}
+
+// ValidationError is one structured field error of a rejected (422)
+// request. Stored as a JSON array in api_requests.validation_errors.
+type ValidationError struct {
+	Loc  string `json:"loc"`
+	Msg  string `json:"msg"`
+	Type string `json:"type"`
 }
 
 // LogRow is one log record (table api_logs).
