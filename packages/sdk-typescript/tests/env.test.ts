@@ -252,6 +252,10 @@ function ingestApp(config: ApiLensExpressConfig): { app: express.Express; calls:
     apiKey: "test-api-key",
     appId: "test-app",
     compress: false,
+    // beforeEach clears every APILENS_* var, including the setup.ts
+    // heartbeat/metadata kill switches, so turn them off explicitly here.
+    sendHeartbeat: false,
+    sendMetadata: false,
     fetchImpl: async (_url, options) => {
       calls.push(String(options?.body || ""));
       return new Response(null, { status: 200 });
