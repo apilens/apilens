@@ -354,3 +354,111 @@ func TestHealth(t *testing.T) {
 		t.Fatalf("got %d %s", rec.Code, rec.Body)
 	}
 }
+
+// scopedVerifier accepts testKey with the given scopes only.
+type scopedVerifier struct{ scopes []string }
+
+func (v scopedVerifier) Verify(_ context.Context, raw string) (apikeys.Principal, error) {
+	if raw != testKey {
+		return apikeys.Principal{}, apikeys.ErrInvalidKey
+	}
+	return apikeys.Principal{ProjectID: testProject, ProjectSlug: "shop", Scopes: v.scopes}, nil
+}
+
+// newFullEdge wires every optional store, so each route reaches its own
+// validation instead of answering 503.
+func newFullEdge(t *testing.T, v Verifier, maxBody int64) http.Handler {
+	t.Helper()
+	cfg := config.IngestConfig{MaxBodyBytes: maxBody, MaxRecordsPerRequest: 1000}
+	e := New(v, fakeApps{}, &fakeSink{}, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil).
+		WithMetadata(&fakeMetadata{}).WithHeartbeat(&fakeHeartbeats{}, nil)
+	e.now = func() time.Time { return fixedNow }
+	mux := http.NewServeMux()
+	e.Register(mux)
+	return mux
+}
+
+// TestEveryRouteGuards checks the guards every ingest route shares (auth,
+// scope, method, media type, encoding, body limit), so a new handler cannot
+// skip one.
+func TestEveryRouteGuards(t *testing.T) {
+	routes := map[string]struct {
+		body string
+		json bool // v1 JSON only; the OTLP routes also take protobuf
+	}{
+		"/v1/requests":    {validRequest, true},
+		"/v1/logs":        {`{"logs":[{"app_id":"storefront","timestamp":"2026-10-22T11:00:00Z","message":"m"}]}`, true},
+		"/v1/traces":      {`{"spans":[{"app_id":"storefront","timestamp":"2026-10-22T11:00:00Z","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7"}]}`, true},
+		"/v1/deploys":     {`{"deploys":[{"release":"v1"}]}`, true},
+		"/v1/metadata":    {validMetadata, true},
+		"/v1/heartbeat":   {validHeartbeat, true},
+		"/otlp/v1/traces": {`{}`, false},
+		"/otlp/v1/logs":   {`{}`, false},
+	}
+	cases := map[string]struct {
+		verifier Verifier
+		method   string
+		headers  map[string]string
+		bigBody  bool
+		jsonOnly bool
+		code     int
+	}{
+		"accepted":       {code: http.StatusOK},
+		"no key":         {headers: map[string]string{"X-API-Key": ""}, code: http.StatusUnauthorized},
+		"unknown key":    {headers: map[string]string{"X-API-Key": "apl_live_unknown"}, code: http.StatusUnauthorized},
+		"bearer key":     {headers: map[string]string{"X-API-Key": "", "Authorization": "Bearer " + testKey}, code: http.StatusOK},
+		"read-only key":  {verifier: scopedVerifier{[]string{"read"}}, code: http.StatusForbidden},
+		"auth backend":   {verifier: fakeVerifier{err: errors.New("db down")}, code: http.StatusServiceUnavailable},
+		"GET":            {method: http.MethodGet, code: http.StatusMethodNotAllowed},
+		"unknown codec":  {headers: map[string]string{"Content-Encoding": "br"}, code: http.StatusUnsupportedMediaType},
+		"bad gzip":       {headers: map[string]string{"Content-Encoding": "gzip"}, code: http.StatusBadRequest},
+		"body too large": {bigBody: true, code: http.StatusRequestEntityTooLarge},
+		"text/plain":     {headers: map[string]string{"Content-Type": "text/plain"}, jsonOnly: true, code: http.StatusUnsupportedMediaType},
+	}
+	const limit = 64 << 10
+	for path, route := range routes {
+		for name, tc := range cases {
+			if tc.jsonOnly && !route.json {
+				continue
+			}
+			t.Run(path+"/"+name, func(t *testing.T) {
+				v := tc.verifier
+				if v == nil {
+					v = fakeVerifier{}
+				}
+				body := route.body
+				if tc.bigBody {
+					body = `{"x":"` + strings.Repeat("a", limit) + `"}`
+				}
+				method := tc.method
+				if method == "" {
+					method = http.MethodPost
+				}
+				req := httptest.NewRequest(method, path, strings.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("X-API-Key", testKey)
+				for k, val := range tc.headers {
+					if val == "" {
+						req.Header.Del(k)
+					} else {
+						req.Header.Set(k, val)
+					}
+				}
+				rec := httptest.NewRecorder()
+				newFullEdge(t, v, limit).ServeHTTP(rec, req)
+				if rec.Code != tc.code {
+					t.Fatalf("code = %d, want %d (%s)", rec.Code, tc.code, rec.Body)
+				}
+				if tc.code == http.StatusServiceUnavailable && rec.Header().Get("Retry-After") == "" {
+					t.Fatal("503 without Retry-After")
+				}
+			})
+		}
+	}
+}
+
+func TestAPIErrorString(t *testing.T) {
+	if got := errValidation("bad %s", "x").Error(); got != "422 validation_error: bad x" {
+		t.Fatalf("Error() = %q", got)
+	}
+}

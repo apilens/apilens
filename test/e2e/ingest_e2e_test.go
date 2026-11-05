@@ -236,6 +236,100 @@ func TestIngestEndToEnd(t *testing.T) {
 	}
 }
 
+// TestIngestMaskingAndCaps sends a request record and a log whose SDK masked
+// nothing and a response body over the server-side cap, and checks the rows
+// ClickHouse holds: secrets replaced, other values kept, the body cut with
+// the marker. The per-app ingest health counters count both.
+func TestIngestMaskingAndCaps(t *testing.T) {
+	e := loadEnv(t)
+	run := fmt.Sprintf("e2emask%d", time.Now().UnixNano())
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	// Above the default 64 KiB payload cap, below the body limit.
+	big := `{"data":"` + strings.Repeat("x", 100<<10) + `"}`
+
+	if code, body := e.post(t, "/v1/requests", e.key, map[string]any{"requests": []map[string]any{{
+		"app_id": e.app, "timestamp": now, "environment": "e2e", "method": "POST", "path": "/" + run + "/login",
+		"raw_path":         "/" + run + "/login?next=%2Fhome&access_token=abc123",
+		"status_code":      200,
+		"response_time_ms": 5,
+		"request_headers":  `{"authorization":"Bearer sk_live_e2esecret","x-tenant":"acme"}`,
+		"request_payload":  `{"email":"ada@example.com","password":"hunter2"}`,
+		"response_payload": big,
+	}}}); code != 200 {
+		t.Fatalf("/v1/requests = %d %s", code, body)
+	}
+	if code, body := e.post(t, "/v1/logs", e.key, map[string]any{"logs": []map[string]any{{
+		"app_id": e.app, "timestamp": now, "environment": "e2e", "level": "info", "message": run + " login password=hunter2 user=ada",
+	}}}); code != 200 {
+		t.Fatalf("/v1/logs = %d %s", code, body)
+	}
+
+	where := fmt.Sprintf("FROM api_requests WHERE path = '/%s/login'", run)
+	e.eventually(t, "masked request", `SELECT count() `+where, 1)
+	checks := map[string]string{
+		"query parameter masked":  fmt.Sprintf("raw_path = '/%s/login?next=%%2Fhome&access_token=[redacted]'", run),
+		"auth header masked":      `position(request_headers, 'sk_live_e2esecret') = 0 AND position(request_headers, '"authorization":"[redacted]"') > 0`,
+		"other header kept":       `position(request_headers, '"x-tenant":"acme"') > 0`,
+		"body field masked":       `position(request_payload, 'hunter2') = 0 AND position(request_payload, '"password":"[redacted]"') > 0`,
+		"other body field kept":   `position(request_payload, '"email":"ada@example.com"') > 0`,
+		"response body truncated": `endsWith(response_payload, '…[truncated]') AND length(response_payload) <= 65536 + length('…[truncated]')`,
+	}
+	for what, cond := range checks {
+		if n := e.count(t, `SELECT count() `+where+` AND `+cond); n != 1 {
+			t.Errorf("%s: %d rows match %s", what, n, cond)
+		}
+	}
+	e.eventually(t, "log row", fmt.Sprintf("SELECT count() FROM api_logs WHERE message LIKE '%s %%'", run), 1)
+	if n := e.count(t, fmt.Sprintf("SELECT count() FROM api_logs WHERE message = '%s login password=[redacted] user=ada'", run)); n != 1 {
+		t.Errorf("log message not masked: %d rows", n)
+	}
+
+	readKey := os.Getenv("APILENS_E2E_READ_KEY")
+	if readKey == "" {
+		t.Log("APILENS_E2E_READ_KEY not set; skipping ingest-stats checks")
+		return
+	}
+	var stats struct {
+		Totals struct {
+			Accepted  int64 `json:"accepted"`
+			Truncated int64 `json:"truncated"`
+			Masked    int64 `json:"masked"`
+		} `json:"totals"`
+	}
+	e.getJSON(t, readKey, "/api/v1/apps/"+e.appID(t, readKey)+"/ingest-stats?days=1", &stats)
+	if stats.Totals.Accepted < 2 || stats.Totals.Truncated < 1 || stats.Totals.Masked < 2 {
+		t.Fatalf("ingest-stats totals = %+v, want accepted >= 2, truncated >= 1, masked >= 2", stats.Totals)
+	}
+}
+
+// project returns the read key's project slug and the id of the e2e app.
+func (e env) project(t *testing.T, readKey string) (slug, appID string) {
+	t.Helper()
+	var project struct {
+		Project struct {
+			Slug string `json:"slug"`
+		} `json:"project"`
+		Apps []struct {
+			ID   string `json:"id"`
+			Slug string `json:"slug"`
+		} `json:"apps"`
+	}
+	e.getJSON(t, readKey, "/api/v1/project", &project)
+	for _, a := range project.Apps {
+		if a.Slug == e.app || a.ID == e.app {
+			return project.Project.Slug, a.ID
+		}
+	}
+	t.Fatalf("app %q not in /api/v1/project: %+v", e.app, project)
+	return "", ""
+}
+
+func (e env) appID(t *testing.T, readKey string) string {
+	t.Helper()
+	_, id := e.project(t, readKey)
+	return id
+}
+
 func (e env) status(t *testing.T, key, path string) int {
 	t.Helper()
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, e.base+path, nil)
