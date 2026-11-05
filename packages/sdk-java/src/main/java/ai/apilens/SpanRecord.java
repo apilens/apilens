@@ -48,6 +48,11 @@ public final class SpanRecord {
     return new Builder();
   }
 
+  /** Queue-size estimate: variable-length fields plus a fixed per-record overhead. */
+  int estimatedBytes() {
+    return ApiLensClient.RECORD_OVERHEAD_BYTES + name.length() + ApiLensClient.attributesLength(attributes);
+  }
+
   public Map<String, Object> toWire(ApiLensConfig config) {
     Map<String, Object> out = Wire.map();
     out.put("project_slug", Strings.firstNonBlank(projectSlug, config.projectSlug()));

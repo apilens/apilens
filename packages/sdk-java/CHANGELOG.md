@@ -15,6 +15,11 @@
   and built-in default exclusions for health checks, probes and static
   well-known files (`apilens.default-exclusions`, on by default). Excluded
   requests bypass the Spring filter entirely.
+- Added delivery safety: a byte-bounded queue (`maxQueueBytes`), `maxBatchBytes`
+  batch cutting with oversized-record truncation, gzip request bodies
+  (`compress`), 408/429/5xx retry with full-jitter backoff and `Retry-After`,
+  per-reason drop counts, `ClientStats stats()`, and an optional Micrometer
+  binder (`ApiLensMetrics`) auto-registered by Spring Boot.
 
 ## 0.1.0
 

@@ -1,1 +1,2 @@
 ai.apilens.spring.ApiLensAutoConfiguration
+ai.apilens.spring.ApiLensMetricsAutoConfiguration

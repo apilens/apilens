@@ -82,6 +82,46 @@ try (var client = new ApiLensClient(ApiLensConfig.builder()
 }
 ```
 
+## Delivery and health
+
+Capture never blocks the request path and the queue never grows without bound:
+
+- `maxQueueSize` (default `10000` records per queue) and `maxQueueBytes`
+  (default 64 MB, estimated, shared by requests, spans and logs) cap memory.
+  When either is full the oldest records are dropped.
+- `maxBatchBytes` (default 4 MB) caps one ingest request body. Batches are cut
+  at `batchSize` records or `maxBatchBytes`, whichever comes first. A single
+  record larger than the limit is truncated (payloads first), not dropped.
+- `compress` (default `true`) gzips request bodies on the flush thread.
+- 408, 429, 5xx and network errors are retried up to `maxRetries` with
+  full-jitter exponential backoff, honouring `Retry-After` (capped at 60 s).
+  Other 4xx responses are not retried; a 401 logs one clear message.
+
+`client.stats()` returns a `ClientStats` snapshot:
+
+```java
+ClientStats s = client.stats();
+// queuedRecords, queuedBytes, sentBatches, sentRecords, failedBatches,
+// droppedCount, dropCounts {queue_full, queue_bytes, non_retryable,
+// retries_exhausted, truncated}, lastError, lastSuccessAt
+```
+
+`truncated` counts records that were shortened and still sent, so it is not
+part of `droppedCount`.
+
+With `micrometer-core` on the classpath, Spring Boot registers an
+`ApiLensMetrics` binder automatically (outside Spring, call
+`new ApiLensMetrics(client).bindTo(registry)`):
+
+| Meter | Type |
+|---|---|
+| `apilens.queue.records` | gauge |
+| `apilens.queue.bytes` | gauge |
+| `apilens.batches.sent`, `apilens.records.sent` | counter |
+| `apilens.batches.failed` | counter |
+| `apilens.records.dropped{reason}` | counter |
+| `apilens.records.truncated` | counter |
+
 ## Configuration
 
 Spring properties use the `apilens.*` prefix:
