@@ -141,6 +141,19 @@
 //   GET|PUT /api/v1/apps/{id}/capture-policy       the app's capture policy (#598): everything captured
 //                                                  until saved; PUT answers 403 without capture.manage
 //   GET  /api/v1/apps/{id}/metadata                what the app's SDKs reported, per environment (#598)
+//   GET|POST /api/v1/projects/shop/alerts/rules    shop's alert rules (#610): list (by name) and create; an app
+//   GET|PUT|DELETE /api/v1/projects/shop/alerts/rules/{id}  that is not shop's answers 422
+//   GET|POST /api/v1/projects/shop/alerts/channels shop's alert channels (#610), configs never returned; a name
+//   PUT|DELETE /api/v1/projects/shop/alerts/channels/{id}   taken ignoring case answers 409
+//   POST /api/v1/projects/shop/alerts/channels/{id}/test    a test send: 200 {sent}, or 502 for a channel
+//                                                  whose config URL contains "gone" (HTTP 410 in the detail)
+//   GET  /api/v1/projects/shop/alerts/events?rule_id=  events newest first
+//   GET  /api/v1/projects/{slug}/incidents         events grouped by rule, open first (empty for created projects);
+//                                                  alert writes answer 403 without alerts.manage
+//   POST /__fake/alerts {trigger?: {rule, value}, resolve?: rule, reset?}
+//                                                  test hook: the evaluator's part: open an event for the rule
+//                                                  named `rule`, resolve its open one, or forget every rule,
+//                                                  channel and event
 //   GET  /api/v1/apps/{id}/ingest-stats?project=shop&days=
 //                                                  the app's ingest-edge counters per UTC day (#602):
 //                                                  all zero unless seeded; 503 when seeded `ingest: "off"`
@@ -472,7 +485,7 @@ const roleOf = (id: string): Role => membersByUser.get(id)?.find((m) => m.user.i
 
 /** What `users/me/context` lists for the shop project, as SpiceDB would answer for `role`. */
 function capabilitiesFor(role: Role): string[] {
-  const all = ["project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "members.invite", "members.remove", "billing.manage"];
+  const all = ["project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage", "members.invite", "members.remove", "billing.manage"];
   if (role === "owner") return all;
   if (role === "admin") return all.filter((a) => a !== "project.delete" && a !== "billing.manage");
   if (role === "member") return ["project.read", "project.update", "api_keys.create", "api_keys.revoke"];
@@ -2290,6 +2303,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const code = issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded, stale === true, r);
     return send(res, 200, { code });
   }
+  if (await alerts(req, res, path, url)) return;
   return problem(res, 404, "not_found");
 }
 
@@ -2545,6 +2559,207 @@ async function orgSSO(req: IncomingMessage, res: ServerResponse, slug: string, t
     return send(res, 200, next);
   }
   return problem(res, 404, "not_found");
+}
+
+/** Shop's alert rules, channels and events (#610), as the alerts API (#609) keeps them. */
+type FakeRule = Record<string, unknown> & { id: string; name: string; app_id: string; metric: string; condition: string; threshold: number; enabled: boolean };
+type FakeChannel = { id: string; type: string; name: string; config: Record<string, unknown>; created_by: null; created_at: string; updated_at: string };
+type FakeEvent = { id: string; rule_id: string; state: "triggered" | "resolved"; value: number; started_at: string; ended_at: string | null; notified_at: string | null };
+let alertRules: FakeRule[] = [];
+let alertChannels: FakeChannel[] = [];
+let alertEvents: FakeEvent[] = [];
+
+const ALERT_METRICS = new Set(["traffic", "errors", "error_rate", "p50", "p75", "p95", "apdex", "unique_consumers"]);
+const ALERT_CONDITIONS = new Set(["gt", "gte", "lt", "lte"]);
+
+function eventOut(e: FakeEvent) {
+  const r = alertRules.find((x) => x.id === e.rule_id);
+  return { ...e, rule_name: r?.name ?? "", app_id: r?.app_id ?? "", environment: r?.environment ?? "", metric: r?.metric ?? "" };
+}
+
+function ruleOut(r: FakeRule) {
+  const open = alertEvents.find((e) => e.rule_id === r.id && e.state === "triggered");
+  const latest = alertEvents.find((e) => e.rule_id === r.id);
+  const state = latest
+    ? { status: open ? "triggered" : "ok", since: open?.started_at ?? latest.ended_at, evaluated_at: new Date().toISOString(), value: latest.value, breached: Boolean(open) }
+    : undefined;
+  return { ...r, ...(state ? { state } : {}) };
+}
+
+/** The rule body as the API checks it, or the problem code. */
+function checkRule(b: Record<string, unknown>, create: boolean): { ok: true; rule: Record<string, unknown> } | { ok: false; status: number; code: string } {
+  const name = String(b.name ?? "").trim();
+  const env = String(b.environment ?? "").trim();
+  const threshold = Number(b.threshold);
+  const every = b.every_s === undefined || b.every_s === null ? null : Number(b.every_s);
+  const cron = typeof b.cron === "string" && b.cron ? b.cron : null;
+  if (!name || name.length > 128 || !env || !ALERT_METRICS.has(String(b.metric)) || !ALERT_CONDITIONS.has(String(b.condition))) return { ok: false, status: 422, code: "validation_failed" };
+  if (!Number.isFinite(threshold) || threshold < 0 || ((b.metric === "error_rate" || b.metric === "apdex") && threshold > 1)) return { ok: false, status: 422, code: "validation_failed" };
+  if ((every === null) === (cron === null)) return { ok: false, status: 422, code: "validation_failed" };
+  if (create && !shopApps.some((a) => a.id === b.app_id)) return { ok: false, status: 422, code: "validation_failed" };
+  const channels = Array.isArray(b.channel_ids) ? b.channel_ids.map(String) : [];
+  if (channels.some((c) => !alertChannels.some((x) => x.id === c))) return { ok: false, status: 422, code: "validation_failed" };
+  return {
+    ok: true,
+    rule: {
+      environment: env,
+      name,
+      description: String(b.description ?? ""),
+      metric: b.metric,
+      condition: b.condition,
+      threshold,
+      window_s: Number(b.window_s ?? 300),
+      every_s: every,
+      cron,
+      notify_after_s: Number(b.notify_after_s ?? 0),
+      resolve_after_s: Number(b.resolve_after_s ?? 0),
+      filters: (b.filters as Record<string, unknown>) ?? {},
+      channel_ids: channels,
+      enabled: b.enabled !== false,
+    },
+  };
+}
+
+/** The alerts API (#609) for shop, plus the `/__fake/alerts` hook. True when it answered. */
+async function alerts(req: IncomingMessage, res: ServerResponse, path: string, url: URL): Promise<boolean> {
+  if (req.method === "POST" && path === "/__fake/alerts") {
+    const b = await readBody(req);
+    if (b.reset) {
+      alertRules = [];
+      alertChannels = [];
+      alertEvents = [];
+    }
+    const trigger = b.trigger as { rule?: string; value?: number; minutes_ago?: number } | undefined;
+    if (trigger) {
+      const r = alertRules.find((x) => x.name === trigger.rule);
+      if (!r) return problem(res, 404, "not_found"), true;
+      const at = new Date(Date.now() - (trigger.minutes_ago ?? 0) * 60_000).toISOString();
+      alertEvents.unshift({ id: randomUUID(), rule_id: r.id, state: "triggered", value: Number(trigger.value ?? 0), started_at: at, ended_at: null, notified_at: at });
+    }
+    if (typeof b.resolve === "string") {
+      const r = alertRules.find((x) => x.name === b.resolve);
+      const open = alertEvents.find((e) => e.rule_id === r?.id && e.state === "triggered");
+      if (!open) return problem(res, 404, "not_found"), true;
+      open.state = "resolved";
+      open.ended_at = new Date().toISOString();
+    }
+    return send(res, 204), true;
+  }
+
+  const m = path.match(/^\/api\/v1\/projects\/([^/]+)\/(incidents|alerts\/(rules|channels|events)(?:\/([^/]+)(\/test)?)?)$/);
+  if (!m) return false;
+  const user = signedInUser(req);
+  if (!user) return problem(res, 401, "unauthenticated"), true;
+  const slug = decodeURIComponent(m[1]);
+  const [, , what, kind, id, test] = m;
+  if (slug !== PROJECT) {
+    // A project made in onboarding has no alerts yet.
+    if (createdProjects.get(slug)?.owner === user && req.method === "GET") {
+      return send(res, 200, what === "incidents" ? { range: url.searchParams.get("range") ?? "7d", incidents: [] } : { rules: [], channels: [], events: [], next_cursor: "" }), true;
+    }
+    return problem(res, 404, "not_found"), true;
+  }
+  if (queryDown.has(slug) && req.method === "GET") return problem(res, 503, "unavailable"), true;
+
+  if (what === "incidents") {
+    if (req.method !== "GET") return problem(res, 405, "method_not_allowed"), true;
+    const incidents = alertRules
+      .filter((r) => alertEvents.some((e) => e.rule_id === r.id))
+      .map((r) => {
+        const evs = alertEvents.filter((e) => e.rule_id === r.id);
+        const latest = evs[0];
+        return {
+          rule_id: r.id,
+          rule_name: r.name,
+          app_id: r.app_id,
+          environment: r.environment,
+          metric: r.metric,
+          condition: r.condition,
+          threshold: r.threshold,
+          status: latest.state === "triggered" ? "triggered" : "ok",
+          open: latest.state === "triggered",
+          events: evs.length,
+          first_started_at: evs[evs.length - 1].started_at,
+          latest: eventOut(latest),
+        };
+      })
+      .sort((a, b) => Number(b.open) - Number(a.open) || b.latest.started_at.localeCompare(a.latest.started_at));
+    return send(res, 200, { range: url.searchParams.get("range") ?? "7d", incidents }), true;
+  }
+
+  if (kind === "events") {
+    const rule = url.searchParams.get("rule_id");
+    const events = alertEvents.filter((e) => !rule || e.rule_id === rule).map(eventOut);
+    return send(res, 200, { events, next_cursor: "" }), true;
+  }
+
+  if (req.method !== "GET" && !capabilitiesOf(user).includes("alerts.manage")) return problem(res, 403, "forbidden"), true;
+  const now = new Date().toISOString();
+
+  if (kind === "rules") {
+    if (id === undefined) {
+      if (req.method === "GET") return send(res, 200, { rules: [...alertRules].sort((a, b) => a.name.localeCompare(b.name)).map(ruleOut) }), true;
+      if (req.method !== "POST") return problem(res, 405, "method_not_allowed"), true;
+      const b = await readBody(req);
+      const checked = checkRule(b, true);
+      if (!checked.ok) return problem(res, checked.status, checked.code), true;
+      const r = { id: randomUUID(), app_id: String(b.app_id), ...checked.rule, created_by: user, created_at: now, updated_at: now } as unknown as FakeRule;
+      alertRules.push(r);
+      return send(res, 201, ruleOut(r)), true;
+    }
+    const r = alertRules.find((x) => x.id === decodeURIComponent(id));
+    if (!r) return problem(res, 404, "not_found"), true;
+    if (req.method === "GET") return send(res, 200, ruleOut(r)), true;
+    if (req.method === "DELETE") {
+      alertRules = alertRules.filter((x) => x !== r);
+      alertEvents = alertEvents.filter((e) => e.rule_id !== r.id);
+      return send(res, 204), true;
+    }
+    if (req.method !== "PUT") return problem(res, 405, "method_not_allowed"), true;
+    const checked = checkRule(await readBody(req), false);
+    if (!checked.ok) return problem(res, checked.status, checked.code), true;
+    Object.assign(r, checked.rule, { updated_at: now });
+    return send(res, 200, ruleOut(r)), true;
+  }
+
+  // Channels: configs are kept but never returned.
+  const out = ({ config: _config, ...c }: FakeChannel) => c;
+  const taken = (name: string, except?: string) => alertChannels.some((c) => c.id !== except && c.name.toLowerCase() === name.toLowerCase());
+  if (id === undefined) {
+    if (req.method === "GET") return send(res, 200, { channels: [...alertChannels].sort((a, b) => a.name.localeCompare(b.name)).map(out) }), true;
+    if (req.method !== "POST") return problem(res, 405, "method_not_allowed"), true;
+    const b = await readBody(req);
+    const name = String(b.name ?? "").trim();
+    if (!name || !["email", "slack", "teams", "webhook"].includes(String(b.type)) || typeof b.config !== "object" || b.config === null) return problem(res, 422, "validation_failed"), true;
+    if (taken(name)) return problem(res, 409, "conflict"), true;
+    const c: FakeChannel = { id: randomUUID(), type: String(b.type), name, config: b.config as Record<string, unknown>, created_by: null, created_at: now, updated_at: now };
+    alertChannels.push(c);
+    return send(res, 201, out(c)), true;
+  }
+  const c = alertChannels.find((x) => x.id === decodeURIComponent(id));
+  if (!c) return problem(res, 404, "not_found"), true;
+  if (test) {
+    if (req.method !== "POST") return problem(res, 405, "method_not_allowed"), true;
+    if (JSON.stringify(c.config).includes("gone")) {
+      return send(res, 502, { status: 502, title: "Bad Gateway", detail: "the channel did not accept the test notification: alerts: delivery failed: HTTP 410" }, "application/problem+json"), true;
+    }
+    return send(res, 200, { sent: true }), true;
+  }
+  if (req.method === "GET") return send(res, 200, out(c)), true;
+  if (req.method === "DELETE") {
+    alertChannels = alertChannels.filter((x) => x !== c);
+    for (const r of alertRules) r.channel_ids = ((r.channel_ids as string[]) ?? []).filter((x) => x !== c.id);
+    return send(res, 204), true;
+  }
+  if (req.method !== "PUT") return problem(res, 405, "method_not_allowed"), true;
+  const b = await readBody(req);
+  const name = String(b.name ?? "").trim();
+  if (!name) return problem(res, 422, "validation_failed"), true;
+  if (taken(name, c.id)) return problem(res, 409, "conflict"), true;
+  c.name = name;
+  if (typeof b.config === "object" && b.config !== null) c.config = b.config as Record<string, unknown>;
+  c.updated_at = now;
+  return send(res, 200, out(c)), true;
 }
 
 createServer((req, res) => {

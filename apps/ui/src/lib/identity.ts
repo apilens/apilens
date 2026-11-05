@@ -1013,6 +1013,140 @@ export interface DeployChanges {
   deploys: DeployChange[] | null;
 }
 
+// Alerts (#609): threshold rules, notification channels, events and the incidents feed. -----
+
+/** What an alert rule aggregates over its window. */
+export type AlertMetric = "traffic" | "errors" | "error_rate" | "p50" | "p75" | "p95" | "apdex" | "unique_consumers";
+/** How the value compares to the threshold for the rule to breach. */
+export type AlertCondition = "gt" | "gte" | "lt" | "lte";
+/** Where a rule stands after its latest evaluation. */
+export type AlertStatus = "ok" | "pending" | "triggered" | "resolving";
+
+/** The optional filters of a rule: one consumer, one consumer group (its id), one endpoint. */
+export interface AlertFilters {
+  consumer?: string;
+  group?: string;
+  /** "METHOD /route/{template}", or "/route/{template}" for every method. */
+  endpoint?: string;
+}
+
+/** A rule's latest evaluation. */
+export interface AlertRuleState {
+  status: AlertStatus;
+  since: string;
+  evaluated_at: string;
+  /** Null when the window had no data. */
+  value: number | null;
+  breached: boolean;
+}
+
+/** An alert rule as `GET /projects/{slug}/alerts/rules` lists it. */
+export interface AlertRule {
+  id: string;
+  app_id: string;
+  environment: string;
+  name: string;
+  description: string;
+  metric: AlertMetric;
+  condition: AlertCondition;
+  threshold: number;
+  window_s: number;
+  /** Null when `cron` is set. */
+  every_s: number | null;
+  /** Five cron fields (UTC); null when `every_s` is set. */
+  cron: string | null;
+  notify_after_s: number;
+  resolve_after_s: number;
+  filters: AlertFilters;
+  channel_ids: string[] | null;
+  enabled: boolean;
+  /** Omitted before the first evaluation. */
+  state?: AlertRuleState;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The editable part of a rule (`PUT`); exactly one of `every_s` and `cron`. */
+export interface AlertRuleBody {
+  environment: string;
+  name: string;
+  description?: string;
+  metric: AlertMetric;
+  condition: AlertCondition;
+  threshold: number;
+  window_s: number;
+  every_s?: number;
+  cron?: string;
+  notify_after_s?: number;
+  resolve_after_s?: number;
+  filters?: AlertFilters;
+  channel_ids?: string[];
+  enabled?: boolean;
+}
+
+/** `POST /projects/{slug}/alerts/rules`: the app never changes afterwards. */
+export interface CreateAlertRuleBody extends AlertRuleBody {
+  app_id: string;
+}
+
+export type ChannelType = "email" | "slack" | "teams" | "webhook";
+
+/** A notification channel; its config is write-only and never returned. */
+export interface NotificationChannel {
+  id: string;
+  type: ChannelType;
+  name: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A channel config: email `{addresses}`, Slack and Teams `{webhook_url}`, webhook `{url, secret}`. */
+export type ChannelConfig = { addresses: string[] } | { webhook_url: string } | { url: string; secret: string };
+
+/** One incident of a rule. */
+export interface AlertEvent {
+  id: string;
+  rule_id: string;
+  rule_name: string;
+  app_id: string;
+  environment: string;
+  metric: AlertMetric;
+  state: "triggered" | "resolved";
+  /** The metric value that triggered the event. */
+  value: number;
+  started_at: string;
+  ended_at: string | null;
+  notified_at: string | null;
+}
+
+/** A rule's events in `GET /projects/{slug}/incidents`. */
+export interface Incident {
+  rule_id: string;
+  rule_name: string;
+  app_id: string;
+  environment: string;
+  metric: AlertMetric;
+  condition: AlertCondition;
+  threshold: number;
+  status: AlertStatus;
+  /** The latest event is still triggered. */
+  open: boolean;
+  /** Events started in the range, plus one still open from before it. */
+  events: number;
+  first_started_at: string;
+  latest: AlertEvent;
+}
+
+export type IncidentsRange = "24h" | "7d" | "30d";
+
+/** `GET /projects/{slug}/incidents`: open ones first, then by latest event, newest first. */
+export interface Incidents {
+  range: IncidentsRange;
+  incidents: Incident[] | null;
+}
+
 /** Requests split by status class, as the consumers operations report them. */
 export interface StatusSplit {
   requests: number;
@@ -1772,6 +1906,32 @@ export function createClient(config: ClientConfig) {
       }),
     deployChanges: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
       request<DeployChanges>("GET", "/deploys/changes", { ...o, query: { project: projectSlug, ...q } }),
+
+    // api: alerts (#609) -------------------------------------------------------------------
+    listAlertRules: (projectSlug: string, o: Authed) =>
+      request<{ rules: AlertRule[] | null }>("GET", `/projects/${seg(projectSlug)}/alerts/rules`, o),
+    getAlertRule: (projectSlug: string, id: string, o: Authed) =>
+      request<AlertRule>("GET", `/projects/${seg(projectSlug)}/alerts/rules/${seg(id)}`, o),
+    createAlertRule: (projectSlug: string, body: CreateAlertRuleBody, o: Authed) =>
+      request<AlertRule>("POST", `/projects/${seg(projectSlug)}/alerts/rules`, { ...o, body }),
+    updateAlertRule: (projectSlug: string, id: string, body: AlertRuleBody, o: Authed) =>
+      request<AlertRule>("PUT", `/projects/${seg(projectSlug)}/alerts/rules/${seg(id)}`, { ...o, body }),
+    deleteAlertRule: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("DELETE", `/projects/${seg(projectSlug)}/alerts/rules/${seg(id)}`, o),
+    listChannels: (projectSlug: string, o: Authed) =>
+      request<{ channels: NotificationChannel[] | null }>("GET", `/projects/${seg(projectSlug)}/alerts/channels`, o),
+    createChannel: (projectSlug: string, body: { type: ChannelType; name: string; config: ChannelConfig }, o: Authed) =>
+      request<NotificationChannel>("POST", `/projects/${seg(projectSlug)}/alerts/channels`, { ...o, body }),
+    updateChannel: (projectSlug: string, id: string, body: { name: string; config?: ChannelConfig }, o: Authed) =>
+      request<NotificationChannel>("PUT", `/projects/${seg(projectSlug)}/alerts/channels/${seg(id)}`, { ...o, body }),
+    deleteChannel: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("DELETE", `/projects/${seg(projectSlug)}/alerts/channels/${seg(id)}`, o),
+    testChannel: (projectSlug: string, id: string, o: Authed) =>
+      request<{ sent: boolean }>("POST", `/projects/${seg(projectSlug)}/alerts/channels/${seg(id)}/test`, o),
+    listAlertEvents: (projectSlug: string, q: { rule_id?: string; state?: "triggered" | "resolved"; limit?: number; cursor?: string }, o: Authed) =>
+      request<{ events: AlertEvent[] | null; next_cursor: string }>("GET", `/projects/${seg(projectSlug)}/alerts/events`, { ...o, query: q }),
+    incidents: (projectSlug: string, q: { range?: IncidentsRange; limit?: number }, o: Authed) =>
+      request<Incidents>("GET", `/projects/${seg(projectSlug)}/incidents`, { ...o, query: q }),
     listConsumers: (projectSlug: string, q: { range?: QueryRange; group?: string; limit?: number }, o: Authed) =>
       request<ConsumersList>("GET", "/consumers", { ...o, query: { project: projectSlug, ...q } }),
     getConsumer: (projectSlug: string, consumerId: string, q: { range?: QueryRange }, o: Authed) =>

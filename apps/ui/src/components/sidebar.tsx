@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { badgeText } from "@/lib/alerts";
 import { PROJECT_SETTINGS, VIEWS } from "@/lib/data";
 import type { User } from "@/lib/identity";
 import type { ContextOrg, ContextProject } from "@/lib/scope";
@@ -44,9 +46,15 @@ export function Sidebar({ user, orgs, org, project, view, orgScope, account = fa
     );
   };
 
+  const open = badgeText(useOpenIncidents(project?.slug, view));
   const item = (p: ContextProject) => (v: (typeof VIEWS)[number]) => {
-    const badge = "badge" in v ? v.badge : null;
-    return row(p, v.slug, v.label, v.slug as NavIconName, badge ? <span className={`ct${"warn" in v ? " w" : ""}`}>{badge}</span> : null);
+    const badge =
+      v.slug === "incidents" && open ? (
+        <span className="ct w" title={`${open} open ${open === "1" ? "incident" : "incidents"}`}>
+          {open}
+        </span>
+      ) : null;
+    return row(p, v.slug, v.label, v.slug as NavIconName, badge);
   };
 
   return (
@@ -78,4 +86,24 @@ export function Sidebar({ user, orgs, org, project, view, orgScope, account = fa
       </div>
     </aside>
   );
+}
+
+/**
+ * How many of the project's incidents are open (#610), read from `GET /api/projects/{slug}/incidents`
+ * when the project or the page changes; 0 until it answers and whenever it can't.
+ */
+function useOpenIncidents(project: string | undefined, view: string): number {
+  const [open, setOpen] = useState(0);
+  useEffect(() => {
+    if (!project) return setOpen(0);
+    const ctrl = new AbortController();
+    fetch(`/api/projects/${encodeURIComponent(project)}/incidents`, { signal: ctrl.signal, cache: "no-store" })
+      .then((r) => r.json())
+      .then((b: { ok?: boolean; open?: number }) => setOpen(b?.ok === true && typeof b.open === "number" ? b.open : 0))
+      .catch(() => {
+        if (!ctrl.signal.aborted) setOpen(0);
+      });
+    return () => ctrl.abort();
+  }, [project, view]);
+  return open;
 }

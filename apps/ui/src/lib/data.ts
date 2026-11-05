@@ -38,7 +38,8 @@ export const SERVICES: Service[] = [
 ];
 
 export const VIEWS = [
-  { slug: "incidents", label: "Incidents", section: "Monitor", badge: "1", warn: true },
+  // Its badge is the open incident count from the API (#610), not part of the definition.
+  { slug: "incidents", label: "Incidents", section: "Monitor" },
   { slug: "explore", label: "Explore", section: "Monitor" },
   { slug: "traffic", label: "Traffic", section: "Monitor" },
   { slug: "errors", label: "Errors", section: "Monitor" },
