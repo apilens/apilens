@@ -18,6 +18,8 @@ export const ACTIONS = [
   "api_keys.create",
   /** `project#manage_keys`: revoke keys. */
   "api_keys.revoke",
+  /** `project#manage_capture`: edit an app's remote capture policy. */
+  "capture.manage",
   /** `organization#invite`: the invite dialog and Invitations page. */
   "members.invite",
   /** `organization#manage_members`: role changes and removal on Members. */

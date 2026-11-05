@@ -85,6 +85,12 @@
 //   GET  /api/v1/deploys/changes?project=          deploys with before/after numbers (#597), as seeded
 //   POST /__fake/deploys {project, deploys}        test hook: what that answers for `project`
 //   POST /__fake/query-down {project, down}        test hook: those reads answer 503 for `project`
+//   GET  /api/v1/project?project=shop              shop's apps (#598): one app `shop` unless seeded
+//   GET|PUT /api/v1/apps/{id}/capture-policy       the app's capture policy (#598): everything captured
+//                                                  until saved; PUT answers 403 without capture.manage
+//   GET  /api/v1/apps/{id}/metadata                what the app's SDKs reported, per environment (#598)
+//   POST /__fake/apps {apps}                       test hook: replaces shop's apps [{id, slug, name,
+//                                                  policy?, environments?}], their policies and reports
 //   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?}
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  `role` is the user's role in acme (default owner);
@@ -400,7 +406,7 @@ const roleOf = (id: string): Role => membersByUser.get(id)?.find((m) => m.user.i
 
 /** What `users/me/context` lists for the shop project, as SpiceDB would answer for `role`. */
 function capabilitiesFor(role: Role): string[] {
-  const all = ["project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "members.invite", "members.remove", "billing.manage"];
+  const all = ["project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "members.invite", "members.remove", "billing.manage"];
   if (role === "owner") return all;
   if (role === "admin") return all.filter((a) => a !== "project.delete" && a !== "billing.manage");
   if (role === "member") return ["project.read", "project.update", "api_keys.create", "api_keys.revoke"];
@@ -450,6 +456,29 @@ const ingestedRows = new Map<
 const queryDown = new Set<string>();
 /** Project slug → the deploys `GET /deploys/changes` answers, as seeded by `/__fake/deploys` (#597). */
 const deployChanges = new Map<string, Record<string, unknown>[]>();
+
+/** shop's apps (#598), their saved capture policies and what their SDKs reported, by app id. */
+const DEFAULT_APP = { id: "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d", slug: PROJECT, name: "Shop" };
+let shopApps: { id: string; slug: string; name: string }[] = [DEFAULT_APP];
+const capturePolicies = new Map<string, Record<string, unknown>>();
+const appReports = new Map<string, Record<string, unknown>[]>();
+
+function capturePolicyOf(app: { id: string; slug: string }): Record<string, unknown> {
+  return {
+    app_id: app.id,
+    app: app.slug,
+    project: PROJECT,
+    enabled: true,
+    sample_rate: 1,
+    capture_headers: true,
+    capture_request_body: true,
+    capture_response_body: true,
+    max_payload_bytes: null,
+    updated_at: null,
+    updated_by: null,
+    ...capturePolicies.get(app.id),
+  };
+}
 
 function seedApiKey(input: Record<string, unknown>): FakeApiKey {
   return {
@@ -1160,6 +1189,61 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     }
     ingestedRows.set(holder.project, rows);
     return send(res, 200, { accepted: list.length });
+  }
+  // shop's apps and their capture policies (#598). Like the API, an app in a project the user
+  // cannot view answers 404; saving needs `capture.manage`.
+  if (req.method === "GET" && path === "/api/v1/project") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    if (url.searchParams.get("project") !== PROJECT) return problem(res, 404, "not_found");
+    return send(res, 200, { org: { id: "org_acme", slug: "acme", name: "Acme" }, project: { id: "prj_shop", slug: PROJECT, name: "Shop" }, apps: shopApps, environments: ["production"] });
+  }
+  const appPath = path.match(/^\/api\/v1\/apps\/([^/]+)\/(capture-policy|metadata)$/);
+  if (appPath) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const app = shopApps.find((a) => a.id === decodeURIComponent(appPath[1]));
+    if (!app) return problem(res, 404, "not_found");
+    if (appPath[2] === "metadata" && req.method === "GET") return send(res, 200, { app_id: app.id, environments: appReports.get(app.id) ?? [] });
+    if (appPath[2] === "capture-policy" && req.method === "GET") return send(res, 200, capturePolicyOf(app));
+    if (appPath[2] === "capture-policy" && req.method === "PUT") {
+      if (!capabilitiesOf(user).includes("capture.manage")) return problem(res, 403, "forbidden");
+      const body = await readBody(req);
+      const flags = ["enabled", "capture_headers", "capture_request_body", "capture_response_body"];
+      const rate = body.sample_rate;
+      const cap = body.max_payload_bytes ?? null;
+      const valid =
+        flags.every((f) => typeof body[f] === "boolean") &&
+        typeof rate === "number" &&
+        rate >= 0 &&
+        rate <= 1 &&
+        (cap === null || (typeof cap === "number" && Number.isInteger(cap) && cap >= 1 && cap <= 1_048_576));
+      if (!valid) return problem(res, 422, "validation_failed");
+      if (Math.round((rate as number) * 10_000) / 10_000 !== rate) return problem(res, 400, "invalid_request");
+      capturePolicies.set(app.id, {
+        ...Object.fromEntries(flags.map((f) => [f, body[f]])),
+        sample_rate: rate,
+        max_payload_bytes: cap,
+        updated_at: new Date().toISOString(),
+        updated_by: user,
+      });
+      return send(res, 200, capturePolicyOf(app));
+    }
+    return problem(res, 404, "not_found");
+  }
+  if (req.method === "POST" && path === "/__fake/apps") {
+    // Test hook: replaces shop's apps, their saved policies and their SDK reports.
+    const { apps } = await readBody(req);
+    const list = Array.isArray(apps) ? (apps as Record<string, unknown>[]) : [];
+    capturePolicies.clear();
+    appReports.clear();
+    shopApps = list.length ? list.map((a) => ({ id: String(a.id ?? randomUUID()), slug: String(a.slug), name: String(a.name ?? a.slug) })) : [DEFAULT_APP];
+    list.forEach((a, i) => {
+      const id = shopApps[i].id;
+      if (typeof a.policy === "object" && a.policy !== null) capturePolicies.set(id, a.policy as Record<string, unknown>);
+      if (Array.isArray(a.environments)) appReports.set(id, a.environments as Record<string, unknown>[]);
+    });
+    return send(res, 204);
   }
   // The query role's dashboard reads as a session (#295, #335): the project in `?project=`; a
   // project the user cannot view answers 404, as internal/query does.

@@ -20,12 +20,16 @@ import (
 // CapturePolicyPath is an app's remote capture policy endpoint.
 const CapturePolicyPath = server.APIPrefix + "/apps/{id}/capture-policy"
 
+// AppMetadataPath is an app's reported SDK metadata endpoint.
+const AppMetadataPath = server.APIPrefix + "/apps/{id}/metadata"
+
 // CaptureService reads and replaces capture policies; *capture.Service
 // satisfies it.
 type CaptureService interface {
 	App(ctx context.Context, id uuid.UUID) (capture.App, error)
 	Get(ctx context.Context, app capture.App) (capture.Stored, error)
 	Put(ctx context.Context, actor uuid.UUID, app capture.App, pol capture.Policy) (capture.Stored, error)
+	Metadata(ctx context.Context, app capture.App) ([]capture.Metadata, error)
 }
 
 // ProjectAuthorizer checks a permission on a project named by slug;
@@ -53,6 +57,29 @@ type CapturePolicy struct {
 // CapturePolicyOutput is the response of the capture policy operations.
 type CapturePolicyOutput struct {
 	Body CapturePolicy
+}
+
+// AppEnvironmentReport is the latest metadata report of an app's SDK in one
+// environment.
+type AppEnvironmentReport struct {
+	Environment      string         `json:"environment" doc:"The environment the SDK reported from."`
+	Framework        string         `json:"framework" doc:"The web framework the SDK instruments; empty if not reported."`
+	FrameworkVersion string         `json:"framework_version" doc:"The framework's version; empty if not reported."`
+	RuntimeVersion   string         `json:"runtime_version" doc:"The language runtime's version; empty if not reported."`
+	SdkVersion       string         `json:"sdk_version" doc:"The SDK's version; empty if not reported."`
+	Config           map[string]any `json:"config" doc:"The effective SDK config as the SDK reported it (capture flags, redaction patterns, exclusions, sample rate; callbacks as true)."`
+	ReceivedAt       time.Time      `json:"received_at" doc:"When the report arrived."`
+}
+
+// AppReports is what an app's SDKs reported about themselves on startup.
+type AppReports struct {
+	AppID        string                 `json:"app_id" format:"uuid" doc:"The app's id."`
+	Environments []AppEnvironmentReport `json:"environments" doc:"The latest report per environment, sorted by environment; empty if the SDKs never sent one."`
+}
+
+// AppReportsOutput is the response of GET /api/v1/apps/{id}/metadata.
+type AppReportsOutput struct {
+	Body AppReports
 }
 
 // CaptureAppInput names the app by id.
@@ -116,6 +143,19 @@ func (c *CapturePolicies) Register(api huma.API) {
 		Tags:     tags,
 		Security: security,
 	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), c.put)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "get-app-metadata",
+		Method:      http.MethodGet,
+		Path:        AppMetadataPath,
+		Summary:     "Get what an app's SDKs reported on startup",
+		Description: "Returns the latest metadata report (POST /v1/metadata) of the app per environment: framework, versions and the effective SDK config, " +
+			"so it can be shown next to the remote capture policy (the SDK applies the narrower of the two). The route list is left out. " +
+			"Needs `view` on its project (any member, including viewers). " +
+			"An unknown app, or one in a project the caller cannot view, answers 404 `not_found`, so the cases cannot be told apart.",
+		Tags:     tags,
+		Security: security,
+	}, identity.CodeUnauthenticated, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), c.metadata)
 }
 
 // authorize resolves the app and checks permission on its project.
@@ -225,4 +265,32 @@ func (c *CapturePolicies) put(ctx context.Context, in *PutCapturePolicyInput) (*
 		return nil, c.problem(ctx, "put capture policy", err)
 	}
 	return &CapturePolicyOutput{Body: toCapturePolicy(s)}, nil
+}
+
+func (c *CapturePolicies) metadata(ctx context.Context, in *CaptureAppInput) (*AppReportsOutput, error) {
+	p, ok := authn.FromContext(ctx)
+	if !ok {
+		return nil, identity.Err(identity.CodeUnauthenticated)
+	}
+	app, err := c.authorize(ctx, p, in.ID, authz.ProjectView)
+	if err != nil {
+		return nil, err
+	}
+	reports, err := c.svc.Metadata(ctx, app)
+	if err != nil {
+		return nil, c.problem(ctx, "get app metadata", err)
+	}
+	out := AppReports{AppID: app.ID.String(), Environments: make([]AppEnvironmentReport, 0, len(reports))}
+	for _, m := range reports {
+		out.Environments = append(out.Environments, AppEnvironmentReport{
+			Environment:      m.Environment,
+			Framework:        m.Framework,
+			FrameworkVersion: m.FrameworkVersion,
+			RuntimeVersion:   m.RuntimeVersion,
+			SdkVersion:       m.SdkVersion,
+			Config:           m.Config,
+			ReceivedAt:       m.ReceivedAt,
+		})
+	}
+	return &AppReportsOutput{Body: out}, nil
 }

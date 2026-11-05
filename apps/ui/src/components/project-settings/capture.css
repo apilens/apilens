@@ -1,0 +1,31 @@
+/* Project settings → Capture (#598). Tokens from tokens.css only; cards, toggles and the confirm
+   reuse .os-* (org settings), the table .pk-table (Security → Passkeys), inputs .ob-in. */
+.cps .os-card__head p b { font-weight: 500; color: var(--ink); }
+.cps-app { margin: 0 0 var(--space-6); max-width: 360px; }
+.cps-app .ob-in { padding: 0 10px; }
+.cps-app select { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: inherit; font: inherit; }
+
+.cps-fields.is-off { opacity: .55; }
+.cps-num { max-width: 240px; }
+.cps-num input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: inherit; font: inherit; font-variant-numeric: tabular-nums; }
+.cps-unit { font: 400 13px/1 var(--font-sans); color: var(--ink-muted); }
+.cps .ob-in.ro { background: var(--surface-2); }
+.cps .ob-in input:disabled { color: var(--ink-muted); cursor: not-allowed; }
+.cps .os-confirm p b { font-weight: 600; }
+.cps-audit { margin: var(--space-6) 0 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+
+.cps-empty { margin: var(--space-4) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.cps-env + .cps-env { margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.cps-env__head { margin: var(--space-4) 0 var(--space-3); }
+.cps-env__head h3 { margin: 0; font: 500 13px/18px var(--font-mono); color: var(--ink); }
+.cps-env__head p { margin: 2px 0 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.cps-table th[scope="row"] { padding: var(--space-3) var(--space-3) var(--space-3) 0; border-bottom: 1px solid var(--border); text-align: left; font: 500 13px/20px var(--font-sans); color: var(--ink); white-space: nowrap; }
+.cps-table tbody tr:last-child th { border-bottom: 0; }
+.cps-table td { font-variant-numeric: tabular-nums; }
+.cps-applies { font-weight: 500; }
+.cps-why { display: block; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+
+@media (max-width: 860px) {
+  .cps-app, .cps-num { max-width: none; }
+  .cps-table th[scope="row"] { display: block; padding: 0 0 var(--space-1); border-bottom: 0; }
+}

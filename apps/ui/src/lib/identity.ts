@@ -868,6 +868,60 @@ export interface DeployChanges {
   deploys: DeployChange[] | null;
 }
 
+/** An app of a project, as `GET /project` lists it. */
+export interface NamedApp {
+  id: string;
+  slug: string;
+  name: string;
+}
+
+/** `GET /project?project=` (query role): the project, its apps and its recent environments. */
+export interface ProjectApps {
+  apps: NamedApp[] | null;
+  environments: string[] | null;
+}
+
+/** `GET|PUT /apps/{id}/capture-policy` (#566): the remote capture policy of an app. */
+export interface CapturePolicy {
+  app_id: string;
+  app: string;
+  project: string;
+  enabled: boolean;
+  /** 0 to 1, at most 4 decimal places. */
+  sample_rate: number;
+  capture_headers: boolean;
+  capture_request_body: boolean;
+  capture_response_body: boolean;
+  /** Bytes; null means no cap beyond the SDK's own. */
+  max_payload_bytes: number | null;
+  /** Null when the policy was never saved (the app captures everything). */
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+export type PutCapturePolicyRequest = Pick<
+  CapturePolicy,
+  "enabled" | "sample_rate" | "capture_headers" | "capture_request_body" | "capture_response_body" | "max_payload_bytes"
+>;
+
+/** One environment of `GET /apps/{id}/metadata` (#598): what the app's SDK reported on startup. */
+export interface AppEnvironmentReport {
+  environment: string;
+  framework: string;
+  framework_version: string;
+  runtime_version: string;
+  sdk_version: string;
+  /** The effective SDK config as reported; keys depend on the SDK. */
+  config: Record<string, unknown>;
+  received_at: string;
+}
+
+/** `GET /apps/{id}/metadata`. */
+export interface AppReports {
+  app_id: string;
+  environments: AppEnvironmentReport[] | null;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Operations
 
@@ -1037,6 +1091,16 @@ export function createClient(config: ClientConfig) {
       request<{ endpoints: EndpointTraffic[] | null }>("GET", "/traffic/endpoints", { ...o, query: { project: projectSlug, ...q } }),
     deployChanges: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
       request<DeployChanges>("GET", "/deploys/changes", { ...o, query: { project: projectSlug, ...q } }),
+
+    projectApps: (projectSlug: string, o: Authed) =>
+      request<ProjectApps>("GET", "/project", { ...o, query: { project: projectSlug } }),
+
+    // api: app capture policy (#566) and SDK metadata (#598) -------------------------------
+    getCapturePolicy: (appId: string, o: Authed) =>
+      request<CapturePolicy>("GET", `/apps/${seg(appId)}/capture-policy`, o),
+    putCapturePolicy: (appId: string, body: PutCapturePolicyRequest, o: Authed) =>
+      request<CapturePolicy>("PUT", `/apps/${seg(appId)}/capture-policy`, { ...o, body }),
+    appReports: (appId: string, o: Authed) => request<AppReports>("GET", `/apps/${seg(appId)}/metadata`, o),
 
     // api: project API keys ---------------------------------------------------------------
     listApiKeys: (projectSlug: string, o: Authed) =>

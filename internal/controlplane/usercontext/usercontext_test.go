@@ -52,8 +52,8 @@ func TestCapabilities(t *testing.T) {
 	for _, m := range []map[string]bool{
 		// acme owner: everything.
 		grant(authz.Organization(acme.String()), authz.OrgInvite, authz.OrgManageMembers, authz.OrgManageBilling),
-		grant(authz.Project(acme.String(), web.String()), authz.ProjectView, authz.ProjectEdit, authz.ProjectDelete, authz.ProjectManageKeys),
-		grant(authz.Project(acme.String(), checkout.String()), authz.ProjectView, authz.ProjectEdit, authz.ProjectDelete, authz.ProjectManageKeys),
+		grant(authz.Project(acme.String(), web.String()), authz.ProjectView, authz.ProjectEdit, authz.ProjectDelete, authz.ProjectManageKeys, authz.ProjectManageCapture),
+		grant(authz.Project(acme.String(), checkout.String()), authz.ProjectView, authz.ProjectEdit, authz.ProjectDelete, authz.ProjectManageKeys, authz.ProjectManageCapture),
 		// initech viewer: view only.
 		grant(authz.Project(initech.String(), reports.String()), authz.ProjectView),
 	} {
@@ -69,7 +69,7 @@ func TestCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := []string{
-		ActionProjectRead, ActionProjectUpdate, ActionProjectDelete, ActionAPIKeysCreate, ActionAPIKeysRevoke,
+		ActionProjectRead, ActionProjectUpdate, ActionProjectDelete, ActionAPIKeysCreate, ActionAPIKeysRevoke, ActionCaptureManage,
 		ActionMembersInvite, ActionMembersRemove, ActionBillingManage,
 	}
 	want := map[string][]string{"web": all, "checkout": all, "reports": {ActionProjectRead}}
@@ -82,15 +82,15 @@ func TestCapabilities(t *testing.T) {
 		}
 	}
 
-	// One round trip; each (permission, resource) pair asked once: four
+	// One round trip; each (permission, resource) pair asked once: five
 	// project permissions per project, three org permissions per org that
 	// has projects.
 	if len(checker.calls) != 1 {
 		t.Fatalf("CheckBulk calls = %d, want 1", len(checker.calls))
 	}
 	items := checker.calls[0]
-	if len(items) != 3*4+2*3 {
-		t.Fatalf("items = %d, want %d", len(items), 3*4+2*3)
+	if len(items) != 3*5+2*3 {
+		t.Fatalf("items = %d, want %d", len(items), 3*5+2*3)
 	}
 	seen := map[string]bool{}
 	for _, it := range items {
@@ -138,6 +138,7 @@ func TestVocabulary(t *testing.T) {
 		{"project.delete", "delete", false},
 		{"api_keys.create", "manage_keys", false},
 		{"api_keys.revoke", "manage_keys", false},
+		{"capture.manage", "manage_capture", false},
 		{"members.invite", "invite", true},
 		{"members.remove", "manage_members", true},
 		{"billing.manage", "manage_billing", true},

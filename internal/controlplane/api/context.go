@@ -57,7 +57,7 @@ type UserContext struct {
 	Orgs            []ContextOrg        `json:"orgs" doc:"The organizations the user belongs to, ordered by name."`
 	LastProjectSlug *string             `json:"last_project_slug" doc:"The project the user last opened (preferences.last_project_slug, set with PATCH /api/v1/users/me); null when unset or no longer visible to the user."`
 	Onboarding      OnboardingState     `json:"onboarding"`
-	Capabilities    map[string][]string `json:"capabilities" doc:"Per project slug, the actions the user may perform there (project.read, project.update, project.delete, api_keys.create, api_keys.revoke, members.invite, members.remove, billing.manage). Every project in orgs has an entry, listing actions in this order. Computed from SpiceDB; the UI gates on these, the server still checks every request."`
+	Capabilities    map[string][]string `json:"capabilities" doc:"Per project slug, the actions the user may perform there (project.read, project.update, project.delete, api_keys.create, api_keys.revoke, capture.manage, members.invite, members.remove, billing.manage). Every project in orgs has an entry, listing actions in this order. Computed from SpiceDB; the UI gates on these, the server still checks every request."`
 }
 
 // UserContextOutput is the response of GET /api/v1/users/me/context.

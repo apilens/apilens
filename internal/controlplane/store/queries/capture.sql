@@ -32,3 +32,13 @@ DO UPDATE SET enabled               = EXCLUDED.enabled,
 RETURNING app_id, enabled, sample_rate::float8 AS sample_rate,
           capture_headers, capture_request_body, capture_response_body,
           max_payload_bytes, updated_at, updated_by;
+
+-- name: ListAppMetadata :many
+-- The latest metadata report of an active app per environment, without the
+-- route list: what the app settings page shows next to the capture policy.
+SELECT m.environment, m.framework, m.framework_version, m.runtime_version,
+       m.sdk_version, m.config, m.received_at
+FROM app_metadata m
+JOIN apps a ON a.id = m.app_id
+WHERE m.app_id = @app_id AND a.deleted_at IS NULL
+ORDER BY m.environment;

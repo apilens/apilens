@@ -34,6 +34,7 @@ The UI gates on the `Action` vocabulary (`docs/architecture/identity.md`, mirror
 | `project.delete` | `project#delete` | ✓ | ✓ | | | ✓ | | |
 | `api_keys.create` | `project#manage_keys` | ✓ | ✓ | ✓ | | ✓ | ✓ | |
 | `api_keys.revoke` | `project#manage_keys` | ✓ | ✓ | ✓ | | ✓ | ✓ | |
+| `capture.manage` | `project#manage_capture` | ✓ | ✓ | | | ✓ | | |
 | `members.invite` | `organization#invite` | ✓ | ✓ | | | | | |
 | `members.remove` | `organization#manage_members` | ✓ | ✓ | | | | | |
 | `billing.manage` | `organization#manage_billing` | ✓ | | | | | | |
