@@ -103,6 +103,9 @@ Spring properties use the `apilens.*` prefix:
 | `apilens.capture-headers` | `true` |
 | `apilens.capture-spans` | `true` |
 | `apilens.max-payload-bytes` | `65536` |
+| `apilens.exclude-paths` | empty |
+| `apilens.exclude-user-agents` | empty |
+| `apilens.default-exclusions` | `true` |
 
 Redaction accepts case-insensitive regexes matched against names:
 
@@ -114,6 +117,64 @@ apilens.redact-body-fields[0]=password
 
 Built-in sensitive headers such as `authorization`, `cookie`, and `x-api-key`
 are always redacted.
+
+## Excluding requests
+
+Health checks, probes and static well-known files are not captured. An
+excluded request skips the filter entirely: the request and response are not
+wrapped, no body is buffered, and no record, span or log is sent.
+
+Patterns are case-insensitive regexes searched against the request path
+without the query string (`^` / `$` anchor to the path, so `^/health$` excludes
+`/health` but not `/healthz` or `/api/health`), and against the `User-Agent`
+header. They are compiled when the filter is created, so an invalid regex fails
+at startup, never per request.
+
+Default paths (`RequestExcluder.DEFAULT_EXCLUDED_PATHS`):
+
+```
+/_?healthz?$
+/_?health[-_]?checks?$
+/_?heart[-_]?beats?$
+/ping$
+/ready$
+/live$
+/favicon(?:-[\w-]+)?\.(?:ico|png|svg)$
+/apple-touch-icon(?:-[\w-]+)?\.png$
+/robots\.txt$
+/sitemap\.xml$
+/manifest\.json$
+/site\.webmanifest$
+/service-worker\.js$
+/sw\.js$
+/\.well-known/
+```
+
+Default user agents (`RequestExcluder.DEFAULT_EXCLUDED_USER_AGENTS`):
+
+```
+health[-_ ]?check
+microsoft-azure-application-lb
+googlehc
+kube-probe
+```
+
+Add your own, or turn the defaults off:
+
+```properties
+apilens.exclude-paths[0]=^/internal/
+apilens.exclude-paths[1]=^/status$
+apilens.exclude-user-agents[0]=uptimerobot
+# false records health checks and probes again
+apilens.default-exclusions=true
+```
+
+Comma-separated values (`apilens.exclude-paths=^/internal/,^/status$`) also
+work; use the indexed form for a regex that contains a comma (`\d{1,3}`).
+Without Spring Boot, pass the same settings to
+`ApiLensSpringOptions.builder().excludePaths(...).excludeUserAgents(...).defaultExclusions(...)`.
+The `APILENS_EXCLUDE_PATHS` environment variable (comma-separated) adds path
+patterns on top.
 
 ## Publishing
 

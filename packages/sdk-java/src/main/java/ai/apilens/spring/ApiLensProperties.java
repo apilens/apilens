@@ -41,6 +41,9 @@ public class ApiLensProperties {
   private List<String> redactHeaders = List.of();
   private List<String> redactBodyFields = List.of();
   private boolean parametrizePaths = true;
+  private List<String> excludePaths = List.of();
+  private List<String> excludeUserAgents = List.of();
+  private boolean defaultExclusions = true;
   private int filterOrder = Integer.MAX_VALUE - 100;
 
   public ApiLensConfig toClientConfig() {
@@ -85,6 +88,9 @@ public class ApiLensProperties {
         .redactHeaders(redactHeaders)
         .redactBodyFields(redactBodyFields)
         .parametrizePaths(parametrizePaths)
+        .excludePaths(excludePaths)
+        .excludeUserAgents(excludeUserAgents)
+        .defaultExclusions(defaultExclusions)
         .build();
   }
 
@@ -350,6 +356,30 @@ public class ApiLensProperties {
 
   public void setParametrizePaths(boolean parametrizePaths) {
     this.parametrizePaths = parametrizePaths;
+  }
+
+  public List<String> getExcludePaths() {
+    return excludePaths;
+  }
+
+  public void setExcludePaths(List<String> excludePaths) {
+    this.excludePaths = excludePaths;
+  }
+
+  public List<String> getExcludeUserAgents() {
+    return excludeUserAgents;
+  }
+
+  public void setExcludeUserAgents(List<String> excludeUserAgents) {
+    this.excludeUserAgents = excludeUserAgents;
+  }
+
+  public boolean isDefaultExclusions() {
+    return defaultExclusions;
+  }
+
+  public void setDefaultExclusions(boolean defaultExclusions) {
+    this.defaultExclusions = defaultExclusions;
   }
 
   public int getFilterOrder() {

@@ -6,6 +6,7 @@ import ai.apilens.ApiLensConsumers;
 import ai.apilens.LogRecord;
 import ai.apilens.PathTemplates;
 import ai.apilens.Redactor;
+import ai.apilens.RequestExcluder;
 import ai.apilens.RequestRecord;
 import ai.apilens.SpanRecord;
 import ai.apilens.TraceContext;
@@ -38,6 +39,7 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
   private final ApiLensSpringOptions options;
   private final ApiLensConsumerResolver consumerResolver;
   private final Redactor redactor;
+  private final RequestExcluder excluder;
 
   public ApiLensSpringFilter(ApiLensClient client, ApiLensSpringOptions options) {
     this(client, options, null);
@@ -54,13 +56,24 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         this.options.redactQueryParams(),
         this.options.redactHeaders(),
         this.options.redactBodyFields());
+    this.excluder = new RequestExcluder(
+        this.options.excludePaths(),
+        this.options.excludeUserAgents(),
+        this.options.defaultExclusions(),
+        true);
   }
 
+  /**
+   * Excluded requests (built-in health/probe/static defaults, {@code excludePaths},
+   * {@code excludeUserAgents}) bypass the filter entirely: no wrapping, no body
+   * buffering, no record, span or log.
+   */
   @Override
   protected boolean shouldNotFilter(HttpServletRequest request) {
     return !options.enabled()
         || !client.isEnabled()
-        || "OPTIONS".equalsIgnoreCase(request.getMethod());
+        || "OPTIONS".equalsIgnoreCase(request.getMethod())
+        || excluder.shouldExclude(request.getRequestURI(), request.getHeader("User-Agent"));
   }
 
   @Override
