@@ -50,20 +50,91 @@ export interface SnippetInput {
   appId: string;
   /** `APILENS_PUBLIC_INGEST_URL`, no trailing slash. */
   ingestUrl: string;
+  /** The SDK's capture profile; undefined renders {@link DEFAULT_POSTURE}. OTLP snippets ignore it. */
+  posture?: Posture;
 }
 
 /**
- * The Python SDK's `capture_profile` the snippet sets: `metadata` (no headers, bodies or validation
- * errors) is the documented first production rollout; the SDK's own default stays `full`.
+ * The SDKs' capture profiles (`capture_profile`, `captureProfile`, `apilens.capture-profile`,
+ * `APILENS_CAPTURE_PROFILE`): what an SDK sends beyond the base record of method, route, status,
+ * latency, sizes and consumer, which every profile sends.
  */
-const PYTHON_CAPTURE_PROFILE = "metadata";
+export type Posture = "metadata" | "redacted" | "full";
+
+export interface PostureOption {
+  id: Posture;
+  label: string;
+  /** One line on what choosing it means for the data that leaves the service. */
+  consequence: string;
+}
+
+/** In the order the instrument step lists them, the documented first rollout first. */
+export const POSTURES: readonly PostureOption[] = [
+  {
+    id: "metadata",
+    label: "Metadata only",
+    consequence: "No headers or bodies leave your service: method, route, status, latency, sizes and consumer only.",
+  },
+  {
+    id: "redacted",
+    label: "Redacted",
+    consequence: "Headers and bodies up to 16 KB, with secrets and the fields listed in the snippet masked before they’re sent.",
+  },
+  {
+    id: "full",
+    label: "Full",
+    consequence: "Headers and bodies up to the SDK’s cap; built-in masking still hides passwords, tokens and card numbers.",
+  },
+];
+
+/** `metadata` is the documented first production rollout; the SDKs' own default stays `full`. */
+export const DEFAULT_POSTURE: Posture = "metadata";
+
+/** `?capture=` on the install step: the posture picked on the instrument step. */
+export const POSTURE_PARAM = "capture";
+
+/** The posture `value` names, or undefined for anything else. */
+export function postureOf(value: string | string[] | null | undefined): Posture | undefined {
+  const v = Array.isArray(value) ? value[0] : value;
+  return POSTURES.find((p) => p.id === v)?.id;
+}
+
+/**
+ * The starter redaction list every SDK snippet carries, on top of the SDKs' built-in masking
+ * (passwords, tokens, secrets, card numbers): personal fields APIs commonly carry. Name regexes.
+ */
+export const STARTER_REDACT_QUERY_PARAMS: readonly string[] = ["^email$"];
+export const STARTER_REDACT_BODY_FIELDS: readonly string[] = ["^email$", "^phone$", "^date_of_birth$"];
+
+/** The docs page on what the SDKs capture and redact, at its capture profiles section. */
+export function privacyDocsUrl(docs: string): string {
+  return `${docs.replace(/\/+$/, "")}/getting-started/data-privacy#capture-profiles`;
+}
 
 /** `export APILENS_API_KEY=…`: the key goes in the environment, never in source. */
 function envSnippet(key: string): Snippet {
   return { id: "env", title: "Environment", code: `export APILENS_API_KEY=${key}` };
 }
 
-function sdkSnippets(language: string, key: string, appId: string, ingestUrl: string): Snippet[] {
+/** The same posture and redaction list as environment variables, which every SDK reads. */
+function postureEnvSnippet(posture: Posture): Snippet {
+  return {
+    id: "posture-env",
+    title: "Or set the capture posture from the environment",
+    code: [
+      `export APILENS_CAPTURE_PROFILE=${posture}`,
+      `export APILENS_REDACT_QUERY_PARAMS=${STARTER_REDACT_QUERY_PARAMS.join(",")}`,
+      `export APILENS_REDACT_BODY_FIELDS=${STARTER_REDACT_BODY_FIELDS.join(",")}`,
+    ].join("\n"),
+  };
+}
+
+/** `"a", "b"` with `open` before each item (`r"` for Python raw strings). */
+const quoted = (list: readonly string[], open: string) => list.map((x) => `${open}${x}"`).join(", ");
+
+const MASK_COMMENT = "Masked on top of the built-ins (passwords, tokens, card numbers).";
+
+function sdkSnippets(language: string, key: string, appId: string, ingestUrl: string, posture: Posture): Snippet[] {
   const baseUrl = sdkBaseUrl(ingestUrl);
   switch (language) {
     case "python":
@@ -85,10 +156,14 @@ function sdkSnippets(language: string, key: string, appId: string, ingestUrl: st
             '    api_key=os.environ["APILENS_API_KEY"],',
             `    app_id="${appId}",`,
             `    base_url="${baseUrl}",`,
-            `    capture_profile="${PYTHON_CAPTURE_PROFILE}",  # metadata | redacted | full`,
+            `    capture_profile="${posture}",  # metadata | redacted | full`,
+            `    # ${MASK_COMMENT}`,
+            `    redact_query_params=[${quoted(STARTER_REDACT_QUERY_PARAMS, 'r"')}],`,
+            `    redact_body_fields=[${quoted(STARTER_REDACT_BODY_FIELDS, 'r"')}],`,
             ")",
           ].join("\n"),
         },
+        postureEnvSnippet(posture),
       ];
     case "node":
       return [
@@ -108,9 +183,14 @@ function sdkSnippets(language: string, key: string, appId: string, ingestUrl: st
             "  apiKey: process.env.APILENS_API_KEY,",
             `  appId: "${appId}",`,
             `  baseUrl: "${baseUrl}",`,
+            `  captureProfile: "${posture}", // metadata | redacted | full`,
+            `  // ${MASK_COMMENT}`,
+            `  redactQueryParams: [${quoted(STARTER_REDACT_QUERY_PARAMS, '"')}],`,
+            `  redactBodyFields: [${quoted(STARTER_REDACT_BODY_FIELDS, '"')}],`,
             "});",
           ].join("\n"),
         },
+        postureEnvSnippet(posture),
       ];
     case "java":
       return [
@@ -129,8 +209,18 @@ function sdkSnippets(language: string, key: string, appId: string, ingestUrl: st
         {
           id: "code",
           title: "application.properties",
-          code: ["apilens.api-key=${APILENS_API_KEY}", `apilens.app-id=${appId}`, `apilens.base-url=${baseUrl}`].join("\n"),
+          code: [
+            "apilens.api-key=${APILENS_API_KEY}",
+            `apilens.app-id=${appId}`,
+            `apilens.base-url=${baseUrl}`,
+            "# metadata | redacted | full",
+            `apilens.capture-profile=${posture}`,
+            `# ${MASK_COMMENT}`,
+            `apilens.redact-query-params=${STARTER_REDACT_QUERY_PARAMS.join(",")}`,
+            `apilens.redact-body-fields=${STARTER_REDACT_BODY_FIELDS.join(",")}`,
+          ].join("\n"),
         },
+        postureEnvSnippet(posture),
       ];
     default:
       return [];
@@ -162,11 +252,11 @@ function otlpSnippets(key: string, appId: string, ingestUrl: string): Snippet[] 
 }
 
 /** The snippets for `language` and `method`, in the order to follow them; empty when none apply. */
-export function snippetsFor({ language, method, apiKey, appId, ingestUrl }: SnippetInput): Snippet[] {
+export function snippetsFor({ language, method, apiKey, appId, ingestUrl, posture = DEFAULT_POSTURE }: SnippetInput): Snippet[] {
   const lang = languageOf(language);
   if (!lang) return [];
   const key = apiKey || KEY_PLACEHOLDER;
-  if (method === "sdk" && lang.sdk) return sdkSnippets(lang.id, key, appId, ingestUrl);
+  if (method === "sdk" && lang.sdk) return sdkSnippets(lang.id, key, appId, ingestUrl, posture);
   if (method === "otlp" && lang.otlp) return otlpSnippets(key, appId, ingestUrl);
   return [];
 }

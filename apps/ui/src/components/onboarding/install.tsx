@@ -4,8 +4,9 @@ import { unstable_rethrow } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { type InstallKey, createInstallKey, finishInstallLater } from "@/app/(auth)/onboarding/install/actions";
 import { maskedKey } from "@/lib/api-keys";
-import { type SavedKey, type Snippet, snippetsFor } from "@/lib/install";
+import { DEFAULT_POSTURE, POSTURES, POSTURE_PARAM, type Posture, type SavedKey, type Snippet, privacyDocsUrl, snippetsFor } from "@/lib/install";
 import { type Method, languageOf } from "@/lib/instrument";
+import { LINKS, extLink } from "@/lib/links";
 import { BackNext, ObIcon, ObShell, type StepProps } from "./ob";
 import { useOnboardingContinue, useOnboardingToast } from "./progress";
 import "./install.css";
@@ -97,6 +98,7 @@ export function Install({
   appId,
   ingestUrl,
   saved,
+  posture = DEFAULT_POSTURE,
 }: Partial<StepProps> & {
   project: { slug: string; name: string };
   language: string;
@@ -104,6 +106,8 @@ export function Install({
   appId: string;
   ingestUrl: string;
   saved: SavedKey;
+  /** The capture posture picked on the instrument step (#601); SDK snippets set it. */
+  posture?: Posture;
 }) {
   const [apiKey, setApiKey] = useState<InstallKey | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -147,7 +151,7 @@ export function Install({
       }
     });
 
-  const snippets = snippetsFor({ language, method, apiKey: apiKey?.key, appId, ingestUrl });
+  const snippets = snippetsFor({ language, method, apiKey: apiKey?.key, appId, ingestUrl, posture });
   const lang = languageOf(language)?.label ?? language;
   const how = method === "sdk" ? `the ${lang} SDK` : `OpenTelemetry for ${lang}`;
   const busy = creating || pending || leaving;
@@ -220,7 +224,7 @@ export function Install({
           Send <b>{project.name}</b>’s requests to APILens with {how}.
         </>
       }
-      footer={<BackNext back="/onboarding/instrument" nextLabel="Continue" disabled={busy} loading={pending} onNext={() => go("waiting", "/onboarding/waiting")} />}
+      footer={<BackNext back={method === "sdk" ? `/onboarding/instrument?${POSTURE_PARAM}=${posture}` : "/onboarding/instrument"} nextLabel="Continue" disabled={busy} loading={pending} onNext={() => go("waiting", "/onboarding/waiting")} />}
       below={
         <>
           Not ready to change code?{" "}
@@ -244,6 +248,14 @@ export function Install({
         {snippets.map((s) => (
           <CodeBlock key={s.id} snippet={s} />
         ))}
+        {method === "sdk" ? (
+          <p className="ins-status">
+            Capture posture: <b>{POSTURES.find((p) => p.id === posture)?.label}</b>, plus a starter redaction list on top of the built-in masking.{" "}
+            <a className="cp-link" {...extLink(privacyDocsUrl(LINKS.docs))}>
+              Data privacy docs
+            </a>
+          </p>
+        ) : null}
       </div>
     </ObShell>
   );

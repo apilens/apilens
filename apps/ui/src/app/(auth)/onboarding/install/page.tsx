@@ -5,7 +5,7 @@ import { requireOnboardingStep } from "@/lib/auth/onboarding";
 import { getContext, getSession } from "@/lib/auth/server";
 import { env } from "@/lib/env";
 import { type ApiKey, identity, isApiError } from "@/lib/identity";
-import { appIdFor, savedKeyState } from "@/lib/install";
+import { POSTURE_PARAM, appIdFor, postureOf, savedKeyState } from "@/lib/install";
 import { effectiveMethod, savedInstrument } from "@/lib/instrument";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 
@@ -25,7 +25,7 @@ async function loadKeys(project: string): Promise<ApiKey[] | null> {
   }
 }
 
-export default async function Page() {
+export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { step, reached, answers } = await requireOnboardingStep("install");
   // Cached per request: the guard above already loaded it.
   const ctx = await getContext(PATH);
@@ -48,6 +48,7 @@ export default async function Page() {
       appId={appIdFor(project.slug)}
       ingestUrl={env().publicIngestUrl}
       saved={saved}
+      posture={postureOf((await searchParams)[POSTURE_PARAM])}
     />
   );
 }
