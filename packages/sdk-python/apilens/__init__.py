@@ -1,6 +1,6 @@
 from ._version import __version__
 from .client import ApiLensClient, ApiLensConfig
-from .client import RequestRecord
+from .client import LogRecord, RequestRecord
 from .client._sanitize import RequestInfo, ResponseInfo
 from .client.middleware import normalize_consumer
 from .client.spans import instrument_outbound_http
@@ -20,6 +20,7 @@ __all__ = [
     "ApiLensClient",
     "ApiLensConfig",
     "RequestRecord",
+    "LogRecord",
     "RequestInfo",
     "ResponseInfo",
     "install_apilens_exporter",

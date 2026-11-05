@@ -86,6 +86,36 @@ APILENS_REDACT_BODY_FIELDS = [r"^password$", r"^cvv$", r"card"]
 Redaction applies to values captured going forward — it cannot retroactively scrub requests that were already recorded without it. Configure it **before** pointing production traffic at APILens.
 </Note>
 
+## Masking error-trace logs: `mask_log_record`
+
+When a request raises or returns a 5xx, the SDK sends an `ERROR` log record (message plus stack trace) correlated to the request's trace. Messages and stack traces can contain secrets, so every log record goes through two steps before it is queued:
+
+1. **Your `mask_log_record(record)` callback**, if set. It receives the `LogRecord` and returns it (edited or replaced) to send it, or `None` to drop it.
+2. **Built-in `key=value` masking**, always on. In the message, the stack-trace payload and attribute values, any `name=value`, `name: value` or `'name': 'value'` pair whose name matches a default sensitive pattern (every query, header and body pattern in the table above) has its value replaced with `[redacted]`. `token=abc` becomes `token=[redacted]`, and `Authorization: Bearer abc` becomes `Authorization: [redacted]`. Attributes whose key matches are masked whole.
+
+```python
+import re
+from apilens import ApiLensClient, ApiLensConfig, LogRecord
+
+EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
+
+def mask_log_record(record: LogRecord) -> LogRecord | None:
+    if record.endpoint_path.startswith("/admin/"):
+        return None                                   # drop the record entirely
+    record.message = EMAIL.sub("<email>", record.message)
+    record.payload = EMAIL.sub("<email>", record.payload)
+    return record
+
+client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx", mask_log_record=mask_log_record))
+app.add_middleware(ApiLensMiddleware, client=client, app_id="orders-api")
+```
+
+- **The callback runs first and cannot turn the built-ins off.** If it puts a `token=…` back into the message, that value is still masked.
+- **Fail closed.** If the callback raises, or returns anything other than a `LogRecord` or `None`, the record is dropped. It is never sent unmasked.
+- **It covers every log record**: the automatic error-trace logs today, and any application logs the SDK sends in future.
+
+In Django, set `APILENS_MASK_LOG_RECORD` to the callable or its dotted import path (`"myapp.apilens.mask_log_record"`). An import path that cannot be resolved raises at startup.
+
 ## Client IP: `capture_ip` and `anonymize_ip`
 
 The client IP is taken from the first `X-Forwarded-For` entry, then `X-Real-IP`, then the socket peer. Two options control what is sent, both applied in your process before the record is built:

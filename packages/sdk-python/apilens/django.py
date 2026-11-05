@@ -99,6 +99,7 @@ def _get_client_from_settings() -> ApiLensClient:
         flush_interval=float(getattr(settings, "APILENS_FLUSH_INTERVAL", 3.0)),
         capture_ip=bool(getattr(settings, "APILENS_CAPTURE_IP", True)),
         anonymize_ip=bool(getattr(settings, "APILENS_ANONYMIZE_IP", False)),
+        mask_log_record=_resolve_body_masker(settings, "APILENS_MASK_LOG_RECORD"),
     )
     _client_singleton = ApiLensClient(cfg)
     return _client_singleton
