@@ -3019,6 +3019,449 @@
         ],
         "type": "object"
       },
+      "ErrorStatusConsumer": {
+        "additionalProperties": false,
+        "properties": {
+          "consumer_id": {
+            "type": "string"
+          },
+          "consumer_name": {
+            "description": "Most recently reported name of the consumer.",
+            "type": "string"
+          },
+          "count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "first_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "share": {
+            "description": "count / occurrences.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "consumer_id",
+          "consumer_name",
+          "count",
+          "share",
+          "first_seen",
+          "last_seen"
+        ],
+        "type": "object"
+      },
+      "ErrorStatusCountPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ts": {
+            "description": "Start of the bucket.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "count"
+        ],
+        "type": "object"
+      },
+      "ErrorStatusEndpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "consumers": {
+            "description": "Distinct consumers that got the status code from this endpoint.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "exceptions": {
+            "description": "Server exceptions logged for occurrences of the status code (detail in the endpoint's errors tab).",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "description": "Route template; its errors tab is GET /api/v1/endpoints/{method}/{path}/errors.",
+            "type": "string"
+          },
+          "validation_errors": {
+            "description": "Occurrences that carried validation errors (detail in the endpoint's errors tab).",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "method",
+          "path",
+          "count",
+          "consumers",
+          "last_seen",
+          "validation_errors",
+          "exceptions"
+        ],
+        "type": "object"
+      },
+      "ErrorStatusOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ErrorStatusOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "anonymous": {
+            "description": "Occurrences from requests without a consumer.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "bucket_seconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "consumer_breakdown": {
+            "description": "Occurrences per identified consumer, most frequent first (at most 100).",
+            "items": {
+              "$ref": "#/components/schemas/ErrorStatusConsumer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "consumers": {
+            "description": "Affected consumers: distinct consumers that got the status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "endpoint_breakdown": {
+            "description": "Occurrences per endpoint, most frequent first (at most 50).",
+            "items": {
+              "$ref": "#/components/schemas/ErrorStatusEndpoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "endpoints": {
+            "description": "Distinct endpoints that answered with the status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "first_seen": {
+            "description": "First occurrence in the range; null without occurrences.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "last_seen": {
+            "description": "Last occurrence in the range; null without occurrences.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurrences": {
+            "description": "Requests answered with the status code where it is not expected for the endpoint.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "per_hour": {
+            "description": "Frequency: occurrences per hour over the range.",
+            "format": "double",
+            "type": "number"
+          },
+          "points": {
+            "description": "Occurrences per bucket of the range, zero-filled.",
+            "items": {
+              "$ref": "#/components/schemas/ErrorStatusCountPoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "range": {
+            "type": "string"
+          },
+          "requests": {
+            "description": "All requests of the range.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "share": {
+            "description": "occurrences / requests, 0 without requests.",
+            "format": "double",
+            "type": "number"
+          },
+          "status_code": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status_code",
+          "range",
+          "from",
+          "to",
+          "bucket_seconds",
+          "occurrences",
+          "requests",
+          "share",
+          "per_hour",
+          "consumers",
+          "anonymous",
+          "endpoints",
+          "first_seen",
+          "last_seen",
+          "points",
+          "endpoint_breakdown",
+          "consumer_breakdown"
+        ],
+        "type": "object"
+      },
+      "ErrorStatusPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "client_error_rate": {
+            "description": "client_errors / requests, 0 without requests.",
+            "format": "double",
+            "type": "number"
+          },
+          "client_errors": {
+            "description": "Requests with a 4xx status code that is not expected for the endpoint.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requests": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_error_rate": {
+            "description": "server_errors / requests, 0 without requests.",
+            "format": "double",
+            "type": "number"
+          },
+          "server_errors": {
+            "description": "Requests with a 5xx status code that is not expected for the endpoint.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ts": {
+            "description": "Start of the bucket.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "requests",
+          "client_errors",
+          "server_errors",
+          "client_error_rate",
+          "server_error_rate"
+        ],
+        "type": "object"
+      },
+      "ErrorStatusRow": {
+        "additionalProperties": false,
+        "properties": {
+          "consumers": {
+            "description": "Distinct consumers that got it.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "count": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "endpoints": {
+            "description": "Distinct endpoints (method + route) that answered with it.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "first_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "share": {
+            "description": "count / requests of the range.",
+            "format": "double",
+            "type": "number"
+          },
+          "status_code": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status_code",
+          "count",
+          "share",
+          "endpoints",
+          "consumers",
+          "first_seen",
+          "last_seen"
+        ],
+        "type": "object"
+      },
+      "ErrorStatusSeries": {
+        "additionalProperties": false,
+        "properties": {
+          "counts": {
+            "description": "Occurrences per bucket, aligned with points.",
+            "items": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "status_code": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status_code",
+          "counts"
+        ],
+        "type": "object"
+      },
+      "ErrorStatusesOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ErrorStatusesOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "bucket_seconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "points": {
+            "description": "Requests, 4xx and 5xx errors per bucket of the range, zero-filled.",
+            "items": {
+              "$ref": "#/components/schemas/ErrorStatusPoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "range": {
+            "type": "string"
+          },
+          "series": {
+            "description": "Occurrences of each error status code per bucket, in statuses order.",
+            "items": {
+              "$ref": "#/components/schemas/ErrorStatusSeries"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "statuses": {
+            "description": "Error status codes (400 and above) by count, most frequent first; expected status codes of each endpoint left out.",
+            "items": {
+              "$ref": "#/components/schemas/ErrorStatusRow"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ErrorSplit"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "range",
+          "from",
+          "to",
+          "bucket_seconds",
+          "summary",
+          "points",
+          "series",
+          "statuses"
+        ],
+        "type": "object"
+      },
       "ErrorsOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -11352,6 +11795,179 @@
           }
         ],
         "summary": "Failed requests grouped by endpoint and status",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/errors/status": {
+      "get": {
+        "operationId": "get-error-statuses",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorStatusesOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Errors dashboard: client/server errors and each error status code over time, and status codes by count",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/errors/status/{code}": {
+      "get": {
+        "operationId": "get-error-status",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Error status code, 400 to 599.",
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "description": "Error status code, 400 to 599.",
+              "format": "int64",
+              "maximum": 599,
+              "minimum": 400,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorStatusOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Error status detail: occurrences, affected consumers, last seen, frequency, endpoint and consumer breakdowns",
         "tags": [
           "Dashboard"
         ]
