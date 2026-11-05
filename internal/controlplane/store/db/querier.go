@@ -18,9 +18,12 @@ type Querier interface {
 	// Puts a consumer in a group of the same project, moving it out of the group
 	// it was in. No row when the group is not one of the project's.
 	AssignConsumerGroup(ctx context.Context, arg AssignConsumerGroupParams) (ConsumerGroupMember, error)
+	// Cancels a queued or running export. No row means it already finished.
+	CancelRequestExport(ctx context.Context, id uuid.UUID) (RequestExport, error)
 	// The relay's batch: the oldest unprocessed rows, locked until its
 	// transaction ends.
 	ClaimPendingOutbox(ctx context.Context, batchSize int32) ([]ClaimPendingOutboxRow, error)
+	CompleteRequestExport(ctx context.Context, arg CompleteRequestExportParams) (int64, error)
 	// Owners whose account is not deleted: a deleted owner cannot act for the
 	// organization, so it does not count towards the last-owner rule.
 	CountOrgOwners(ctx context.Context, orgID uuid.UUID) (int64, error)
@@ -49,6 +52,7 @@ type Querier interface {
 	// Upsert* queries in catalog.sql stay for the idempotent dev seed.
 	// Fails on projects_slug_active when an active project uses the slug.
 	CreateProject(ctx context.Context, arg CreateProjectParams) (CreateProjectRow, error)
+	CreateRequestExport(ctx context.Context, arg CreateRequestExportParams) (RequestExport, error)
 	CreateSavedView(ctx context.Context, arg CreateSavedViewParams) (SavedView, error)
 	// Deletes a rule and, by cascade, its events.
 	DeleteAlertRule(ctx context.Context, arg DeleteAlertRuleParams) (int64, error)
@@ -61,6 +65,8 @@ type Querier interface {
 	// The domains among @domains that another active organization enforces SSO
 	// for. A domain is enforced by at most one organization.
 	EnforcedSSODomainsOfOtherOrgs(ctx context.Context, arg EnforcedSSODomainsOfOtherOrgsParams) ([]string, error)
+	ExpireRequestExport(ctx context.Context, id uuid.UUID) (int64, error)
+	FailRequestExport(ctx context.Context, arg FailRequestExportParams) (int64, error)
 	// Resolves an ingest key to its project. Revoked, expired and keys of
 	// deleted projects never match.
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error)
@@ -121,6 +127,7 @@ type Querier interface {
 	// another project.
 	GetProjectApp(ctx context.Context, arg GetProjectAppParams) (GetProjectAppRow, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
+	GetRequestExport(ctx context.Context, id uuid.UUID) (RequestExport, error)
 	GetSavedView(ctx context.Context, arg GetSavedViewParams) (SavedView, error)
 	// An active app of an active project, with the project slug that authorizing
 	// a settings change on it needs.
@@ -161,6 +168,7 @@ type Querier interface {
 	// Every enabled rule of an active app of an active project: what the
 	// evaluator runs.
 	ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error)
+	ListExpiredRequestExports(ctx context.Context, arg ListExpiredRequestExportsParams) ([]RequestExport, error)
 	// Active organizations with domain join on for the (lower-case) email
 	// domain that the user is not already a member of.
 	ListJoinableOrganizations(ctx context.Context, arg ListJoinableOrganizationsParams) ([]ListJoinableOrganizationsRow, error)
@@ -276,8 +284,14 @@ type Querier interface {
 	// Revokes the address's pending invitation to the organization, if any, so
 	// a new one can replace it.
 	RevokePendingInvitationByEmail(ctx context.Context, arg RevokePendingInvitationByEmailParams) (int64, error)
+	// No row means the export was cancelled meanwhile.
+	SetRequestExportProgress(ctx context.Context, arg SetRequestExportProgressParams) (int64, error)
+	SetRequestExportTotal(ctx context.Context, arg SetRequestExportTotalParams) (int64, error)
 	SoftDeleteOrganization(ctx context.Context, id uuid.UUID) (int64, error)
 	SoftDeleteProject(ctx context.Context, id uuid.UUID) (int64, error)
+	// Moves a queued (or retried, still running) export to running. No row
+	// means it was cancelled or is already done.
+	StartRequestExport(ctx context.Context, id uuid.UUID) (RequestExport, error)
 	// Which of the given slugs active organizations already use.
 	TakenOrganizationSlugs(ctx context.Context, slugs []string) ([]string, error)
 	// Which of the given slugs active projects already use.

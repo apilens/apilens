@@ -51,6 +51,7 @@ type Service struct {
 	now     func() time.Time
 
 	ingestStats IngestStatsReader // nil: app ingest-stats answers 503
+	exports     *exportDeps       // nil: the export operations answer 503
 }
 
 // NewService builds a Service.

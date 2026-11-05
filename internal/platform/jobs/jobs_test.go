@@ -38,3 +38,19 @@ func TestRegisterDuplicatePanics(t *testing.T) {
 	}()
 	Register(r, river.WorkFunc(func(context.Context, *river.Job[alphaArgs]) error { return nil }))
 }
+
+func TestRegistryQueues(t *testing.T) {
+	r := NewRegistry()
+	if len(r.Queues()) != 0 {
+		t.Fatalf("new registry queues = %v", r.Queues())
+	}
+	r.Queue("zeta", 1)
+	r.Queue("exports", 2)
+	r.Queue("exports", 3)
+	if got, want := r.Queues(), []string{"exports", "zeta"}; !slices.Equal(got, want) {
+		t.Fatalf("Queues() = %v, want %v", got, want)
+	}
+	if got := r.queueConfigs()["exports"]; got != 3 {
+		t.Fatalf("exports max workers = %d, want 3", got)
+	}
+}

@@ -81,6 +81,7 @@ const (
 	modAuthz      = "authz"
 	modRelay      = "outbox-relay"
 	modAlerts     = "alerts"
+	modExports    = "exports"
 )
 
 // PlannedTargets are roles of the target architecture that later milestones
@@ -158,7 +159,7 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	m.Register(TargetEdge, a.initEdge, modules.DependsOn(modServer, modValkey, modCatalog, modSink))
 	// query is the first slice of the M3 read path (fixed queries; user
 	// sessions authorized by SpiceDB, or read keys).
-	m.Register(TargetQuery, a.initQuery, modules.DependsOn(modServer, modPostgres, modClickHouse, modCatalog, modAuthz))
+	m.Register(TargetQuery, a.initQuery, modules.DependsOn(modServer, modPostgres, modClickHouse, modCatalog, modAuthz, modJobs))
 	m.Register(TargetAPI, a.initAPI, modules.DependsOn(modServer, modPostgres, modValkey, modAuthz, modJobs))
 	// identity runs the M2 job workers (email, outbox relay, authz
 	// reconciler); the M4 worker role will too.
@@ -167,8 +168,12 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	// worker role exists it runs only in the all-in-one process, the one
 	// role that has both ClickHouse and the job workers.
 	m.Register(modAlerts, a.initAlerts, modules.Invisible(), modules.DependsOn(modPostgres, modClickHouse, modCatalog, modJobs))
+	// Request log exports are River jobs over ClickHouse on their own queue;
+	// like alerts they are worked by the all-in-one process until the M4
+	// worker role exists. query only enqueues them and serves the files.
+	m.Register(modExports, a.initExports, modules.Invisible(), modules.DependsOn(modPostgres, modClickHouse, modJobs))
 	m.Register(TargetAll, func(context.Context) (modules.Service, error) { return nil, nil },
-		modules.DependsOn(TargetEdge, TargetQuery, TargetAPI, TargetIdentity, modAlerts))
+		modules.DependsOn(TargetEdge, TargetQuery, TargetAPI, TargetIdentity, modAlerts, modExports))
 	return a
 }
 
@@ -334,6 +339,19 @@ func (a *App) initAlerts(context.Context) (modules.Service, error) {
 	return nil, nil
 }
 
+// initExports registers the request log export jobs on their own queue.
+func (a *App) initExports(context.Context) (modules.Service, error) {
+	store, err := query.NewLocalExportStore(a.cfg.Exports.Dir)
+	if err != nil {
+		return nil, err
+	}
+	a.workers.Queue(query.ExportQueue, query.ExportQueueWorkers)
+	jobs.Register(a.workers, query.NewExportWorker(a.chConn, a.pool, store, a.logger))
+	jobs.Register(a.workers, query.NewExportCleanupWorker(a.pool, store, a.logger))
+	a.workers.Periodic(query.ExportCleanupInterval, query.ExportCleanupArgs{})
+	return nil, nil
+}
+
 func (a *App) initEdge(context.Context) (modules.Service, error) {
 	edge := ingest.New(a.verifier, a.apps, a.sink, a.cfg.Ingest, a.logger, a.registry).WithPrivacy(a.privacy).WithMetadata(a.queries).
 		WithCapture(capture.NewResolver(a.queries, a.cfg.Ingest.AppCacheTTL))
@@ -370,6 +388,11 @@ func (a *App) initQuery(context.Context) (modules.Service, error) {
 	if a.valkey != nil {
 		svc.WithIngestStats(ingest.NewValkeyStats(a.valkey))
 	}
+	store, err := query.NewLocalExportStore(a.cfg.Exports.Dir)
+	if err != nil {
+		return nil, err
+	}
+	svc.WithExports(a.pool, a.jobs, store)
 	query.Register(api, svc, guard)
 	return nil, nil
 }

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -33,6 +34,7 @@ type Registry struct {
 	workers  *river.Workers
 	kinds    []string
 	periodic []*river.PeriodicJob
+	queues   map[string]int // extra queues worked besides the default: name -> max workers
 }
 
 // NewRegistry returns an empty Registry.
@@ -68,6 +70,33 @@ func (r *Registry) periodicJobs() []*river.PeriodicJob {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return slices.Clone(r.periodic)
+}
+
+// Queue declares a queue besides the default one that this process works,
+// with at most maxWorkers of its jobs at a time. Jobs land on it through
+// their args' InsertOpts (river.JobArgsWithInsertOpts), so one kind of heavy
+// job cannot hold every default worker. Declaring a queue again keeps the
+// last maxWorkers.
+func (r *Registry) Queue(name string, maxWorkers int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.queues == nil {
+		r.queues = map[string]int{}
+	}
+	r.queues[name] = maxWorkers
+}
+
+// Queues returns the declared extra queues, sorted by name.
+func (r *Registry) Queues() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Sorted(maps.Keys(r.queues))
+}
+
+func (r *Registry) queueConfigs() map[string]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return maps.Clone(r.queues)
 }
 
 // Kinds returns the registered job kinds, sorted.
@@ -158,10 +187,18 @@ func (c *Client) Run(ctx context.Context) error {
 			return fmt.Errorf("jobs: periodic jobs: %w", err)
 		}
 	}
+	for name, maxWorkers := range c.registry.queueConfigs() {
+		if name == river.QueueDefault {
+			continue
+		}
+		if err := c.river.Queues().Add(name, river.QueueConfig{MaxWorkers: maxWorkers}); err != nil {
+			return fmt.Errorf("jobs: queue %s: %w", name, err)
+		}
+	}
 	if err := c.river.Start(runCtx); err != nil {
 		return fmt.Errorf("jobs: start: %w", err)
 	}
-	c.logger.Info("jobs: worker loop started", "kinds", c.registry.Kinds(), "max_workers", c.cfg.MaxWorkers)
+	c.logger.Info("jobs: worker loop started", "kinds", c.registry.Kinds(), "max_workers", c.cfg.MaxWorkers, "queues", c.registry.Queues())
 
 	sampleCtx, stopSampling := context.WithCancel(ctx)
 	sampled := make(chan struct{})

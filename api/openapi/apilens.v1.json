@@ -3494,6 +3494,125 @@
         ],
         "type": "object"
       },
+      "ExportFilter": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ExportFilter.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "consumer_group": {
+            "description": "Only requests from consumers of this group.",
+            "maxLength": 256,
+            "type": "string"
+          },
+          "consumer_id": {
+            "description": "Only requests from this consumer id.",
+            "maxLength": 256,
+            "type": "string"
+          },
+          "env": {
+            "description": "Environment name; empty means all.",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "ip": {
+            "description": "Only requests from this client IP address (exact match).",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "latency_max": {
+            "description": "Only requests that took at most this many milliseconds.",
+            "format": "double",
+            "minimum": 0,
+            "type": "number"
+          },
+          "latency_min": {
+            "description": "Only requests that took at least this many milliseconds.",
+            "format": "double",
+            "minimum": 0,
+            "type": "number"
+          },
+          "method": {
+            "description": "Only requests with this HTTP method (case-insensitive).",
+            "pattern": "^[A-Za-z]{1,16}$",
+            "type": "string"
+          },
+          "path": {
+            "description": "Route template, e.g. /orders/{id}.",
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "payload_contains": {
+            "description": "Only requests whose request or response body contains this text, ignoring case. The bodies themselves are never exported.",
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "range": {
+            "description": "Time range ending when the export is asked for; omitted means 24h.",
+            "enum": [
+              "1h",
+              "6h",
+              "24h",
+              "7d"
+            ],
+            "type": "string"
+          },
+          "request_size_max": {
+            "description": "Only requests with a request body of at most this many bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "request_size_min": {
+            "description": "Only requests with a request body of at least this many bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "response_size_max": {
+            "description": "Only requests with a response body of at most this many bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "response_size_min": {
+            "description": "Only requests with a response body of at least this many bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sampled": {
+            "description": "Only requests the SDK kept in full (true) or sampled out to a base record (false); omitted means both.",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "description": "Comma-separated status codes (404), classes (4xx) and inclusive ranges (500-503); omitted or all means every status.",
+            "maxLength": 256,
+            "type": "string"
+          },
+          "trace_id": {
+            "description": "Only requests of this trace.",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "url_contains": {
+            "description": "Only requests whose raw URL path (with query string) contains this text, ignoring case.",
+            "maxLength": 1024,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "HandoffBody": {
         "additionalProperties": false,
         "properties": {
@@ -6180,6 +6299,146 @@
           "request",
           "spans",
           "logs"
+        ],
+        "type": "object"
+      },
+      "RequestExport": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RequestExport.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "download_url": {
+            "description": "Signed URL of the gzip-compressed CSV, relative to the API origin, while completed; it needs no Authorization header. Fetch this export again for a fresh one once it expires.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "download_url_expires_at": {
+            "description": "When download_url stops working.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "description": "Why a failed export failed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "description": "When a completed export stops being downloadable.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filter": {
+            "$ref": "#/components/schemas/ExportFilter",
+            "description": "The filter the export was asked with."
+          },
+          "finished_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "from": {
+            "description": "Start of the exported time range (inclusive).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "progress": {
+            "description": "rows_written / total_rows, from 0 to 1; 1 once completed.",
+            "format": "double",
+            "type": "number"
+          },
+          "row_limit": {
+            "description": "The most rows the export writes, newest first.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "rows_written": {
+            "description": "Rows written so far.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "size_bytes": {
+            "description": "Size of the gzip-compressed CSV once completed.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "queued until a worker starts it; completed exports expire 24 hours after they finish.",
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed",
+              "cancelled",
+              "expired"
+            ],
+            "type": "string"
+          },
+          "to": {
+            "description": "End of the exported time range (exclusive).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "total_rows": {
+            "description": "Rows the export writes, capped at row_limit; null until it starts.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "filter",
+          "from",
+          "to",
+          "row_limit",
+          "total_rows",
+          "rows_written",
+          "progress",
+          "size_bytes",
+          "error",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "expires_at",
+          "download_url",
+          "download_url_expires_at"
         ],
         "type": "object"
       },
@@ -12191,6 +12450,175 @@
         ]
       }
     },
+    "/api/v1/exports/{id}": {
+      "get": {
+        "description": "Status, progress and, once completed, a signed download URL of one of the caller's exports. Another user's export answers 404.",
+        "operationId": "get-request-export",
+        "parameters": [
+          {
+            "description": "The export's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The export's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestExport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Get a request log export",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/exports/{id}/cancel": {
+      "post": {
+        "description": "Cancels one of the caller's queued or running exports; a running job stops within a second and keeps no file. Cancelling a cancelled export is a no-op; a finished one answers 409.",
+        "operationId": "cancel-request-export",
+        "parameters": [
+          {
+            "description": "The export's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The export's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestExport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Cancel a request log export",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/exports/{id}/download": {
+      "get": {
+        "description": "The gzip-compressed CSV of a completed export. Authorized by the link's signature (download_url of GET /api/v1/exports/{id}), not by a session: 403 for a bad or expired link, 410 once the export expired.",
+        "operationId": "download-request-export",
+        "parameters": [
+          {
+            "description": "The export's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The export's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Expiry of the link, Unix seconds, as download_url carries it.",
+            "explode": false,
+            "in": "query",
+            "name": "expires",
+            "schema": {
+              "description": "Expiry of the link, Unix seconds, as download_url carries it.",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Signature of the link, as download_url carries it.",
+            "explode": false,
+            "in": "query",
+            "name": "signature",
+            "schema": {
+              "description": "Signature of the link, as download_url carries it.",
+              "maxLength": 128,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/gzip": {
+                "schema": {
+                  "contentMediaType": "application/octet-stream",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The export as a gzip-compressed CSV."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Download a request log export",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
     "/api/v1/meta": {
       "get": {
         "operationId": "get-meta",
@@ -15353,6 +15781,96 @@
           }
         ],
         "summary": "Put a consumer in a group",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project}/exports": {
+      "post": {
+        "description": "Starts an export of the filtered request log: at most 1,000,000 rows, newest first, written as a gzip-compressed CSV by a background job. Poll GET /api/v1/exports/{id} for progress and the download link. Headers and bodies are never exported. Needs a user session that can view the project.",
+        "operationId": "create-request-export",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportFilter",
+                "description": "The request log filter; {} exports the last 24 hours."
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestExport"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Export the request log as CSV",
         "tags": [
           "Projects"
         ]
