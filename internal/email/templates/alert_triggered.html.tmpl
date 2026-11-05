@@ -1,0 +1,15 @@
+{{template "layout" .}}
+{{- define "content" -}}
+<p style="margin:0 0 16px 0;">The alert rule <strong>{{.rule}}</strong> triggered: {{.metric}} on {{.app}} ({{.environment}}) is <strong>{{.value}}</strong>, {{.threshold}} over the last {{.window}}.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">App</td><td style="padding:2px 0;">{{.app}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Environment</td><td style="padding:2px 0;">{{.environment}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Metric</td><td style="padding:2px 0;">{{.metric}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Value</td><td style="padding:2px 0;">{{.value}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Threshold</td><td style="padding:2px 0;">{{.threshold}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Window</td><td style="padding:2px 0;">{{.window}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Started</td><td style="padding:2px 0;">{{datetime .started_at}}</td></tr>
+</table>
+<p style="margin:0 0 24px 0;"><a class="button" href="{{link (print "/" (seg .project) "/incidents") "event" .event}}" style="display:inline-block;padding:10px 20px;border-radius:6px;background:#5b4bff;color:#ffffff;font-weight:600;text-decoration:none;">View incident</a></p>
+<p class="muted" style="margin:0;color:#556070;">You get this email because this address is on a notification channel of the rule.</p>
+{{- end}}

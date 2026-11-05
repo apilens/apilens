@@ -125,6 +125,23 @@ UPDATE alert_events
 SET notified_at = @notified_at::timestamptz
 WHERE id = @id AND notified_at IS NULL;
 
+-- name: GetAlertEventNotification :one
+-- What a notification about an event says: the event, its rule, app and
+-- project, and the rule's latest evaluated value (NULL before the first or
+-- when the window had no data). Returns pgx.ErrNoRows when the event (or its
+-- rule) was deleted.
+SELECT e.id, e.state, e.value, e.started_at, e.ended_at, e.notified_at,
+       r.id AS rule_id, r.project_id, r.name AS rule_name, r.environment, r.metric, r.condition,
+       r.threshold, r.window_s, r.channel_ids,
+       a.id AS app_id, a.name AS app_name, p.slug AS project_slug,
+       s.value AS latest_value
+FROM alert_events e
+JOIN alert_rules r ON r.id = e.rule_id
+JOIN apps a ON a.id = r.app_id
+JOIN projects p ON p.id = r.project_id
+LEFT JOIN alert_rule_state s ON s.rule_id = r.id
+WHERE e.id = @id;
+
 -- name: ResolveAlertEvent :one
 -- Resolves an open event. Returns pgx.ErrNoRows when it is not open.
 UPDATE alert_events

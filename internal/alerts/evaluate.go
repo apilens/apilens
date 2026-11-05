@@ -157,6 +157,9 @@ type Evaluator struct {
 	duration *prometheus.HistogramVec
 	runs     *prometheus.CounterVec
 	events   *prometheus.CounterVec
+	// jobs enqueues the alerts.notify job of each event change; nil sends
+	// no notifications.
+	jobs Enqueuer
 }
 
 // NewEvaluator returns an Evaluator. reg may be nil.
@@ -180,6 +183,13 @@ func NewEvaluator(conn driver.Conn, pool Pool, logger *slog.Logger, reg promethe
 	if reg != nil {
 		reg.MustRegister(e.duration, e.runs, e.events)
 	}
+	return e
+}
+
+// WithNotifications makes the evaluator enqueue an alerts.notify job,
+// in the transaction that records it, for every event it opens or resolves.
+func (e *Evaluator) WithNotifications(jobs Enqueuer) *Evaluator {
+	e.jobs = jobs
 	return e
 }
 
@@ -268,7 +278,17 @@ func (e *Evaluator) EvaluateAndRecord(ctx context.Context, r Rule, now time.Time
 		err = pgx.BeginFunc(ctx, e.pool, func(tx pgx.Tx) error {
 			var err error
 			t, err = recordEvaluation(ctx, db.New(tx), r, res, now)
-			return err
+			if err != nil || t.Event == nil || e.jobs == nil {
+				return err
+			}
+			kind := NotifyTriggered
+			if t.Action == ActionResolve {
+				kind = NotifyResolved
+			}
+			if _, err := e.jobs.InsertTx(ctx, tx, NotifyArgs{EventID: t.Event.ID, Notification: kind}, nil); err != nil {
+				return fmt.Errorf("alerts: enqueue notification: %w", err)
+			}
+			return nil
 		})
 		if err == nil && t.Event != nil {
 			e.events.WithLabelValues(t.Action.String()).Inc()

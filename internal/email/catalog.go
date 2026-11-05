@@ -31,6 +31,15 @@ const (
 	TemplateRecoveryRequested = "recovery_requested"
 	// TemplateRecoveryReady: token (for the status and cancel links).
 	TemplateRecoveryReady = "recovery_ready"
+	// TemplateAlertTriggered: rule, app, environment, metric (label),
+	// value, threshold (for example "> 5%"), window (for example
+	// "5 minutes"), started_at, project (slug) and event (id) for the
+	// /<project>/incidents?event= link. Values come preformatted from
+	// internal/alerts.
+	TemplateAlertTriggered = "alert_triggered"
+	// TemplateAlertResolved: the alert_triggered data with value the latest
+	// evaluated value, plus ended_at.
+	TemplateAlertResolved = "alert_resolved"
 )
 
 // Values of the security_change template's change field. An unknown value

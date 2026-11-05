@@ -70,6 +70,11 @@ type Querier interface {
 	// Resolves an ingest key to its project. Revoked, expired and keys of
 	// deleted projects never match.
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error)
+	// What a notification about an event says: the event, its rule, app and
+	// project, and the rule's latest evaluated value (NULL before the first or
+	// when the window had no data). Returns pgx.ErrNoRows when the event (or its
+	// rule) was deleted.
+	GetAlertEventNotification(ctx context.Context, id uuid.UUID) (GetAlertEventNotificationRow, error)
 	// One rule of a project. Returns pgx.ErrNoRows when the project has no such
 	// rule.
 	GetAlertRule(ctx context.Context, arg GetAlertRuleParams) (AlertRule, error)

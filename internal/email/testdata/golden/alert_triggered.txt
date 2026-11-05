@@ -1,0 +1,21 @@
+Subject: Alert triggered: Checkout <5xx> rate
+
+APILens
+
+The alert rule "Checkout <5xx> rate" triggered: Error rate on storefront (production) is 12.5%, > 5% over the last 5 minutes.
+
+App: storefront
+Environment: production
+Metric: Error rate
+Value: 12.5%
+Threshold: > 5%
+Window: 5 minutes
+Started: Wed, 4 Nov 2026 09:30 UTC
+
+View the incident:
+https://app.example.com/shop/incidents?event=0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41
+
+You get this email because this address is on a notification channel of the rule.
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.

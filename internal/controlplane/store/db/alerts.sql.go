@@ -171,6 +171,73 @@ func (q *Queries) DeleteNotificationChannel(ctx context.Context, arg DeleteNotif
 	return result.RowsAffected(), nil
 }
 
+const getAlertEventNotification = `-- name: GetAlertEventNotification :one
+SELECT e.id, e.state, e.value, e.started_at, e.ended_at, e.notified_at,
+       r.id AS rule_id, r.project_id, r.name AS rule_name, r.environment, r.metric, r.condition,
+       r.threshold, r.window_s, r.channel_ids,
+       a.id AS app_id, a.name AS app_name, p.slug AS project_slug,
+       s.value AS latest_value
+FROM alert_events e
+JOIN alert_rules r ON r.id = e.rule_id
+JOIN apps a ON a.id = r.app_id
+JOIN projects p ON p.id = r.project_id
+LEFT JOIN alert_rule_state s ON s.rule_id = r.id
+WHERE e.id = $1
+`
+
+type GetAlertEventNotificationRow struct {
+	ID          uuid.UUID
+	State       string
+	Value       float64
+	StartedAt   time.Time
+	EndedAt     *time.Time
+	NotifiedAt  *time.Time
+	RuleID      uuid.UUID
+	ProjectID   uuid.UUID
+	RuleName    string
+	Environment string
+	Metric      string
+	Condition   string
+	Threshold   float64
+	WindowS     int32
+	ChannelIds  []uuid.UUID
+	AppID       uuid.UUID
+	AppName     string
+	ProjectSlug string
+	LatestValue *float64
+}
+
+// What a notification about an event says: the event, its rule, app and
+// project, and the rule's latest evaluated value (NULL before the first or
+// when the window had no data). Returns pgx.ErrNoRows when the event (or its
+// rule) was deleted.
+func (q *Queries) GetAlertEventNotification(ctx context.Context, id uuid.UUID) (GetAlertEventNotificationRow, error) {
+	row := q.db.QueryRow(ctx, getAlertEventNotification, id)
+	var i GetAlertEventNotificationRow
+	err := row.Scan(
+		&i.ID,
+		&i.State,
+		&i.Value,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.NotifiedAt,
+		&i.RuleID,
+		&i.ProjectID,
+		&i.RuleName,
+		&i.Environment,
+		&i.Metric,
+		&i.Condition,
+		&i.Threshold,
+		&i.WindowS,
+		&i.ChannelIds,
+		&i.AppID,
+		&i.AppName,
+		&i.ProjectSlug,
+		&i.LatestValue,
+	)
+	return i, err
+}
+
 const getAlertRule = `-- name: GetAlertRule :one
 SELECT id, project_id, app_id, environment, name, description, metric, condition, threshold, window_s, every_s, cron, notify_after_s, resolve_after_s, filters, channel_ids, enabled, created_by, created_at, updated_at FROM alert_rules
 WHERE project_id = $1 AND id = $2

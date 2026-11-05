@@ -1,0 +1,19 @@
+{{- /* Data: rule, app, environment, metric, value, threshold, window, started_at, project (slug), event (id). */ -}}
+{{define "subject"}}Alert triggered: {{.rule}}{{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+The alert rule "{{.rule}}" triggered: {{.metric}} on {{.app}} ({{.environment}}) is {{.value}}, {{.threshold}} over the last {{.window}}.
+
+App: {{.app}}
+Environment: {{.environment}}
+Metric: {{.metric}}
+Value: {{.value}}
+Threshold: {{.threshold}}
+Window: {{.window}}
+Started: {{datetime .started_at}}
+
+View the incident:
+{{link (print "/" (seg .project) "/incidents") "event" .event}}
+
+You get this email because this address is on a notification channel of the rule.
+{{- end}}

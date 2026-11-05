@@ -36,6 +36,16 @@ var sampleData = map[string]map[string]any{
 		"token": "rec_1a2b3c", "ip": "198.51.100.4", "time": "2026-11-04T09:30:00Z", "ready_at": "2026-11-05T09:30:00Z",
 	},
 	"recovery_ready": {"token": "rec_1a2b3c"},
+	"alert_triggered": {
+		"rule": "Checkout <5xx> rate", "app": "storefront", "environment": "production", "metric": "Error rate",
+		"value": "12.5%", "threshold": "> 5%", "window": "5 minutes", "started_at": "2026-11-04T09:30:00Z",
+		"project": "shop", "event": "0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41",
+	},
+	"alert_resolved": {
+		"rule": "Checkout <5xx> rate", "app": "storefront", "environment": "production", "metric": "Error rate",
+		"value": "1.2%", "threshold": "> 5%", "window": "5 minutes", "started_at": "2026-11-04T09:30:00Z",
+		"ended_at": "2026-11-04T10:05:00Z", "project": "shop", "event": "0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41",
+	},
 }
 
 func defaultRenderer(t *testing.T) *Renderer {
