@@ -45,17 +45,24 @@
       "component": "sdk-python",
       "package-name": "apilenss",
       "extra-files": [
-        { "type": "generic", "path": "apilens/_version.py" }
+        { "type": "generic", "path": "apilens/_version.py" },
+        { "type": "json", "path": "/internal/query/sdk_latest.json", "jsonpath": "$['apilenss']" }
       ]
     },
     "packages/sdk-typescript": {
       "release-type": "node",
       "component": "sdk-ts",
-      "package-name": "apilens-js-sdk"
+      "package-name": "apilens-js-sdk",
+      "extra-files": [
+        { "type": "json", "path": "/internal/query/sdk_latest.json", "jsonpath": "$['apilens-js-sdk']" }
+      ]
     },
     "packages/sdk-java": {
       "release-type": "maven",
-      "component": "sdk-java"
+      "component": "sdk-java",
+      "extra-files": [
+        { "type": "json", "path": "/internal/query/sdk_latest.json", "jsonpath": "$['apilens-java-sdk']" }
+      ]
     }
   },
   "plugins": [
