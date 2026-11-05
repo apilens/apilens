@@ -1,0 +1,51 @@
+# Nightly failure drills (test/e2e/drills_e2e_test.go, `task test:e2e:drills`).
+#
+# Brings up the compose CI stack and the FastAPI, Express and Spring example
+# apps with their SDKs sending through a fault proxy run by the test, then
+# takes ingest down, answers 5xx and 429 with Retry-After, and checks that the
+# apps stay fast, the SDKs count their drops by reason (heartbeat stats) and
+# recovery flushes without duplicates.
+name: Failure drills
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '41 2 * * *'
+
+permissions: {}
+
+concurrency:
+  group: e2e-drills-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GOTOOLCHAIN: auto
+  # Keep in step with ci.yml.
+  TASK_VERSION: v3.54.0
+
+jobs:
+  drills:
+    name: Failure drills (ingest down, 5xx, 429)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      COMPOSE: docker compose --env-file deploy/compose/ci.env -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml -f deploy/compose/compose.examples.yaml --profile examples
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install Task
+        run: go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
+      - name: Run the drills
+        run: task test:e2e:drills
+      - name: Dump logs on failure
+        if: failure()
+        run: APILENS_EXAMPLES_API_KEY=unused $COMPOSE logs --no-color --timestamps
+      - name: Tear down
+        if: always()
+        run: APILENS_EXAMPLES_API_KEY=unused $COMPOSE down -v --remove-orphans
