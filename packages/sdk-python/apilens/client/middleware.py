@@ -31,6 +31,7 @@ from ._env import env_defaults
 from ._profile import CaptureProfile, normalize_profile
 from ._exclusions import RequestExcluder
 from ._metadata import start_asgi_metadata, start_wsgi_metadata
+from ._policy import ALLOW_ALL, Policy, policy_for
 from ._routes import resolve_endpoint_path
 from ._sampling import RequestSampler, ResponseSampler, SampleOnRequest, SampleOnResponse
 from ._sanitize import (
@@ -554,6 +555,13 @@ class ApiLensASGIMiddleware:
         if scope.get("type") != "http" or self._excluded(scope):
             await self.app(scope, receive, send)
             return
+        # Remote capture policy from the last heartbeat (narrows, never widens
+        # the options above). Disabled: no record, span or log at all.
+        policy = policy_for(self.client, self.app_id)
+        if not policy.enabled:
+            await self.app(scope, receive, send)
+            return
+        max_payload_bytes = policy.cap_payload_bytes(self.max_payload_bytes)
 
         headers = _headers_to_dict(scope.get("headers", []))
         path = _normalize_path(scope.get("path", "/"))
@@ -575,16 +583,21 @@ class ApiLensASGIMiddleware:
                 headers=MappingProxyType(lower_headers(headers)),
                 query=query,
                 client_ip=client_ip,
-            )
+            ),
+            policy.sample_rate,
         )
         sampled_token = set_detail_sampled(sampled)
         # sample_on_response may still drop this request's detail: hold its
         # child spans until it has answered.
         held_spans_token = hold_child_spans() if self.response_sampler.defers(sampled) else None
-        capture_headers = self.capture_headers and sampled
+        capture_headers = self.capture_headers and sampled and policy.capture_headers
         capture_payloads = self.capture_payloads and sampled
-        capture_request_body = capture_payloads and self.log_request_body and self.max_payload_bytes > 0
-        capture_response_body = capture_payloads and self.log_response_body and self.max_payload_bytes > 0
+        capture_request_body = (
+            capture_payloads and self.log_request_body and policy.capture_request_body and max_payload_bytes > 0
+        )
+        capture_response_body = (
+            capture_payloads and self.log_response_body and policy.capture_response_body and max_payload_bytes > 0
+        )
         request_content_type = headers.get("content-type", "")
         # Only bodies of a captured content type are buffered at all; for the
         # rest just the byte count is kept for the omitted-body placeholder.
@@ -633,8 +646,8 @@ class ApiLensASGIMiddleware:
             if capture_request_body and message.get("type") == "http.request":
                 body = message.get("body") or b""
                 request_body_size += len(body)
-                if buffer_request_body and body and request_payload_len < self.max_payload_bytes:
-                    remaining = self.max_payload_bytes - request_payload_len
+                if buffer_request_body and body and request_payload_len < max_payload_bytes:
+                    remaining = max_payload_bytes - request_payload_len
                     part = body[:remaining]
                     request_payload_chunks.append(part)
                     request_payload_len += len(part)
@@ -666,8 +679,8 @@ class ApiLensASGIMiddleware:
                     else:
                         validation_chunks.append(body)
                         validation_len += len(body)
-                if buffer_response_body and response_payload_len < self.max_payload_bytes:
-                    remaining = self.max_payload_bytes - response_payload_len
+                if buffer_response_body and response_payload_len < max_payload_bytes:
+                    remaining = max_payload_bytes - response_payload_len
                     part = body[:remaining]
                     response_payload_chunks.append(part)
                     response_payload_len += len(part)
@@ -918,9 +931,15 @@ class ApiLensWSGIMiddleware:
         user_agent = environ.get("HTTP_USER_AGENT") if self.excluder.checks_user_agent else None
         if self.excluder.matches(environ.get("PATH_INFO"), user_agent):
             return self.app(environ, start_response)
-        return self._capture(environ, start_response)
+        # Remote capture policy from the last heartbeat (narrows, never widens
+        # the options above). Disabled: no record, span or log at all.
+        policy = policy_for(self.client, self.app_id)
+        if not policy.enabled:
+            return self.app(environ, start_response)
+        return self._capture(environ, start_response, policy)
 
-    def _capture(self, environ: dict[str, Any], start_response: Callable) -> Any:
+    def _capture(self, environ: dict[str, Any], start_response: Callable, policy: Policy = ALLOW_ALL) -> Any:
+        max_payload_bytes = policy.cap_payload_bytes(self.max_payload_bytes)
         started_at = time.perf_counter()
         consumer_token = _consumer_ctx.set(None)
         attributes_token = begin_request_attributes()
@@ -948,17 +967,22 @@ class ApiLensWSGIMiddleware:
                 headers=MappingProxyType(dict(request_headers)),
                 query=query or "",
                 client_ip=ip_address,
-            )
+            ),
+            policy.sample_rate,
         )
         sampled_token = set_detail_sampled(sampled)
         # sample_on_response may still drop this request's detail: hold its
         # child spans until it has answered.
         held_spans_token = hold_child_spans() if self.response_sampler.defers(sampled) else None
-        capture_headers = self.capture_headers and sampled
+        capture_headers = self.capture_headers and sampled and policy.capture_headers
         capture_payloads = self.capture_payloads and sampled
         request_content_type = environ.get("CONTENT_TYPE") or ""
-        capture_request_body = capture_payloads and self.log_request_body and self.max_payload_bytes > 0
-        capture_response_body = capture_payloads and self.log_response_body and self.max_payload_bytes > 0
+        capture_request_body = (
+            capture_payloads and self.log_request_body and policy.capture_request_body and max_payload_bytes > 0
+        )
+        capture_response_body = (
+            capture_payloads and self.log_response_body and policy.capture_response_body and max_payload_bytes > 0
+        )
         buffer_response_body = False
         # Captured raw here; masked after the app ran, so the mask callback
         # sees the attributes the handler set (``set_request_attribute``).
@@ -968,7 +992,7 @@ class ApiLensWSGIMiddleware:
         if capture_request_body and self.content_types.allows(request_content_type):
             stream = environ.get("wsgi.input")
             if stream is not None and hasattr(stream, "read"):
-                body = stream.read(self.max_payload_bytes)
+                body = stream.read(max_payload_bytes)
                 request_body = body or b""
                 # Reset stream so app can consume the same bytes.
                 try:
@@ -1024,9 +1048,9 @@ class ApiLensWSGIMiddleware:
             result = self.app(environ, wrapped_start_response)
             for chunk in result:
                 response_size += len(chunk or b"")
-                if buffer_response_body and response_payload_len < self.max_payload_bytes:
+                if buffer_response_body and response_payload_len < max_payload_bytes:
                     piece = chunk or b""
-                    remaining = self.max_payload_bytes - response_payload_len
+                    remaining = max_payload_bytes - response_payload_len
                     part = piece[:remaining]
                     response_payload_chunks.append(part)
                     response_payload_len += len(part)

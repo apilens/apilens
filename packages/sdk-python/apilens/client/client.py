@@ -22,6 +22,7 @@ from typing import Literal
 
 from .._version import __version__
 from ._env import apply_env_defaults, parse_mode
+from ._policy import ALLOW_ALL, DISABLED, Policy, parse_policy
 from ._routes import cap_routes
 from ._sanitize import mask_log_attributes, mask_log_text
 from ._stats import ClientStats
@@ -518,6 +519,9 @@ class ApiLensClient:
         self._heartbeat_due: dict[tuple[str, str], float] = {}
         self._heartbeat_logged: set[int] = set()
         self._remote_policy: dict | None = None
+        # app_id -> last remote capture policy received for it. Replaced (never
+        # mutated) under ``_heartbeat_lock``; read lock-free on the request path.
+        self._policies: dict[str, Policy] = {}
         # Inline mode: one caller at a time sends the due heartbeats / stats
         # after a flush (concurrent requests would otherwise duplicate them).
         self._inline_upkeep_lock = threading.Lock()
@@ -675,6 +679,18 @@ class ApiLensClient:
         with self._heartbeat_lock:
             return dict(self._remote_policy) if self._remote_policy is not None else None
 
+    def policy(self, app_id: str = "") -> Policy:
+        """The capture policy in force for ``app_id`` (default: the config's).
+
+        Local ``enabled=False`` always wins (:data:`~apilens.client._policy.DISABLED`);
+        otherwise the last policy a heartbeat returned for the app, or no
+        remote restriction before the first one. Remote can only narrow the
+        local config: middlewares combine it with their own settings via
+        ``Policy.cap_*`` and the boolean flags. Cheap enough to call per request."""
+        if not self.config.enabled:
+            return DISABLED
+        return self._policies.get(app_id or self.config.app_id, ALLOW_ALL)
+
     def _heartbeats_enabled(self) -> bool:
         return self.config.send_heartbeat and env_send_heartbeat_enabled()
 
@@ -761,21 +777,29 @@ class ApiLensClient:
             logger.debug("API Lens heartbeat failed: %s", exc, exc_info=True)
             return False
         self._schedule_heartbeat(key, interval)
-        self._apply_heartbeat_response(raw)
+        self._apply_heartbeat_response(raw, app_id)
         return True
 
-    def _apply_heartbeat_response(self, raw: bytes) -> None:
+    def _apply_heartbeat_response(self, raw: bytes, app_id: str = "") -> None:
         try:
             data = json.loads(raw.decode("utf-8")) if raw else None
         except (UnicodeDecodeError, ValueError):
             logger.debug("API Lens heartbeat response is not JSON; keeping the previous policy")
             return
         policy = data.get("policy") if isinstance(data, dict) else None
-        if not isinstance(policy, dict):
+        parsed = parse_policy(policy)
+        if parsed is None:
             logger.debug("API Lens heartbeat response has no policy; keeping the previous policy")
             return
+        app_id = app_id or self.config.app_id
         with self._heartbeat_lock:
             self._remote_policy = dict(policy)
+            previous = self._policies.get(app_id, ALLOW_ALL)
+            if parsed != previous:
+                # Copy-on-write so request threads read a consistent dict.
+                self._policies = {**self._policies, app_id: parsed}
+        if parsed != previous:
+            logger.info("API Lens capture policy for app %r is now %s", app_id, parsed.to_dict())
 
     def _log_heartbeat_failure(self, exc: _IngestError) -> None:
         status = exc.status
@@ -932,8 +956,12 @@ class ApiLensClient:
         if not record.commit:
             record.commit = self.config.commit
 
+    def _capture_allowed(self, record) -> bool:
+        # Local kill switch, then the app's remote one (``policy``).
+        return self.config.enabled and self.policy(record.app_id).enabled
+
     def capture_record(self, record: RequestRecord) -> None:
-        if not self.config.enabled:
+        if not self._capture_allowed(record):
             return
         self._stamp_release(record)
         self._enqueue(self._queue, record)
@@ -943,13 +971,13 @@ class ApiLensClient:
             self.capture_record(record)
 
     def capture_span(self, record: SpanRecord) -> None:
-        if not self.config.enabled:
+        if not self._capture_allowed(record):
             return
         self._stamp_release(record)
         self._enqueue(self._span_queue, record)
 
     def capture_log(self, record: LogRecord) -> None:
-        if not self.config.enabled:
+        if not self._capture_allowed(record):
             return
         masked = self._mask_log(record)
         if masked is None:

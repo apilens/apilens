@@ -988,9 +988,20 @@ minutes), and answers with the app's remote capture policy.
   start and per forked worker), `sdk_name`, `sdk_version`, `runtime`
   (`python 3.13.1`), `pid`, `uptime_s`, `release`, `commit`, and
   `stats` (the [`client.stats()`](#sdk-health--stats) snapshot). Never the API key.
-- **Policy:** the response's `policy` object is available as
-  `client.remote_policy` (`None` until the first heartbeat succeeds). A
-  failed heartbeat keeps the previous policy.
+- **Policy:** the response's `policy` (set per app in the dashboard) is
+  applied to every request from then on, so capture can be turned down
+  without a deploy. `client.policy("orders-api")` returns the immutable
+  `Policy` in force (`client.remote_policy` the raw object). It can only make
+  capture *narrower* than your local config:
+  - `enabled: false` stops all records, spans and logs for the app;
+  - `sample_rate` caps your `sample_rate` (the lower of the two wins, and it
+    also thins out `sample_on_request` keep verdicts);
+  - `capture_headers` / `capture_request_body` / `capture_response_body`
+    `false` turn those off; `true` never turns on what you disabled locally;
+  - `max_payload_bytes` lowers your body cap, never raises it.
+
+  Local `enabled=False` cannot be overridden remotely. A failed heartbeat
+  keeps the last known policy; each change is logged once at INFO.
 - **Failures are silent:** no retries; 401/403/422 are logged once at WARNING,
   everything else at DEBUG; 429/503 wait for `Retry-After`. Data delivery is
   never affected.

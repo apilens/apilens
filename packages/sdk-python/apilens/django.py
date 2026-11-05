@@ -17,6 +17,7 @@ from .client._capture import CaptureContext, _normalize_path, _to_int, capture_r
 from .client._exclusions import RequestExcluder
 from .client._metadata import start_django_metadata
 from .client._routes import django_route_template, resolve_endpoint_path
+from .client._policy import policy_for
 from .client._sampling import RequestSampler, ResponseSampler
 from .client._sanitize import (
     ContentTypeFilter,
@@ -318,6 +319,12 @@ class ApiLensDjangoMiddleware:
         user_agent = request.META.get("HTTP_USER_AGENT") if self.excluder.checks_user_agent else None
         if self.excluder.matches(getattr(request, "path", "/"), user_agent):
             return self.get_response(request)
+        # Remote capture policy from the last heartbeat (narrows, never widens
+        # the settings above). Disabled: no record, span or log at all.
+        policy = policy_for(self.client, self.app_id)
+        if not policy.enabled:
+            return self.get_response(request)
+        max_payload_bytes = policy.cap_payload_bytes(self.max_payload_bytes)
         started_at = time.perf_counter()
         response = None
         status_code = 500
@@ -357,13 +364,14 @@ class ApiLensDjangoMiddleware:
                 headers=MappingProxyType(lower_headers(request_headers)),
                 query=query,
                 client_ip=ip_address,
-            )
+            ),
+            policy.sample_rate,
         )
         sampled_token = set_detail_sampled(sampled)
         # sample_on_response may still drop this request's detail: hold its
         # child spans until it has answered.
         held_spans_token = hold_child_spans() if self.response_sampler.defers(sampled) else None
-        capture_headers = self.capture_headers and sampled
+        capture_headers = self.capture_headers and sampled and policy.capture_headers
         ctx = CaptureContext(
             method=method,
             path=clean_path,
@@ -387,12 +395,12 @@ class ApiLensDjangoMiddleware:
         # view ran, so the mask callback sees ``set_request_attribute`` values.
         request_body = b""
         request_content_type = request.META.get("CONTENT_TYPE") or ""
-        capture_bodies = sampled and self.max_payload_bytes > 0 and self.capture_payloads
-        capture_request_body = capture_bodies and self.log_request_body
-        capture_response_body = capture_bodies and self.log_response_body
+        capture_bodies = sampled and max_payload_bytes > 0 and self.capture_payloads
+        capture_request_body = capture_bodies and self.log_request_body and policy.capture_request_body
+        capture_response_body = capture_bodies and self.log_response_body and policy.capture_response_body
         if capture_request_body and self.content_types.allows(request_content_type):
             try:
-                request_body = request.body[: self.max_payload_bytes]
+                request_body = request.body[:max_payload_bytes]
             except Exception:
                 request_body = b""
         request_info = RequestInfo(
@@ -471,7 +479,7 @@ class ApiLensDjangoMiddleware:
             if response is not None and capture_response_body:
                 try:
                     response_payload = capture_body(
-                        response_content[: self.max_payload_bytes],
+                        response_content[:max_payload_bytes],
                         size=response_size,
                         content_type=response_info.content_type,
                         content_types=self.content_types,
