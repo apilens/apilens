@@ -16,13 +16,23 @@ export {
 } from "./exclusions.js";
 export type { ExclusionOptions, ExclusionPatterns } from "./exclusions.js";
 export {
+  DEFAULT_MASK_BODY_FIELDS,
   DEFAULT_MASK_HEADER_PATTERNS,
+  DEFAULT_MASK_QUERY_PARAMS,
+  MAX_BODY_DEPTH,
   MAX_HEADER_BYTES,
   REDACTED,
+  Redactor,
   SENSITIVE_HEADERS,
   serializeHeaders,
 } from "./sanitize.js";
-export type { HeaderMap, HeaderValue, SerializeHeadersOptions } from "./sanitize.js";
+export type {
+  HeaderMap,
+  HeaderValue,
+  RedactorOptions,
+  RedactPattern,
+  SerializeHeadersOptions,
+} from "./sanitize.js";
 export type {
   ApiLensClientConfig,
   ApiLensClientStats,

@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from "express";
 
 import { ApiLensClient } from "./client.js";
 import { RequestExcluder } from "./exclusions.js";
-import { serializeHeaders } from "./sanitize.js";
+import { Redactor, serializeHeaders } from "./sanitize.js";
 import {
   firstForwardedIp,
   normalizePath,
@@ -114,6 +114,12 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
     excludeUserAgents: config.excludeUserAgents,
     defaultExclusions: config.defaultExclusions,
   });
+  // Compiled once per middleware; built-in DEFAULT_MASK_* patterns always apply.
+  const redactor = new Redactor({
+    queryParams: config.redactQueryParams,
+    headers: config.redactHeaders,
+    bodyFields: config.redactBodyFields,
+  });
 
   const middleware = ((req: Request, res: Response, next: NextFunction) => {
     if (!enabled || !client.isEnabled() || req.method.toUpperCase() === "OPTIONS") {
@@ -217,13 +223,14 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
           consumerFromStringOrObject(req.apilensConsumer) ||
           consumerFromStringOrObject(config.getConsumer?.(req, res));
 
+        // Redacted here, before capture(): raw values never reach the queue.
         const requestPayload =
           capturePayloads && logRequestBody
-            ? payloadToString(req.body, maxPayloadBytes)
+            ? redactor.redactBody(payloadToString(req.body, maxPayloadBytes))
             : "";
         const responsePayload =
           capturePayloads && logResponseBody
-            ? Buffer.concat(responseChunks).toString("utf8")
+            ? redactor.redactBody(Buffer.concat(responseChunks).toString("utf8"))
             : "";
 
         const contentLength = toNumber(res.getHeader("content-length"), 0);
@@ -247,8 +254,10 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
           consumer_group: consumer?.consumer_group || "",
           request_payload: requestPayload,
           response_payload: responsePayload,
-          request_headers: captureHeaders ? serializeHeaders(req.headers) : "",
-          response_headers: captureHeaders ? serializeHeaders(res.getHeaders()) : "",
+          request_headers: captureHeaders ? serializeHeaders(req.headers, { redactor }) : "",
+          response_headers: captureHeaders
+            ? serializeHeaders(res.getHeaders(), { redactor })
+            : "",
         });
       } catch (error) {
         client.config.logger.error?.(

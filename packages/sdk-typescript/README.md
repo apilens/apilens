@@ -90,7 +90,41 @@ useApiLens(app, {
 });
 ```
 
-`serializeHeaders(headers, { maxBytes })` is exported for manual capture.
+`serializeHeaders(headers, { maxBytes, redactor })` is exported for manual capture.
+
+## PII redaction
+
+Header values and JSON request/response body fields are redacted in the
+middleware before the record is queued, so raw values never sit in the
+in-memory queue. Built-in patterns always apply (same lists as the Python SDK)
+and are matched case-insensitively anywhere in the name:
+
+- Query params (`DEFAULT_MASK_QUERY_PARAMS`): `auth`, `api.?key`, `secret`,
+  `token`, `password`, `pwd`
+- Headers (`DEFAULT_MASK_HEADER_PATTERNS`): `auth`, `api.?key`, `secret`,
+  `token`, `cookie`
+- JSON body fields, at any depth (`DEFAULT_MASK_BODY_FIELDS`): `password`,
+  `pwd`, `token`, `secret`, `auth`, `card.?number`, `ccv`, `cvv`, `cvc`, `ssn`
+
+Your own regexes extend the built-ins, never replace them. Anchor them for an
+exact match:
+
+```js
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  redactQueryParams: ["^session$"],
+  redactHeaders: ["^x-tenant$"],
+  redactBodyFields: [/^iban$/, "^dob$"],
+});
+```
+
+Matching values become `[redacted]`; names stay visible. In bodies, string,
+number, object and array values are masked (a matching object is masked
+whole); booleans and `null` stay. Non-JSON bodies are sent unchanged. An
+invalid regex throws when the middleware is created. The middleware does not
+send the query string yet; the query-param patterns are ready for when it
+does. `Redactor` (with
+`redactQuery`, `redactBody` and `headerMatches`) is exported for manual capture.
 
 ## Exclusions
 
