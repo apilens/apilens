@@ -121,6 +121,10 @@
 //   PUT|DELETE /api/v1/projects/shop/consumer-groups/{id}  taken ignoring case answers 409 conflict
 //   PUT|DELETE /api/v1/projects/shop/consumers/{consumer_id}/group  assign (moves it out of its previous
 //                                                  group) and unassign; writes answer 403 without project.update
+//   GET|POST /api/v1/projects/shop/views?surface=  shop's saved views (#578, #589): shared ones and the caller's
+//   GET|PUT|DELETE /api/v1/projects/shop/views/{id} own; the creator edits, capture.manage edits shared ones (else
+//                                                  403); a name the creator uses on the surface answers 409
+//   POST /__fake/views {views?, down?}             test hook: replaces shop's saved views; `down`: writes answer 503
 //   POST /__fake/consumers {project, summary, points, consumers, details, groups?, assignments?}
 //                                                  test hook: what those answer; resets shop's groups
 //   POST /__fake/requests {project, rows}          test hook: `GET /api/v1/requests` answers `rows` for
@@ -579,6 +583,21 @@ const groupRef = (consumer: string) => {
   return g ? { id: g.id, name: g.name } : undefined;
 };
 const groupOut = (g: (typeof consumerGroups)[number]) => ({ ...g, consumers: [...consumerAssignments.values()].filter((id) => id === g.id).length });
+
+/** shop's saved views (#578, #589): shared ones for everyone, private ones for their creator. */
+interface FakeView {
+  id: string;
+  name: string;
+  surface: string;
+  filter: Record<string, unknown>;
+  shared: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+let savedViews: FakeView[] = [];
+/** Saved view writes answer 503 while set (`/__fake/views`), so the UI's undo shows. */
+let savedViewWritesDown = false;
 
 /** shop's apps (#598), their saved capture policies and what their SDKs reported, by app id. */
 const DEFAULT_APP = { id: "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d", slug: PROJECT, name: "Shop" };
@@ -1979,6 +1998,71 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     consumerAssignments.clear();
     for (const [c, g] of Object.entries((b.assignments as Record<string, string>) ?? {})) consumerAssignments.set(c, g);
     return send(res, 204);
+  }
+  if (req.method === "POST" && path === "/__fake/views") {
+    // Test hook: replaces shop's saved views ({views?: [{id?, name, surface?, filter?, shared?, created_by?}]})
+    // and whether their writes answer 503 (`down`).
+    const b = await readBody(req);
+    const at = new Date().toISOString();
+    savedViews = Array.isArray(b.views)
+      ? (b.views as Partial<FakeView>[]).map((v) => ({
+          id: v.id ?? randomUUID(),
+          name: String(v.name ?? ""),
+          surface: v.surface ?? "explore",
+          filter: v.filter ?? {},
+          shared: v.shared === true,
+          created_by: v.created_by ?? null,
+          created_at: at,
+          updated_at: at,
+        }))
+      : [];
+    savedViewWritesDown = b.down === true;
+    return send(res, 204);
+  }
+  const viewsPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/views(?:\/([^/]+))?$/);
+  if (viewsPath) {
+    // Saved views (#578), as internal/query/saved_views.go answers them.
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    if (decodeURIComponent(viewsPath[1]) !== PROJECT) return problem(res, 404, "not_found");
+    const visible = (v: FakeView) => v.shared || v.created_by === user;
+    const viewId = viewsPath[2] === undefined ? undefined : decodeURIComponent(viewsPath[2]);
+    if (req.method === "GET" && viewId === undefined) {
+      const surface = url.searchParams.get("surface");
+      const views = savedViews
+        .filter((v) => visible(v) && (!surface || v.surface === surface))
+        .sort((a, b) => a.surface.localeCompare(b.surface) || a.name.localeCompare(b.name));
+      return send(res, 200, { views });
+    }
+    if (savedViewWritesDown && req.method !== "GET") return problem(res, 503, "unavailable");
+    const body = req.method === "POST" || req.method === "PUT" ? await readBody(req) : {};
+    const name = String(body.name ?? "").trim();
+    const filter = typeof body.filter === "object" && body.filter !== null && !Array.isArray(body.filter) ? (body.filter as Record<string, unknown>) : {};
+    const taken = (creator: string | null, surface: string, except?: string) =>
+      savedViews.some((v) => v.id !== except && v.created_by === creator && v.surface === surface && v.name === name);
+    if (viewId === undefined) {
+      if (req.method !== "POST") return problem(res, 404, "not_found");
+      const surface = String(body.surface ?? "");
+      if (name === "" || [...name].length > 128 || !["explore", "endpoints", "errors", "performance", "consumers", "apps"].includes(surface)) return problem(res, 422, "validation_failed");
+      if (taken(user, surface)) return problem(res, 409, "conflict");
+      const at = new Date().toISOString();
+      const v: FakeView = { id: randomUUID(), name, surface, filter, shared: body.shared === true, created_by: user, created_at: at, updated_at: at };
+      savedViews.push(v);
+      return send(res, 201, v);
+    }
+    const v = savedViews.find((x) => x.id === viewId);
+    if (!v || !visible(v)) return problem(res, 404, "not_found");
+    if (req.method === "GET") return send(res, 200, v);
+    if (v.created_by !== user && !capabilitiesOf(user).includes("capture.manage")) return problem(res, 403, "forbidden");
+    if (req.method === "DELETE") {
+      savedViews = savedViews.filter((x) => x !== v);
+      return send(res, 204);
+    }
+    if (req.method !== "PUT") return problem(res, 404, "not_found");
+    if (name === "" || [...name].length > 128) return problem(res, 422, "validation_failed");
+    if (taken(v.created_by, v.surface, v.id)) return problem(res, 409, "conflict");
+    Object.assign(v, { name, filter, shared: body.shared === true, updated_at: new Date().toISOString() });
+    return send(res, 200, v);
   }
   const groupsPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/(?:consumer-groups(?:\/([^/]+))?|consumers\/([^/]+)\/group)$/);
   if (groupsPath) {
