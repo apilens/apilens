@@ -384,6 +384,30 @@ useApiLens(app, {
 `truncated` counts records that were shortened and still sent, so it is not
 part of `droppedCount`.
 
+## Heartbeat, metadata and remote capture policy
+
+- **Heartbeat.** The client sends `POST /v1/heartbeat` on start, every
+  `heartbeatIntervalMs` (default 60 s, at least 10 s) and once more with
+  `final: true` on shutdown, carrying the SDK and Node versions, `pid`,
+  uptime, release/commit and the `stats()` snapshot. It powers the app's
+  "reporting" status. Heartbeats are never retried and never delay data
+  delivery. Turn off with `sendHeartbeat: false` or `APILENS_SEND_HEARTBEAT=false`.
+- **Metadata.** Once per process start the middleware sends `POST /v1/metadata`:
+  framework and version, Node version, the route templates the Express app
+  declares (`/orders/:id` reported as `/orders/{id}`, at most 2000) and the
+  effective config (callbacks as booleans, never the API key). Routers
+  mounted with `app.use("/prefix", router)` are included on Express 4; Express 5
+  does not keep a router's mount path, so only routers mounted at `/` are.
+  Turn off with `sendMetadata: false` or `APILENS_SEND_METADATA=false`.
+- **Remote capture policy.** Each heartbeat answer carries the app's capture
+  policy, set in APILens without a redeploy. It **only narrows** what is
+  captured: `enabled: false` stops sending records (heartbeats continue),
+  `sample_rate` samples out more requests (base record still sent),
+  `capture_headers` / `capture_request_body` / `capture_response_body: false`
+  drop that detail and `max_payload_bytes` cuts bodies shorter. A local
+  setting that captures less always wins. A failed heartbeat keeps the
+  previous policy. Read it with `client.remotePolicy`.
+
 ## API
 
 - `useApiLens(app, config)`

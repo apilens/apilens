@@ -21,6 +21,14 @@
 - Unmatched paths are parametrized by the id/uuid/ulid/hash heuristic (same as
   the Python SDK); `parametrizePaths: false` or `APILENS_PARAMETRIZE_PATHS=false`
   turns it off.
+- `POST /v1/heartbeat` on start, every 60 s (`heartbeatIntervalMs`) and a
+  final one on shutdown, with `stats()`; `sendHeartbeat` /
+  `APILENS_SEND_HEARTBEAT` turn it off.
+- `POST /v1/metadata` once per process: Express version, Node version, route
+  templates and the effective config; `sendMetadata` /
+  `APILENS_SEND_METADATA` turn it off.
+- The remote capture policy from the heartbeat is applied and can only narrow
+  capture (`client.remotePolicy`, `client.isCapturing()`).
 
 ## 0.1.1 - 2026-02-19
 

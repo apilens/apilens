@@ -1,5 +1,14 @@
 export { ApiLensClient, DROP_REASONS } from "./client.js";
 export {
+  CAPTURE_EVERYTHING,
+  applyRemotePolicy,
+  narrowPayloadBytes,
+  parseRemotePolicy,
+} from "./policy.js";
+export type { RemotePolicy } from "./policy.js";
+export { MAX_METADATA_ROUTES, listExpressRoutes } from "./metadata.js";
+export type { AppRoute } from "./metadata.js";
+export {
   createApiLensMiddleware,
   createExpressMiddleware,
   instrumentExpress,
