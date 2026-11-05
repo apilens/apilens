@@ -70,6 +70,7 @@
           {
             "group": "Rollout Kit",
             "pages": [
+              "guides/third-party-rollout",
               "guides/rollout-intake",
               "guides/redaction-manifest",
               "guides/pii-audit",

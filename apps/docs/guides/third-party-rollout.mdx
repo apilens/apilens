@@ -1,0 +1,340 @@
+---
+title: "Third-party rollout guide"
+description: "Add the APILens SDK to a service you do not own, in eight phases from intake to a production canary, each ending with a checklist."
+---
+
+This guide is for an engineer, or an agent, adding the APILens SDK to **someone else's** service: a client's API, another team's repository, a codebase you are seeing for the first time. The SDK goes in with a few lines of code. Most of the work is deciding what the service is allowed to send, and proving that it sends only that.
+
+Work through the phases in order. Each one ends with a checklist, and each checklist item points at the SDK feature, dashboard page or script that does the work. Do not start a phase while an item of the one before it is still open.
+
+| Phase | You produce | Gate to the next phase |
+|---|---|---|
+| [0. Intake](#phase-0-intake) | A filled-in [rollout intake](/guides/rollout-intake) | Owner and data protection reviewer have signed off |
+| [1. Project setup](#phase-1-project-setup) | Project, app, ingest key, network path | `GET /v1/health` answers from the service's network |
+| [2. Posture](#phase-2-capture-posture) | The capture profile and IP setting, per environment | The choice is written in the intake |
+| [3. Redaction](#phase-3-redaction-manifest) | A [redaction manifest](/guides/redaction-manifest) and the SDK patterns | A [PII audit](/guides/pii-audit) of staging traffic reports zero hits |
+| [4. Sizing](#phase-4-sizing) | Queue, batch and shutdown settings | Worst-case memory fits the instance's headroom |
+| [5. Minimal diff](#phase-5-minimal-diff) | One small pull request to the service | The owner has reviewed and merged it |
+| [6. Verification](#phase-6-verification) | Evidence from staging | Every check below passes |
+| [7. Canary](#phase-7-canary-rollout) | Production traffic, alerts, a hand-over | The owner accepts the [runbook](/guides/sdk-runbook) |
+
+The rest of the rollout kit:
+
+- [Rollout intake](/guides/rollout-intake): the facts to collect in phase 0.
+- [Redaction manifest](/guides/redaction-manifest): the record of what is masked, built in phase 3.
+- [PII audit](/guides/pii-audit): `apilens pii-audit`, the gate of phase 3.
+- [SDK runbook](/guides/sdk-runbook): what the service's on-call does after phase 7.
+
+<Note>
+This guide was reviewed by running phases 2, 3 and 6 against the FastAPI [example app](https://github.com/apilens/apilens/tree/v2/examples) (`examples/fastapi`): the app ran under each posture with its SDK sending to a local recording endpoint, `examples/smoke.sh` drove every route, and the recorded request batches went to `apilens pii-audit -csv`. The findings marked **Seen in review** below come from that run.
+</Note>
+
+## Phase 0: Intake
+
+Copy the [rollout intake template](/guides/rollout-intake) into the target repository, or into the ticket that tracks the rollout, and fill in every section before touching code. Later phases read from it: the framework picks the setup guide, the data classification picks the posture, the endpoint inventory seeds the manifest, and peak requests per second size the queue.
+
+Build the endpoint inventory from a source someone else can re-run (the OpenAPI spec, `python manage.py show_urls`, the router files), and write each route as its **route template** (`/users/{id}`), because that is how APILens [groups endpoints](/sdk-reference/path-templating).
+
+**Checklist**
+
+- [ ] Intake sections 1 to 4 filled in: service, framework and runtime, deployment shape, network egress ([intake](/guides/rollout-intake#1-service)).
+- [ ] Highest data class and applicable regimes recorded ([intake §5](/guides/rollout-intake#5-data-classification)); `unknown` has an owner and a date.
+- [ ] Every route in the endpoint inventory, as a route template, tagged with its PII and marked for exclusion where it has no diagnostic value ([intake §6](/guides/rollout-intake#6-endpoint-inventory)).
+- [ ] Peak requests per second per instance, workers per instance and memory headroom recorded ([intake §7](/guides/rollout-intake#7-traffic-and-sizing)).
+- [ ] The matching framework guide found under [Setup Guides](/setup-guides/fastapi), or [Other frameworks](/setup-guides/other-frameworks) when none fits.
+- [ ] Service owner and data protection reviewer have signed off ([intake §8](/guides/rollout-intake#8-sign-off)).
+
+## Phase 1: Project setup
+
+Create the APILens side before the code change, so the pull request can be tested the day it is opened.
+
+- **Project.** One project per product. If the service joins a product that is already in APILens, use that project. See [Projects, apps & API keys](/platform/projects-apps-keys).
+- **App.** One app per deployable service, **not** per environment. Its slug is the SDK's `app_id`. Environments are a label on the telemetry (`APILENS_ENVIRONMENT`).
+- **API key.** Keys are per project. Create one key per deployment environment with only the **Ingest** scope in **Project settings → API keys**, so a staging key can be revoked without touching production. A key without the ingest scope is refused with `403`.
+- **Secret.** Store the key in the service's secret manager and expose it as `APILENS_API_KEY`. The full key is shown once.
+- **Network.** The SDK only makes outbound HTTPS calls to `base_url` on port 443. Check the path from the service's own network, not from your laptop.
+
+```bash
+# From a pod or instance of the service, staging first.
+curl -sS -o /dev/null -w '%{http_code}\n' https://ingest.apilens.ai/v1/health
+```
+
+A `200` means egress works. A timeout means a firewall or allow-list change; a certificate error means a TLS-inspecting proxy, which needs [`ca_bundle_path`](/sdk-reference/delivery#proxies-and-custom-cas); a proxy goes in [`APILENS_PROXY`](/sdk-reference/delivery#proxies-and-custom-cas) (Python) or the runtime's own proxy settings.
+
+The onboarding flow's **Instrument** step does the project, app, key and snippet in one pass, with the posture from phase 2 already set in the snippet.
+
+**Checklist**
+
+- [ ] Project exists, or the service's app was added to the product's existing project ([Projects](/platform/projects-apps-keys#projects)).
+- [ ] App created with a slug that will be the `app_id` ([Apps](/platform/projects-apps-keys#apps)).
+- [ ] One **Ingest**-scoped key per environment, named after it, stored as `APILENS_API_KEY` in the service's secret manager ([API keys](/platform/projects-apps-keys#api-keys)).
+- [ ] `GET /v1/health` returns `200` from the service's network in every environment to instrument ([Ingest API](/ingest/ingest-api)).
+- [ ] Proxy and custom CA settled, if the intake lists either ([Proxies and custom CAs](/sdk-reference/delivery#proxies-and-custom-cas)).
+- [ ] Intake fields "APILens project" and "APILens app ID(s)" filled in ([intake §1](/guides/rollout-intake#1-service)).
+
+## Phase 2: Capture posture
+
+Pick the starting [capture profile](/getting-started/data-privacy#capture-profiles) from the highest data class in the intake. The posture is the floor for the first deploy; phase 3 is how a service earns a wider one.
+
+| Highest data class | Staging | First production rollout | Client IP | Error log (message and stack trace) |
+|---|---|---|---|---|
+| Public | `redacted` | `redacted` | Full | On |
+| Internal | `redacted` | `metadata`, then `redacted` after a clean audit | Full or anonymised | On |
+| Personal data (PII) | `redacted`, with the phase 3 manifest | `metadata`, then `redacted` after a clean audit | `APILENS_ANONYMIZE_IP=true` | On; Python: add [`mask_log_record`](/sdk-reference/masking#log-record-callback) if messages can carry PII |
+| Sensitive or regulated (PCI, health, government IDs) | `metadata`, plus `redacted` with the manifest in a separate staging project for the audit | `metadata`; bodies stay off unless the reviewer approves the manifest in writing | `APILENS_CAPTURE_IP=false` | Python: [`mask_log_record`](/sdk-reference/masking#log-record-callback); TypeScript and Java: `APILENS_CAPTURE_SPANS=false` |
+
+Do not use `full` for a service you do not own. It differs from `redacted` only in the body cap, which is 64 KB in Python and Java instead of 16 KB.
+
+What each profile still sends matters more than what it turns off. **Every profile sends the base record**: method, route template, status, latency, sizes, user agent, consumer, client IP and the **full raw path with its query string**. Only the [built-in patterns](/getting-started/data-privacy#default-masking-patterns) and your own `redact_query_params` mask query values.
+
+<Warning>
+**Seen in review.** With `EXAMPLE_POSTURE=metadata`, a request to `/orders/9?email=jane%40example.com` was sent with the email in `raw_path`: `metadata` drops headers and bodies, not query strings. Any query parameter tagged with PII in the intake needs a `redact_query_params` pattern **even under `metadata`**.
+</Warning>
+
+<Warning>
+**Seen in review.** With `APILENS_CAPTURE_IP=false`, the record's IP was empty but the request's `x-forwarded-for` header still carried the client address, because headers are captured under `redacted`. If the IP may not be stored, also add `^x-forwarded-for$`, `^x-real-ip$`, `^forwarded$` and any CDN header such as `^cf-connecting-ip$` or `^true-client-ip$` to `redact_headers`, or run `metadata`.
+</Warning>
+
+Notes per SDK:
+
+- **TypeScript** has no IP options: the client IP is always sent in full ([Client IP](/getting-started/data-privacy#client-ip)). If the intake says the IP may not be stored, record that as an open item for the reviewer before phase 5.
+- **Java** has no `capture_content_types`; the [content-type list](/getting-started/data-privacy#which-bodies-are-captured) is fixed.
+- **Python** captures 400 and 422 validation errors (FastAPI, Litestar, Django Ninja) as `loc`, `msg` and `type`, without the rejected value. The 422 **response body** is another matter: FastAPI and Pydantic echo each rejected value under an `input` key, which no name-based pattern for the original field catches. For those frameworks, add `^input$` to the body-field patterns in phase 3.
+
+  **Seen in review.** The example's 422 response for `POST /orders` was captured under `redacted` with `"input": ""` and `"input": 0` for the two invalid fields; an invalid email would have been stored the same way.
+
+Set the posture with environment variables, not code, so it can be tightened without a code change: `APILENS_CAPTURE_PROFILE`, `APILENS_CAPTURE_IP`, `APILENS_ANONYMIZE_IP`, `APILENS_CAPTURE_SPANS`. The last three win over code in the direction that captures less ([Deploy-time kill switches](/getting-started/data-privacy#deploy-time-kill-switches)).
+
+**Checklist**
+
+- [ ] Profile per environment chosen from the table and written in the intake ([Capture profiles](/getting-started/data-privacy#capture-profiles)).
+- [ ] Client IP decision made: full, `APILENS_ANONYMIZE_IP=true` or `APILENS_CAPTURE_IP=false` ([Client IP](/getting-started/data-privacy#client-ip)); forwarding headers added to `redact_headers` when the IP may not be stored.
+- [ ] Error-log decision made: on, masked with `mask_log_record` (Python), or off with `APILENS_CAPTURE_SPANS=false` ([Masking error-trace logs](/getting-started/data-privacy#masking-error-trace-logs)).
+- [ ] Python services: validation errors kept or turned off (`APILENS_CAPTURE_VALIDATION_ERRORS`), and `^input$` noted for the manifest on FastAPI and Pydantic 422 responses ([Data privacy](/getting-started/data-privacy#what-is-captured-per-request)).
+- [ ] Routes marked "exclude" in the inventory turned into `exclude_paths` regexes, minus those the [default exclusions](/sdk-reference/exclusions#default-exclusions) already drop ([Exclusions](/sdk-reference/exclusions)).
+- [ ] Sample rate decided if detail is needed for only a share of requests; metrics stay exact either way ([Sampling](/sdk-reference/sampling)).
+- [ ] A remote [capture policy](/getting-started/data-privacy#remote-capture-policy) saved in **Project settings → Capture** that matches the posture, so it can be narrowed later without a deploy.
+
+## Phase 3: Redaction manifest
+
+Masking matches field **names**. The manifest is the reviewable list of every name in the service that carries PII, the pattern that masks it, and the file that defines it. Build it in the target repository from the [template](/guides/redaction-manifest).
+
+### Method
+
+1. **Start from the inventory.** Every route tagged with PII in the intake needs at least one manifest row or an exclusion.
+2. **Read the schema, not the traffic.** For each tagged route, open the type that defines the request and response (Pydantic model, Django serializer, DTO, Zod schema, route handler) and list every field that holds PII. Include nested objects: body masking walks JSON at any depth and matches the leaf name.
+3. **Check the built-ins first.** `password`, `token`, `secret`, `auth`, `card_number`, `cvv`, `ssn` and the [other defaults](/getting-started/data-privacy#default-masking-patterns) are always masked. Write `default` in the Pattern column for those.
+4. **Write an anchored pattern** for the rest: `^email$`, not `email`. Unanchored patterns are "contains" matches and over-mask.
+5. **Cover every location.** A field can appear in the query string, a header, a form body and a JSON body; one row per location, each with the matching SDK option.
+6. **Resolve what names cannot express.** A value in the path itself (`/users/{email}`) cannot be masked by name: exclude the route. Free text that can contain anything (`note`, `message`, `comment`) gets masked by name, or by a [body mask callback](/sdk-reference/masking#body-mask-callbacks) for formats that are not JSON or form-encoded.
+7. **Put the patterns in two places.** The SDK options (`APILENS_REDACT_QUERY_PARAMS`, `APILENS_REDACT_HEADERS`, `APILENS_REDACT_BODY_FIELDS`) keep values inside the service. The project's [server-side privacy policy](/getting-started/data-privacy#server-side-privacy-policy) applies the same patterns at the ingest edge, catching a deploy that forgot an env var.
+
+<Note>
+**Seen in review.** In the FastAPI example, the built-in `password` pattern also masked the response field `password_length`, an integer with no PII, because built-ins are unanchored. That is the expected trade-off of the defaults; your own patterns should be anchored so they do not add more of it.
+</Note>
+
+### Starter deny list
+
+Names that carry personal data in most APIs and are **not** in the built-ins. Start from this list, delete what the service does not have, and add what the schema walk found. All entries are anchored, contain no commas (so they work in env vars) and are valid RE2 (so they work in the server-side policy).
+
+| Location | Patterns |
+|---|---|
+| JSON and form body fields | `^e-?mail$`, `^email_?address$`, `^phone(_?number)?$`, `^mobile(_?number)?$`, `^(first\|last\|middle\|full\|given\|family\|sur)_?name$`, `^username$`, `^(street\|address(_?line_?[0-9])?)$`, `^(postal_?code\|post_?code\|zip(_?code)?)$`, `^(dob\|date_?of_?birth\|birth_?date)$`, `^iban$`, `^(account\|routing)_?number$`, `^(sort_?code\|bic\|swift)$`, `^(tax\|vat\|national)_?id$`, `^passport(_?number)?$`, `^(otp\|pin\|mfa_?code)$`, and `^input$` on FastAPI and other Pydantic services |
+| Query parameters | `^e-?mail$`, `^phone$`, `^(first\|last\|full)_?name$`, `^code$` |
+| Headers | `^x-user-email$`, `^x-forwarded-for$`, `^x-real-ip$`, `^forwarded$` (the last three only when the client IP may not be stored) |
+
+`^code$` in a query string is usually an OAuth authorization code, a credential until it is redeemed. Form-encoded bodies are matched against **both** the body-field and the query-parameter patterns ([Which bodies are captured](/getting-started/data-privacy#which-bodies-are-captured)).
+
+As SDK configuration, for a service like the example app with phone and date-of-birth fields added:
+
+```bash
+APILENS_REDACT_BODY_FIELDS='^e-?mail$,^username$,^input$,^phone(_?number)?$,^(dob|date_?of_?birth|birth_?date)$'
+APILENS_REDACT_QUERY_PARAMS='^e-?mail$'
+APILENS_REDACT_HEADERS='^x-user-email$'
+```
+
+As the project's server-side policy (**Project settings → Privacy**, or `PUT /api/v1/projects/{slug}/privacy-policy`), at most 50 patterns per list:
+
+```json
+{
+  "mask_query_params": ["^e-?mail$"],
+  "mask_headers": ["^x-user-email$"],
+  "mask_body_fields": ["^e-?mail$", "^username$", "^input$", "^phone(_?number)?$", "^(dob|date_?of_?birth|birth_?date)$"]
+}
+```
+
+The page's live tester shows what a sample value becomes before you save.
+
+### The audit gate
+
+Deploy the posture and patterns to **staging**, drive real or replayed traffic through every route in the inventory, then run the [PII audit](/guides/pii-audit) on what was stored. Every hit becomes a manifest row, an exclusion or a fix in the service; redeploy, drive traffic again, and re-run with `-since` starting after the deploy. The phase is done at **zero hits**.
+
+```bash
+# Against ClickHouse (self-hosted, or run by the install's operator):
+apilens pii-audit -project=<staging-project> -since=1h -limit=10000 -patterns-file=pii-patterns.txt
+```
+
+**Seen in review.** Driving the example app's endpoints under `redacted` with no extra patterns, the audit found three hits: an email in `raw_path` (`GET /orders/{order_id}`), in the `POST /orders` request body, and in the `POST /login` response body. The card number in `POST /orders` was already masked by the built-in `card.?number`. After adding `^email$` and `^username$` to the body fields and `^email$` to the query parameters, the same traffic audited at zero hits. Adding `^input$` as well masked the values FastAPI echoes in its 422 response. Those were an empty string and a zero in the review traffic, so the audit could not have flagged them; an invalid email in the same place would have been stored unmasked.
+
+Know what the audit cannot see, and check those by hand:
+
+- **Percent-encoded form bodies.** The `POST /login` form body was stored as `username=ada%40example.com` and the audit did **not** report it: only `raw_path` is percent-decoded. Mask form fields by name from the manifest.
+- **Error logs.** The audit reads request records only. Open a few 5xx requests in **Explore** and read their **Logs**: exception messages can quote input.
+- **IP addresses and names.** There is no detector for them. Check the IP decision from phase 2 in the request detail.
+- **The request-log CSV export** has no headers or bodies, so `-csv` on an Explore export only covers query strings. Use `-project`, or a CSV with `request_payload` and `response_payload` columns.
+
+**Checklist**
+
+- [ ] Manifest in the target repository, one row per PII field per location, each with its source file ([Redaction manifest](/guides/redaction-manifest#how-to-fill-it-in)).
+- [ ] Every route tagged with PII in the intake has a manifest row or an exclusion; routes with PII in the path are excluded ([Exclusions](/sdk-reference/exclusions)).
+- [ ] [Starter deny list](#starter-deny-list) trimmed to the service and merged into the manifest ([Manifest](/guides/redaction-manifest#manifest)).
+- [ ] Patterns set as `APILENS_REDACT_QUERY_PARAMS`, `APILENS_REDACT_HEADERS`, `APILENS_REDACT_BODY_FIELDS` ([Your own patterns](/sdk-reference/masking#your-own-patterns)).
+- [ ] Non-JSON or free-text bodies handled by `mask_request_body` / `mask_response_body`, or not captured ([Body mask callbacks](/sdk-reference/masking#body-mask-callbacks)).
+- [ ] The same patterns saved in the project's server-side policy and checked in the live tester ([Server-side policy](/sdk-reference/masking#server-side-policy)).
+- [ ] Service-specific identifiers written to `pii-patterns.txt` next to the manifest ([Adding patterns](/guides/pii-audit#adding-patterns)).
+- [ ] `apilens pii-audit` on staging traffic exits `0`, and the date is in the manifest's **Verified** column ([PII audit](/guides/pii-audit)).
+- [ ] Form bodies, error logs and IPs checked by hand in **Explore** request detail ([Request logs](/dashboard/request-logs#request-detail)).
+- [ ] Data protection reviewer has signed the manifest's review table ([Review](/guides/redaction-manifest#review)).
+
+## Phase 4: Sizing
+
+The SDK queues records in memory and sends them from a background worker. Size the queue so a slow or unreachable ingest costs bounded memory and never the service's own requests.
+
+1. **Pick a row** of the [sizing table](/sdk-reference/delivery#sizing-table) from the intake's peak requests per second **per worker process** and whether bodies are captured.
+2. **Multiply by workers.** Each worker process has its own queue: worst-case memory per instance is `workers × max_queue_bytes`. With 8 gunicorn workers and the 64 MB default that is 512 MB. Lower `max_queue_bytes` if that does not fit the headroom in the intake.
+3. **Check the batch limits.** `batch_size` at most 1,000 (ingest refuses larger batches with `422`); with bodies on, start from `batch_size = 100`.
+4. **Check the project quota**, if the install sets one. Peak records per minute across all instances (requests, plus spans and logs when tracing is on) must stay under `records_per_minute`: [sampling](/sdk-reference/sampling) does not lower that count, because every request still sends its base record, but [exclusions](/sdk-reference/exclusions) do. Bytes per day must stay under `bytes_per_day`, which sampling and a smaller body cap do lower.
+5. **Fit the shutdown flush** into the platform's grace period ([Shutdown](/sdk-reference/delivery#shutdown)). Serverless runtimes need [inline delivery](/sdk-reference/delivery#serverless).
+
+Worked example: a FastAPI service, 4 uvicorn workers per pod, 150 requests per second per pod at peak (about 40 per worker), bodies on under `redacted` with a 16 KB cap, 1 GB of headroom. The "On, 100 rps" row applies with room to spare: `batch_size = 100`, `max_queue_size = 10000`, `max_queue_bytes = 64 MB`. Worst case is 4 × 64 MB = 256 MB, inside the headroom. Kubernetes `terminationGracePeriodSeconds` of 30 s covers the 5 s `shutdown_timeout` plus the app's own shutdown.
+
+**Checklist**
+
+- [ ] Sizing-table row chosen and recorded next to the intake's traffic numbers ([Sizing table](/sdk-reference/delivery#sizing-table)).
+- [ ] `workers × max_queue_bytes` fits the instance's memory headroom ([Queue limits](/sdk-reference/delivery#queue-limits-and-the-memory-math)).
+- [ ] `batch_size` at most 1,000 and `max_batch_bytes` left at 4 MB unless measured otherwise ([Batch size](/sdk-reference/delivery#batch-size)).
+- [ ] Peak records per minute and bytes per day checked against the project quota, if any ([Sampling](/sdk-reference/sampling), [Exclusions](/sdk-reference/exclusions)).
+- [ ] Shutdown flush fits the grace period; TypeScript services call `handleShutdown({ flush: true })` from their `SIGTERM` handler ([Shutdown](/sdk-reference/delivery#shutdown)).
+- [ ] Serverless services use `APILENS_MODE=inline` (Python), `flushMode: "inline"` (TypeScript) or `flushAll()` before returning (Java) ([Serverless](/sdk-reference/delivery#serverless)).
+- [ ] An alert planned on `dropped` and `last_success_at` from [stats](/sdk-reference/delivery#stats).
+
+## Phase 5: Minimal diff
+
+The pull request to the service should be small enough to review in one sitting and easy to revert. Everything the earlier phases decided goes in **environment variables**, not code, so the owner can tighten capture or switch it off without another pull request.
+
+Rules for the diff:
+
+- **One dependency, one middleware.** No refactors, no reformatting, no unrelated upgrades.
+- **No secrets and no capture settings in code.** `api_key`, `app_id`, posture, patterns and sizing come from `APILENS_*` variables. In particular, do **not** pass `enabled=True` in code: it would override `APILENS_ENABLED=false`, the deploy-time kill switch ([SDK runbook](/guides/sdk-runbook#from-the-environment-on-the-next-deploy)).
+- **Outermost middleware.** Add the SDK so it wraps the whole request, as the framework's setup guide says.
+- **Release stamping.** Set `APILENS_RELEASE` (and `APILENS_COMMIT`) from the deploy pipeline so each deploy shows on the **Changes** page with before and after error rates.
+- **Code only for callbacks.** Body or log mask callbacks from phase 3, consumer identification, and the TypeScript shutdown hook are the only reasons to write more than the middleware line.
+
+<CodeGroup>
+```python FastAPI
+# requirements.txt: apilenss[fastapi]
+from apilens.fastapi import ApiLensMiddleware
+
+app.add_middleware(ApiLensMiddleware)  # everything else from APILENS_* env vars
+```
+
+```js Express
+// package.json: "apilens-js-sdk"
+import { useApiLens } from "apilens-js-sdk/express";
+
+useApiLens(app); // everything else from APILENS_* env vars
+
+process.on("SIGTERM", async () => {
+  await app.apilensClient?.handleShutdown({ flush: true });
+  process.exit(0);
+});
+```
+
+```xml Spring Boot
+<!-- pom.xml: the auto-configuration reads apilens.* properties and APILENS_* env vars -->
+<dependency>
+  <groupId>ai.apilens</groupId>
+  <artifactId>apilens-java-sdk</artifactId>
+  <version>${apilens-java-sdk.version}</version>
+</dependency>
+```
+</CodeGroup>
+
+And the deployment configuration, for example a Kubernetes manifest or `.env`, using the values from phases 1 to 4:
+
+```bash
+APILENS_API_KEY=<from the secret manager>
+APILENS_APP_ID=orders-api
+APILENS_ENVIRONMENT=staging
+APILENS_CAPTURE_PROFILE=redacted
+APILENS_ANONYMIZE_IP=true
+APILENS_REDACT_BODY_FIELDS='^e-?mail$,^username$,^input$'
+APILENS_REDACT_QUERY_PARAMS='^e-?mail$'
+APILENS_EXCLUDE_PATHS='^/internal/'
+APILENS_RELEASE=${GIT_SHA}
+```
+
+<Note>
+**Seen in review.** The FastAPI middleware refused to start with `APILENS_ENABLED=false` and no `APILENS_API_KEY` (`ValueError: api_key (or client_id) is required`). Keep a key set wherever the SDK is installed, including CI and the service's test environment, where any placeholder value works while capture is off.
+</Note>
+
+The example apps in the repository are wired exactly this way: one middleware line, posture from `EXAMPLE_POSTURE`, everything else from `APILENS_*` ([examples/README.md](https://github.com/apilens/apilens/blob/v2/examples/README.md)).
+
+**Checklist**
+
+- [ ] The diff adds one dependency and one middleware (plus callbacks and the TypeScript shutdown hook where phase 3 or 4 requires them), following the framework's [setup guide](/setup-guides/fastapi).
+- [ ] No API key, posture, pattern or sizing value in code; all are `APILENS_*` variables ([Environment variables](/sdk-reference/python-configuration#environment-variables)).
+- [ ] `enabled` is not set in code, so `APILENS_ENABLED=false` works as a kill switch ([SDK runbook](/guides/sdk-runbook#stop-capture-kill-switch)).
+- [ ] `APILENS_RELEASE` / `APILENS_COMMIT` set by the deploy pipeline (Python: [`release` / `commit`](/sdk-reference/python-configuration)).
+- [ ] Consumer identification added, or explicitly left for later ([Consumers](/sdk-reference/consumers)).
+- [ ] The manifest and `pii-patterns.txt` are in the same pull request ([Redaction manifest](/guides/redaction-manifest), [Adding patterns](/guides/pii-audit#adding-patterns)).
+- [ ] The service's own tests pass with the SDK installed, `APILENS_ENABLED=false` and a placeholder `APILENS_API_KEY` in the test environment ([Environment variables](/sdk-reference/python-configuration#environment-variables)).
+
+## Phase 6: Verification
+
+Deploy the pull request to staging with the phase 2 to 4 configuration, drive traffic through every route in the inventory, and collect evidence for each check.
+
+1. **The app is reporting.** On the project's **Apps** page the app shows **Reporting**, with the expected SDK version. **Stale** or **Never reported** means no heartbeats: check the key and egress.
+2. **The SDK runs what you decided.** **Project settings → Capture → What the SDKs run with** shows the config each SDK reported at startup, per environment. Compare profile, patterns, exclusions, IP options, sample rate and queue sizes with the intake. In the review run, the example app's startup report (`POST /v1/metadata`) carried `max_payload_bytes: 16384` under `redacted`, the built-in masking and exclusion lists, and its queue and batch sizes: the same values this card shows.
+3. **Masking holds.** Open requests for each PII-tagged route in **Explore** and read the request detail: query strings, headers and bodies show `[redacted]` where the manifest says so, and the client IP matches the phase 2 decision.
+4. **Exclusions hold.** Excluded routes and health checks never appear in Explore.
+5. **The audit is clean.** `apilens pii-audit` on the new traffic exits `0` ([PII audit](/guides/pii-audit)).
+6. **Delivery is healthy.** **Project settings → Ingest health** shows **Accepted** growing and **Dropped** at zero. In the process, `client.stats()` shows `last_success_at` advancing ([Stats](/sdk-reference/delivery#stats)).
+7. **The kill switches work.** Turn **Capture requests** off in **Project settings → Capture** and confirm records stop within about 2 minutes while the app stays **Reporting**; turn it back on. Then deploy once with `APILENS_ENABLED=false` and confirm nothing is sent. In the review run, the example app with `APILENS_ENABLED=false` sent no records and no heartbeats.
+8. **Errors are captured, not caused.** Hit a route that fails: the 5xx appears with its error log on the request's **Trace** and **Logs**, and the service's own error handling is unchanged.
+
+**Checklist**
+
+- [ ] App shows **Reporting** on the Apps page with the expected SDK version ([Heartbeat](/ingest/heartbeat)).
+- [ ] **What the SDKs run with** matches the intake for every instrumented environment ([Narrow capture remotely](/guides/sdk-runbook#narrow-capture-remotely)).
+- [ ] Request detail in **Explore** shows the manifest's fields masked and the IP as decided ([Request logs](/dashboard/request-logs#request-detail)).
+- [ ] Excluded routes and health checks absent from Explore ([Exclusions](/sdk-reference/exclusions)).
+- [ ] `apilens pii-audit` exits `0` on the verification traffic ([PII audit](/guides/pii-audit)).
+- [ ] **Ingest health** shows records accepted and nothing dropped ([Ingest health](/ingest/ingest-health)).
+- [ ] Remote kill switch and `APILENS_ENABLED=false` both tested ([SDK runbook](/guides/sdk-runbook#stop-capture-kill-switch)).
+- [ ] A failing request shows its error log, masked as decided in phase 2 ([Tracing](/dashboard/tracing)).
+- [ ] Evidence (screenshots, audit output) attached to the rollout ticket; the audit's masked samples are safe to paste ([PII audit](/guides/pii-audit#running-it)).
+
+## Phase 7: Canary rollout
+
+Production gets the SDK in steps, with a way back at every step.
+
+1. **Start narrow.** Enable the SDK on one instance, one region or a small share of pods, using the deploy mechanism from the intake. Production starts with the posture from phase 2 (often `metadata`), even if staging ran `redacted`.
+2. **Watch for a day.** The service's own latency and error rate from its existing monitoring, unchanged. **Ingest health**: **Dropped** at zero, **Rejected** at zero (quota), **Masked** steady. Memory per instance within the phase 4 estimate.
+3. **Widen.** Roll out to the rest of the fleet. Each deploy appears on the **Changes** page with its release.
+4. **Promote the posture** only with evidence: run the PII audit against a production sample under the current posture first, then move from `metadata` to `redacted` (a change to `APILENS_CAPTURE_PROFILE`), and audit again.
+5. **Set up alerts.** Add an alert channel in **Project settings → Alert channels** and alert rules under **Incidents → Rules** (for example error rate, p95 response time). Uptime from heartbeats is automatic: an environment whose SDKs miss 3 one-minute heartbeats is marked down within about 4 minutes and opens an uptime event, resolved by the next heartbeat. Add an active **Health check** in project settings if the service has a public health endpoint.
+6. **Hand over.** Walk the owner through the [SDK runbook](/guides/sdk-runbook): kill switches, narrowing capture, reading drops, adding a pattern, and the 401, 422 and 429 cases.
+
+**Rollback**, fastest first: turn off **Capture requests** in **Project settings → Capture** (no deploy, about 2 minutes); set `APILENS_ENABLED=false` and redeploy, leaving `APILENS_API_KEY` in place; revert the phase 5 pull request.
+
+**Checklist**
+
+- [ ] Canary instances deployed with the production posture and key; the rest of the fleet untouched ([intake §3](/guides/rollout-intake#3-deployment-shape)).
+- [ ] One day of canary traffic with the service's latency and error rate unchanged, and **Dropped** and **Rejected** at zero ([Ingest health](/ingest/ingest-health)).
+- [ ] Memory per instance within the phase 4 estimate ([Queue limits](/sdk-reference/delivery#queue-limits-and-the-memory-math)).
+- [ ] Full rollout done; deploys visible on the **Changes** page via `APILENS_RELEASE` ([Python configuration](/sdk-reference/python-configuration#environment-variables)).
+- [ ] Any posture promotion preceded and followed by a clean production audit ([PII audit](/guides/pii-audit)).
+- [ ] Alert channel and at least one alert rule configured; heartbeat uptime confirmed for the production environment ([Heartbeat](/ingest/heartbeat)).
+- [ ] Rollback path tested once in production: remote **Capture requests** off and on ([SDK runbook](/guides/sdk-runbook#from-the-dashboard-no-deploy)).
+- [ ] Runbook handed over and the owner has signed the intake's sign-off table ([SDK runbook](/guides/sdk-runbook)).
