@@ -112,6 +112,25 @@ export type ApiLensClientConfig = {
   logger?: Logger;
   /** Called with a `stats()` snapshot after every flush (e.g. to export metrics). */
   onStats?: (stats: ApiLensClientStats) => void;
+  /**
+   * Send `POST /v1/heartbeat` on start, every `heartbeatIntervalMs` and once
+   * more on shutdown (default true). Its response carries the app's remote
+   * capture policy, which can only narrow what is captured.
+   * `APILENS_SEND_HEARTBEAT=false` also turns it off.
+   */
+  sendHeartbeat?: boolean;
+  /** Milliseconds between heartbeats (default 60 000, at least 10 000). */
+  heartbeatIntervalMs?: number;
+  /** Path of the heartbeat endpoint, relative to `baseUrl` (default `heartbeat`). */
+  heartbeatPath?: string;
+  /**
+   * Send `POST /v1/metadata` (framework, Node version, routes, effective
+   * config) once per process start (default true).
+   * `APILENS_SEND_METADATA=false` also turns it off.
+   */
+  sendMetadata?: boolean;
+  /** Path of the metadata endpoint, relative to `baseUrl` (default `metadata`). */
+  metadataPath?: string;
 };
 
 export type ApiLensDropReason =

@@ -4,6 +4,7 @@ import type { NextFunction, Request, Response } from "express";
 import { ApiLensClient } from "./client.js";
 import { resolveConfig } from "./env.js";
 import { RequestExcluder } from "./exclusions.js";
+import { buildExpressMetadata, effectiveConfig } from "./metadata.js";
 import { Sampler } from "./sampling.js";
 import { expressRouteTemplate, parametrizeEnabled, resolveEndpointPath } from "./routes.js";
 import {
@@ -143,10 +144,19 @@ function buildClient(config: ApiLensExpressConfig = {}): ApiLensClient {
     userAgent: config.userAgent,
     fetchImpl: config.fetchImpl,
     logger: config.logger,
+    sendHeartbeat: config.sendHeartbeat,
+    heartbeatIntervalMs: config.heartbeatIntervalMs,
+    heartbeatPath: config.heartbeatPath,
+    sendMetadata: config.sendMetadata,
+    metadataPath: config.metadataPath,
   });
 }
 
 function createApiLensMiddleware(options: ApiLensExpressConfig = {}): MiddlewareWithClient {
+  return createMiddleware(options);
+}
+
+function createMiddleware(options: ApiLensExpressConfig, app?: unknown): MiddlewareWithClient {
   // Explicit option > APILENS_* env var > captureProfile preset > default.
   const config = resolveConfig(options);
   const client = buildClient(config);
@@ -187,8 +197,45 @@ function createApiLensMiddleware(options: ApiLensExpressConfig = {}): Middleware
   // overrides it. Matched Express routes are always used.
   const parametrizePaths = config.parametrizePaths !== false;
 
+  // Heartbeats for this app and environment; app metadata once per process,
+  // from `app` when known (useApiLens) or else the first request's `req.app`.
+  client.registerApp(client.config.appId, environment);
+  const metadataConfig = effectiveConfig(client, {
+    captureHeaders,
+    captureRequestBody: capturePayloads && logRequestBody,
+    captureResponseBody: capturePayloads && logResponseBody,
+    maxPayloadBytes,
+    redactor,
+    excluder,
+    defaultExclusions: config.defaultExclusions !== false,
+    sampleRate: sampler.sampleRate,
+    callbacks: {
+      sample_on_request: typeof config.sampleOnRequest === "function",
+      sample_on_response: typeof config.sampleOnResponse === "function",
+      get_consumer: typeof config.getConsumer === "function",
+      mask_request_body: typeof config.maskRequestBody === "function",
+      mask_response_body: typeof config.maskResponseBody === "function",
+    },
+  });
+  let metadataStarted = false;
+  const reportMetadata = (expressApp: unknown): void => {
+    metadataStarted = true;
+    client.reportMetadata(
+      () => buildExpressMetadata(client, expressApp, { environment, config: metadataConfig }),
+      { environment: environment || client.config.environment },
+    );
+  };
+  if (enabled && app) {
+    reportMetadata(app);
+  }
+
   const middleware = ((req: Request, res: Response, next: NextFunction) => {
-    if (!enabled || !client.isEnabled() || req.method.toUpperCase() === "OPTIONS") {
+    if (enabled && !metadataStarted && req.app) {
+      reportMetadata(req.app);
+    }
+    // isCapturing(): also false while the remote capture policy disables
+    // capture (heartbeats continue).
+    if (!enabled || !client.isCapturing() || req.method.toUpperCase() === "OPTIONS") {
       next();
       return;
     }
@@ -445,7 +492,7 @@ function createApiLensMiddleware(options: ApiLensExpressConfig = {}): Middleware
 }
 
 function useApiLens(app: { use: (mw: MiddlewareWithClient) => void; apilensClient?: ApiLensClient }, config: ApiLensExpressConfig = {}): MiddlewareWithClient {
-  const middleware = createApiLensMiddleware(config);
+  const middleware = createMiddleware(config, app);
   app.use(middleware);
   app.apilensClient = middleware.apilensClient;
   return middleware;

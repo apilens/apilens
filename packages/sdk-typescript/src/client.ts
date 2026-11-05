@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 
@@ -11,6 +12,12 @@ import {
 } from "./utils.js";
 import { detectCommit, detectRelease } from "./release.js";
 import { resolveConfig } from "./env.js";
+import {
+  applyRemotePolicy,
+  narrowPayloadBytes,
+  parseRemotePolicy,
+  type RemotePolicy,
+} from "./policy.js";
 import type {
   ApiLensClientConfig,
   ApiLensClientStats,
@@ -21,6 +28,21 @@ import type {
 } from "./types.js";
 
 const SDK_VERSION = "0.1.0";
+/** `sdk_name` in heartbeats. */
+const SDK_NAME = "apilens-js-sdk";
+
+// Heartbeat (`POST /v1/heartbeat`, contract: apps/docs/ingest/heartbeat.mdx).
+// Sent on start, every `heartbeatIntervalMs` and once more with `final: true`
+// on shutdown. Ingest answers 429 to heartbeats of one instance less than
+// 10 s apart, so shorter intervals are refused.
+const HEARTBEAT_INTERVAL_MS = 60_000;
+const HEARTBEAT_MIN_INTERVAL_MS = 10_000;
+// App metadata (`POST /v1/metadata`): sent once per process start, this long
+// after the middleware is installed so routes registered after it are in.
+const METADATA_DELAY_MS = 1000;
+// Env kill switches: `false`, `0`, `no` or `off` never send that report.
+const ENV_SEND_HEARTBEAT = "APILENS_SEND_HEARTBEAT";
+const ENV_SEND_METADATA = "APILENS_SEND_METADATA";
 
 const gzipAsync = promisify(gzip);
 
@@ -70,6 +92,11 @@ type RequiredConfig = {
   appId: string;
   baseUrl: string;
   ingestPath: string;
+  heartbeatPath: string;
+  metadataPath: string;
+  sendHeartbeat: boolean;
+  heartbeatIntervalMs: number;
+  sendMetadata: boolean;
   environment: string;
   release: string;
   commit: string;
@@ -112,6 +139,42 @@ class IngestError extends Error {
     this.name = "IngestError";
   }
 }
+
+function envFlagEnabled(name: string): boolean {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return true;
+  }
+  return !["0", "false", "no", "off"].includes(raw.trim().toLowerCase());
+}
+
+/** Mirror of the ingest edge's check: `api_key` / `apiKey` / `api-key`, any case. */
+function isApiKeyName(name: string): boolean {
+  return name.toLowerCase().replace(/[_\-. ]/g, "") === "apikey";
+}
+
+/**
+ * Copy of `value` without object keys naming an API key, at any depth: the
+ * ingest edge rejects a heartbeat or metadata body that has one.
+ */
+function stripApiKeyFields(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stripApiKeyFields);
+  }
+  if (typeof value === "object" && value !== null) {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value)) {
+      if (!isApiKeyName(key)) {
+        out[key] = stripApiKeyFields(child);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
+/** Metadata reports already started in this process, by base URL, app and environment. */
+const metadataReported = new Set<string>();
 
 function resolveFetch(fetchImpl?: typeof fetch): typeof fetch {
   if (typeof fetchImpl === "function") {
@@ -285,6 +348,18 @@ class ApiLensClient {
   private lastDropLogAt = 0;
   private lastLoggedDropped = 0;
   private flushIntervalId?: NodeJS.Timeout;
+  /** Id of this process in heartbeats, new on every process start. */
+  public readonly instanceId: string = randomUUID();
+  private readonly startedAtMs = Date.now();
+  /** Apps (and environments) heartbeats are sent for, by `appId\0environment`. */
+  private heartbeatApps = new Map<string, { appId: string; environment: string }>();
+  private heartbeatTimers = new Map<string, NodeJS.Timeout>();
+  private heartbeatsRunning = false;
+  private heartbeatsStarted = false;
+  private heartbeatLogged = new Set<number>();
+  private remotePolicyState: RemotePolicy | null = null;
+  private metadataTimers = new Map<string, NodeJS.Timeout>();
+  private metadataLogged = new Set<number>();
 
   constructor(config: ApiLensClientConfig = {}) {
     if (ApiLensClient.instance) {
@@ -301,6 +376,11 @@ class ApiLensClient {
         config.baseUrl || config.base_url || "https://ingest.apilens.ai/v1",
       ),
       ingestPath: String(config.ingestPath || config.ingest_path || "requests"),
+      heartbeatPath: String(config.heartbeatPath || "heartbeat"),
+      metadataPath: String(config.metadataPath || "metadata"),
+      sendHeartbeat: config.sendHeartbeat !== false,
+      heartbeatIntervalMs: toNumber(config.heartbeatIntervalMs, HEARTBEAT_INTERVAL_MS),
+      sendMetadata: config.sendMetadata !== false,
       environment: String(config.environment || "production"),
       release: String(config.release || "").trim() || detectRelease(),
       commit: String(config.commit || "").trim() || detectCommit(),
@@ -341,8 +421,17 @@ class ApiLensClient {
     if (!isNonEmptyString(this.config.appId)) {
       throw new Error("appId is required");
     }
+    if (!(this.config.heartbeatIntervalMs >= HEARTBEAT_MIN_INTERVAL_MS)) {
+      throw new Error(
+        `heartbeatIntervalMs must be >= ${HEARTBEAT_MIN_INTERVAL_MS} (ingest rate-limits faster heartbeats)`,
+      );
+    }
 
     this.queue = [];
+    this.heartbeatApps.set(`${this.config.appId}\0${this.config.environment}`, {
+      appId: this.config.appId,
+      environment: this.config.environment,
+    });
 
     ApiLensClient.instance = this;
 
@@ -394,7 +483,32 @@ class ApiLensClient {
     return this.config.enabled;
   }
 
+  /**
+   * Whether requests are being captured: the client is enabled and the
+   * remote capture policy has not turned capture off. Heartbeats continue
+   * either way.
+   */
+  public isCapturing(): boolean {
+    return this.config.enabled && this.remotePolicyState?.enabled !== false;
+  }
+
+  /**
+   * The capture policy from the last successful heartbeat, or null before
+   * the first one. A failed heartbeat keeps the previous policy.
+   */
+  public get remotePolicy(): RemotePolicy | null {
+    return this.remotePolicyState ? { ...this.remotePolicyState } : null;
+  }
+
+  /** `localMaxBytes` narrowed by the remote policy's `max_payload_bytes`. */
+  public payloadLimit(localMaxBytes: number): number {
+    return narrowPayloadBytes(localMaxBytes, this.remotePolicyState);
+  }
+
   public start(): void {
+    if (this.isEnabled()) {
+      this.startHeartbeats();
+    }
     if (this.flushIntervalId || !this.isEnabled()) {
       return;
     }
@@ -409,6 +523,7 @@ class ApiLensClient {
   }
 
   public stop(): void {
+    this.stopHeartbeats();
     if (!this.flushIntervalId) {
       return;
     }
@@ -436,6 +551,12 @@ class ApiLensClient {
     // Records carry release/commit themselves so a batch can straddle a
     // deploy; fill them in here too for callers that build records directly.
     this.stampRelease(record);
+
+    // The remote policy only narrows: it can drop the record, sample it out
+    // or strip detail, never add any back.
+    if (this.remotePolicyState && !applyRemotePolicy(record, this.remotePolicyState, this.randomFn)) {
+      return;
+    }
 
     const size = estimateRecordBytes(record);
     const maxBytes = this.config.maxQueueBytes;
@@ -530,14 +651,294 @@ class ApiLensClient {
   }
 
   public async handleShutdown({ flush = true }: { flush?: boolean } = {}): Promise<void> {
+    const sendFinal = this.heartbeatsStarted && this.heartbeatsEnabled();
     this.config.enabled = false;
     this.stop();
+    for (const [key, timer] of this.metadataTimers) {
+      clearTimeout(timer);
+      metadataReported.delete(key);
+    }
+    this.metadataTimers.clear();
 
     if (flush) {
       await this.flushAll();
     }
+    if (sendFinal) {
+      await this.sendHeartbeat({ final: true });
+    }
 
     ApiLensClient.instance = undefined;
+  }
+
+  private heartbeatsEnabled(): boolean {
+    return this.config.sendHeartbeat && envFlagEnabled(ENV_SEND_HEARTBEAT);
+  }
+
+  /**
+   * Send heartbeats for `appId` in `environment` (default: the config's) from
+   * now on. The client's own app is registered on construction; registering
+   * the same app again does nothing.
+   */
+  public registerApp(appId: string, environment?: string): void {
+    const app = String(appId || "").trim();
+    if (!app) {
+      return;
+    }
+    const env = String(environment || this.config.environment);
+    const key = `${app}\0${env}`;
+    if (this.heartbeatApps.has(key)) {
+      return;
+    }
+    this.heartbeatApps.set(key, { appId: app, environment: env });
+    if (this.heartbeatsRunning) {
+      this.scheduleHeartbeat(key, 0);
+    }
+  }
+
+  /** The `POST /v1/heartbeat` body for one app. */
+  public heartbeatPayload(
+    appId: string = this.config.appId,
+    environment: string = this.config.environment,
+    { final = false }: { final?: boolean } = {},
+  ): Record<string, unknown> {
+    const stats = this.stats();
+    const body: Record<string, unknown> = {
+      app_id: appId,
+      environment,
+      instance_id: this.instanceId,
+      sdk_name: SDK_NAME,
+      sdk_version: SDK_VERSION,
+      runtime: `node ${process.versions.node}`,
+      pid: process.pid,
+      uptime_s: Math.max(Math.floor((Date.now() - this.startedAtMs) / 1000), 0),
+      stats: {
+        queued_records: stats.queuedRecords,
+        queued_bytes: stats.queuedBytes,
+        sent_batches: stats.sentBatches,
+        sent_records: stats.sentRecords,
+        failed_batches: stats.failedBatches,
+        dropped: stats.droppedCount,
+        drop_counts: stats.dropCounts,
+        last_error: stats.lastError,
+        last_success_at: stats.lastSuccessAt,
+      },
+    };
+    if (this.config.projectSlug) {
+      body.project_slug = this.config.projectSlug;
+    }
+    if (this.config.release) {
+      body.release = this.config.release;
+    }
+    if (this.config.commit) {
+      body.commit = this.config.commit;
+    }
+    if (final) {
+      body.final = true;
+    }
+    return body;
+  }
+
+  /**
+   * Send a heartbeat for every registered app now; true when all succeeded.
+   * Never throws and never retries: a failure keeps the previous policy and
+   * only waits for the next interval (or `Retry-After`).
+   */
+  public async sendHeartbeat({ final = false }: { final?: boolean } = {}): Promise<boolean> {
+    if (!this.heartbeatsEnabled() || this.heartbeatApps.size === 0) {
+      return false;
+    }
+    const results = await Promise.all(
+      [...this.heartbeatApps.keys()].map(async (key) => {
+        const { ok, nextMs } = await this.heartbeatOne(key, final);
+        if (!final && this.heartbeatsRunning) {
+          this.scheduleHeartbeat(key, nextMs);
+        }
+        return ok;
+      }),
+    );
+    return results.every(Boolean);
+  }
+
+  private startHeartbeats(): void {
+    if (this.heartbeatsRunning || !this.heartbeatsEnabled()) {
+      return;
+    }
+    this.heartbeatsRunning = true;
+    this.heartbeatsStarted = true;
+    for (const key of this.heartbeatApps.keys()) {
+      this.scheduleHeartbeat(key, 0);
+    }
+  }
+
+  private stopHeartbeats(): void {
+    this.heartbeatsRunning = false;
+    for (const timer of this.heartbeatTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.heartbeatTimers.clear();
+  }
+
+  private scheduleHeartbeat(key: string, delayMs: number): void {
+    const existing = this.heartbeatTimers.get(key);
+    if (existing) {
+      clearTimeout(existing);
+      this.heartbeatTimers.delete(key);
+    }
+    if (!this.heartbeatsRunning) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.heartbeatTimers.delete(key);
+      void this.heartbeatOne(key).then(({ nextMs }) => {
+        // Unless sendHeartbeat() rescheduled it meanwhile.
+        if (this.heartbeatsRunning && !this.heartbeatTimers.has(key)) {
+          this.scheduleHeartbeat(key, nextMs);
+        }
+      });
+    }, delayMs);
+    if (typeof timer.unref === "function") {
+      timer.unref();
+    }
+    this.heartbeatTimers.set(key, timer);
+  }
+
+  private async heartbeatOne(key: string, final = false): Promise<{ ok: boolean; nextMs: number }> {
+    const interval = this.config.heartbeatIntervalMs;
+    const app = this.heartbeatApps.get(key);
+    if (!app) {
+      return { ok: false, nextMs: interval };
+    }
+    try {
+      const body = stripApiKeyFields(this.heartbeatPayload(app.appId, app.environment, { final }));
+      const response = await this.post(
+        await this.encodeBody(JSON.stringify(body)),
+        this.config.heartbeatPath,
+      );
+      this.applyHeartbeatResponse(await response.text());
+      return { ok: true, nextMs: interval };
+    } catch (error) {
+      if (error instanceof IngestError) {
+        this.logHeartbeatFailure(error);
+        return { ok: false, nextMs: error.retryAfterMs ?? interval };
+      }
+      this.config.logger.debug?.("API Lens heartbeat failed", error);
+      return { ok: false, nextMs: interval };
+    }
+  }
+
+  private applyHeartbeatResponse(text: string): void {
+    let data: unknown;
+    try {
+      data = text ? JSON.parse(text) : undefined;
+    } catch {
+      this.config.logger.debug?.("API Lens heartbeat response is not JSON; keeping the previous policy");
+      return;
+    }
+    const policy = parseRemotePolicy(data);
+    if (!policy) {
+      this.config.logger.debug?.("API Lens heartbeat response has no policy; keeping the previous policy");
+      return;
+    }
+    this.remotePolicyState = policy;
+  }
+
+  private logHeartbeatFailure(error: IngestError): void {
+    const status = error.status ?? 0;
+    if (status === 401 || status === 403 || status === 422) {
+      if (this.heartbeatLogged.has(status)) {
+        return;
+      }
+      this.heartbeatLogged.add(status);
+      this.config.logger.warn?.(
+        `API Lens ingest rejected the heartbeat with status ${status}:`,
+        error.responseBody || "<empty body>",
+      );
+      return;
+    }
+    this.config.logger.debug?.("API Lens heartbeat failed", error.message);
+  }
+
+  /**
+   * Send the app metadata report once per process, without blocking: `build`
+   * runs `delayMs` from now (so routes registered after the middleware are
+   * in) and returns the `POST /v1/metadata` body. Returns false when a report
+   * for this app and environment was already started in this process, or when
+   * metadata is turned off (`sendMetadata: false`, `APILENS_SEND_METADATA=false`).
+   */
+  public reportMetadata(
+    build: () => Record<string, unknown> | null | undefined,
+    {
+      appId = this.config.appId,
+      environment = this.config.environment,
+      delayMs = METADATA_DELAY_MS,
+    }: { appId?: string; environment?: string; delayMs?: number } = {},
+  ): boolean {
+    if (!this.config.enabled || !this.config.sendMetadata || !envFlagEnabled(ENV_SEND_METADATA)) {
+      return false;
+    }
+    const key = `${this.config.baseUrl}\0${appId}\0${environment}`;
+    if (metadataReported.has(key)) {
+      return false;
+    }
+    metadataReported.add(key);
+    const timer = setTimeout(() => {
+      this.metadataTimers.delete(key);
+      let payload: Record<string, unknown> | null | undefined;
+      try {
+        payload = build();
+      } catch (error) {
+        this.config.logger.debug?.("API Lens could not build the app metadata report", error);
+        return;
+      }
+      if (payload) {
+        void this.sendMetadata(payload);
+      }
+    }, Math.max(delayMs, 0));
+    if (typeof timer.unref === "function") {
+      timer.unref();
+    }
+    this.metadataTimers.set(key, timer);
+    return true;
+  }
+
+  /**
+   * POST one app metadata report now; true on 2xx. Retries 408/429/5xx and
+   * network errors like a batch; never throws.
+   */
+  public async sendMetadata(payload: Record<string, unknown>): Promise<boolean> {
+    let encoded: EncodedBody;
+    try {
+      encoded = await this.encodeBody(JSON.stringify(stripApiKeyFields(payload)));
+    } catch (error) {
+      this.config.logger.debug?.("API Lens could not encode the app metadata report", error);
+      return false;
+    }
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= this.config.maxRetries; attempt += 1) {
+      try {
+        await this.post(encoded, this.config.metadataPath);
+        return true;
+      } catch (error) {
+        lastError = error;
+        if (error instanceof IngestError && !error.retryable) {
+          const status = error.status ?? 0;
+          if (!this.metadataLogged.has(status)) {
+            this.metadataLogged.add(status);
+            this.config.logger.warn?.(
+              `API Lens ingest rejected the app metadata report with status ${status}:`,
+              error.responseBody || "<empty body>",
+            );
+          }
+          return false;
+        }
+        if (attempt < this.config.maxRetries) {
+          const retryAfterMs = error instanceof IngestError ? error.retryAfterMs : undefined;
+          await this.sleepFn(retryAfterMs ?? this.backoffMs(attempt));
+        }
+      }
+    }
+    this.config.logger.debug?.("API Lens app metadata report failed", lastError);
+    return false;
   }
 
   /** Full-jitter exponential backoff: uniform in [0, min(base * 2^n, max)). */
@@ -697,8 +1098,8 @@ class ApiLensClient {
     }
   }
 
-  private resolveEndpoint(): string {
-    const rawIngestPath = String(this.config.ingestPath || "requests").trim();
+  private resolveEndpoint(path: string = this.config.ingestPath): string {
+    const rawIngestPath = String(path || "requests").trim();
     const baseUrl = this.config.baseUrl.replace(/\/$/, "");
 
     if (/^https?:\/\//i.test(rawIngestPath)) {
@@ -713,8 +1114,8 @@ class ApiLensClient {
     return new URL(rawIngestPath, `${baseUrl}/`).toString();
   }
 
-  private async post(payload: EncodedBody): Promise<void> {
-    const endpoint = this.resolveEndpoint();
+  private async post(payload: EncodedBody, path?: string): Promise<Response> {
+    const endpoint = this.resolveEndpoint(path);
     const controller = new AbortController();
     const timeout = setTimeout(() => {
       controller.abort();
@@ -752,7 +1153,7 @@ class ApiLensClient {
     }
 
     if (response.ok) {
-      return;
+      return response;
     }
 
     const status = response.status;
@@ -778,6 +1179,12 @@ class ApiLensClient {
 export {
   ApiLensClient,
   DROP_REASONS,
+  HEARTBEAT_INTERVAL_MS,
+  HEARTBEAT_MIN_INTERVAL_MS,
+  METADATA_DELAY_MS,
+  SDK_NAME,
+  SDK_VERSION,
+  stripApiKeyFields,
   RECORD_OVERHEAD_BYTES,
   estimateRecordBytes,
   normalizeRecord,
