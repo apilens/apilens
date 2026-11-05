@@ -72,7 +72,8 @@
             "pages": [
               "guides/rollout-intake",
               "guides/redaction-manifest",
-              "guides/pii-audit"
+              "guides/pii-audit",
+              "guides/sdk-runbook"
             ]
           },
           {
