@@ -33,6 +33,10 @@ export type ApiLensRecordInput = {
   response_headers?: string;
   release?: string;
   commit?: string;
+  /** W3C trace id (32 hex) of the request; empty when tracing is off. */
+  trace_id?: string;
+  /** This service's span id (16 hex) for the request. */
+  span_id?: string;
   /**
    * False when the request was sampled out: the base record is still sent
    * (it counts in metrics) but headers and payloads are dropped. Default true.
@@ -63,7 +67,54 @@ export type ApiLensRecord = {
   response_headers: string;
   release: string;
   commit: string;
+  trace_id: string;
+  span_id: string;
   sampled: boolean;
+};
+
+/** One span, as sent to `POST /v1/traces` (`{"spans": [...]}`). */
+export type ApiLensSpanRecord = {
+  /** Start of the span (ISO 8601). */
+  timestamp: string;
+  environment: string;
+  project_slug: string;
+  app_id: string;
+  trace_id: string;
+  span_id: string;
+  parent_span_id: string;
+  name: string;
+  /** `server` for the request span, `http` for outbound calls. */
+  kind: string;
+  service_name: string;
+  duration_ms: number;
+  status: "ok" | "error";
+  status_code: number;
+  attributes: Record<string, string>;
+  release: string;
+  commit: string;
+};
+
+/** One log, as sent to `POST /v1/logs` (`{"logs": [...]}`). */
+export type ApiLensLogRecord = {
+  timestamp: string;
+  environment: string;
+  project_slug: string;
+  app_id: string;
+  level: string;
+  message: string;
+  logger_name: string;
+  endpoint_method: string;
+  endpoint_path: string;
+  status_code: number;
+  consumer_id: string;
+  consumer_name: string;
+  consumer_group: string;
+  trace_id: string;
+  span_id: string;
+  /** The stack trace, when the request failed with an error. */
+  payload: string;
+  release: string;
+  commit: string;
 };
 
 export type ApiLensClientConfig = {
@@ -77,6 +128,10 @@ export type ApiLensClientConfig = {
   base_url?: string;
   ingestPath?: string;
   ingest_path?: string;
+  /** Path of the spans endpoint, relative to `baseUrl` (default `traces`). */
+  tracesPath?: string;
+  /** Path of the logs endpoint, relative to `baseUrl` (default `logs`). */
+  logsPath?: string;
   environment?: string;
   /**
    * Deploy correlation, stamped on every record. When omitted they are read
@@ -264,5 +319,16 @@ export type ApiLensExpressConfig = ApiLensClientConfig & {
    * turns it off regardless. Matched route templates are always used.
    */
   parametrizePaths?: boolean;
+  /**
+   * Tracing (default true): a W3C trace id per request (continuing an
+   * incoming `traceparent`), a `server` span per request, child `http` spans
+   * for outbound `http`/`https`/`fetch` calls with `traceparent` propagated,
+   * and an ERROR log with the stack on an unhandled error or 5xx. False
+   * turns all of it off. `APILENS_CAPTURE_SPANS=false` turns it off
+   * regardless of this option.
+   */
+  captureSpans?: boolean;
+  /** `service_name` on spans (default: the app id). */
+  serviceName?: string;
   getConsumer?: (req: unknown, res: unknown) => ApiLensConsumer | string | null | undefined;
 };

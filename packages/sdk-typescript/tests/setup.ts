@@ -3,3 +3,5 @@
 // tests/metadata.test.ts turn them back on.
 process.env.APILENS_SEND_HEARTBEAT = "false";
 process.env.APILENS_SEND_METADATA = "false";
+// Tracing adds /v1/traces and /v1/logs POSTs; tests/tracing.test.ts turns it back on.
+process.env.APILENS_CAPTURE_SPANS = "false";

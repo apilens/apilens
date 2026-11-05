@@ -129,6 +129,7 @@ export type EnvConfig = {
   excludeUserAgents?: string[];
   defaultExclusions?: boolean;
   sampleRate?: number;
+  captureSpans?: boolean;
   batchSize?: number;
   flushIntervalMs?: number;
 };
@@ -164,6 +165,7 @@ export const ENV_OPTIONS: readonly EnvOption[] = Object.freeze([
   { option: "exclude_user_agents", key: "excludeUserAgents", parse: parseList },
   { option: "default_exclusions", key: "defaultExclusions", parse: parseBool },
   { option: "sample_rate", key: "sampleRate", parse: parseNumber },
+  { option: "capture_spans", key: "captureSpans", parse: parseBool },
   { option: "batch_size", key: "batchSize", parse: parseInteger },
   // Seconds, like the Python SDK; stored as milliseconds.
   { option: "flush_interval", key: "flushIntervalMs", parse: SECONDS_TO_MS },
