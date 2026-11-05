@@ -1,4 +1,5 @@
 import type { SampleOnRequest, SampleOnResponse } from "./sampling.js";
+import type { RequestBodyMasker, ResponseBodyMasker } from "./sanitize.js";
 
 export type Logger = {
   debug?: (...args: unknown[]) => void;
@@ -189,6 +190,22 @@ export type ApiLensExpressConfig = ApiLensClientConfig & {
   redactHeaders?: ReadonlyArray<string | RegExp>;
   /** JSON body field names to redact, at any depth (on top of `DEFAULT_MASK_BODY_FIELDS`). */
   redactBodyFields?: ReadonlyArray<string | RegExp>;
+  /**
+   * `(info, body: Buffer) => Buffer | null`, run on the captured (truncated)
+   * request body BEFORE the regex field masking, which still applies to what
+   * it returns. Return `null` to store the whole body as `[masked]`; a throw
+   * or a non-Buffer return also stores `[masked]` (fail closed).
+   */
+  maskRequestBody?: RequestBodyMasker;
+  /** Same as `maskRequestBody`, for the response body. */
+  maskResponseBody?: ResponseBodyMasker;
+  /**
+   * Media-type globs whose bodies are captured (default
+   * `DEFAULT_CAPTURE_CONTENT_TYPES`: JSON, `text/*`, form-encoded). Any other
+   * body (multipart, binary, no Content-Type) is never buffered and is stored
+   * as `[<content-type>, N bytes omitted]`. A string is split on commas.
+   */
+  captureContentTypes?: string | ReadonlyArray<string>;
   /*
    * Sampling. A sampled-out request still sends its base record with
    * `sampled: false` (so traffic, error and latency metrics are unchanged);

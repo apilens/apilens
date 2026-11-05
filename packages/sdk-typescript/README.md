@@ -125,6 +125,41 @@ invalid regex throws when the middleware is created. Query-param patterns
 apply to the query string sent on `raw_path`. `Redactor` (with
 `redactQuery`, `redactBody` and `headerMatches`) is exported for manual capture.
 
+### Body mask callbacks
+
+For non-JSON bodies or per-route rules, pass `maskRequestBody` /
+`maskResponseBody`. Each gets an info object and the captured (truncated) body
+as a `Buffer`, and returns the body to keep:
+
+```js
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  maskRequestBody: (info, body) => (info.path.startsWith("/kyc") ? null : body),
+  maskResponseBody: (info, body) =>
+    info.statusCode >= 400 ? body : Buffer.from(body.toString().replace(/\d{4,}/g, "####")),
+});
+```
+
+- The callback runs first; the regex field masking (built-ins plus your
+  patterns) still runs on whatever it returns, so it cannot switch the
+  built-ins off.
+- Returning `null` stores the whole body as `[masked]`. Fail closed: a throw,
+  or a return that is not a `Buffer`/string (a `Promise` included), also
+  stores `[masked]`.
+- Request info: `method`, `path`, `rawPath` (query already redacted),
+  `headers` (lower-cased, unredacted), `contentType`. Response info:
+  `request`, `statusCode`, `headers`, `contentType`.
+
+### Content types
+
+Only JSON (`application/json`, `application/*+json`), `text/*` and
+form-encoded bodies are captured (`DEFAULT_CAPTURE_CONTENT_TYPES`); form bodies
+are masked field by field like a query string. Any other body (multipart
+uploads, images, octet streams, no Content-Type) is never buffered and is sent
+as `[<content-type>, N bytes omitted]`; the mask callbacks do not run for it.
+`captureContentTypes: ["application/json", "application/xml"]` replaces the
+list (globs, case-insensitive, parameters ignored).
+
 ## Path templating
 
 Requests are grouped by route template, so `/product/123` and `/product/324`

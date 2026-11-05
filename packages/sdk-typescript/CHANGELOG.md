@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `maskRequestBody` / `maskResponseBody` callbacks `(info, body: Buffer) =>
+  Buffer | null` run before the regex field masking; `null`, a throw or a
+  non-Buffer return store `[masked]`.
+- Content-type aware body capture: JSON, `text/*` and form bodies only (form
+  bodies masked field by field); multipart and binary bodies are stored as
+  `[<content-type>, N bytes omitted]`. `captureContentTypes` overrides the list.
 - Records carry `raw_path`: the exact path plus the query string, with
   matching query-param values redacted.
 - `path` is the matched route template, read when the response is sent, with
