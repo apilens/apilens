@@ -3,7 +3,7 @@ title: "Sampling"
 description: "Keep headers and bodies for a fraction of requests. Sampling never changes metrics."
 ---
 
-Capturing every request body is often more than you need. Sampling lets you keep the **detail** (headers and bodies) for only some requests, while **every request is still recorded**.
+Capturing every request body is often more than you need. Sampling lets you keep the **detail** (headers and bodies) for only some requests, while **every request is still recorded**. The Python, TypeScript and Java SDKs share the same model; only option names differ.
 
 ## Sampling never changes metrics
 
@@ -11,25 +11,62 @@ APILens derives traffic counts, error rates and latency percentiles from the req
 
 | | Sampled in | Sampled out |
 |---|---|---|
-| Method, path, status, latency, sizes, consumer | sent | sent |
+| Method, path, status, latency, sizes, consumer, trace id | sent | sent |
 | `sampled` field | `true` | `false` |
 | Request / response headers | sent (redacted) | dropped |
 | Request / response bodies | sent (redacted) | dropped, never buffered |
+| Server span and automatic error log | sent | dropped |
 
-The request log shows sampled-out requests like any other; their detail panes are empty.
+The request log shows sampled-out requests like any other; their detail panes are empty. Trace context is still continued and propagated downstream for a sampled-out request, so child services make their own decision.
+
+<Note>
+Sampling is not [exclusion](/sdk-reference/exclusions). An excluded path (health checks, probes) is never recorded at all and does not count in metrics. A sampled-out request is always counted.
+</Note>
+
+## Options
+
+| Python | TypeScript | Java | Default |
+|---|---|---|---|
+| `sample_rate` | `sampleRate` | `sampleRate` (`apilens.sample-rate`) | `1.0` |
+| `sample_on_request` | `sampleOnRequest` | `sampleOnRequest` (`RequestSampler`) | none |
+| `sample_on_response` | `sampleOnResponse` | `sampleOnResponse` (`ResponseSampler`) | none |
+
+`sample_rate` can also be set with the `APILENS_SAMPLE_RATE` environment variable in every SDK. A rate outside `0.0`–`1.0` fails at startup, never per request. Django reads `APILENS_SAMPLE_RATE`, `APILENS_SAMPLE_ON_REQUEST` and `APILENS_SAMPLE_ON_RESPONSE` from settings (a callable or its dotted path). Spring properties cannot hold callbacks, so Java registers them with an `ApiLensSpringOptionsCustomizer` bean.
 
 ## How a request is decided
 
-1. **`sampleOnRequest`** runs when the request arrives, before any body is buffered. Return `true` / `false` (final), a number in `[0, 1]` (a probability), or `undefined` / `null` (fall back to the rate).
-2. **`sampleRate`** (default `1`) is the probability used when there is no request callback or it returned `undefined`. A value outside `[0, 1]` fails at startup.
-3. **`sampleOnResponse`** runs after the response, with the status code, latency and consumer. Same return values; `undefined` keeps the decision from steps 1–2. It can drop the detail of a sampled-in request but can never resurrect one that was sampled out on request (its body was never buffered).
+1. **On request** (`sample_on_request` / `sampleOnRequest`) runs when the request arrives, before the handler and before any body is buffered. It answers *keep*, *drop*, a *probability* in `[0, 1]`, or *no opinion*.
+2. **The rate** (`sample_rate` / `sampleRate`, default `1`) is the probability used when there is no request callback or it had no opinion.
+3. **On response** (`sample_on_response` / `sampleOnResponse`) runs after the response, with the route, status code, latency and consumer. Same answers; *no opinion* keeps the decision from steps 1–2. It can drop the detail of a kept request but can never bring back one that was dropped on request: its body was never buffered.
 
-A callback that throws is logged once and treated as `undefined`. The error never reaches your handler.
+A callback that throws (or returns something unusable) is logged once and treated as *no opinion*. The error never reaches your handler.
+
+| Answer | Python | TypeScript | Java |
+|---|---|---|---|
+| Keep | `True` | `true` | `SampleDecision.KEEP` |
+| Drop | `False` | `false` | `SampleDecision.DROP` |
+| Probability | a float, e.g. `0.25` | a number, e.g. `0.25` | `SampleDecision.probability(0.25)` |
+| No opinion | `None` | `undefined` / `null` | `SampleDecision.UNDECIDED` (or `null`) |
+
+<Note>
+**Java defers the rate when a response callback is set.** If `sampleOnRequest` has no opinion and a `sampleOnResponse` callback exists, the Java SDK rolls `sampleRate` *after* the response callback, so `sampleRate(0.1)` plus a response callback that returns `KEEP` for errors keeps every error. Python and TypeScript roll the rate at request time; use the portable pattern in [Keep every error, sample the rest](#keep-every-error-sample-the-rest) to get the same result in all three.
+</Note>
+
+The app's [remote capture policy](/ingest/heartbeat) can only narrow sampling: its sample rate lowers what your local settings keep, never raises it.
 
 ## Sample a fixed fraction
 
 <CodeGroup>
-```ts Express
+```python Python
+app.add_middleware(
+    ApiLensMiddleware,
+    api_key="apilens_xxx",
+    app_id="orders-api",
+    sample_rate=0.1,  # detail for 10% of requests; 100% still counted
+)
+```
+
+```ts TypeScript
 useApiLens(app, {
   apiKey: process.env.APILENS_API_KEY,
   appId: process.env.APILENS_APP_ID,
@@ -37,17 +74,25 @@ useApiLens(app, {
 });
 ```
 
-```python Python
-app.add_middleware(ApiLensMiddleware, ..., sample_rate=0.1)
+```properties Java
+# application.properties (Spring Boot)
+apilens.sample-rate=0.1
 ```
 </CodeGroup>
 
 ## Keep detail only for errors
 
-Every request is still counted; only failing requests carry headers and bodies.
+Every request is still counted; only failing requests carry headers and bodies. Leave the rate at its default of `1` so every request reaches the response callback with its detail still buffered.
 
 <CodeGroup>
-```ts Express
+```python Python
+app.add_middleware(
+    ApiLensMiddleware, ...,
+    sample_on_response=lambda info: info.status_code >= 400,
+)
+```
+
+```ts TypeScript
 useApiLens(app, {
   apiKey: process.env.APILENS_API_KEY,
   appId: process.env.APILENS_APP_ID,
@@ -55,18 +100,59 @@ useApiLens(app, {
 });
 ```
 
+```java Java
+@Bean
+ApiLensSpringOptionsCustomizer apiLensSampling() {
+  return options -> options.sampleOnResponse(response ->
+      SampleDecision.of(response.statusCode() >= 400));
+}
+```
+</CodeGroup>
+
+## Keep every error, sample the rest
+
+Return a probability from the response callback instead of setting a low rate. This works the same in all three SDKs.
+
+<CodeGroup>
 ```python Python
 app.add_middleware(
     ApiLensMiddleware, ...,
-    sample_on_response=lambda info: info.status_code >= 400,
+    sample_on_response=lambda info: True if info.status_code >= 400 else 0.1,
 )
 ```
+
+```ts TypeScript
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  appId: process.env.APILENS_APP_ID,
+  sampleOnResponse: (info) => (info.statusCode >= 400 ? true : 0.1),
+});
+```
+
+```java Java
+@Bean
+ApiLensSpringOptionsCustomizer apiLensSampling() {
+  return options -> options.sampleOnResponse(response -> response.statusCode() >= 400
+      ? SampleDecision.KEEP
+      : SampleDecision.probability(0.1));
+}
+```
 </CodeGroup>
+
+Because every request keeps its detail until the response, bodies are buffered for all of them. If memory matters more than errors, set a low rate instead: sampled-out bodies are never buffered.
 
 ## Always keep some routes, sample the rest
 
 <CodeGroup>
-```ts Express
+```python Python
+app.add_middleware(
+    ApiLensMiddleware, ...,
+    sample_rate=0.05,
+    sample_on_request=lambda info: True if info.path.startswith("/billing") else None,
+)
+```
+
+```ts TypeScript
 useApiLens(app, {
   apiKey: process.env.APILENS_API_KEY,
   appId: process.env.APILENS_APP_ID,
@@ -75,27 +161,38 @@ useApiLens(app, {
 });
 ```
 
-```python Python
-app.add_middleware(
-    ApiLensMiddleware, ...,
-    sample_rate=0.05,
-    sample_on_request=lambda info: True if info.path.startswith("/billing") else None,
-)
+```java Java
+@Bean
+ApiLensSpringOptionsCustomizer apiLensSampling() {
+  return options -> options
+      .sampleRate(0.05)
+      .sampleOnRequest(request -> request.path().startsWith("/billing")
+          ? SampleDecision.KEEP
+          : SampleDecision.UNDECIDED);
+}
 ```
 </CodeGroup>
 
+## Path or route template?
+
+The request callback runs before routing, so it only sees the **actual path** (`/orders/42`, no query string). Match it with a prefix or regex, not with a template such as `/orders/{id}`. The response callback runs after routing and gets both: the **route template** the request is grouped under (`/orders/{id}`, see [Path templating](/sdk-reference/path-templating)) and the actual path.
+
 ## Callback inputs
 
-| `sampleOnRequest` (TS) | `sample_on_request` (Python) |
-|---|---|
-| `method`, `path` (no query), `query`, `userAgent`, `headers`, `clientIp` | `method`, `path`, `query`, `user_agent`, `headers`, `client_ip` |
+<Tabs>
+  <Tab title="Python">
+    `sample_on_request` receives a `RequestInfo`: `method`, `path` (no query), `raw_path` (exact URL, sensitive query values redacted), `query`, `headers` (lower-cased names), `client_ip`, `user_agent`.
 
-| `sampleOnResponse` (TS) | `sample_on_response` (Python) |
-|---|---|
-| `method`, `route`, `rawPath`, `statusCode`, `responseTimeMs`, `consumerId`, `consumerName`, `consumerGroup`, `sampled` | `method`, `route`, `raw_path`, `status_code`, `response_time_ms`, `consumer_id`, `consumer_name`, `consumer_group`, `attributes`, `sampled` |
+    `sample_on_response` receives a `ResponseInfo`: `method`, `route` (template), `path`, `raw_path`, `status_code`, `response_time_ms`, `consumer_id`, `consumer_name`, `consumer_group`, `attributes` (set with `set_request_attribute`), `sampled` (the request-stage decision), and the original `request`.
+  </Tab>
+  <Tab title="TypeScript">
+    `sampleOnRequest` receives `method`, `path` (no query), `query`, `userAgent`, `headers` (lower-cased names), `clientIp`.
 
-<Note>
-Sampling is per SDK release. The TypeScript SDK (`apilens-js-sdk`) supports all three options; check your Python SDK version's changelog for `sample_rate`, `sample_on_request` and `sample_on_response`.
-</Note>
+    `sampleOnResponse` receives `method`, `route` (template), `rawPath`, `statusCode`, `responseTimeMs`, `consumerId`, `consumerName`, `consumerGroup`, `sampled`. It is only called for requests the request stage kept.
+  </Tab>
+  <Tab title="Java">
+    `RequestSampler` receives a `RequestInfo`: `method()`, `path()` (no query), `rawPath()` (exact URL, sensitive query values redacted), `headers()` (lower-cased names), `userAgent()`, `contentType()`.
 
-Sampling is not exclusion: an [excluded](/sdk-reference/python-configuration) path (health checks, probes) is never recorded at all and does not count in metrics.
+    `ResponseSampler` receives a `SampleResponseInfo`: `request()`, `route()` (template), `statusCode()`, `responseTimeMs()`, `consumer()`, `requestDecision()` (what `sampleOnRequest` returned). It is only called for requests the request stage did not drop.
+  </Tab>
+</Tabs>
