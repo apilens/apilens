@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from typing import Any
 
+from .client._attributes import (
+    begin_request_attributes,
+    current_request_attributes,
+    end_request_attributes,
+    set_request_attribute,
+    span_attributes,
+)
 from .client._capture import CaptureContext, _normalize_path, _to_int, capture_response
 from .client._exclusions import RequestExcluder
 from .client._routes import django_route_template, resolve_endpoint_path
@@ -244,6 +252,7 @@ class ApiLensDjangoMiddleware:
         status_code = 500
         response_size = 0
         consumer_token = _consumer_ctx.set(None)
+        attributes_token = begin_request_attributes()
         trace_id, span_id, parent_span_id, trace_token = begin_request_trace(request.META.get("HTTP_TRACEPARENT"))
         # Sampled out: base record only. Trace context above still propagates.
         sampled = self.sampler.sample()
@@ -289,21 +298,24 @@ class ApiLensDjangoMiddleware:
                 ctx.request_headers = serialize_headers(request_headers, redactor=self.redactor)
             except Exception:
                 ctx.request_headers = ""
+        # Read now (before the view consumes the stream); masked after the
+        # view ran, so the mask callback sees ``set_request_attribute`` values.
+        request_body = b""
+        if sampled:
+            try:
+                request_body = request.body[: self.max_payload_bytes]
+            except Exception:
+                request_body = b""
         request_info = RequestInfo(
             method=ctx.method, path=clean_path, raw_path=raw_path, headers=lower_headers(request_headers)
         )
-        if sampled:
-            try:
-                body = request.body[: self.max_payload_bytes]
-                ctx.request_payload = mask_body(
-                    body, redactor=self.redactor, masker=self.mask_request_body, info=request_info
-                )
-            except Exception:
-                ctx.request_payload = ""
 
         response_headers = ""
+        attributes: dict = {}
         try:
             response = self.get_response(request)
+            attributes = current_request_attributes()
+            request_info = replace(request_info, attributes=attributes)
             status_code = int(getattr(response, "status_code", 500) or 500)
             content = getattr(response, "content", b"") or b""
             response_size = len(content)
@@ -319,6 +331,7 @@ class ApiLensDjangoMiddleware:
                     request=request_info,
                     status_code=status_code,
                     headers=lower_headers(response_header_map),
+                    attributes=attributes,
                 ),
             )
             if capture_headers:
@@ -342,7 +355,19 @@ class ApiLensDjangoMiddleware:
                 if resolved is not None:
                     consumer = normalize_consumer(resolved)
             _apply_consumer(ctx, consumer)
+            if response is None:
+                # The view raised: collect what it set before failing.
+                attributes = current_request_attributes()
+                request_info = replace(request_info, attributes=attributes)
+            ctx.attributes = attributes
+            try:
+                ctx.request_payload = mask_body(
+                    request_body, redactor=self.redactor, masker=self.mask_request_body, info=request_info
+                )
+            except Exception:
+                ctx.request_payload = ""
             _consumer_ctx.reset(consumer_token)
+            end_request_attributes(attributes_token)
             reset_detail_sampled(sampled_token)
             end_request_trace(trace_token)
             captured_exc = getattr(request, "_apilens_exc", None)
@@ -357,6 +382,7 @@ class ApiLensDjangoMiddleware:
                     duration_ms=(time.perf_counter() - started_at) * 1000.0,
                     status="error" if is_error else "ok",
                     status_code=status_code,
+                    attributes=span_attributes(attributes),
                 )
                 _maybe_record_error(
                     exc=captured_exc,
@@ -393,4 +419,5 @@ __all__ = [
     "instrument_app",
     "track_consumer",
     "set_consumer",
+    "set_request_attribute",
 ]

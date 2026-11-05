@@ -37,6 +37,9 @@ class RequestRecord:
     # bodies, spans, logs). The base record is always sent so metrics stay
     # exact; only the request-log detail is sampled.
     sampled: bool = True
+    # Custom metadata from ``set_request_attribute`` (str/int/float/bool
+    # values). Sent as a JSON object; omitted when empty.
+    attributes: dict[str, str | int | float | bool] | None = None
 
     def to_wire(self) -> dict[str, object]:
         ts = self.timestamp
@@ -84,6 +87,8 @@ class RequestRecord:
         # sampled-in records stay byte-identical to SDKs without sampling.
         if not self.sampled:
             wire["sampled"] = False
+        if self.attributes:
+            wire["attributes"] = dict(self.attributes)
         return wire
 
 

@@ -30,6 +30,7 @@ That is the whole setup. No agent, no sidecar, no code changes to your handlers.
 - [Framework integrations](#framework-integrations)
   - [FastAPI](#fastapi) · [Django](#django) · [Flask](#flask) · [Starlette](#starlette) · [Other ASGI apps](#other-asgi-apps)
 - [Consumer attribution](#consumer-attribution)
+- [Request attributes](#request-attributes)
 - [Distributed tracing](#distributed-tracing)
 - [Configuration reference](#configuration-reference)
 - [Manual capture](#manual-capture)
@@ -357,6 +358,33 @@ def my_view(request):
 
 You can also pass a plain string, a dict, or your user object directly; the SDK
 normalizes `id`/`identifier`, `name`/`username`, and `group`/`role` fields.
+
+---
+
+## Request attributes
+
+Attach your own metadata to the request being handled — a tenant, a plan, a
+feature flag — with `set_request_attribute(key, value)`. Call it anywhere in
+the handler (or code it calls); the SDK picks the values up when the response
+is captured:
+
+```python
+import apilens
+
+@app.get("/orders")
+async def list_orders(user=Depends(current_user)):
+    apilens.set_request_attribute("tenant.id", user.tenant_id)
+    apilens.set_request_attribute("beta", True)
+    ...
+```
+
+Attributes are sent as the `attributes` JSON object on the request record,
+added to the request's server span, and passed to `mask_request_body` /
+`mask_response_body` callbacks as `info.attributes`. Values must be `str`,
+`int`, `float` or `bool`. Each request holds at most **32** keys and string
+values are capped at **256** characters; extra keys are dropped and long
+values truncated, with a one-time warning on the `apilens` logger. Calling it
+outside an instrumented request does nothing.
 
 ---
 
