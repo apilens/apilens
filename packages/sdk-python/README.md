@@ -475,6 +475,41 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `flush_on_shutdown` | `True` | Flush the queue on ASGI lifespan shutdown / process exit (see [Deployment shapes](#deployment-shapes)). `APILENS_FLUSH_ON_SHUTDOWN=false` (env var) disables it. |
 | `shutdown_timeout` | `5.0` | Upper bound, in seconds, on how long the shutdown flush may block. |
 | `exclude_paths` | `None` | Regexes for paths to skip entirely (no record, span or log), e.g. `[r"^/health$"]`. Matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` (comma-separated env var) adds to it. An invalid regex raises at startup. |
+| `exclude_user_agents` | `None` | Regexes for `User-Agent` values to skip entirely, e.g. `[r"^uptimerobot"]`. Case-insensitive `re.search`. `APILENS_EXCLUDE_USER_AGENTS` (comma-separated env var) adds to it. |
+| `default_exclusions` | `True` | Skip the [built-in health/probe exclusions](#default-exclusions) (applied before `exclude_paths`). `False` turns them off; your own `exclude_paths` / `exclude_user_agents` still apply. |
+
+### Default exclusions
+
+Unless `default_exclusions=False` (Django: `APILENS_DEFAULT_EXCLUSIONS = False`), requests matching any of these are skipped entirely (no record, span or log), before `exclude_paths` is checked. All patterns are case-insensitive `re.search` regexes; paths are matched without the query string.
+
+Paths (`DEFAULT_EXCLUDED_PATHS` in `apilens/client/_exclusions.py`):
+
+```
+/_?healthz?$
+/_?health[\-_]?checks?$
+/_?heart[\-_]?beats?$
+/ping$
+/ready$
+/live$
+/favicon(?:-[\w-]+)?\.(?:ico|png|svg)$
+/apple-touch-icon(?:-[\w-]+)?\.png$
+/robots\.txt$
+/sitemap\.xml$
+/manifest\.json$
+/site\.webmanifest$
+/service-worker\.js$
+/sw\.js$
+/\.well-known/
+```
+
+User agents (`DEFAULT_EXCLUDED_USER_AGENTS`):
+
+```
+health[\-_ ]?check
+microsoft-azure-application-lb
+googlehc
+kube-probe
+```
 
 ### Django settings
 
@@ -494,6 +529,8 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `APILENS_GET_CONSUMER` | `None` | Consumer resolver (callable or dotted path). |
 | `APILENS_MASK_REQUEST_BODY` / `APILENS_MASK_RESPONSE_BODY` | `None` | Body mask callbacks (callable or dotted path). An unimportable path raises at startup. |
 | `APILENS_EXCLUDE_PATHS` | `None` | Paths to skip entirely: a list of regexes or a comma-separated string. The env var of the same name adds to it. |
+| `APILENS_EXCLUDE_USER_AGENTS` | `None` | User agents to skip entirely: a list of regexes or a comma-separated string. The env var of the same name adds to it. |
+| `APILENS_DEFAULT_EXCLUSIONS` | `True` | `False` turns off the [built-in health/probe exclusions](#default-exclusions). |
 | `APILENS_FLUSH_ON_SHUTDOWN` | `True` | Flush the queue from `atexit` when the process exits. The env var of the same name set to `false` also disables it. |
 | `APILENS_SHUTDOWN_TIMEOUT` | `5.0` | Upper bound, in seconds, on the shutdown flush. |
 
