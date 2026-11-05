@@ -81,6 +81,55 @@ func (q *Queries) GetCapturePolicy(ctx context.Context, appID uuid.UUID) (GetCap
 	return i, err
 }
 
+const listAppMetadata = `-- name: ListAppMetadata :many
+SELECT m.environment, m.framework, m.framework_version, m.runtime_version,
+       m.sdk_version, m.config, m.received_at
+FROM app_metadata m
+JOIN apps a ON a.id = m.app_id
+WHERE m.app_id = $1 AND a.deleted_at IS NULL
+ORDER BY m.environment
+`
+
+type ListAppMetadataRow struct {
+	Environment      string
+	Framework        string
+	FrameworkVersion string
+	RuntimeVersion   string
+	SdkVersion       string
+	Config           []byte
+	ReceivedAt       time.Time
+}
+
+// The latest metadata report of an active app per environment, without the
+// route list: what the app settings page shows next to the capture policy.
+func (q *Queries) ListAppMetadata(ctx context.Context, appID uuid.UUID) ([]ListAppMetadataRow, error) {
+	rows, err := q.db.Query(ctx, listAppMetadata, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAppMetadataRow{}
+	for rows.Next() {
+		var i ListAppMetadataRow
+		if err := rows.Scan(
+			&i.Environment,
+			&i.Framework,
+			&i.FrameworkVersion,
+			&i.RuntimeVersion,
+			&i.SdkVersion,
+			&i.Config,
+			&i.ReceivedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertCapturePolicy = `-- name: UpsertCapturePolicy :one
 INSERT INTO capture_policies (app_id, enabled, sample_rate, capture_headers, capture_request_body,
                               capture_response_body, max_payload_bytes, updated_at, updated_by)

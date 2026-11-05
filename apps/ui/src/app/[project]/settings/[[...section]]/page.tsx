@@ -2,16 +2,18 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { ApiKeysSettings } from "@/components/project-settings/api-keys";
+import { CaptureSettings, type CaptureLoad } from "@/components/project-settings/capture";
 import { getContext, getSession } from "@/lib/auth/server";
 import { KEYS_SECTION } from "@/lib/api-keys";
+import { CAPTURE_SECTION } from "@/lib/capture-policy";
 import { PROJECT_SETTINGS } from "@/lib/data";
-import { type ApiKey, identity, isApiError } from "@/lib/identity";
+import { type ApiKey, type NamedApp, identity, isApiError } from "@/lib/identity";
 import { findProject } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 
 export const metadata: Metadata = { title: PROJECT_SETTINGS.label };
 
-const SECTIONS = ["", "environments", KEYS_SECTION, "sdk", "retention", "integrations", "danger"];
+const SECTIONS = ["", "environments", KEYS_SECTION, CAPTURE_SECTION, "sdk", "retention", "integrations", "danger"];
 
 /** `GET /projects/{slug}/api-keys`, or null when the API could not answer (the card says so). */
 async function loadApiKeys(project: string, next: string): Promise<ApiKey[] | null> {
@@ -25,8 +27,41 @@ async function loadApiKeys(project: string, next: string): Promise<ApiKey[] | nu
   }
 }
 
-// API keys (#350) have content; the other sections come later.
-export default async function SettingsPage({ params }: { params: Promise<{ project: string; section?: string[] }> }) {
+/**
+ * The project's apps (`GET /project`), the one `?app=` names (else the first), its capture policy
+ * and what its SDKs reported. Each part is null when the API could not answer (the page says so).
+ */
+async function loadCapture(project: string, appSlug: string | undefined, next: string): Promise<CaptureLoad> {
+  const session = await getSession();
+  const attempt = async <T,>(fn: () => Promise<T>): Promise<T | null> => {
+    try {
+      return await fn();
+    } catch (err) {
+      if (isSessionExpired(err)) redirectToRefresh(next);
+      if (isApiError(err)) return null;
+      throw err;
+    }
+  };
+  const listed = await attempt(() => session.call((o) => identity().projectApps(project, o)));
+  if (!listed) return { apps: null, app: null, policy: null, reports: null };
+  const apps: NamedApp[] = listed.apps ?? [];
+  const app = apps.find((a) => a.slug === appSlug) ?? apps[0] ?? null;
+  if (!app) return { apps, app: null, policy: null, reports: null };
+  const [policy, reports] = await Promise.all([
+    attempt(() => session.call((o) => identity().getCapturePolicy(app.id, o))),
+    attempt(() => session.call((o) => identity().appReports(app.id, o))),
+  ]);
+  return { apps, app, policy, reports: reports ? (reports.environments ?? []) : null };
+}
+
+// API keys (#350) and capture (#598) have content; the other sections come later.
+export default async function SettingsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ project: string; section?: string[] }>;
+  searchParams: Promise<{ app?: string | string[] }>;
+}) {
   const { project, section } = await params;
   if (section && (section.length > 1 || !SECTIONS.includes(section[0]))) notFound();
   const next = `/${project}/settings${section?.[0] ? `/${section[0]}` : ""}`;
@@ -38,6 +73,15 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
     return (
       <AppShell context={context} project={project} view={PROJECT_SETTINGS.slug}>
         <ApiKeysSettings project={project} projectName={found.project.name} initial={keys} now={Date.now()} />
+      </AppShell>
+    );
+  }
+  if (section?.[0] === CAPTURE_SECTION) {
+    const { app } = await searchParams;
+    const load = await loadCapture(project, typeof app === "string" ? app : undefined, next);
+    return (
+      <AppShell context={context} project={project} view={PROJECT_SETTINGS.slug}>
+        <CaptureSettings key={load.app?.id ?? "none"} project={project} projectName={found.project.name} userId={context.user.id} load={load} />
       </AppShell>
     );
   }

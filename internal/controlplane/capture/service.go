@@ -1,7 +1,9 @@
 package capture
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -125,6 +127,48 @@ func (s *Service) Put(ctx context.Context, actor uuid.UUID, app App, pol Policy)
 		return Stored{}, fmt.Errorf("capture: commit: %w", err)
 	}
 	return Stored{App: app, Policy: saved, UpdatedAt: &row.UpdatedAt, UpdatedBy: row.UpdatedBy}, nil
+}
+
+// Metadata is the latest metadata report of an app in one environment: the
+// framework and versions its SDK runs with and the effective SDK config.
+type Metadata struct {
+	Environment      string
+	Framework        string
+	FrameworkVersion string
+	RuntimeVersion   string
+	SdkVersion       string
+	Config           map[string]any
+	ReceivedAt       time.Time
+}
+
+// Metadata returns the latest metadata report of app per environment,
+// sorted by environment; empty when its SDKs never sent one.
+func (s *Service) Metadata(ctx context.Context, app App) ([]Metadata, error) {
+	rows, err := db.New(s.pool).ListAppMetadata(ctx, app.ID)
+	if err != nil {
+		return nil, fmt.Errorf("capture: list metadata: %w", err)
+	}
+	out := make([]Metadata, 0, len(rows))
+	for _, r := range rows {
+		cfg := map[string]any{}
+		if len(r.Config) > 0 {
+			dec := json.NewDecoder(bytes.NewReader(r.Config))
+			dec.UseNumber() // keep config numbers exactly as stored
+			if err := dec.Decode(&cfg); err != nil {
+				return nil, fmt.Errorf("capture: decode metadata config: %w", err)
+			}
+		}
+		out = append(out, Metadata{
+			Environment:      r.Environment,
+			Framework:        r.Framework,
+			FrameworkVersion: r.FrameworkVersion,
+			RuntimeVersion:   r.RuntimeVersion,
+			SdkVersion:       r.SdkVersion,
+			Config:           cfg,
+			ReceivedAt:       r.ReceivedAt.UTC(),
+		})
+	}
+	return out, nil
 }
 
 func lookupApp(ctx context.Context, q *db.Queries, id uuid.UUID) (App, error) {

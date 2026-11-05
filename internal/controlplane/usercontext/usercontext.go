@@ -38,6 +38,7 @@ const (
 	ActionProjectDelete = "project.delete"
 	ActionAPIKeysCreate = "api_keys.create"
 	ActionAPIKeysRevoke = "api_keys.revoke"
+	ActionCaptureManage = "capture.manage"
 	ActionMembersInvite = "members.invite"
 	ActionMembersRemove = "members.remove"
 	ActionBillingManage = "billing.manage"
@@ -62,6 +63,7 @@ var Vocabulary = []Grant{
 	{ActionProjectDelete, authz.ProjectDelete, false},
 	{ActionAPIKeysCreate, authz.ProjectManageKeys, false},
 	{ActionAPIKeysRevoke, authz.ProjectManageKeys, false},
+	{ActionCaptureManage, authz.ProjectManageCapture, false},
 	{ActionMembersInvite, authz.OrgInvite, true},
 	{ActionMembersRemove, authz.OrgManageMembers, true},
 	{ActionBillingManage, authz.OrgManageBilling, true},

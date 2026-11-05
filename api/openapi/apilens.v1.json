@@ -116,6 +116,51 @@
         ],
         "type": "object"
       },
+      "AppEnvironmentReport": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "additionalProperties": {},
+            "description": "The effective SDK config as the SDK reported it (capture flags, redaction patterns, exclusions, sample rate; callbacks as true).",
+            "type": "object"
+          },
+          "environment": {
+            "description": "The environment the SDK reported from.",
+            "type": "string"
+          },
+          "framework": {
+            "description": "The web framework the SDK instruments; empty if not reported.",
+            "type": "string"
+          },
+          "framework_version": {
+            "description": "The framework's version; empty if not reported.",
+            "type": "string"
+          },
+          "received_at": {
+            "description": "When the report arrived.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "runtime_version": {
+            "description": "The language runtime's version; empty if not reported.",
+            "type": "string"
+          },
+          "sdk_version": {
+            "description": "The SDK's version; empty if not reported.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "environment",
+          "framework",
+          "framework_version",
+          "runtime_version",
+          "sdk_version",
+          "config",
+          "received_at"
+        ],
+        "type": "object"
+      },
       "AppEnvironmentStatus": {
         "additionalProperties": false,
         "properties": {
@@ -410,6 +455,40 @@
         "required": [
           "method",
           "path"
+        ],
+        "type": "object"
+      },
+      "AppReports": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AppReports.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "app_id": {
+            "description": "The app's id.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "environments": {
+            "description": "The latest report per environment, sorted by environment; empty if the SDKs never sent one.",
+            "items": {
+              "$ref": "#/components/schemas/AppEnvironmentReport"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "app_id",
+          "environments"
         ],
         "type": "object"
       },
@@ -5942,7 +6021,7 @@
                 "null"
               ]
             },
-            "description": "Per project slug, the actions the user may perform there (project.read, project.update, project.delete, api_keys.create, api_keys.revoke, members.invite, members.remove, billing.manage). Every project in orgs has an entry, listing actions in this order. Computed from SpiceDB; the UI gates on these, the server still checks every request.",
+            "description": "Per project slug, the actions the user may perform there (project.read, project.update, project.delete, api_keys.create, api_keys.revoke, capture.manage, members.invite, members.remove, billing.manage). Every project in orgs has an entry, listing actions in this order. Computed from SpiceDB; the UI gates on these, the server still checks every request.",
             "type": "object"
           },
           "last_project_slug": {
@@ -6471,6 +6550,98 @@
         "summary": "Per-app ingest health: accepted, rejected, truncated and masked records",
         "tags": [
           "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/apps/{id}/metadata": {
+      "get": {
+        "description": "Returns the latest metadata report (POST /v1/metadata) of the app per environment: framework, versions and the effective SDK config, so it can be shown next to the remote capture policy (the SDK applies the narrower of the two). The route list is left out. Needs `view` on its project (any member, including viewers). An unknown app, or one in a project the caller cannot view, answers 404 `not_found`, so the cases cannot be told apart.",
+        "operationId": "get-app-metadata",
+        "parameters": [
+          {
+            "description": "The app's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The app's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppReports"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Get what an app's SDKs reported on startup",
+        "tags": [
+          "Projects"
         ]
       }
     },

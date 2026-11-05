@@ -133,6 +133,9 @@ type Querier interface {
 	// The last heartbeat of an app per environment, and how many of its
 	// instances were seen since @since.
 	ListAppEnvironmentsLastSeen(ctx context.Context, arg ListAppEnvironmentsLastSeenParams) ([]ListAppEnvironmentsLastSeenRow, error)
+	// The latest metadata report of an active app per environment, without the
+	// route list: what the app settings page shows next to the capture policy.
+	ListAppMetadata(ctx context.Context, appID uuid.UUID) ([]ListAppMetadataRow, error)
 	// Every enabled rule of an active app of an active project: what the
 	// evaluator runs.
 	ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error)

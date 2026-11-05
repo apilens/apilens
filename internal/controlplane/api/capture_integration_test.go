@@ -144,9 +144,35 @@ func TestCapturePolicy(t *testing.T) {
 		t.Fatalf("anonymous: %d", resp.Code)
 	}
 
+	// Metadata: empty until the SDKs report, then the latest report per
+	// environment with the config as sent; viewers read, strangers never
+	// learn the app exists.
+	metaPath := strings.Replace(AppMetadataPath, "{id}", appID.String(), 1)
+	if got := decode[AppReports](t, f.api.Get(metaPath, as(users["viewer"]))); got.AppID != appID.String() || len(got.Environments) != 0 {
+		t.Fatalf("no metadata = %+v", got)
+	}
+	for _, env := range []string{"staging", "production"} {
+		if _, err := f.pool.Exec(f.ctx, `INSERT INTO app_metadata (app_id, environment, project_id, framework, sdk_version, config)
+			VALUES ($1, $2, $3, 'fastapi', '0.6.0', '{"sample_rate": 0.5, "capture_headers": false}')`, appID, env, projectID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resp = f.api.Get(metaPath, as(users["viewer"]))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("metadata: %d %s", resp.Code, resp.Body)
+	}
+	meta := decode[AppReports](t, resp)
+	if len(meta.Environments) != 2 || meta.Environments[0].Environment != "production" || meta.Environments[1].Environment != "staging" ||
+		meta.Environments[0].Framework != "fastapi" || meta.Environments[0].SdkVersion != "0.6.0" ||
+		meta.Environments[0].Config["sample_rate"] != 0.5 || meta.Environments[0].Config["capture_headers"] != false {
+		t.Fatalf("metadata = %+v", meta)
+	}
+	expectProblem(t, "metadata stranger", f.api.Get(metaPath, as(users["stranger"])), http.StatusNotFound, "not_found")
+
 	// A deleted app is gone.
 	if _, err := f.pool.Exec(f.ctx, `UPDATE apps SET deleted_at = now() WHERE id = $1`, appID); err != nil {
 		t.Fatal(err)
 	}
 	expectProblem(t, "deleted app", f.api.Get(path, as(users["owner"])), http.StatusNotFound, "not_found")
+	expectProblem(t, "deleted app metadata", f.api.Get(metaPath, as(users["owner"])), http.StatusNotFound, "not_found")
 }

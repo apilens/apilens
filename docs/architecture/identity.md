@@ -661,6 +661,7 @@ the UI shows.
 | `project.delete` | `project#delete` | the project's danger zone |
 | `api_keys.create` | `project#manage_keys` | creating ingest and read keys |
 | `api_keys.revoke` | `project#manage_keys` | revoking keys |
+| `capture.manage` | `project#manage_capture` | editing an app's remote capture policy |
 | `members.invite` | `organization#invite` | the invite dialog and Invitations page |
 | `members.remove` | `organization#manage_members` | role changes and removal on Members |
 | `billing.manage` | `organization#manage_billing` | billing (SaaS) |
