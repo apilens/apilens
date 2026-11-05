@@ -1,0 +1,14 @@
+[
+  {
+    "to": "oncall@example.com",
+    "template": "uptime_up",
+    "data": {
+      "app": "storefront",
+      "ended_at": "2026-11-04T10:05:00Z",
+      "environment": "production",
+      "event": "0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41",
+      "project": "shop",
+      "started_at": "2026-11-04T09:30:00Z"
+    }
+  }
+]

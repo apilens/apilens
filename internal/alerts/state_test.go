@@ -159,7 +159,7 @@ func (f *fakeTx) UpsertAlertRuleState(_ context.Context, a db.UpsertAlertRuleSta
 
 func (f *fakeTx) GetOpenAlertEvent(_ context.Context, rule uuid.UUID) (db.AlertEvent, error) {
 	for _, e := range f.events {
-		if e.RuleID == rule && e.State == "triggered" {
+		if e.RuleID != nil && *e.RuleID == rule && e.State == "triggered" {
 			return e, nil
 		}
 	}
@@ -167,7 +167,7 @@ func (f *fakeTx) GetOpenAlertEvent(_ context.Context, rule uuid.UUID) (db.AlertE
 }
 
 func (f *fakeTx) OpenAlertEvent(_ context.Context, a db.OpenAlertEventParams) (db.AlertEvent, error) {
-	e := db.AlertEvent{ID: a.ID, RuleID: a.RuleID, State: "triggered", Value: a.Value, StartedAt: a.StartedAt}
+	e := db.AlertEvent{ID: a.ID, RuleID: &a.RuleID, Kind: "threshold", State: "triggered", Value: a.Value, StartedAt: a.StartedAt}
 	f.events = append(f.events, e)
 	return e, nil
 }
@@ -239,7 +239,7 @@ func TestRecordEvaluation(t *testing.T) {
 	}
 
 	t.Run("trigger reuses an open event", func(t *testing.T) {
-		open := db.AlertEvent{ID: uuid.New(), RuleID: rule.ID, State: "triggered", Value: 9, StartedAt: t0}
+		open := db.AlertEvent{ID: uuid.New(), RuleID: &rule.ID, Kind: "threshold", State: "triggered", Value: 9, StartedAt: t0}
 		f := &fakeTx{events: []db.AlertEvent{open}}
 		r := rule
 		r.NotifyAfterS = 0

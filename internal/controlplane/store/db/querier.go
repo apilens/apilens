@@ -6,6 +6,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -65,6 +66,10 @@ type Querier interface {
 	// The domains among @domains that another active organization enforces SSO
 	// for. A domain is enforced by at most one organization.
 	EnforcedSSODomainsOfOtherOrgs(ctx context.Context, arg EnforcedSSODomainsOfOtherOrgsParams) ([]string, error)
+	// Creates an environment's monitor on first sight (up, never checked) and
+	// locks it for the transaction that records a check, so two runs cannot
+	// step it at once.
+	EnsureUptimeMonitor(ctx context.Context, arg EnsureUptimeMonitorParams) (UptimeMonitor, error)
 	ExpireRequestExport(ctx context.Context, id uuid.UUID) (int64, error)
 	FailRequestExport(ctx context.Context, arg FailRequestExportParams) (int64, error)
 	// Resolves an ingest key to its project. Revoked, expired and keys of
@@ -117,6 +122,9 @@ type Querier interface {
 	GetNotificationChannel(ctx context.Context, arg GetNotificationChannelParams) (NotificationChannel, error)
 	// A rule's open (triggered) event. Returns pgx.ErrNoRows when none is open.
 	GetOpenAlertEvent(ctx context.Context, ruleID uuid.UUID) (AlertEvent, error)
+	// An environment's open uptime event. Returns pgx.ErrNoRows when none is
+	// open.
+	GetOpenUptimeEvent(ctx context.Context, arg GetOpenUptimeEventParams) (AlertEvent, error)
 	// One member of an organization with their user; no row when the user is
 	// not a member or their account is deleted.
 	GetOrgMember(ctx context.Context, arg GetOrgMemberParams) (GetOrgMemberRow, error)
@@ -137,6 +145,14 @@ type Querier interface {
 	// An active app of an active project, with the project slug that authorizing
 	// a settings change on it needs.
 	GetSettingsApp(ctx context.Context, id uuid.UUID) (GetSettingsAppRow, error)
+	// What a notification about an uptime event says: the event, its app,
+	// project and monitor (muted), and the channels it goes to, which are every
+	// notification channel of the project. Returns pgx.ErrNoRows when the event
+	// is not an uptime event or was deleted.
+	GetUptimeEventNotification(ctx context.Context, id uuid.UUID) (GetUptimeEventNotificationRow, error)
+	// An environment's monitor. Returns pgx.ErrNoRows before the job first
+	// sees the environment (and while it was never muted).
+	GetUptimeMonitor(ctx context.Context, arg GetUptimeMonitorParams) (UptimeMonitor, error)
 	// The email of an active user and when it was verified (NULL when not).
 	GetUserEmail(ctx context.Context, id uuid.UUID) (GetUserEmailRow, error)
 	// Whether user signed in through organization org's SSO connection (a
@@ -230,6 +246,11 @@ type Querier interface {
 	// own private ones (a NULL viewer, a read key, sees the shared ones only).
 	// An empty surface lists every surface.
 	ListSavedViews(ctx context.Context, arg ListSavedViewsParams) ([]SavedView, error)
+	// Uptime from SDK heartbeats (internal/alerts: the alerts.uptime job).
+	// Every environment of an active app of an active project that sent a
+	// heartbeat since @since, with its latest heartbeat: what the uptime job
+	// checks.
+	ListUptimeTargets(ctx context.Context, since time.Time) ([]ListUptimeTargetsRow, error)
 	// The active organizations a user belongs to, with their role.
 	ListUserOrganizations(ctx context.Context, userID uuid.UUID) ([]ListUserOrganizationsRow, error)
 	// The active organizations a user belongs to, with their role and the
@@ -272,6 +293,10 @@ type Querier interface {
 	// Opens a triggered event for a rule. A rule has at most one open event, so
 	// this fails with a unique violation (alert_events_open) while one is open.
 	OpenAlertEvent(ctx context.Context, arg OpenAlertEventParams) (AlertEvent, error)
+	// Opens an uptime event for an environment. An environment has at most one
+	// open uptime event, so this fails with a unique violation
+	// (alert_events_uptime_open) while one is open.
+	OpenUptimeEvent(ctx context.Context, arg OpenUptimeEventParams) (AlertEvent, error)
 	// Whether a member of the organization (with an account that is not
 	// deleted) uses the address; citext compares it case-insensitively.
 	OrgMemberEmailExists(ctx context.Context, arg OrgMemberEmailExistsParams) (bool, error)
@@ -300,6 +325,9 @@ type Querier interface {
 	// No row means the export was cancelled meanwhile.
 	SetRequestExportProgress(ctx context.Context, arg SetRequestExportProgressParams) (int64, error)
 	SetRequestExportTotal(ctx context.Context, arg SetRequestExportTotalParams) (int64, error)
+	// Mutes or unmutes an environment's uptime notifications, creating its
+	// monitor if the job has not checked it yet.
+	SetUptimeMonitorMuted(ctx context.Context, arg SetUptimeMonitorMutedParams) (UptimeMonitor, error)
 	SoftDeleteOrganization(ctx context.Context, id uuid.UUID) (int64, error)
 	SoftDeleteProject(ctx context.Context, id uuid.UUID) (int64, error)
 	// Moves a queued (or retried, still running) export to running. No row
@@ -322,6 +350,8 @@ type Querier interface {
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)
 	UpdateProjectName(ctx context.Context, arg UpdateProjectNameParams) (UpdateProjectNameRow, error)
 	UpdateSavedView(ctx context.Context, arg UpdateSavedViewParams) (SavedView, error)
+	// Records a check of an environment and its uptime status.
+	UpdateUptimeMonitorStatus(ctx context.Context, arg UpdateUptimeMonitorStatusParams) error
 	// Records the result of a rule's latest evaluation and its trigger/resolve
 	// state.
 	UpsertAlertRuleState(ctx context.Context, arg UpsertAlertRuleStateParams) error

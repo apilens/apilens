@@ -40,6 +40,13 @@ const (
 	// TemplateAlertResolved: the alert_triggered data with value the latest
 	// evaluated value, plus ended_at.
 	TemplateAlertResolved = "alert_resolved"
+	// TemplateUptimeDown: app, environment, last_heartbeat, down_after
+	// (for example "3 minutes"), project (slug) and event (id) for the
+	// /<project>/incidents?event= link, from internal/alerts.
+	TemplateUptimeDown = "uptime_down"
+	// TemplateUptimeUp: app, environment, started_at (the last heartbeat
+	// before the gap), ended_at, project and event.
+	TemplateUptimeUp = "uptime_up"
 )
 
 // Values of the security_change template's change field. An unknown value

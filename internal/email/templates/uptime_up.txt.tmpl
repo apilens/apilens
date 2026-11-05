@@ -1,0 +1,17 @@
+{{- /* Data: app, environment, started_at (the last heartbeat before the gap), ended_at, project (slug), event (id). */ -}}
+{{define "subject"}}Up again: {{.app}} ({{.environment}}){{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+{{.app}} ({{.environment}}) is up again: it is sending heartbeats.
+
+App: {{.app}}
+Environment: {{.environment}}
+Check: Heartbeat
+Down since: {{datetime .started_at}}
+Up again: {{datetime .ended_at}}
+
+View the incident:
+{{link (print "/" (seg .project) "/incidents") "event" .event}}
+
+You get this email because this address is on a notification channel of the project.
+{{- end}}

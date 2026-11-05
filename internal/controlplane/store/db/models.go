@@ -13,13 +13,16 @@ import (
 )
 
 type AlertEvent struct {
-	ID         uuid.UUID
-	RuleID     uuid.UUID
-	State      string
-	Value      float64
-	StartedAt  time.Time
-	EndedAt    *time.Time
-	NotifiedAt *time.Time
+	ID                 uuid.UUID
+	RuleID             *uuid.UUID
+	State              string
+	Value              float64
+	StartedAt          time.Time
+	EndedAt            *time.Time
+	NotifiedAt         *time.Time
+	Kind               string
+	MonitorAppID       *uuid.UUID
+	MonitorEnvironment *string
 }
 
 type AlertRule struct {
@@ -423,6 +426,18 @@ type SigningKey struct {
 	CreatedAt     time.Time
 	ActivatedAt   *time.Time
 	RetiredAt     *time.Time
+}
+
+type UptimeMonitor struct {
+	AppID       uuid.UUID
+	Environment string
+	ProjectID   uuid.UUID
+	Muted       bool
+	Status      string
+	StatusSince time.Time
+	CheckedAt   *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type User struct {
