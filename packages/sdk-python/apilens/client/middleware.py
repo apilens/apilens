@@ -19,7 +19,15 @@ from ._capture import (
 )
 from ._exclude import PathExcluder
 from ._routes import resolve_endpoint_path
-from ._sanitize import Redactor, decode_utf8_safe, serialize_headers
+from ._sanitize import (
+    BodyMasker,
+    Redactor,
+    RequestInfo,
+    ResponseInfo,
+    lower_headers,
+    mask_body,
+    serialize_headers,
+)
 from .client import ApiLensClient
 from .spans import configure_spans, env_spans_enabled, record_error_log, record_span
 from .trace import begin_request_trace, end_request_trace
@@ -290,6 +298,8 @@ class ApiLensASGIMiddleware:
         redact_query_params: list[str] | None = None,
         redact_headers: list[str] | None = None,
         redact_body_fields: list[str] | None = None,
+        mask_request_body: BodyMasker | None = None,
+        mask_response_body: BodyMasker | None = None,
         exclude_paths: list[str] | None = None,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
@@ -315,6 +325,12 @@ class ApiLensASGIMiddleware:
             headers=redact_headers or (),
             body_fields=redact_body_fields or (),
         )
+        # Body mask callbacks ``(RequestInfo | ResponseInfo, bytes) -> bytes |
+        # None`` run on the truncated raw bytes BEFORE the regex field masking
+        # above (which, with its built-ins, still applies to their output).
+        # ``None`` or an exception stores the whole body as ``[masked]``.
+        self.mask_request_body = mask_request_body
+        self.mask_response_body = mask_response_body
         # Regexes (case-insensitive, matched against the path without query
         # string) whose requests bypass capture entirely — no record, span or
         # log. Compiled once here; APILENS_EXCLUDE_PATHS adds to them.
@@ -378,6 +394,7 @@ class ApiLensASGIMiddleware:
         response_payload_chunks: list[bytes] = []
         response_payload_len = 0
         response_headers_json = ""
+        response_headers: dict[str, str] = {}
         token = _consumer_ctx.set(None)
 
         async def wrapped_receive():
@@ -398,15 +415,13 @@ class ApiLensASGIMiddleware:
             return message
 
         async def wrapped_send(message: dict[str, Any]) -> None:
-            nonlocal status_code, response_size, response_payload_len, response_headers_json
+            nonlocal status_code, response_size, response_payload_len, response_headers_json, response_headers
             msg_type = message.get("type")
             if msg_type == "http.response.start":
                 status_code = int(message.get("status") or 500)
+                response_headers = _headers_to_dict(message.get("headers") or [])
                 if self.capture_headers:
-                    response_headers_json = serialize_headers(
-                        _headers_to_dict(message.get("headers") or []),
-                        redactor=self.redactor,
-                    )
+                    response_headers_json = serialize_headers(response_headers, redactor=self.redactor)
             elif msg_type == "http.response.body":
                 body = message.get("body") or b""
                 response_size += len(body)
@@ -447,8 +462,25 @@ class ApiLensASGIMiddleware:
                     resolved = None
                 if resolved is not None:
                     consumer = normalize_consumer(resolved)
-            request_payload = self.redactor.redact_body(decode_utf8_safe(b"".join(request_payload_chunks)))
-            response_payload = self.redactor.redact_body(decode_utf8_safe(b"".join(response_payload_chunks)))
+            request_info = RequestInfo(
+                method=ctx.method, path=path, raw_path=raw_path, headers=lower_headers(headers)
+            )
+            request_payload = mask_body(
+                b"".join(request_payload_chunks),
+                redactor=self.redactor,
+                masker=self.mask_request_body,
+                info=request_info,
+            )
+            response_payload = mask_body(
+                b"".join(response_payload_chunks),
+                redactor=self.redactor,
+                masker=self.mask_response_body,
+                info=ResponseInfo(
+                    request=request_info,
+                    status_code=status_code,
+                    headers=lower_headers(response_headers),
+                ),
+            )
             ctx.request_payload = request_payload
             _apply_consumer(ctx, consumer)
             capture_response(
@@ -508,6 +540,8 @@ class ApiLensWSGIMiddleware:
         redact_query_params: list[str] | None = None,
         redact_headers: list[str] | None = None,
         redact_body_fields: list[str] | None = None,
+        mask_request_body: BodyMasker | None = None,
+        mask_response_body: BodyMasker | None = None,
         exclude_paths: list[str] | None = None,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
@@ -531,6 +565,9 @@ class ApiLensWSGIMiddleware:
             headers=redact_headers or (),
             body_fields=redact_body_fields or (),
         )
+        # Body mask callbacks — same semantics as the ASGI middleware.
+        self.mask_request_body = mask_request_body
+        self.mask_response_body = mask_response_body
         # Excluded paths bypass capture entirely — same semantics as ASGI.
         self.exclude_paths = PathExcluder(exclude_paths)
         # Framework hook that maps a WSGI environ to its route template. Runs
@@ -574,13 +611,25 @@ class ApiLensWSGIMiddleware:
         else:
             ip_address = (environ.get("HTTP_X_REAL_IP") or "").strip() or (environ.get("REMOTE_ADDR") or "")
 
+        request_headers = _wsgi_request_headers(environ)
+        request_info = RequestInfo(
+            method=(environ.get("REQUEST_METHOD") or "GET").upper(),
+            path=clean_path,
+            raw_path=path,
+            headers=request_headers,
+        )
         request_payload = ""
         if self.capture_payloads and self.log_request_body and self.max_payload_bytes > 0:
             stream = environ.get("wsgi.input")
             if stream is not None and hasattr(stream, "read"):
                 body = stream.read(self.max_payload_bytes)
                 if body:
-                    request_payload = self.redactor.redact_body(decode_utf8_safe(body))
+                    request_payload = mask_body(
+                        body,
+                        redactor=self.redactor,
+                        masker=self.mask_request_body,
+                        info=request_info,
+                    )
                 # Reset stream so app can consume the same bytes.
                 try:
                     import io
@@ -590,7 +639,7 @@ class ApiLensWSGIMiddleware:
                     pass
 
         request_headers_json = (
-            serialize_headers(_wsgi_request_headers(environ), redactor=self.redactor)
+            serialize_headers(request_headers, redactor=self.redactor)
             if self.capture_headers
             else ""
         )
@@ -616,15 +665,14 @@ class ApiLensWSGIMiddleware:
         response_payload_chunks: list[bytes] = []
         response_payload_len = 0
         response_headers_json = ""
+        response_headers: dict[str, str] = {}
 
         def wrapped_start_response(status: str, headers: list[tuple[str, str]], exc_info=None):
-            nonlocal status_code, response_headers_json
+            nonlocal status_code, response_headers_json, response_headers
             status_code = _to_int(status.split(" ", 1)[0], 500)
+            response_headers = {str(k): str(v) for k, v in (headers or [])}
             if self.capture_headers:
-                response_headers_json = serialize_headers(
-                    {str(k): str(v) for k, v in (headers or [])},
-                    redactor=self.redactor,
-                )
+                response_headers_json = serialize_headers(response_headers, redactor=self.redactor)
             return start_response(status, headers, exc_info)
 
         result = None
@@ -689,7 +737,16 @@ class ApiLensWSGIMiddleware:
                     path=ctx.path,
                     consumer=consumer,
                 )
-            response_payload = self.redactor.redact_body(decode_utf8_safe(b"".join(response_payload_chunks)))
+            response_payload = mask_body(
+                b"".join(response_payload_chunks),
+                redactor=self.redactor,
+                masker=self.mask_response_body,
+                info=ResponseInfo(
+                    request=request_info,
+                    status_code=status_code,
+                    headers=lower_headers(response_headers),
+                ),
+            )
             capture_response(
                 self.client,
                 ctx,

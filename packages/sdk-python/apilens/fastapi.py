@@ -58,6 +58,8 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         redact_query_params: list[str] | None = None,
         redact_headers: list[str] | None = None,
         redact_body_fields: list[str] | None = None,
+        mask_request_body: Callable[[Any, bytes], bytes | None] | None = None,
+        mask_response_body: Callable[[Any, bytes], bytes | None] | None = None,
         exclude_paths: list[str] | None = None,
         get_consumer: Callable[..., Any] | None = None,
     ) -> None:
@@ -97,6 +99,8 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
             redact_query_params=redact_query_params,
             redact_headers=redact_headers,
             redact_body_fields=redact_body_fields,
+            mask_request_body=mask_request_body,
+            mask_response_body=mask_response_body,
             exclude_paths=exclude_paths,
             get_consumer=get_consumer,
             route_resolver=starlette_route_template,

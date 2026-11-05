@@ -465,6 +465,7 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `capture_spans` | `True` | Emit trace spans for this app. |
 | `service_name` | `app_id` | Service name shown on spans. |
 | `get_consumer` | `None` | Optional resolver callback (see [consumer attribution](#consumer-attribution)). |
+| `mask_request_body` / `mask_response_body` | `None` | `(info, body: bytes) -> bytes \| None` callbacks on the captured (truncated) raw body; see [body mask callbacks](#security--privacy). |
 | `exclude_paths` | `None` | Regexes for paths to skip entirely (no record, span or log), e.g. `[r"^/health$"]`. Matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` (comma-separated env var) adds to it. An invalid regex raises at startup. |
 
 ### Django settings
@@ -483,6 +484,7 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `APILENS_CAPTURE_SPANS` | `True` | Emit trace spans. |
 | `APILENS_SERVICE_NAME` | `APILENS_APP_ID` | Service name on spans. |
 | `APILENS_GET_CONSUMER` | `None` | Consumer resolver (callable or dotted path). |
+| `APILENS_MASK_REQUEST_BODY` / `APILENS_MASK_RESPONSE_BODY` | `None` | Body mask callbacks (callable or dotted path). An unimportable path raises at startup. |
 | `APILENS_EXCLUDE_PATHS` | `None` | Paths to skip entirely: a list of regexes or a comma-separated string. The env var of the same name adds to it. |
 
 **Local development:** point the SDK at a local ingest with
@@ -580,6 +582,26 @@ backpressure and `client.drop_counts()` breaks that total down by reason (see
   `redact_headers` and `redact_body_fields` (Django: `APILENS_REDACT_*`) add
   your own patterns on top — they extend the defaults, never replace them.
   Patterns are compiled once per middleware, never per request.
+- **Body mask callbacks** handle what field patterns can't (form-encoded, XML,
+  free text). `mask_request_body(info, body)` gets an `apilens.RequestInfo`
+  (`method`, `path`, `raw_path`, `headers`, `content_type`) and
+  `mask_response_body(info, body)` an `apilens.ResponseInfo` (`request`,
+  `status_code`, `headers`, `content_type`), plus the captured bytes. Return
+  the bytes to store, or `None` to store `[masked]`. Order is fixed: callback →
+  your regex field patterns → built-in defaults, so the defaults still apply
+  to whatever the callback returns. If the callback raises, the whole body is
+  stored as `[masked]` — never the raw body.
+
+  ```python
+  def mask_request_body(info, body: bytes) -> bytes | None:
+      if info.content_type.startswith("application/x-www-form-urlencoded"):
+          return None  # drop form posts entirely
+      return body
+
+  app.add_middleware(ApiLensMiddleware, api_key="...", app_id="...",
+                     mask_request_body=mask_request_body)
+  # Django: APILENS_MASK_REQUEST_BODY = "myapp.apilens.mask_request_body"
+  ```
 - **Bodies are size-limited** to `max_payload_bytes` (64 KB default). Disable body
   capture entirely with `capture_payloads=False` (or `max_payload_bytes=0`, or
   `APILENS_MAX_PAYLOAD_BYTES=0` on Django).
