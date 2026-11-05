@@ -34,6 +34,7 @@ That is the whole setup. No agent, no sidecar, no code changes to your handlers.
 - [Configuration reference](#configuration-reference)
 - [Manual capture](#manual-capture)
 - [Reliability & performance](#reliability--performance)
+- [Deployment shapes](#deployment-shapes)
 - [Security & privacy](#security--privacy)
 - [OpenTelemetry interoperability](#opentelemetry-interoperability)
 - [Troubleshooting](#troubleshooting)
@@ -132,8 +133,10 @@ called each endpoint) and lean on the automatic [distributed tracing](#distribut
 4. **Requests and spans share the pipeline.** Request records go to `/requests`;
    [trace spans](#distributed-tracing) go to `/traces` on the same batching client.
 
-Call `client.shutdown(flush=True)` on graceful shutdown to drain the queue. The
-framework helpers manage the client lifecycle for you.
+The framework integrations flush the queue on graceful shutdown (ASGI lifespan
+or `atexit`, bounded by `shutdown_timeout`); see
+[Deployment shapes](#deployment-shapes). With a bare client, call
+`client.shutdown(flush=True)` yourself.
 
 ---
 
@@ -467,6 +470,8 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `service_name` | `app_id` | Service name shown on spans. |
 | `get_consumer` | `None` | Optional resolver callback (see [consumer attribution](#consumer-attribution)). |
 | `mask_request_body` / `mask_response_body` | `None` | `(info, body: bytes) -> bytes \| None` callbacks on the captured (truncated) raw body; see [body mask callbacks](#security--privacy). |
+| `flush_on_shutdown` | `True` | Flush the queue on ASGI lifespan shutdown / process exit (see [Deployment shapes](#deployment-shapes)). `APILENS_FLUSH_ON_SHUTDOWN=false` (env var) disables it. |
+| `shutdown_timeout` | `5.0` | Upper bound, in seconds, on how long the shutdown flush may block. |
 | `exclude_paths` | `None` | Regexes for paths to skip entirely (no record, span or log), e.g. `[r"^/health$"]`. Matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` (comma-separated env var) adds to it. An invalid regex raises at startup. |
 
 ### Django settings
@@ -487,6 +492,8 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `APILENS_GET_CONSUMER` | `None` | Consumer resolver (callable or dotted path). |
 | `APILENS_MASK_REQUEST_BODY` / `APILENS_MASK_RESPONSE_BODY` | `None` | Body mask callbacks (callable or dotted path). An unimportable path raises at startup. |
 | `APILENS_EXCLUDE_PATHS` | `None` | Paths to skip entirely: a list of regexes or a comma-separated string. The env var of the same name adds to it. |
+| `APILENS_FLUSH_ON_SHUTDOWN` | `True` | Flush the queue from `atexit` when the process exits. The env var of the same name set to `false` also disables it. |
+| `APILENS_SHUTDOWN_TIMEOUT` | `5.0` | Upper bound, in seconds, on the shutdown flush. |
 
 **Local development:** point the SDK at a local ingest with
 `APILENS_BASE_URL=http://localhost:8000/api/v1` (or the `base_url` kwarg), and set
@@ -559,8 +566,50 @@ backpressure and `client.drop_counts()` breaks that total down by reason (see
   [Troubleshooting](https://apilens.ai/docs/support/troubleshooting).
 - **Never raises into your app.** All SDK errors are caught and logged under the
   `apilens` logger — enable it (`logging.getLogger("apilens")`) while debugging.
-- **Graceful shutdown.** `shutdown(flush=True)` drains the queue; the framework
-  helpers wire this into the app lifecycle.
+- **Graceful shutdown.** The framework integrations drain the queue when the
+  app shuts down, never blocking longer than `shutdown_timeout`; see
+  [Deployment shapes](#deployment-shapes).
+
+---
+
+## Deployment shapes
+
+The SDK delivers from a background thread, so whatever is still queued when a
+process exits is lost unless it is flushed first. The integrations do that for
+you, once per client, bounded by `shutdown_timeout` (default **5 s**) so a slow
+or unreachable ingest never holds up a deploy:
+
+| Integration | Hook | Notes |
+|---|---|---|
+| FastAPI / Starlette / any ASGI app | ASGI `lifespan` shutdown event | Flushes after your own shutdown handlers and before the server is told shutdown is complete. `atexit` is registered too, for servers that run with lifespan off. |
+| Django (WSGI or ASGI) | `atexit` | Django has no lifespan hook. `APILENS_FLUSH_ON_SHUTDOWN` / `APILENS_SHUTDOWN_TIMEOUT` settings. |
+| Flask / any WSGI app | `atexit` | |
+
+Each hook flushes at most once per client; if the deadline passes, the leftovers
+are dropped and the process exits on time. Set `flush_on_shutdown=False` (or the
+`APILENS_FLUSH_ON_SHUTDOWN=false` env var, which wins over code) to turn the hooks
+off and call `client.shutdown(flush=True)` yourself.
+
+**Multi-worker servers (gunicorn, uvicorn `--workers`, uwsgi).** Each worker
+process has its own client and queue and flushes its own on exit. gunicorn sends
+`SIGTERM` to workers on restart, `--max-requests` recycling and shutdown; a worker
+that exits normally runs `atexit` (sync/gthread workers) or the lifespan shutdown
+(`uvicorn.workers.UvicornWorker`). Keep gunicorn's `--graceful-timeout` (default
+30 s) above `shutdown_timeout`, or the worker is `SIGKILL`ed mid-flush. Workers
+killed by `SIGKILL`, the OOM killer or `--timeout` expiry run no hooks and lose
+up to one `flush_interval` (3 s) of data. With uwsgi, enable `--enable-threads`
+(the delivery thread needs it) and avoid `--skip-atexit`.
+
+**Serverless (AWS Lambda, Cloud Functions, Cloud Run jobs).** The runtime freezes
+or kills the process between invocations, so `atexit` and lifespan are not
+reliable. Call `client.flush_all()` at the end of each invocation (or wrap the
+handler body in `with client:` for one-shot functions), and keep
+`flush_interval` short.
+
+**CronJobs and scripts.** Use the client as a context manager
+(`with ApiLensClient(...) as client:`) or call `client.shutdown(flush=True)` before
+exit. In Kubernetes, `terminationGracePeriodSeconds` (default 30 s) must exceed
+`shutdown_timeout` plus your app's own shutdown time.
 
 ---
 

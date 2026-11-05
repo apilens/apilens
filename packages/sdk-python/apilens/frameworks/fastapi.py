@@ -27,6 +27,8 @@ def instrument_fastapi(
     mask_response_body: Callable[[Any, bytes], bytes | None] | None = None,
     exclude_paths: list[str] | None = None,
     get_consumer: Callable[..., Any] | None = None,
+    flush_on_shutdown: bool = True,
+    shutdown_timeout: float = 5.0,
 ):
     """FastAPI integration via ASGI middleware.
 
@@ -88,6 +90,8 @@ def instrument_fastapi(
         exclude_paths=exclude_paths,
         get_consumer=get_consumer,
         route_resolver=starlette_route_template,
+        flush_on_shutdown=flush_on_shutdown,
+        shutdown_timeout=shutdown_timeout,
     )
     return app
 

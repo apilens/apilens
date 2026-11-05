@@ -61,6 +61,8 @@ Accepted by `ApiLensMiddleware` (FastAPI), `instrument_app`/`instrument_flask`, 
 | `get_consumer` | `None` | Centralized consumer resolver — see [Consumer identification](/sdk-reference/consumers). |
 | `route_resolver` | `None` | Custom callback returning the route template for a request. |
 | `parametrize_paths` | `True` | Heuristic path templating fallback — see [Path templating](/sdk-reference/path-templating). |
+| `flush_on_shutdown` | `True` | Flush the queue on ASGI lifespan shutdown / process exit — see [Deployment shapes](#deployment-shapes). |
+| `shutdown_timeout` | `5.0` | Upper bound, in seconds, on how long the shutdown flush may block. |
 
 ## Environment variables
 
@@ -71,6 +73,7 @@ These variables act as **deploy-time kill switches** that override code (they ca
 | `APILENS_CAPTURE_SPANS` | `0`/`false`/`no`/`off`/`disabled` disables all span and error-trace capture. |
 | `APILENS_PARAMETRIZE_PATHS` | `0`/`false`/`no`/`off` disables the heuristic templating fallback. |
 | `APILENS_CAPTURE_IP` | `0`/`false`/`no`/`off`/`disabled` stops sending client IPs. |
+| `APILENS_FLUSH_ON_SHUTDOWN` | `0`/`false`/`no`/`off` disables the automatic shutdown flush (lifespan and `atexit`). |
 | `APILENS_ANONYMIZE_IP` | `1`/`true`/`yes`/`on`/`enabled` anonymises client IPs (IPv4 /24, IPv6 /48). |
 
 Django reads its entire configuration from settings instead — `APILENS_API_KEY`, `APILENS_APP_ID` (both required) and the optional set listed in the [Django guide](/setup-guides/django).
@@ -83,7 +86,46 @@ Worth knowing when you reason about failure modes:
 - Three independent queues (requests, spans, logs) flush every `flush_interval` or as soon as `batch_size` accumulates.
 - Retries use exponential backoff; 4xx responses other than 429 are not retried.
 - On overflow the **oldest** record is dropped — your app's memory is bounded and never blocked.
-- `client.shutdown(flush=True)` (or using the client as a context manager) drains queues on exit.
+- The framework integrations drain the queues on shutdown, bounded by `shutdown_timeout`; with a bare client, `client.shutdown(flush=True)` (or using the client as a context manager) does it.
+
+## Deployment shapes
+
+The SDK delivers from a background thread, so whatever is still queued when a
+process exits is lost unless it is flushed first. The integrations do that for
+you, once per client, bounded by `shutdown_timeout` (default **5 s**) so a slow
+or unreachable ingest never holds up a deploy:
+
+| Integration | Hook | Notes |
+|---|---|---|
+| FastAPI / Starlette / any ASGI app | ASGI `lifespan` shutdown event | Flushes after your own shutdown handlers and before the server is told shutdown is complete. `atexit` is registered too, for servers that run with lifespan off. |
+| Django (WSGI or ASGI) | `atexit` | Django has no lifespan hook. `APILENS_FLUSH_ON_SHUTDOWN` / `APILENS_SHUTDOWN_TIMEOUT` settings. |
+| Flask / any WSGI app | `atexit` | |
+
+Each hook flushes at most once per client; if the deadline passes, the leftovers
+are dropped and the process exits on time. Set `flush_on_shutdown=False` (or the
+`APILENS_FLUSH_ON_SHUTDOWN=false` env var, which wins over code) to turn the hooks
+off and call `client.shutdown(flush=True)` yourself.
+
+**Multi-worker servers (gunicorn, uvicorn `--workers`, uwsgi).** Each worker
+process has its own client and queue and flushes its own on exit. gunicorn sends
+`SIGTERM` to workers on restart, `--max-requests` recycling and shutdown; a worker
+that exits normally runs `atexit` (sync/gthread workers) or the lifespan shutdown
+(`uvicorn.workers.UvicornWorker`). Keep gunicorn's `--graceful-timeout` (default
+30 s) above `shutdown_timeout`, or the worker is `SIGKILL`ed mid-flush. Workers
+killed by `SIGKILL`, the OOM killer or `--timeout` expiry run no hooks and lose
+up to one `flush_interval` (3 s) of data. With uwsgi, enable `--enable-threads`
+(the delivery thread needs it) and avoid `--skip-atexit`.
+
+**Serverless (AWS Lambda, Cloud Functions, Cloud Run jobs).** The runtime freezes
+or kills the process between invocations, so `atexit` and lifespan are not
+reliable. Call `client.flush_all()` at the end of each invocation (or wrap the
+handler body in `with client:` for one-shot functions), and keep
+`flush_interval` short.
+
+**CronJobs and scripts.** Use the client as a context manager
+(`with ApiLensClient(...) as client:`) or call `client.shutdown(flush=True)` before
+exit. In Kubernetes, `terminationGracePeriodSeconds` (default 30 s) must exceed
+`shutdown_timeout` plus your app's own shutdown time.
 
 ## What's on the wire
 

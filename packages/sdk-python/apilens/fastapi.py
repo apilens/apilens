@@ -62,6 +62,8 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         mask_response_body: Callable[[Any, bytes], bytes | None] | None = None,
         exclude_paths: list[str] | None = None,
         get_consumer: Callable[..., Any] | None = None,
+        flush_on_shutdown: bool = True,
+        shutdown_timeout: float = 5.0,
     ) -> None:
         resolved_key = (api_key or client_id or "").strip()
         resolved_project_slug = project_slug.strip()
@@ -104,6 +106,8 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
             exclude_paths=exclude_paths,
             get_consumer=get_consumer,
             route_resolver=starlette_route_template,
+            flush_on_shutdown=flush_on_shutdown,
+            shutdown_timeout=shutdown_timeout,
         )
 
 
