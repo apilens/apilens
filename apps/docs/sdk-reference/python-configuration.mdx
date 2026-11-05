@@ -27,6 +27,7 @@ client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
 | `environment` | `"production"` | Environment label attached to every record. |
 | `batch_size` | `200` | Records per batch; reaching it triggers an immediate flush. |
 | `flush_interval` | `3.0` | Seconds between background flushes. |
+| `mode` | `"thread"` | `"thread"`: a background thread flushes every `flush_interval`. `"inline"` (serverless): no thread; `client.flush()` sends synchronously and the ASGI/WSGI middlewares call it after each response is sent. Env `APILENS_MODE`. |
 | `timeout` | `5.0` | Per-request HTTP timeout (seconds). |
 | `verify_tls` | `True` | TLS certificate verification. |
 | `ca_bundle_path` | `""` | Custom CA bundle for private CAs. |
@@ -105,6 +106,7 @@ parsed values as a dict.
 | `APILENS_CAPTURE_SPANS` | `capture_spans` | bool; `false` wins over code | `true` |
 | `APILENS_BATCH_SIZE` | `batch_size` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flush_interval` | float (seconds) | `3.0` |
+| `APILENS_MODE` | `mode` | `thread` or `inline` | `thread` |
 
 `APILENS_EXCLUDE_PATHS` / `APILENS_EXCLUDE_USER_AGENTS` add to the patterns
 passed in code. `APILENS_CAPTURE_SPANS=false`, `APILENS_CAPTURE_IP=false` and
@@ -161,11 +163,28 @@ killed by `SIGKILL`, the OOM killer or `--timeout` expiry run no hooks and lose
 up to one `flush_interval` (3 s) of data. With uwsgi, enable `--enable-threads`
 (the delivery thread needs it) and avoid `--skip-atexit`.
 
-**Serverless (AWS Lambda, Cloud Functions, Cloud Run jobs).** The runtime freezes
-or kills the process between invocations, so `atexit` and lifespan are not
-reliable. Call `client.flush_all()` at the end of each invocation (or wrap the
-handler body in `with client:` for one-shot functions), and keep
-`flush_interval` short.
+**Serverless (AWS Lambda, Cloud Run, Cloud Functions).** The runtime freezes or
+kills the process between invocations, so a background thread may never run and
+`atexit` / lifespan are not reliable. Set `mode="inline"` (or
+`APILENS_MODE=inline`): no thread is started, the ASGI/WSGI middlewares deliver
+each request's records synchronously right after its response is sent, and code
+without a middleware calls `client.flush()` at the end of each invocation.
+FastAPI on Lambda with Mangum:
+
+```python
+from fastapi import FastAPI
+from mangum import Mangum
+from apilens.fastapi import ApiLensMiddleware
+
+app = FastAPI()
+app.add_middleware(ApiLensMiddleware, api_key="apilens_xxx", app_id="orders-api", mode="inline")
+handler = Mangum(app, lifespan="off")
+```
+
+Mangum returns the response to Lambda when the app returns, so on Lambda the
+flush adds the ingest round-trip to the invocation. Keep `timeout` and
+`max_retries` low. The Django middleware does not flush inline; call
+`client.flush()` yourself (e.g. from a `request_finished` signal).
 
 **CronJobs and scripts.** Use the client as a context manager
 (`with ApiLensClient(...) as client:`) or call `client.shutdown(flush=True)` before

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import contextvars
+import logging
 import time
 import traceback
 from collections.abc import Awaitable, Callable
@@ -59,6 +61,32 @@ from .trace import (
     reset_detail_sampled,
     set_detail_sampled,
 )
+
+
+logger = logging.getLogger("apilens")
+
+
+def _is_inline(client: Any) -> bool:
+    # getattr: duck-typed clients (test doubles, wrappers) default to thread mode.
+    return getattr(client, "inline", False) is True
+
+
+def _flush_inline(client: ApiLensClient) -> None:
+    """Inline (serverless) mode: deliver the queue now that the response has
+    been sent. Never raises into the application."""
+    try:
+        client.flush()
+    except Exception:  # pragma: no cover - flush() already swallows delivery errors
+        logger.debug("API Lens inline flush failed", exc_info=True)
+
+
+async def _flush_inline_async(client: ApiLensClient) -> None:
+    """Async variant: the blocking HTTP POST runs on a worker thread so other
+    requests on the event loop are not held up."""
+    try:
+        await asyncio.to_thread(client.flush)
+    except Exception:  # pragma: no cover
+        logger.debug("API Lens inline flush failed", exc_info=True)
 
 
 def _error_message(exc: BaseException | None, status_code: int, method: str, path: str) -> tuple[str, str]:
@@ -689,6 +717,11 @@ class ApiLensASGIMiddleware:
             end_request_attributes(attributes_token)
             reset_detail_sampled(sampled_token)
             end_request_trace(trace_token)
+            # Inline (serverless) mode: the response has been sent by now, so
+            # deliver this request's records before the runtime can freeze the
+            # process. A cancelled request skips it (the task is being torn down).
+            if _is_inline(self.client) and not isinstance(captured_exc, asyncio.CancelledError):
+                await _flush_inline_async(self.client)
 
 
 class ApiLensWSGIMiddleware:
@@ -992,3 +1025,8 @@ class ApiLensWSGIMiddleware:
                 response_payload=response_payload,
                 response_headers=response_headers_json,
             )
+            # Inline (serverless) mode: every chunk has been handed to the
+            # server by now, so deliver this request's records before the
+            # runtime can freeze the process.
+            if _is_inline(self.client):
+                _flush_inline(self.client)

@@ -477,6 +477,7 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `batch_size` | `200` | Records per POST (also the flush trigger). Backend max is 1000. |
 | `max_batch_bytes` | `4 * 1024 * 1024` | Byte cap on one POST's JSON body (uncompressed). A batch is cut at `batch_size` records or `max_batch_bytes`, whichever comes first. Minimum 16 KB; keep it under the ingest edge's 16 MB limit. See [batch sizing](#reliability--performance). |
 | `flush_interval` | `3.0` | Seconds between automatic flushes. |
+| `mode` | `"thread"` | `"thread"`: a background daemon thread flushes every `flush_interval`. `"inline"`: no thread is started; `client.flush()` sends synchronously and the ASGI/WSGI middlewares call it right after each response is sent. Empty falls back to env `APILENS_MODE`, then `"thread"`. See [serverless](#serverless). |
 | `timeout` | `5.0` | Per-request HTTP timeout, in seconds. |
 | `max_queue_size` | `10_000` | Record cap per queue; oldest records drop once full. |
 | `max_queue_bytes` | `64 * 1024 * 1024` | Memory cap shared by the request, span and log queues (estimated bytes); oldest records drop once exceeded. |
@@ -603,6 +604,7 @@ parsed values as a dict.
 | `APILENS_CAPTURE_SPANS` | `capture_spans` | bool; `false` wins over code | `true` |
 | `APILENS_BATCH_SIZE` | `batch_size` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flush_interval` | float (seconds) | `3.0` |
+| `APILENS_MODE` | `mode` | `thread` or `inline` | `thread` |
 
 `APILENS_EXCLUDE_PATHS` / `APILENS_EXCLUDE_USER_AGENTS` add to the patterns
 passed in code. `APILENS_CAPTURE_SPANS=false`, `APILENS_CAPTURE_IP=false` and
@@ -906,11 +908,52 @@ killed by `SIGKILL`, the OOM killer or `--timeout` expiry run no hooks and lose
 up to one `flush_interval` (3 s) of data. With uwsgi, enable `--enable-threads`
 (the delivery thread needs it) and avoid `--skip-atexit`.
 
-**Serverless (AWS Lambda, Cloud Functions, Cloud Run jobs).** The runtime freezes
-or kills the process between invocations, so `atexit` and lifespan are not
-reliable. Call `client.flush_all()` at the end of each invocation (or wrap the
-handler body in `with client:` for one-shot functions), and keep
-`flush_interval` short.
+<a id="serverless"></a>
+**Serverless (AWS Lambda, Cloud Run, Cloud Functions).** The runtime freezes or
+kills the process between invocations, so a background thread may never get to
+run and `atexit` / lifespan are not reliable. Use **inline mode**:
+`mode="inline"` (or env `APILENS_MODE=inline`) starts no thread, and records are
+delivered by a synchronous `client.flush()`:
+
+- The ASGI middleware (FastAPI, Starlette, Litestar, BlackSheep, any ASGI app)
+  calls it after the final response body has been sent, on a worker thread so
+  the event loop is not blocked. The WSGI middleware (Flask) calls it once every
+  response chunk has been handed to the server. The client already has its
+  response; only the invocation stays open while the batch goes out.
+- Without a middleware (a plain Lambda handler, a queue consumer, a script),
+  call `client.flush()` at the end of each invocation.
+- `flush()` also sends any heartbeat that is due, which the flush thread does in
+  thread mode. It never raises for delivery failures (they are retried, then
+  dropped and counted in `client.stats()`).
+
+FastAPI on AWS Lambda with [Mangum](https://mangum.fastapiexpert.com/):
+
+```python
+from fastapi import FastAPI
+from mangum import Mangum
+from apilens.fastapi import ApiLensMiddleware
+
+app = FastAPI()
+app.add_middleware(
+    ApiLensMiddleware,
+    api_key="apilens_xxx",
+    app_id="orders-api",
+    mode="inline",          # or APILENS_MODE=inline in the function's env
+)
+
+@app.get("/orders/{order_id}")
+async def get_order(order_id: int):
+    return {"id": order_id}
+
+handler = Mangum(app, lifespan="off")
+```
+
+Mangum hands the response to Lambda when the ASGI app returns, so on Lambda the
+flush adds the ingest round-trip to the invocation: that is the last point at
+which the runtime is guaranteed to run it. Keep `timeout` (per-POST HTTP
+timeout) and `max_retries` low so a slow ingest cannot stretch an invocation.
+The Django middleware does not flush inline: call `client.flush()` yourself, for
+example from a `request_finished` signal.
 
 **CronJobs and scripts.** Use the client as a context manager
 (`with ApiLensClient(...) as client:`) or call `client.shutdown(flush=True)` before

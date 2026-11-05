@@ -72,6 +72,16 @@ def parse_list(value: str, *, name: str = "value") -> list[str]:
     return split_patterns(value)
 
 
+_MODES = ("thread", "inline")
+
+
+def parse_mode(value: str, *, name: str = "value") -> str:
+    raw = value.strip().lower()
+    if raw not in _MODES:
+        raise ValueError(f"{name}: expected one of {', '.join(_MODES)}, got {value!r}")
+    return raw
+
+
 #: Option name -> parser. The env var is ``APILENS_`` + the upper-cased name.
 ENV_OPTIONS: dict[str, Callable[..., Any]] = {
     "api_key": parse_str,
@@ -97,6 +107,7 @@ ENV_OPTIONS: dict[str, Callable[..., Any]] = {
     "capture_spans": parse_bool,
     "batch_size": parse_int,
     "flush_interval": parse_float,
+    "mode": parse_mode,
 }
 
 #: Options whose env var is merged by the component that owns it rather than
