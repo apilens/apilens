@@ -464,6 +464,7 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `capture_spans` | `True` | Emit trace spans for this app. |
 | `service_name` | `app_id` | Service name shown on spans. |
 | `get_consumer` | `None` | Optional resolver callback (see [consumer attribution](#consumer-attribution)). |
+| `exclude_paths` | `None` | Regexes for paths to skip entirely (no record, span or log), e.g. `[r"^/health$"]`. Matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` (comma-separated env var) adds to it. An invalid regex raises at startup. |
 
 ### Django settings
 
@@ -481,6 +482,7 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `APILENS_CAPTURE_SPANS` | `True` | Emit trace spans. |
 | `APILENS_SERVICE_NAME` | `APILENS_APP_ID` | Service name on spans. |
 | `APILENS_GET_CONSUMER` | `None` | Consumer resolver (callable or dotted path). |
+| `APILENS_EXCLUDE_PATHS` | `None` | Paths to skip entirely: a list of regexes or a comma-separated string. The env var of the same name adds to it. |
 
 **Local development:** point the SDK at a local ingest with
 `APILENS_BASE_URL=http://localhost:8000/api/v1` (or the `base_url` kwarg), and set

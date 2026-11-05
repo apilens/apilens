@@ -17,6 +17,7 @@ from ._capture import (
     _to_int,
     capture_response,
 )
+from ._exclude import PathExcluder
 from ._routes import resolve_endpoint_path
 from ._sanitize import Redactor, decode_utf8_safe, serialize_headers
 from .client import ApiLensClient
@@ -289,6 +290,7 @@ class ApiLensASGIMiddleware:
         redact_query_params: list[str] | None = None,
         redact_headers: list[str] | None = None,
         redact_body_fields: list[str] | None = None,
+        exclude_paths: list[str] | None = None,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
@@ -313,6 +315,10 @@ class ApiLensASGIMiddleware:
             headers=redact_headers or (),
             body_fields=redact_body_fields or (),
         )
+        # Regexes (case-insensitive, matched against the path without query
+        # string) whose requests bypass capture entirely — no record, span or
+        # log. Compiled once here; APILENS_EXCLUDE_PATHS adds to them.
+        self.exclude_paths = PathExcluder(exclude_paths)
         # Framework hook that maps a matched request scope to its route template
         # (``/product/{id}``). Runs after the app handled the request, when
         # routing has resolved. Heuristic fallback applies when it returns None.
@@ -335,7 +341,7 @@ class ApiLensASGIMiddleware:
             )
 
     async def __call__(self, scope, receive, send) -> None:
-        if scope.get("type") != "http":
+        if scope.get("type") != "http" or self.exclude_paths.matches(scope.get("path")):
             await self.app(scope, receive, send)
             return
 
@@ -502,6 +508,7 @@ class ApiLensWSGIMiddleware:
         redact_query_params: list[str] | None = None,
         redact_headers: list[str] | None = None,
         redact_body_fields: list[str] | None = None,
+        exclude_paths: list[str] | None = None,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
@@ -524,6 +531,8 @@ class ApiLensWSGIMiddleware:
             headers=redact_headers or (),
             body_fields=redact_body_fields or (),
         )
+        # Excluded paths bypass capture entirely — same semantics as ASGI.
+        self.exclude_paths = PathExcluder(exclude_paths)
         # Framework hook that maps a WSGI environ to its route template. Runs
         # after the app handled the request. Heuristic fallback when None.
         self.route_resolver = route_resolver
@@ -545,6 +554,12 @@ class ApiLensWSGIMiddleware:
             )
 
     def __call__(self, environ: dict[str, Any], start_response: Callable) -> Any:
+        # Excluded paths go straight to the app: no wrapping, no body buffering.
+        if self.exclude_paths.matches(environ.get("PATH_INFO")):
+            return self.app(environ, start_response)
+        return self._capture(environ, start_response)
+
+    def _capture(self, environ: dict[str, Any], start_response: Callable) -> Any:
         started_at = time.perf_counter()
         consumer_token = _consumer_ctx.set(None)
         trace_id, span_id, parent_span_id, trace_token = begin_request_trace(environ.get("HTTP_TRACEPARENT"))

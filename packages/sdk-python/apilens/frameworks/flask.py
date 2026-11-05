@@ -19,6 +19,7 @@ def instrument_flask(
     redact_query_params: list[str] | None = None,
     redact_headers: list[str] | None = None,
     redact_body_fields: list[str] | None = None,
+    exclude_paths: list[str] | None = None,
     get_consumer: Callable[..., Any] | None = None,
 ):
     """Flask integration via WSGI wrapper.
@@ -69,6 +70,7 @@ def instrument_flask(
         redact_query_params=redact_query_params,
         redact_headers=redact_headers,
         redact_body_fields=redact_body_fields,
+        exclude_paths=exclude_paths,
         get_consumer=get_consumer,
         route_resolver=lambda environ: flask_route_template(app, environ),
     )
