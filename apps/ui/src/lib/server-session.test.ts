@@ -253,7 +253,7 @@ describe("refresh failure", () => {
     replies["POST /api/v1/auth/refresh"] = () => REJECTED;
     const res = await meHandler(await request("/api/things", { exp: nowSeconds() - 1, accept: "text/html" }));
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe(`${PUBLIC_URL}/sign-in?reason=session_expired`);
+    expect(res.headers.get("location")).toBe("/sign-in?reason=session_expired");
     expect(sessionCookie(res)).toBe("");
   });
 
@@ -328,21 +328,21 @@ describe("GET /api/auth/refresh", () => {
     replies["POST /api/v1/auth/refresh"] = () => ({ status: 200, body: BUNDLE });
     const res = await refreshRoute(await request("/api/auth/refresh?next=%2Facme%2Fendpoints", { exp: nowSeconds() - 1 }));
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe(`${PUBLIC_URL}/acme/endpoints`);
+    expect(res.headers.get("location")).toBe("/acme/endpoints");
     expect((await session.open(sessionCookie(res)))?.access).toBe(NEW_ACCESS);
   });
 
   it("never redirects off-origin", async () => {
     replies["POST /api/v1/auth/refresh"] = () => ({ status: 200, body: BUNDLE });
     const res = await refreshRoute(await request("/api/auth/refresh?next=%2F%2Fevil.example"));
-    expect(res.headers.get("location")).toBe(`${PUBLIC_URL}/`);
+    expect(res.headers.get("location")).toBe("/");
   });
 
   it("clears the cookie and redirects to sign-in when the refresh token is rejected", async () => {
     replies["POST /api/v1/auth/refresh"] = () => REJECTED;
     const res = await refreshRoute(await request("/api/auth/refresh?next=%2Facme"));
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe(`${PUBLIC_URL}/sign-in?reason=session_expired`);
+    expect(res.headers.get("location")).toBe("/sign-in?reason=session_expired");
     expect(sessionCookie(res)).toBe("");
   });
 

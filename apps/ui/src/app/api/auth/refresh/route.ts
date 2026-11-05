@@ -6,6 +6,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { safeNext } from "@/lib/safe-next";
 import { isSessionExpired, serverSession, sessionExpiredResponse } from "@/lib/server-session";
+import { redirectTo } from "@/lib/redirect";
 
 export async function GET(req: NextRequest) {
   const next = safeNext(req.nextUrl.searchParams.get("next"), "/");
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
       headers: { "Cache-Control": "no-store", "Content-Type": "text/plain; charset=utf-8", "Retry-After": "5" },
     });
   }
-  const res = NextResponse.redirect(new URL(next, req.url), 302);
+  const res = redirectTo(next, req.url);
   res.headers.set("Cache-Control", "no-store");
   return session.applyTo(res);
 }

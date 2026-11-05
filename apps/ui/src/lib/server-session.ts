@@ -39,6 +39,7 @@ import {
 } from "./identity";
 import { safeNext } from "./safe-next";
 import { SESSION_COOKIE_NAME, type SessionPayload, open, seal, sessionCookieOptions } from "./session";
+import { redirectTo } from "@/lib/redirect";
 
 /** Where the browser goes when the session can no longer be refreshed. */
 export const SESSION_EXPIRED_PATH = `${SIGN_IN_PATH}?reason=session_expired`;
@@ -303,7 +304,7 @@ export function sessionExpiredResponse(
   navigation = (req.headers.get("accept") ?? "").includes("text/html"),
 ): NextResponse {
   const res = navigation
-    ? NextResponse.redirect(new URL(SESSION_EXPIRED_PATH, req.url), 302)
+    ? redirectTo(SESSION_EXPIRED_PATH, req.url)
     : NextResponse.json(
         { ok: false, code: SESSION_EXPIRED_CODE, next: SESSION_EXPIRED_PATH },
         { status: 401, headers: { "Cache-Control": "no-store" } },

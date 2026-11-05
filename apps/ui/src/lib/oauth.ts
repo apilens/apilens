@@ -27,6 +27,7 @@ import {
 import { safeNext } from "./safe-next";
 import { SESSION_COOKIE_NAME, open } from "./session";
 import type { OAuthLinks, OAuthProvider, SignInMethods } from "./sign-in-methods";
+import { redirectTo } from "@/lib/redirect";
 
 /** The page identity redirects to with the handoff code. */
 export const CALLBACK_PATH = "/auth/callback";
@@ -80,7 +81,7 @@ export function signInErrorPath(code: string | null | undefined): string {
 }
 
 function redirect(req: NextRequest, location: string): NextResponse {
-  const res = NextResponse.redirect(new URL(location, req.url), 302);
+  const res = redirectTo(location, req.url);
   res.headers.set("Cache-Control", "no-store");
   // The handoff code rides in this request's URL: keep it out of Referer headers.
   res.headers.set("Referrer-Policy", "no-referrer");
