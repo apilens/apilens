@@ -24,6 +24,7 @@ from .client.middleware import (
     set_consumer,
     track_consumer,
 )
+from .client._shutdown import DEFAULT_SHUTDOWN_TIMEOUT, env_flush_on_shutdown, register_atexit
 from .client.spans import configure_spans, env_spans_enabled, record_span
 from .client.trace import begin_request_trace, end_request_trace
 
@@ -195,6 +196,17 @@ class ApiLensDjangoMiddleware:
                 environment=getattr(settings, "APILENS_ENVIRONMENT", None),
                 service_name=getattr(settings, "APILENS_SERVICE_NAME", "") or self.app_id,
             )
+        # Graceful shutdown: Django has no lifespan hook (and request_finished
+        # never fires for the last batch), so flush from ``atexit`` — gunicorn
+        # / uwsgi / runserver workers exit normally on SIGTERM. Bounded by
+        # APILENS_SHUTDOWN_TIMEOUT seconds; APILENS_FLUSH_ON_SHUTDOWN = False
+        # (setting or env var) turns it off.
+        self.shutdown_timeout = float(getattr(settings, "APILENS_SHUTDOWN_TIMEOUT", DEFAULT_SHUTDOWN_TIMEOUT))
+        self.flush_on_shutdown = (
+            bool(getattr(settings, "APILENS_FLUSH_ON_SHUTDOWN", True)) and env_flush_on_shutdown()
+        )
+        if self.flush_on_shutdown:
+            register_atexit(self.client, self.shutdown_timeout)
 
     def process_exception(self, request, exception):
         """Django calls this when a view raises — stash it so ``__call__``'s

@@ -28,6 +28,13 @@ from ._sanitize import (
     mask_body,
     serialize_headers,
 )
+from ._shutdown import (
+    DEFAULT_SHUTDOWN_TIMEOUT,
+    env_flush_on_shutdown,
+    register_atexit,
+    revive_client,
+    shutdown_client_async,
+)
 from .client import ApiLensClient
 from .spans import configure_spans, env_spans_enabled, record_error_log, record_span
 from .trace import begin_request_trace, end_request_trace
@@ -304,6 +311,8 @@ class ApiLensASGIMiddleware:
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
+        flush_on_shutdown: bool = True,
+        shutdown_timeout: float = DEFAULT_SHUTDOWN_TIMEOUT,
     ) -> None:
         self.app = app
         self.client = client
@@ -355,8 +364,54 @@ class ApiLensASGIMiddleware:
                 environment=environment,
                 service_name=service_name or app_id,
             )
+        # Graceful shutdown: flush on the ASGI ``lifespan`` shutdown event, with
+        # an ``atexit`` fallback for servers that never send one. Bounded by
+        # ``shutdown_timeout`` seconds. APILENS_FLUSH_ON_SHUTDOWN=false disables.
+        self.shutdown_timeout = shutdown_timeout
+        self.flush_on_shutdown = flush_on_shutdown and env_flush_on_shutdown()
+        if self.flush_on_shutdown:
+            register_atexit(client, shutdown_timeout)
+
+    async def _lifespan(self, scope, receive, send) -> None:
+        """Pass the lifespan protocol through, draining the queue on shutdown.
+
+        The flush runs after the app's own shutdown handlers (so anything they
+        log is delivered) and before the server is told shutdown is complete.
+        """
+        shutting_down = False
+        flushed = False
+
+        async def flush() -> None:
+            nonlocal flushed
+            if not flushed:
+                flushed = True
+                await shutdown_client_async(self.client, self.shutdown_timeout)
+
+        async def wrapped_receive():
+            nonlocal shutting_down
+            message = await receive()
+            if message.get("type") == "lifespan.startup":
+                revive_client(self.client)
+            elif message.get("type") == "lifespan.shutdown":
+                shutting_down = True
+            return message
+
+        async def wrapped_send(message: dict[str, Any]) -> None:
+            if message.get("type") in ("lifespan.shutdown.complete", "lifespan.shutdown.failed"):
+                await flush()
+            await send(message)
+
+        try:
+            await self.app(scope, wrapped_receive, wrapped_send)
+        finally:
+            # The app raised (or returned) mid-shutdown without completing it.
+            if shutting_down:
+                await flush()
 
     async def __call__(self, scope, receive, send) -> None:
+        if scope.get("type") == "lifespan" and self.flush_on_shutdown:
+            await self._lifespan(scope, receive, send)
+            return
         if scope.get("type") != "http" or self.exclude_paths.matches(scope.get("path")):
             await self.app(scope, receive, send)
             return
@@ -546,6 +601,8 @@ class ApiLensWSGIMiddleware:
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
+        flush_on_shutdown: bool = True,
+        shutdown_timeout: float = DEFAULT_SHUTDOWN_TIMEOUT,
     ) -> None:
         self.app = app
         self.client = client
@@ -589,6 +646,13 @@ class ApiLensWSGIMiddleware:
                 environment=environment,
                 service_name=service_name or app_id,
             )
+        # Graceful shutdown: WSGI has no lifespan, so flush from ``atexit``
+        # (gunicorn/uwsgi workers exit normally on SIGTERM), bounded by
+        # ``shutdown_timeout`` seconds. APILENS_FLUSH_ON_SHUTDOWN=false disables.
+        self.shutdown_timeout = shutdown_timeout
+        self.flush_on_shutdown = flush_on_shutdown and env_flush_on_shutdown()
+        if self.flush_on_shutdown:
+            register_atexit(client, shutdown_timeout)
 
     def __call__(self, environ: dict[str, Any], start_response: Callable) -> Any:
         # Excluded paths go straight to the app: no wrapping, no body buffering.

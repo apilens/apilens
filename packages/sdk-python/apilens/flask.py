@@ -23,6 +23,8 @@ def instrument_app(
     mask_response_body: Callable[[Any, bytes], bytes | None] | None = None,
     exclude_paths: list[str] | None = None,
     get_consumer: Callable[..., Any] | None = None,
+    flush_on_shutdown: bool = True,
+    shutdown_timeout: float = 5.0,
 ):
     """Compatibility wrapper: prefer apilens.frameworks.flask.instrument_flask."""
     return instrument_flask(
@@ -40,6 +42,8 @@ def instrument_app(
         mask_response_body=mask_response_body,
         exclude_paths=exclude_paths,
         get_consumer=get_consumer,
+        flush_on_shutdown=flush_on_shutdown,
+        shutdown_timeout=shutdown_timeout,
     )
 
 

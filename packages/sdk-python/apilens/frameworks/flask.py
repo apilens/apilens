@@ -23,6 +23,8 @@ def instrument_flask(
     mask_response_body: Callable[[Any, bytes], bytes | None] | None = None,
     exclude_paths: list[str] | None = None,
     get_consumer: Callable[..., Any] | None = None,
+    flush_on_shutdown: bool = True,
+    shutdown_timeout: float = 5.0,
 ):
     """Flask integration via WSGI wrapper.
 
@@ -77,6 +79,8 @@ def instrument_flask(
         exclude_paths=exclude_paths,
         get_consumer=get_consumer,
         route_resolver=lambda environ: flask_route_template(app, environ),
+        flush_on_shutdown=flush_on_shutdown,
+        shutdown_timeout=shutdown_timeout,
     )
     return app
 
