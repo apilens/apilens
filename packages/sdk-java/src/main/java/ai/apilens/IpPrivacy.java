@@ -35,6 +35,16 @@ public final class IpPrivacy {
     return ipAddress == null ? "" : ipAddress;
   }
 
+  /** Whether client IPs are captured under {@code captureIp} and {@code APILENS_CAPTURE_IP}. */
+  public static boolean effectiveCaptureIp(boolean captureIp) {
+    return captureIp && envCaptureIpEnabled(System::getenv);
+  }
+
+  /** Whether captured IPs are anonymised under {@code anonymize} and {@code APILENS_ANONYMIZE_IP}. */
+  public static boolean effectiveAnonymizeIp(boolean anonymize) {
+    return anonymize || envAnonymizeIpEnabled(System::getenv);
+  }
+
   static boolean envCaptureIpEnabled(UnaryOperator<String> env) {
     String raw = env.apply("APILENS_CAPTURE_IP");
     return raw == null || !FALSEY.contains(raw.strip().toLowerCase(Locale.ROOT));

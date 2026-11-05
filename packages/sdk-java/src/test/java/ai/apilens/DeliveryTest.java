@@ -445,6 +445,14 @@ class DeliveryTest {
       StubIngest stub = new StubIngest(http);
       stub.replies.addAll(List.of(replies));
       http.createContext("/", exchange -> {
+        if (isHeartbeatOrMetadata(exchange.getRequestURI().getPath())) {
+          // Heartbeats and the metadata report are covered by HeartbeatTest; keep them out of
+          // the delivery assertions and the scripted replies.
+          exchange.getRequestBody().readAllBytes();
+          exchange.sendResponseHeaders(200, -1);
+          exchange.close();
+          return;
+        }
         Headers headers = exchange.getRequestHeaders();
         String encoding = headers.getFirst("Content-Encoding");
         byte[] raw = exchange.getRequestBody().readAllBytes();
@@ -468,6 +476,10 @@ class DeliveryTest {
 
     String url() {
       return "http://127.0.0.1:" + server.getAddress().getPort();
+    }
+
+    private static boolean isHeartbeatOrMetadata(String path) {
+      return path.endsWith("/heartbeat") || path.endsWith("/metadata");
     }
 
     @Override

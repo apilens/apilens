@@ -7,6 +7,7 @@ import ai.apilens.IpPrivacy;
 import ai.apilens.LogRecord;
 import ai.apilens.PathTemplates;
 import ai.apilens.Redactor;
+import ai.apilens.RemotePolicy;
 import ai.apilens.RequestExcluder;
 import ai.apilens.RequestInfo;
 import ai.apilens.RequestRecord;
@@ -31,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BiFunction;
 import java.util.function.DoubleSupplier;
 import java.util.logging.Level;
@@ -51,6 +53,7 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
   private final Redactor redactor;
   private final RequestExcluder excluder;
   private final Sampler sampler;
+  private final DoubleSupplier random;
 
   public ApiLensSpringFilter(ApiLensClient client, ApiLensSpringOptions options) {
     this(client, options, null);
@@ -81,22 +84,39 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         this.options.excludeUserAgents(),
         this.options.defaultExclusions(),
         true);
+    this.random = random == null ? () -> ThreadLocalRandom.current().nextDouble() : random;
     this.sampler = new Sampler(
         this.options.sampleRate(),
         this.options.sampleOnRequest(),
         this.options.sampleOnResponse(),
-        random);
+        this.random);
+    if (client != null && this.options.enabled()) {
+      // Heartbeats go out for the environment this filter records under.
+      client.registerApp(client.config().appId(), this.options.environment());
+    }
+  }
+
+  /** Options this filter captures with (the metadata report describes them). */
+  ApiLensSpringOptions options() {
+    return options;
+  }
+
+  /** Exclusions this filter applies (the metadata report lists their patterns). */
+  RequestExcluder excluder() {
+    return excluder;
   }
 
   /**
    * Excluded requests (built-in health/probe/static defaults, {@code excludePaths},
    * {@code excludeUserAgents}) bypass the filter entirely: no wrapping, no body
-   * buffering, no record, span or log.
+   * buffering, no record, span or log. So does every request while the app's remote
+   * policy has capture disabled.
    */
   @Override
   protected boolean shouldNotFilter(HttpServletRequest request) {
     return !options.enabled()
         || !client.isEnabled()
+        || !client.remotePolicy().enabled()
         || "OPTIONS".equalsIgnoreCase(request.getMethod())
         || excluder.shouldExclude(request.getRequestURI(), request.getHeader("User-Agent"));
   }
@@ -106,10 +126,16 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
       HttpServletRequest request,
       HttpServletResponse response,
       FilterChain filterChain) throws ServletException, IOException {
+    // The remote policy is read once, so one request is captured under one policy. It can only
+    // narrow the local options (see RemotePolicy).
+    RemotePolicy policy = client.remotePolicy();
     // Sampling runs before any body buffering: a request dropped here is not wrapped, so its
     // body is never copied. The response is still wrapped for the base record's response size.
     Sampler.RequestDecision sampling = sampler.onRequest(() -> requestInfo(request));
-    HttpServletRequest requestWrapper = sampling.mayKeep() ? wrapRequest(request) : request;
+    int maxPayloadBytes = policy.limitPayloadBytes(options.maxPayloadBytes());
+    HttpServletRequest requestWrapper = sampling.mayKeep() && policy.captureRequestBody()
+        ? wrapRequest(request, maxPayloadBytes)
+        : request;
     ContentCachingResponseWrapper responseWrapper = wrapResponse(response);
     Instant startedAt = Instant.now();
     long startedNanos = System.nanoTime();
@@ -130,8 +156,8 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         throw error;
       } finally {
         try {
-          capture(requestWrapper, responseWrapper, sampling, startedAt, startedNanos, statusCode, trace,
-              capturedException, capturedError);
+          capture(requestWrapper, responseWrapper, sampling, policy, startedAt, startedNanos, statusCode,
+              trace, capturedException, capturedError);
         } catch (Exception ex) {
           LOGGER.log(Level.WARNING, "Error while logging request in API Lens Spring filter", ex);
         } finally {
@@ -142,11 +168,11 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
     }
   }
 
-  private ContentCachingRequestWrapper wrapRequest(HttpServletRequest request) {
+  private ContentCachingRequestWrapper wrapRequest(HttpServletRequest request, int maxPayloadBytes) {
     if (request instanceof ContentCachingRequestWrapper wrapper) {
       return wrapper;
     }
-    return new ContentCachingRequestWrapper(request, options.maxPayloadBytes());
+    return new ContentCachingRequestWrapper(request, maxPayloadBytes);
   }
 
   private ContentCachingResponseWrapper wrapResponse(HttpServletResponse response) {
@@ -160,6 +186,7 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
       HttpServletRequest request,
       ContentCachingResponseWrapper response,
       Sampler.RequestDecision sampling,
+      RemotePolicy policy,
       Instant startedAt,
       long startedNanos,
       int statusCode,
@@ -179,29 +206,34 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
     ApiLensConsumer consumer = resolveConsumer(request, response);
     // Sampled out: the base record is still sent (sampled=false) so metrics stay exact, but
     // without headers, bodies, span or error log. The trace context was still made current.
+    // The remote sample rate applies on top of the local decision, so it only ever drops more.
     boolean sampled = sampler.onResponse(sampling, () -> new SampleResponseInfo(
-        requestInfo(request), endpointPath, finalStatusCode, elapsedMs, consumer, sampling.callback()));
+        requestInfo(request), endpointPath, finalStatusCode, elapsedMs, consumer, sampling.callback()))
+        && policy.keeps(random);
+    int maxPayloadBytes = policy.limitPayloadBytes(options.maxPayloadBytes());
+    boolean captureHeaders = sampled && options.captureHeaders() && policy.captureHeaders();
 
     String requestPayload = "";
     String responsePayload = "";
-    if (sampled && options.capturePayloads() && options.maxPayloadBytes() > 0) {
+    if (sampled && options.capturePayloads() && maxPayloadBytes > 0) {
       // Content-type aware: JSON / text / form-encoded bodies go through the mask callback and
       // then the regex masking; anything else is stored as "[<content-type>, N bytes omitted]".
       RequestInfo requestInfo = new RequestInfo(
           method, rawRequestPath, rawPath, lowerHeaders(requestHeaders(request)));
-      if (options.logRequestBody() && request instanceof ContentCachingRequestWrapper cached) {
+      if (options.logRequestBody() && policy.captureRequestBody()
+          && request instanceof ContentCachingRequestWrapper cached) {
         String contentType = Strings.clean(request.getContentType());
         requestPayload = capturedPayload(
             cached.getContentAsByteArray(), contentType, requestSize(request),
-            options.maskRequestBody(), requestInfo);
+            options.maskRequestBody(), requestInfo, maxPayloadBytes);
       }
-      if (options.logResponseBody()) {
+      if (options.logResponseBody() && policy.captureResponseBody()) {
         String contentType = Strings.clean(response.getContentType());
         ResponseInfo responseInfo = new ResponseInfo(
             requestInfo, finalStatusCode, lowerHeaders(responseHeaders(response)));
         responsePayload = capturedPayload(
             response.getContentAsByteArray(), contentType, responseSize(response),
-            options.maskResponseBody(), responseInfo);
+            options.maskResponseBody(), responseInfo, maxPayloadBytes);
       }
     }
 
@@ -222,8 +254,8 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         .consumer(consumer)
         .requestPayload(requestPayload)
         .responsePayload(responsePayload)
-        .requestHeaders(sampled && options.captureHeaders() ? redactor.serializeHeaders(requestHeaders(request)) : "")
-        .responseHeaders(sampled && options.captureHeaders() ? redactor.serializeHeaders(responseHeaders(response)) : "")
+        .requestHeaders(captureHeaders ? redactor.serializeHeaders(requestHeaders(request)) : "")
+        .responseHeaders(captureHeaders ? redactor.serializeHeaders(responseHeaders(response)) : "")
         .baseUrl(baseUrl(request))
         .traceId(trace.traceId())
         .spanId(trace.spanId())
@@ -301,14 +333,15 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
       String contentType,
       long declaredSize,
       BiFunction<? super T, byte[], byte[]> masker,
-      T info) {
+      T info,
+      int maxPayloadBytes) {
     if (!Redactor.isCapturableContentType(contentType)) {
       // The body may not have been cached at all (e.g. multipart parsed by the container), so
       // report the larger of the declared and the cached size.
       long size = Math.max(declaredSize, body == null ? 0 : body.length);
       return size > 0 ? Redactor.omittedPlaceholder(contentType, size) : "";
     }
-    return redactor.maskBody(body, contentType, masker, info, options.maxPayloadBytes());
+    return redactor.maskBody(body, contentType, masker, info, maxPayloadBytes);
   }
 
   private static Map<String, String> lowerHeaders(Map<String, Object> headers) {

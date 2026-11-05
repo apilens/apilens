@@ -162,6 +162,14 @@ public class ApiLensClientTest {
       HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
       IngestServer ingest = new IngestServer(server, statusQueue);
       server.createContext("/", exchange -> {
+        String path = exchange.getRequestURI().getPath();
+        if (path.endsWith("/heartbeat") || path.endsWith("/metadata")) {
+          // Covered by HeartbeatTest; keep them out of the delivery assertions.
+          exchange.getRequestBody().readAllBytes();
+          exchange.sendResponseHeaders(200, -1);
+          exchange.close();
+          return;
+        }
         ingest.attempts.incrementAndGet();
         ingest.paths.add(exchange.getRequestURI().getPath());
         byte[] raw = exchange.getRequestBody().readAllBytes();

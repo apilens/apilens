@@ -10,6 +10,15 @@ import java.util.function.Consumer;
 public final class ApiLensConfig {
   /** Smallest accepted {@code maxBatchBytes}. */
   public static final int MIN_BATCH_BYTES = 1024;
+  /**
+   * Shortest accepted {@code heartbeatInterval}: ingest answers 429 to two heartbeats of one
+   * instance less than 10 seconds apart.
+   */
+  public static final Duration MIN_HEARTBEAT_INTERVAL = Duration.ofSeconds(10);
+  /** Env kill switch: {@code APILENS_SEND_HEARTBEAT=false} never sends a heartbeat. */
+  public static final String ENV_SEND_HEARTBEAT = "APILENS_SEND_HEARTBEAT";
+  /** Env kill switch: {@code APILENS_SEND_METADATA=false} never sends the app metadata report. */
+  public static final String ENV_SEND_METADATA = "APILENS_SEND_METADATA";
 
   private final String apiKey;
   private final String projectSlug;
@@ -35,6 +44,11 @@ public final class ApiLensConfig {
   private final Duration retryBackoffMax;
   private final boolean enabled;
   private final String userAgent;
+  private final boolean sendHeartbeat;
+  private final String heartbeatPath;
+  private final Duration heartbeatInterval;
+  private final boolean sendMetadata;
+  private final String metadataPath;
 
   private ApiLensConfig(Builder builder) {
     this.apiKey = Strings.clean(builder.apiKey);
@@ -61,6 +75,11 @@ public final class ApiLensConfig {
     this.retryBackoffMax = builder.retryBackoffMax;
     this.enabled = builder.enabled;
     this.userAgent = Strings.firstNonBlank(builder.userAgent, "apilens-java-sdk/" + ApiLensVersion.VERSION);
+    this.sendHeartbeat = builder.sendHeartbeat;
+    this.heartbeatPath = Strings.firstNonBlank(builder.heartbeatPath, "heartbeat");
+    this.heartbeatInterval = builder.heartbeatInterval;
+    this.sendMetadata = builder.sendMetadata;
+    this.metadataPath = Strings.firstNonBlank(builder.metadataPath, "metadata");
   }
 
   public static Builder builder() {
@@ -220,6 +239,41 @@ public final class ApiLensConfig {
     return userAgent;
   }
 
+  /**
+   * Whether {@code POST /v1/heartbeat} is sent (on start, every {@link #heartbeatInterval()} and
+   * on shutdown). False when the builder turned it off or env {@code APILENS_SEND_HEARTBEAT} is
+   * false.
+   */
+  public boolean sendHeartbeat() {
+    return sendHeartbeat && envEnabled(ENV_SEND_HEARTBEAT);
+  }
+
+  public String heartbeatPath() {
+    return heartbeatPath;
+  }
+
+  /** Time between two heartbeats; at least {@link #MIN_HEARTBEAT_INTERVAL}. */
+  public Duration heartbeatInterval() {
+    return heartbeatInterval;
+  }
+
+  /**
+   * Whether the app metadata report ({@code POST /v1/metadata}) is sent once per process start.
+   * False when the builder turned it off or env {@code APILENS_SEND_METADATA} is false.
+   */
+  public boolean sendMetadata() {
+    return sendMetadata && envEnabled(ENV_SEND_METADATA);
+  }
+
+  public String metadataPath() {
+    return metadataPath;
+  }
+
+  private static boolean envEnabled(String name) {
+    String raw = Strings.clean(System.getenv(name)).toLowerCase(Locale.ROOT);
+    return !(raw.equals("false") || raw.equals("0") || raw.equals("no") || raw.equals("off"));
+  }
+
   private static String detectRelease() {
     return Strings.clean(System.getenv("APILENS_RELEASE"));
   }
@@ -259,6 +313,11 @@ public final class ApiLensConfig {
     private Duration retryBackoffMax = Duration.ofSeconds(5);
     private boolean enabled = true;
     private String userAgent = "";
+    private boolean sendHeartbeat = true;
+    private String heartbeatPath = "";
+    private Duration heartbeatInterval = Duration.ofSeconds(60);
+    private boolean sendMetadata = true;
+    private String metadataPath = "";
 
     private Builder() {}
 
@@ -382,6 +441,34 @@ public final class ApiLensConfig {
       return this;
     }
 
+    /** Send {@code POST /v1/heartbeat}; on by default. */
+    public Builder sendHeartbeat(boolean sendHeartbeat) {
+      this.sendHeartbeat = sendHeartbeat;
+      return this;
+    }
+
+    public Builder heartbeatPath(String heartbeatPath) {
+      this.heartbeatPath = heartbeatPath;
+      return this;
+    }
+
+    /** Time between heartbeats; default 60 seconds, at least 10 seconds. */
+    public Builder heartbeatInterval(Duration heartbeatInterval) {
+      this.heartbeatInterval = heartbeatInterval == null ? Duration.ofSeconds(60) : heartbeatInterval;
+      return this;
+    }
+
+    /** Send the app metadata report ({@code POST /v1/metadata}); on by default. */
+    public Builder sendMetadata(boolean sendMetadata) {
+      this.sendMetadata = sendMetadata;
+      return this;
+    }
+
+    public Builder metadataPath(String metadataPath) {
+      this.metadataPath = metadataPath;
+      return this;
+    }
+
     public ApiLensConfig build() {
       if (batchSize <= 0 || batchSize > 1000) {
         throw new IllegalArgumentException("batchSize must be between 1 and 1000");
@@ -409,6 +496,10 @@ public final class ApiLensConfig {
       }
       if (retryBackoffMax.isNegative() || retryBackoffMax.isZero()) {
         throw new IllegalArgumentException("retryBackoffMax must be > 0");
+      }
+      if (heartbeatInterval.compareTo(MIN_HEARTBEAT_INTERVAL) < 0) {
+        throw new IllegalArgumentException(
+            "heartbeatInterval must be >= " + MIN_HEARTBEAT_INTERVAL.toSeconds() + " seconds");
       }
       if (!Strings.isBlank(environment)) {
         environment = environment.trim().toLowerCase(Locale.ROOT);
