@@ -8,6 +8,8 @@ import { type StatusRow, formatLatency, latencyTop, linePath, plotWidth } from "
 /** The viewBox width drawn before the box is measured (server render), stretched by CSS. */
 const FALLBACK_W = 960;
 const H = 160;
+/** The plot height every chart draws at; shared with the endpoint page (#593). */
+export const PLOT_HEIGHT = H;
 
 /**
  * The measured width of an element, in CSS pixels, kept current with a ResizeObserver; null until
@@ -32,7 +34,7 @@ function useMeasuredWidth<T extends HTMLElement>() {
 }
 
 /** The plot box: measures itself and gives its children the width to draw at. */
-function Plot({ label, summary, top, children }: { label: string; summary: string; top: string; children: (w: number) => ReactNode }) {
+export function Plot({ label, summary, top, children }: { label: string; summary: string; top: string; children: (w: number) => ReactNode }) {
   const [ref, measured] = useMeasuredWidth<HTMLDivElement>();
   const w = measured ?? FALLBACK_W;
   return (
@@ -56,7 +58,7 @@ function Plot({ label, summary, top, children }: { label: string; summary: strin
   );
 }
 
-function TimeAxis({ rows, range }: { rows: { ts: string }[]; range: QueryRange }) {
+export function TimeAxis({ rows, range }: { rows: { ts: string }[]; range: QueryRange }) {
   const firstTs = rows[0]?.ts;
   const lastTs = rows[rows.length - 1]?.ts;
   if (!firstTs || !lastTs) return null;
