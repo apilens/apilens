@@ -64,6 +64,34 @@ client.capture({
 await client.handleShutdown({ flush: true });
 ```
 
+## Header capture
+
+Request and response headers are captured by default and sent as
+`request_headers` / `response_headers`: a compact JSON object with lower-cased
+names, the same wire format as the Python and Java SDKs.
+
+- Values of built-in sensitive headers are always replaced with `[redacted]`:
+  `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key`,
+  `api-key`, `x-auth-token`, `x-amz-security-token`, `x-csrf-token`, plus any
+  name matching `auth`, `api.?key`, `secret`, `token` or `cookie`
+  (case-insensitive).
+- Multi-value headers are joined with `", "`.
+- Each blob is capped at 8 KB; when it is larger, headers are dropped
+  longest-value-first until it fits.
+
+Turn it off with `captureHeaders: false`:
+
+```js
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  requestLogging: {
+    captureHeaders: false,
+  },
+});
+```
+
+`serializeHeaders(headers, { maxBytes })` is exported for manual capture.
+
 ## API
 
 - `useApiLens(app, config)`

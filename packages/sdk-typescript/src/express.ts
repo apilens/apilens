@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import type { NextFunction, Request, Response } from "express";
 
 import { ApiLensClient } from "./client.js";
+import { serializeHeaders } from "./sanitize.js";
 import {
   firstForwardedIp,
   normalizePath,
@@ -96,6 +97,7 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
   const logRequestBody = requestLogging.logRequestBody !== false;
   const logResponseBody = requestLogging.logResponseBody !== false;
   const capturePayloads = requestLogging.capturePayloads !== false;
+  const captureHeaders = requestLogging.captureHeaders !== false;
   const maxPayloadBytes = Math.max(
     0,
     toNonNegativeInt(requestLogging.maxPayloadBytes, 8192),
@@ -221,6 +223,8 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
           consumer_group: consumer?.consumer_group || "",
           request_payload: requestPayload,
           response_payload: responsePayload,
+          request_headers: captureHeaders ? serializeHeaders(req.headers) : "",
+          response_headers: captureHeaders ? serializeHeaders(res.getHeaders()) : "",
         });
       } catch (error) {
         client.config.logger.error?.(

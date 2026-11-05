@@ -74,6 +74,8 @@ function normalizeRecord(
     consumer_group: String(payload.consumer_group || ""),
     request_payload: String(payload.request_payload || ""),
     response_payload: String(payload.response_payload || ""),
+    request_headers: String(payload.request_headers || ""),
+    response_headers: String(payload.response_headers || ""),
   };
 }
 
