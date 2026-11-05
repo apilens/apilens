@@ -208,6 +208,16 @@ type PasskeyCredential struct {
 	LastUsedAt      *time.Time
 }
 
+type PrivacyPolicy struct {
+	ID              uuid.UUID
+	ProjectID       uuid.UUID
+	AppID           *uuid.UUID
+	MaskQueryParams []string
+	MaskHeaders     []string
+	MaskBodyFields  []string
+	UpdatedAt       time.Time
+}
+
 type Project struct {
 	ID        uuid.UUID
 	OrgID     uuid.UUID

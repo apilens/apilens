@@ -132,6 +132,9 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
 	apps, aerr := e.resolveApps(r.Context(), p, slugs, idents, false)
+	if aerr == nil {
+		aerr = e.redactRequests(r.Context(), p.ProjectID, apps, body.Requests)
+	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
@@ -211,6 +214,9 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
 	apps, aerr := e.resolveApps(r.Context(), p, slugs, idents, false)
+	if aerr == nil {
+		aerr = e.redactLogs(r.Context(), p.ProjectID, apps, body.Logs)
+	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return

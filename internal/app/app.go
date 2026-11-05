@@ -25,6 +25,7 @@ import (
 	"github.com/apilens/apilens/internal/controlplane/catalog"
 	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/controlplane/outbox"
+	"github.com/apilens/apilens/internal/controlplane/privacy"
 	"github.com/apilens/apilens/internal/controlplane/projects"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/controlplane/usercontext"
@@ -104,6 +105,7 @@ type App struct {
 	queries    *db.Queries
 	verifier   *apikeys.Verifier
 	apps       *catalog.AppResolver
+	privacy    *privacy.Resolver
 	sink       *pipeline.DirectSink
 	// workers is filled by modules during init; jobs runs them afterwards.
 	workers *jobs.Registry
@@ -256,6 +258,7 @@ func (a *App) initCatalog(context.Context) (modules.Service, error) {
 		Size: a.cfg.Ingest.KeyCacheSize, TTL: a.cfg.Ingest.KeyCacheTTL, NegativeTTL: a.cfg.Ingest.KeyNegativeTTL,
 	}, a.logger, a.registry)
 	a.apps = catalog.NewAppResolver(a.queries, a.cfg.Ingest.AppCacheTTL)
+	a.privacy = privacy.NewResolver(a.queries, a.cfg.Ingest.AppCacheTTL)
 	if a.valkey == nil {
 		return nil, nil
 	}
@@ -317,7 +320,7 @@ func (a *App) initRelay(context.Context) (modules.Service, error) {
 }
 
 func (a *App) initEdge(context.Context) (modules.Service, error) {
-	ingest.New(a.verifier, a.apps, a.sink, a.cfg.Ingest, a.logger, a.registry).Register(a.server.Mux())
+	ingest.New(a.verifier, a.apps, a.sink, a.cfg.Ingest, a.logger, a.registry).WithPrivacy(a.privacy).Register(a.server.Mux())
 	return nil, nil
 }
 
@@ -362,6 +365,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Members:  orgService,
 		Projects: projects.New(a.pool),
 		APIKeys:  apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger),
+		Privacy:  privacy.NewService(a.pool),
 		Context:  usercontext.New(a.pool, a.checker()),
 		Guard:    a.guard(),
 		Limiter:  limiter,
