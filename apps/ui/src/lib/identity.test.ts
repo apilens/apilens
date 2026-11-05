@@ -404,6 +404,7 @@ describe("operations", () => {
     ["GET", "/traffic/summary", (c) => c.trafficSummary("web", "7d", authed)],
     ["GET", "/traffic/endpoints", (c) => c.listEndpoints("web", { range: "7d" }, authed)],
     ["GET", "/traffic/timeseries", (c) => c.trafficTimeseries("web", { range: "7d" }, authed)],
+    ["GET", "/traffic/latency", (c) => c.trafficLatency("web", { range: "7d" }, authed)],
     ["GET", "/deploys/changes", (c) => c.deployChanges("web", { range: "7d" }, authed)],
     ["GET", "/consumers", (c) => c.listConsumers("web", { range: "7d" }, authed)],
     ["GET", "/consumers/{consumer_id}", (c) => c.getConsumer("web", "a/b?c", { range: "7d" }, authed)],
@@ -585,5 +586,18 @@ describe("endpoint detail operations (#593)", () => {
       ["GET", "/api/v1/errors", { project: "my-api", range: "1h", env: "staging" }],
     ]);
     expect(calls.every((c) => c.headers.get("authorization") === "Bearer jwt")).toBe(true);
+  });
+
+  it("reads the project's response times and an app's threshold, and replaces the threshold", async () => {
+    const { client, calls } = recordingClient(() => json({}));
+    await client.trafficLatency("my-api", { range: "6h", env: "production" }, authed);
+    await client.getAppSettings("my-api", "a/b?c", authed);
+    await client.putAppSettings("a/b?c", { latency_threshold_ms: 250 }, authed);
+    expect(calls.map((c) => [c.method, new URL(c.url).pathname, new URL(c.url).search])).toEqual([
+      ["GET", "/api/v1/traffic/latency", "?project=my-api&range=6h&env=production"],
+      ["GET", "/api/v1/apps/a%2Fb%3Fc/settings", "?project=my-api"],
+      ["PUT", "/api/v1/apps/a%2Fb%3Fc/settings", ""],
+    ]);
+    expect(calls[2].body).toEqual({ latency_threshold_ms: 250 });
   });
 });

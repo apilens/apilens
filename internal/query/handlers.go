@@ -60,6 +60,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	huma.Register(api, op("get-trace", http.MethodGet, "/api/v1/traces/{trace_id}", "Spans and correlated logs of one trace"), s.trace)
 	huma.Register(api, op("list-deploys", http.MethodGet, "/api/v1/deploys", "Deploy markers in a time range"), s.deploys)
 	registerErrorStatus(api, s)
+	registerTrafficLatency(api, s)
 	registerDeployChanges(api, s)
 	registerIngestStatus(api, s, guard)
 	registerAppStatus(api, s)

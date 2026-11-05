@@ -1,0 +1,42 @@
+/* Performance (#595), on top of traffic.css and endpoint.css. Tokens from tokens.css only. The
+   percentile lines are endpoint.css's (p50 muted ink, p75 --info, p95 the accent). The Apdex gauge
+   bands carry meaning: unacceptable and poor --error-soft, fair --warn-soft, good and excellent
+   --ok-soft; the rating is written under the score and the meter has a text value, so color is
+   never the only cue. */
+.pf-bar__end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.pf-settings { margin-left: 0; }
+.pf-note { margin: 0 0 var(--space-4); }
+
+/* Apdex tile: the tiles panel lets the explanation overflow it. */
+.pf-tiles { overflow: visible; }
+.pf-apdex { position: relative; }
+.pf-apdex__label { display: flex; align-items: center; gap: 4px; }
+.pf-gauge { margin-top: var(--space-2); }
+.pf-gauge__track { position: relative; display: flex; gap: 2px; height: 8px; }
+.pf-band { flex-basis: 0; height: 100%; }
+.pf-band:first-child { border-radius: 4px 0 0 4px; }
+.pf-band:last-of-type { border-radius: 0 4px 4px 0; }
+.pf-band--unacceptable, .pf-band--poor { background: var(--error-soft); }
+.pf-band--fair { background: var(--warn-soft); }
+.pf-band--good, .pf-band--excellent { background: var(--ok-soft); }
+.pf-gauge__mark { position: absolute; top: -3px; width: 3px; height: 14px; margin-left: -1.5px; border-radius: 2px; background: var(--ink); box-shadow: 0 0 0 1.5px var(--surface-1); }
+.pf-gauge__scale { position: relative; height: 16px; margin-top: 2px; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }
+.pf-gauge__scale span { position: absolute; top: 0; transform: translateX(-50%); }
+.pf-gauge__scale span:nth-child(1) { left: 0; transform: none; }
+.pf-gauge__scale span:nth-child(2) { left: 50%; }
+.pf-gauge__scale span:nth-child(3) { right: 0; left: auto; transform: none; }
+
+/* How Apdex is scored: shown on hover or focus of the info button, hidden with Escape. */
+.pf-help { display: inline-flex; }
+.pf-help__btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin: -4px 0; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink-muted); cursor: help; }
+.pf-help__btn svg { width: 14px; height: 14px; }
+.pf-help__btn:hover { color: var(--ink); }
+.pf-help__btn:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.pf-help__tip { position: absolute; z-index: 10; top: 40px; left: var(--space-2); right: var(--space-2); display: none; flex-direction: column; gap: 6px; min-width: 200px; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); box-shadow: var(--shadow-frame); font: 400 12px/18px var(--font-sans); color: var(--ink); text-align: left; }
+.pf-help:hover .pf-help__tip, .pf-help:focus-within .pf-help__tip { display: flex; }
+.pf-help.is-dismissed .pf-help__tip { display: none; }
+
+@media (max-width: 760px) {
+  .pf-bar__end { width: 100%; justify-content: space-between; }
+  .pf-help__tip { left: auto; width: min(280px, calc(100vw - 64px)); min-width: 0; }
+}

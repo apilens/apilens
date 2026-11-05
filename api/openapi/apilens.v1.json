@@ -7586,6 +7586,69 @@
         ],
         "type": "object"
       },
+      "TrafficLatencyOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/TrafficLatencyOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "bucket_seconds": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "histogram": {
+            "description": "Response-time histogram over raw requests, always 14 log-spaced buckets with edges (ms) 0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, +inf; empty buckets have count 0.",
+            "items": {
+              "$ref": "#/components/schemas/LatencyBucket"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "points": {
+            "description": "One point per bucket of the range, zero-filled.",
+            "items": {
+              "$ref": "#/components/schemas/LatencyPoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "range": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/LatencySummary",
+            "description": "Percentiles are t-digest estimates; apdex scores each request against its endpoint's latency threshold, else its app's, else 500 ms."
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "range",
+          "from",
+          "to",
+          "bucket_seconds",
+          "summary",
+          "points",
+          "histogram"
+        ],
+        "type": "object"
+      },
       "TransferOwnershipInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -17998,6 +18061,86 @@
           }
         ],
         "summary": "Per-endpoint traffic, errors and latency",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/traffic/latency": {
+      "get": {
+        "operationId": "get-traffic-latency",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrafficLatencyOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Response time: percentiles, p50/p75/p95 trend, Apdex and histogram",
         "tags": [
           "Dashboard"
         ]

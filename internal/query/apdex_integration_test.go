@@ -160,6 +160,14 @@ func TestApdex(t *testing.T) {
 		if code := do(http.MethodGet, "/api/v1/traffic/summary?range=1h", "", nil, &s); code != 200 || !near(s.Apdex, summary) {
 			t.Fatalf("%s: summary apdex = %d %v, want %v", stage, code, s.Apdex, summary)
 		}
+		var perf struct {
+			Summary struct {
+				Apdex *float64 `json:"apdex"`
+			} `json:"summary"`
+		}
+		if code := do(http.MethodGet, "/api/v1/traffic/latency?range=1h", "", nil, &perf); code != 200 || !near(perf.Summary.Apdex, summary) {
+			t.Fatalf("%s: traffic latency apdex = %d %v, want %v", stage, code, perf.Summary.Apdex, summary)
+		}
 		var eps struct {
 			Endpoints []struct {
 				Path  string   `json:"path"`
