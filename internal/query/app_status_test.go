@@ -3,7 +3,9 @@ package query
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/apilens/apilens/internal/controlplane/store/db"
+	"github.com/apilens/apilens/internal/ingest"
 )
 
 type fakeAppStatusCatalog struct {
@@ -116,6 +119,109 @@ func TestAppStatusNotFound(t *testing.T) {
 		var se huma.StatusError
 		if !errors.As(err, &se) || se.GetStatus() != http.StatusNotFound {
 			t.Errorf("%s: err = %v, want 404", c.name, err)
+		}
+	}
+}
+
+func TestAppStatusSilentSDKsAndStats(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	project, app := uuid.New(), uuid.New()
+	cat := &fakeAppStatusCatalog{project: project, app: db.GetProjectAppRow{ID: app, Slug: "storefront"}}
+	reader := &fakeIngestStats{app: app, byDay: map[string]ingest.Counts{"2026-11-05": {Accepted: 9, Rejected: 1}}}
+	s := NewService(nil, cat).WithIngestStats(reader)
+	s.now = func() time.Time { return now }
+	ctx := context.WithValue(context.Background(), principalKey{}, scope{ProjectID: project})
+
+	cat.envs = []db.ListAppEnvironmentsLastSeenRow{
+		{Environment: "production", LastSeenAt: now.Add(-3 * time.Minute)},
+		{Environment: "staging", LastSeenAt: now.Add(-2 * time.Hour)},
+	}
+	cat.instances = []db.ListRecentAppInstancesRow{
+		{Environment: "production", InstanceID: "a", SdkName: "apilenss", SdkVersion: latestSDKVersion("apilenss"),
+			Stats:      []byte(`{"queued_records":2,"sent_records":100,"failed_batches":1,"dropped":5,"drop_counts":{"queue_full":4,"rejected":1,"truncated":7}}`),
+			LastSeenAt: now.Add(-3 * time.Minute)},
+		{Environment: "production", InstanceID: "b", SdkName: "apilenss", SdkVersion: "0.0.1",
+			Stats:      []byte(`{"sent_records":12345678901234567890,"dropped":2,"drop_counts":{"queue_full":2},"last_error":"x"}`),
+			LastSeenAt: now.Add(-30 * time.Minute)},
+		{Environment: "production", InstanceID: "c", SdkName: "apilens-java-sdk", SdkVersion: "0.0.9", Stats: []byte(`{"dropped":"lots"}`),
+			LastSeenAt: now.Add(-50 * time.Minute)},
+		{Environment: "staging", InstanceID: "d", SdkName: "custom-sdk", SdkVersion: "9.9.9", Stats: []byte(`{"dropped":1000}`),
+			LastSeenAt: now.Add(-2 * time.Hour)},
+	}
+	out, err := s.appStatus(ctx, &appStatusInput{ID: app.String()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := out.Body
+	if b.Status != StatusStale || b.Environments[0].Status != StatusStale || b.Environments[1].Status != StatusSilent {
+		t.Errorf("status = %s, environments = %+v", b.Status, b.Environments)
+	}
+	if b.Instances[0].Status != StatusStale || b.Instances[3].Status != StatusSilent {
+		t.Errorf("instance states = %s, %s", b.Instances[0].Status, b.Instances[3].Status)
+	}
+	if in := b.Instances[0]; in.SDKOutdated || in.SDKLatestVersion != latestSDKVersion("apilenss") {
+		t.Errorf("current instance = %+v", in)
+	}
+	if in := b.Instances[1]; !in.SDKOutdated || in.SDKLatestVersion == "" {
+		t.Errorf("outdated instance = %+v", in)
+	}
+	if in := b.Instances[3]; in.SDKOutdated || in.SDKLatestVersion != "" {
+		t.Errorf("unknown sdk instance = %+v", in)
+	}
+	if len(b.SDKs) != 3 || b.SDKs[0].Name != "apilens-java-sdk" || b.SDKs[0].OutdatedInstances != 1 ||
+		b.SDKs[1].Name != "apilenss" || !slices.Equal(b.SDKs[1].Versions, []string{"0.0.1", latestSDKVersion("apilenss")}) ||
+		b.SDKs[1].OutdatedInstances != 1 || b.SDKs[2].Name != "custom-sdk" || b.SDKs[2].LatestVersion != "" {
+		t.Errorf("sdks = %+v", b.SDKs)
+	}
+	// The silent instance is left out; counters that are not int64 are skipped.
+	st := b.SDKStats
+	if st.Instances != 3 || st.QueuedRecords != 2 || st.SentRecords != 100 || st.FailedBatches != 1 || st.DroppedRecords != 7 ||
+		!maps.Equal(st.DropCounts, map[string]int64{"queue_full": 6, "rejected": 1, "truncated": 7}) {
+		t.Errorf("sdk stats = %+v", st)
+	}
+	if b.IngestToday == nil || b.IngestToday.Accepted != 9 || b.IngestToday.Rejected != 1 {
+		t.Errorf("ingest today = %+v", b.IngestToday)
+	}
+	if len(reader.days) != 1 || !reader.days[0].Equal(time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("ingest days = %v", reader.days)
+	}
+
+	// Everything older than an hour: silent. No counter store: no ingest counts.
+	cat.envs = cat.envs[1:]
+	s.ingestStats = nil
+	if out, err = s.appStatus(ctx, &appStatusInput{ID: app.String()}); err != nil || out.Body.Status != StatusSilent || out.Body.IngestToday != nil {
+		t.Errorf("silent = %+v, %v", out, err)
+	}
+}
+
+func TestSDKOutdated(t *testing.T) {
+	for _, c := range []struct {
+		version, latest string
+		want            bool
+	}{
+		{"0.4.0", "0.5.0", true},
+		{"0.5.0", "0.5.0", false},
+		{"v0.5.0", "0.5.0", false},
+		{"0.10.0", "0.9.0", false},
+		{"0.9.9", "0.10.0", true},
+		{"1.0.0", "0.10.0", false},
+		{"0.5.0-rc.1", "0.5.0", true},
+		{"0.5.0+build", "0.5.0", false},
+		{"0.5.1-rc.1", "0.5.0", false},
+		{"dev", "0.5.0", false},
+		{"0.5", "0.5.0", false},
+		{"0.4.0", "", false},
+	} {
+		if got := sdkOutdated(c.version, c.latest); got != c.want {
+			t.Errorf("sdkOutdated(%q, %q) = %v, want %v", c.version, c.latest, got, c.want)
+		}
+	}
+}
+
+func TestSDKLatestCoversOurSDKs(t *testing.T) {
+	for _, name := range []string{"apilenss", "apilens-js-sdk", "apilens-java-sdk"} {
+		if _, _, ok := parseVersion(latestSDKVersion(name)); !ok {
+			t.Errorf("latest %s = %q", name, latestSDKVersion(name))
 		}
 	}
 }
