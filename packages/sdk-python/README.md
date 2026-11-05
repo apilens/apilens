@@ -444,7 +444,7 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `timeout` | `5.0` | Per-request HTTP timeout, in seconds. |
 | `max_queue_size` | `10_000` | Record cap per queue; oldest records drop once full. |
 | `max_queue_bytes` | `64 * 1024 * 1024` | Memory cap shared by the request, span and log queues (estimated bytes); oldest records drop once exceeded. |
-| `max_retries` | `3` | Retry attempts per batch (exponential backoff). |
+| `max_retries` | `3` | Retry attempts per batch for 408, 429, 5xx and network errors (full-jitter exponential backoff, or the server's `Retry-After`). |
 | `compress` | `True` | gzip each batch (level 5, `Content-Encoding: gzip`) on the background flush thread; falls back to plain JSON if compression fails. `False` sends plain JSON. |
 | `verify_tls` | `True` | Verify the ingest server's TLS certificate. |
 | `ca_bundle_path` | `""` | Custom CA bundle for TLS verification. |
@@ -548,10 +548,15 @@ backpressure and `client.drop_counts()` breaks that total down by reason (see
   |---|---|
   | `queue_full` | The queue reached `max_queue_size`; the oldest record was dropped. |
   | `queue_bytes` | Queued bytes would exceed `max_queue_bytes`; the oldest record(s) were dropped (or a single record larger than the whole budget was shed). |
-  | `non_retryable` | Ingest rejected the batch with a 4xx other than 429; it is not retried. |
-  | `retries_exhausted` | The batch still failed (network, 5xx, 429) after `max_retries`. |
-- **Resilient delivery.** Failed batches retry with exponential backoff
-  (0.25s → 5s, up to `max_retries`); non-retryable 4xx responses are not retried.
+  | `non_retryable` | Ingest rejected the batch with a 4xx other than 408/429; it is not retried. |
+  | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) after `max_retries`. |
+- **Resilient delivery.** 408, 429, 5xx, timeouts and network errors retry up to
+  `max_retries` times with full-jitter exponential backoff (a random wait between
+  0 and `0.25s × 2^attempt`, capped at 5s), so many workers do not retry in
+  lockstep. A `Retry-After` header (seconds or HTTP date) takes precedence, capped
+  at 60s. Any other 4xx drops the batch immediately and logs the response body at
+  most once per status every 5 minutes; a 401 logs a single message pointing at
+  [Troubleshooting](https://apilens.ai/docs/support/troubleshooting).
 - **Never raises into your app.** All SDK errors are caught and logged under the
   `apilens` logger — enable it (`logging.getLogger("apilens")`) while debugging.
 - **Graceful shutdown.** `shutdown(flush=True)` drains the queue; the framework

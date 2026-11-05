@@ -4,6 +4,7 @@ import gzip
 import json
 import logging
 import os
+import random
 import ssl
 import threading
 import time
@@ -13,6 +14,7 @@ import urllib.request
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 from .._version import __version__
 from .models import LogRecord, RequestRecord, SpanRecord
@@ -34,8 +36,87 @@ RECORD_OVERHEAD_BYTES = 512
 GZIP_LEVEL = 5
 
 
-class _NonRetryableIngestError(RuntimeError):
-    """Ingest answered with a 4xx (other than 429): retrying cannot succeed."""
+# Retry policy (see ``ApiLensClient._send_batch_with_retry``).
+# 408 / 429 / 5xx and network errors are retried; any other 4xx drops the batch.
+RETRYABLE_4XX = frozenset({408, 429})
+# A server-sent Retry-After is honoured up to this many seconds.
+RETRY_AFTER_MAX_SECONDS = 60.0
+# A non-retryable status logs its response body at most once per window.
+NON_RETRYABLE_LOG_INTERVAL_SECONDS = 300.0
+# Response bodies quoted in logs are truncated to this many bytes.
+MAX_LOGGED_BODY_BYTES = 1024
+TROUBLESHOOTING_URL = "https://apilens.ai/docs/support/troubleshooting"
+
+
+class _IngestError(RuntimeError):
+    """A failed ingest POST. ``status`` is ``None`` for network errors/timeouts."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        retry_after: float | None = None,
+        body: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.retry_after = retry_after
+        self.body = body
+
+
+class _RetryableIngestError(_IngestError):
+    """408, 429, 5xx or a network failure: worth retrying after a backoff."""
+
+
+class _NonRetryableIngestError(_IngestError):
+    """Any other 4xx: retrying the same batch cannot succeed."""
+
+
+def is_retryable_status(status: int) -> bool:
+    return status >= 500 or status in RETRYABLE_4XX
+
+
+def parse_retry_after(value: str | None, *, now: datetime | None = None) -> float | None:
+    """Seconds to wait from a ``Retry-After`` header (delta-seconds or an
+    HTTP-date), clamped to ``[0, RETRY_AFTER_MAX_SECONDS]``. ``None`` when the
+    header is missing or unparseable."""
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            when = parsedate_to_datetime(value)
+        except (TypeError, ValueError, IndexError):
+            return None
+        if when is None:
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        seconds = (when - (now or datetime.now(tz=timezone.utc))).total_seconds()
+    if seconds != seconds:  # NaN
+        return None
+    return max(0.0, min(seconds, RETRY_AFTER_MAX_SECONDS))
+
+
+def backoff_delay(attempt: int, base: float, cap: float) -> float:
+    """Full-jitter exponential backoff: uniform in ``[0, min(cap, base * 2**attempt)]``
+    so workers that failed together do not retry in lockstep."""
+    ceiling = min(cap, base * (2 ** attempt))
+    return random.uniform(0.0, max(ceiling, 0.0))
+
+
+def _read_error_body(exc: urllib.error.HTTPError) -> str:
+    try:
+        raw = exc.read(MAX_LOGGED_BODY_BYTES + 1) or b""
+    except Exception:
+        return ""
+    text = raw[:MAX_LOGGED_BODY_BYTES].decode("utf-8", errors="replace").strip()
+    if len(raw) > MAX_LOGGED_BODY_BYTES:
+        text += "..."
+    return text
 
 
 def _attrs_size(attributes: dict[str, str] | None) -> int:
@@ -158,6 +239,8 @@ class ApiLensClient:
         self._wakeup = threading.Event()
         self._thread: threading.Thread | None = None
         self._drops: dict[str, int] = dict.fromkeys(DROP_REASONS, 0)
+        # status -> monotonic time its rejection was last logged.
+        self._non_retryable_logged_at: dict[int, float] = {}
 
         if start_worker and self.config.enabled:
             self.start()
@@ -335,25 +418,17 @@ class ApiLensClient:
     def flush_once(self) -> int:
         total = 0
         batch = self._pop_batch(self.config.batch_size)
-        if batch:
-            if self._send_batch_with_retry(batch, self._send_batch):
-                total += len(batch)
-            else:
-                logger.warning("API Lens ingest failed; dropping batch of %d records", len(batch))
+        # A failed batch is dropped and logged by _send_batch_with_retry.
+        if batch and self._send_batch_with_retry(batch, self._send_batch):
+            total += len(batch)
 
         span_batch = self._pop_span_batch(self.config.batch_size)
-        if span_batch:
-            if self._send_batch_with_retry(span_batch, self._send_span_batch):
-                total += len(span_batch)
-            else:
-                logger.warning("API Lens span ingest failed; dropping batch of %d spans", len(span_batch))
+        if span_batch and self._send_batch_with_retry(span_batch, self._send_span_batch):
+            total += len(span_batch)
 
         log_batch = self._pop_log_batch(self.config.batch_size)
-        if log_batch:
-            if self._send_batch_with_retry(log_batch, self._send_log_batch):
-                total += len(log_batch)
-            else:
-                logger.warning("API Lens log ingest failed; dropping batch of %d logs", len(log_batch))
+        if log_batch and self._send_batch_with_retry(log_batch, self._send_log_batch):
+            total += len(log_batch)
         return total
 
     def flush_all(self) -> int:
@@ -390,32 +465,79 @@ class ApiLensClient:
             return [self._popleft_locked(queue) for _ in range(min(size, len(queue)))]
 
     def _send_batch_with_retry(self, batch, send=None) -> bool:
+        """Send ``batch``; ``True`` on 2xx. 408/429/5xx/network errors retry up
+        to ``max_retries`` with full-jitter backoff, or after the server's
+        ``Retry-After`` (capped at 60 s) when present. Any other 4xx drops the
+        batch at once (``non_retryable``)."""
         send = send or self._send_batch
         last_error: Exception | None = None
-        reason = DROP_RETRIES_EXHAUSTED
         for attempt in range(self.config.max_retries + 1):
             try:
                 send(batch)
                 return True
             except _NonRetryableIngestError as exc:
-                last_error = exc
-                reason = DROP_NON_RETRYABLE
-                break
+                with self._lock:
+                    self._drops[DROP_NON_RETRYABLE] += len(batch)
+                self._log_non_retryable(exc, len(batch))
+                return False
             except Exception as exc:
                 last_error = exc
                 if attempt >= self.config.max_retries:
                     break
-                backoff = min(
-                    self.config.retry_backoff_base * (2 ** attempt),
-                    self.config.retry_backoff_max,
+                retry_after = getattr(exc, "retry_after", None)
+                if retry_after is None:
+                    delay = backoff_delay(
+                        attempt, self.config.retry_backoff_base, self.config.retry_backoff_max
+                    )
+                else:
+                    delay = retry_after
+                logger.debug(
+                    "API Lens ingest attempt %d failed (%s); retrying in %.2fs",
+                    attempt + 1,
+                    exc,
+                    delay,
                 )
-                time.sleep(backoff)
+                self._sleep(delay)
 
         with self._lock:
-            self._drops[reason] += len(batch)
-        if last_error is not None:
-            logger.warning("API Lens ingest request failed (%s): %s", reason, last_error)
+            self._drops[DROP_RETRIES_EXHAUSTED] += len(batch)
+        logger.warning(
+            "API Lens ingest failed after %d attempt(s); dropping batch of %d records: %s",
+            self.config.max_retries + 1,
+            len(batch),
+            last_error,
+        )
         return False
+
+    def _sleep(self, seconds: float) -> None:
+        if seconds > 0:
+            time.sleep(seconds)
+
+    def _log_non_retryable(self, exc: _NonRetryableIngestError, count: int) -> None:
+        """Log a rejected batch at most once per status per 5 minutes, so a
+        bad key does not flood the application's logs."""
+        status = exc.status or 0
+        now = time.monotonic()
+        with self._lock:
+            last = self._non_retryable_logged_at.get(status)
+            if last is not None and now - last < NON_RETRYABLE_LOG_INTERVAL_SECONDS:
+                return
+            self._non_retryable_logged_at[status] = now
+        if status == 401:
+            logger.error(
+                "API Lens ingest rejected the API key (401 Unauthorized), so telemetry is "
+                "being dropped. Check that api_key is a valid project API key for %s. "
+                "Troubleshooting: %s",
+                self.config.base_url,
+                TROUBLESHOOTING_URL,
+            )
+            return
+        logger.warning(
+            "API Lens ingest rejected a batch of %d records with status %d (not retried): %s",
+            count,
+            status,
+            exc.body or "<empty body>",
+        )
 
     def _send_batch(self, batch: list[RequestRecord]) -> None:
         self._post_json(self.config.ingest_path, {"requests": [r.to_wire() for r in batch]})
@@ -466,10 +588,24 @@ class ApiLensClient:
             with urllib.request.urlopen(req, timeout=self.config.timeout, context=ssl_context) as resp:
                 status = getattr(resp, "status", 200)
                 if status >= 400:
-                    raise RuntimeError(f"API Lens ingest returned status={status}")
+                    raise _RetryableIngestError(
+                        f"API Lens ingest returned status={status}", status=status
+                    )
         except urllib.error.HTTPError as exc:
-            if 400 <= exc.code < 500 and exc.code != 429:
-                raise _NonRetryableIngestError(f"Non-retryable ingest error status={exc.code}") from exc
-            raise RuntimeError(f"Retryable ingest error status={exc.code}") from exc
+            status = exc.code
+            body = _read_error_body(exc)
+            if not is_retryable_status(status):
+                raise _NonRetryableIngestError(
+                    f"Non-retryable ingest error status={status}", status=status, body=body
+                ) from exc
+            headers = exc.headers
+            raise _RetryableIngestError(
+                f"Retryable ingest error status={status}",
+                status=status,
+                retry_after=parse_retry_after(headers.get("Retry-After") if headers else None),
+                body=body,
+            ) from exc
         except urllib.error.URLError as exc:
-            raise RuntimeError(f"Ingest network error: {exc}") from exc
+            raise _RetryableIngestError(f"Ingest network error: {exc.reason}") from exc
+        except OSError as exc:  # timeouts (socket.timeout), resets, refused
+            raise _RetryableIngestError(f"Ingest network error: {exc!r}") from exc
