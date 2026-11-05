@@ -46,7 +46,8 @@ type Edge struct {
 	verifier Verifier
 	apps     AppResolver
 	sink     pipeline.Sink
-	privacy  PolicySource // nil: built-in defaults only
+	privacy  PolicySource  // nil: built-in defaults only
+	metadata MetadataStore // nil: /v1/metadata answers 503
 	cfg      config.IngestConfig
 	logger   *slog.Logger
 	now      func() time.Time
@@ -81,6 +82,7 @@ func (e *Edge) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/logs", e.handleLogs)
 	mux.HandleFunc("POST /v1/traces", e.handleSpans)
 	mux.HandleFunc("POST /v1/deploys", e.handleDeploys)
+	mux.HandleFunc("POST /v1/metadata", e.handleMetadata)
 	mux.HandleFunc("POST /otlp/v1/traces", e.handleOTLPTraces)
 	mux.HandleFunc("POST /otlp/v1/logs", e.handleOTLPLogs)
 }

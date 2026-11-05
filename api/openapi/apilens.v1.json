@@ -116,6 +116,153 @@
         ],
         "type": "object"
       },
+      "AppMetadata": {
+        "additionalProperties": true,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AppMetadata.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "app_id": {
+            "description": "App UUID or slug",
+            "examples": [
+              "storefront"
+            ],
+            "type": "string"
+          },
+          "config": {
+            "additionalProperties": {},
+            "description": "Effective SDK configuration (capture flags, redaction patterns, exclusions, sample rate; callbacks as true). At most 64 KiB.",
+            "type": "object"
+          },
+          "environment": {
+            "description": "Defaults to production",
+            "examples": [
+              "production"
+            ],
+            "type": "string"
+          },
+          "framework": {
+            "description": "Web framework; also recorded on the app when it has none yet",
+            "examples": [
+              "fastapi"
+            ],
+            "type": "string"
+          },
+          "framework_version": {
+            "examples": [
+              "0.115.0"
+            ],
+            "type": "string"
+          },
+          "java_version": {
+            "description": "Alias of runtime_version (Java SDK)",
+            "type": "string"
+          },
+          "node_version": {
+            "description": "Alias of runtime_version (TypeScript SDK)",
+            "type": "string"
+          },
+          "project_slug": {
+            "description": "Optional; must match the API key's project",
+            "type": "string"
+          },
+          "python_version": {
+            "description": "Alias of runtime_version (Python SDK)",
+            "type": "string"
+          },
+          "routes": {
+            "description": "Route templates; entries past the first 2000 are dropped",
+            "items": {
+              "$ref": "#/components/schemas/AppMetadataRoute"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "runtime_version": {
+            "description": "Language runtime version",
+            "examples": [
+              "3.13.1"
+            ],
+            "type": "string"
+          },
+          "sdk_version": {
+            "examples": [
+              "0.5.0"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_id"
+        ],
+        "type": "object"
+      },
+      "AppMetadataAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AppMetadataAccepted.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "accepted": {
+            "description": "Always 1",
+            "format": "int64",
+            "type": "integer"
+          },
+          "routes": {
+            "description": "Route templates stored",
+            "format": "int64",
+            "type": "integer"
+          },
+          "routes_truncated": {
+            "description": "True when routes past the cap were dropped",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accepted",
+          "routes",
+          "routes_truncated"
+        ],
+        "type": "object"
+      },
+      "AppMetadataRoute": {
+        "additionalProperties": false,
+        "properties": {
+          "method": {
+            "description": "HTTP method, e.g. GET",
+            "examples": [
+              "GET"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "description": "Route template as the framework declares it",
+            "examples": [
+              "/orders/{id}"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "path"
+        ],
+        "type": "object"
+      },
       "AuthProviders": {
         "additionalProperties": false,
         "properties": {
@@ -1120,6 +1267,35 @@
         },
         "required": [
           "code"
+        ],
+        "type": "object"
+      },
+      "IngestError": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/IngestError.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "detail": {
+            "description": "Human-readable detail"
+          },
+          "error": {
+            "description": "Stable error code",
+            "examples": [
+              "validation_error"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "detail"
         ],
         "type": "object"
       },
@@ -4229,6 +4405,12 @@
       }
     },
     "securitySchemes": {
+      "ingestKey": {
+        "description": "Project API key with the ingest scope.",
+        "in": "header",
+        "name": "X-API-Key",
+        "type": "apiKey"
+      },
       "readKey": {
         "description": "Project read key (scope `read`), printed by `apilens seed` as `read_key`.",
         "scheme": "bearer",
@@ -4243,7 +4425,7 @@
     }
   },
   "info": {
-    "description": "Dashboard and management API for APILens. Ingest endpoints (/v1/*, /otlp/v1/*) are documented separately.",
+    "description": "Dashboard and management API for APILens. Ingest endpoints (/v1/*, /otlp/v1/*) are served on the ingest host; those tagged Ingest are described here.",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -12295,6 +12477,93 @@
           "Users"
         ]
       }
+    },
+    "/v1/metadata": {
+      "post": {
+        "description": "Sent by the SDKs once per process start: framework and versions, the route templates the framework declares (at most 2000 are kept) and the effective SDK config. Replaces the previous report of the app in the environment, and records the framework on the app when it has none. A body with an `api_key` field at any depth is rejected with 422.",
+        "operationId": "ingest-app-metadata",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppMetadata"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppMetadataAccepted"
+                }
+              }
+            },
+            "description": "Stored"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestError"
+                }
+              }
+            },
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestError"
+                }
+              }
+            },
+            "description": "API key lacks the ingest scope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestError"
+                }
+              }
+            },
+            "description": "Body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestError"
+                }
+              }
+            },
+            "description": "Invalid payload, unknown app, or an api_key field"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestError"
+                }
+              }
+            },
+            "description": "Temporarily unavailable; retry after Retry-After"
+          }
+        },
+        "security": [
+          {
+            "ingestKey": []
+          }
+        ],
+        "summary": "Report app metadata",
+        "tags": [
+          "Ingest"
+        ]
+      }
     }
   },
   "tags": [
@@ -12321,6 +12590,10 @@
     {
       "description": "Build and runtime metadata of the running process.",
       "name": "System"
+    },
+    {
+      "description": "SDK ingest endpoints, served on the ingest host and authenticated with a project API key in `X-API-Key`. Failures are `{\"error\": code, \"detail\": ...}`.",
+      "name": "Ingest"
     }
   ]
 }

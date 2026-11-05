@@ -46,6 +46,7 @@ const (
 	TagProjects      = "Projects"
 	TagDashboard     = "Dashboard"
 	TagSystem        = "System"
+	TagIngest        = "Ingest"
 )
 
 // Tags returns the declared OpenAPI tags with their descriptions, in the
@@ -58,6 +59,7 @@ func Tags() []*huma.Tag {
 		{Name: TagProjects, Description: "Projects within an organization, with their apps, environments and API keys."},
 		{Name: TagDashboard, Description: "Read-only traffic, error and trace analytics for a project."},
 		{Name: TagSystem, Description: "Build and runtime metadata of the running process."},
+		{Name: TagIngest, Description: "SDK ingest endpoints, served on the ingest host and authenticated with a project API key in `X-API-Key`. Failures are `{\"error\": code, \"detail\": ...}`."},
 	}
 }
 
@@ -118,7 +120,7 @@ func New(cfg config.ServerConfig, logger *slog.Logger, registry *prometheus.Regi
 // `apilens openapi` command, so the committed spec matches what is served.
 func NewAPIConfig() huma.Config {
 	cfg := huma.DefaultConfig("APILens API", buildinfo.Get().Version)
-	cfg.Info.Description = "Dashboard and management API for APILens. Ingest endpoints (/v1/*, /otlp/v1/*) are documented separately."
+	cfg.Info.Description = "Dashboard and management API for APILens. Ingest endpoints (/v1/*, /otlp/v1/*) are served on the ingest host; those tagged Ingest are described here."
 	cfg.Info.License = &huma.License{Name: "MIT", Identifier: "MIT"}
 	cfg.OpenAPIPath = APIPrefix + "/openapi"
 	cfg.SchemasPath = APIPrefix + "/schemas"

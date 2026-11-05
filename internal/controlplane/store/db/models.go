@@ -34,6 +34,19 @@ type App struct {
 	DeletedAt *time.Time
 }
 
+type AppMetadatum struct {
+	AppID            uuid.UUID
+	Environment      string
+	ProjectID        uuid.UUID
+	Framework        string
+	FrameworkVersion string
+	RuntimeVersion   string
+	SdkVersion       string
+	Routes           []byte
+	Config           []byte
+	ReceivedAt       time.Time
+}
+
 type AuditEvent struct {
 	ID          int64
 	UserID      *uuid.UUID
