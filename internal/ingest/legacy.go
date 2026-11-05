@@ -120,8 +120,12 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Requests []requestRecord `json:"requests"`
 	}
-	if aerr = e.decodeJSON(w, r, &body); aerr == nil {
+	size, aerr := e.decodeJSON(w, r, &body)
+	if aerr == nil {
 		aerr = e.checkCount(len(body.Requests))
+	}
+	if aerr == nil {
+		aerr = e.admit(r.Context(), p.ProjectID, len(body.Requests), size)
 	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
@@ -202,8 +206,12 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Logs []logRecord `json:"logs"`
 	}
-	if aerr = e.decodeJSON(w, r, &body); aerr == nil {
+	size, aerr := e.decodeJSON(w, r, &body)
+	if aerr == nil {
 		aerr = e.checkCount(len(body.Logs))
+	}
+	if aerr == nil {
+		aerr = e.admit(r.Context(), p.ProjectID, len(body.Logs), size)
 	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
@@ -269,8 +277,12 @@ func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Spans []spanRecord `json:"spans"`
 	}
-	if aerr = e.decodeJSON(w, r, &body); aerr == nil {
+	size, aerr := e.decodeJSON(w, r, &body)
+	if aerr == nil {
 		aerr = e.checkCount(len(body.Spans))
+	}
+	if aerr == nil {
+		aerr = e.admit(r.Context(), p.ProjectID, len(body.Spans), size)
 	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
@@ -343,8 +355,12 @@ func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Deploys []deployRecord `json:"deploys"`
 	}
-	if aerr = e.decodeJSON(w, r, &body); aerr == nil {
+	size, aerr := e.decodeJSON(w, r, &body)
+	if aerr == nil {
 		aerr = e.checkCount(len(body.Deploys))
+	}
+	if aerr == nil {
+		aerr = e.admit(r.Context(), p.ProjectID, len(body.Deploys), size)
 	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)

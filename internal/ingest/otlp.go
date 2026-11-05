@@ -81,7 +81,7 @@ func (c otlpCodec) write(w http.ResponseWriter, code int, m proto.Message) {
 // otlpFail answers with a google.rpc.Status body as the spec requires.
 func (e *Edge) otlpFail(w http.ResponseWriter, c otlpCodec, signal string, aerr *apiError) {
 	if aerr.retryAfter > 0 {
-		w.Header().Set("Retry-After", strconv.Itoa(int(aerr.retryAfter.Seconds())))
+		w.Header().Set("Retry-After", retryAfterSeconds(aerr.retryAfter))
 	}
 	e.batches.WithLabelValues(signal, strconv.Itoa(aerr.status)).Inc()
 	c.write(w, aerr.status, &status.Status{Code: grpcCode(aerr.status), Message: fmt.Sprint(aerr.Detail)})
@@ -95,7 +95,7 @@ func grpcCode(httpStatus int) int32 {
 		return 16 // UNAUTHENTICATED
 	case http.StatusForbidden:
 		return 7 // PERMISSION_DENIED
-	case http.StatusRequestEntityTooLarge:
+	case http.StatusRequestEntityTooLarge, http.StatusTooManyRequests:
 		return 8 // RESOURCE_EXHAUSTED
 	case http.StatusServiceUnavailable:
 		return 14 // UNAVAILABLE
@@ -104,7 +104,9 @@ func grpcCode(httpStatus int) int32 {
 	}
 }
 
-func (e *Edge) otlpRequest(w http.ResponseWriter, r *http.Request, signal string, m proto.Message) (apikeys.Principal, otlpCodec, bool) {
+// otlpRequest authenticates and decodes an export; it returns the
+// decompressed body size for the byte quota.
+func (e *Edge) otlpRequest(w http.ResponseWriter, r *http.Request, signal string, m proto.Message) (apikeys.Principal, otlpCodec, int, bool) {
 	var c otlpCodec
 	switch mediaType(r) {
 	case contentProtobuf:
@@ -112,23 +114,23 @@ func (e *Edge) otlpRequest(w http.ResponseWriter, r *http.Request, signal string
 		c.json = true
 	default:
 		e.otlpFail(w, c, signal, &apiError{status: http.StatusUnsupportedMediaType, Detail: "Content-Type must be application/x-protobuf or application/json"})
-		return apikeys.Principal{}, c, false
+		return apikeys.Principal{}, c, 0, false
 	}
 	p, aerr := e.authenticate(r)
 	if aerr != nil {
 		e.otlpFail(w, c, signal, aerr)
-		return p, c, false
+		return p, c, 0, false
 	}
 	body, aerr := e.readBody(w, r)
 	if aerr != nil {
 		e.otlpFail(w, c, signal, aerr)
-		return p, c, false
+		return p, c, 0, false
 	}
 	if err := c.unmarshal(body, m); err != nil {
 		e.otlpFail(w, c, signal, &apiError{status: http.StatusBadRequest, Detail: "invalid OTLP payload: " + err.Error()})
-		return p, c, false
+		return p, c, 0, false
 	}
-	return p, c, true
+	return p, c, len(body), true
 }
 
 // resourceInfo is what we take from an OTLP resource.
@@ -203,7 +205,7 @@ func (e *Edge) resolveResourceApps(r *http.Request, p apikeys.Principal, resourc
 func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 	const signal = "otlp_spans"
 	var req coltrace.ExportTraceServiceRequest
-	p, c, ok := e.otlpRequest(w, r, signal, &req)
+	p, c, size, ok := e.otlpRequest(w, r, signal, &req)
 	if !ok {
 		return
 	}
@@ -217,6 +219,10 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 	}
 	if total > maxOTLPRecords {
 		e.otlpFail(w, c, signal, &apiError{status: http.StatusRequestEntityTooLarge, Detail: fmt.Sprintf("at most %d spans per export", maxOTLPRecords)})
+		return
+	}
+	if aerr := e.admit(r.Context(), p.ProjectID, total, size); aerr != nil {
+		e.otlpFail(w, c, signal, aerr)
 		return
 	}
 	apps, unknown, aerr := e.resolveResourceApps(r, p, resources)
@@ -320,7 +326,7 @@ func spanKind(k tracepb.Span_SpanKind) string {
 func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 	const signal = "otlp_logs"
 	var req collogs.ExportLogsServiceRequest
-	p, c, ok := e.otlpRequest(w, r, signal, &req)
+	p, c, size, ok := e.otlpRequest(w, r, signal, &req)
 	if !ok {
 		return
 	}
@@ -334,6 +340,10 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	if total > maxOTLPRecords {
 		e.otlpFail(w, c, signal, &apiError{status: http.StatusRequestEntityTooLarge, Detail: fmt.Sprintf("at most %d log records per export", maxOTLPRecords)})
+		return
+	}
+	if aerr := e.admit(r.Context(), p.ProjectID, total, size); aerr != nil {
+		e.otlpFail(w, c, signal, aerr)
 		return
 	}
 	apps, unknown, aerr := e.resolveResourceApps(r, p, resources)

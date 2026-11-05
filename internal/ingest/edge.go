@@ -15,6 +15,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,12 +49,15 @@ type Edge struct {
 	sink     pipeline.Sink
 	privacy  PolicySource  // nil: built-in defaults only
 	metadata MetadataStore // nil: /v1/metadata answers 503
+	quota    Quota         // nil: no per-project quotas
 	cfg      config.IngestConfig
 	logger   *slog.Logger
 	now      func() time.Time
 
-	records *prometheus.CounterVec
-	batches *prometheus.CounterVec
+	records  *prometheus.CounterVec
+	batches  *prometheus.CounterVec
+	rejected *prometheus.CounterVec
+	quotaLog atomic.Int64 // unix nanos of the last "quota unavailable" log line
 }
 
 // New builds the edge. reg may be nil.
@@ -66,10 +70,19 @@ func New(verifier Verifier, apps AppResolver, sink pipeline.Sink, cfg config.Ing
 		batches: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "apilens_ingest_batches_total", Help: "Ingest calls by signal and HTTP status.",
 		}, []string{"signal", "code"}),
+		rejected: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "apilens_ingest_rejected_total", Help: "Ingest calls refused by a per-project quota, by limit.",
+		}, []string{"reason"}),
 	}
 	if reg != nil {
-		reg.MustRegister(e.records, e.batches)
+		reg.MustRegister(e.records, e.batches, e.rejected)
 	}
+	return e
+}
+
+// WithQuota enforces per-project ingest quotas; nil disables them.
+func (e *Edge) WithQuota(q Quota) *Edge {
+	e.quota = q
 	return e
 }
 
@@ -111,7 +124,7 @@ func errUnavailable(detail string) *apiError {
 
 func (e *Edge) fail(w http.ResponseWriter, signal string, err *apiError) {
 	if err.retryAfter > 0 {
-		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(err.retryAfter.Seconds())))
+		w.Header().Set("Retry-After", retryAfterSeconds(err.retryAfter))
 	}
 	e.batches.WithLabelValues(signal, fmt.Sprintf("%d", err.status)).Inc()
 	writeJSON(w, err.status, err)
@@ -186,20 +199,20 @@ func mediaType(r *http.Request) string {
 	return mt
 }
 
-// decodeJSON parses a v1 JSON body.
-func (e *Edge) decodeJSON(w http.ResponseWriter, r *http.Request, v any) *apiError {
+// decodeJSON parses a v1 JSON body and returns its decompressed size.
+func (e *Edge) decodeJSON(w http.ResponseWriter, r *http.Request, v any) (int, *apiError) {
 	if mt := mediaType(r); mt != "" && mt != "application/json" {
-		return &apiError{status: http.StatusUnsupportedMediaType, Code: "unsupported_media_type", Detail: "Content-Type must be application/json"}
+		return 0, &apiError{status: http.StatusUnsupportedMediaType, Code: "unsupported_media_type", Detail: "Content-Type must be application/json"}
 	}
 	body, aerr := e.readBody(w, r)
 	if aerr != nil {
-		return aerr
+		return 0, aerr
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
 	if err := dec.Decode(v); err != nil {
-		return errValidation("invalid JSON: %v", err)
+		return 0, errValidation("invalid JSON: %v", err)
 	}
-	return nil
+	return len(body), nil
 }
 
 // submitError maps sink errors to retryable HTTP responses.

@@ -102,7 +102,24 @@ type IngestConfig struct {
 	KeyCacheTTL          time.Duration `koanf:"key_cache_ttl"`
 	KeyNegativeTTL       time.Duration `koanf:"key_negative_ttl"`
 	AppCacheTTL          time.Duration `koanf:"app_cache_ttl"`
+	Quota                QuotaConfig   `koanf:"quota"`
 }
+
+// QuotaConfig caps how much one project may ingest. Each limit is a token
+// bucket in Valkey shared by every edge replica; zero disables it. Requests
+// over a limit get 429 with Retry-After.
+type QuotaConfig struct {
+	// RecordsPerMinute bounds records (requests, logs, spans, deploys) per
+	// project per minute. It must admit one full batch, so when set it is
+	// at least ingest.max_records_per_request.
+	RecordsPerMinute int64 `koanf:"records_per_minute"`
+	// BytesPerDay bounds decompressed body bytes per project per day. When
+	// set it is at least ingest.max_body_bytes.
+	BytesPerDay int64 `koanf:"bytes_per_day"`
+}
+
+// Enabled reports whether any quota is set.
+func (q QuotaConfig) Enabled() bool { return q.RecordsPerMinute > 0 || q.BytesPerDay > 0 }
 
 // SinkConfig configures how ingested rows reach ClickHouse.
 type SinkConfig struct {
@@ -404,6 +421,8 @@ func Defaults() map[string]any {
 		"ingest.key_cache_ttl":             "60s",
 		"ingest.key_negative_ttl":          "10s",
 		"ingest.app_cache_ttl":             "60s",
+		"ingest.quota.records_per_minute":  0,
+		"ingest.quota.bytes_per_day":       0,
 		"sink.mode":                        "direct",
 		"sink.ack":                         "flush",
 		"sink.batch_size":                  10_000,
@@ -588,6 +607,7 @@ func (c *Config) Validate() error {
 	if c.Ingest.KeyCacheSize <= 0 {
 		errs = append(errs, errors.New("ingest.key_cache_size must be > 0"))
 	}
+	errs = append(errs, c.validateQuota()...)
 	switch c.Sink.Mode {
 	case "direct":
 	case "kafka":
@@ -804,4 +824,24 @@ func isHTTPURL(v string) bool {
 func isOrigin(v string) bool {
 	u, err := url.Parse(v)
 	return err == nil && isHTTPURL(v) && u.User == nil && u.Path == "" && u.RawQuery == "" && u.Fragment == "" && !u.ForceQuery
+}
+
+// validateQuota checks ingest.quota: limits are non-negative, admit at least
+// one maximal request, and need Valkey to share their buckets.
+func (c *Config) validateQuota() []error {
+	q := c.Ingest.Quota
+	var errs []error
+	if q.RecordsPerMinute < 0 || q.BytesPerDay < 0 {
+		errs = append(errs, errors.New("ingest.quota.records_per_minute and ingest.quota.bytes_per_day must be >= 0 (0 disables)"))
+	}
+	if q.RecordsPerMinute > 0 && q.RecordsPerMinute < int64(c.Ingest.MaxRecordsPerRequest) {
+		errs = append(errs, fmt.Errorf("ingest.quota.records_per_minute must be 0 or >= ingest.max_records_per_request (%d)", c.Ingest.MaxRecordsPerRequest))
+	}
+	if q.BytesPerDay > 0 && q.BytesPerDay < c.Ingest.MaxBodyBytes {
+		errs = append(errs, fmt.Errorf("ingest.quota.bytes_per_day must be 0 or >= ingest.max_body_bytes (%d)", c.Ingest.MaxBodyBytes))
+	}
+	if q.Enabled() && !c.Valkey.Enabled() {
+		errs = append(errs, errors.New("ingest.quota needs valkey.addr: quota buckets are shared through Valkey"))
+	}
+	return errs
 }

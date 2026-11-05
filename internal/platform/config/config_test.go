@@ -16,6 +16,48 @@ var testKEK = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, KeyEncry
 
 var kekEnv = "APILENS_IDENTITY__KEY_ENCRYPTION_KEY=" + testKEK
 
+func TestIngestQuota(t *testing.T) {
+	cfg, err := Load("", []string{kekEnv}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Ingest.Quota.Enabled() {
+		t.Fatalf("quota should be disabled by default: %+v", cfg.Ingest.Quota)
+	}
+
+	cfg, err = Load("", []string{
+		kekEnv,
+		"APILENS_VALKEY__ADDR=localhost:6379",
+		"APILENS_INGEST__QUOTA__RECORDS_PER_MINUTE=60000",
+		"APILENS_INGEST__QUOTA__BYTES_PER_DAY=10737418240",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q := cfg.Ingest.Quota; q != (QuotaConfig{RecordsPerMinute: 60000, BytesPerDay: 10 << 30}) || !q.Enabled() {
+		t.Fatalf("quota = %+v", q)
+	}
+}
+
+func TestIngestQuotaValidation(t *testing.T) {
+	const valkey = "APILENS_VALKEY__ADDR=localhost:6379"
+	tests := []struct {
+		env     []string
+		wantErr string
+	}{
+		{[]string{valkey, "APILENS_INGEST__QUOTA__RECORDS_PER_MINUTE=-1"}, "must be >= 0"},
+		{[]string{valkey, "APILENS_INGEST__QUOTA__RECORDS_PER_MINUTE=10"}, "ingest.quota.records_per_minute must be 0 or >= ingest.max_records_per_request"},
+		{[]string{valkey, "APILENS_INGEST__QUOTA__BYTES_PER_DAY=1024"}, "ingest.quota.bytes_per_day must be 0 or >= ingest.max_body_bytes"},
+		{[]string{"APILENS_INGEST__QUOTA__RECORDS_PER_MINUTE=5000"}, "ingest.quota needs valkey.addr"},
+	}
+	for _, tt := range tests {
+		_, err := Load("", append([]string{kekEnv}, tt.env...), nil)
+		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+			t.Errorf("%v: err = %v, want %q", tt.env, err, tt.wantErr)
+		}
+	}
+}
+
 func TestDefaultsAreValid(t *testing.T) {
 	cfg, err := Load("", []string{kekEnv}, nil)
 	if err != nil {

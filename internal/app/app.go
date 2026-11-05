@@ -153,7 +153,7 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	// drift between the two.
 	m.Register(modRelay, a.initRelay, modules.Invisible(), modules.DependsOn(modPostgres, modJobs, modAuthz))
 
-	m.Register(TargetEdge, a.initEdge, modules.DependsOn(modServer, modCatalog, modSink))
+	m.Register(TargetEdge, a.initEdge, modules.DependsOn(modServer, modValkey, modCatalog, modSink))
 	// query is the first slice of the M3 read path (fixed queries; user
 	// sessions authorized by SpiceDB, or read keys).
 	m.Register(TargetQuery, a.initQuery, modules.DependsOn(modServer, modPostgres, modClickHouse, modCatalog, modAuthz))
@@ -321,7 +321,12 @@ func (a *App) initRelay(context.Context) (modules.Service, error) {
 }
 
 func (a *App) initEdge(context.Context) (modules.Service, error) {
-	ingest.New(a.verifier, a.apps, a.sink, a.cfg.Ingest, a.logger, a.registry).WithPrivacy(a.privacy).WithMetadata(a.queries).Register(a.server.Mux())
+	edge := ingest.New(a.verifier, a.apps, a.sink, a.cfg.Ingest, a.logger, a.registry).WithPrivacy(a.privacy).WithMetadata(a.queries)
+	// Config validation guarantees Valkey when a quota is set.
+	if a.cfg.Ingest.Quota.Enabled() && a.valkey != nil {
+		edge.WithQuota(ingest.NewValkeyQuota(a.valkey, a.cfg.Ingest.Quota))
+	}
+	edge.Register(a.server.Mux())
 	ingest.RegisterOpenAPI(a.server.API())
 	return nil, nil
 }
@@ -334,7 +339,7 @@ func (a *App) initQuery(context.Context) (modules.Service, error) {
 	// keys still work on the ?project= operations.
 	guard := a.guard()
 	api.UseMiddleware(query.AuthMiddleware(api, a.verifier, guard))
-	query.Register(api, query.NewService(a.chConn, a.queries), guard)
+	query.Register(api, query.NewService(a.chConn, a.queries).WithQuota(a.cfg.Ingest.Quota), guard)
 	return nil, nil
 }
 
