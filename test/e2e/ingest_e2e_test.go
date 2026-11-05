@@ -127,6 +127,15 @@ func TestIngestEndToEnd(t *testing.T) {
 	if code, body := e.post(t, "/v1/requests", e.key, map[string]any{"requests": reqs}); code != 200 || !strings.Contains(body, `"accepted":3`) {
 		t.Fatalf("/v1/requests = %d %s", code, body)
 	}
+	// M3 SDK fields: sampled, attributes, validation_errors.
+	if code, body := e.post(t, "/v1/requests", e.key, map[string]any{"requests": []map[string]any{{
+		"app_id": e.app, "timestamp": now.Format(time.RFC3339Nano), "environment": "e2e", "method": "POST",
+		"path": "/" + run + "/m3", "status_code": 422, "response_time_ms": 4, "sampled": false,
+		"attributes":        map[string]any{"tenant.id": run},
+		"validation_errors": []map[string]any{{"loc": []any{"body", "email"}, "msg": "field required", "type": "missing"}},
+	}}}); code != 200 {
+		t.Fatalf("/v1/requests (m3 fields) = %d %s", code, body)
+	}
 	if code, body := e.post(t, "/v1/logs", e.key, map[string]any{"logs": []map[string]any{{
 		"app_id": e.app, "timestamp": now.Format(time.RFC3339Nano), "environment": "e2e", "level": "error", "message": run + " legacy log",
 	}}}); code != 200 {
@@ -190,6 +199,11 @@ func TestIngestEndToEnd(t *testing.T) {
 	e.eventually(t, "requests", fmt.Sprintf("SELECT count() FROM api_requests WHERE path = '/%s/{id}'", run), 3)
 	e.eventually(t, "1m rollup", fmt.Sprintf("SELECT sum(requests) FROM api_requests_1m WHERE path = '/%s/{id}'", run), 3)
 	e.eventually(t, "server errors", fmt.Sprintf("SELECT sum(server_errors) FROM api_requests_1m WHERE path = '/%s/{id}'", run), 1)
+	e.eventually(t, "m3 request fields", fmt.Sprintf(`SELECT count() FROM api_requests WHERE path = '/%s/m3'
+		AND sampled = 0 AND attributes['tenant.id'] = '%s'
+		AND JSONExtractString(validation_errors, 1, 'loc') = 'body.email'
+		AND JSONExtractString(validation_errors, 1, 'type') = 'missing'`, run, run), 1)
+	e.eventually(t, "old requests default to sampled", fmt.Sprintf("SELECT count() FROM api_requests WHERE path = '/%s/{id}' AND sampled = 1", run), 3)
 	e.eventually(t, "logs", fmt.Sprintf("SELECT count() FROM api_logs WHERE message LIKE '%s %%'", run), 2)
 	e.eventually(t, "spans", fmt.Sprintf("SELECT count() FROM api_spans WHERE name LIKE '%s %%'", run), 2)
 	e.eventually(t, "otlp span status", fmt.Sprintf("SELECT count() FROM api_spans WHERE name = '%s otlp span' AND status_code = 201 AND environment = 'e2e'", run), 1)

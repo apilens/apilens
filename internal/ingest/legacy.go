@@ -39,6 +39,10 @@ type requestRecord struct {
 	SpanID          string   `json:"span_id"`
 	Release         string   `json:"release"`
 	Commit          string   `json:"commit"`
+	// M3 SDK fields; older SDKs omit them.
+	Sampled          *bool                      `json:"sampled"`
+	Attributes       map[string]json.RawMessage `json:"attributes"`
+	ValidationErrors json.RawMessage            `json:"validation_errors"`
 }
 
 type logRecord struct {
@@ -147,31 +151,34 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rows = append(rows, pipeline.RequestRow{
-			ProjectID:       p.ProjectID,
-			AppID:           apps[strings.TrimSpace(rec.AppID)],
-			Environment:     environment(rec.Environment),
-			Timestamp:       rec.Timestamp.Time,
-			Method:          truncate(method, 16),
-			Path:            path,
-			RawPath:         truncate(strings.TrimSpace(rec.RawPath), maxPayloadChars),
-			StatusCode:      clampStatus(rec.StatusCode),
-			ResponseTimeMs:  nonNegative(rec.ResponseTimeMs),
-			RequestSize:     sizeOf(rec.RequestSize),
-			ResponseSize:    sizeOf(rec.ResponseSize),
-			IPAddress:       truncate(strings.TrimSpace(rec.IPAddress), 64),
-			UserAgent:       short(rec.UserAgent),
-			ConsumerID:      truncate(strings.TrimSpace(rec.ConsumerID), 256),
-			ConsumerName:    truncate(strings.TrimSpace(rec.ConsumerName), 256),
-			ConsumerGroup:   truncate(strings.TrimSpace(rec.ConsumerGroup), 256),
-			RequestPayload:  truncate(rec.RequestPayload, maxPayloadChars),
-			ResponsePayload: truncate(rec.ResponsePayload, maxPayloadChars),
-			RequestHeaders:  truncate(rec.RequestHeaders, maxPayloadChars),
-			ResponseHeaders: truncate(rec.ResponseHeaders, maxPayloadChars),
-			BaseURL:         short(rec.BaseURL),
-			TraceID:         hexID(rec.TraceID, traceIDHexLen),
-			SpanID:          hexID(rec.SpanID, spanIDHexLen),
-			Release:         release(rec.Release),
-			Commit:          commit(rec.Commit),
+			ProjectID:        p.ProjectID,
+			AppID:            apps[strings.TrimSpace(rec.AppID)],
+			Environment:      environment(rec.Environment),
+			Timestamp:        rec.Timestamp.Time,
+			Method:           truncate(method, 16),
+			Path:             path,
+			RawPath:          truncate(strings.TrimSpace(rec.RawPath), maxPayloadChars),
+			StatusCode:       clampStatus(rec.StatusCode),
+			ResponseTimeMs:   nonNegative(rec.ResponseTimeMs),
+			RequestSize:      sizeOf(rec.RequestSize),
+			ResponseSize:     sizeOf(rec.ResponseSize),
+			IPAddress:        truncate(strings.TrimSpace(rec.IPAddress), 64),
+			UserAgent:        short(rec.UserAgent),
+			ConsumerID:       truncate(strings.TrimSpace(rec.ConsumerID), 256),
+			ConsumerName:     truncate(strings.TrimSpace(rec.ConsumerName), 256),
+			ConsumerGroup:    truncate(strings.TrimSpace(rec.ConsumerGroup), 256),
+			RequestPayload:   truncate(rec.RequestPayload, maxPayloadChars),
+			ResponsePayload:  truncate(rec.ResponsePayload, maxPayloadChars),
+			RequestHeaders:   truncate(rec.RequestHeaders, maxPayloadChars),
+			ResponseHeaders:  truncate(rec.ResponseHeaders, maxPayloadChars),
+			BaseURL:          short(rec.BaseURL),
+			TraceID:          hexID(rec.TraceID, traceIDHexLen),
+			SpanID:           hexID(rec.SpanID, spanIDHexLen),
+			Release:          release(rec.Release),
+			Commit:           commit(rec.Commit),
+			Sampled:          sampled(rec.Sampled),
+			Attributes:       attributesN(rec.Attributes, maxRequestAttributes),
+			ValidationErrors: validationErrors(rec.ValidationErrors),
 		})
 	}
 	if err := e.sink.SubmitRequests(r.Context(), rows); err != nil {

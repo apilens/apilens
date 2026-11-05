@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -161,6 +162,39 @@ func TestLegacyRequestsHappyPath(t *testing.T) {
 	}
 	if !row.Timestamp.Equal(time.Date(2026, 10, 22, 11, 59, 0, 123456000, time.UTC)) {
 		t.Errorf("timestamp = %v", row.Timestamp)
+	}
+	// Compat: an old SDK payload (no M3 fields) is sampled, with no
+	// attributes or validation errors.
+	if !row.Sampled || row.Attributes != nil || row.ValidationErrors != nil {
+		t.Errorf("old SDK payload defaults wrong: sampled=%v attrs=%v errors=%v", row.Sampled, row.Attributes, row.ValidationErrors)
+	}
+}
+
+func TestRequestsNewSDKFields(t *testing.T) {
+	sink := &fakeSink{}
+	body := strings.Replace(validRequest, `"release":"v1.2.3"`, `"release":"v1.2.3","sampled":false,
+ "attributes":{"tenant.id":"acme","plan":3,"nested":{"x":1}},
+ "validation_errors":[{"loc":["body","email"],"msg":"field required","type":"missing"}],"unknown_future_field":1`, 1)
+	rec := post(t, newEdge(t, fakeVerifier{}, sink), "/v1/requests", body, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d %s", rec.Code, rec.Body)
+	}
+	row := sink.requests[0]
+	if row.Sampled {
+		t.Error("sampled=false not honoured")
+	}
+	if want := map[string]string{"tenant.id": "acme", "plan": "3"}; !reflect.DeepEqual(row.Attributes, want) {
+		t.Errorf("attributes = %v, want %v", row.Attributes, want)
+	}
+	if want := []pipeline.ValidationError{{Loc: "body.email", Msg: "field required", Type: "missing"}}; !reflect.DeepEqual(row.ValidationErrors, want) {
+		t.Errorf("validation_errors = %+v, want %+v", row.ValidationErrors, want)
+	}
+
+	// A malformed validation_errors value is dropped, not a 422.
+	sink = &fakeSink{}
+	body = strings.Replace(validRequest, `"release":"v1.2.3"`, `"release":"v1.2.3","validation_errors":"oops"`, 1)
+	if rec := post(t, newEdge(t, fakeVerifier{}, sink), "/v1/requests", body, nil); rec.Code != http.StatusOK || sink.requests[0].ValidationErrors != nil {
+		t.Fatalf("malformed validation_errors: %d %s %+v", rec.Code, rec.Body, sink.requests)
 	}
 }
 

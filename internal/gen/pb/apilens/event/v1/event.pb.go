@@ -58,8 +58,16 @@ type RequestEvent struct {
 	SpanId          string  `protobuf:"bytes,23,opt,name=span_id,json=spanId,proto3" json:"span_id,omitempty"`
 	Release         string  `protobuf:"bytes,24,opt,name=release,proto3" json:"release,omitempty"`
 	Commit          string  `protobuf:"bytes,25,opt,name=commit,proto3" json:"commit,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// False when the SDK sampled the request out (headers, bodies, spans and
+	// logs dropped; the base record still counts in metrics). Unset means
+	// sampled, so events from older producers keep their meaning.
+	Sampled *bool `protobuf:"varint,26,opt,name=sampled,proto3,oneof" json:"sampled,omitempty"`
+	// Custom request attributes set by the application (at most 32).
+	Attributes map[string]string `protobuf:"bytes,27,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Structured framework validation errors of a 422 (at most 20).
+	ValidationErrors []*ValidationError `protobuf:"bytes,28,rep,name=validation_errors,json=validationErrors,proto3" json:"validation_errors,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RequestEvent) Reset() {
@@ -267,6 +275,89 @@ func (x *RequestEvent) GetCommit() string {
 	return ""
 }
 
+func (x *RequestEvent) GetSampled() bool {
+	if x != nil && x.Sampled != nil {
+		return *x.Sampled
+	}
+	return false
+}
+
+func (x *RequestEvent) GetAttributes() map[string]string {
+	if x != nil {
+		return x.Attributes
+	}
+	return nil
+}
+
+func (x *RequestEvent) GetValidationErrors() []*ValidationError {
+	if x != nil {
+		return x.ValidationErrors
+	}
+	return nil
+}
+
+// ValidationError is one field error of a rejected request, e.g.
+// {loc: "body.email", msg: "field required", type: "missing"}.
+type ValidationError struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Loc           string                 `protobuf:"bytes,1,opt,name=loc,proto3" json:"loc,omitempty"`
+	Msg           string                 `protobuf:"bytes,2,opt,name=msg,proto3" json:"msg,omitempty"`
+	Type          string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ValidationError) Reset() {
+	*x = ValidationError{}
+	mi := &file_apilens_event_v1_event_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ValidationError) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ValidationError) ProtoMessage() {}
+
+func (x *ValidationError) ProtoReflect() protoreflect.Message {
+	mi := &file_apilens_event_v1_event_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ValidationError.ProtoReflect.Descriptor instead.
+func (*ValidationError) Descriptor() ([]byte, []int) {
+	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ValidationError) GetLoc() string {
+	if x != nil {
+		return x.Loc
+	}
+	return ""
+}
+
+func (x *ValidationError) GetMsg() string {
+	if x != nil {
+		return x.Msg
+	}
+	return ""
+}
+
+func (x *ValidationError) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
 // LogEvent is one log record (table api_logs).
 type LogEvent struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
@@ -295,7 +386,7 @@ type LogEvent struct {
 
 func (x *LogEvent) Reset() {
 	*x = LogEvent{}
-	mi := &file_apilens_event_v1_event_proto_msgTypes[1]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -307,7 +398,7 @@ func (x *LogEvent) String() string {
 func (*LogEvent) ProtoMessage() {}
 
 func (x *LogEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_apilens_event_v1_event_proto_msgTypes[1]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -320,7 +411,7 @@ func (x *LogEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogEvent.ProtoReflect.Descriptor instead.
 func (*LogEvent) Descriptor() ([]byte, []int) {
-	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{1}
+	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *LogEvent) GetProjectId() string {
@@ -481,7 +572,7 @@ type SpanEvent struct {
 
 func (x *SpanEvent) Reset() {
 	*x = SpanEvent{}
-	mi := &file_apilens_event_v1_event_proto_msgTypes[2]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -493,7 +584,7 @@ func (x *SpanEvent) String() string {
 func (*SpanEvent) ProtoMessage() {}
 
 func (x *SpanEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_apilens_event_v1_event_proto_msgTypes[2]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -506,7 +597,7 @@ func (x *SpanEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SpanEvent.ProtoReflect.Descriptor instead.
 func (*SpanEvent) Descriptor() ([]byte, []int) {
-	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{2}
+	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *SpanEvent) GetProjectId() string {
@@ -638,7 +729,7 @@ type DeployEvent struct {
 
 func (x *DeployEvent) Reset() {
 	*x = DeployEvent{}
-	mi := &file_apilens_event_v1_event_proto_msgTypes[3]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -650,7 +741,7 @@ func (x *DeployEvent) String() string {
 func (*DeployEvent) ProtoMessage() {}
 
 func (x *DeployEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_apilens_event_v1_event_proto_msgTypes[3]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -663,7 +754,7 @@ func (x *DeployEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployEvent.ProtoReflect.Descriptor instead.
 func (*DeployEvent) Descriptor() ([]byte, []int) {
-	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{3}
+	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *DeployEvent) GetProjectId() string {
@@ -725,7 +816,7 @@ type RequestBatch struct {
 
 func (x *RequestBatch) Reset() {
 	*x = RequestBatch{}
-	mi := &file_apilens_event_v1_event_proto_msgTypes[4]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -737,7 +828,7 @@ func (x *RequestBatch) String() string {
 func (*RequestBatch) ProtoMessage() {}
 
 func (x *RequestBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_apilens_event_v1_event_proto_msgTypes[4]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -750,7 +841,7 @@ func (x *RequestBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestBatch.ProtoReflect.Descriptor instead.
 func (*RequestBatch) Descriptor() ([]byte, []int) {
-	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{4}
+	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RequestBatch) GetEvents() []*RequestEvent {
@@ -770,7 +861,7 @@ type LogBatch struct {
 
 func (x *LogBatch) Reset() {
 	*x = LogBatch{}
-	mi := &file_apilens_event_v1_event_proto_msgTypes[5]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -782,7 +873,7 @@ func (x *LogBatch) String() string {
 func (*LogBatch) ProtoMessage() {}
 
 func (x *LogBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_apilens_event_v1_event_proto_msgTypes[5]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -795,7 +886,7 @@ func (x *LogBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogBatch.ProtoReflect.Descriptor instead.
 func (*LogBatch) Descriptor() ([]byte, []int) {
-	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{5}
+	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *LogBatch) GetEvents() []*LogEvent {
@@ -815,7 +906,7 @@ type SpanBatch struct {
 
 func (x *SpanBatch) Reset() {
 	*x = SpanBatch{}
-	mi := &file_apilens_event_v1_event_proto_msgTypes[6]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -827,7 +918,7 @@ func (x *SpanBatch) String() string {
 func (*SpanBatch) ProtoMessage() {}
 
 func (x *SpanBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_apilens_event_v1_event_proto_msgTypes[6]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -840,7 +931,7 @@ func (x *SpanBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SpanBatch.ProtoReflect.Descriptor instead.
 func (*SpanBatch) Descriptor() ([]byte, []int) {
-	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{6}
+	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SpanBatch) GetEvents() []*SpanEvent {
@@ -860,7 +951,7 @@ type DeployBatch struct {
 
 func (x *DeployBatch) Reset() {
 	*x = DeployBatch{}
-	mi := &file_apilens_event_v1_event_proto_msgTypes[7]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -872,7 +963,7 @@ func (x *DeployBatch) String() string {
 func (*DeployBatch) ProtoMessage() {}
 
 func (x *DeployBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_apilens_event_v1_event_proto_msgTypes[7]
+	mi := &file_apilens_event_v1_event_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -885,7 +976,7 @@ func (x *DeployBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployBatch.ProtoReflect.Descriptor instead.
 func (*DeployBatch) Descriptor() ([]byte, []int) {
-	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{7}
+	return file_apilens_event_v1_event_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DeployBatch) GetEvents() []*DeployEvent {
@@ -899,7 +990,7 @@ var File_apilens_event_v1_event_proto protoreflect.FileDescriptor
 
 const file_apilens_event_v1_event_proto_rawDesc = "" +
 	"\n" +
-	"\x1capilens/event/v1/event.proto\x12\x10apilens.event.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xce\x06\n" +
+	"\x1capilens/event/v1/event.proto\x12\x10apilens.event.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd8\b\n" +
 	"\fRequestEvent\x12\x1d\n" +
 	"\n" +
 	"project_id\x18\x01 \x01(\tR\tprojectId\x12\x15\n" +
@@ -931,7 +1022,21 @@ const file_apilens_event_v1_event_proto_rawDesc = "" +
 	"\btrace_id\x18\x16 \x01(\tR\atraceId\x12\x17\n" +
 	"\aspan_id\x18\x17 \x01(\tR\x06spanId\x12\x18\n" +
 	"\arelease\x18\x18 \x01(\tR\arelease\x12\x16\n" +
-	"\x06commit\x18\x19 \x01(\tR\x06commit\"\xd4\x05\n" +
+	"\x06commit\x18\x19 \x01(\tR\x06commit\x12\x1d\n" +
+	"\asampled\x18\x1a \x01(\bH\x00R\asampled\x88\x01\x01\x12N\n" +
+	"\n" +
+	"attributes\x18\x1b \x03(\v2..apilens.event.v1.RequestEvent.AttributesEntryR\n" +
+	"attributes\x12N\n" +
+	"\x11validation_errors\x18\x1c \x03(\v2!.apilens.event.v1.ValidationErrorR\x10validationErrors\x1a=\n" +
+	"\x0fAttributesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\n" +
+	"\n" +
+	"\b_sampled\"I\n" +
+	"\x0fValidationError\x12\x10\n" +
+	"\x03loc\x18\x01 \x01(\tR\x03loc\x12\x10\n" +
+	"\x03msg\x18\x02 \x01(\tR\x03msg\x12\x12\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\"\xd4\x05\n" +
 	"\bLogEvent\x12\x1d\n" +
 	"\n" +
 	"project_id\x18\x01 \x01(\tR\tprojectId\x12\x15\n" +
@@ -1021,36 +1126,40 @@ func file_apilens_event_v1_event_proto_rawDescGZIP() []byte {
 	return file_apilens_event_v1_event_proto_rawDescData
 }
 
-var file_apilens_event_v1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_apilens_event_v1_event_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_apilens_event_v1_event_proto_goTypes = []any{
 	(*RequestEvent)(nil),          // 0: apilens.event.v1.RequestEvent
-	(*LogEvent)(nil),              // 1: apilens.event.v1.LogEvent
-	(*SpanEvent)(nil),             // 2: apilens.event.v1.SpanEvent
-	(*DeployEvent)(nil),           // 3: apilens.event.v1.DeployEvent
-	(*RequestBatch)(nil),          // 4: apilens.event.v1.RequestBatch
-	(*LogBatch)(nil),              // 5: apilens.event.v1.LogBatch
-	(*SpanBatch)(nil),             // 6: apilens.event.v1.SpanBatch
-	(*DeployBatch)(nil),           // 7: apilens.event.v1.DeployBatch
-	nil,                           // 8: apilens.event.v1.LogEvent.AttributesEntry
-	nil,                           // 9: apilens.event.v1.SpanEvent.AttributesEntry
-	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
+	(*ValidationError)(nil),       // 1: apilens.event.v1.ValidationError
+	(*LogEvent)(nil),              // 2: apilens.event.v1.LogEvent
+	(*SpanEvent)(nil),             // 3: apilens.event.v1.SpanEvent
+	(*DeployEvent)(nil),           // 4: apilens.event.v1.DeployEvent
+	(*RequestBatch)(nil),          // 5: apilens.event.v1.RequestBatch
+	(*LogBatch)(nil),              // 6: apilens.event.v1.LogBatch
+	(*SpanBatch)(nil),             // 7: apilens.event.v1.SpanBatch
+	(*DeployBatch)(nil),           // 8: apilens.event.v1.DeployBatch
+	nil,                           // 9: apilens.event.v1.RequestEvent.AttributesEntry
+	nil,                           // 10: apilens.event.v1.LogEvent.AttributesEntry
+	nil,                           // 11: apilens.event.v1.SpanEvent.AttributesEntry
+	(*timestamppb.Timestamp)(nil), // 12: google.protobuf.Timestamp
 }
 var file_apilens_event_v1_event_proto_depIdxs = []int32{
-	10, // 0: apilens.event.v1.RequestEvent.timestamp:type_name -> google.protobuf.Timestamp
-	10, // 1: apilens.event.v1.LogEvent.timestamp:type_name -> google.protobuf.Timestamp
-	8,  // 2: apilens.event.v1.LogEvent.attributes:type_name -> apilens.event.v1.LogEvent.AttributesEntry
-	10, // 3: apilens.event.v1.SpanEvent.timestamp:type_name -> google.protobuf.Timestamp
-	9,  // 4: apilens.event.v1.SpanEvent.attributes:type_name -> apilens.event.v1.SpanEvent.AttributesEntry
-	10, // 5: apilens.event.v1.DeployEvent.deployed_at:type_name -> google.protobuf.Timestamp
-	0,  // 6: apilens.event.v1.RequestBatch.events:type_name -> apilens.event.v1.RequestEvent
-	1,  // 7: apilens.event.v1.LogBatch.events:type_name -> apilens.event.v1.LogEvent
-	2,  // 8: apilens.event.v1.SpanBatch.events:type_name -> apilens.event.v1.SpanEvent
-	3,  // 9: apilens.event.v1.DeployBatch.events:type_name -> apilens.event.v1.DeployEvent
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	12, // 0: apilens.event.v1.RequestEvent.timestamp:type_name -> google.protobuf.Timestamp
+	9,  // 1: apilens.event.v1.RequestEvent.attributes:type_name -> apilens.event.v1.RequestEvent.AttributesEntry
+	1,  // 2: apilens.event.v1.RequestEvent.validation_errors:type_name -> apilens.event.v1.ValidationError
+	12, // 3: apilens.event.v1.LogEvent.timestamp:type_name -> google.protobuf.Timestamp
+	10, // 4: apilens.event.v1.LogEvent.attributes:type_name -> apilens.event.v1.LogEvent.AttributesEntry
+	12, // 5: apilens.event.v1.SpanEvent.timestamp:type_name -> google.protobuf.Timestamp
+	11, // 6: apilens.event.v1.SpanEvent.attributes:type_name -> apilens.event.v1.SpanEvent.AttributesEntry
+	12, // 7: apilens.event.v1.DeployEvent.deployed_at:type_name -> google.protobuf.Timestamp
+	0,  // 8: apilens.event.v1.RequestBatch.events:type_name -> apilens.event.v1.RequestEvent
+	2,  // 9: apilens.event.v1.LogBatch.events:type_name -> apilens.event.v1.LogEvent
+	3,  // 10: apilens.event.v1.SpanBatch.events:type_name -> apilens.event.v1.SpanEvent
+	4,  // 11: apilens.event.v1.DeployBatch.events:type_name -> apilens.event.v1.DeployEvent
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_apilens_event_v1_event_proto_init() }
@@ -1058,13 +1167,14 @@ func file_apilens_event_v1_event_proto_init() {
 	if File_apilens_event_v1_event_proto != nil {
 		return
 	}
+	file_apilens_event_v1_event_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_apilens_event_v1_event_proto_rawDesc), len(file_apilens_event_v1_event_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

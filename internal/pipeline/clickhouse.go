@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -16,7 +17,8 @@ func ClickHouseInserters(conn driver.Conn) Inserters {
 				return b.Append(r.ProjectID, r.AppID, r.Environment, r.Timestamp, r.Method, r.Path, r.RawPath,
 					r.StatusCode, r.ResponseTimeMs, r.RequestSize, r.ResponseSize, r.IPAddress, r.UserAgent,
 					r.ConsumerID, r.ConsumerName, r.ConsumerGroup, r.RequestPayload, r.ResponsePayload,
-					r.RequestHeaders, r.ResponseHeaders, r.BaseURL, r.TraceID, r.SpanID, r.Release, r.Commit)
+					r.RequestHeaders, r.ResponseHeaders, r.BaseURL, r.TraceID, r.SpanID, r.Release, r.Commit,
+					boolUInt8(r.Sampled), nonNilMap(r.Attributes), validationErrorsJSON(r.ValidationErrors))
 			})
 		},
 		Logs: func(ctx context.Context, rows []LogRow) error {
@@ -45,7 +47,7 @@ const (
 	insertRequests = `INSERT INTO api_requests (project_id, app_id, environment, timestamp, method, path, raw_path,
 		status_code, response_time_ms, request_size, response_size, ip_address, user_agent, consumer_id,
 		consumer_name, consumer_group, request_payload, response_payload, request_headers, response_headers,
-		base_url, trace_id, span_id, release, commit)`
+		base_url, trace_id, span_id, release, commit, sampled, attributes, validation_errors)`
 	insertLogs = `INSERT INTO api_logs (project_id, app_id, environment, timestamp, level, message, logger_name,
 		endpoint_method, endpoint_path, status_code, consumer_id, consumer_name, consumer_group, trace_id, span_id,
 		payload, attributes, release, commit)`
@@ -76,4 +78,24 @@ func nonNilMap(m map[string]string) map[string]string {
 		return map[string]string{}
 	}
 	return m
+}
+
+func boolUInt8(b bool) uint8 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// validationErrorsJSON encodes validation errors as a JSON array, or "" when
+// there are none (the column default).
+func validationErrorsJSON(v []ValidationError) string {
+	if len(v) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(v)
+	if err != nil { // plain strings cannot fail to marshal
+		return ""
+	}
+	return string(b)
 }

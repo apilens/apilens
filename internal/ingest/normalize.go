@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/apilens/apilens/internal/pipeline"
 )
 
 // Limits mirror the v1 ingest service so SDK behaviour does not change.
@@ -17,6 +19,10 @@ const (
 	maxAttributeKeyChars   = 64
 	maxAttributeValueChars = 512
 	maxAttributes          = 64
+	maxRequestAttributes   = 32
+	maxValidationErrors    = 20
+	maxValidationLocChars  = 256
+	maxValidationTypeChars = 128
 	maxReleaseChars        = 128
 	maxCommitChars         = 64
 	maxShortFieldChars     = 1_024 // method, paths, names, user agents, ...
@@ -112,12 +118,17 @@ func sizeOf(n int64) uint64 {
 
 // attributes flattens a JSON object into bounded string pairs.
 func attributes(in map[string]json.RawMessage) map[string]string {
+	return attributesN(in, maxAttributes)
+}
+
+// attributesN is attributes with an explicit cap on the number of pairs.
+func attributesN(in map[string]json.RawMessage, limit int) map[string]string {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make(map[string]string, min(len(in), maxAttributes))
+	out := make(map[string]string, min(len(in), limit))
 	for k, raw := range in {
-		if len(out) >= maxAttributes {
+		if len(out) >= limit {
 			break
 		}
 		key := truncate(strings.TrimSpace(k), maxAttributeKeyChars)
@@ -131,6 +142,78 @@ func attributes(in map[string]json.RawMessage) map[string]string {
 		out[key] = truncate(rawToString(raw), maxAttributeValueChars)
 	}
 	return out
+}
+
+// sampled reads the optional SDK sampling flag: absent or null (older SDKs)
+// means the request was sampled in.
+func sampled(b *bool) bool { return b == nil || *b }
+
+// validationErrors parses the SDK's validation_errors array leniently: a
+// malformed value or entry is dropped rather than failing the whole batch,
+// loc may be a string or a FastAPI-style path array (joined with "."), and
+// at most maxValidationErrors entries are kept.
+func validationErrors(raw json.RawMessage) []pipeline.ValidationError {
+	if firstNonSpace(raw) != '[' {
+		return nil
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil
+	}
+	var out []pipeline.ValidationError
+	for _, entry := range entries {
+		if len(out) >= maxValidationErrors {
+			break
+		}
+		var v struct {
+			Loc  json.RawMessage `json:"loc"`
+			Msg  json.RawMessage `json:"msg"`
+			Type json.RawMessage `json:"type"`
+		}
+		if firstNonSpace(entry) != '{' || json.Unmarshal(entry, &v) != nil {
+			continue
+		}
+		ve := pipeline.ValidationError{
+			Loc:  truncate(strings.TrimSpace(validationLoc(v.Loc)), maxValidationLocChars),
+			Msg:  short(scalarString(v.Msg)),
+			Type: truncate(strings.TrimSpace(scalarString(v.Type)), maxValidationTypeChars),
+		}
+		if ve.Loc == "" && ve.Msg == "" && ve.Type == "" {
+			continue
+		}
+		out = append(out, ve)
+	}
+	return out
+}
+
+// validationLoc renders a loc that is either a string or an array of
+// strings/numbers (["body", "items", 0, "name"] -> "body.items.0.name").
+func validationLoc(raw json.RawMessage) string {
+	if firstNonSpace(raw) != '[' {
+		return scalarString(raw)
+	}
+	var parts []json.RawMessage
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return ""
+	}
+	segs := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if seg := scalarString(p); seg != "" {
+			segs = append(segs, seg)
+		}
+	}
+	return strings.Join(segs, ".")
+}
+
+// scalarString is rawToString for scalars only; objects and arrays become "".
+func scalarString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	if t := firstNonSpace(raw); t == '{' || t == '[' {
+		return ""
+	}
+	return rawToString(raw)
 }
 
 func firstNonSpace(b []byte) byte {
