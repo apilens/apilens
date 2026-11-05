@@ -8,10 +8,15 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Union
 from urllib.parse import parse_qsl, quote, urlencode
 
 REDACTED = "[redacted]"
+# Stored in place of a whole body that a mask callback dropped (returned
+# ``None``) or failed on (raised / returned a non-bytes value).
+MASKED = "[masked]"
 
 # Header names whose VALUES must never leave the app (case-insensitive).
 SENSITIVE_HEADERS = frozenset(
@@ -187,6 +192,89 @@ class Redactor:
             return json.dumps(result, separators=(",", ":"), ensure_ascii=False)
         except Exception:
             return payload
+
+
+@dataclass(frozen=True, slots=True)
+class RequestInfo:
+    """What a ``mask_request_body`` callback is told about the request.
+
+    ``path`` is the request path without query string; ``raw_path`` is the
+    exact URL with any sensitive query values already redacted. ``headers``
+    are the request headers with lower-cased names, unredacted (the callback
+    runs in-process, nothing has left the app yet).
+    """
+
+    method: str
+    path: str
+    raw_path: str = ""
+    headers: Mapping[str, str] = field(default_factory=dict)
+
+    @property
+    def content_type(self) -> str:
+        return str(self.headers.get("content-type") or "")
+
+
+@dataclass(frozen=True, slots=True)
+class ResponseInfo:
+    """What a ``mask_response_body`` callback is told about the response."""
+
+    request: RequestInfo
+    status_code: int
+    headers: Mapping[str, str] = field(default_factory=dict)
+
+    @property
+    def content_type(self) -> str:
+        return str(self.headers.get("content-type") or "")
+
+
+# ``(info, body) -> bytes | None``: return the (possibly rewritten) body bytes,
+# or ``None`` to drop the whole body (stored as ``[masked]``).
+BodyMasker = Callable[[Any, bytes], Union[bytes, None]]
+
+
+def lower_headers(headers: Mapping[str, Any] | None) -> dict[str, str]:
+    """Header map with lower-cased names, for :class:`RequestInfo`/:class:`ResponseInfo`."""
+    if not headers:
+        return {}
+    return {str(k).lower(): str(v) for k, v in headers.items()}
+
+
+def mask_body(
+    body: bytes,
+    *,
+    redactor: Redactor,
+    masker: BodyMasker | None = None,
+    info: RequestInfo | ResponseInfo | None = None,
+) -> str:
+    """Turn captured body bytes into the payload string that is sent.
+
+    Order is fixed: the user ``masker`` callback runs first on the (already
+    truncated) raw bytes, then the result is decoded and the regex field
+    masking — user patterns plus the built-in defaults — is applied by
+    ``redactor``. The callback can rewrite or drop the body but can never
+    switch the built-ins off.
+
+    Fail closed: if the callback returns ``None``, raises, or returns
+    something that is not bytes/str, the whole body becomes ``[masked]`` —
+    the raw body is never sent in that case.
+    """
+    if not body:
+        return ""
+    if masker is not None:
+        try:
+            result = masker(info, bytes(body))
+        except Exception:
+            return MASKED
+        if result is None:
+            return MASKED
+        if isinstance(result, str):
+            result = result.encode("utf-8")
+        elif isinstance(result, (bytearray, memoryview)):
+            result = bytes(result)
+        elif not isinstance(result, bytes):
+            return MASKED
+        body = result
+    return redactor.redact_body(decode_utf8_safe(body))
 
 
 def decode_utf8_safe(data: bytes) -> str:

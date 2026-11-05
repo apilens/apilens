@@ -6,7 +6,14 @@ from typing import Any
 from .client._capture import CaptureContext, _normalize_path, _to_int, capture_response
 from .client._exclude import PathExcluder
 from .client._routes import django_route_template, resolve_endpoint_path
-from .client._sanitize import Redactor, decode_utf8_safe, serialize_headers
+from .client._sanitize import (
+    Redactor,
+    RequestInfo,
+    ResponseInfo,
+    lower_headers,
+    mask_body,
+    serialize_headers,
+)
 from .client import ApiLensClient, ApiLensConfig
 from .client.middleware import (
     _apply_consumer,
@@ -39,6 +46,29 @@ def _resolve_get_consumer(settings: Any):
             return None
     return None
 
+
+def _resolve_body_masker(settings: Any, name: str):
+    """Read a body-mask setting; accept a callable or its dotted import path.
+
+    Unlike the consumer resolver this fails loudly: silently ignoring a
+    privacy callback that can't be imported would ship unmasked bodies.
+    """
+    target = getattr(settings, name, None)
+    if target is None or target == "":
+        return None
+    if callable(target):
+        return target
+    if isinstance(target, str):
+        from django.utils.module_loading import import_string
+
+        try:
+            fn = import_string(target)
+        except ImportError as exc:
+            raise RuntimeError(f"{name}: cannot import {target!r}") from exc
+        if not callable(fn):
+            raise RuntimeError(f"{name}: {target!r} is not callable")
+        return fn
+    raise RuntimeError(f"{name} must be a callable or a dotted import path")
 
 
 def _get_client_from_settings() -> ApiLensClient:
@@ -139,6 +169,12 @@ class ApiLensDjangoMiddleware:
             headers=list(getattr(settings, "APILENS_REDACT_HEADERS", []) or []),
             body_fields=list(getattr(settings, "APILENS_REDACT_BODY_FIELDS", []) or []),
         )
+        # Body mask callbacks ``(RequestInfo | ResponseInfo, bytes) -> bytes |
+        # None`` (a callable or its dotted path). They run on the truncated raw
+        # body before the regex field masking; ``None`` or an exception stores
+        # the whole body as ``[masked]``.
+        self.mask_request_body = _resolve_body_masker(settings, "APILENS_MASK_REQUEST_BODY")
+        self.mask_response_body = _resolve_body_masker(settings, "APILENS_MASK_RESPONSE_BODY")
         # Paths whose requests bypass capture entirely (health checks, probes).
         # A list of regexes or a comma-separated string; matched
         # case-insensitively against the path without query string. The
@@ -208,16 +244,23 @@ class ApiLensDjangoMiddleware:
             trace_id=trace_id,
             span_id=span_id,
         )
+        try:
+            request_headers = dict(request.headers.items())
+        except Exception:
+            request_headers = {}
         if self.capture_headers:
             try:
-                ctx.request_headers = serialize_headers(
-                    dict(request.headers.items()), redactor=self.redactor
-                )
+                ctx.request_headers = serialize_headers(request_headers, redactor=self.redactor)
             except Exception:
                 ctx.request_headers = ""
+        request_info = RequestInfo(
+            method=ctx.method, path=clean_path, raw_path=raw_path, headers=lower_headers(request_headers)
+        )
         try:
             body = request.body[: self.max_payload_bytes]
-            ctx.request_payload = self.redactor.redact_body(decode_utf8_safe(body))
+            ctx.request_payload = mask_body(
+                body, redactor=self.redactor, masker=self.mask_request_body, info=request_info
+            )
         except Exception:
             ctx.request_payload = ""
 
@@ -227,8 +270,19 @@ class ApiLensDjangoMiddleware:
             status_code = int(getattr(response, "status_code", 500) or 500)
             content = getattr(response, "content", b"") or b""
             response_size = len(content)
-            response_payload = self.redactor.redact_body(
-                decode_utf8_safe(content[: self.max_payload_bytes])
+            try:
+                response_header_map = dict(response.items())
+            except Exception:
+                response_header_map = {}
+            response_payload = mask_body(
+                content[: self.max_payload_bytes],
+                redactor=self.redactor,
+                masker=self.mask_response_body,
+                info=ResponseInfo(
+                    request=request_info,
+                    status_code=status_code,
+                    headers=lower_headers(response_header_map),
+                ),
             )
             if self.capture_headers:
                 try:
