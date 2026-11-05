@@ -159,17 +159,30 @@ LEFT JOIN alert_rule_state s ON s.rule_id = r.id
 WHERE r.enabled AND a.deleted_at IS NULL AND p.deleted_at IS NULL
 ORDER BY r.id;
 
+-- name: LockAlertRule :one
+-- Locks a rule for the transaction that records its evaluation, so two runs
+-- cannot step its state at once. Returns pgx.ErrNoRows when the rule was
+-- deleted.
+SELECT id FROM alert_rules
+WHERE id = @id
+FOR NO KEY UPDATE;
+
 -- name: UpsertAlertRuleState :exec
--- Records the result of a rule's latest evaluation.
-INSERT INTO alert_rule_state (rule_id, evaluated_at, window_start, window_end, value, requests, breached)
-VALUES (@rule_id, @evaluated_at, @window_start, @window_end, sqlc.narg(value)::float8, @requests, @breached)
+-- Records the result of a rule's latest evaluation and its trigger/resolve
+-- state.
+INSERT INTO alert_rule_state (rule_id, evaluated_at, window_start, window_end, value, requests, breached,
+                              status, status_since)
+VALUES (@rule_id, @evaluated_at, @window_start, @window_end, sqlc.narg(value)::float8, @requests, @breached,
+        @status, @status_since)
 ON CONFLICT (rule_id) DO UPDATE
 SET evaluated_at = EXCLUDED.evaluated_at,
     window_start = EXCLUDED.window_start,
     window_end   = EXCLUDED.window_end,
     value        = EXCLUDED.value,
     requests     = EXCLUDED.requests,
-    breached     = EXCLUDED.breached;
+    breached     = EXCLUDED.breached,
+    status       = EXCLUDED.status,
+    status_since = EXCLUDED.status_since;
 
 -- name: GetAlertRuleState :one
 -- A rule's latest evaluation. Returns pgx.ErrNoRows before the first.

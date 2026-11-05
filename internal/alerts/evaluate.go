@@ -10,6 +10,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/riverqueue/river"
 	"github.com/robfig/cron/v3"
@@ -39,6 +40,13 @@ type Store interface {
 	ListProjectAppLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]db.ListProjectAppLatencyThresholdsRow, error)
 }
 
+// Pool is the Postgres pool the evaluator reads rules from and records
+// evaluations in, one transaction per rule; *pgxpool.Pool satisfies it.
+type Pool interface {
+	db.DBTX
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
 // Rule is the part of an alert rule evaluation reads.
 type Rule struct {
 	ID          uuid.UUID
@@ -52,6 +60,10 @@ type Rule struct {
 	EveryS      *int32
 	Cron        *string
 	Filters     Filters
+	// NotifyAfterS and ResolveAfterS delay triggering and resolving (see
+	// Status).
+	NotifyAfterS  int32
+	ResolveAfterS int32
 	// LastEvaluatedAt is nil before the first evaluation.
 	LastEvaluatedAt *time.Time
 }
@@ -65,7 +77,8 @@ func RuleFromRow(r db.ListAlertRulesToEvaluateRow) (Rule, error) {
 	rule := Rule{
 		ID: r.ID, ProjectID: r.ProjectID, AppID: r.AppID, Environment: r.Environment,
 		Metric: Metric(r.Metric), Condition: Condition(r.Condition), Threshold: r.Threshold,
-		WindowS: r.WindowS, EveryS: r.EveryS, Cron: r.Cron, Filters: f, LastEvaluatedAt: r.LastEvaluatedAt,
+		WindowS: r.WindowS, EveryS: r.EveryS, Cron: r.Cron, Filters: f,
+		NotifyAfterS: r.NotifyAfterS, ResolveAfterS: r.ResolveAfterS, LastEvaluatedAt: r.LastEvaluatedAt,
 	}
 	if !rule.Metric.Valid() {
 		return Rule{}, fmt.Errorf("alerts: unknown metric %q", r.Metric)
@@ -74,6 +87,14 @@ func RuleFromRow(r db.ListAlertRulesToEvaluateRow) (Rule, error) {
 		return Rule{}, fmt.Errorf("alerts: unknown condition %q", r.Condition)
 	}
 	return rule, nil
+}
+
+// Delays returns the rule's notify-after and resolve-after delays.
+func (r Rule) Delays() Delays {
+	return Delays{
+		NotifyAfter:  time.Duration(r.NotifyAfterS) * time.Second,
+		ResolveAfter: time.Duration(r.ResolveAfterS) * time.Second,
+	}
 }
 
 // cronParser reads alert_rules.cron: five fields (minute hour day-of-month
@@ -92,6 +113,7 @@ func ParseCron(spec string) (cron.Schedule, error) {
 // Due reports whether r should be evaluated at now: always before its first
 // evaluation; then once every_s has passed since the last one, or, with a
 // cron schedule, once a tick of the schedule has passed since the last one.
+// A cron schedule overrides the basic every_s frequency.
 func (r Rule) Due(now time.Time) (bool, error) {
 	if r.LastEvaluatedAt == nil {
 		return true, nil
@@ -124,20 +146,23 @@ type Result struct {
 	Breached bool
 }
 
-// Evaluator evaluates alert rules over ClickHouse and records the results
-// in alert_rule_state.
+// Evaluator evaluates alert rules over ClickHouse, steps their
+// trigger/resolve state and records both in alert_rule_state, opening and
+// resolving alert_events as the state machine says.
 type Evaluator struct {
 	ch       driver.Conn
+	pool     Pool
 	store    Store
 	logger   *slog.Logger
 	duration *prometheus.HistogramVec
 	runs     *prometheus.CounterVec
+	events   *prometheus.CounterVec
 }
 
 // NewEvaluator returns an Evaluator. reg may be nil.
-func NewEvaluator(conn driver.Conn, store Store, logger *slog.Logger, reg prometheus.Registerer) *Evaluator {
+func NewEvaluator(conn driver.Conn, pool Pool, logger *slog.Logger, reg prometheus.Registerer) *Evaluator {
 	e := &Evaluator{
-		ch: conn, store: store, logger: logger,
+		ch: conn, pool: pool, store: db.New(pool), logger: logger,
 		duration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "apilens_alerts_evaluation_duration_seconds",
 			Help:    "Time to evaluate one alert rule (ClickHouse query and state write), by metric.",
@@ -147,9 +172,13 @@ func NewEvaluator(conn driver.Conn, store Store, logger *slog.Logger, reg promet
 			Name: "apilens_alerts_evaluations_total",
 			Help: "Alert rule evaluations by result (ok, breached, error).",
 		}, []string{"result"}),
+		events: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "apilens_alerts_events_total",
+			Help: "Alert events opened (trigger) and resolved (resolve) by rule evaluations.",
+		}, []string{"action"}),
 	}
 	if reg != nil {
-		reg.MustRegister(e.duration, e.runs)
+		reg.MustRegister(e.duration, e.runs, e.events)
 	}
 	return e
 }
@@ -227,18 +256,22 @@ func (e *Evaluator) apdexThresholds(ctx context.Context, project, app uuid.UUID)
 	return t, nil
 }
 
-// EvaluateAndRecord evaluates r at now and records the result in
-// alert_rule_state.
-func (e *Evaluator) EvaluateAndRecord(ctx context.Context, r Rule, now time.Time) (Result, error) {
+// EvaluateAndRecord evaluates r at now, steps its trigger/resolve state
+// and records the result, the new state and any event it opens or resolves
+// in one transaction (see Step and recordEvaluation). Recording the same
+// evaluation again, as a job retry does, changes nothing.
+func (e *Evaluator) EvaluateAndRecord(ctx context.Context, r Rule, now time.Time) (Result, Transition, error) {
 	start := time.Now()
+	var t Transition
 	res, err := e.Evaluate(ctx, r, now)
 	if err == nil {
-		err = e.store.UpsertAlertRuleState(ctx, db.UpsertAlertRuleStateParams{
-			RuleID: r.ID, EvaluatedAt: now, WindowStart: res.Window.Start, WindowEnd: res.Window.End,
-			Value: res.Value, Requests: int64(min(res.Requests, math.MaxInt64)), Breached: res.Breached,
+		err = pgx.BeginFunc(ctx, e.pool, func(tx pgx.Tx) error {
+			var err error
+			t, err = recordEvaluation(ctx, db.New(tx), r, res, now)
+			return err
 		})
-		if err != nil {
-			err = fmt.Errorf("alerts: record state: %w", err)
+		if err == nil && t.Event != nil {
+			e.events.WithLabelValues(t.Action.String()).Inc()
 		}
 	}
 	e.duration.WithLabelValues(string(r.Metric)).Observe(time.Since(start).Seconds())
@@ -250,7 +283,7 @@ func (e *Evaluator) EvaluateAndRecord(ctx context.Context, r Rule, now time.Time
 	default:
 		e.runs.WithLabelValues("ok").Inc()
 	}
-	return res, err
+	return res, t, err
 }
 
 // RunDue evaluates every enabled rule that is due at now and records the
@@ -283,9 +316,12 @@ func (e *Evaluator) RunDue(ctx context.Context, now time.Time) (int, error) {
 			continue
 		}
 		g.Go(func() error {
-			if _, err := e.EvaluateAndRecord(gctx, rule, now); err != nil {
+			if _, _, err := e.EvaluateAndRecord(gctx, rule, now); err != nil {
 				if gctx.Err() != nil {
 					return gctx.Err()
+				}
+				if errors.Is(err, errRuleGone) {
+					return nil
 				}
 				e.logger.WarnContext(gctx, "alerts: rule evaluation failed", "rule_id", rule.ID, "metric", rule.Metric, "error", err)
 				return nil

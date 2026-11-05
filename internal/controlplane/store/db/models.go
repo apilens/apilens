@@ -53,6 +53,8 @@ type AlertRuleState struct {
 	Value       *float64
 	Requests    int64
 	Breached    bool
+	Status      string
+	StatusSince time.Time
 }
 
 type ApiKey struct {

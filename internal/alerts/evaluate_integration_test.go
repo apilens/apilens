@@ -124,7 +124,7 @@ func TestEvaluate(t *testing.T) {
 		}
 	}
 
-	ev := alerts.NewEvaluator(conn, q, logger, prometheus.NewRegistry())
+	ev := alerts.NewEvaluator(conn, pool, logger, prometheus.NewRegistry())
 	rule := func(m alerts.Metric, f alerts.Filters) alerts.Rule {
 		return alerts.Rule{
 			ID: uuid.New(), ProjectID: seed.ProjectID, AppID: seed.AppID, Environment: "production",
@@ -249,6 +249,17 @@ func TestEvaluate(t *testing.T) {
 		if s.Value == nil || *s.Value > 1000 || s.Requests != 10 || s.Breached {
 			t.Errorf("p95 state = %+v (value %v)", s, deref(s.Value))
 		}
+		if s.Status != string(alerts.StatusOK) {
+			t.Errorf("p95 status = %q, want ok", s.Status)
+		}
+		// The breached rule has no notify delay: it triggered and opened
+		// an event at once.
+		if s, _ := q.GetAlertRuleState(ctx, errRate); s.Status != string(alerts.StatusTriggered) || !s.StatusSince.Equal(now) {
+			t.Errorf("error rate status = %q since %v, want triggered since now", s.Status, s.StatusSince)
+		}
+		if e, err := q.GetOpenAlertEvent(ctx, errRate); err != nil || math.Abs(e.Value-0.2) > 1e-9 || !e.StartedAt.Equal(now) {
+			t.Errorf("error rate event = %+v, %v", e, err)
+		}
 		if _, err := q.GetAlertRuleState(ctx, off); !errors.Is(err, pgx.ErrNoRows) {
 			t.Errorf("disabled rule state: err = %v, want none", err)
 		}
@@ -288,7 +299,7 @@ func TestEvaluate(t *testing.T) {
 						t.Fatal(err)
 					}
 					start := time.Now()
-					if _, err := ev.EvaluateAndRecord(ctx, r, now); err != nil {
+					if _, _, err := ev.EvaluateAndRecord(ctx, r, now); err != nil {
 						t.Fatal(err)
 					}
 					durations = append(durations, time.Since(start))

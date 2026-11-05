@@ -213,6 +213,10 @@ type Querier interface {
 	// The active projects of every active organization the user belongs to
 	// (memberships_user, then projects_org), by organization then name.
 	ListUserProjects(ctx context.Context, userID uuid.UUID) ([]ListUserProjectsRow, error)
+	// Locks a rule for the transaction that records its evaluation, so two runs
+	// cannot step its state at once. Returns pgx.ErrNoRows when the rule was
+	// deleted.
+	LockAlertRule(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	// GetMemberOrganization, row-locking the organization (not the membership)
 	// for the rest of the transaction.
 	LockMemberOrganization(ctx context.Context, arg LockMemberOrganizationParams) (LockMemberOrganizationRow, error)
@@ -287,7 +291,8 @@ type Querier interface {
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)
 	UpdateProjectName(ctx context.Context, arg UpdateProjectNameParams) (UpdateProjectNameRow, error)
 	UpdateSavedView(ctx context.Context, arg UpdateSavedViewParams) (SavedView, error)
-	// Records the result of a rule's latest evaluation.
+	// Records the result of a rule's latest evaluation and its trigger/resolve
+	// state.
 	UpsertAlertRuleState(ctx context.Context, arg UpsertAlertRuleStateParams) error
 	UpsertApp(ctx context.Context, arg UpsertAppParams) (UpsertAppRow, error)
 	// Records a heartbeat of one SDK process: the latest report replaces the
