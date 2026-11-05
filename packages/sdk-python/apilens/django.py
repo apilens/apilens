@@ -17,11 +17,12 @@ from .client._metadata import start_django_metadata
 from .client._routes import django_route_template, resolve_endpoint_path
 from .client._sampling import DetailSampler
 from .client._sanitize import (
+    ContentTypeFilter,
     Redactor,
     RequestInfo,
     ResponseInfo,
+    capture_body,
     lower_headers,
-    mask_body,
     serialize_headers,
 )
 from .client import ApiLensClient, ApiLensConfig
@@ -192,6 +193,11 @@ class ApiLensDjangoMiddleware:
         # the whole body as ``[masked]``.
         self.mask_request_body = _resolve_body_masker(settings, "APILENS_MASK_REQUEST_BODY")
         self.mask_response_body = _resolve_body_masker(settings, "APILENS_MASK_RESPONSE_BODY")
+        # Bodies are captured only for these media types (a list of globs or
+        # a comma-separated string; default JSON, ``+json``, ``text/*`` and
+        # form-encoded). Any other body (multipart, binary) is never read and
+        # is stored as ``[<content-type>, N bytes omitted]``.
+        self.content_types = ContentTypeFilter(getattr(settings, "APILENS_CAPTURE_CONTENT_TYPES", None) or None)
         # Paths whose requests bypass capture entirely (health checks, probes).
         # A list of regexes or a comma-separated string; matched
         # case-insensitively against the path without query string. The
@@ -305,7 +311,9 @@ class ApiLensDjangoMiddleware:
         # Read now (before the view consumes the stream); masked after the
         # view ran, so the mask callback sees ``set_request_attribute`` values.
         request_body = b""
-        if sampled:
+        request_content_type = request.META.get("CONTENT_TYPE") or ""
+        capture_bodies = sampled and self.max_payload_bytes > 0
+        if capture_bodies and self.content_types.allows(request_content_type):
             try:
                 request_body = request.body[: self.max_payload_bytes]
             except Exception:
@@ -327,16 +335,24 @@ class ApiLensDjangoMiddleware:
                 response_header_map = dict(response.items())
             except Exception:
                 response_header_map = {}
-            response_payload = mask_body(
-                content[: self.max_payload_bytes] if sampled else b"",
-                redactor=self.redactor,
-                masker=self.mask_response_body,
-                info=ResponseInfo(
-                    request=request_info,
-                    status_code=status_code,
-                    headers=lower_headers(response_header_map),
-                    attributes=attributes,
-                ),
+            response_info = ResponseInfo(
+                request=request_info,
+                status_code=status_code,
+                headers=lower_headers(response_header_map),
+                attributes=attributes,
+            )
+            response_payload = (
+                capture_body(
+                    content[: self.max_payload_bytes],
+                    size=response_size,
+                    content_type=response_info.content_type,
+                    content_types=self.content_types,
+                    redactor=self.redactor,
+                    masker=self.mask_response_body,
+                    info=response_info,
+                )
+                if capture_bodies
+                else ""
             )
             if capture_headers:
                 try:
@@ -365,8 +381,18 @@ class ApiLensDjangoMiddleware:
                 request_info = replace(request_info, attributes=attributes)
             ctx.attributes = attributes
             try:
-                ctx.request_payload = mask_body(
-                    request_body, redactor=self.redactor, masker=self.mask_request_body, info=request_info
+                ctx.request_payload = (
+                    capture_body(
+                        request_body,
+                        size=max(len(request_body), ctx.request_size),
+                        content_type=request_content_type,
+                        content_types=self.content_types,
+                        redactor=self.redactor,
+                        masker=self.mask_request_body,
+                        info=request_info,
+                    )
+                    if capture_bodies
+                    else ""
                 )
             except Exception:
                 ctx.request_payload = ""

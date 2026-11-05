@@ -53,6 +53,7 @@ Accepted by `ApiLensMiddleware` (FastAPI), `instrument_app`/`instrument_flask`, 
 | `capture_payloads` | `True` | AND-ed with `enable_request_logging` for bodies. |
 | `capture_headers` | `True` | Capture headers (sensitive values redacted — see [Data privacy](/getting-started/data-privacy)). |
 | `max_payload_bytes` | `65536` | Per-body truncation limit; `0` disables body capture. |
+| `capture_content_types` | JSON, `+json`, `text/*`, form-encoded | Media-type globs whose bodies are captured; it replaces the defaults. Other bodies are stored as `[<content-type>, N bytes omitted]`. See [Data privacy](/getting-started/data-privacy#which-bodies-are-captured). |
 | `redact_query_params` | `None` | Regexes matched against query parameter names; matched values stored as `[redacted]`. |
 | `redact_headers` | `None` | Regexes matched against header names, on top of the built-in sensitive-header list. |
 | `redact_body_fields` | `None` | Regexes matched against JSON body field names (recursive, request and response). |

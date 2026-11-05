@@ -13,7 +13,7 @@ Observability tools see sensitive traffic, so this page is deliberately blunt ab
 | Request/response sizes, user agent | Yes | — |
 | Client IP | Yes, in full | `capture_ip=False` / `APILENS_CAPTURE_IP=false` to drop it, `anonymize_ip=True` / `APILENS_ANONYMIZE_IP=true` to truncate it (IPv4 /24, IPv6 /48) |
 | Request & response **headers** | Yes, with sensitive values redacted | `capture_headers=False`, plus `redact_headers=[…]` for your own patterns |
-| Request & response **bodies** | Yes, truncated at 64 KB | `capture_payloads=False`, `log_request_body` / `log_response_body` individually, or field-level `redact_body_fields=[…]` |
+| Request & response **bodies** | JSON, text and form-encoded bodies only, truncated at 64 KB; [other content types](#which-bodies-are-captured) are stored as a size placeholder | `capture_payloads=False`, `log_request_body` / `log_response_body` individually, field-level `redact_body_fields=[…]`, or `capture_content_types=[…]` |
 | **Query strings** | Yes, as part of the exact request URL, with [default patterns](#default-masking-patterns) masked | `redact_query_params=[…]` per-parameter |
 | Entire requests to matching paths / user agents | Yes, unless excluded; [health checks and probes](#default-exclusions) are excluded by default | `exclude_paths=[…]` / `exclude_user_agents=[…]` regexes, `APILENS_EXCLUDE_PATHS` / `APILENS_EXCLUDE_USER_AGENTS`, `default_exclusions=False` to record probes |
 | Detail of every request (headers, bodies, spans, error log) | Yes, for 100% of requests | `sample_rate=0.1` keeps detail for ~10%; see [sampling](#sampling-request-detail) |
@@ -71,7 +71,7 @@ How it behaves:
 
 - **Matching is by name, not value.** Each pattern is matched case-insensitively (`re.search`) against the query parameter name, header name, or JSON field name. Use `^…$` anchors for exact matches — an unanchored `token` also matches `access_token`.
 - **Values become `[redacted]`, names stay visible.** The request log still shows *what* was sent (`/charge?access_token=[redacted]&promo=SAVE10`), never the sensitive value.
-- **Body redaction walks nested JSON** — objects inside objects, objects inside arrays. A body of `{"user": {"card_number": "4242…"}}` comes out as `{"user": {"card_number": "[redacted]"}}`. Non-JSON bodies pass through unchanged; use the capture switches if you log sensitive non-JSON payloads.
+- **Body redaction walks nested JSON** — objects inside objects, objects inside arrays. A body of `{"user": {"card_number": "4242…"}}` comes out as `{"user": {"card_number": "[redacted]"}}`. Form-encoded bodies are masked field by field (see [below](#which-bodies-are-captured)). Other text bodies pass through unchanged; use the capture switches if you log sensitive plain-text payloads.
 - **Redaction happens in the SDK, in your process.** The raw value never reaches APILens — same guarantee as the built-in header redaction.
 - **It applies to both sides** — request *and* response headers and bodies.
 
@@ -86,6 +86,41 @@ APILENS_REDACT_BODY_FIELDS = [r"^password$", r"^cvv$", r"card"]
 <Note>
 Redaction applies to values captured going forward — it cannot retroactively scrub requests that were already recorded without it. Configure it **before** pointing production traffic at APILens.
 </Note>
+
+## Which bodies are captured
+
+Bodies are captured by **content type**, read from the `Content-Type` header of each side:
+
+| Content type | What is stored |
+|---|---|
+| `application/json`, any `application/*+json` (`problem+json`, `vnd.api+json`, …) | The body, with [JSON field masking](#default-masking-patterns) |
+| `text/*` (`text/plain`, `text/html`, `text/csv`, …) | The body as text |
+| `application/x-www-form-urlencoded` | The body, with each field masked like a query parameter: a field whose name matches a body-field **or** query-parameter pattern is stored as `[redacted]`, so `user=ada&password=x` becomes `user=ada&password=[redacted]` |
+| Anything else: `multipart/form-data` uploads, images, PDFs, archives, `application/octet-stream`, or no `Content-Type` at all | A placeholder such as `[multipart/form-data, 48213 bytes omitted]`. The body is never buffered or read by the SDK, so large uploads and downloads cost nothing. |
+
+- **Parameters are ignored** (`application/json; charset=utf-8` counts as `application/json`), and matching is case-insensitive.
+- **Mask callbacks only see captured bodies.** `mask_request_body` / `mask_response_body` are not called for an omitted body.
+- **Override the list** with `capture_content_types` (Django: `APILENS_CAPTURE_CONTENT_TYPES`, a list or comma-separated string). It **replaces** the defaults, and entries are shell-style globs:
+
+```python
+app.add_middleware(
+    ApiLensMiddleware,
+    api_key="apilens_xxx",
+    app_id="orders-api",
+    # Also capture XML; keep JSON and form bodies; stop capturing text/*.
+    capture_content_types=[
+        "application/json",
+        "application/*+json",
+        "application/x-www-form-urlencoded",
+        "application/xml",
+        "application/*+xml",
+    ],
+)
+```
+
+<Warning>
+Adding a type such as `multipart/*` or `application/octet-stream` makes the SDK buffer those bodies (up to `max_payload_bytes`) and send them as text. Field masking only understands JSON and form-encoded bodies, so values inside other formats are sent unmasked unless a mask callback handles them.
+</Warning>
 
 ## Masking error-trace logs: `mask_log_record`
 
