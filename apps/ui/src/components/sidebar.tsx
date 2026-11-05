@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { PROJECT_SETTINGS, VIEWS, appsIn, needsAttention } from "@/lib/data";
+import { PROJECT_SETTINGS, VIEWS } from "@/lib/data";
 import type { User } from "@/lib/identity";
 import type { ContextOrg, ContextProject } from "@/lib/scope";
 import { Icon } from "./icons";
@@ -45,10 +45,8 @@ export function Sidebar({ user, orgs, org, project, view, orgScope, account = fa
   };
 
   const item = (p: ContextProject) => (v: (typeof VIEWS)[number]) => {
-    const attention = v.slug === "apps" ? appsIn(p.slug).filter(needsAttention).length : 0;
-    const badge = "badge" in v ? v.badge : attention ? String(attention) : null;
-    const warn = "warn" in v || attention > 0;
-    return row(p, v.slug, v.label, v.slug as NavIconName, badge ? <span className={`ct${warn ? " w" : ""}`} title={v.slug === "apps" ? `${attention} apps need attention` : undefined}>{badge}</span> : null);
+    const badge = "badge" in v ? v.badge : null;
+    return row(p, v.slug, v.label, v.slug as NavIconName, badge ? <span className={`ct${"warn" in v ? " w" : ""}`}>{badge}</span> : null);
   };
 
   return (

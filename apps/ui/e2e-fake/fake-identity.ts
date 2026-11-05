@@ -141,10 +141,14 @@
 //                                                  the app's ingest-edge counters per UTC day (#602):
 //                                                  all zero unless seeded; 503 when seeded `ingest: "off"`
 //   GET  /api/v1/apps/{id}/status?project=shop     the app's status with its SDK counters (#602): no
-//                                                  instance seen unless seeded `sdk_stats`
+//                                                  instance seen unless seeded `sdk_stats`; a seeded
+//                                                  `status` (#591) overrides any field of the read
+//   GET  /api/v1/traffic/{summary|timeseries}?app= one app's traffic (#591): its `traffic` seed
+//                                                  ({summary, points}), else none
 //   POST /__fake/apps {apps}                       test hook: replaces shop's apps [{id, slug, name,
-//                                                  policy?, environments?, ingest?, sdk_stats?}], their
-//                                                  policies, reports and health counters
+//                                                  policy?, environments?, ingest?, sdk_stats?, status?,
+//                                                  traffic?}], their policies, reports, health counters,
+//                                                  SDK status and traffic
 //   GET|PUT /api/v1/projects/shop/privacy-policy   shop's server-side deny list (#599): only the defaults
 //                                                  until saved; PUT answers 403 without project.update and
 //                                                  invalid_request naming a pattern JavaScript cannot compile
@@ -584,6 +588,9 @@ const appReports = new Map<string, Record<string, unknown>[]>();
 /** Ingest health (#602): seeded edge counters per day, newest last ("off": 503), and SDK counters. */
 const appIngest = new Map<string, Record<string, unknown>[] | "off">();
 const appSdkStats = new Map<string, Record<string, unknown>>();
+/** The Apps overview (#591): each app's SDK status and its traffic ({summary, points}), by app id. */
+const appStatuses = new Map<string, Record<string, unknown>>();
+const appTraffic = new Map<string, { summary?: Record<string, unknown>; points?: unknown[] }>();
 
 function capturePolicyOf(app: { id: string; slug: string }): Record<string, unknown> {
   return {
@@ -1428,6 +1435,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       const totals = Object.fromEntries(keys.map((k) => [k, daily.reduce((n, d) => n + Number(d[k]), 0)]));
       return send(res, 200, { app_id: app.id, app: app.slug, days, totals, daily });
     }
+    if (queryDown.has(PROJECT)) return problem(res, 503, "unavailable");
     const stats = appSdkStats.get(app.id);
     return send(res, 200, {
       app_id: app.id,
@@ -1438,6 +1446,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       instances: [],
       sdks: [],
       sdk_stats: { instances: 0, queued_records: 0, sent_records: 0, failed_batches: 0, dropped_records: 0, drop_counts: {}, ...stats },
+      ...appStatuses.get(app.id),
     });
   }
   if (req.method === "POST" && path === "/__fake/apps") {
@@ -1448,6 +1457,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     appReports.clear();
     appIngest.clear();
     appSdkStats.clear();
+    appStatuses.clear();
+    appTraffic.clear();
     shopApps = list.length ? list.map((a) => ({ id: String(a.id ?? randomUUID()), slug: String(a.slug), name: String(a.name ?? a.slug) })) : [DEFAULT_APP];
     list.forEach((a, i) => {
       const id = shopApps[i].id;
@@ -1455,8 +1466,23 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (Array.isArray(a.environments)) appReports.set(id, a.environments as Record<string, unknown>[]);
       if (a.ingest === "off" || Array.isArray(a.ingest)) appIngest.set(id, a.ingest as Record<string, unknown>[] | "off");
       if (typeof a.sdk_stats === "object" && a.sdk_stats !== null) appSdkStats.set(id, a.sdk_stats as Record<string, unknown>);
+      if (typeof a.status === "object" && a.status !== null) appStatuses.set(id, a.status as Record<string, unknown>);
+      if (typeof a.traffic === "object" && a.traffic !== null) appTraffic.set(id, a.traffic as { summary?: Record<string, unknown>; points?: unknown[] });
     });
     return send(res, 204);
+  }
+  // One app's traffic for the Apps overview (#591); same access rules as below.
+  const appScoped = (path === "/api/v1/traffic/summary" || path === "/api/v1/traffic/timeseries") && url.searchParams.has("app");
+  if (req.method === "GET" && appScoped) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    if (url.searchParams.get("project") !== PROJECT) return problem(res, 404, "not_found");
+    if (queryDown.has(PROJECT)) return problem(res, 503, "unavailable");
+    const range = url.searchParams.get("range") ?? "24h";
+    const seed = appTraffic.get(url.searchParams.get("app") ?? "");
+    if (path === "/api/v1/traffic/timeseries") return send(res, 200, { range, bucket_seconds: 1800, points: seed?.points ?? [] });
+    const none = { requests: 0, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 0, p95_ms: 0, p99_ms: 0, requests_per_minute: 0, apdex: null };
+    return send(res, 200, { range, from: "", to: "", ...none, ...seed?.summary });
   }
   // The Performance page's endpoints read (#595, `limit=500`) answers the `/__fake/performance`
   // seed when it has endpoints, so its tests never share the Traffic tests' seed.

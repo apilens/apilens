@@ -34,6 +34,25 @@ type RangeInput struct {
 	Env   string `query:"env" maxLength:"64" doc:"Environment name; empty means all."`
 }
 
+// appRangeInput narrows the request totals and the timeseries to one app of
+// the project (the Apps overview, #591).
+type appRangeInput struct {
+	RangeInput
+	App string `query:"app" format:"uuid" doc:"App id; empty means every app of the project. An app of another project matches nothing."`
+}
+
+// withApp narrows a tenant filter to the app in, when one is given.
+func withApp(where string, args []any, app string) (string, []any, error) {
+	if app == "" {
+		return where, args, nil
+	}
+	id, err := uuid.Parse(app)
+	if err != nil {
+		return "", nil, huma.Error422UnprocessableEntity("app must be a UUID")
+	}
+	return where + " AND app_id = ?", append(append([]any{}, args...), id), nil
+}
+
 // Register mounts the dashboard operations on api. s may be nil when only the
 // OpenAPI document is needed. guard authorizes the operations addressed by
 // project slug in their path; nil refuses them with authz_unavailable (fail
@@ -153,7 +172,7 @@ type summaryOutput struct {
 	}
 }
 
-func (s *Service) summary(ctx context.Context, in *RangeInput) (*summaryOutput, error) {
+func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutput, error) {
 	p, err := principalFrom(ctx)
 	if err != nil {
 		return nil, err
@@ -167,6 +186,10 @@ func (s *Service) summary(ctx context.Context, in *RangeInput) (*summaryOutput, 
 		return nil, err
 	}
 	tenant, targs := tenantFilter(p.ProjectID, in.Env)
+	tenant, targs, err = withApp(tenant, targs, in.App)
+	if err != nil {
+		return nil, err
+	}
 	where, args := rules.withoutExcluded(tenant, targs)
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
@@ -225,7 +248,7 @@ type timeseriesOutput struct {
 	}
 }
 
-func (s *Service) timeseries(ctx context.Context, in *RangeInput) (*timeseriesOutput, error) {
+func (s *Service) timeseries(ctx context.Context, in *appRangeInput) (*timeseriesOutput, error) {
 	p, err := principalFrom(ctx)
 	if err != nil {
 		return nil, err
@@ -239,6 +262,10 @@ func (s *Service) timeseries(ctx context.Context, in *RangeInput) (*timeseriesOu
 		return nil, err
 	}
 	tenant, targs := tenantFilter(p.ProjectID, in.Env)
+	tenant, targs, err = withApp(tenant, targs, in.App)
+	if err != nil {
+		return nil, err
+	}
 	where, args := rules.withoutExcluded(tenant, targs)
 	seconds := int(w.bucket.Seconds())
 	qctx, cancel := queryCtx(ctx)

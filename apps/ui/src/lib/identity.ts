@@ -979,6 +979,8 @@ export interface TrafficTimeseries {
 export interface TrafficQuery {
   range?: QueryRange;
   env?: string;
+  /** An app's id: the summary and timeseries of that app only (#591); absent means every app. */
+  app?: string;
 }
 
 /** Traffic on one side of a deploy in `GET /deploys/changes`; rates and p95 are 0 without requests. */
@@ -1100,6 +1102,28 @@ export interface ProjectApps {
   environments: string[] | null;
 }
 
+/** Whether an app's SDKs are reporting (#582): a heartbeat in the last 2 minutes, in the last hour, older, or none. */
+export type AppReporting = "reporting" | "stale" | "silent" | "never";
+
+/** One environment of `GET /apps/{id}/status`. */
+export interface AppEnvironmentStatus {
+  environment: string;
+  status: Exclude<AppReporting, "never">;
+  last_seen_at: string;
+  live_instances: number;
+}
+
+/** One SDK of `GET /apps/{id}/status`, against its latest release. */
+export interface AppSdk {
+  name: string;
+  /** Versions in use, ascending. */
+  versions: string[] | null;
+  /** Empty for an SDK APILens does not publish. */
+  latest_version: string;
+  outdated_instances: number;
+}
+
+
 /** `GET|PUT /apps/{id}/capture-policy` (#566): the remote capture policy of an app. */
 export interface CapturePolicy {
   app_id: string;
@@ -1186,6 +1210,13 @@ export interface AppHealthStatus {
   last_seen_at: string | null;
   sdk_stats: AppSdkStats;
   ingest_today?: IngestCounts;
+}
+
+/** `GET /apps/{id}/status?project=` (#582) as the Apps overview (#591) reads it: also per environment and per SDK. Instances are left out. */
+export interface AppStatus extends AppHealthStatus {
+  status: AppReporting;
+  environments: AppEnvironmentStatus[] | null;
+  sdks: AppSdk[] | null;
 }
 
 /** The built-in patterns of `GET|PUT /projects/{slug}/privacy-policy`, applied always. */
@@ -1474,9 +1505,9 @@ export interface AppSettings {
  * {@link CallOptions} last; authenticated ones require `accessToken`.
  */
 /** The traffic reads' `range` and `env` query parameters; an empty environment is left out (all). */
-function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?: string } {
-  const { range, env } = typeof q === "string" ? { range: q, env: undefined } : q;
-  return { ...(range ? { range } : {}), ...(env ? { env } : {}) };
+function trafficScope(q: QueryRange | TrafficQuery): { range?: QueryRange; env?: string; app?: string } {
+  const { range, env, app } = typeof q === "string" ? { range: q, env: undefined, app: undefined } : q;
+  return { ...(range ? { range } : {}), ...(env ? { env } : {}), ...(app ? { app } : {}) };
 }
 
 /** The endpoint reads' query parameters; empty values and the `all` status are left out. */
@@ -1696,7 +1727,7 @@ export function createClient(config: ClientConfig) {
     appIngestStats: (projectSlug: string, appId: string, days: number, o: Authed) =>
       request<AppIngestStats>("GET", `/apps/${seg(appId)}/ingest-stats`, { ...o, query: { project: projectSlug, days } }),
     appHealthStatus: (projectSlug: string, appId: string, o: Authed) =>
-      request<AppHealthStatus>("GET", `/apps/${seg(appId)}/status`, { ...o, query: { project: projectSlug } }),
+      request<AppStatus>("GET", `/apps/${seg(appId)}/status`, { ...o, query: { project: projectSlug } }),
 
     // query: one endpoint's detail tabs (#571, #572, #573) and its settings (#593) ------------
     endpointRequests: (projectSlug: string, method: string, path: string, q: EndpointQuery, o: Authed) =>

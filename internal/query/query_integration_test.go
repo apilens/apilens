@@ -159,6 +159,28 @@ func TestDashboardQueriesAreTenantScoped(t *testing.T) {
 		t.Fatalf("timeseries total = %d, want 4", total)
 	}
 
+	// The Apps overview (#591) narrows the totals and the timeseries to one app; an app of
+	// another project matches nothing.
+	for app, want := range map[uuid.UUID]uint64{mine.AppID: 4, theirs.AppID: 0, uuid.New(): 0} {
+		if code := get(mine.ReadKey, "/api/v1/traffic/summary?range=1h&app="+app.String(), &summary); code != 200 || summary.R != want {
+			t.Fatalf("summary app=%s = %d %+v, want %d requests", app, code, summary, want)
+		}
+		series.Points = nil
+		if code := get(mine.ReadKey, "/api/v1/traffic/timeseries?range=1h&app="+app.String(), &series); code != 200 || len(series.Points) != 60 {
+			t.Fatalf("timeseries app=%s = %d points=%d", app, code, len(series.Points))
+		}
+		var n uint64
+		for _, p := range series.Points {
+			n += p.Requests
+		}
+		if n != want {
+			t.Fatalf("timeseries app=%s total = %d, want %d", app, n, want)
+		}
+	}
+	if code := get(mine.ReadKey, "/api/v1/traffic/summary?range=1h&app=storefront", nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("summary app=slug = %d, want 422", code)
+	}
+
 	var endpoints struct {
 		Endpoints []struct {
 			Path     string `json:"path"`

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { HOME_VIEW, appsIn } from "@/lib/data";
+import { HOME_VIEW, appsOf } from "@/lib/data";
 import { type ContextOrg, type ContextProject, orgHome, orgMark, plural, roleLabel } from "@/lib/scope";
 import { Icon } from "./icons";
 import { PopMenu } from "./pop-menu";
@@ -71,7 +71,7 @@ export function ProjectRow({ org, project, view, collapsed = false }: { org: Con
         <span className="oh-txt">
           <b>{project.name}</b>
           <small>
-            Project · {appsIn(project.slug).length} {appsIn(project.slug).length === 1 ? "app" : "apps"}
+            Project · {appsOf(project.slug).length} {appsOf(project.slug).length === 1 ? "app" : "apps"}
           </small>
         </span>
         <Icon name="updown" />
@@ -79,7 +79,7 @@ export function ProjectRow({ org, project, view, collapsed = false }: { org: Con
       <PopMenu open={open} onClose={() => setOpen(false)} triggerRef={ref} label="Projects" align={collapsed ? "side" : "start"}>
         <p className="menu-label">Projects</p>
         {org.projects.map((p) => {
-          const apps = appsIn(p.slug).length;
+          const apps = appsOf(p.slug).length;
           return (
             <Link key={p.slug} role="menuitemradio" aria-checked={p.slug === project.slug} href={`/${p.slug}/${view || HOME_VIEW}`} className={`cp-org cp-org--row${p.slug === project.slug ? " on" : ""}`} onClick={() => setOpen(false)}>
               <span className="st-mark st-mark--project">{p.name[0].toUpperCase()}</span>

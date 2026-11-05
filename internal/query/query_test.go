@@ -63,6 +63,22 @@ func TestTenantFilterAlwaysStartsWithProject(t *testing.T) {
 	}
 }
 
+func TestWithAppNarrowsTheTenantFilter(t *testing.T) {
+	pid, app := uuid.New(), uuid.New()
+	where, args := tenantFilter(pid, "staging")
+	got, gotArgs, err := withApp(where, args, "")
+	if err != nil || got != where || len(gotArgs) != 2 {
+		t.Fatalf("no app: %q %v %v", got, gotArgs, err)
+	}
+	got, gotArgs, err = withApp(where, args, app.String())
+	if err != nil || got != "project_id = ? AND environment = ? AND app_id = ?" || len(gotArgs) != 3 || gotArgs[2] != app {
+		t.Fatalf("app: %q %v %v", got, gotArgs, err)
+	}
+	if _, _, err := withApp(where, args, "storefront"); err == nil {
+		t.Fatal("a slug must be refused")
+	}
+}
+
 type stubVerifier struct {
 	scopes []string
 	err    error
