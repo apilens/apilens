@@ -18,9 +18,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from typing import Literal
 
 from .._version import __version__
-from ._env import apply_env_defaults
+from ._env import apply_env_defaults, parse_mode
 from ._routes import cap_routes
 from ._sanitize import mask_log_attributes, mask_log_text
 from ._stats import ClientStats
@@ -57,6 +58,32 @@ _TRUNCATE_FIRST = (
 
 # Env fallback for ``ApiLensConfig.proxy_url``.
 ENV_PROXY = "APILENS_PROXY"
+
+# Delivery mode (``ApiLensConfig.mode``). ``thread``: a daemon thread flushes
+# every ``flush_interval``. ``inline``: no thread; records are delivered by a
+# synchronous ``ApiLensClient.flush()`` (the middlewares call it after each
+# response is sent). For serverless runtimes that freeze the process between
+# invocations, where a background thread may never run.
+MODE_THREAD = "thread"
+MODE_INLINE = "inline"
+MODES = (MODE_THREAD, MODE_INLINE)
+ClientMode = Literal["thread", "inline"]
+# Env fallback for ``ApiLensConfig.mode`` when it is left empty.
+ENV_MODE = "APILENS_MODE"
+
+
+def _resolve_mode(value: str) -> str:
+    """Explicit ``mode``, else env ``APILENS_MODE``, else ``thread``. An
+    unknown explicit mode is kept (the client rejects it); an unknown env
+    value raises ``ValueError`` naming the variable, like every ``APILENS_*``
+    option."""
+    explicit = (value or "").strip().lower()
+    if explicit:
+        return explicit
+    raw = os.getenv(ENV_MODE) or ""
+    if not raw.strip():
+        return MODE_THREAD
+    return parse_mode(raw, name=ENV_MODE)
 
 # Fixed per-record overhead added to the variable-length string fields when
 # estimating a queued record's size (object headers, scalars, short fields).
@@ -356,6 +383,12 @@ class ApiLensConfig:
     # single record over the cap is truncated (payloads first), never dropped.
     max_batch_bytes: int = 4 * 1024 * 1024
     flush_interval: float = 3.0
+    # ``"thread"`` (default): background daemon thread flushes every
+    # ``flush_interval``. ``"inline"``: no thread is started; ``flush()``
+    # sends synchronously and the ASGI/WSGI middlewares call it after each
+    # response has been sent (serverless: Lambda, Cloud Run, Cloud Functions).
+    # Empty falls back to env ``APILENS_MODE``, then ``"thread"``.
+    mode: ClientMode | str = ""
     timeout: float = 5.0
     verify_tls: bool = True
     ca_bundle_path: str = ""
@@ -402,6 +435,7 @@ class ApiLensConfig:
             self.commit = _detect_commit()
         if not self.proxy_url:
             self.proxy_url = (os.getenv(ENV_PROXY) or "").strip()
+        self.mode = _resolve_mode(self.mode)
 
 
 def _ssl_context(config: ApiLensConfig) -> ssl.SSLContext:
@@ -441,6 +475,8 @@ class ApiLensClient:
             raise ValueError("max_queue_size must be > 0")
         if config.max_queue_bytes <= 0:
             raise ValueError("max_queue_bytes must be > 0")
+        if config.mode not in MODES:
+            raise ValueError(f"mode must be one of {', '.join(MODES)} (got {config.mode!r})")
         if config.heartbeat_interval < HEARTBEAT_MIN_INTERVAL_SECONDS:
             raise ValueError(
                 f"heartbeat_interval must be >= {HEARTBEAT_MIN_INTERVAL_SECONDS:g} seconds"
@@ -482,6 +518,9 @@ class ApiLensClient:
         self._heartbeat_due: dict[tuple[str, str], float] = {}
         self._heartbeat_logged: set[int] = set()
         self._remote_policy: dict | None = None
+        # Inline mode: one caller at a time sends the due heartbeats / stats
+        # after a flush (concurrent requests would otherwise duplicate them).
+        self._inline_upkeep_lock = threading.Lock()
         self._new_instance()
         if config.app_id:
             self.register_app(config.app_id)
@@ -489,7 +528,16 @@ class ApiLensClient:
         if start_worker and self.config.enabled:
             self.start()
 
+    @property
+    def inline(self) -> bool:
+        """``True`` in ``mode="inline"``: no background thread, ``flush()``
+        delivers synchronously."""
+        return self.config.mode == MODE_INLINE
+
     def start(self) -> None:
+        if self.inline:
+            # Serverless: never start a thread the runtime may freeze.
+            return
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
@@ -683,7 +731,8 @@ class ApiLensClient:
         return ok
 
     def _maybe_heartbeat(self) -> None:
-        """Send the heartbeats that are due. Flush thread only."""
+        """Send the heartbeats that are due. Flush thread only (or ``flush()``
+        in inline mode)."""
         if not self._heartbeats_enabled():
             return
         now = time.monotonic()
@@ -776,7 +825,8 @@ class ApiLensClient:
 
     def _report_stats(self, *, force: bool = False) -> None:
         """Log the stats summary (DEBUG every ``flush_interval``, INFO when new
-        drops happened, rate-limited) and call ``on_stats``. Flush thread only."""
+        drops happened, rate-limited) and call ``on_stats``. Flush thread only
+        (or ``flush()`` in inline mode)."""
         now = time.monotonic()
         if (
             not force
@@ -992,6 +1042,30 @@ class ApiLensClient:
             for chunk in self._split_by_bytes(popped, key):
                 if self._send_batch_with_retry(chunk, send):
                     total += len(chunk)
+        return total
+
+    def flush(self) -> int:
+        """Deliver everything queued now, synchronously; return the number of
+        records delivered.
+
+        Safe from any thread and in either mode. In ``inline`` mode this is
+        the only delivery path: the middlewares call it after the response is
+        sent, and code without a middleware (a Lambda handler, a script)
+        calls it at the end of each invocation. It also sends any heartbeat
+        that is due and the periodic stats report, which the flush thread
+        handles in ``thread`` mode. Never raises for delivery failures (they
+        are retried, then dropped and counted like on the flush thread).
+        """
+        total = self.flush_all()
+        if self.inline and self.config.enabled and self._inline_upkeep_lock.acquire(blocking=False):
+            try:
+                try:
+                    self._report_stats()
+                except Exception:  # pragma: no cover
+                    logger.debug("API Lens stats reporting failed", exc_info=True)
+                self._safe_heartbeat()
+            finally:
+                self._inline_upkeep_lock.release()
         return total
 
     def flush_all(self) -> int:

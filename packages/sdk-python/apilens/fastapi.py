@@ -23,6 +23,10 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
             env="production",
         )
 
+    Serverless (Lambda, Cloud Run): ``mode="inline"`` (or env
+    ``APILENS_MODE=inline``) starts no background thread and delivers each
+    request's records synchronously right after its response is sent.
+
     PII redaction — regexes matched case-insensitively against NAMES (anchor
     for exact matches); matched values are stored as ``[redacted]``::
 
@@ -70,6 +74,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         get_consumer: Callable[..., Any] | None = None,
         flush_on_shutdown: bool = True,
         shutdown_timeout: float = 5.0,
+        mode: str = "",
     ) -> None:
         resolved_key = (api_key or client_id or "").strip()
         resolved_project_slug = project_slug.strip()
@@ -87,6 +92,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
                     commit=commit,
                     verify_tls=verify_tls,
                     ca_bundle_path=ca_bundle_path,
+                    mode=mode,
                 )
             )
 
