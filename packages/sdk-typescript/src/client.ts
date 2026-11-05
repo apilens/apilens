@@ -138,6 +138,7 @@ function estimateRecordBytes(record: ApiLensRecord): number {
     + String(record.request_headers || "").length
     + String(record.response_headers || "").length
     + String(record.path || "").length
+    + String(record.raw_path || "").length
     + String(record.user_agent || "").length
   );
 }
@@ -228,6 +229,7 @@ function normalizeRecord(
     app_id: String(payload.app_id || defaultAppId || ""),
     method: String(payload.method || "GET").toUpperCase(),
     path: normalizePath(payload.path || "/"),
+    raw_path: normalizePath(payload.raw_path || payload.path || "/"),
     status_code: toNonNegativeInt(payload.status_code, 0),
     response_time_ms: Math.max(toNumber(payload.response_time_ms, 0), 0),
     request_size: toNonNegativeInt(payload.request_size, 0),

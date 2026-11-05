@@ -79,7 +79,7 @@ describe("byte-bounded queue", () => {
   it("estimates strings plus a fixed overhead", () => {
     const rec = record("x".repeat(1000), "/abc");
     rec.response_headers = "h".repeat(10);
-    expect(estimateRecordBytes(rec)).toBe(RECORD_OVERHEAD_BYTES + 1000 + 10 + 4);
+    expect(estimateRecordBytes(rec)).toBe(RECORD_OVERHEAD_BYTES + 1000 + 10 + 4 + 4);
   });
 
   it("has safe defaults", () => {

@@ -13,7 +13,10 @@ export type ApiLensRecordInput = {
   project_slug?: string;
   app_id?: string;
   method: string;
+  /** Endpoint grouping path (route template, e.g. `/orders/{id}`). */
   path: string;
+  /** Exact path as received, with the (redacted) query string. Defaults to `path`. */
+  raw_path?: string;
   status_code: number;
   response_time_ms: number;
   request_size?: number;
@@ -43,6 +46,7 @@ export type ApiLensRecord = {
   app_id: string;
   method: string;
   path: string;
+  raw_path: string;
   status_code: number;
   response_time_ms: number;
   request_size: number;
@@ -204,5 +208,11 @@ export type ApiLensExpressConfig = ApiLensClientConfig & {
    * out at request time.
    */
   sampleOnResponse?: SampleOnResponse;
+  /**
+   * Parametrize id-looking segments (`/orders/42` → `/orders/{id}`) when no
+   * Express route matched (default true). `APILENS_PARAMETRIZE_PATHS=false`
+   * turns it off regardless. Matched route templates are always used.
+   */
+  parametrizePaths?: boolean;
   getConsumer?: (req: unknown, res: unknown) => ApiLensConsumer | string | null | undefined;
 };

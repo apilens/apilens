@@ -15,6 +15,14 @@ export {
   splitPatterns,
 } from "./exclusions.js";
 export type { ExclusionOptions, ExclusionPatterns } from "./exclusions.js";
+export {
+  ENV_PARAMETRIZE_PATHS,
+  expressPathToTemplate,
+  expressRouteTemplate,
+  parametrizeEnabled,
+  parametrizePath,
+  resolveEndpointPath,
+} from "./routes.js";
 export { Sampler, validateSampleRate } from "./sampling.js";
 export type {
   SampleDecision,
