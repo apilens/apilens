@@ -1,0 +1,36 @@
+[
+  {
+    "to": "oncall@example.com",
+    "template": "alert_resolved",
+    "data": {
+      "app": "storefront",
+      "ended_at": "2026-11-04T10:05:00Z",
+      "environment": "production",
+      "event": "0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41",
+      "metric": "Error rate",
+      "project": "shop",
+      "rule": "Checkout <5xx> rate & more",
+      "started_at": "2026-11-04T09:30:00Z",
+      "threshold": "> 5%",
+      "value": "1.2%",
+      "window": "5 minutes"
+    }
+  },
+  {
+    "to": "ops@example.com",
+    "template": "alert_resolved",
+    "data": {
+      "app": "storefront",
+      "ended_at": "2026-11-04T10:05:00Z",
+      "environment": "production",
+      "event": "0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41",
+      "metric": "Error rate",
+      "project": "shop",
+      "rule": "Checkout <5xx> rate & more",
+      "started_at": "2026-11-04T09:30:00Z",
+      "threshold": "> 5%",
+      "value": "1.2%",
+      "window": "5 minutes"
+    }
+  }
+]

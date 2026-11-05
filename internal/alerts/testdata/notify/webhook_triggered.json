@@ -1,0 +1,39 @@
+{
+  "method": "POST",
+  "path": "/hooks/apilens",
+  "headers": {
+    "Content-Type": "application/json",
+    "User-Agent": "APILens-Alerts/1",
+    "X-APILens-Delivery": "81821e1d-b3d1-5a6a-a35f-297c23c92eb3",
+    "X-APILens-Event": "alert.triggered",
+    "X-APILens-Signature": "v1=db0eb3bb303eca2d7b09baaed2c1e0b15a0d494fed108dfa7bac57ecbd757bd8",
+    "X-APILens-Timestamp": "1793786760"
+  },
+  "body": {
+    "type": "alert.triggered",
+    "event": {
+      "id": "0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41",
+      "state": "triggered",
+      "value": 0.125,
+      "started_at": "2026-11-04T09:30:00Z",
+      "ended_at": null
+    },
+    "rule": {
+      "id": "5d1e0c44-2f6b-4a8e-b0a3-91c7e2d4f600",
+      "name": "Checkout <5xx> rate & more",
+      "metric": "error_rate",
+      "condition": "gt",
+      "threshold": 0.05,
+      "window_s": 300
+    },
+    "app": {
+      "id": "1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b",
+      "name": "storefront"
+    },
+    "project": "shop",
+    "environment": "production",
+    "url": "https://app.example.com/shop/incidents?event=0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41",
+    "title": "Triggered: Checkout <5xx> rate & more",
+    "summary": "Error rate on storefront (production) is 12.5%, > 5% over the last 5 minutes."
+  }
+}

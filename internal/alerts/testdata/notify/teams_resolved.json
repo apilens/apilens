@@ -1,0 +1,84 @@
+{
+  "method": "POST",
+  "path": "/services/T000/B000/XXXX",
+  "headers": {
+    "Content-Type": "application/json",
+    "User-Agent": "APILens-Alerts/1"
+  },
+  "body": {
+    "attachments": [
+      {
+        "content": {
+          "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+          "actions": [
+            {
+              "title": "View incident",
+              "type": "Action.OpenUrl",
+              "url": "https://app.example.com/shop/incidents?event=0b9c3a52-6a3e-4f0e-9d0b-6c2f1e7d8a41"
+            }
+          ],
+          "body": [
+            {
+              "color": "Good",
+              "size": "Large",
+              "text": "Resolved: Checkout <5xx> rate & more",
+              "type": "TextBlock",
+              "weight": "Bolder",
+              "wrap": true
+            },
+            {
+              "text": "Error rate on storefront (production) is no longer > 5% over the last 5 minutes.",
+              "type": "TextBlock",
+              "wrap": true
+            },
+            {
+              "facts": [
+                {
+                  "title": "App",
+                  "value": "storefront"
+                },
+                {
+                  "title": "Environment",
+                  "value": "production"
+                },
+                {
+                  "title": "Metric",
+                  "value": "Error rate"
+                },
+                {
+                  "title": "Latest value",
+                  "value": "1.2%"
+                },
+                {
+                  "title": "Threshold",
+                  "value": "> 5%"
+                },
+                {
+                  "title": "Window",
+                  "value": "5 minutes"
+                },
+                {
+                  "title": "Started",
+                  "value": "Wed, 04 Nov 2026 09:30:00 UTC"
+                },
+                {
+                  "title": "Resolved",
+                  "value": "Wed, 04 Nov 2026 10:05:00 UTC"
+                }
+              ],
+              "type": "FactSet"
+            }
+          ],
+          "msteams": {
+            "width": "Full"
+          },
+          "type": "AdaptiveCard",
+          "version": "1.4"
+        },
+        "contentType": "application/vnd.microsoft.card.adaptive",
+        "contentUrl": null
+      }
+    ],
+    "type": "message"
+  }
+}
