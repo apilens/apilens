@@ -1,0 +1,395 @@
+---
+title: "Masking"
+description: "Built-in masking defaults, your own patterns, body and log-record callbacks, captured content types, and the server-side policy with its tester."
+---
+
+Masking replaces sensitive **values** in captured request data with `[redacted]` (or a whole body with `[masked]`) while keeping the **names** visible, so the request log still shows what was sent. It runs in four layers inside the SDK, before a record is queued, and once more on the ingest edge before it is stored:
+
+| Layer | What it masks | Python | TypeScript | Java |
+|---|---|---|---|---|
+| 1. [Built-in defaults](#built-in-defaults) | Query params, headers, JSON and form body fields by name | Always on | Always on | Always on |
+| 2. [Your patterns](#your-own-patterns) | Same, with your regexes added | `redact_query_params`, `redact_headers`, `redact_body_fields` | `redactQueryParams`, `redactHeaders`, `redactBodyFields` | `redactQueryParams`, `redactHeaders`, `redactBodyFields` |
+| 3. [Body callbacks](#body-mask-callbacks) | Anything in a captured body | `mask_request_body`, `mask_response_body` | `maskRequestBody`, `maskResponseBody` | `maskRequestBody`, `maskResponseBody` |
+| 4. [Log-record callback](#log-record-callback) | Error-trace log message, stack trace, attributes | `mask_log_record` | Not available | Not available |
+| Edge: [server-side policy](#server-side-policy) | Everything above, again, with the project's and app's patterns | Every SDK and client | | |
+
+Which bodies reach layers 1 to 3 at all is decided first, by [content type](#content-types).
+
+The examples on this page are taken from the SDK test suites (`packages/sdk-python/tests`, `packages/sdk-typescript/tests`, `packages/sdk-java/src/test`). Each one names the test it comes from, so you can run it.
+
+## Order of operations
+
+For each captured body the order is fixed, in all three SDKs:
+
+1. **Content type.** A body whose type is not captured is never buffered and is stored as a placeholder. Nothing below runs.
+2. **Body cap.** The body is cut to `max_payload_bytes` (`maxPayloadBytes`, `apilens.max-payload-bytes`).
+3. **Your callback**, on the raw bytes.
+4. **Your regex patterns and the built-in defaults**, on whatever the callback returned.
+
+A callback can rewrite a body or drop it, but it can never switch layers 1 and 2 off: if it puts a `password` field back, that field is still masked. Query strings and headers go through layers 1 and 2 only.
+
+## Built-in defaults
+
+Always on, in every SDK and on the edge, and identical everywhere. Each pattern is a case-insensitive regex searched **anywhere** in the name, so `token` also covers `access_token` and `auth` covers `x-auth-user`.
+
+| Applies to | Constant | Patterns |
+|---|---|---|
+| Query parameter names | `DEFAULT_MASK_QUERY_PARAMS` | `auth`, `api.?key`, `secret`, `token`, `password`, `pwd` |
+| Header names | `DEFAULT_MASK_HEADER_PATTERNS` | `auth`, `api.?key`, `secret`, `token`, `cookie` |
+| JSON body field names, at any depth | `DEFAULT_MASK_BODY_FIELDS` | `password`, `pwd`, `token`, `secret`, `auth`, `card.?number`, `ccv`, `cvv`, `cvc`, `ssn` |
+| Header names, matched exactly | `SENSITIVE_HEADERS` | `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key`, `api-key`, `x-auth-token`, `x-amz-security-token`, `x-csrf-token` |
+
+Form-encoded bodies (`application/x-www-form-urlencoded`) are masked field by field: a field is masked when its name matches a body-field **or** a query-parameter pattern.
+
+How values are treated:
+
+- **Strings and numbers are masked.** `{"cvv": 123}` is masked like `{"cvv": "123"}`, so numeric card numbers and PINs are caught.
+- **A matching object or array is masked whole** in the SDKs: `{"auth": {"user": "u"}}` becomes `{"auth": "[redacted]"}`.
+- **Booleans and `null` stay visible.** They carry no secret: `{"password_set": true}` is kept.
+- **Nothing matches, nothing changes.** A query string or body with no matching name is passed through byte for byte, formatting included.
+- **They cannot be removed.** Passing an empty list of your own patterns leaves every default in place.
+
+### Worked examples
+
+What each SDK sends for a given input with no configuration at all. Every row is checked by `packages/sdk-python/tests/test_docs_masking.py` and `packages/sdk-typescript/tests/docs-masking.test.ts`, which read this table; the same vectors are in `test_default_masking.py`, `redaction.test.ts` and `DefaultMaskingTest.java`.
+
+| Where | Sent | Stored |
+|---|---|---|
+| `query` | `token=abc` | `token=[redacted]` |
+| `query` | `access_token=s3cr3t&page=2` | `access_token=[redacted]&page=2` |
+| `query` | `AUTH_CODE=s3cr3t&page=2` | `AUTH_CODE=[redacted]&page=2` |
+| `query` | `q=hello%20world&page=2&tags=a+b` | `q=hello%20world&page=2&tags=a+b` |
+| `header` | `x-auth-user: v` | `x-auth-user: [redacted]` |
+| `header` | `x-refresh-token: v` | `x-refresh-token: [redacted]` |
+| `header` | `x-amz-security-token: v` | `x-amz-security-token: [redacted]` |
+| `header` | `accept: json` | `accept: json` |
+| `body` | `{"card_number":4242424242424242,"cvv":123,"amount":10}` | `{"card_number":"[redacted]","cvv":"[redacted]","amount":10}` |
+| `body` | `{"user":{"name":"Ada","password":"p"},"items":[{"cvc":"1"}]}` | `{"user":{"name":"Ada","password":"[redacted]"},"items":[{"cvc":"[redacted]"}]}` |
+| `body` | `{"auth":{"user":"u"},"tokens":["a","b"],"n":1}` | `{"auth":"[redacted]","tokens":"[redacted]","n":1}` |
+| `body` | `{"token":null,"password_set":true}` | `{"token":null,"password_set":true}` |
+| `form` | `user=ada&password=hunter2&api_key=k` | `user=ada&password=[redacted]&api_key=[redacted]` |
+
+## Your own patterns
+
+Add regexes for query parameter, header and body field names. They **extend** the defaults, never replace them, and follow the same rules: case-insensitive, searched anywhere in the name, matched values become `[redacted]`. Body patterns walk nested JSON and apply to request and response alike.
+
+| Python | TypeScript | Java (`apilens.*` property) | Env var (all SDKs) |
+|---|---|---|---|
+| `redact_query_params` | `redactQueryParams` | `redactQueryParams` (`redact-query-params`) | `APILENS_REDACT_QUERY_PARAMS` |
+| `redact_headers` | `redactHeaders` | `redactHeaders` (`redact-headers`) | `APILENS_REDACT_HEADERS` |
+| `redact_body_fields` | `redactBodyFields` | `redactBodyFields` (`redact-body-fields`) | `APILENS_REDACT_BODY_FIELDS` |
+
+Env vars are comma-separated; a regex that needs a literal comma (`\d{1,3}`) goes in code or, in Java, in the indexed property form. Django reads the same names as settings (`APILENS_REDACT_BODY_FIELDS = [r"^email$"]`).
+
+<Tabs>
+  <Tab title="Python">
+    From `tests/test_masking.py::test_redact_body_fields_masks_request_and_response`. A request body `{"email":"ada@example.com","n":1}` and a response body `{"email":"ada@example.com","id":7}` are stored as `{"email":"[redacted]","n":1}` and `{"email":"[redacted]","id":7}`.
+
+    ```python
+    app.add_middleware(
+        ApiLensMiddleware,
+        api_key="apilens_xxx",
+        app_id="orders-api",
+        redact_query_params=[r"^account$"],   # ?account=4711&q=shoes -> ?account=[redacted]&q=shoes
+        redact_headers=[r"^x-tenant"],        # X-Tenant-Id: acme     -> x-tenant-id: [redacted]
+        redact_body_fields=[r"^email$"],
+    )
+    ```
+
+    The `Redactor` behind the middleware can be called directly to try a pattern (`tests/test_default_masking.py::test_user_body_patterns_extend_defaults`):
+
+    ```python
+    from apilens.client._sanitize import Redactor
+
+    Redactor(body_fields=[r"^iban$"]).redact_body('{"iban":"DE00","password":"p","n":1}')
+    # '{"iban":"[redacted]","password":"[redacted]","n":1}'
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    Patterns are strings or `RegExp` objects. From `tests/redaction.test.ts` ("user patterns extend the defaults"):
+
+    ```ts
+    useApiLens(app, {
+      apiKey: process.env.APILENS_API_KEY,
+      appId: process.env.APILENS_APP_ID,
+      redactQueryParams: ["^card_number$"],
+      redactHeaders: ["^x-internal$"],
+      redactBodyFields: [/^iban$/],
+    });
+    ```
+
+    ```ts
+    import { Redactor } from "apilens-js-sdk";
+
+    new Redactor({ queryParams: ["^card_number$"] }).redactQuery("card_number=4242&token=t&page=1");
+    // "card_number=[redacted]&token=[redacted]&page=1"
+    ```
+  </Tab>
+  <Tab title="Java">
+    Spring Boot properties, or `ApiLensSpringOptions.builder()` in code. From `ApiLensSpringFilterTest` and `DefaultMaskingTest.userQueryPatternsExtendDefaults`:
+
+    ```properties
+    apilens.redact-query-params[0]=^card_number$
+    apilens.redact-headers[0]=^x-internal$
+    apilens.redact-body-fields[0]=^iban$
+    ```
+
+    ```java
+    ApiLensSpringOptions.builder()
+        .redactQueryParams(List.of("token"))
+        .redactBodyFields(List.of("password"))
+        .build();
+
+    new Redactor(List.of("^card_number$"), List.of(), List.of())
+        .redactQuery("card_number=4242&token=t&page=1");
+    // "card_number=[redacted]&token=[redacted]&page=1"
+    ```
+  </Tab>
+</Tabs>
+
+- **Anchor for exact names.** `token` matches `access_token`; `^token$` matches only `token`.
+- **Compiled once.** Defaults and your patterns are compiled when the middleware or filter is created, never per request. An invalid regex fails there, at startup (Java: `PatternSyntaxException`).
+- **Names, not values.** A pattern never looks inside a value. To catch a card number inside free text, use a [body callback](#body-mask-callbacks).
+
+## Content types
+
+A body is captured only if its `Content-Type` (each side read separately) is on the capture list. The default list is the same in all three SDKs (`DEFAULT_CAPTURE_CONTENT_TYPES`):
+
+| Content type | Stored as |
+|---|---|
+| `application/json`, `application/*+json` | The body, with JSON field masking |
+| `text/*` | The body as text. The SDKs apply no field masking to plain text; the [edge](#server-side-policy) masks `key=value` pairs in it. |
+| `application/x-www-form-urlencoded` | The body, masked field by field |
+| Anything else, or no `Content-Type` | A placeholder: `[multipart/form-data, 48213 bytes omitted]`, `[image/png, 50 bytes omitted]`, `[application/octet-stream, 7 bytes omitted]` |
+
+A body that is not captured is **never buffered or read**, and the body callbacks are not called for it, so uploads and downloads cost nothing. Parameters are ignored (`application/json; charset=utf-8` is `application/json`) and matching is case-insensitive.
+
+<Tabs>
+  <Tab title="Python">
+    `capture_content_types` (Django `APILENS_CAPTURE_CONTENT_TYPES`, env `APILENS_CAPTURE_CONTENT_TYPES`) **replaces** the list. Entries are shell-style globs. From `tests/test_masking.py::test_capture_content_types_opts_a_type_in` and `test_capture_content_types_replaces_the_defaults`:
+
+    ```python
+    app.add_middleware(
+        ApiLensMiddleware,
+        api_key="apilens_xxx",
+        app_id="orders-api",
+        capture_content_types=["application/xml"],
+    )
+    # An application/xml response "<ok/>" is stored as "<ok/>".
+    # A JSON response is now stored as "[application/json, 11 bytes omitted]".
+    ```
+
+    To add a type, repeat the defaults you want to keep: `["application/json", "application/*+json", "text/*", "application/x-www-form-urlencoded", "application/xml"]`.
+  </Tab>
+  <Tab title="TypeScript">
+    `captureContentTypes` (env `APILENS_CAPTURE_CONTENT_TYPES`) **replaces** the list; a string is split on commas. From `tests/body-masking.test.ts` ("captureContentTypes replaces the default list"):
+
+    ```ts
+    useApiLens(app, {
+      apiKey: process.env.APILENS_API_KEY,
+      appId: process.env.APILENS_APP_ID,
+      captureContentTypes: ["text/csv"],
+    });
+    // A text/csv response "a,b\n1,2" is stored as-is.
+    // A JSON response is now stored as "[application/json, 7 bytes omitted]".
+    ```
+  </Tab>
+  <Tab title="Java">
+    The list is fixed: JSON (`application/json` and any `+json`), `text/*` and form-encoded. There is no option to change it. From `ApiLensSpringFilterTest.capturesOnlyJsonTextAndFormBodies`: a form body `password=…` is stored as `password=[redacted]`, and a binary response is stored as the placeholder without calling `maskResponseBody`.
+  </Tab>
+</Tabs>
+
+<Warning>
+Opting a type in, such as `multipart/*` or `application/octet-stream`, makes the SDK buffer those bodies up to the body cap and send them as text. Field masking only understands JSON and form-encoded bodies, so values in any other format are sent unmasked unless a [body callback](#body-mask-callbacks) handles them.
+</Warning>
+
+## Body mask callbacks
+
+For what name patterns cannot express: XML, free text, a card number inside a value, or "drop every body under `/kyc`". One callback per side receives the captured raw body and returns the bytes to store.
+
+| | Python | TypeScript | Java |
+|---|---|---|---|
+| Request | `mask_request_body(info, body)` | `maskRequestBody(info, body)` | `maskRequestBody((info, body) -> …)` |
+| Response | `mask_response_body(info, body)` | `maskResponseBody(info, body)` | `maskResponseBody((info, body) -> …)` |
+| `body` | `bytes` | `Buffer` (a copy) | `byte[]` (a copy) |
+| Return | `bytes` or `str` to store; `None` for `[masked]` | `Buffer`, `Uint8Array` or `string`; `null` / `undefined` for `[masked]` | `byte[]`; `null` for `[masked]` |
+| Configured with | middleware kwarg; Django `APILENS_MASK_REQUEST_BODY` (callable or dotted path) | `useApiLens` option | `ApiLensSpringOptions.builder()`, or an `ApiLensSpringOptionsCustomizer` bean with Spring Boot |
+
+What the callback is told:
+
+| Field | Python | TypeScript | Java | Meaning |
+|---|---|---|---|---|
+| Method | `info.method` | `info.method` | `info.method()` | `POST` |
+| Path | `info.path` | `info.path` | `info.path()` | Without the query string |
+| Raw path | `info.raw_path` | `info.rawPath` | `info.rawPath()` | With the query string, sensitive values already `[redacted]` |
+| Headers | `info.headers` | `info.headers` | `info.headers()` | Lower-cased names, **unredacted** (nothing has left your process yet) |
+| Content type | `info.content_type` | `info.contentType` | `info.contentType()` | From the request (or response) headers |
+| Response only | `info.request`, `info.status_code` | `info.request`, `info.statusCode` | `info.request()`, `info.statusCode()` | The request's info and the status |
+
+Python's request info also carries `query`, `client_ip` and `attributes`, and its response info `route`, `response_time_ms`, the consumer fields and `sampled`.
+
+<Tabs>
+  <Tab title="Python">
+    From `tests/test_masking.py::test_body_callbacks_run_first_then_regex_then_builtins`. The callbacks run first; `redact_body_fields` and the built-in `password` default apply to what they return. The response your client receives is untouched: only the captured copy is masked.
+
+    ```python
+    def mask_req(info, body):
+        return body.replace(b"ada", b"***")
+
+    def mask_res(info, body):
+        return b'{"email":"x@example.com","password":"leak","id":7}'
+
+    app.add_middleware(
+        ApiLensMiddleware,
+        api_key="apilens_xxx",
+        app_id="orders-api",
+        mask_request_body=mask_req,
+        mask_response_body=mask_res,
+        redact_body_fields=[r"^email$"],
+    )
+    # request  {"name":"ada"} -> {"name":"***"}
+    # response               -> {"email":"[redacted]","password":"[redacted]","id":7}
+    ```
+
+    Drop a body by returning `None` (`test_body_callback_returning_none_masks_the_whole_body`): `mask_request_body=lambda info, body: None` stores `[masked]`.
+  </Tab>
+  <Tab title="TypeScript">
+    From `tests/body-masking.test.ts` ("runs both callbacks with request/response info, then the built-ins"). A request body `{"email":"ada@example.com","password":"hunter2"}` to `POST /users/7` with a 201 response `{"id":7,"token":"t-1"}` is stored as `{"email":"hidden","password":"[redacted]"}` and `{"id":7,"token":"[redacted]"}`.
+
+    ```ts
+    useApiLens(app, {
+      client,
+      maskRequestBody: (info, body) => {
+        const data = JSON.parse(body.toString("utf8"));
+        return Buffer.from(JSON.stringify({ ...data, email: "hidden" }), "utf8");
+      },
+      maskResponseBody: (info, body) => (info.statusCode === 201 ? body : null),
+    });
+    ```
+
+    A text body works the same way ("captures a text body handed to the callback as a Buffer"); `call 555-0100` is stored as `call ###-####`:
+
+    ```ts
+    maskRequestBody: (_info, body) => Buffer.from(body.toString("utf8").replace(/\d/g, "#")),
+    ```
+  </Tab>
+  <Tab title="Java">
+    From `ApiLensSpringFilterTest`. A request body `{"card":"4111111111111111","password":"pw"}` is stored as `{"card":"****","password":"[redacted]"}`; the response body is stored as `[masked]`.
+
+    ```java
+    ApiLensSpringOptions.builder()
+        .redactBodyFields(List.of("password"))
+        .maskRequestBody((info, body) -> new String(body, StandardCharsets.UTF_8)
+            .replace("4111111111111111", "****")
+            .getBytes(StandardCharsets.UTF_8))
+        .maskResponseBody((info, body) -> null)
+        .build();
+    ```
+
+    With Spring Boot auto-configuration, register the callbacks through a customizer bean (`ApiLensSpringOptionsCustomizer`):
+
+    ```java
+    @Bean
+    ApiLensSpringOptionsCustomizer bodyMasking() {
+      return options -> options.maskRequestBody(
+          (info, body) -> "{\"replaced\":true}".getBytes(StandardCharsets.UTF_8));
+    }
+    ```
+  </Tab>
+</Tabs>
+
+- **Fail closed.** If the callback throws, or returns something that is not bytes (a number, an object, or in TypeScript a `Promise`), the body is stored as `[masked]`, never raw. The request itself is never affected.
+- **Only captured bodies are passed.** Not called for an empty body, a body of a type that is not captured, a sampled-out request, or with body capture off.
+- **Already truncated.** The callback receives at most the body cap, so a JSON body can arrive cut off and fail to parse. Return `None` / `null` if you cannot handle it.
+- **Synchronous.** The callback runs on the request path; keep it fast.
+
+## Log-record callback
+
+When a request raises or returns a 5xx, the SDK sends an `ERROR` log record with the message and stack trace, correlated to the request's trace. Messages and stack traces can carry secrets.
+
+<Tabs>
+  <Tab title="Python">
+    Built-in masking runs on every log record before it is queued: any `name=value`, `name: value` or `'name': 'value'` pair whose name matches a built-in query, header or body pattern has its value replaced, in the message, the payload (stack trace) and the attributes. From `tests/test_mask_log_record.py::test_mask_log_text_masks_default_sensitive_pairs`:
+
+    | Message | Stored |
+    |---|---|
+    | `GET /x?access_token=abc&q=shoes` | `GET /x?access_token=[redacted]&q=shoes` |
+    | `Authorization: Bearer eyJhbGci.x.y` | `Authorization: [redacted]` |
+    | `{'password': 'hunter2', 'user': 'bob'}` | `{'password': '[redacted]', 'user': 'bob'}` |
+    | `InvalidTokenError: signature expired (token=abc)` | `InvalidTokenError: signature expired (token=[redacted])` |
+
+    `mask_log_record` is a client option that runs **before** the built-ins. Edit and return the record, return a new one, or return `None` to drop it. From `test_callback_can_edit_message_and_attributes` and `test_callback_returning_none_drops_the_record`:
+
+    ```python
+    from apilens import ApiLensClient, ApiLensConfig, LogRecord
+
+    def mask(record: LogRecord) -> LogRecord | None:
+        if "/admin" in record.endpoint_path:
+            return None                                    # dropped, never sent
+        record.message = record.message.replace("alice@example.com", "<email>")
+        return record
+
+    client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx", mask_log_record=mask))
+    app.add_middleware(ApiLensMiddleware, client=client, app_id="orders-api")
+    ```
+
+    - **The built-ins still run after it** (`test_builtins_run_after_the_callback`): a callback that returns a message of `token=leaked` sends `token=[redacted]`.
+    - **Fail closed** (`test_failing_callback_drops_the_record`): if the callback raises or returns anything other than a `LogRecord` or `None`, the record is dropped.
+    - **Django:** `APILENS_MASK_LOG_RECORD` is the callable or its dotted import path; a path that cannot be resolved raises at startup.
+  </Tab>
+  <Tab title="TypeScript">
+    No log-record callback and no in-process log masking. The [edge](#server-side-policy) masks every log record before it is stored. If the error log must not leave your process at all, turn it off with `captureSpans: false` (or `APILENS_CAPTURE_SPANS=false`).
+  </Tab>
+  <Tab title="Java">
+    No log-record callback and no in-process log masking. The [edge](#server-side-policy) masks every log record before it is stored. If the error log must not leave your process at all, turn it off with `apilens.capture-spans=false` (or `APILENS_CAPTURE_SPANS=false`).
+  </Tab>
+</Tabs>
+
+## Server-side policy
+
+The ingest edge masks every request and log record again before writing it to ClickHouse, whichever SDK or client sent it. It applies the built-in defaults above, plus the project's policy, plus the record's app's policy, so a pattern added here catches what an SDK config missed without a redeploy.
+
+Set it in the project under **Settings → Privacy**, or with the API (signed-in session; owners, admins and members):
+
+```http
+PUT /api/v1/projects/{slug}/privacy-policy
+Content-Type: application/json
+
+{
+  "mask_query_params": ["^session$"],
+  "mask_headers": ["^x-tenant-key$"],
+  "mask_body_fields": ["^iban$", "^dob$"]
+}
+```
+
+Add `?app=<slug>` for one app's policy. `GET` on the same path returns the policy and the built-in `defaults`. The response is the whole policy: a `PUT` replaces it, and an omitted list means none.
+
+- **Patterns** are case-insensitive [RE2](https://github.com/google/re2/wiki/Syntax) regexes matched against names, at most 50 per list and 256 bytes each, trimmed and deduplicated. An invalid one is refused with `invalid_request` naming it. RE2 has no lookarounds or backreferences, so a pattern that works in an SDK may be refused here.
+- **Changes apply** within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default).
+- **Fail closed.** If the edge cannot read a project's policy it answers `503` with `Retry-After` and the SDKs retry; it never stores a batch without the policy.
+- **Counted.** Records the edge masked show as `masked` in [ingest health](/ingest/ingest-health).
+
+The edge differs from the SDKs in three ways:
+
+| | SDKs | Edge |
+|---|---|---|
+| Matching object or array in a JSON body | Masked whole | Walked: its string and number values are masked when their own names match |
+| `text/*` bodies and non-JSON text | Left as is | `key=value` and `key: value` pairs masked, as in log messages |
+| Log records | Python only (built-ins plus `mask_log_record`) | Always, with the policy's patterns too |
+
+### Tester
+
+**Settings → Privacy → Test a request** shows what a sample URL, header block and body become with the patterns on screen, unsaved ones included. It runs in your browser with the same rules as the edge and sends nothing. The default sample, with the built-ins plus a policy of `mask_query_params: ["^session_id$"]`, `mask_headers: ["^x-tenant-"]` and `mask_body_fields: ["^email$"]`, comes out as (from `apps/ui/src/lib/privacy-policy.test.ts`):
+
+| Field | Sample | Stored |
+|---|---|---|
+| URL | `/v1/orders?page=2&api_key=sk_live_51H8&session_id=8f3a` | `/v1/orders?page=2&api_key=[redacted]&session_id=[redacted]` |
+| Headers | `Authorization: Bearer eyJhbGciOiJIUzI1NiJ9` | `Authorization: [redacted]` |
+| Headers | `X-Tenant-Id: acme` | `X-Tenant-Id: [redacted]` |
+| Body | `"email": "ada@example.com"`, `"card_number": "4242424242424242"`, `"cvc": 123`, `"sku": "A-1"` | `"email": "[redacted]"`, `"card_number": "[redacted]"`, `"cvc": "[redacted]"`, `"sku": "A-1"` (formatting kept) |
+
+Headers can be pasted one `Name: value` per line or as a JSON object; the body as JSON, form-encoded or plain text.
+
+<Note>
+Masking applies to records captured from then on. It does not rewrite what is already stored; that ages out with [retention](/getting-started/data-privacy#retention). Configure it before pointing production traffic at APILens.
+</Note>

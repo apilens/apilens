@@ -60,6 +60,7 @@
               "sdk-reference/python-configuration",
               "sdk-reference/consumers",
               "sdk-reference/path-templating",
+              "sdk-reference/masking",
               "sdk-reference/sampling",
               "sdk-reference/exclusions",
               "sdk-reference/tracing"
