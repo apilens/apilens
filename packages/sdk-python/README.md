@@ -37,6 +37,7 @@ That is the whole setup. No agent, no sidecar, no code changes to your handlers.
 - [Reliability & performance](#reliability--performance)
 - [SDK health & stats](#sdk-health--stats)
 - [App metadata](#app-metadata)
+- [Heartbeat](#heartbeat)
 - [Deployment shapes](#deployment-shapes)
 - [Security & privacy](#security--privacy)
 - [Network requirements](#network-requirements)
@@ -486,6 +487,9 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `proxy_url` | `""` | Egress proxy for ingest traffic, e.g. `http://proxy.corp:3128` or `http://user:pass@proxy.corp:3128`. Falls back to env `APILENS_PROXY`, then `HTTPS_PROXY` / `HTTP_PROXY`. See [network requirements](#network-requirements). |
 | `enabled` | `True` | Master switch; `False` disables capture and the worker entirely. |
 | `send_metadata` | `True` | Report framework, versions, route templates and the effective capture config once per process start (`POST /v1/metadata`). Env `APILENS_SEND_METADATA=false` also turns it off. See [App metadata](#app-metadata). |
+| `send_heartbeat` | `True` | Send `POST /v1/heartbeat` on start, every `heartbeat_interval` and on shutdown; its response carries the remote capture policy. Env `APILENS_SEND_HEARTBEAT=false` also turns it off. See [Heartbeat](#heartbeat). |
+| `heartbeat_interval` | `60.0` | Seconds between heartbeats. Minimum 10 (ingest answers 429 to faster ones). |
+| `app_id` | `""` | App to send heartbeats for when the client is used without a middleware (middlewares register their own `app_id`). |
 | `on_stats` | `None` | `(ClientStats) -> None`, called on the flush thread every `flush_interval` with a stats snapshot, e.g. to export to Prometheus or StatsD. Exceptions are logged at DEBUG and ignored. See [SDK health & stats](#sdk-health--stats). |
 
 ### Middleware options
@@ -789,6 +793,34 @@ proxy URL (it may hold credentials, so only `proxy: true/false`), the CA bundle
 path, and anything about a callback beyond whether it is set: no names, no
 source. Before posting, the SDK also removes any field named like an API key
 (`api_key`, `apiKey`, `api-key`) at any depth.
+
+---
+
+## Heartbeat
+
+Every process with an app sends `POST /v1/heartbeat` from the background flush
+thread: once on start, then every `heartbeat_interval` seconds (default 60),
+and once more with `"final": true` on shutdown. APILens uses it for app
+status and uptime ("reporting" while a heartbeat arrived in the last 5
+minutes), and answers with the app's remote capture policy.
+
+- **Which apps:** each framework middleware registers its `app_id` and
+  environment with the client; a client used without a middleware sends for
+  `ApiLensConfig.app_id`, or call `client.register_app("orders-api")`.
+- **Body:** `app_id`, `environment`, `instance_id` (a UUID, new per process
+  start and per forked worker), `sdk_name`, `sdk_version`, `runtime`
+  (`python 3.13.1`), `pid`, `uptime_s`, `release`, `commit`, and
+  `stats` (the [`client.stats()`](#sdk-health--stats) snapshot). Never the API key.
+- **Policy:** the response's `policy` object is available as
+  `client.remote_policy` (`None` until the first heartbeat succeeds). A
+  failed heartbeat keeps the previous policy.
+- **Failures are silent:** no retries; 401/403/422 are logged once at WARNING,
+  everything else at DEBUG; 429/503 wait for `Retry-After`. Data delivery is
+  never affected.
+- **Turn it off:** `send_heartbeat=False` on `ApiLensConfig`, or env
+  `APILENS_SEND_HEARTBEAT=false`.
+
+The full contract is in the ingest docs (`apps/docs/ingest/heartbeat.mdx`).
 
 ---
 

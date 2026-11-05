@@ -4,6 +4,7 @@ import gzip
 import json
 import logging
 import os
+import platform
 import random
 import ssl
 import threading
@@ -11,6 +12,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -89,6 +91,27 @@ ENV_SEND_METADATA = "APILENS_SEND_METADATA"
 # (pid, base_url, app_id, environment) already reported by this process.
 _metadata_reported: set[tuple[int, str, str, str]] = set()
 _metadata_lock = threading.Lock()
+
+
+# Heartbeat (``POST /v1/heartbeat``, see ``ApiLensClient.send_heartbeat``).
+# Sent from the flush thread on start, every ``heartbeat_interval`` seconds and
+# once more with ``final=true`` on shutdown. Ingest answers 429 to heartbeats
+# of one instance less than 10 s apart, so shorter intervals are refused.
+HEARTBEAT_MIN_INTERVAL_SECONDS = 10.0
+# Env kill switch: APILENS_SEND_HEARTBEAT=false never sends a heartbeat.
+ENV_SEND_HEARTBEAT = "APILENS_SEND_HEARTBEAT"
+SDK_NAME = "apilenss"
+
+
+def env_send_heartbeat_enabled() -> bool:
+    raw = os.getenv(ENV_SEND_HEARTBEAT)
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _runtime() -> str:
+    return f"python {platform.python_version()}"
 
 
 def env_send_metadata_enabled() -> bool:
@@ -300,6 +323,18 @@ class ApiLensConfig:
     # config once per process start (``POST /v1/metadata``). Env
     # APILENS_SEND_METADATA=false turns it off.
     send_metadata: bool = True
+    # Heartbeat (``POST /v1/heartbeat``): SDK/runtime versions, pid, uptime and
+    # ``stats()`` on start, every ``heartbeat_interval`` seconds and on
+    # shutdown; the response carries the app's remote capture policy
+    # (``ApiLensClient.remote_policy``). Sent for ``app_id`` and for every app
+    # a framework middleware registers. Env APILENS_SEND_HEARTBEAT=false
+    # turns it off.
+    send_heartbeat: bool = True
+    heartbeat_path: str = "/heartbeat"
+    heartbeat_interval: float = 60.0
+    # App UUID or slug to send heartbeats for. Optional: the framework
+    # middlewares register their own ``app_id`` with the client.
+    app_id: str = ""
 
     # Deploy correlation: stamped on every request/span/log record so the
     # dashboard can answer "did this release cause the regression?". When left
@@ -400,6 +435,10 @@ class ApiLensClient:
             raise ValueError("max_queue_size must be > 0")
         if config.max_queue_bytes <= 0:
             raise ValueError("max_queue_bytes must be > 0")
+        if config.heartbeat_interval < HEARTBEAT_MIN_INTERVAL_SECONDS:
+            raise ValueError(
+                f"heartbeat_interval must be >= {HEARTBEAT_MIN_INTERVAL_SECONDS:g} seconds"
+            )
 
         self.config = config
         self._queue: deque[RequestRecord] = deque()
@@ -431,6 +470,15 @@ class ApiLensClient:
         self._drops_logged_at: float | None = None
         # Thread sending the app metadata report, if this client started one.
         self._metadata_thread: threading.Thread | None = None
+        # Heartbeat state. (app_id, environment) -> monotonic time the next
+        # heartbeat is due (0.0: now). Guarded by ``_heartbeat_lock``.
+        self._heartbeat_lock = threading.Lock()
+        self._heartbeat_due: dict[tuple[str, str], float] = {}
+        self._heartbeat_logged: set[int] = set()
+        self._remote_policy: dict | None = None
+        self._new_instance()
+        if config.app_id:
+            self.register_app(config.app_id)
 
         if start_worker and self.config.enabled:
             self.start()
@@ -445,6 +493,8 @@ class ApiLensClient:
     def shutdown(self, *, flush: bool = True, timeout: float = 10.0) -> None:
         if flush:
             self.flush_all()
+        if self.config.enabled:
+            self.send_heartbeat(final=True)
 
         self._stop.set()
         self._wakeup.set()
@@ -477,6 +527,10 @@ class ApiLensClient:
         return ``False``. Disabled with ``send_metadata=False``,
         ``enabled=False`` or env ``APILENS_SEND_METADATA=false``.
         """
+        if app_id:
+            # Every framework middleware reports metadata on construction, so
+            # this is also where its app is enrolled for heartbeats.
+            self.register_app(app_id, environment)
         if not (self.config.enabled and self.config.send_metadata and env_send_metadata_enabled()):
             return False
         if not app_id:
@@ -543,6 +597,145 @@ class ApiLensClient:
                 )
         logger.debug("API Lens app metadata report failed: %s", last_error)
         return False
+
+    def _new_instance(self) -> None:
+        # One instance per process start: a forked worker gets its own id.
+        self._pid = os.getpid()
+        self._instance_id = str(uuid.uuid4())
+        self._started_at = time.monotonic()
+
+    def _check_fork(self) -> None:
+        if os.getpid() != self._pid:
+            self._new_instance()
+
+    @property
+    def instance_id(self) -> str:
+        """Id of this process in heartbeats; new on every process start."""
+        self._check_fork()
+        return self._instance_id
+
+    @property
+    def remote_policy(self) -> dict | None:
+        """The capture policy from the last successful heartbeat, or ``None``
+        before the first one. A failed heartbeat keeps the previous policy."""
+        with self._heartbeat_lock:
+            return dict(self._remote_policy) if self._remote_policy is not None else None
+
+    def _heartbeats_enabled(self) -> bool:
+        return self.config.send_heartbeat and env_send_heartbeat_enabled()
+
+    def register_app(self, app_id: str, environment: str = "") -> None:
+        """Send heartbeats for ``app_id`` in ``environment`` (default: the
+        config's) from now on. The first one goes out on the next flush-loop
+        pass. Registering the same app again does nothing."""
+        if not app_id:
+            return
+        key = (app_id, environment or self.config.environment)
+        with self._heartbeat_lock:
+            if key in self._heartbeat_due:
+                return
+            self._heartbeat_due[key] = 0.0
+        if self._heartbeats_enabled():
+            self._wakeup.set()
+
+    def heartbeat_payload(self, app_id: str, environment: str = "", *, final: bool = False) -> dict:
+        """The ``POST /v1/heartbeat`` body for one app."""
+        self._check_fork()
+        body: dict = {
+            "app_id": app_id,
+            "environment": environment or self.config.environment,
+            "instance_id": self._instance_id,
+            "sdk_name": SDK_NAME,
+            "sdk_version": __version__,
+            "runtime": _runtime(),
+            "pid": self._pid,
+            "uptime_s": int(time.monotonic() - self._started_at),
+            "stats": self.stats().to_dict(),
+        }
+        if self.config.project_slug:
+            body["project_slug"] = self.config.project_slug
+        if self.config.release:
+            body["release"] = self.config.release
+        if self.config.commit:
+            body["commit"] = self.config.commit
+        if final:
+            body["final"] = True
+        return body
+
+    def send_heartbeat(self, *, final: bool = False) -> bool:
+        """Send a heartbeat for every registered app now; ``True`` when all
+        succeeded. Never raises and never retries: a failure is logged (once
+        per status for 401/403/422, else at DEBUG), keeps the previous
+        policy and only reschedules the next heartbeat."""
+        if not self._heartbeats_enabled():
+            return False
+        with self._heartbeat_lock:
+            keys = list(self._heartbeat_due)
+        ok = bool(keys)
+        for app_id, environment in keys:
+            ok = self._heartbeat_one(app_id, environment, final=final) and ok
+        return ok
+
+    def _maybe_heartbeat(self) -> None:
+        """Send the heartbeats that are due. Flush thread only."""
+        if not self._heartbeats_enabled():
+            return
+        now = time.monotonic()
+        with self._heartbeat_lock:
+            due = [key for key, at in self._heartbeat_due.items() if at <= now]
+        for app_id, environment in due:
+            self._heartbeat_one(app_id, environment)
+
+    def _schedule_heartbeat(self, key: tuple[str, str], delay: float) -> None:
+        with self._heartbeat_lock:
+            self._heartbeat_due[key] = time.monotonic() + delay
+
+    def _heartbeat_one(self, app_id: str, environment: str, *, final: bool = False) -> bool:
+        key = (app_id, environment)
+        interval = self.config.heartbeat_interval
+        try:
+            body = _strip_api_key_fields(self.heartbeat_payload(app_id, environment, final=final))
+            raw = self._post_body(self.config.heartbeat_path, _dumps(body), read_response=True)
+        except _IngestError as exc:
+            retry_after = exc.retry_after
+            self._schedule_heartbeat(key, retry_after if retry_after is not None else interval)
+            self._log_heartbeat_failure(exc)
+            return False
+        except Exception as exc:
+            self._schedule_heartbeat(key, interval)
+            logger.debug("API Lens heartbeat failed: %s", exc, exc_info=True)
+            return False
+        self._schedule_heartbeat(key, interval)
+        self._apply_heartbeat_response(raw)
+        return True
+
+    def _apply_heartbeat_response(self, raw: bytes) -> None:
+        try:
+            data = json.loads(raw.decode("utf-8")) if raw else None
+        except (UnicodeDecodeError, ValueError):
+            logger.debug("API Lens heartbeat response is not JSON; keeping the previous policy")
+            return
+        policy = data.get("policy") if isinstance(data, dict) else None
+        if not isinstance(policy, dict):
+            logger.debug("API Lens heartbeat response has no policy; keeping the previous policy")
+            return
+        with self._heartbeat_lock:
+            self._remote_policy = dict(policy)
+
+    def _log_heartbeat_failure(self, exc: _IngestError) -> None:
+        status = exc.status
+        if status in (401, 403, 422):
+            with self._heartbeat_lock:
+                if status in self._heartbeat_logged:
+                    return
+                self._heartbeat_logged.add(status)
+            logger.warning(
+                "API Lens ingest rejected the heartbeat with status %s: %s",
+                status,
+                exc.body or "<empty body>",
+            )
+            return
+        logger.debug("API Lens heartbeat failed: %s", exc)
 
     @property
     def dropped_count(self) -> int:
@@ -803,6 +996,7 @@ class ApiLensClient:
         return total
 
     def _run_loop(self) -> None:
+        self._safe_heartbeat()
         while not self._stop.is_set():
             self._wakeup.wait(self.config.flush_interval)
             self._wakeup.clear()
@@ -814,6 +1008,14 @@ class ApiLensClient:
                 self._report_stats()
             except Exception:  # pragma: no cover
                 logger.debug("API Lens stats reporting failed", exc_info=True)
+            if not self._stop.is_set():
+                self._safe_heartbeat()
+
+    def _safe_heartbeat(self) -> None:
+        try:
+            self._maybe_heartbeat()
+        except Exception:  # pragma: no cover
+            logger.debug("API Lens heartbeat failed", exc_info=True)
 
     def _pop_batch(self, size: int) -> list[RequestRecord]:
         return self._pop_from(self._queue, size)
@@ -967,7 +1169,9 @@ class ApiLensClient:
     def _send_log_batch(self, batch: list[LogRecord] | list[bytes]) -> None:
         self._post_body(self.config.logs_path, _envelope("logs", batch))
 
-    def _post_body(self, path: str, body: bytes) -> None:
+    def _post_body(self, path: str, body: bytes, *, read_response: bool = False) -> bytes:
+        """POST ``body`` to ``path``; returns the response body when
+        ``read_response`` (else ``b""``)."""
         headers = {
             "Content-Type": "application/json",
             "X-API-Key": self.config.api_key,
@@ -1005,6 +1209,7 @@ class ApiLensClient:
                     raise _RetryableIngestError(
                         f"API Lens ingest returned status={status}", status=status
                     )
+                return resp.read() if read_response else b""
         except urllib.error.HTTPError as exc:
             status = exc.code
             body = _read_error_body(exc)
