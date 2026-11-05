@@ -1,0 +1,51 @@
+/* Apps overview (#591). Tokens from tokens.css only. Color carries meaning: the reporting pill and
+   the health line use --ok, --warn and --error, always next to a word, never color alone. The app
+   name link covers its card, so the whole card opens the app. Cards wrap to one column on phones. */
+.ap { max-width: 1120px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
+.ap-lead { margin: var(--space-2) 0 var(--space-6); font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
+.ap-muted { margin: 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+
+.ap-notice { display: flex; gap: 10px; align-items: flex-start; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); font: 400 14px/22px var(--font-sans); color: var(--ink); }
+.ap-notice p { margin: 0; }
+.ap-notice svg { flex: none; width: 16px; height: 16px; margin-top: 3px; color: var(--ink-muted); }
+.ap-notice--error { border-color: color-mix(in srgb, var(--error) 35%, var(--border)); background: var(--error-soft); }
+.ap-notice--error svg { color: var(--error); }
+.ap .cp-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+
+.ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
+.ap-card { position: relative; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
+.ap-card:hover { border-color: var(--border-strong); }
+.ap-card__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.ap-card h2 { margin: 0; min-width: 0; font: 600 15px/22px var(--font-sans); color: var(--ink); overflow-wrap: anywhere; }
+.ap-card__link { color: inherit; text-decoration: none; }
+.ap-card__link::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.ap-card__link:focus-visible { outline: none; }
+.ap-card:has(.ap-card__link:focus-visible) { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.ap-card:hover .ap-card__link { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
+.ap-slug { margin-top: -6px; font: 400 12px/18px var(--font-mono); color: var(--ink-muted); }
+
+.ap-pill { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-pill); font: 500 12px/1 var(--font-sans); color: var(--ink); white-space: nowrap; }
+.ap-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+.ap-pill--ok .ap-dot, .ap-health--healthy .ap-dot { background: var(--ok); }
+.ap-pill--warn { background: var(--warn-soft); } .ap-pill--warn .ap-dot, .ap-health--degraded .ap-dot { background: var(--warn); }
+.ap-pill--error { background: var(--error-soft); } .ap-pill--error .ap-dot, .ap-health--failing .ap-dot { background: var(--error); }
+
+.ap-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: var(--space-2) 0 0; }
+.ap-metrics dt { font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ap-metrics dd { margin: 0; font: 600 18px/26px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); }
+.ap-card .tr-spark { display: block; width: 100%; height: 24px; overflow: visible; }
+.ap-card .tr-spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.ap-card__traffic { padding: var(--space-3) 0; }
+.ap-health { display: inline-flex; align-items: center; gap: 6px; margin: 0; font: 500 12px/18px var(--font-sans); color: var(--ink); }
+.ap-health--idle { color: var(--ink-muted); }
+
+.ap-card__foot { display: flex; flex-direction: column; gap: 2px; margin-top: auto; padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.ap-sdk { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--space-2); margin: 0; }
+.ap-sdk code { font: 400 12px/18px var(--font-mono); color: var(--ink); }
+.ap-update, .ap-drops { font: 500 12px/18px var(--font-sans); color: var(--warn); }
+.ap-drops { margin: 0; }
+
+@media (max-width: 760px) {
+  .ap { padding: var(--space-4) var(--space-4) var(--space-12); }
+  .ap-grid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -1,7 +1,7 @@
 // View definitions (`VIEWS`, `SECTIONS`, settings pages). Tenancy (user, orgs, projects, roles)
 // is real: it comes from `GET /users/me/context` via `lib/auth/server.ts` and `lib/scope.ts`.
-// The services/apps below are still sample data (names follow the design system's examples)
-// until the apps API exists; they are keyed by sample project slugs.
+// The services below (the top bar's service picker) are still sample data, keyed by sample project
+// slugs. Apps are real: the Apps overview (#591) reads them from `GET /project` and `/apps/{id}/status`.
 
 export type Health = "ok" | "warn" | "error" | "info" | "none";
 
@@ -60,68 +60,3 @@ export const PROJECT_SETTINGS = { slug: "settings", label: "Project settings", c
 /** Organization-level page (not a project view): linked from the sidebar, lives at /orgs/<org>/settings. */
 export const ORG_SETTINGS = { label: "Organization settings", crumb: "Settings" } as const;
 export type ViewSlug = (typeof VIEWS)[number]["slug"];
-
-// ── Apps: the services instrumented in a project ───────────────────────────
-export type Lang = "python" | "java" | "go" | "node";
-export type AppStatus = "reporting" | "stale" | "silent";
-export interface AppInfo {
-  slug: string;
-  project: string;
-  health: Health;
-  lang: Lang;
-  runtime: string;
-  sdk: { name: string; version: string; latest: string };
-  status: AppStatus;
-  lastSeen: string;
-  envs: string[];
-  sampling: number;
-  otel: boolean;
-  captures: { traces: boolean; payloads: boolean; exceptions: boolean };
-  rpm: number;
-  p95: number;
-  errorRate: number;
-  version: string;
-  deployedAgo: string;
-}
-
-const SDK: Record<Lang, { name: string; latest: string; runtimes: string[] }> = {
-  python: { name: "apilens-python", latest: "0.4.0", runtimes: ["Python 3.12", "Python 3.11"] },
-  java: { name: "apilens-java", latest: "1.3.0", runtimes: ["JVM 21", "JVM 17"] },
-  go: { name: "apilens-go", latest: "0.9.2", runtimes: ["Go 1.23"] },
-  node: { name: "apilens-node", latest: "2.1.0", runtimes: ["Node 22"] },
-};
-const LANGS: Lang[] = ["python", "java", "python", "go", "java", "node", "python"];
-const OLD: Record<Lang, string> = { python: "0.3.2", java: "1.2.1", go: "0.8.0", node: "1.9.4" };
-
-/** Deterministic sample instrumentation for every service, so every project has realistic apps. */
-export const APPS: AppInfo[] = SERVICES.map((s, i) => {
-  const lang = LANGS[i % LANGS.length];
-  const sdk = SDK[lang];
-  const silent = s.slug === "fraud-score" || s.slug === "demo-api";
-  const stale = s.slug === "ledger-db" || s.slug === "push-svc";
-  const outdated = i % 4 === 1;
-  return {
-    slug: s.slug,
-    project: s.project,
-    health: s.health,
-    lang,
-    runtime: sdk.runtimes[i % sdk.runtimes.length],
-    sdk: { name: sdk.name, version: outdated ? OLD[lang] : sdk.latest, latest: sdk.latest },
-    status: silent ? "silent" : stale ? "stale" : "reporting",
-    lastSeen: silent ? (s.slug === "demo-api" ? "9 days ago" : "2 days ago") : stale ? "18 min ago" : `${(i * 7) % 50 + 2}s ago`,
-    envs: i % 3 === 0 ? ["production", "staging"] : ["production"],
-    sampling: [1, 0.5, 1, 0.25, 1, 0.1][i % 6],
-    otel: i % 5 !== 3,
-    captures: { traces: true, payloads: i % 3 !== 2, exceptions: true },
-    rpm: silent ? 0 : 180 + ((i * 397) % 2400),
-    p95: s.fact.endsWith("ms") ? parseInt(s.fact) : 40 + ((i * 53) % 260),
-    errorRate: s.health === "error" ? 0.061 : s.health === "warn" ? 0.012 : ((i * 13) % 9) / 1000,
-    version: `v2.${(i * 3) % 9}.${i % 4}`,
-    deployedAgo: ["2 h ago", "1 day ago", "3 days ago", "40 min ago", "6 days ago"][i % 5],
-  };
-});
-export const appsIn = (projectSlug: string) => APPS.filter((a) => a.project === projectSlug);
-export const appBySlug = (projectSlug: string, slug: string) => APPS.find((a) => a.project === projectSlug && a.slug === slug);
-/** An app needs attention when it stopped reporting or runs an outdated SDK. */
-export const needsAttention = (a: AppInfo) => a.status !== "reporting" || a.sdk.version !== a.sdk.latest;
-export const LANG_BADGE: Record<Lang, string> = { python: "PY", java: "JAVA", go: "GO", node: "NODE" };

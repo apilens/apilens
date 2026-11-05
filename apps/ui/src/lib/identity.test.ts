@@ -463,6 +463,18 @@ describe("operations", () => {
     expect(calls.every((c) => c.headers.get("authorization") === "Bearer jwt")).toBe(true);
   });
 
+  it("narrows the traffic totals and timeseries to an app and reads its status in the project (#591)", async () => {
+    const { client, calls } = recordingClient(() => json({}));
+    await client.trafficSummary("my-api", { range: "24h", app: "a1" }, authed);
+    await client.trafficTimeseries("my-api", { range: "24h", app: "a1" }, authed);
+    await client.appHealthStatus("my-api", "a1", authed);
+    expect(calls.map((c) => Object.fromEntries(new URL(c.url).searchParams))).toEqual([
+      { project: "my-api", range: "24h", app: "a1" },
+      { project: "my-api", range: "24h", app: "a1" },
+      { project: "my-api" },
+    ]);
+  });
+
   it("starts a link flow as the user and answers the provider URL it redirects to", async () => {
     const provider = "https://github.com/login/oauth/authorize?state=s";
     const { client, calls } = recordingClient(

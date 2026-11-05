@@ -20619,6 +20619,17 @@
               "maxLength": 64,
               "type": "string"
             }
+          },
+          {
+            "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -20697,6 +20708,17 @@
             "schema": {
               "description": "Environment name; empty means all.",
               "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
               "type": "string"
             }
           }
