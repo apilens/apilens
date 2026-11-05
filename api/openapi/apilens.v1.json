@@ -979,6 +979,52 @@
         ],
         "type": "object"
       },
+      "CreateSavedViewInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/CreateSavedViewInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "filter": {
+            "additionalProperties": {},
+            "description": "The surface's filter state, a JSON object of at most 16 KiB; omitted means no filter.",
+            "type": "object"
+          },
+          "name": {
+            "description": "Display name, 1 to 128 characters; surrounding spaces are dropped. Unique among the caller's views of the surface.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "shared": {
+            "description": "Show the view to everyone who can view the project; omitted means private.",
+            "type": "boolean"
+          },
+          "surface": {
+            "description": "The dashboard surface the view belongs to.",
+            "enum": [
+              "explore",
+              "endpoints",
+              "errors",
+              "performance",
+              "consumers",
+              "apps"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "surface"
+        ],
+        "type": "object"
+      },
       "CreatedAPIKey": {
         "additionalProperties": false,
         "properties": {
@@ -4889,6 +4935,105 @@
         ],
         "type": "object"
       },
+      "SavedView": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SavedView.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "description": "The user who created the view; null once that user is gone.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filter": {
+            "additionalProperties": {},
+            "description": "The surface's filter state, as saved. The server stores it as is.",
+            "type": "object"
+          },
+          "id": {
+            "description": "The view's id.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name.",
+            "type": "string"
+          },
+          "shared": {
+            "description": "Whether everyone who can view the project sees the view; false means only its creator does.",
+            "type": "boolean"
+          },
+          "surface": {
+            "description": "The dashboard surface the view belongs to.",
+            "enum": [
+              "explore",
+              "endpoints",
+              "errors",
+              "performance",
+              "consumers",
+              "apps"
+            ],
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "surface",
+          "filter",
+          "shared",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "SavedViewsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SavedViewsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "views": {
+            "description": "Shared views and the caller's own private views, by surface then name.",
+            "items": {
+              "$ref": "#/components/schemas/SavedView"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "views"
+        ],
+        "type": "object"
+      },
       "SessionInfo": {
         "additionalProperties": false,
         "properties": {
@@ -5740,6 +5885,39 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "UpdateSavedViewInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/UpdateSavedViewInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "filter": {
+            "additionalProperties": {},
+            "description": "The surface's filter state, a JSON object of at most 16 KiB; omitted means no filter.",
+            "type": "object"
+          },
+          "name": {
+            "description": "Display name, 1 to 128 characters; surrounding spaces are dropped.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "shared": {
+            "description": "Show the view to everyone who can view the project; omitted means private.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ],
         "type": "object"
       },
       "UserContext": {
@@ -12275,6 +12453,465 @@
           }
         ],
         "summary": "Whether a project has received its first request",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project}/views": {
+      "get": {
+        "description": "The project's shared views and the caller's own private views, by surface then name. Open to a session that can view the project or to the project's read key, which sees the shared views only.",
+        "operationId": "list-saved-views",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the views of this surface; omitted means every surface.",
+            "explode": false,
+            "in": "query",
+            "name": "surface",
+            "schema": {
+              "description": "Only the views of this surface; omitted means every surface.",
+              "enum": [
+                "explore",
+                "endpoints",
+                "errors",
+                "performance",
+                "consumers",
+                "apps"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedViewsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "List the saved views of a project",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "post": {
+        "description": "Saves a named filter set of a surface, owned by the caller. Needs a user session that can view the project. A name the caller already uses on the surface answers 409.",
+        "operationId": "create-saved-view",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSavedViewInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedView"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Save a view",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project}/views/{id}": {
+      "delete": {
+        "description": "Deletes a view. Needs a user session: the view's creator, or for a shared view a project admin (project admins, organization owners and admins); 403 for other members. A view the caller cannot see (another user's private view, or one of another project) answers 404.",
+        "operationId": "delete-saved-view",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The view's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The view's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Delete a saved view",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "get": {
+        "description": "One view of the project: a shared one, or one of the caller's own private views (404 otherwise). Open to a session that can view the project or to the project's read key.",
+        "operationId": "get-saved-view",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The view's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The view's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Get a saved view",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "put": {
+        "description": "Replaces the name, filter and sharing of a view; its surface and creator stay. Needs a user session: the view's creator, or for a shared view a project admin (project admins, organization owners and admins); 403 for other members. A view the caller cannot see (another user's private view, or one of another project) answers 404. A name the creator already uses on the surface answers 409.",
+        "operationId": "update-saved-view",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The view's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The view's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSavedViewInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Replace a saved view",
         "tags": [
           "Projects"
         ]

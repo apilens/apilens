@@ -336,6 +336,18 @@ type RecoveryRequest struct {
 	UserAgent   string
 }
 
+type SavedView struct {
+	ID        uuid.UUID
+	ProjectID uuid.UUID
+	Name      string
+	Surface   string
+	Filter    []byte
+	Shared    bool
+	CreatedBy *uuid.UUID
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type Session struct {
 	ID            uuid.UUID
 	UserID        uuid.UUID
