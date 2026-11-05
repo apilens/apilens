@@ -50,14 +50,16 @@ type Edge struct {
 	privacy  PolicySource  // nil: built-in defaults only
 	metadata MetadataStore // nil: /v1/metadata answers 503
 	quota    Quota         // nil: no per-project quotas
+	capture  CaptureSource // nil: default payload cap for every app
 	cfg      config.IngestConfig
 	logger   *slog.Logger
 	now      func() time.Time
 
-	records  *prometheus.CounterVec
-	batches  *prometheus.CounterVec
-	rejected *prometheus.CounterVec
-	quotaLog atomic.Int64 // unix nanos of the last "quota unavailable" log line
+	records   *prometheus.CounterVec
+	batches   *prometheus.CounterVec
+	rejected  *prometheus.CounterVec
+	truncated *prometheus.CounterVec
+	quotaLog  atomic.Int64 // unix nanos of the last "quota unavailable" log line
 }
 
 // New builds the edge. reg may be nil.
@@ -73,9 +75,15 @@ func New(verifier Verifier, apps AppResolver, sink pipeline.Sink, cfg config.Ing
 		rejected: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "apilens_ingest_rejected_total", Help: "Ingest calls refused by a per-project quota, by limit.",
 		}, []string{"reason"}),
+		truncated: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "apilens_ingest_truncated_total", Help: "Request record fields cut to the server-side cap, by field.",
+		}, []string{"field"}),
+	}
+	for _, f := range truncatedFields {
+		e.truncated.WithLabelValues(f)
 	}
 	if reg != nil {
-		reg.MustRegister(e.records, e.batches, e.rejected)
+		reg.MustRegister(e.records, e.batches, e.rejected, e.truncated)
 	}
 	return e
 }
