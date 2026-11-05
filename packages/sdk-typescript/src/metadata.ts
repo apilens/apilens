@@ -22,14 +22,23 @@
  * POST), the fetch implementation or the logger.
  */
 
-import { METHODS } from "node:http";
-import { createRequire } from "node:module";
-import { join } from "node:path";
+import type * as nodeModule from "node:module";
+import type * as nodePath from "node:path";
 
 import { SDK_VERSION, type ApiLensClient } from "./client.js";
 import type { RequestExcluder } from "./exclusions.js";
 import { expressPathToTemplate } from "./routes.js";
 import type { Redactor } from "./sanitize.js";
+import { builtin, nodeVersion, processObject } from "./runtime.js";
+
+/** HTTP methods an Express `app.all()` route answers (`http.METHODS` on Node). */
+function httpMethods(): readonly string[] {
+  return (
+    builtin<{ METHODS?: string[] }>("http")?.METHODS ?? [
+      "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT",
+    ]
+  );
+}
 
 /** Route templates past this many are not reported (ingest keeps as many). */
 export const MAX_METADATA_ROUTES = 2000;
@@ -126,7 +135,7 @@ function walk(stack: unknown[], prefix: string, out: AppRoute[], seen: Set<strin
       const methods = Object.keys(declared).filter((m) => m !== "_all" && declared[m]);
       // `app.all()`: Express 4 marks it `_all`, Express 5 adds every method.
       // Neither declares an endpoint of its own.
-      if (declared._all || METHODS.every((m) => declared[m.toLowerCase()])) {
+      if (declared._all || httpMethods().every((m) => declared[m.toLowerCase()])) {
         continue;
       }
       for (const path of routePaths(layer.route.path)) {
@@ -178,9 +187,30 @@ export function listExpressRoutes(app: unknown): AppRoute[] {
 /** Installed version of `pkg`, resolved from the app's working directory ("" when unknown). */
 export function packageVersion(pkg: string): string {
   try {
-    const require = createRequire(join(process.cwd(), "noop.js"));
-    const version = (require(`${pkg}/package.json`) as { version?: unknown }).version;
-    return typeof version === "string" ? version : "";
+    const createRequire = builtin<typeof nodeModule>("module")?.createRequire;
+    const cwd = processObject()?.cwd?.();
+    if (!createRequire || !cwd) {
+      return "";
+    }
+    const join = builtin<typeof nodePath>("path")?.join ?? ((a: string, b: string) => `${a}/${b}`);
+    const require = createRequire(join(cwd, "noop.js"));
+    const versionOf = (id: string): string => {
+      const version = (require(id) as { version?: unknown }).version;
+      return typeof version === "string" ? version : "";
+    };
+    try {
+      return versionOf(`${pkg}/package.json`);
+    } catch {
+      // Packages whose `exports` hide package.json (hono): by file path.
+      for (const dir of require.resolve.paths(pkg) || []) {
+        try {
+          return versionOf(join(join(dir, pkg), "package.json"));
+        } catch {
+          // Not in this node_modules.
+        }
+      }
+      return "";
+    }
   } catch {
     return "";
   }
@@ -242,7 +272,7 @@ export function buildAppMetadata(
     environment: environment || client.config.environment,
     framework: framework.name,
     framework_version: framework.version,
-    node_version: process.versions.node,
+    node_version: nodeVersion(),
     sdk_version: SDK_VERSION,
     routes: routes.slice(0, MAX_METADATA_ROUTES),
     config,

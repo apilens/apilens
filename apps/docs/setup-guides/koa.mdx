@@ -1,0 +1,85 @@
+---
+title: "Koa"
+description: "Monitor a Koa API with the APILens JavaScript SDK (beta)."
+---
+
+<Warning>
+The JavaScript SDK (`apilens-js-sdk`, v0.1.x) is **beta**. The Koa middleware is tested with Koa 3 and `@koa/router` 15 on Node 18+.
+</Warning>
+
+## Install
+
+```bash
+npm install apilens-js-sdk
+```
+
+## Add the middleware
+
+```javascript
+import Koa from "koa";
+import Router from "@koa/router";
+import { bodyParser } from "@koa/bodyparser";
+import { apiLensKoa } from "apilens-js-sdk/koa";
+
+const app = new Koa();
+const router = new Router();
+
+app.use(apiLensKoa({
+  apiKey: process.env.APILENS_API_KEY,
+  appId: "storefront-api",        // the app's slug from your APILens project
+  environment: "production",
+  routers: [router],              // optional: lists your routes in the app metadata
+}));
+app.use(bodyParser());            // after APILens, so request bodies are captured
+
+router.get("/orders/:id", (ctx) => {
+  ctx.body = { id: ctx.params.id };
+});
+app.use(router.routes());
+
+app.listen(3000);
+```
+
+Mount the middleware **first**, before the body parser and your routers. It reads the response as Koa writes it (JSON, text and streamed bodies alike) and records the request once the response has been sent. Requests are grouped by the `@koa/router` route that matched (`ctx._matchedRoute`, router prefixes included), so `/orders/42` and `/orders/43` both count towards `/orders/{id}`. Requests no route matched are grouped by their path, with id-looking segments replaced.
+
+`instrumentKoa(app, config)` mounts the same middleware and exposes the client as `app.context.apilensClient`.
+
+## Identify consumers
+
+Set the consumer on the context once your auth middleware knows who is calling:
+
+```javascript
+import { setConsumer } from "apilens-js-sdk/koa";
+
+app.use(async (ctx, next) => {
+  if (ctx.state.user) {
+    setConsumer(ctx, { id: ctx.state.user.id, name: ctx.state.user.email, group: ctx.state.user.plan });
+  }
+  await next();
+});
+```
+
+A string works too (`setConsumer(ctx, "acme-corp")`), or pass a centralized `getConsumer(ctx)` resolver in the config.
+
+## Errors
+
+An error thrown by a downstream middleware or route is kept for the request's ERROR log (with its stack) and rethrown unchanged, so Koa's own error handling still answers the request.
+
+## Options
+
+The middleware takes the same options as the [Express middleware](/setup-guides/express): delivery (`batchSize`, `flushIntervalMs`, `maxQueueSize`, …), header and body capture (`requestLogging`, `captureProfile`), redaction, exclusions, sampling and tracing. Every option can also be set with its `APILENS_*` environment variable.
+
+## Shut down cleanly
+
+Flush buffered records before the process exits:
+
+```javascript
+process.on("SIGTERM", async () => {
+  await app.context.apilensClient?.handleShutdown({ flush: true });
+  process.exit(0);
+});
+```
+
+## Verify
+
+Send a few requests and open the **Traffic** page — your Koa app's endpoints appear with their route templates alongside your other services in the project.

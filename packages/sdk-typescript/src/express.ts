@@ -1,3 +1,5 @@
+// Node builtins for the core (see runtime.ts); first, before the core runs.
+import "./node.js";
 import type { NextFunction, Request, Response } from "express";
 
 import type { ApiLensClient } from "./client.js";

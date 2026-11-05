@@ -1,6 +1,7 @@
 /**
- * The framework-neutral capture core shared by the Express, Fastify and
- * NestJS adapters.
+ * The framework-neutral capture core shared by the Express, Fastify, NestJS,
+ * Koa and Hono adapters. It imports no `node:` module at runtime (see
+ * `runtime.ts`), so it also runs on edge runtimes.
  *
  * `CaptureCore` holds everything resolved once per middleware/plugin (client,
  * redaction, exclusions, sampling, tracing). `CaptureCore.begin()` starts a
@@ -12,7 +13,6 @@
  * every framework.
  */
 import type { IncomingHttpHeaders } from "node:http";
-import { performance } from "node:perf_hooks";
 
 import { ApiLensClient } from "./client.js";
 import { resolveConfig } from "./env.js";
@@ -90,6 +90,10 @@ export function requestBodyBytes(body: unknown, contentType: string, maxBytes: n
   if (Buffer.isBuffer(body)) {
     return body.subarray(0, maxBytes);
   }
+  if (body instanceof Uint8Array) {
+    // Raw bytes read by the adapter itself (Hono reads the Fetch request).
+    return Buffer.from(body.buffer, body.byteOffset, body.byteLength).subarray(0, maxBytes);
+  }
   if (typeof body === "string") {
     return Buffer.from(body, "utf8").subarray(0, maxBytes);
   }
@@ -144,6 +148,7 @@ export function buildClient(config: ApiLensExpressConfig = {}): ApiLensClient {
     maxQueueBytes: config.maxQueueBytes,
     maxBatchBytes: config.maxBatchBytes,
     compress: config.compress,
+    flushMode: config.flushMode,
     onStats: config.onStats,
     maxRetries: config.maxRetries,
     retryBackoffBaseMs: config.retryBackoffBaseMs,
@@ -243,6 +248,36 @@ export class RequestCapture {
 
   private query(): string {
     return this.queryAt === -1 ? "" : this.url.slice(this.queryAt + 1);
+  }
+
+  /**
+   * Whether the request body of `contentType` is captured (sampled in,
+   * payload capture on, content type allowed), for adapters that read the
+   * body themselves rather than receive it parsed.
+   */
+  capturesRequestBody(contentType: string): boolean {
+    return this.capturesBody(this.core.logRequestBody, contentType);
+  }
+
+  /** Whether a response body of `contentType` is captured; see `capturesRequestBody`. */
+  capturesResponseBody(contentType: string): boolean {
+    return this.capturesBody(this.core.logResponseBody, contentType);
+  }
+
+  /** Bytes of a body that are kept (`requestLogging.maxPayloadBytes`). */
+  get maxPayloadBytes(): number {
+    return this.core.maxPayloadBytes;
+  }
+
+  private capturesBody(enabled: boolean, contentType: string): boolean {
+    const core = this.core;
+    return (
+      this.sampled &&
+      core.capturePayloads &&
+      enabled &&
+      core.maxPayloadBytes > 0 &&
+      core.contentTypes.allows(contentType)
+    );
   }
 
   /** Run `fn` (the rest of the request) inside this request's trace. */

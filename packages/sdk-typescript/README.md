@@ -1,6 +1,6 @@
 # API Lens JavaScript SDK
 
-JavaScript SDK for API Lens with Express, Fastify and NestJS adapters.
+JavaScript SDK for API Lens with Express, Fastify, NestJS, Koa and Hono adapters.
 
 ## Install
 
@@ -80,6 +80,69 @@ the app is created, and binds `ApiLensInterceptor` globally so a handler's
 error reaches the 5xx error log. `setConsumer(req, consumer)` from
 `apilens-js-sdk/nestjs` works with either platform's request; the client is
 injectable as `APILENS_CLIENT`.
+
+## Koa
+
+```js
+import Koa from "koa";
+import Router from "@koa/router";
+import { bodyParser } from "@koa/bodyparser";
+import { apiLensKoa, setConsumer } from "apilens-js-sdk/koa";
+
+const app = new Koa();
+const router = new Router();
+app.use(apiLensKoa({ apiKey: process.env.APILENS_API_KEY, appId: "orders-api", routers: [router] }));
+app.use(bodyParser());
+
+router.get("/v1/orders/:id", (ctx) => {
+  setConsumer(ctx, { id: "user_123", group: "starter" });
+  ctx.body = { ok: true };
+});
+app.use(router.routes());
+```
+
+Mount the middleware first. `path` is the `@koa/router` route that matched
+(`ctx._matchedRoute`, prefixes included, `:id` spelled `{id}`); a thrown
+error is kept for the 5xx error log and rethrown. `routers` lists the routes
+in the metadata report. `instrumentKoa(app, config)` mounts it and sets
+`app.context.apilensClient`.
+
+## Hono (Node, Bun, Deno, Cloudflare Workers, Vercel Edge)
+
+```ts
+import { Hono } from "hono";
+import { instrumentHono, setConsumer } from "apilens-js-sdk/hono";
+
+const app = new Hono();
+instrumentHono(app, { apiKey: "<key>", appId: "orders-api" });
+
+app.get("/v1/orders/:id", (c) => {
+  setConsumer(c, { id: "user_123", group: "starter" });
+  return c.json({ ok: true });
+});
+
+export default app;
+```
+
+`instrumentHono(app, config)` is `app.use("*", apiLensHono(config))` plus
+the app's routes in the metadata report; call it before the routes. `path`
+is the route that answered (`c.req.routePath`, `:id{[0-9]+}` spelled `{id}`),
+and `c.error` goes in the 5xx error log.
+
+`apilens-js-sdk/hono` imports no `node:` module. Node builtins are used when
+the runtime has them (`process.getBuiltinModule`), else Web APIs are:
+`CompressionStream` for gzip, Web Crypto for ids, and a synchronous trace
+context without `AsyncLocalStorage`. Outbound `http` spans need Node. The
+capture core uses `Buffer`, so on Cloudflare Workers enable the
+`nodejs_compat` compatibility flag.
+
+`flushMode` (`"auto"` by default) is `"inline"` on an edge runtime: no
+timers run; each request's records, a due heartbeat and the metadata report
+are sent at the end of the request through `c.executionCtx.waitUntil()`
+(pass `waitUntil` yourself on runtimes that expose it elsewhere, such as
+`@vercel/functions`). Without a `waitUntil` the work finishes before the
+response is returned. On Node, Bun and Deno it is `"background"` (timers,
+like the other adapters).
 
 ## Manual capture
 
@@ -483,6 +546,9 @@ error log); `APILENS_CAPTURE_SPANS=false` does too, whatever the code says.
 - `trackConsumer(req, consumer)`
 - `apiLensFastify` / `instrumentFastify(app, config)` / `setConsumer(request, consumer)` (`apilens-js-sdk/fastify`)
 - `ApiLensModule.forRoot(config)` / `ApiLensInterceptor` / `setConsumer(req, consumer)` / `APILENS_CLIENT` (`apilens-js-sdk/nestjs`)
+- `apiLensKoa(config)` / `instrumentKoa(app, config)` / `setConsumer(ctx, consumer)` (`apilens-js-sdk/koa`)
+- `apiLensHono(config)` / `instrumentHono(app, config)` / `setConsumer(c, consumer)` (`apilens-js-sdk/hono`)
+- `client.flushInline()`: per-request delivery of `flushMode: "inline"`
 - `ApiLensClient`
 - `loadEnvConfig(env?)`, `resolveConfig(config, env?)`
 

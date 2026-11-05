@@ -1,7 +1,3 @@
-import { randomUUID } from "node:crypto";
-import { promisify } from "node:util";
-import { gzip } from "node:zlib";
-
 import {
   isNonEmptyString,
   normalizePath,
@@ -13,6 +9,7 @@ import {
 import { detectCommit, detectRelease } from "./release.js";
 import { resolveConfig } from "./env.js";
 import { runWithoutTrace } from "./trace.js";
+import { gzipText, processEnv, processObject, randomUUID, runtimeName } from "./runtime.js";
 import {
   applyRemotePolicy,
   narrowPayloadBytes,
@@ -23,6 +20,7 @@ import type {
   ApiLensClientConfig,
   ApiLensClientStats,
   ApiLensDropReason,
+  ApiLensFlushMode,
   ApiLensLogRecord,
   ApiLensRecord,
   ApiLensRecordInput,
@@ -46,8 +44,6 @@ const METADATA_DELAY_MS = 1000;
 // Env kill switches: `false`, `0`, `no` or `off` never send that report.
 const ENV_SEND_HEARTBEAT = "APILENS_SEND_HEARTBEAT";
 const ENV_SEND_METADATA = "APILENS_SEND_METADATA";
-
-const gzipAsync = promisify(gzip);
 
 // Drop reasons reported by `ApiLensClient.dropCounts()` and `stats()`.
 const DROP_QUEUE_FULL = "queue_full"; // record-count cap (maxQueueSize) hit
@@ -118,6 +114,7 @@ type RequiredConfig = {
   maxQueueBytes: number;
   maxBatchBytes: number;
   compress: boolean;
+  flushMode: ApiLensFlushMode;
   maxRetries: number;
   retryBackoffBaseMs: number;
   retryBackoffMaxMs: number;
@@ -152,7 +149,7 @@ class IngestError extends Error {
 }
 
 function envFlagEnabled(name: string): boolean {
-  const raw = process.env[name];
+  const raw = processEnv()[name];
   if (raw === undefined) {
     return true;
   }
@@ -376,6 +373,10 @@ class ApiLensClient {
   private heartbeatLogged = new Set<number>();
   private remotePolicyState: RemotePolicy | null = null;
   private metadataTimers = new Map<string, NodeJS.Timeout>();
+  /** Inline flush mode: metadata reports waiting for the next `flushInline()`. */
+  private pendingMetadata = new Map<string, () => Record<string, unknown> | null | undefined>();
+  /** Inline flush mode: when the next heartbeat is due (epoch ms). */
+  private nextInlineHeartbeatAt = 0;
   private metadataLogged = new Set<number>();
 
   constructor(config: ApiLensClientConfig = {}) {
@@ -416,6 +417,7 @@ class ApiLensClient {
         MIN_BATCH_BYTES,
       ),
       compress: config.compress !== false,
+      flushMode: config.flushMode === "inline" ? "inline" : "background",
       maxRetries: Math.max(toNonNegativeInt(config.maxRetries, 3), 0),
       retryBackoffBaseMs: Math.max(
         toNonNegativeInt(config.retryBackoffBaseMs, 250),
@@ -525,6 +527,10 @@ class ApiLensClient {
   }
 
   public start(): void {
+    // Inline mode runs no timers: flushInline() does this work per request.
+    if (this.config.flushMode === "inline") {
+      return;
+    }
     if (this.isEnabled()) {
       this.startHeartbeats();
     }
@@ -715,6 +721,57 @@ class ApiLensClient {
     return total;
   }
 
+  /**
+   * Inline flush mode's per-request delivery (edge runtimes, where no timer
+   * runs between requests): sends the pending metadata report, a heartbeat
+   * when one is due, and everything queued. Never throws; returns the number
+   * of items delivered. In background mode it only flushes the queues.
+   */
+  public async flushInline(): Promise<number> {
+    if (!this.isEnabled()) {
+      return 0;
+    }
+    const tasks: Array<Promise<unknown>> = [];
+    for (const [key, build] of this.pendingMetadata) {
+      this.pendingMetadata.delete(key);
+      let payload: Record<string, unknown> | null | undefined;
+      try {
+        payload = build();
+      } catch (error) {
+        this.config.logger.debug?.("API Lens could not build the app metadata report", error);
+        continue;
+      }
+      if (payload) {
+        tasks.push(this.sendMetadata(payload));
+      }
+    }
+    if (
+      this.config.flushMode === "inline" &&
+      this.heartbeatsEnabled() &&
+      Date.now() >= this.nextInlineHeartbeatAt
+    ) {
+      this.heartbeatsStarted = true;
+      // Not due again until this one has answered (concurrent requests).
+      this.nextInlineHeartbeatAt = Number.POSITIVE_INFINITY;
+      tasks.push(
+        Promise.all([...this.heartbeatApps.keys()].map((key) => this.heartbeatOne(key))).then(
+          (results) => {
+            const nextMs = Math.max(this.config.heartbeatIntervalMs, ...results.map((r) => r.nextMs));
+            this.nextInlineHeartbeatAt = Date.now() + nextMs;
+          },
+        ),
+      );
+    }
+    let sent = 0;
+    try {
+      sent = await this.flushAll();
+      await Promise.all(tasks);
+    } catch (error) {
+      this.config.logger.debug?.("API Lens inline flush failed", error);
+    }
+    return sent;
+  }
+
   public async handleShutdown({ flush = true }: { flush?: boolean } = {}): Promise<void> {
     const sendFinal = this.heartbeatsStarted && this.heartbeatsEnabled();
     this.config.enabled = false;
@@ -724,6 +781,10 @@ class ApiLensClient {
       metadataReported.delete(key);
     }
     this.metadataTimers.clear();
+    for (const key of this.pendingMetadata.keys()) {
+      metadataReported.delete(key);
+    }
+    this.pendingMetadata.clear();
 
     if (flush) {
       await this.flushAll();
@@ -773,8 +834,9 @@ class ApiLensClient {
       instance_id: this.instanceId,
       sdk_name: SDK_NAME,
       sdk_version: SDK_VERSION,
-      runtime: `node ${process.versions.node}`,
-      pid: process.pid,
+      runtime: runtimeName(),
+      // Left out (undefined) on a runtime without processes (edge).
+      pid: processObject()?.pid,
       uptime_s: Math.max(Math.floor((Date.now() - this.startedAtMs) / 1000), 0),
       stats: {
         queued_records: stats.queuedRecords,
@@ -946,6 +1008,10 @@ class ApiLensClient {
       return false;
     }
     metadataReported.add(key);
+    if (this.config.flushMode === "inline") {
+      this.pendingMetadata.set(key, build);
+      return true;
+    }
     const timer = setTimeout(() => {
       this.metadataTimers.delete(key);
       let payload: Record<string, unknown> | null | undefined;
@@ -1130,9 +1196,8 @@ class ApiLensClient {
       return { body, gzipped: false };
     }
     try {
-      // zlib's async API runs on the libuv threadpool, off the request path.
-      const compressed = await gzipAsync(body, { level: GZIP_LEVEL });
-      return { body: new Uint8Array(compressed), gzipped: true };
+      // zlib (libuv threadpool, off the request path) or CompressionStream.
+      return { body: await gzipText(body, GZIP_LEVEL), gzipped: true };
     } catch (error) {
       this.config.logger.debug?.("API Lens gzip failed; sending identity", error);
       return { body, gzipped: false };

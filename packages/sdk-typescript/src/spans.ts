@@ -19,13 +19,13 @@
  * error log.
  */
 
-import diagnosticsChannel from "node:diagnostics_channel";
-import http from "node:http";
-import https from "node:https";
-import { syncBuiltinESMExports } from "node:module";
-import { performance } from "node:perf_hooks";
+import type * as diagnosticsChannel from "node:diagnostics_channel";
+import type * as http from "node:http";
+import type * as https from "node:https";
+import type * as nodeModule from "node:module";
 
 import type { ApiLensClient } from "./client.js";
+import { builtin, processEnv } from "./runtime.js";
 import {
   currentTraceContext,
   formatTraceparent,
@@ -53,7 +53,7 @@ export const MAX_PENDING_SPANS = 256;
  * code never overrides it.
  */
 export function envSpansEnabled(): boolean {
-  const raw = typeof process !== "undefined" ? process.env[ENV_CAPTURE_SPANS] : undefined;
+  const raw = processEnv()[ENV_CAPTURE_SPANS];
   if (raw === undefined) {
     return true;
   }
@@ -397,7 +397,11 @@ function onUndiciError(message: unknown): void {
 }
 
 function subscribe(name: string, handler: (message: unknown) => void): void {
-  diagnosticsChannel.channel(name).subscribe(handler);
+  const channels = builtin<typeof diagnosticsChannel>("diagnostics_channel");
+  if (!channels) {
+    throw new Error("diagnostics_channel unavailable");
+  }
+  channels.channel(name).subscribe(handler);
 }
 
 let outboundInstrumented = false;
@@ -413,10 +417,15 @@ export function instrumentOutboundHttp(): void {
   }
   outboundInstrumented = true;
   try {
-    patchModule(http);
-    patchModule(https);
-    // ESM named imports (`import { request } from "node:http"`) see the patch too.
-    syncBuiltinESMExports();
+    // Node only: on an edge runtime without `node:http` there is nothing to patch.
+    const httpModule = builtin<typeof http>("http");
+    const httpsModule = builtin<typeof https>("https");
+    if (httpModule && httpsModule) {
+      patchModule(httpModule);
+      patchModule(httpsModule);
+      // ESM named imports (`import { request } from "node:http"`) see the patch too.
+      builtin<typeof nodeModule>("module")?.syncBuiltinESMExports?.();
+    }
   } catch {
     // Leave http untraced rather than fail.
   }

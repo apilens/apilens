@@ -17,6 +17,8 @@
  * Fastify's encapsulation, so it covers every route of the app however it is
  * registered. Recording itself is the shared capture core (`capture.ts`).
  */
+// Node builtins for the core (see runtime.ts); first, before the core runs.
+import "./node.js";
 import type {
   FastifyInstance,
   FastifyPluginCallback,
