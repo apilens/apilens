@@ -444,6 +444,7 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `base_url` | `https://ingest.apilens.ai/v1` | Ingest endpoint. |
 | `environment` | `"production"` | Environment label (e.g. `production`, `staging`, `dev`). |
 | `batch_size` | `200` | Records per POST (also the flush trigger). Backend max is 1000. |
+| `max_batch_bytes` | `4 * 1024 * 1024` | Byte cap on one POST's JSON body (uncompressed). A batch is cut at `batch_size` records or `max_batch_bytes`, whichever comes first. Minimum 16 KB; keep it under the ingest edge's 16 MB limit. See [batch sizing](#reliability--performance). |
 | `flush_interval` | `3.0` | Seconds between automatic flushes. |
 | `timeout` | `5.0` | Per-request HTTP timeout, in seconds. |
 | `max_queue_size` | `10_000` | Record cap per queue; oldest records drop once full. |
@@ -596,6 +597,18 @@ backpressure and `client.drop_counts()` breaks that total down by reason (see
   | `queue_bytes` | Queued bytes would exceed `max_queue_bytes`; the oldest record(s) were dropped (or a single record larger than the whole budget was shed). |
   | `non_retryable` | Ingest rejected the batch with a 4xx other than 408/429; it is not retried. |
   | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) after `max_retries`. |
+  | `truncated` | Not a drop: one record was larger than `max_batch_bytes` on its own, so its payloads (then headers, message, attributes) were cut and marked `...[truncated]` before sending. Not counted in `dropped_count`. |
+- **Size-bounded batches.** A POST is cut at `batch_size` records or
+  `max_batch_bytes` (default 4 MB, measured on the uncompressed JSON, which is
+  what the ingest edge limits to 16 MB), whichever comes first, so a backlog of
+  large records goes out as several requests instead of one oversized body that
+  ingest would reject whole. A single record over the cap is truncated rather
+  than dropped. Recommended values with body capture on: **`batch_size=100`,
+  `max_batch_bytes=4 * 1024 * 1024`** (100 records / 4 MB). Worst-case records
+  (two 64 KB bodies plus headers, ~145 KB each) then go out about 28 per
+  request, well under the edge limit and cheap to retry; typical records with
+  small bodies still fill the 100-record batch. Without bodies the defaults
+  (200 records / 4 MB) rarely reach the byte cap.
 - **Resilient delivery.** 408, 429, 5xx, timeouts and network errors retry up to
   `max_retries` times with full-jitter exponential backoff (a random wait between
   0 and `0.25s × 2^attempt`, capped at 5s), so many workers do not retry in

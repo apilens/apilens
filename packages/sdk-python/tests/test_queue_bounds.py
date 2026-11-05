@@ -73,7 +73,7 @@ def test_defaults_and_validation():
 
 def test_memory_stays_under_max_queue_bytes_with_10k_64kb_records():
     max_bytes = 8 * MB
-    client = _client(max_queue_bytes=max_bytes)
+    client = _client(max_queue_bytes=max_bytes, max_batch_bytes=max_bytes)
     n = 10_000
     record_bytes = estimate_record_bytes(_request("x" * (64 * KB)))
 
@@ -173,4 +173,5 @@ def test_retryable_failure_counts_retries_exhausted(monkeypatch):
         "queue_bytes": 0,
         "non_retryable": 0,
         "retries_exhausted": 1,
+        "truncated": 0,
     }
