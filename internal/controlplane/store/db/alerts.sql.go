@@ -211,6 +211,27 @@ func (q *Queries) GetAlertRule(ctx context.Context, arg GetAlertRuleParams) (Ale
 	return i, err
 }
 
+const getAlertRuleState = `-- name: GetAlertRuleState :one
+SELECT rule_id, evaluated_at, window_start, window_end, value, requests, breached FROM alert_rule_state
+WHERE rule_id = $1
+`
+
+// A rule's latest evaluation. Returns pgx.ErrNoRows before the first.
+func (q *Queries) GetAlertRuleState(ctx context.Context, ruleID uuid.UUID) (AlertRuleState, error) {
+	row := q.db.QueryRow(ctx, getAlertRuleState, ruleID)
+	var i AlertRuleState
+	err := row.Scan(
+		&i.RuleID,
+		&i.EvaluatedAt,
+		&i.WindowStart,
+		&i.WindowEnd,
+		&i.Value,
+		&i.Requests,
+		&i.Breached,
+	)
+	return i, err
+}
+
 const getNotificationChannel = `-- name: GetNotificationChannel :one
 SELECT id, project_id, type, name, config_enc, created_by, created_at, updated_at FROM notification_channels
 WHERE project_id = $1 AND id = $2
@@ -370,6 +391,86 @@ func (q *Queries) ListAlertRules(ctx context.Context, projectID uuid.UUID) ([]Al
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAlertRulesToEvaluate = `-- name: ListAlertRulesToEvaluate :many
+
+SELECT r.id, r.project_id, r.app_id, r.environment, r.name, r.description, r.metric, r.condition, r.threshold, r.window_s, r.every_s, r.cron, r.notify_after_s, r.resolve_after_s, r.filters, r.channel_ids, r.enabled, r.created_by, r.created_at, r.updated_at, s.evaluated_at AS last_evaluated_at
+FROM alert_rules r
+JOIN apps a ON a.id = r.app_id
+JOIN projects p ON p.id = r.project_id
+LEFT JOIN alert_rule_state s ON s.rule_id = r.id
+WHERE r.enabled AND a.deleted_at IS NULL AND p.deleted_at IS NULL
+ORDER BY r.id
+`
+
+type ListAlertRulesToEvaluateRow struct {
+	ID              uuid.UUID
+	ProjectID       uuid.UUID
+	AppID           uuid.UUID
+	Environment     string
+	Name            string
+	Description     string
+	Metric          string
+	Condition       string
+	Threshold       float64
+	WindowS         int32
+	EveryS          *int32
+	Cron            *string
+	NotifyAfterS    int32
+	ResolveAfterS   int32
+	Filters         []byte
+	ChannelIds      []uuid.UUID
+	Enabled         bool
+	CreatedBy       *uuid.UUID
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	LastEvaluatedAt *time.Time
+}
+
+// Alert rule evaluation state.
+// Every enabled rule of an active app of an active project with when it was
+// last evaluated (NULL when never): what the evaluation job considers.
+func (q *Queries) ListAlertRulesToEvaluate(ctx context.Context) ([]ListAlertRulesToEvaluateRow, error) {
+	rows, err := q.db.Query(ctx, listAlertRulesToEvaluate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAlertRulesToEvaluateRow{}
+	for rows.Next() {
+		var i ListAlertRulesToEvaluateRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.AppID,
+			&i.Environment,
+			&i.Name,
+			&i.Description,
+			&i.Metric,
+			&i.Condition,
+			&i.Threshold,
+			&i.WindowS,
+			&i.EveryS,
+			&i.Cron,
+			&i.NotifyAfterS,
+			&i.ResolveAfterS,
+			&i.Filters,
+			&i.ChannelIds,
+			&i.Enabled,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastEvaluatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -739,4 +840,40 @@ func (q *Queries) UpdateNotificationChannel(ctx context.Context, arg UpdateNotif
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const upsertAlertRuleState = `-- name: UpsertAlertRuleState :exec
+INSERT INTO alert_rule_state (rule_id, evaluated_at, window_start, window_end, value, requests, breached)
+VALUES ($1, $2, $3, $4, $5::float8, $6, $7)
+ON CONFLICT (rule_id) DO UPDATE
+SET evaluated_at = EXCLUDED.evaluated_at,
+    window_start = EXCLUDED.window_start,
+    window_end   = EXCLUDED.window_end,
+    value        = EXCLUDED.value,
+    requests     = EXCLUDED.requests,
+    breached     = EXCLUDED.breached
+`
+
+type UpsertAlertRuleStateParams struct {
+	RuleID      uuid.UUID
+	EvaluatedAt time.Time
+	WindowStart time.Time
+	WindowEnd   time.Time
+	Value       *float64
+	Requests    int64
+	Breached    bool
+}
+
+// Records the result of a rule's latest evaluation.
+func (q *Queries) UpsertAlertRuleState(ctx context.Context, arg UpsertAlertRuleStateParams) error {
+	_, err := q.db.Exec(ctx, upsertAlertRuleState,
+		arg.RuleID,
+		arg.EvaluatedAt,
+		arg.WindowStart,
+		arg.WindowEnd,
+		arg.Value,
+		arg.Requests,
+		arg.Breached,
+	)
+	return err
 }

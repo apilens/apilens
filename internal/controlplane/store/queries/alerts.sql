@@ -145,3 +145,33 @@ WHERE r.project_id = @project_id
        OR (e.started_at, e.id) < (sqlc.narg(before_started_at)::timestamptz, sqlc.narg(before_id)::uuid))
 ORDER BY e.started_at DESC, e.id DESC
 LIMIT @row_limit;
+
+-- Alert rule evaluation state.
+
+-- name: ListAlertRulesToEvaluate :many
+-- Every enabled rule of an active app of an active project with when it was
+-- last evaluated (NULL when never): what the evaluation job considers.
+SELECT r.*, s.evaluated_at AS last_evaluated_at
+FROM alert_rules r
+JOIN apps a ON a.id = r.app_id
+JOIN projects p ON p.id = r.project_id
+LEFT JOIN alert_rule_state s ON s.rule_id = r.id
+WHERE r.enabled AND a.deleted_at IS NULL AND p.deleted_at IS NULL
+ORDER BY r.id;
+
+-- name: UpsertAlertRuleState :exec
+-- Records the result of a rule's latest evaluation.
+INSERT INTO alert_rule_state (rule_id, evaluated_at, window_start, window_end, value, requests, breached)
+VALUES (@rule_id, @evaluated_at, @window_start, @window_end, sqlc.narg(value)::float8, @requests, @breached)
+ON CONFLICT (rule_id) DO UPDATE
+SET evaluated_at = EXCLUDED.evaluated_at,
+    window_start = EXCLUDED.window_start,
+    window_end   = EXCLUDED.window_end,
+    value        = EXCLUDED.value,
+    requests     = EXCLUDED.requests,
+    breached     = EXCLUDED.breached;
+
+-- name: GetAlertRuleState :one
+-- A rule's latest evaluation. Returns pgx.ErrNoRows before the first.
+SELECT * FROM alert_rule_state
+WHERE rule_id = @rule_id;

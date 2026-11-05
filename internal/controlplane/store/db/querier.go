@@ -67,6 +67,8 @@ type Querier interface {
 	// One rule of a project. Returns pgx.ErrNoRows when the project has no such
 	// rule.
 	GetAlertRule(ctx context.Context, arg GetAlertRuleParams) (AlertRule, error)
+	// A rule's latest evaluation. Returns pgx.ErrNoRows before the first.
+	GetAlertRuleState(ctx context.Context, ruleID uuid.UUID) (AlertRuleState, error)
 	// The app-wide settings of an active app of a project; no row when the app
 	// is unknown, deleted or in another project.
 	GetAppSettings(ctx context.Context, arg GetAppSettingsParams) (GetAppSettingsRow, error)
@@ -139,6 +141,10 @@ type Querier interface {
 	ListAlertEvents(ctx context.Context, arg ListAlertEventsParams) ([]ListAlertEventsRow, error)
 	// A project's rules; rules of deleted apps are skipped.
 	ListAlertRules(ctx context.Context, projectID uuid.UUID) ([]AlertRule, error)
+	// Alert rule evaluation state.
+	// Every enabled rule of an active app of an active project with when it was
+	// last evaluated (NULL when never): what the evaluation job considers.
+	ListAlertRulesToEvaluate(ctx context.Context) ([]ListAlertRulesToEvaluateRow, error)
 	// The last heartbeat of an app per environment, and how many of its
 	// instances were seen since @since.
 	ListAppEnvironmentsLastSeen(ctx context.Context, arg ListAppEnvironmentsLastSeenParams) ([]ListAppEnvironmentsLastSeenRow, error)
@@ -281,6 +287,8 @@ type Querier interface {
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)
 	UpdateProjectName(ctx context.Context, arg UpdateProjectNameParams) (UpdateProjectNameRow, error)
 	UpdateSavedView(ctx context.Context, arg UpdateSavedViewParams) (SavedView, error)
+	// Records the result of a rule's latest evaluation.
+	UpsertAlertRuleState(ctx context.Context, arg UpsertAlertRuleStateParams) error
 	UpsertApp(ctx context.Context, arg UpsertAppParams) (UpsertAppRow, error)
 	// Records a heartbeat of one SDK process: the latest report replaces the
 	// instance's previous one, first_seen_at is kept.
