@@ -107,7 +107,8 @@
 //   POST /__fake/consumers {project, summary, points, consumers, details, groups?, assignments?}
 //                                                  test hook: what those answer; resets shop's groups
 //   POST /__fake/requests {project, rows}          test hook: `GET /api/v1/requests` answers `rows` for
-//                                                  `project` instead of what the edge stored (#585); rows null forgets it
+//                                                  `project` (narrowed by method, path and status,
+//                                                  #586) instead of what the edge stored (#585); rows null forgets it
 //   POST /__fake/query-down {project, down}        test hook: those reads answer 503 for `project`
 //   GET  /api/v1/project?project=shop              shop's apps (#598): one app `shop` unless seeded
 //   GET|PUT /api/v1/apps/{id}/capture-policy       the app's capture policy (#598): everything captured
@@ -1473,7 +1474,17 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (path === "/api/v1/requests") {
       const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") ?? 100) || 100));
       const seeded = requestsSeed.get(slug);
-      if (seeded) return send(res, 200, { requests: seeded.slice(0, limit), next_cursor: "" });
+      if (seeded) {
+        // The Explore filters (#586): method, path and status (codes and classes) narrow the seed.
+        const method = (url.searchParams.get("method") ?? "").toUpperCase();
+        const route = url.searchParams.get("path") ?? "";
+        const status = (url.searchParams.get("status") ?? "").split(",").filter(Boolean);
+        const matches = (r: Record<string, unknown>) =>
+          (!method || r.method === method) &&
+          (!route || r.path === route) &&
+          (!status.length || status.some((t) => (/^[1-5]xx$/.test(t) ? String(r.status_code)[0] === t[0] : String(r.status_code) === t)));
+        return send(res, 200, { requests: seeded.filter(matches).slice(0, limit), next_cursor: "" });
+      }
       return send(res, 200, { requests: rows.slice(0, limit) });
     }
     const p95 = (list: typeof rows) => {

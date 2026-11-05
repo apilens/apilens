@@ -1,4 +1,4 @@
-// Explore request log (#585) against the fake identity (e2e-fake/fake-identity.ts), which plays the
+// Explore request log (#585) and its filters (#586) against the fake identity (e2e-fake/fake-identity.ts), which plays the
 // query role: `GET /requests` answers what `/__fake/requests` seeded for shop; `/__fake/query-down`
 // makes it answer 503. No email is sent by any test here.
 import AxeBuilder from "@axe-core/playwright";
@@ -221,4 +221,75 @@ test("fits a phone without sideways scrolling", async ({ page }) => {
   await expect(bodyRows(page)).toHaveCount(3);
   const overflow = await page.locator(".app-main").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test("filters from a deep link, edits them in the bar and keeps them in the URL", async ({ page }) => {
+  await seed(ROWS);
+  // A shared link reproduces the filtered view: the chips, the form and the rows.
+  await signIn(page, `${PAGE}?range=6h&method=POST&status=5xx`);
+  const chips = page.getByRole("list", { name: "Active filters" });
+  await expect(chips.getByRole("listitem").filter({ hasNot: page.getByRole("button", { name: "Clear all" }) })).toHaveText(["Method POST", "Status 5xx"]);
+  await expect(bodyRows(page)).toHaveCount(1);
+  await expect(rowAt(page, 0).getByRole("gridcell").nth(2)).toHaveText("/charge");
+  await expect(page.getByText("The newest request in the last 6 hours matching the filters, newest first.")).toBeVisible();
+
+  const toggle = page.getByRole("button", { name: "Filters (2)" });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(page.getByLabel("Status", { exact: true })).toHaveValue("5xx");
+  await expect(page.getByLabel("Method", { exact: true })).toHaveValue("POST");
+
+  // The poll reads the same filters: a new GET row does not show up.
+  await seed([row(9, { timestamp: ago(1), raw_path: "/orders/new", trace_id: "tnew" }), ...ROWS]);
+  await page.waitForTimeout(6_000);
+  await expect(bodyRows(page)).toHaveCount(1);
+
+  // An invalid status says why and leaves the URL alone; a valid one applies once typing pauses.
+  await page.getByLabel("Status", { exact: true }).fill("9xx");
+  await expect(page.getByText("Codes (404), classes (4xx) or ranges (500-503)")).toBeVisible();
+  await page.waitForTimeout(800);
+  expect(new URL(page.url()).searchParams.get("status")).toBe("5xx");
+  await page.getByLabel("Status", { exact: true }).fill("4XX, 5xx");
+  await page.waitForURL((u) => u.searchParams.get("status") === "4xx,5xx");
+  await expect(page.getByLabel("Method", { exact: true })).toHaveValue("POST");
+  expect(new URL(page.url()).searchParams.get("range")).toBe("6h");
+
+  // A picker applies at once.
+  await page.getByLabel("Method", { exact: true }).selectOption("GET");
+  await page.waitForURL((u) => u.searchParams.get("method") === "GET");
+  await expect(bodyRows(page)).toHaveCount(1);
+  await expect(rowAt(page, 0).getByRole("gridcell").nth(3)).toHaveText("404");
+
+  // Back and forward move through the filtered views, and the form follows.
+  await page.goBack();
+  await page.waitForURL((u) => u.searchParams.get("method") === "POST");
+  await expect(page.getByLabel("Method", { exact: true })).toHaveValue("POST");
+  await expect(page.getByLabel("Status", { exact: true })).toHaveValue("4xx,5xx");
+  await page.goForward();
+  await page.waitForURL((u) => u.searchParams.get("method") === "GET");
+  await expect(page.getByLabel("Method", { exact: true })).toHaveValue("GET");
+
+  // Removing a chip clears that filter only; Clear all clears every one.
+  await chips.getByRole("button", { name: "Remove filter: Method GET" }).click();
+  await page.waitForURL((u) => !u.searchParams.has("method") && u.searchParams.get("status") === "4xx,5xx");
+  await expect(page.getByLabel("Method", { exact: true })).toHaveValue("");
+  await expect(bodyRows(page)).toHaveCount(2);
+  await chips.getByRole("button", { name: "Clear all" }).click();
+  await page.waitForURL((u) => u.search === "?range=6h");
+  await expect(page.getByRole("list", { name: "Active filters" })).toHaveCount(0);
+  await expect(page.getByLabel("Status", { exact: true })).toHaveValue("");
+  await expect(bodyRows(page)).toHaveCount(4);
+
+  const a11y = await new AxeBuilder({ page }).include(".ex").analyze();
+  expect(a11y.violations).toEqual([]);
+});
+
+test("says so when no request matches the filters, with a way to clear them", async ({ page }) => {
+  await seed(ROWS);
+  await signIn(page, `${PAGE}?path=%2Fnowhere`);
+  const status = page.getByRole("status").filter({ hasText: "No requests in the last 1 hour match these filters." });
+  await expect(status).toBeVisible();
+  await status.getByRole("link", { name: "Clear all filters" }).click();
+  await page.waitForURL((u) => u.search === "");
+  await expect(bodyRows(page)).toHaveCount(3);
 });

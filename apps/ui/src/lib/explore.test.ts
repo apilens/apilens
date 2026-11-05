@@ -17,16 +17,17 @@ import {
   statusClass,
   visibleWindow,
 } from "./explore";
+import { NO_FILTERS } from "./explore-filters";
 
 describe("parseExploreQuery / exploreHref", () => {
   it("defaults to the last hour and leaves the default out of the URL", () => {
-    expect(parseExploreQuery({})).toEqual({ range: "1h" });
+    expect(parseExploreQuery({})).toEqual({ range: "1h", filters: NO_FILTERS });
     expect(exploreHref("shop", { range: "1h" })).toBe("/shop/explore");
   });
   it("keeps a known range and drops an unknown one", () => {
-    expect(parseExploreQuery({ range: "7d" })).toEqual({ range: "7d" });
-    expect(parseExploreQuery({ range: ["6h", "7d"] })).toEqual({ range: "6h" });
-    expect(parseExploreQuery({ range: "30d" })).toEqual({ range: "1h" });
+    expect(parseExploreQuery({ range: "7d" })).toEqual({ range: "7d", filters: NO_FILTERS });
+    expect(parseExploreQuery({ range: ["6h", "7d"] })).toEqual({ range: "6h", filters: NO_FILTERS });
+    expect(parseExploreQuery({ range: "30d" })).toEqual({ range: "1h", filters: NO_FILTERS });
     expect(exploreHref("my shop", { range: "24h" })).toBe("/my%20shop/explore?range=24h");
   });
   it("polls the project's Route Handler with the range", () => {
