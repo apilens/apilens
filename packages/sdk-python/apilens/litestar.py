@@ -3,12 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .client import ApiLensClient
+from .client._env import apply_env_defaults, env_defaults
 from .client._routes import litestar_route_template
 from .client.middleware import ApiLensASGIMiddleware
 
 
 # eq=False keeps identity hashing — Litestar stores plugins in a frozenset, so
 # the plugin must be hashable (the default dataclass __eq__ makes it unhashable).
+# Fields not passed are read from APILENS_* env vars (kwarg > env > default).
+@apply_env_defaults
 @dataclass(slots=True, eq=False)
 class ApiLensPlugin:
     """Litestar plugin-protocol style integration.
@@ -64,6 +67,7 @@ class ApiLensPlugin:
         return app_config
 
 
+@env_defaults
 def instrument_app(
     app,
     client: ApiLensClient,
