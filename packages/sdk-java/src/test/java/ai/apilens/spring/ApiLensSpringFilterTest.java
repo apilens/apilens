@@ -520,6 +520,67 @@ class ApiLensSpringFilterTest {
     assertThrows(IllegalArgumentException.class, () -> ApiLensSpringOptions.builder().sampleRate(-0.1));
   }
 
+  @Test
+  void captureIpAndAnonymizeIpApplyBeforeTheRecordIsBuilt() throws Exception {
+    assertEquals("\"ip_address\":\"203.0.113.42\"", capturedIp(ApiLensSpringOptions.builder().build()));
+    assertEquals(
+        "\"ip_address\":\"203.0.113.0\"",
+        capturedIp(ApiLensSpringOptions.builder().anonymizeIp(true).build()));
+    assertEquals(
+        "\"ip_address\":\"\"",
+        capturedIp(ApiLensSpringOptions.builder().captureIp(false).anonymizeIp(true).build()));
+  }
+
+  @Test
+  void propertiesMapIpPrivacyToSpringOptions() {
+    ApiLensProperties properties = new ApiLensProperties();
+    assertTrue(properties.toSpringOptions().captureIp());
+    assertFalse(properties.toSpringOptions().anonymizeIp());
+    properties.setCaptureIp(false);
+    properties.setAnonymizeIp(true);
+    ApiLensSpringOptions options = properties.toSpringOptions().toBuilder().build();
+    assertFalse(options.captureIp());
+    assertTrue(options.anonymizeIp());
+  }
+
+  @Test
+  void defaultMaskingAppliesWithNoRedactionConfig() throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(client, ApiLensSpringOptions.builder().build());
+
+      MockHttpServletRequest request = new MockHttpServletRequest("GET", "/search");
+      request.setQueryString("token=abc&q=shoes");
+      request.addHeader("X-Client-Secret", "s");
+      filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> {
+        res.setContentType("application/json");
+        res.getWriter().write("{\"token\":\"t-123\",\"ok\":true}");
+      });
+      client.flushAll();
+
+      String body = server.bodies().get(0);
+      assertTrue(body.contains("\"raw_path\":\"/search?token=[redacted]&q=shoes\""), body);
+      assertTrue(body.contains("\\\"x-client-secret\\\":\\\"[redacted]\\\""), body);
+      assertTrue(body.contains("\"response_payload\":\"{\\\"token\\\":\\\"[redacted]\\\",\\\"ok\\\":true}\""), body);
+      client.shutdown(false);
+    }
+  }
+
+  private static String capturedIp(ApiLensSpringOptions options) throws Exception {
+    try (IngestServer server = IngestServer.start()) {
+      ApiLensClient client = testClient(server);
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(client, options);
+      MockHttpServletRequest request = new MockHttpServletRequest("GET", "/orders");
+      request.addHeader("X-Forwarded-For", "203.0.113.42, 70.41.3.18");
+      filter.doFilter(request, new MockHttpServletResponse(), okChain());
+      client.flushAll();
+      String body = server.bodies().get(0);
+      client.shutdown(false);
+      int start = body.indexOf("\"ip_address\"");
+      return body.substring(start, body.indexOf(',', start));
+    }
+  }
+
   private static int count(String haystack, String needle) {
     int count = 0;
     for (int i = haystack.indexOf(needle); i >= 0; i = haystack.indexOf(needle, i + 1)) {
