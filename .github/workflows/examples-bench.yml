@@ -1,0 +1,83 @@
+# Nightly SDK overhead benchmark on the three example apps (tools/appbench,
+# docs/benchmarks/examples-overhead.md).
+#
+# Starts the e2e stack plus the FastAPI, Express and Spring example apps
+# (`task examples:up`), then for each posture (off = no middleware, metadata,
+# redacted, full) recreates the apps and drives `POST /orders` at a fixed rate
+# with 1 KB and 32 KB JSON bodies. Uploads the markdown table + JSON as an
+# artifact and writes the table to the job summary.
+#
+# Soft thresholds (added p50 <= 1 ms at 1 KB, added p95 <= 5 ms, added memory
+# <= 128 MiB, no errors, <= 1% missed): a breach is a ::warning:: annotation,
+# not a red build. Shared runners are noisy; add -fail-on-threshold to
+# APPBENCH_REPORT_ARGS only once the numbers have been stable for a while.
+name: Example apps overhead benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: Timed load per app, posture and body size (Go duration)
+        type: string
+        default: 20s
+      rate:
+        description: Requests per second per app and body size
+        type: string
+        default: "200"
+  schedule:
+    - cron: '41 3 * * *'
+
+permissions: {}
+
+concurrency:
+  group: examples-bench-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TASK_VERSION: v3.54.0
+
+jobs:
+  overhead:
+    name: SDK overhead (FastAPI, Express, Spring)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Test the harness
+        run: go -C tools test -count=1 ./appbench
+      - name: Install Task
+        run: go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
+      - name: Start the stack and the example apps
+        run: task examples:up
+      - name: Run benchmark
+        env:
+          DURATION: ${{ inputs.duration || '20s' }}
+          RATE: ${{ inputs.rate || '200' }}
+        run: |
+          APPBENCH_RUN_ARGS="-duration $DURATION -rate $RATE" \
+            task bench:examples -- "$RUNNER_TEMP/appbench"
+          cat "$RUNNER_TEMP/appbench/overhead.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: examples-overhead
+          path: |
+            ${{ runner.temp }}/appbench/*.md
+            ${{ runner.temp }}/appbench/*.json
+          retention-days: 90
+          if-no-files-found: warn
+      - name: Example app logs
+        if: failure()
+        run: |
+          APILENS_EXAMPLES_API_KEY=unused docker compose --env-file deploy/compose/ci.env \
+            -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml \
+            -f deploy/compose/compose.examples.yaml --profile examples \
+            logs --tail 200 apilens example-fastapi example-express example-spring
