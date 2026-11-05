@@ -69,8 +69,8 @@ type endpointSettingsOutput struct {
 // fields of the types embedding it.
 type EndpointRef struct {
 	ID     string `path:"id" format:"uuid" doc:"The app's id."`
-	Method string `path:"method" pattern:"^[A-Za-z]{1,16}$" doc:"HTTP method, e.g. GET (case-insensitive)."`
-	Path   string `path:"path" minLength:"1" maxLength:"1024" doc:"Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}."`
+	Method string `path:"method" pattern:"^[A-Za-z]{1,16}$" example:"GET" doc:"HTTP method, e.g. GET (case-insensitive)."`
+	Path   string `path:"path" minLength:"1" maxLength:"1024" example:"/orders/{id}" doc:"Route template, URL-encoded as one path segment, e.g. %2Forders%2F%7Bid%7D for /orders/{id}."`
 }
 
 type getEndpointSettingsInput struct {

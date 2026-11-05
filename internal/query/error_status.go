@@ -28,13 +28,17 @@ const (
 )
 
 func registerErrorStatus(api huma.API, s *Service) {
-	op := func(id, path, summary string) huma.Operation {
-		return huma.Operation{OperationID: id, Method: http.MethodGet, Path: path, Summary: summary, Tags: []string{"Dashboard"}, Security: security}
+	op := func(id, path, summary, description string) huma.Operation {
+		return huma.Operation{OperationID: id, Method: http.MethodGet, Path: path, Summary: summary, Description: description + readAccess, Tags: []string{"Dashboard"}, Security: security}
 	}
 	huma.Register(api, op("get-error-statuses", "/api/v1/errors/status",
-		"Errors dashboard: client/server errors and each error status code over time, and status codes by count"), s.errorStatuses)
+		"Errors dashboard: client/server errors and each error status code over time, and status codes by count",
+		"The errors dashboard of the range: the 4xx/5xx split per bucket, one occurrence series per error status code and the "+
+			"status codes by count with their share, endpoints and consumers. Expected status codes of each endpoint are left out."), s.errorStatuses)
 	huma.Register(api, op("get-error-status", "/api/v1/errors/status/{code}",
-		"Error status detail: occurrences, affected consumers, last seen, frequency, endpoint and consumer breakdowns"), s.errorStatus)
+		"Error status detail: occurrences, affected consumers, last seen, frequency, endpoint and consumer breakdowns",
+		"One error status code over the range: occurrences, share of requests, frequency per hour, affected consumers, "+
+			"occurrences per bucket and the endpoints and consumers that got it. A code with no occurrences answers zeros."), s.errorStatus)
 }
 
 // errorScope is the WHERE clause of the raw rows a dashboard read counts in
@@ -88,27 +92,27 @@ type errorStatusPoint struct {
 }
 
 type errorStatusSeries struct {
-	StatusCode uint16   `json:"status_code"`
+	StatusCode uint16   `json:"status_code" doc:"The error status code the counts are for."`
 	Counts     []uint64 `json:"counts" doc:"Occurrences per bucket, aligned with points."`
 }
 
 type errorStatusRow struct {
-	StatusCode uint16    `json:"status_code"`
-	Count      uint64    `json:"count"`
+	StatusCode uint16    `json:"status_code" doc:"Error status code, 400 to 599."`
+	Count      uint64    `json:"count" doc:"Occurrences in the range, where the code is not expected for the endpoint."`
 	Share      float64   `json:"share" doc:"count / requests of the range."`
 	Endpoints  uint64    `json:"endpoints" doc:"Distinct endpoints (method + route) that answered with it."`
 	Consumers  uint64    `json:"consumers" doc:"Distinct consumers that got it."`
-	FirstSeen  time.Time `json:"first_seen"`
-	LastSeen   time.Time `json:"last_seen"`
+	FirstSeen  time.Time `json:"first_seen" doc:"First occurrence in the range."`
+	LastSeen   time.Time `json:"last_seen" doc:"Latest occurrence in the range."`
 }
 
 type errorStatusesOutput struct {
 	Body struct {
-		Range         string              `json:"range"`
-		From          time.Time           `json:"from"`
-		To            time.Time           `json:"to"`
-		BucketSeconds int                 `json:"bucket_seconds"`
-		Summary       ErrorSplit          `json:"summary"`
+		Range         string              `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
+		From          time.Time           `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
+		To            time.Time           `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
+		BucketSeconds int                 `json:"bucket_seconds" doc:"Width of each series bucket, in seconds."`
+		Summary       ErrorSplit          `json:"summary" doc:"Requests and errors of the whole range."`
 		Points        []errorStatusPoint  `json:"points" doc:"Requests, 4xx and 5xx errors per bucket of the range, zero-filled."`
 		Series        []errorStatusSeries `json:"series" doc:"Occurrences of each error status code per bucket, in statuses order."`
 		Statuses      []errorStatusRow    `json:"statuses" doc:"Error status codes (400 and above) by count, most frequent first; expected status codes of each endpoint left out."`
@@ -217,40 +221,40 @@ func (s *Service) errorStatuses(ctx context.Context, in *RangeInput) (*errorStat
 
 type errorStatusInput struct {
 	RangeInput
-	Code int `path:"code" minimum:"400" maximum:"599" doc:"Error status code, 400 to 599."`
+	Code int `path:"code" minimum:"400" maximum:"599" example:"404" doc:"Error status code, 400 to 599."`
 }
 
 type errorStatusCountPoint struct {
 	TS    time.Time `json:"ts" doc:"Start of the bucket."`
-	Count uint64    `json:"count"`
+	Count uint64    `json:"count" doc:"Occurrences in the bucket."`
 }
 
 type errorStatusEndpoint struct {
-	Method           string    `json:"method"`
+	Method           string    `json:"method" doc:"HTTP method of the endpoint, upper case."`
 	Path             string    `json:"path" doc:"Route template; its errors tab is GET /api/v1/endpoints/{method}/{path}/errors."`
-	Count            uint64    `json:"count"`
+	Count            uint64    `json:"count" doc:"Occurrences from this endpoint in the range."`
 	Consumers        uint64    `json:"consumers" doc:"Distinct consumers that got the status code from this endpoint."`
-	LastSeen         time.Time `json:"last_seen"`
+	LastSeen         time.Time `json:"last_seen" doc:"Latest occurrence in the range."`
 	ValidationErrors uint64    `json:"validation_errors" doc:"Occurrences that carried validation errors (detail in the endpoint's errors tab)."`
 	Exceptions       uint64    `json:"exceptions" doc:"Server exceptions logged for occurrences of the status code (detail in the endpoint's errors tab)."`
 }
 
 type errorStatusConsumer struct {
-	ConsumerID   string    `json:"consumer_id"`
+	ConsumerID   string    `json:"consumer_id" doc:"Consumer id the SDK reported."`
 	ConsumerName string    `json:"consumer_name" doc:"Most recently reported name of the consumer."`
-	Count        uint64    `json:"count"`
+	Count        uint64    `json:"count" doc:"Occurrences for this consumer in the range."`
 	Share        float64   `json:"share" doc:"count / occurrences."`
-	FirstSeen    time.Time `json:"first_seen"`
-	LastSeen     time.Time `json:"last_seen"`
+	FirstSeen    time.Time `json:"first_seen" doc:"First occurrence in the range."`
+	LastSeen     time.Time `json:"last_seen" doc:"Latest occurrence in the range."`
 }
 
 type errorStatusOutput struct {
 	Body struct {
-		StatusCode    int                     `json:"status_code"`
-		Range         string                  `json:"range"`
-		From          time.Time               `json:"from"`
-		To            time.Time               `json:"to"`
-		BucketSeconds int                     `json:"bucket_seconds"`
+		StatusCode    int                     `json:"status_code" doc:"The error status code."`
+		Range         string                  `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
+		From          time.Time               `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
+		To            time.Time               `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
+		BucketSeconds int                     `json:"bucket_seconds" doc:"Width of each series bucket, in seconds."`
 		Occurrences   uint64                  `json:"occurrences" doc:"Requests answered with the status code where it is not expected for the endpoint."`
 		Requests      uint64                  `json:"requests" doc:"All requests of the range."`
 		Share         float64                 `json:"share" doc:"occurrences / requests, 0 without requests."`

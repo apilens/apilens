@@ -59,27 +59,27 @@ type requestDetailInput struct {
 // carries them.
 type requestDetail struct {
 	ID               string                   `json:"id" doc:"Opaque request id, as in the request log."`
-	Timestamp        time.Time                `json:"timestamp"`
-	AppID            string                   `json:"app_id" format:"uuid"`
-	Method           string                   `json:"method"`
-	Path             string                   `json:"path"`
-	RawPath          string                   `json:"raw_path"`
-	StatusCode       uint16                   `json:"status_code"`
-	ResponseTimeMs   float64                  `json:"response_time_ms"`
+	Timestamp        time.Time                `json:"timestamp" doc:"When the request was received."`
+	AppID            string                   `json:"app_id" format:"uuid" doc:"The app that served the request."`
+	Method           string                   `json:"method" doc:"HTTP method."`
+	Path             string                   `json:"path" doc:"Route template the request matched, e.g. /orders/{id}."`
+	RawPath          string                   `json:"raw_path" doc:"Requested path with its query string, as the SDK sent it after redaction."`
+	StatusCode       uint16                   `json:"status_code" doc:"HTTP status code."`
+	ResponseTimeMs   float64                  `json:"response_time_ms" doc:"Response time, in milliseconds."`
 	RequestSize      uint64                   `json:"request_size" doc:"Request body size in bytes."`
 	ResponseSize     uint64                   `json:"response_size" doc:"Response body size in bytes."`
-	Environment      string                   `json:"environment"`
-	IPAddress        string                   `json:"ip_address"`
-	ConsumerID       string                   `json:"consumer_id"`
-	ConsumerName     string                   `json:"consumer_name"`
-	ConsumerGroup    string                   `json:"consumer_group"`
+	Environment      string                   `json:"environment" doc:"Environment the app reported from."`
+	IPAddress        string                   `json:"ip_address" doc:"Client IP address; empty when not captured."`
+	ConsumerID       string                   `json:"consumer_id" doc:"Consumer id the SDK reported; empty when none."`
+	ConsumerName     string                   `json:"consumer_name" doc:"Consumer name the SDK reported; empty when none."`
+	ConsumerGroup    string                   `json:"consumer_group" doc:"Consumer group the SDK reported; empty when none."`
 	Sampled          bool                     `json:"sampled" doc:"False when the SDK sampled the request out: a base record without headers or bodies."`
-	TraceID          string                   `json:"trace_id"`
-	SpanID           string                   `json:"span_id"`
-	UserAgent        string                   `json:"user_agent"`
-	BaseURL          string                   `json:"base_url"`
-	Release          string                   `json:"release"`
-	Commit           string                   `json:"commit"`
+	TraceID          string                   `json:"trace_id" doc:"W3C trace id; empty when the request had none."`
+	SpanID           string                   `json:"span_id" doc:"Server span id of the request in its trace; empty when none."`
+	UserAgent        string                   `json:"user_agent" doc:"User-Agent header; empty when not captured."`
+	BaseURL          string                   `json:"base_url" doc:"Scheme and host the request was made to; empty when not captured."`
+	Release          string                   `json:"release" doc:"Release of the app that served the request; empty when not configured."`
+	Commit           string                   `json:"commit" doc:"Commit of the app that served the request; empty when not configured."`
 	RequestHeaders   string                   `json:"request_headers" doc:"Request headers as stored: a JSON object text, empty when not captured. Redaction and truncation markers are kept."`
 	ResponseHeaders  string                   `json:"response_headers" doc:"Response headers as stored: a JSON object text, empty when not captured."`
 	RequestBody      string                   `json:"request_body" doc:"Request body as stored (often JSON text), empty when not captured. Redaction and truncation markers are kept."`
@@ -89,14 +89,14 @@ type requestDetail struct {
 }
 
 type requestValidationError struct {
-	Loc  string `json:"loc"`
-	Msg  string `json:"msg"`
-	Type string `json:"type"`
+	Loc  string `json:"loc" doc:"Location of the invalid field, path segments joined with dots, e.g. body.qty."`
+	Msg  string `json:"msg" doc:"Error message the framework reported."`
+	Type string `json:"type" doc:"Error type the framework reported, e.g. missing or value_error."`
 }
 
 type requestDetailOutput struct {
 	Body struct {
-		Request requestDetail `json:"request"`
+		Request requestDetail `json:"request" doc:"The request record."`
 		Spans   []spanOut     `json:"spans" doc:"Spans of the request's trace, oldest first (at most 2000); empty without a trace id."`
 		Logs    []traceLog    `json:"logs" doc:"Logs of the request's trace, oldest first (at most 500); empty without a trace id."`
 	}

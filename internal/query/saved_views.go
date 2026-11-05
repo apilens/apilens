@@ -59,8 +59,8 @@ type SavedView struct {
 	Filter    map[string]any `json:"filter" doc:"The surface's filter state, as saved. The server stores it as is."`
 	Shared    bool           `json:"shared" doc:"Whether everyone who can view the project sees the view; false means only its creator does."`
 	CreatedBy *string        `json:"created_by" required:"true" nullable:"true" format:"uuid" doc:"The user who created the view; null once that user is gone."`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	CreatedAt time.Time      `json:"created_at" doc:"When the view was created."`
+	UpdatedAt time.Time      `json:"updated_at" doc:"When the view was last changed."`
 }
 
 type savedViewOutput struct {

@@ -26,39 +26,39 @@ var latencyEdgesMs = []float64{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5
 // LatencySummary are the response-time statistics of the range. Exported
 // so Huma reads the fields of the types embedding it.
 type LatencySummary struct {
-	Requests uint64   `json:"requests"`
-	AvgMs    float64  `json:"avg_ms"`
-	MaxMs    float64  `json:"max_ms"`
-	P50Ms    float64  `json:"p50_ms"`
-	P75Ms    float64  `json:"p75_ms"`
-	P90Ms    float64  `json:"p90_ms"`
-	P95Ms    float64  `json:"p95_ms"`
-	P99Ms    float64  `json:"p99_ms"`
+	Requests uint64   `json:"requests" doc:"Requests in the range."`
+	AvgMs    float64  `json:"avg_ms" doc:"Mean response time, in milliseconds."`
+	MaxMs    float64  `json:"max_ms" doc:"Slowest response time, in milliseconds."`
+	P50Ms    float64  `json:"p50_ms" doc:"Median response time, in milliseconds."`
+	P75Ms    float64  `json:"p75_ms" doc:"75th percentile response time, in milliseconds."`
+	P90Ms    float64  `json:"p90_ms" doc:"90th percentile response time, in milliseconds."`
+	P95Ms    float64  `json:"p95_ms" doc:"95th percentile response time, in milliseconds."`
+	P99Ms    float64  `json:"p99_ms" doc:"99th percentile response time, in milliseconds."`
 	Apdex    *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 over raw requests, against the endpoint's latency threshold (else its app's, else 500 ms); null without requests."`
 }
 
 type latencyPoint struct {
 	TS       time.Time `json:"ts" doc:"Start of the bucket."`
-	Requests uint64    `json:"requests"`
-	P50Ms    float64   `json:"p50_ms"`
-	P75Ms    float64   `json:"p75_ms"`
-	P95Ms    float64   `json:"p95_ms"`
+	Requests uint64    `json:"requests" doc:"Requests in the bucket."`
+	P50Ms    float64   `json:"p50_ms" doc:"Median response time of the bucket, in milliseconds; 0 without requests."`
+	P75Ms    float64   `json:"p75_ms" doc:"75th percentile response time of the bucket, in milliseconds; 0 without requests."`
+	P95Ms    float64   `json:"p95_ms" doc:"95th percentile response time of the bucket, in milliseconds; 0 without requests."`
 }
 
 type latencyBucket struct {
 	FromMs float64  `json:"from_ms" doc:"Inclusive lower edge."`
 	ToMs   *float64 `json:"to_ms,omitempty" doc:"Exclusive upper edge; absent on the last, open bucket."`
-	Count  uint64   `json:"count"`
+	Count  uint64   `json:"count" doc:"Requests whose response time falls in the bucket."`
 }
 
 type endpointLatencyOutput struct {
 	Body struct {
-		Method        string          `json:"method"`
-		Path          string          `json:"path"`
-		Range         string          `json:"range"`
-		From          time.Time       `json:"from"`
-		To            time.Time       `json:"to"`
-		BucketSeconds int             `json:"bucket_seconds"`
+		Method        string          `json:"method" doc:"HTTP method of the endpoint, upper case."`
+		Path          string          `json:"path" doc:"Route template of the endpoint, e.g. /orders/{id}."`
+		Range         string          `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
+		From          time.Time       `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
+		To            time.Time       `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
+		BucketSeconds int             `json:"bucket_seconds" doc:"Width of each series bucket, in seconds."`
 		Summary       LatencySummary  `json:"summary" doc:"Percentiles are t-digest estimates."`
 		Points        []latencyPoint  `json:"points" doc:"One point per bucket of the range, zero-filled."`
 		Histogram     []latencyBucket `json:"histogram" doc:"Response-time histogram over raw requests, always 14 log-spaced buckets with edges (ms) 0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, +inf; empty buckets have count 0."`

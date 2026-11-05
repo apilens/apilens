@@ -52,7 +52,7 @@ type AppStatusStore interface {
 
 // AppEnvironmentStatus is the reporting state of an app in one environment.
 type AppEnvironmentStatus struct {
-	Environment   string    `json:"environment"`
+	Environment   string    `json:"environment" doc:"Environment name the heartbeats reported."`
 	Status        string    `json:"status" enum:"reporting,stale,silent" doc:"reporting when a heartbeat arrived in the last 2 minutes, stale in the last hour, silent when older."`
 	LastSeenAt    time.Time `json:"last_seen_at" doc:"Time of the last heartbeat in the environment."`
 	LiveInstances int       `json:"live_instances" doc:"Instances that sent a heartbeat in the last 2 minutes."`
@@ -60,20 +60,20 @@ type AppEnvironmentStatus struct {
 
 // AppInstance is one SDK process of an app, as its last heartbeat reported it.
 type AppInstance struct {
-	Environment      string         `json:"environment"`
-	InstanceID       string         `json:"instance_id"`
-	Status           string         `json:"status" enum:"reporting,stale,silent"`
-	SDKName          string         `json:"sdk_name"`
-	SDKVersion       string         `json:"sdk_version"`
+	Environment      string         `json:"environment" doc:"Environment the instance reports from."`
+	InstanceID       string         `json:"instance_id" doc:"Instance id the SDK generated for its process."`
+	Status           string         `json:"status" enum:"reporting,stale,silent" doc:"reporting when the instance sent a heartbeat in the last 2 minutes, stale in the last hour, silent when older."`
+	SDKName          string         `json:"sdk_name" doc:"SDK package name, e.g. apilenss, apilens-js-sdk, apilens-java-sdk."`
+	SDKVersion       string         `json:"sdk_version" doc:"SDK version the instance runs."`
 	SDKLatestVersion string         `json:"sdk_latest_version" doc:"Latest released version of the SDK; empty for an SDK APILens does not publish."`
 	SDKOutdated      bool           `json:"sdk_outdated" doc:"Whether sdk_version is older than sdk_latest_version."`
-	Runtime          string         `json:"runtime"`
-	Release          string         `json:"release"`
-	Commit           string         `json:"commit"`
-	PID              *int64         `json:"pid" required:"true" nullable:"true"`
+	Runtime          string         `json:"runtime" doc:"Language runtime and version, e.g. python 3.13.1."`
+	Release          string         `json:"release" doc:"Release of the app the instance runs; empty when not configured."`
+	Commit           string         `json:"commit" doc:"Commit of the app the instance runs; empty when not configured."`
+	PID              *int64         `json:"pid" required:"true" nullable:"true" doc:"Operating-system process id; null when the SDK did not send one."`
 	Stats            map[string]any `json:"stats" doc:"SDK counters as the last heartbeat sent them."`
-	FirstSeenAt      time.Time      `json:"first_seen_at"`
-	LastSeenAt       time.Time      `json:"last_seen_at"`
+	FirstSeenAt      time.Time      `json:"first_seen_at" doc:"Time of the instance's first heartbeat."`
+	LastSeenAt       time.Time      `json:"last_seen_at" doc:"Time of the instance's last heartbeat."`
 }
 
 // AppSDK is one SDK in use by an app, against its latest release.
@@ -96,11 +96,11 @@ type AppSDKStats struct {
 
 // AppStatus says whether an app's SDKs are reporting (sending heartbeats).
 type AppStatus struct {
-	AppID        string                 `json:"app_id" format:"uuid"`
+	AppID        string                 `json:"app_id" format:"uuid" doc:"The app's id."`
 	App          string                 `json:"app" doc:"The app's slug."`
 	Status       string                 `json:"status" enum:"reporting,stale,silent,never" doc:"reporting when any instance sent a heartbeat in the last 2 minutes, stale in the last hour, silent when the last one is older, never when none arrived."`
 	LastSeenAt   *time.Time             `json:"last_seen_at" required:"true" nullable:"true" doc:"Time of the last heartbeat; null when none arrived."`
-	Environments []AppEnvironmentStatus `json:"environments"`
+	Environments []AppEnvironmentStatus `json:"environments" doc:"Reporting state per environment the app sent heartbeats from, by name."`
 	Instances    []AppInstance          `json:"instances" doc:"The 100 most recently seen instances, newest first."`
 	SDKs         []AppSDK               `json:"sdks" doc:"SDKs in use by the listed instances, by name."`
 	SDKStats     AppSDKStats            `json:"sdk_stats" doc:"SDK delivery counters summed over the instances seen in the last hour."`

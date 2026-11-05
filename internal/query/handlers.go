@@ -23,7 +23,7 @@ const quantiles = "quantilesTDigestMerge(0.5, 0.75, 0.9, 0.95, 0.99)(latency)"
 // ProjectInput documents the project query parameter; AuthMiddleware reads
 // and authorizes it before the handler runs.
 type ProjectInput struct {
-	Project string `query:"project" maxLength:"63" doc:"Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project."`
+	Project string `query:"project" maxLength:"63" example:"shop" doc:"Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project."`
 }
 
 // RangeInput is the time range and environment shared by the traffic
@@ -53,6 +53,46 @@ func withApp(where string, args []any, app string) (string, []any, error) {
 	return where + " AND app_id = ?", append(append([]any{}, args...), id), nil
 }
 
+// readAccess ends the description of every read-only dashboard operation.
+const readAccess = " Callers authenticate with a project read key or a user session; with a session, project names the project " +
+	"and the caller needs project.view. An ingest key answers 403."
+
+// dashboardDescriptions documents the operations Register declares with op.
+var dashboardDescriptions = map[string]string{
+	"get-project": "The project the caller reads, its org, its active apps and the environments with traffic in the last 7 days.",
+	"get-traffic-summary": "Totals of the range from the minute or hour rollups: requests, 4xx and 5xx errors (expected status codes " +
+		"of each endpoint left out), latency percentiles, requests per minute and Apdex. Endpoints excluded from metrics are left out; " +
+		"app narrows to one app.",
+	"get-traffic-timeseries": "Requests, errors and p95 per bucket of the range (1 minute for 1h, 5 minutes for 6h, 15 minutes for 24h, " +
+		"1 hour for 7d), oldest first and zero-filled. app narrows to one app.",
+	"list-endpoints": "Per endpoint (method and route template) traffic, error split, latency percentiles and Apdex over the range, " +
+		"most requests first. Routes an app declared with POST /v1/metadata but that had no traffic follow with zero counts.",
+	"get-endpoint-requests": "The requests tab of an endpoint: totals by outcome, requests per minute, the outcome split per bucket " +
+		"and the top consumers. An endpoint without traffic answers zeros, not 404.",
+	"get-endpoint-latency": "The response-time tab of an endpoint: summary percentiles and Apdex, the p50/p75/p95 trend per bucket " +
+		"and a fixed 14-bucket histogram over raw requests.",
+	"get-endpoint-transfer": "The data-transferred tab of an endpoint: request and response byte totals and averages, bytes per bucket " +
+		"and fixed 10-bucket size histograms for request and response bodies.",
+	"get-endpoint-errors": "The errors tab of an endpoint: the 4xx/5xx split per bucket, error status codes by count, validation errors " +
+		"grouped by field and server exceptions grouped by type and message. Expected status codes of the endpoint are left out.",
+	"list-consumers": "Consumers with requests in the range, most requests first, each with an outcome split and a sparkline; " +
+		"plus unique consumers per bucket split into new (first seen in the bucket) and returning. group narrows to one consumer group.",
+	"get-consumer": "One consumer: when it was first and last seen, its group, requests by outcome per bucket and its latest " +
+		"requests and errors. A consumer the project never saw answers 404.",
+	"list-requests": "The raw request log of the range, newest first, narrowed by any combination of filters (consumer, group, IP, " +
+		"method, route, URL and payload substrings, sizes, status, latency, sampling, trace). Pages with next_cursor; from and to " +
+		"narrow the window inside the range. An invalid status filter or cursor answers 422.",
+	"get-request-timeline": "The same filters as list-requests, counted per bucket by status class, for the timeline above the log. " +
+		"Every bucket of the window is listed, empty ones with zeros.",
+	"get-request": "One request of the log by its id, with what was captured of it (headers, bodies, attributes, validation " +
+		"errors) and the spans and logs of its trace in the project. An unknown id or another project's answers 404.",
+	"list-errors": "Requests answered with 400 or above, grouped by endpoint and status code, most frequent first, with distinct " +
+		"consumers and the last occurrence. Expected status codes and excluded endpoints are left out.",
+	"get-trace": "The spans and correlated log records of one trace, restricted to the caller's project even when another project " +
+		"shares the trace id. 404 when the project has neither spans nor logs for it.",
+	"list-deploys": "Deploy markers (POST /v1/deploys) of the range, newest first, to draw on charts. env narrows to one environment.",
+}
+
 // Register mounts the dashboard operations on api. s may be nil when only the
 // OpenAPI document is needed. guard authorizes the operations addressed by
 // project slug in their path; nil refuses them with authz_unavailable (fail
@@ -61,7 +101,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	authn.AddSecurityScheme(api)
 	AddSecurityScheme(api)
 	op := func(id, method, path, summary string) huma.Operation {
-		return huma.Operation{OperationID: id, Method: method, Path: path, Summary: summary, Tags: []string{"Dashboard"}, Security: security}
+		return huma.Operation{OperationID: id, Method: method, Path: path, Summary: summary, Description: dashboardDescriptions[id] + readAccess, Tags: []string{"Dashboard"}, Security: security}
 	}
 	huma.Register(api, op("get-project", http.MethodGet, "/api/v1/project", "Project, apps and environments"), s.project)
 	huma.Register(api, op("get-traffic-summary", http.MethodGet, "/api/v1/traffic/summary", "Request totals, error split and latency percentiles"), s.summary)
@@ -96,16 +136,16 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 // ---------------------------------------------------------------- project
 
 type named struct {
-	ID   string `json:"id"`
-	Slug string `json:"slug"`
-	Name string `json:"name"`
+	ID   string `json:"id" doc:"Id (UUID)."`
+	Slug string `json:"slug" doc:"URL-safe slug."`
+	Name string `json:"name" doc:"Display name."`
 }
 
 type projectOutput struct {
 	Body struct {
-		Org          named    `json:"org"`
-		Project      named    `json:"project"`
-		Apps         []named  `json:"apps"`
+		Org          named    `json:"org" doc:"The organization that owns the project."`
+		Project      named    `json:"project" doc:"The project."`
+		Apps         []named  `json:"apps" doc:"The project's active apps."`
 		Environments []string `json:"environments" doc:"Environments with traffic in the last 7 days."`
 	}
 }
@@ -157,17 +197,17 @@ func (s *Service) project(ctx context.Context, _ *ProjectInput) (*projectOutput,
 
 type summaryOutput struct {
 	Body struct {
-		Range             string    `json:"range"`
-		From              time.Time `json:"from"`
-		To                time.Time `json:"to"`
-		Requests          uint64    `json:"requests"`
+		Range             string    `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
+		From              time.Time `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
+		To                time.Time `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
+		Requests          uint64    `json:"requests" doc:"Requests in the range."`
 		ClientErrors      uint64    `json:"client_errors" doc:"4xx responses, leaving out the expected status codes of each endpoint."`
 		ServerErrors      uint64    `json:"server_errors" doc:"5xx responses, leaving out the expected status codes of each endpoint."`
 		ErrorRate         float64   `json:"error_rate" doc:"(client_errors + server_errors) / requests"`
-		P50Ms             float64   `json:"p50_ms"`
-		P95Ms             float64   `json:"p95_ms"`
-		P99Ms             float64   `json:"p99_ms"`
-		RequestsPerMinute float64   `json:"requests_per_minute"`
+		P50Ms             float64   `json:"p50_ms" doc:"Median response time, in milliseconds (t-digest estimate)."`
+		P95Ms             float64   `json:"p95_ms" doc:"95th percentile response time, in milliseconds (t-digest estimate)."`
+		P99Ms             float64   `json:"p99_ms" doc:"99th percentile response time, in milliseconds (t-digest estimate)."`
+		RequestsPerMinute float64   `json:"requests_per_minute" doc:"requests / minutes of the range."`
 		Apdex             *float64  `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied <= T < tolerating <= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; null without requests."`
 	}
 }
@@ -233,18 +273,18 @@ func (s *Service) summary(ctx context.Context, in *appRangeInput) (*summaryOutpu
 // ---------------------------------------------------------------- timeseries
 
 type point struct {
-	TS           time.Time `json:"ts"`
-	Requests     uint64    `json:"requests"`
-	ClientErrors uint64    `json:"client_errors"`
-	ServerErrors uint64    `json:"server_errors"`
-	P95Ms        float64   `json:"p95_ms"`
+	TS           time.Time `json:"ts" doc:"Start of the bucket."`
+	Requests     uint64    `json:"requests" doc:"Requests in the bucket."`
+	ClientErrors uint64    `json:"client_errors" doc:"4xx responses in the bucket, expected status codes left out."`
+	ServerErrors uint64    `json:"server_errors" doc:"5xx responses in the bucket, expected status codes left out."`
+	P95Ms        float64   `json:"p95_ms" doc:"95th percentile response time of the bucket, in milliseconds; 0 without requests."`
 }
 
 type timeseriesOutput struct {
 	Body struct {
-		Range         string  `json:"range"`
-		BucketSeconds int     `json:"bucket_seconds"`
-		Points        []point `json:"points"`
+		Range         string  `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
+		BucketSeconds int     `json:"bucket_seconds" doc:"Width of each series bucket, in seconds."`
+		Points        []point `json:"points" doc:"One point per bucket of the range, oldest first, zero-filled."`
 	}
 }
 
@@ -318,18 +358,18 @@ func (s *Service) timeseries(ctx context.Context, in *appRangeInput) (*timeserie
 
 type endpointsInput struct {
 	RangeInput
-	Limit int `query:"limit" minimum:"1" maximum:"500" default:"100"`
+	Limit int `query:"limit" minimum:"1" maximum:"500" default:"100" doc:"Most endpoints to list, by requests."`
 }
 
 type endpoint struct {
-	Method       string   `json:"method"`
-	Path         string   `json:"path"`
-	Requests     uint64   `json:"requests"`
-	ClientErrors uint64   `json:"client_errors"`
-	ServerErrors uint64   `json:"server_errors"`
-	ErrorRate    float64  `json:"error_rate"`
-	P50Ms        float64  `json:"p50_ms"`
-	P95Ms        float64  `json:"p95_ms"`
+	Method       string   `json:"method" doc:"HTTP method of the endpoint, upper case."`
+	Path         string   `json:"path" doc:"Route template of the endpoint, e.g. /orders/{id}."`
+	Requests     uint64   `json:"requests" doc:"Requests in the range."`
+	ClientErrors uint64   `json:"client_errors" doc:"4xx responses, expected status codes of the endpoint left out."`
+	ServerErrors uint64   `json:"server_errors" doc:"5xx responses, expected status codes of the endpoint left out."`
+	ErrorRate    float64  `json:"error_rate" doc:"(client_errors + server_errors) / requests; 0 without requests."`
+	P50Ms        float64  `json:"p50_ms" doc:"Median response time, in milliseconds."`
+	P95Ms        float64  `json:"p95_ms" doc:"95th percentile response time, in milliseconds."`
 	Apdex        *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 against the endpoint's latency threshold (else its app's, else 500 ms); null without requests."`
 	// DiscoveredOnly marks a route an app declared in its metadata that had
 	// no traffic in the range; its counts are zero.
@@ -338,7 +378,7 @@ type endpoint struct {
 
 type endpointsOutput struct {
 	Body struct {
-		Endpoints []endpoint `json:"endpoints"`
+		Endpoints []endpoint `json:"endpoints" doc:"Endpoints by requests, most first, then routes discovered without traffic; endpoints excluded from metrics are left out."`
 	}
 }
 
@@ -417,17 +457,17 @@ var statusClasses = map[string][2]int{"2xx": {200, 299}, "3xx": {300, 399}, "4xx
 // ---------------------------------------------------------------- errors
 
 type errorGroup struct {
-	Method     string    `json:"method"`
-	Path       string    `json:"path"`
-	StatusCode uint16    `json:"status_code"`
-	Count      uint64    `json:"count"`
-	Consumers  uint64    `json:"consumers"`
-	LastSeen   time.Time `json:"last_seen"`
+	Method     string    `json:"method" doc:"HTTP method of the endpoint, upper case."`
+	Path       string    `json:"path" doc:"Route template of the endpoint, e.g. /orders/{id}."`
+	StatusCode uint16    `json:"status_code" doc:"Error status code (400 and above)."`
+	Count      uint64    `json:"count" doc:"Occurrences in the range."`
+	Consumers  uint64    `json:"consumers" doc:"Distinct consumers that got the error."`
+	LastSeen   time.Time `json:"last_seen" doc:"Latest occurrence in the range."`
 }
 
 type errorsOutput struct {
 	Body struct {
-		Errors []errorGroup `json:"errors"`
+		Errors []errorGroup `json:"errors" doc:"Error groups by (endpoint, status code), most frequent first (at most 200)."`
 	}
 }
 
@@ -477,34 +517,34 @@ func (s *Service) errors(ctx context.Context, in *RangeInput) (*errorsOutput, er
 
 type traceInput struct {
 	ProjectInput
-	TraceID string `path:"trace_id" pattern:"^[0-9a-f]{32}$" doc:"W3C trace id (32 lowercase hex characters)."`
+	TraceID string `path:"trace_id" pattern:"^[0-9a-f]{32}$" example:"4bf92f3577b34da6a3ce929d0e0e4736" doc:"W3C trace id (32 lowercase hex characters)."`
 }
 
 type spanOut struct {
-	SpanID       string            `json:"span_id"`
-	ParentSpanID string            `json:"parent_span_id"`
-	Name         string            `json:"name"`
-	Kind         string            `json:"kind"`
-	ServiceName  string            `json:"service_name"`
-	Start        time.Time         `json:"start"`
-	DurationMs   float64           `json:"duration_ms"`
-	Status       string            `json:"status"`
-	StatusCode   uint16            `json:"status_code"`
-	Attributes   map[string]string `json:"attributes"`
+	SpanID       string            `json:"span_id" doc:"Span id (16 lowercase hex characters)."`
+	ParentSpanID string            `json:"parent_span_id" doc:"Parent span id; empty for a root span."`
+	Name         string            `json:"name" doc:"Span name, e.g. GET /orders/{id} or SELECT orders."`
+	Kind         string            `json:"kind" doc:"OpenTelemetry span kind: server, client, internal, producer or consumer."`
+	ServiceName  string            `json:"service_name" doc:"Service that recorded the span."`
+	Start        time.Time         `json:"start" doc:"Start time of the span."`
+	DurationMs   float64           `json:"duration_ms" doc:"Duration, in milliseconds."`
+	Status       string            `json:"status" doc:"Span status: ok, error or unset."`
+	StatusCode   uint16            `json:"status_code" doc:"HTTP status code of an HTTP span; 0 otherwise."`
+	Attributes   map[string]string `json:"attributes" doc:"Span attributes, as strings."`
 }
 
 type traceLog struct {
-	Timestamp time.Time `json:"timestamp"`
-	Level     string    `json:"level"`
-	Message   string    `json:"message"`
-	SpanID    string    `json:"span_id"`
+	Timestamp time.Time `json:"timestamp" doc:"When the log record was emitted."`
+	Level     string    `json:"level" doc:"Log level, e.g. INFO, WARNING, ERROR."`
+	Message   string    `json:"message" doc:"Log message."`
+	SpanID    string    `json:"span_id" doc:"Span the record was emitted in; empty when none."`
 }
 
 type traceOutput struct {
 	Body struct {
-		TraceID string     `json:"trace_id"`
-		Spans   []spanOut  `json:"spans"`
-		Logs    []traceLog `json:"logs"`
+		TraceID string     `json:"trace_id" doc:"The trace id asked for."`
+		Spans   []spanOut  `json:"spans" doc:"Spans of the trace in the project, oldest first (at most 2000)."`
+		Logs    []traceLog `json:"logs" doc:"Log records correlated with the trace, oldest first (at most 500)."`
 	}
 }
 
@@ -574,16 +614,16 @@ func (s *Service) traceSpansAndLogs(ctx context.Context, project uuid.UUID, trac
 // ---------------------------------------------------------------- deploys
 
 type deployOut struct {
-	DeployedAt  time.Time `json:"deployed_at"`
-	Release     string    `json:"release"`
-	Commit      string    `json:"commit"`
-	Environment string    `json:"environment"`
-	URL         string    `json:"url"`
+	DeployedAt  time.Time `json:"deployed_at" doc:"When the deploy happened, as reported."`
+	Release     string    `json:"release" doc:"Release name or version that was deployed."`
+	Commit      string    `json:"commit" doc:"Commit that was deployed; empty when not reported."`
+	Environment string    `json:"environment" doc:"Environment deployed to."`
+	URL         string    `json:"url" doc:"Link to the release or CI run; empty when not reported."`
 }
 
 type deploysOutput struct {
 	Body struct {
-		Deploys []deployOut `json:"deploys"`
+		Deploys []deployOut `json:"deploys" doc:"Deploys of the range, newest first (at most 100)."`
 	}
 }
 

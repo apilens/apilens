@@ -41,12 +41,12 @@ type consumersInput struct {
 
 // ConsumerGroupRef names the group a consumer is in.
 type ConsumerGroupRef struct {
-	ID   string `json:"id" format:"uuid"`
-	Name string `json:"name"`
+	ID   string `json:"id" format:"uuid" doc:"The group's id."`
+	Name string `json:"name" doc:"The group's display name."`
 }
 
 type consumerRow struct {
-	ConsumerID   string            `json:"consumer_id"`
+	ConsumerID   string            `json:"consumer_id" doc:"Consumer id the SDK reported."`
 	ConsumerName string            `json:"consumer_name" doc:"Most recently reported name of the consumer in the range."`
 	Group        *ConsumerGroupRef `json:"group,omitempty" doc:"The consumer group the consumer is assigned to; absent when none."`
 	FirstSeen    time.Time         `json:"first_seen" doc:"First request ever seen from the consumer in the project."`
@@ -72,10 +72,10 @@ type consumersPoint struct {
 
 type consumersOutput struct {
 	Body struct {
-		Range         string           `json:"range"`
-		From          time.Time        `json:"from"`
-		To            time.Time        `json:"to"`
-		BucketSeconds int              `json:"bucket_seconds"`
+		Range         string           `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
+		From          time.Time        `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
+		To            time.Time        `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
+		BucketSeconds int              `json:"bucket_seconds" doc:"Width of each series bucket, in seconds."`
 		Summary       ConsumerCounts   `json:"summary" doc:"Unique consumers of the whole range; new means first seen within the range."`
 		Points        []consumersPoint `json:"points" doc:"Unique consumers per bucket, zero-filled; new means first seen within that bucket."`
 		Consumers     []consumerRow    `json:"consumers" doc:"Consumers by requests, most first."`
@@ -84,27 +84,27 @@ type consumersOutput struct {
 
 type consumerInput struct {
 	RangeInput
-	ConsumerID string `path:"consumer_id" minLength:"1" maxLength:"256" doc:"The consumer id the SDK reports, URL-encoded as one path segment."`
+	ConsumerID string `path:"consumer_id" minLength:"1" maxLength:"256" example:"acme-mobile" doc:"The consumer id the SDK reports, URL-encoded as one path segment."`
 }
 
 type consumerSummary struct {
 	StatusSplit
-	RequestsPerMinute float64 `json:"requests_per_minute"`
+	RequestsPerMinute float64 `json:"requests_per_minute" doc:"requests / minutes of the range."`
 }
 
 type consumerOutput struct {
 	Body struct {
-		ConsumerID     string                  `json:"consumer_id"`
+		ConsumerID     string                  `json:"consumer_id" doc:"Consumer id the SDK reported."`
 		ConsumerName   string                  `json:"consumer_name" doc:"Most recently reported name of the consumer."`
 		Group          *ConsumerGroupRef       `json:"group,omitempty" doc:"The consumer group the consumer is assigned to; absent when none."`
-		FirstSeen      time.Time               `json:"first_seen"`
-		LastSeen       time.Time               `json:"last_seen"`
+		FirstSeen      time.Time               `json:"first_seen" doc:"First request ever seen from the consumer in the project."`
+		LastSeen       time.Time               `json:"last_seen" doc:"Last request ever seen from the consumer in the project."`
 		New            bool                    `json:"new" doc:"Whether first_seen falls within the range."`
-		Range          string                  `json:"range"`
-		From           time.Time               `json:"from"`
-		To             time.Time               `json:"to"`
-		BucketSeconds  int                     `json:"bucket_seconds"`
-		Summary        consumerSummary         `json:"summary"`
+		Range          string                  `json:"range" doc:"Time range of the response: 1h, 6h, 24h or 7d."`
+		From           time.Time               `json:"from" doc:"Start of the range (inclusive, bucket-aligned)."`
+		To             time.Time               `json:"to" doc:"End of the range (exclusive, bucket-aligned)."`
+		BucketSeconds  int                     `json:"bucket_seconds" doc:"Width of each series bucket, in seconds."`
+		Summary        consumerSummary         `json:"summary" doc:"The consumer's requests of the range by outcome."`
 		Points         []endpointRequestsPoint `json:"points" doc:"One point per bucket of the range, zero-filled."`
 		RecentRequests []requestRow            `json:"recent_requests" doc:"The consumer's latest requests in the range (at most 50), newest first."`
 		RecentErrors   []requestRow            `json:"recent_errors" doc:"The consumer's latest 4xx and 5xx requests in the range (at most 50), newest first."`

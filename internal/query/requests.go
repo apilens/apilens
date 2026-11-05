@@ -75,22 +75,22 @@ func (in *requestsInput) Resolve(ctx huma.Context) []error {
 
 type requestRow struct {
 	ID             string    `json:"id" doc:"Opaque request id for GET /api/v1/requests/{id}."`
-	Timestamp      time.Time `json:"timestamp"`
-	AppID          string    `json:"app_id" format:"uuid"`
-	Method         string    `json:"method"`
-	Path           string    `json:"path"`
-	RawPath        string    `json:"raw_path"`
-	StatusCode     uint16    `json:"status_code"`
-	ResponseTimeMs float64   `json:"response_time_ms"`
+	Timestamp      time.Time `json:"timestamp" doc:"When the request was received."`
+	AppID          string    `json:"app_id" format:"uuid" doc:"The app that served the request."`
+	Method         string    `json:"method" doc:"HTTP method."`
+	Path           string    `json:"path" doc:"Route template the request matched, e.g. /orders/{id}."`
+	RawPath        string    `json:"raw_path" doc:"Requested path with its query string, as the SDK sent it after redaction."`
+	StatusCode     uint16    `json:"status_code" doc:"HTTP status code."`
+	ResponseTimeMs float64   `json:"response_time_ms" doc:"Response time, in milliseconds."`
 	RequestSize    uint64    `json:"request_size" doc:"Request body size in bytes."`
 	ResponseSize   uint64    `json:"response_size" doc:"Response body size in bytes."`
-	Environment    string    `json:"environment"`
-	IPAddress      string    `json:"ip_address"`
-	ConsumerID     string    `json:"consumer_id"`
-	ConsumerName   string    `json:"consumer_name"`
-	ConsumerGroup  string    `json:"consumer_group"`
+	Environment    string    `json:"environment" doc:"Environment the app reported from."`
+	IPAddress      string    `json:"ip_address" doc:"Client IP address; empty when not captured."`
+	ConsumerID     string    `json:"consumer_id" doc:"Consumer id the SDK reported; empty when none."`
+	ConsumerName   string    `json:"consumer_name" doc:"Consumer name the SDK reported; empty when none."`
+	ConsumerGroup  string    `json:"consumer_group" doc:"Consumer group the SDK reported; empty when none."`
 	Sampled        bool      `json:"sampled" doc:"False when the SDK sampled the request out: a base record without headers or bodies."`
-	TraceID        string    `json:"trace_id"`
+	TraceID        string    `json:"trace_id" doc:"W3C trace id; empty when the request had none."`
 }
 
 type requestsOutput struct {
