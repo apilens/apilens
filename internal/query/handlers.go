@@ -51,6 +51,8 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	huma.Register(api, op("get-endpoint-requests", http.MethodGet, "/api/v1/endpoints/{method}/{path}/requests", "Endpoint requests: totals, status split over time and top consumers"), s.endpointRequests)
 	huma.Register(api, op("get-endpoint-latency", http.MethodGet, "/api/v1/endpoints/{method}/{path}/latency", "Endpoint response time: percentiles, p50/p75/p95 trend and histogram"), s.endpointLatency)
 	huma.Register(api, op("get-endpoint-transfer", http.MethodGet, "/api/v1/endpoints/{method}/{path}/transfer", "Endpoint data transferred: byte totals, in/out series and size histograms"), s.endpointTransfer)
+	huma.Register(api, op("list-consumers", http.MethodGet, "/api/v1/consumers", "Consumers: traffic with sparklines, and unique consumers over time split new vs returning"), s.consumers)
+	huma.Register(api, op("get-consumer", http.MethodGet, "/api/v1/consumers/{consumer_id}", "Consumer detail: first/last seen, requests and errors over time, recent requests and errors"), s.consumer)
 	huma.Register(api, op("list-requests", http.MethodGet, "/api/v1/requests", "Most recent requests"), s.requests)
 	huma.Register(api, op("list-errors", http.MethodGet, "/api/v1/errors", "Failed requests grouped by endpoint and status"), s.errors)
 	huma.Register(api, op("get-trace", http.MethodGet, "/api/v1/traces/{trace_id}", "Spans and correlated logs of one trace"), s.trace)
@@ -61,6 +63,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	registerEndpointSettings(api, s, guard)
 	registerAppIngestStats(api, s)
 	registerSavedViews(api, s, guard)
+	registerConsumerGroups(api, s, guard)
 }
 
 // ---------------------------------------------------------------- project
