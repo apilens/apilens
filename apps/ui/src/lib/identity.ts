@@ -797,6 +797,8 @@ export type QueryRange = "1h" | "6h" | "24h" | "7d";
 
 /** One row of `GET /requests`, newest first. */
 export interface RequestRow {
+  /** Opaque request id for `GET /requests/{id}` (#577); the request drawer (#588) reads it. */
+  id?: string;
   timestamp: string;
   method: string;
   /** Route template, e.g. `/orders/{id}`. */
@@ -817,6 +819,62 @@ export interface RequestRow {
   consumer_group?: string;
   ip_address?: string;
   app_id?: string;
+}
+
+/** A field error of a rejected request (usually a 422), as `GET /requests/{id}` parses it (#577). */
+export interface RequestValidationError {
+  loc: string;
+  msg: string;
+  type: string;
+}
+
+/**
+ * One request as `GET /requests/{id}` answers it (#577): the log row plus what only the request
+ * drawer (#588) shows. Headers and bodies are the stored text, redaction (`[redacted]`, `[masked]`)
+ * and truncation (`...[truncated]`) markers kept; empty when the SDK did not capture them.
+ */
+export interface RequestDetail extends RequestRow {
+  id: string;
+  span_id: string;
+  user_agent: string;
+  base_url: string;
+  release: string;
+  commit: string;
+  request_headers: string;
+  response_headers: string;
+  request_body: string;
+  response_body: string;
+  attributes: Record<string, string> | null;
+  validation_errors: RequestValidationError[] | null;
+}
+
+/** One span of a trace, as `GET /requests/{id}` and `GET /traces/{trace_id}` answer it. */
+export interface TraceSpan {
+  span_id: string;
+  parent_span_id: string;
+  name: string;
+  kind: string;
+  service_name: string;
+  start: string;
+  duration_ms: number;
+  status: string;
+  status_code: number;
+  attributes: Record<string, string> | null;
+}
+
+/** One log line of a trace. */
+export interface TraceLog {
+  timestamp: string;
+  level: string;
+  message: string;
+  span_id: string;
+}
+
+/** `GET /requests/{id}`: the request with the spans and logs of its trace, oldest first. */
+export interface RequestDetailRead {
+  request: RequestDetail;
+  spans: TraceSpan[] | null;
+  logs: TraceLog[] | null;
 }
 
 /**
@@ -1411,6 +1469,8 @@ export function createClient(config: ClientConfig) {
     // query: dashboard reads as the signed-in user (#295) ----------------------------------
     listRequests: (projectSlug: string, q: { range?: QueryRange; limit?: number } & RequestLogFilters, o: Authed) =>
       request<{ requests: RequestRow[] | null; next_cursor?: string }>("GET", "/requests", { ...o, query: { project: projectSlug, ...q } }),
+    getRequest: (projectSlug: string, id: string, o: Authed) =>
+      request<RequestDetailRead>("GET", `/requests/${seg(id)}`, { ...o, query: { project: projectSlug } }),
     trafficSummary: (projectSlug: string, q: QueryRange | TrafficQuery, o: Authed) =>
       request<TrafficSummary>("GET", "/traffic/summary", { ...o, query: { project: projectSlug, ...trafficScope(q) } }),
     trafficTimeseries: (projectSlug: string, q: TrafficQuery, o: Authed) =>

@@ -29,6 +29,7 @@ import type { RequestRow } from "@/lib/identity";
 import { formatLatency } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
 import { FilterBar } from "./filter-bar";
+import { RequestDrawer } from "./request-drawer";
 
 /** How many skeleton rows stand in while another range loads. */
 const SKELETON_ROWS = 8;
@@ -39,7 +40,8 @@ const SKELETON_ROWS = 8;
  * DOM, so scrolling stays smooth at any page size. Rows are one tab stop: arrows, Page Up/Down,
  * Home and End move between them; keys with ⌘, Ctrl or Alt pass through (⌘K still opens the
  * switcher). While live it reads the log again every 5 s (not while the tab is hidden), keeping
- * the row in focus and the rows in view where they are; Pause stops it (WCAG 2.2.2).
+ * the row in focus and the rows in view where they are; Pause stops it (WCAG 2.2.2). A click on a
+ * row, or Enter on the focused one, opens the request drawer (#588).
  * `initial` is null when the API could not answer the first read.
  */
 export function RequestLog({
@@ -61,6 +63,11 @@ export function RequestLog({
   const [paused, setPaused] = useState(false);
   const [pollFailed, setPollFailed] = useState(false);
   const [loading, startLoading] = useTransition();
+  // The row whose drawer is open (#588); it stays open while the poll replaces the rows.
+  const [opened, setOpened] = useState<(RequestRow & { id: string }) | null>(null);
+  const open = useCallback((r: RequestRow) => {
+    if (r.id) setOpened({ ...r, id: r.id });
+  }, []);
   // The poll reads the same range and filters as the page (#586).
   const pollPath = requestsPath(project, q);
   const filtered = activeCount(q.filters) > 0;
@@ -179,8 +186,9 @@ export function RequestLog({
           )}
         </div>
       ) : (
-        <LogGrid rows={rows} now={now} caption={`The newest ${rows.length === 1 ? "request" : `${rows.length} requests`} in ${scopeText(q)}${filtered ? " matching the filters" : ""}, newest first.`} />
+        <LogGrid rows={rows} now={now} onOpen={open} caption={`The newest ${rows.length === 1 ? "request" : `${rows.length} requests`} in ${scopeText(q)}${filtered ? " matching the filters" : ""}, newest first.`} />
       )}
+      {opened ? <RequestDrawer key={opened.id} project={project} row={opened} onClose={() => setOpened(null)} /> : null}
     </>
   );
 }
@@ -188,7 +196,19 @@ export function RequestLog({
 const COLUMNS = ["Time", "Method", "Path", "Status", "Latency", "Consumer", "Size"] as const;
 
 /** The grid: a header row and a scrolling, virtualised body. `rows` null draws skeleton rows. */
-function LogGrid({ rows, now, caption, busy = false }: { rows: RequestRow[] | null; now: number; caption: string; busy?: boolean }) {
+function LogGrid({
+  rows,
+  now,
+  caption,
+  busy = false,
+  onOpen,
+}: {
+  rows: RequestRow[] | null;
+  now: number;
+  caption: string;
+  busy?: boolean;
+  onOpen?: (row: RequestRow) => void;
+}) {
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewport, setViewport] = useState(0);
@@ -251,6 +271,11 @@ function LogGrid({ rows, now, caption, busy = false }: { rows: RequestRow[] | nu
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.metaKey || e.ctrlKey || e.altKey || !rows) return;
+    if (e.key === "Enter" && onOpen && rows[focusIndex] && (e.target as HTMLElement).dataset.index !== undefined) {
+      e.preventDefault();
+      onOpen(rows[focusIndex]);
+      return;
+    }
     const page = Math.max(1, Math.floor((scroller.current?.clientHeight ?? 0) / ROW_HEIGHT) - 1);
     const next = moveFocus(e.key, focusIndex, rows.length, page);
     if (next === null) return;
@@ -263,7 +288,7 @@ function LogGrid({ rows, now, caption, busy = false }: { rows: RequestRow[] | nu
   for (let i = start; i < end; i++) {
     shown.push(
       rows ? (
-        <LogRow key={keys[i]} row={rows[i]} index={i} now={now} focusable={i === focusIndex} onFocus={setFocusKey} rowId={keys[i]} />
+        <LogRow key={keys[i]} row={rows[i]} index={i} now={now} focusable={i === focusIndex} onFocus={setFocusKey} onOpen={onOpen} rowId={keys[i]} />
       ) : (
         <SkeletonRow key={i} index={i} />
       ),
@@ -308,6 +333,7 @@ const LogRow = memo(function LogRow({
   now,
   focusable,
   onFocus,
+  onOpen,
   rowId,
 }: {
   row: RequestRow;
@@ -315,6 +341,7 @@ const LogRow = memo(function LogRow({
   now: number;
   focusable: boolean;
   onFocus: (key: string) => void;
+  onOpen?: (row: RequestRow) => void;
   rowId: string;
 }) {
   const consumer = consumerOf(r);
@@ -323,12 +350,13 @@ const LogRow = memo(function LogRow({
   const status = statusClass(r.status_code);
   return (
     <div
-      className="ex-row"
+      className={`ex-row${onOpen && r.id ? " is-openable" : ""}`}
       role="row"
       aria-rowindex={index + 2}
       data-index={index}
       tabIndex={focusable ? 0 : -1}
       onFocus={() => onFocus(rowId)}
+      onClick={onOpen && r.id ? () => onOpen(r) : undefined}
       style={{ transform: `translateY(${index * ROW_HEIGHT}px)` }}
     >
       <div role="gridcell" className="ex-cell ex-cell--time">
