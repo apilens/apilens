@@ -16,6 +16,7 @@ import {
   toDraft,
   withoutChip,
 } from "@/lib/explore-filters";
+import { SaveView } from "./saved-views";
 
 /** How many of its own recent changes the bar recognises when the page comes back with them. */
 const SENT_KEPT = 8;
@@ -176,6 +177,8 @@ export function FilterBar({
             </li>
           </ul>
         ) : null}
+        {/* Saved views (#589): name the filters on now. */}
+        <SaveView />
       </div>
 
       <div id={formId} className="ex-form" hidden={!open}>

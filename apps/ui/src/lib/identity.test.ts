@@ -414,6 +414,10 @@ describe("operations", () => {
     ["DELETE", "/projects/{slug}/consumer-groups/{id}", (c) => c.deleteConsumerGroup("a/b?c", "a/b?c", authed)],
     ["PUT", "/projects/{slug}/consumers/{consumer_id}/group", (c) => c.assignConsumerGroup("a/b?c", "a/b?c", "g1", authed)],
     ["DELETE", "/projects/{slug}/consumers/{consumer_id}/group", (c) => c.unassignConsumerGroup("a/b?c", "a/b?c", authed)],
+    ["GET", "/projects/{slug}/views", (c) => c.listSavedViews("a/b?c", "explore", authed)],
+    ["POST", "/projects/{slug}/views", (c) => c.createSavedView("a/b?c", { name: "5xx", surface: "explore", filter: {}, shared: false }, authed)],
+    ["PUT", "/projects/{slug}/views/{id}", (c) => c.updateSavedView("a/b?c", "a/b?c", { name: "5xx", filter: {}, shared: true }, authed)],
+    ["DELETE", "/projects/{slug}/views/{id}", (c) => c.deleteSavedView("a/b?c", "a/b?c", authed)],
   ];
 
   it.each(routes)("%s %s", async (method, template, call) => {

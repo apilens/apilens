@@ -249,3 +249,26 @@ span.rd-j-tog { cursor: default; }
   .ex-tl { padding: var(--space-3) var(--space-3) var(--space-2); }
   .ex-tl__scope { margin-left: 0; }
 }
+
+/* Saved views (#589): the view switcher in the page header, Save view in the filter bar, and the
+   menu and small forms they open (portalled to <body>, so those rules do not sit under .ex). */
+.ex-views { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-top: var(--space-4); }
+.ex-views__trigger { display: inline-flex; align-items: center; gap: var(--space-2); max-width: 100%; min-height: 32px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-1); color: var(--ink); font: 500 13px/20px var(--font-sans); cursor: pointer; }
+.ex-views__trigger:hover, .ex-views__trigger.is-open { background: var(--surface-2); }
+.ex-views__trigger:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.ex-views__trigger .cp-ic { flex: none; width: 16px; height: 16px; color: var(--ink-muted); }
+.ex-views__name { min-width: 0; max-width: 360px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ex-views__badge { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-pill); font: 500 11px/16px var(--font-sans); color: var(--ink-muted); }
+.org-pop .ex-views__badge { margin-left: auto; }
+.org-pop .ex-views__badge + .sl { margin-left: var(--space-2); }
+.ex-views__said { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.ex-views__said.is-err { color: var(--error); }
+.ex-views__said:empty { display: none; }
+.ex-views__note { margin: 4px 0; padding: 0 8px; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ex-views__form { display: flex; flex-direction: column; gap: 6px; padding: 6px; }
+.ex-views__form > label { font: 500 13px/20px var(--font-sans); color: var(--ink); }
+.ex-views__form > .ex-views__check { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-1); font-weight: 400; }
+.ex-views__check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.ex-views__confirm { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.ex-views__actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
+.ex-btn-danger { background: transparent; border-color: color-mix(in srgb, var(--error) 55%, var(--border)); color: var(--error); }
