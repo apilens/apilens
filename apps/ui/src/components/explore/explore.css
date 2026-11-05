@@ -1,0 +1,79 @@
+/* Explore (#585). Tokens from tokens.css only. Color carries meaning: the status chip is neutral for
+   2xx and 3xx, --warn for 4xx and --error for 5xx; latency turns --warn above 500 ms and --error
+   above 2 s (it also says so in its title, never by color alone). Rows are a fixed 40px (ROW_HEIGHT
+   in lib/explore.ts): the log renders only the rows in view and positions them by that height. At
+   phone width the consumer and size columns drop, so the page never scrolls sideways. */
+.ex { max-width: 1280px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
+.ex-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
+.ex-muted { color: var(--ink-muted); }
+
+.ex-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+.ex-seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); }
+.ex-seg a { padding: 4px 12px; border-radius: 7px; font: 500 13px/20px var(--font-sans); color: var(--ink-muted); text-decoration: none; }
+.ex-seg a:hover { color: var(--ink); }
+.ex-seg a[aria-current="page"] { background: var(--surface-2); color: var(--ink); }
+.ex-seg a:focus-visible, .ex .cp-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+
+.ex-live { display: inline-flex; align-items: center; gap: var(--space-2); }
+.ex-live__state { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/16px var(--font-mono); color: var(--ink); }
+.ex-live__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); animation: ex-pulse 2s ease-in-out infinite; }
+.ex-live__state.is-paused { color: var(--ink-muted); }
+.ex-live__state.is-paused .ex-live__dot { background: var(--border-strong); animation: none; }
+@keyframes ex-pulse { 50% { opacity: .35; } }
+
+.ex-notice { display: flex; gap: 10px; align-items: flex-start; margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); font: 400 14px/22px var(--font-sans); color: var(--ink); }
+.ex-notice p { margin: 0; }
+.ex-notice svg { flex: none; width: 16px; height: 16px; margin-top: 3px; color: var(--ink-muted); }
+.ex-notice--error { border-color: color-mix(in srgb, var(--error) 35%, var(--border)); background: var(--error-soft); }
+.ex-notice--error svg { color: var(--error); }
+
+/* The log: one card, the grid scrolls inside it with a sticky header row. */
+.ex-card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); overflow: hidden; }
+.ex-grid { position: relative; height: 640px; max-height: calc(100dvh - 260px); min-height: 320px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.ex-grid:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.ex-head { position: sticky; top: 0; z-index: 1; }
+.ex-spacer { position: relative; }
+.ex-row {
+  display: grid;
+  grid-template-columns: 88px 72px minmax(0, 1fr) 64px 88px minmax(0, 200px) 72px;
+  align-items: center;
+  height: 40px;
+  border-bottom: 1px solid var(--border);
+  box-sizing: border-box;
+}
+.ex-spacer > .ex-row { position: absolute; top: 0; left: 0; right: 0; contain: layout paint; }
+.ex-spacer > .ex-row:hover { background: var(--surface-2); }
+.ex-spacer > .ex-row:focus { outline: none; }
+.ex-spacer > .ex-row:focus-visible { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent-ink); }
+.ex-row--head { background: var(--surface-2); font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
+.ex-cell { min-width: 0; padding: 0 var(--space-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ex-cell--status, .ex-cell--latency, .ex-cell--size { text-align: right; font-variant-numeric: tabular-nums; }
+.ex-cell--time { color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.ex-cell--method { font: 500 12px/18px var(--font-mono); color: var(--ink-muted); }
+.ex-row--head .ex-cell--method { font: inherit; }
+.ex-cell--path { display: flex; align-items: center; gap: var(--space-2); }
+.ex-cell--path code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 400 13px/20px var(--font-mono); }
+.ex-sampled { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-pill); font: 500 11px/16px var(--font-sans); color: var(--ink-muted); }
+
+.ex-status { display: inline-block; padding: 0 6px; border-radius: var(--radius-pill); font: 500 12px/20px var(--font-mono); }
+.ex-status--2xx, .ex-status--3xx, .ex-status--other { background: var(--surface-2); color: var(--ink-muted); }
+.ex-status--4xx { background: var(--warn-soft); color: var(--warn); }
+.ex-status--5xx { background: var(--error-soft); color: var(--error); }
+.ex-lat--slow { color: var(--warn); }
+.ex-lat--frustrated { color: var(--error); font-weight: 500; }
+
+.ex-row--skeleton .ex-bone { display: block; height: 10px; border-radius: 5px; background: var(--surface-2); }
+.ex-foot { margin: 0; padding: var(--space-2) var(--space-4); border-top: 1px solid var(--border); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ex-live__dot { animation: none; }
+}
+
+@media (max-width: 760px) {
+  .ex { padding: var(--space-4) var(--space-4) var(--space-12); }
+  .ex-row { grid-template-columns: 68px 56px minmax(0, 1fr) 52px 68px; }
+  .ex-cell { padding: 0 6px; }
+  .ex-cell--method { font-size: 11px; }
+  .ex-cell--consumer, .ex-cell--size { display: none; }
+  .ex-sampled { display: none; }
+}

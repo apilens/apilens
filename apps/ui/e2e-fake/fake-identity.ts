@@ -97,6 +97,8 @@
 //                                                  group) and unassign; writes answer 403 without project.update
 //   POST /__fake/consumers {project, summary, points, consumers, details, groups?, assignments?}
 //                                                  test hook: what those answer; resets shop's groups
+//   POST /__fake/requests {project, rows}          test hook: `GET /api/v1/requests` answers `rows` for
+//                                                  `project` instead of what the edge stored (#585); rows null forgets it
 //   POST /__fake/query-down {project, down}        test hook: those reads answer 503 for `project`
 //   GET  /api/v1/project?project=shop              shop's apps (#598): one app `shop` unless seeded
 //   GET|PUT /api/v1/apps/{id}/capture-policy       the app's capture policy (#598): everything captured
@@ -471,6 +473,8 @@ const ingestedRows = new Map<
 >();
 /** Projects whose query reads answer 503, set by `/__fake/query-down` (#335). */
 const queryDown = new Set<string>();
+/** Project slug → the rows `GET /api/v1/requests` answers instead, as seeded by `/__fake/requests` (#585). */
+const requestsSeed = new Map<string, Record<string, unknown>[]>();
 /** Project slug → the deploys `GET /deploys/changes` answers, as seeded by `/__fake/deploys` (#597). */
 const deployChanges = new Map<string, Record<string, unknown>[]>();
 /** Project slug → environment ("" for all) → what the traffic reads answer (#592), as seeded by `/__fake/traffic`. */
@@ -1347,6 +1351,13 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       return send(res, 200, { ...seed?.summary, range });
     }
   }
+  if (req.method === "POST" && path === "/__fake/requests") {
+    // Test hook: replaces what the request log reads answer for `project`.
+    const b = await readBody(req);
+    if (Array.isArray(b.rows)) requestsSeed.set(String(b.project), b.rows as Record<string, unknown>[]);
+    else requestsSeed.delete(String(b.project));
+    return send(res, 204);
+  }
   if (req.method === "POST" && path === "/__fake/traffic") {
     // Test hook: replaces what the traffic reads answer for `project`, per environment.
     const b = await readBody(req);
@@ -1366,6 +1377,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const rows = ingestedRows.get(slug) ?? [];
     if (path === "/api/v1/requests") {
       const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") ?? 100) || 100));
+      const seeded = requestsSeed.get(slug);
+      if (seeded) return send(res, 200, { requests: seeded.slice(0, limit), next_cursor: "" });
       return send(res, 200, { requests: rows.slice(0, limit) });
     }
     const p95 = (list: typeof rows) => {
