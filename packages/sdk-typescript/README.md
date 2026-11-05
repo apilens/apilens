@@ -121,10 +121,36 @@ useApiLens(app, {
 Matching values become `[redacted]`; names stay visible. In bodies, string,
 number, object and array values are masked (a matching object is masked
 whole); booleans and `null` stay. Non-JSON bodies are sent unchanged. An
-invalid regex throws when the middleware is created. The middleware does not
-send the query string yet; the query-param patterns are ready for when it
-does. `Redactor` (with
+invalid regex throws when the middleware is created. Query-param patterns
+apply to the query string sent on `raw_path`. `Redactor` (with
 `redactQuery`, `redactBody` and `headerMatches`) is exported for manual capture.
+
+## Path templating
+
+Requests are grouped by route template, so `/product/123` and `/product/324`
+are one endpoint, `GET /product/{id}`. Every record also carries `raw_path`,
+the exact path as received plus the query string (matching query-param values
+redacted, e.g. `/product/123?token=[redacted]&page=2`).
+
+- **Matched Express route (preferred):** `req.baseUrl + req.route.path`, with
+  `:name` parameters spelled `{name}`. Mounted routers work:
+  `app.use("/api/users", users)` + `users.get("/:userId")` gives
+  `/api/users/{userId}`. Express reports a mount path such as
+  `/teams/:teamId` already filled in (`/teams/42`), so its id-looking segments
+  go through the heuristic below (`/teams/{id}/members/{memberId}`).
+- **Heuristic fallback** (404s, static files, RegExp routes): integer and ULID
+  segments become `{id}`, UUIDs `{uuid}`, hex of 24+ chars `{hash}`, and mixed
+  alphanumeric tokens of 16+ chars with a digit `{id}`.
+
+```js
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  parametrizePaths: false, // keep raw paths when no route matched (default true)
+});
+```
+
+`APILENS_PARAMETRIZE_PATHS=false` turns the heuristic off regardless of code.
+Matched route templates are always used.
 
 ## Exclusions
 

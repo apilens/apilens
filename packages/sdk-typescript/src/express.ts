@@ -4,10 +4,10 @@ import type { NextFunction, Request, Response } from "express";
 import { ApiLensClient } from "./client.js";
 import { RequestExcluder } from "./exclusions.js";
 import { Sampler } from "./sampling.js";
+import { expressRouteTemplate, parametrizeEnabled, resolveEndpointPath } from "./routes.js";
 import { Redactor, serializeHeaders } from "./sanitize.js";
 import {
   firstForwardedIp,
-  normalizePath,
   payloadToString,
   toNonNegativeInt,
   toNumber,
@@ -128,6 +128,9 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
     sampleOnResponse: config.sampleOnResponse,
     logger: client.config.logger,
   });
+  // Heuristic fallback for unmatched routes; APILENS_PARAMETRIZE_PATHS=false
+  // overrides it. Matched Express routes are always used.
+  const parametrizePaths = config.parametrizePaths !== false;
 
   const middleware = ((req: Request, res: Response, next: NextFunction) => {
     if (!enabled || !client.isEnabled() || req.method.toUpperCase() === "OPTIONS") {
@@ -149,7 +152,6 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
 
     const startedAt = performance.now();
     const method = String(req.method || "GET").toUpperCase();
-    const path = normalizePath(req.route?.path || req.path || req.originalUrl || "/");
     const requestSize = toNonNegativeInt(
       req.get?.("content-length") || req.headers["content-length"],
       0,
@@ -161,6 +163,21 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
     const url = String(req.originalUrl || req.url || "/");
     const queryAt = url.indexOf("?");
     const rawPath = queryAt === -1 ? url : url.slice(0, queryAt);
+    // The route is matched after this middleware runs; it is read when the
+    // response is sent (see res.end), while req.route / req.baseUrl still
+    // describe the handler that answered.
+    let routeTemplate: string | undefined;
+    let routeResolved = false;
+    const resolveRoute = (): void => {
+      if (!routeResolved) {
+        routeResolved = true;
+        routeTemplate = expressRouteTemplate(
+          req,
+          rawPath,
+          parametrizePaths && parametrizeEnabled(),
+        );
+      }
+    };
 
     // Decided before any response body is buffered. Sampled-out requests are
     // still recorded (base fields only), so metrics are unaffected.
@@ -211,6 +228,11 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
     }) as typeof res.write;
 
     res.end = ((chunk: any, encoding?: any, cb?: any) => {
+      try {
+        resolveRoute();
+      } catch (_error) {
+        // Never break the response over route resolution.
+      }
       const normalizedEncoding =
         typeof encoding === "string" && Buffer.isEncoding(encoding)
           ? encoding
@@ -243,6 +265,13 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
     res.once("finish", () => {
       try {
         const responseTimeMs = Math.max(performance.now() - startedAt, 0);
+        resolveRoute();
+        // Endpoint grouping path: matched route template, else id-looking
+        // segments parametrized. raw_path keeps the exact URL with the query
+        // string, matching query-param values redacted.
+        const path = resolveEndpointPath(routeTemplate, rawPath || "/", parametrizePaths);
+        const query = queryAt === -1 ? "" : url.slice(queryAt + 1);
+        const rawPathWithQuery = query ? `${rawPath}?${redactor.redactQuery(query)}` : rawPath;
         const consumer =
           consumerFromStringOrObject(req.apilensConsumer) ||
           consumerFromStringOrObject(config.getConsumer?.(req, res));
@@ -280,6 +309,7 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
           app_id: client.config.appId,
           method,
           path,
+          raw_path: rawPathWithQuery,
           status_code: res.statusCode,
           response_time_ms: responseTimeMs,
           request_size: requestSize,

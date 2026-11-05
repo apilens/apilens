@@ -22,6 +22,7 @@ GET /products/9000      ─┘      each request keeps raw_path = "/products/42"
 | Flask | URL-map match — `<int:order_id>` → `{order_id}` |
 | Litestar | the matched route handler's path |
 | BlackSheep | the router's matched pattern |
+| Express (TypeScript SDK) | `req.baseUrl` + `req.route.path` — `:order_id` → `{order_id}`; id-looking segments of a mount path are parametrized |
 
 **2. Heuristic fallback.** When no route is available (generic middleware, unmatched paths), segments that look like IDs are parametrized:
 
@@ -44,6 +45,11 @@ Every request record carries both fields: `path` (the template, used for groupin
 ```python
 # per-app
 app.add_middleware(ApiLensMiddleware, ..., parametrize_paths=False)
+```
+
+```js
+// TypeScript SDK (Express)
+useApiLens(app, { ..., parametrizePaths: false });
 ```
 
 ```bash
