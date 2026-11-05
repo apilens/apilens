@@ -8,6 +8,18 @@ export {
   useApiLens,
 } from "./express.js";
 export {
+  CAPTURE_PROFILE_NAMES,
+  CAPTURE_PROFILES,
+  ENV_OPTIONS,
+  ENV_PREFIX,
+  REDACTED_PROFILE_MAX_PAYLOAD_BYTES,
+  applyCaptureProfile,
+  envVar,
+  loadEnvConfig,
+  resolveConfig,
+} from "./env.js";
+export type { Env, EnvConfig } from "./env.js";
+export {
   DEFAULT_EXCLUDED_PATHS,
   DEFAULT_EXCLUDED_USER_AGENTS,
   ENV_EXCLUDE_PATHS,
@@ -70,6 +82,7 @@ export type {
   ApiLensExpressConfig,
   ApiLensRecord,
   ApiLensRecordInput,
+  CaptureProfile,
   Logger,
   RequestLoggingConfig,
 } from "./types.js";
