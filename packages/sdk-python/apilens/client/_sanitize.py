@@ -10,6 +10,7 @@ import json
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from fnmatch import fnmatchcase
 from typing import Any, Union
 from urllib.parse import parse_qsl, quote, urlencode
 
@@ -72,6 +73,23 @@ DEFAULT_MASK_LOG_NAMES: tuple[str, ...] = tuple(
         (*DEFAULT_MASK_QUERY_PARAMS, *DEFAULT_MASK_HEADER_PATTERNS, *DEFAULT_MASK_BODY_FIELDS)
     )
 )
+
+# Media types whose bodies are captured by default. Anything else (multipart
+# uploads, images, archives, octet streams, ...) is never buffered and is
+# stored as an ``[<content-type>, N bytes omitted]`` placeholder. Entries are
+# shell-style globs matched case-insensitively against the media type with
+# parameters (``; charset=...``) stripped. ``capture_content_types`` replaces
+# this list.
+DEFAULT_CAPTURE_CONTENT_TYPES: tuple[str, ...] = (
+    "application/json",
+    "application/*+json",
+    "text/*",
+    "application/x-www-form-urlencoded",
+)
+# Form-encoded bodies are masked field by field like a query string.
+FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
+# What a body with no Content-Type is treated as (RFC 9110 section 8.3).
+_UNKNOWN_CONTENT_TYPE = "application/octet-stream"
 
 # Cap on the serialized header JSON so a pathological request can't bloat a row.
 _MAX_HEADER_BYTES = 8192
@@ -202,24 +220,21 @@ class Redactor:
         Unparseable input is passed through untouched — capture must never
         break a request over a weird query string.
         """
-        if not query:
-            return query
-        try:
-            pairs = parse_qsl(query, keep_blank_values=True)
-            if not pairs:
-                return query
-            pattern = self.query_params
-            if not any(pattern.search(k) for k, _ in pairs):
-                # Nothing sensitive: keep the original encoding byte-for-byte.
-                return query
-            redacted = [(k, REDACTED if pattern.search(k) else v) for k, v in pairs]
-            return urlencode(
-                redacted,
-                # Keep "[redacted]" readable in the request log instead of %5Bredacted%5D.
-                quote_via=lambda s, safe, enc, err: quote(s, safe=str(safe) + "[]", encoding=enc, errors=err),
-            )
-        except Exception:
-            return query
+        return _redact_pairs(query, lambda name: self.query_params.search(name) is not None)
+
+    def redact_form(self, payload: str) -> str:
+        """Redact matching field values in an ``application/x-www-form-urlencoded`` body.
+
+        A form field is masked when its name matches the body field patterns
+        or the query parameter patterns (built-ins included), so
+        ``password=x`` is stored as ``password=[redacted]``. Bodies with no
+        matching field are returned byte-for-byte.
+        """
+        return _redact_pairs(
+            payload,
+            lambda name: self.body_fields.search(name) is not None
+            or self.query_params.search(name) is not None,
+        )
 
     def redact_body(self, payload: str) -> str:
         """Redact matching field values in a JSON body (recursively).
@@ -267,6 +282,69 @@ class Redactor:
             return json.dumps(result, separators=(",", ":"), ensure_ascii=False)
         except Exception:
             return payload
+
+
+def _redact_pairs(encoded: str, sensitive: Callable[[str], bool]) -> str:
+    """Replace the values of sensitive ``name=value`` pairs in url-encoded text."""
+    if not encoded:
+        return encoded
+    try:
+        pairs = parse_qsl(encoded, keep_blank_values=True)
+        if not pairs:
+            return encoded
+        if not any(sensitive(k) for k, _ in pairs):
+            # Nothing sensitive: keep the original encoding byte-for-byte.
+            return encoded
+        redacted = [(k, REDACTED if sensitive(k) else v) for k, v in pairs]
+        return urlencode(
+            redacted,
+            # Keep "[redacted]" readable in the request log instead of %5Bredacted%5D.
+            quote_via=lambda s, safe, enc, err: quote(s, safe=str(safe) + "[]", encoding=enc, errors=err),
+        )
+    except Exception:
+        return encoded
+
+
+def media_type(content_type: str | None) -> str:
+    """``"Application/JSON; charset=utf-8"`` -> ``"application/json"``."""
+    return (content_type or "").split(";", 1)[0].strip().lower()
+
+
+class ContentTypeFilter:
+    """Decides from the Content-Type whether a body is captured at all.
+
+    Built once per middleware from ``capture_content_types`` (default
+    :data:`DEFAULT_CAPTURE_CONTENT_TYPES`). Patterns are shell-style globs
+    (``text/*``, ``application/*+json``) matched case-insensitively against
+    the media type without parameters. A body with no Content-Type is treated
+    as ``application/octet-stream``.
+    """
+
+    __slots__ = ("patterns",)
+
+    def __init__(self, patterns: Sequence[str] | str | None = None) -> None:
+        if patterns is None:
+            patterns = DEFAULT_CAPTURE_CONTENT_TYPES
+        elif isinstance(patterns, str):
+            patterns = patterns.split(",")
+        self.patterns: tuple[str, ...] = tuple(
+            dict.fromkeys(p.strip().lower() for p in patterns if p and p.strip())
+        )
+
+    def allows(self, content_type: str | None) -> bool:
+        mt = media_type(content_type) or _UNKNOWN_CONTENT_TYPE
+        return any(fnmatchcase(mt, p) for p in self.patterns)
+
+
+def omitted_body(content_type: str | None, size: int) -> str:
+    """Placeholder stored instead of a body whose content type is not captured.
+
+    Returns ``""`` for an empty body, so a bodiless request stays empty.
+    """
+    size = max(int(size or 0), 0)
+    if size == 0:
+        return ""
+    return f"[{media_type(content_type) or _UNKNOWN_CONTENT_TYPE}, {size} bytes omitted]"
 
 
 @dataclass(frozen=True, slots=True)
@@ -326,6 +404,7 @@ def mask_body(
     redactor: Redactor,
     masker: BodyMasker | None = None,
     info: RequestInfo | ResponseInfo | None = None,
+    content_type: str | None = None,
 ) -> str:
     """Turn captured body bytes into the payload string that is sent.
 
@@ -334,6 +413,12 @@ def mask_body(
     masking — user patterns plus the built-in defaults — is applied by
     ``redactor``. The callback can rewrite or drop the body but can never
     switch the built-ins off.
+
+    ``content_type`` picks the field masking: form-encoded bodies are masked
+    field by field (:meth:`Redactor.redact_form`), everything else goes
+    through the JSON field masking (a no-op for non-JSON text). Whether the
+    body is captured at all is decided by the caller with
+    :class:`ContentTypeFilter`.
 
     Fail closed: if the callback returns ``None``, raises, or returns
     something that is not bytes/str, the whole body becomes ``[masked]`` —
@@ -355,7 +440,32 @@ def mask_body(
         elif not isinstance(result, bytes):
             return MASKED
         body = result
-    return redactor.redact_body(decode_utf8_safe(body))
+    text = decode_utf8_safe(body)
+    if media_type(content_type) == FORM_CONTENT_TYPE:
+        return redactor.redact_form(text)
+    return redactor.redact_body(text)
+
+
+def capture_body(
+    body: bytes,
+    *,
+    size: int,
+    content_type: str | None,
+    content_types: ContentTypeFilter,
+    redactor: Redactor,
+    masker: BodyMasker | None = None,
+    info: RequestInfo | ResponseInfo | None = None,
+) -> str:
+    """The payload string for one captured side (request or response).
+
+    A body whose content type ``content_types`` does not allow is stored as
+    the :func:`omitted_body` placeholder (``size`` is its full length in
+    bytes; callers must not have buffered it). An allowed body goes through
+    :func:`mask_body`.
+    """
+    if not content_types.allows(content_type):
+        return omitted_body(content_type, size)
+    return mask_body(body, redactor=redactor, masker=masker, info=info, content_type=content_type)
 
 
 def decode_utf8_safe(data: bytes) -> str:

@@ -501,6 +501,7 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `capture_headers` | `True` | Capture request/response headers (sensitive values redacted). |
 | `log_request_body` / `log_response_body` | `True` | Toggle each body independently. |
 | `max_payload_bytes` | `65536` | Per-body capture cap; set `0` to disable body capture. |
+| `capture_content_types` | `DEFAULT_CAPTURE_CONTENT_TYPES` | Media-type globs whose bodies are captured (default `application/json`, `application/*+json`, `text/*`, `application/x-www-form-urlencoded`); replaces the defaults. Other bodies are never buffered and are stored as `[<content-type>, N bytes omitted]`. |
 | `capture_spans` | `True` | Emit trace spans for this app. |
 | `service_name` | `app_id` | Service name shown on spans. |
 | `get_consumer` | `None` | Optional resolver callback (see [consumer attribution](#consumer-attribution)). |
@@ -575,6 +576,7 @@ kube-probe
 | `APILENS_SERVICE_NAME` | `APILENS_APP_ID` | Service name on spans. |
 | `APILENS_GET_CONSUMER` | `None` | Consumer resolver (callable or dotted path). |
 | `APILENS_MASK_REQUEST_BODY` / `APILENS_MASK_RESPONSE_BODY` | `None` | Body mask callbacks (callable or dotted path). An unimportable path raises at startup. |
+| `APILENS_CAPTURE_CONTENT_TYPES` | JSON, `+json`, `text/*`, form-encoded | Media-type globs whose bodies are captured (a list or comma-separated string); replaces the defaults. |
 | `APILENS_EXCLUDE_PATHS` | `None` | Paths to skip entirely: a list of regexes or a comma-separated string. The env var of the same name adds to it. |
 | `APILENS_EXCLUDE_USER_AGENTS` | `None` | User agents to skip entirely: a list of regexes or a comma-separated string. The env var of the same name adds to it. |
 | `APILENS_DEFAULT_EXCLUSIONS` | `True` | `False` turns off the [built-in health/probe exclusions](#default-exclusions). |
@@ -875,6 +877,11 @@ exit. In Kubernetes, `terminationGracePeriodSeconds` (default 30 s) must exceed
                      mask_request_body=mask_request_body)
   # Django: APILENS_MASK_REQUEST_BODY = "myapp.apilens.mask_request_body"
   ```
+- **Only JSON, text and form-encoded bodies are captured.** Form-encoded bodies
+  are masked field by field (`password=x` is stored as `password=[redacted]`).
+  Multipart uploads, binary and untyped bodies are never buffered; they are
+  stored as `[<content-type>, N bytes omitted]`. Change the list with
+  `capture_content_types` (Django: `APILENS_CAPTURE_CONTENT_TYPES`).
 - **Bodies are size-limited** to `max_payload_bytes` (64 KB default). Disable body
   capture entirely with `capture_payloads=False` (or `max_payload_bytes=0`, or
   `APILENS_MAX_PAYLOAD_BYTES=0` on Django).

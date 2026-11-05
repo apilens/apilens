@@ -217,7 +217,14 @@ def test_wsgi_callbacks_mask_and_app_still_sees_raw_body() -> None:
         return b'{"cvv":"999","id":7}'
 
     client = FakeClient()
-    mw = ApiLensWSGIMiddleware(None, client, capture_spans=False, mask_request_body=mask_req, mask_response_body=mask_res)
+    mw = ApiLensWSGIMiddleware(
+        None,
+        client,
+        capture_spans=False,
+        mask_request_body=mask_req,
+        mask_response_body=mask_res,
+        capture_content_types=["application/xml"],
+    )
     body = b"<order><ssn>123</ssn></order>"
     app_input, out = _run_wsgi(mw, body, b"<ok/>")
     # Masking only touches the captured copy; the app reads the raw body.
@@ -233,7 +240,14 @@ def test_wsgi_callbacks_mask_and_app_still_sees_raw_body() -> None:
 
 def test_wsgi_callback_exception_masks_body() -> None:
     client = FakeClient()
-    mw = ApiLensWSGIMiddleware(None, client, capture_spans=False, mask_request_body=_boom, mask_response_body=_boom)
+    mw = ApiLensWSGIMiddleware(
+        None,
+        client,
+        capture_spans=False,
+        mask_request_body=_boom,
+        mask_response_body=_boom,
+        capture_content_types=["application/xml"],
+    )
     _run_wsgi(mw, RAW_SECRET.encode(), RAW_SECRET.encode())
     rec = client.records[0]
     assert rec["request_payload"] == MASKED and rec["response_payload"] == MASKED

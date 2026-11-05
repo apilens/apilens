@@ -192,6 +192,7 @@ def _run_wsgi(mw, path: str, query: str = ""):
         "REQUEST_METHOD": "POST",
         "PATH_INFO": path,
         "QUERY_STRING": query,
+        "CONTENT_TYPE": "application/json",
         "CONTENT_LENGTH": "7",
         "HTTP_HOST": "example.com",
         "wsgi.url_scheme": "http",
