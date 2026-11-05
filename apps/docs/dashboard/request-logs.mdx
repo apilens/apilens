@@ -24,7 +24,7 @@ Clicking a row opens the request detail modal:
 </Frame>
 
 - **Details** — status, host, client IP, consumer (with a one-click filter link), environment, trace ID, user agent, and size/timing cards.
-- **Headers** — request and response headers as captured. Sensitive values (`Authorization`, cookies, API keys, …) arrive already `[redacted]` — redaction happens in the SDK, before data leaves your process. Your own patterns (query params, headers, body fields) can be added with the [redaction options](/getting-started/data-privacy#pii-redaction-query-params-headers-body-fields).
+- **Headers** — request and response headers as captured. Sensitive values (`Authorization`, cookies, API keys, …) arrive already `[redacted]` — redaction happens in the SDK, before data leaves your process. Your own patterns (query params, headers, body fields) can be added with the [redaction options](/getting-started/data-privacy#your-own-masking-patterns).
 - **Payload** — request and response bodies with JSON highlighting and copy buttons, truncated at the SDK's `max_payload_bytes` (64 KB default).
 - **Trace** — the span waterfall for this request. Failing spans carry a red *exception* chip that expands the correlated exception inline, right under the span. See [Tracing](/dashboard/tracing).
 - **Exceptions** — every exception recorded for this request, with the count shown as a badge on the tab itself (a 502 that cascaded through three services shows *Exceptions 3*). Stack traces expand verbatim with one-click copy; entries without a traceback (e.g. a downstream 5xx) show the raw captured message.

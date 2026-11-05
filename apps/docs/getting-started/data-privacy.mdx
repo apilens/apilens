@@ -1,25 +1,40 @@
 ---
 title: "Data privacy"
-description: "Exactly what the SDK captures, what it redacts, and how to turn any of it off."
+description: "Exactly what the SDKs capture, what they and the ingest edge redact, how long it is kept, and how to turn any of it off."
 ---
 
-Observability tools see sensitive traffic, so this page is deliberately blunt about defaults. Where APILens captures something by default, we say so — and show you the switch.
+Observability tools see sensitive traffic, so this page is deliberately blunt about defaults. Where APILens captures something by default, we say so and show you the switch. It covers the Python (`apilenss`), TypeScript (`apilens-js-sdk`) and Java (`apilens-java-sdk`) SDKs; where an SDK lacks an option, the tables say so.
+
+## Two lines of defence
+
+A sensitive value has to get past two independent filters before it is stored:
+
+1. **The SDK, in your process.** Built-in masking, your own patterns, mask callbacks, exclusions, sampling and the capture switches all run before a record is queued. A value the SDK masks never leaves your process and never sits in its in-memory queue.
+2. **The ingest edge, on the server.** Before a record is written to ClickHouse, the edge applies the same built-in masking again, plus your project's and app's [server-side privacy policy](#server-side-privacy-policy), and enforces [payload and header caps](#server-side-caps). An old SDK, a misconfigured SDK, or a hand-rolled client posting to the [Ingest API](/ingest/ingest-api) cannot store more than the policy allows.
+
+The two lines use the same built-in lists, so a pattern you add on the server catches what an SDK config missed, without a redeploy. Neither line can remove the built-ins.
 
 ## What is captured per request
 
-| Data | Captured by default? | Control |
-|---|---|---|
-| Method, path template, status, response time | Yes | `enabled=False` disables everything |
-| Request/response sizes, user agent | Yes | — |
-| Client IP | Yes, in full | `capture_ip=False` / `APILENS_CAPTURE_IP=false` to drop it, `anonymize_ip=True` / `APILENS_ANONYMIZE_IP=true` to truncate it (IPv4 /24, IPv6 /48) |
-| Request & response **headers** | Yes, with sensitive values redacted | `capture_headers=False`, plus `redact_headers=[…]` for your own patterns |
-| Request & response **bodies** | JSON, text and form-encoded bodies only, truncated at 64 KB; [other content types](#which-bodies-are-captured) are stored as a size placeholder | `capture_payloads=False`, `log_request_body` / `log_response_body` individually, field-level `redact_body_fields=[…]`, or `capture_content_types=[…]` |
-| **Query strings** | Yes, as part of the exact request URL, with [default patterns](#default-masking-patterns) masked | `redact_query_params=[…]` per-parameter |
-| Entire requests to matching paths / user agents | Yes, unless excluded; [health checks and probes](#default-exclusions) are excluded by default | `exclude_paths=[…]` / `exclude_user_agents=[…]` regexes, `APILENS_EXCLUDE_PATHS` / `APILENS_EXCLUDE_USER_AGENTS`, `default_exclusions=False` to record probes |
-| Detail of every request (headers, bodies, spans, error log) | Yes, for 100% of requests | `sample_rate=0.1` keeps detail for ~10%; see [sampling](#sampling-request-detail) |
-| Consumer identity | **No** — only what you explicitly set | `set_consumer(...)` |
-| Trace spans | Yes (timing + endpoint/URL names, no payloads) | `capture_spans=False` or `APILENS_CAPTURE_SPANS=false` |
-| Error stack traces | Yes, on unhandled exception or 5xx | disabled along with spans |
+| Data | Captured by default? | Python | TypeScript | Java (`apilens.*` property) |
+|---|---|---|---|---|
+| Method, route template, status, latency | Yes | `enabled=False` stops everything | `enabled: false` | `enabled=false` |
+| Request/response sizes, user agent, trace id | Yes | — | — | — |
+| Client IP | Yes, in full | `capture_ip=False`, `anonymize_ip=True` ([details](#client-ip)) | Not available: always sent in full | `capture-ip=false`, `anonymize-ip=true` |
+| Request & response **headers** | Yes, [sensitive values masked](#automatic-header-redaction), 8 KB cap | `capture_headers=False`, `redact_headers=[…]` | `requestLogging.captureHeaders: false`, `redactHeaders` | `capture-headers=false`, `redact-headers` |
+| Request & response **bodies** | JSON, text and form-encoded only, [masked](#default-masking-patterns); [other types](#which-bodies-are-captured) become a size placeholder | `capture_payloads=False`, `log_request_body` / `log_response_body`, `redact_body_fields`, `mask_request_body` / `mask_response_body` | `requestLogging.capturePayloads`, `logRequestBody` / `logResponseBody`, `redactBodyFields`, `maskRequestBody` / `maskResponseBody` | `capture-payloads`, `log-request-body` / `log-response-body`, `redact-body-fields`, `maskRequestBody` / `maskResponseBody` |
+| Body size cap | 64 KB (Python, Java), 8 KB (TypeScript) | `max_payload_bytes` (`0` = no bodies) | `requestLogging.maxPayloadBytes` | `max-payload-bytes` |
+| **Query string** (on `raw_path`) | Yes, [default patterns](#default-masking-patterns) masked | `redact_query_params=[…]` | `redactQueryParams` | `redact-query-params` |
+| **Validation errors** (400/422 field errors: `loc`, `msg`, `type`) | Yes (Python: FastAPI, Litestar, Django Ninja) | `capture_validation_errors=False` | Not captured | Not captured |
+| Health checks, probes, static housekeeping files | **No**, [excluded by default](#default-exclusions) | `default_exclusions=False` to record them | `defaultExclusions: false` | `default-exclusions=false` |
+| Requests to your own paths / user agents | Yes, unless excluded | `exclude_paths`, `exclude_user_agents` | `excludePaths`, `excludeUserAgents` | `exclude-paths`, `exclude-user-agents` |
+| Detail (headers, bodies, spans, error log) | Yes, for 100% of requests | `sample_rate`, `sample_on_request`, `sample_on_response` | `sampleRate`, `sampleOnRequest`, `sampleOnResponse` | `sample-rate`, `sampleOnRequest`, `sampleOnResponse` |
+| Consumer identity | **No**, only what you set | `set_consumer(...)` | `setConsumer(req, …)` | `ApiLensConsumerResolver` bean |
+| Custom request attributes | **No**, only what you set (sent on the record and span; keep secrets out of them) | `set_request_attribute(key, value)` | Not available | Not available |
+| Trace spans (timing and endpoint/URL names, no payloads) | Yes | `capture_spans=False` | `captureSpans: false` | `capture-spans=false` |
+| Error log (message and stack trace on an unhandled exception or 5xx) | Yes | Off with spans; [`mask_log_record`](#masking-error-trace-logs) | Off with spans | Off with spans |
+
+Every option also has an `APILENS_*` environment variable with the same name in all three SDKs (`APILENS_CAPTURE_HEADERS`, `APILENS_REDACT_BODY_FIELDS`, `APILENS_SAMPLE_RATE`, …). Django reads the same names as settings. See [deploy-time kill switches](#deploy-time-kill-switches).
 
 <Warning>
 Unlike some tools that ship with request logging off, APILens captures headers and bodies **by default** so the request log is useful from minute one. If your API handles regulated data, decide deliberately: keep it, scope it down, or turn it off before deploying. The quickest way is a [capture profile](#capture-profiles).
@@ -27,13 +42,13 @@ Unlike some tools that ship with request logging off, APILens captures headers a
 
 ## Capture profiles
 
-`capture_profile` picks a whole capture posture in one word, so the choice is explicit and greppable in your config. It sets the defaults of the capture flags; any flag you set explicitly (keyword argument, its own `APILENS_*` env var or Django setting) wins over the preset.
+`capture_profile` (TypeScript and Java: `captureProfile`, Spring `apilens.capture-profile`) picks a whole capture posture in one word, so the choice is explicit and greppable in your config. It sets the defaults of the capture flags; any flag you set explicitly (in code, its own `APILENS_*` env var, Django setting or Spring property) wins over the preset.
 
-| Profile | Headers | Request / response bodies | Validation errors | Body cap |
+| Profile | Headers | Request / response bodies | Validation errors (Python) | Body cap |
 |---|---|---|---|---|
 | `metadata` | Off | Off | Off | — |
 | `redacted` | On, [sensitive headers](#automatic-header-redaction) masked | On, [default patterns](#default-masking-patterns) masked | On | 16 KB |
-| `full` (default) | On, [sensitive headers](#automatic-header-redaction) masked | On, [default patterns](#default-masking-patterns) masked | On | 64 KB |
+| `full` (default) | On, [sensitive headers](#automatic-header-redaction) masked | On, [default patterns](#default-masking-patterns) masked | On | 64 KB (TypeScript: `maxPayloadBytes`, 8 KB) |
 
 Every profile still sends the base record (method, route, status, latency, sizes, consumer, IP, user agent, trace id), so dashboards and metrics stay exact. The built-in masking patterns apply under every profile.
 
@@ -41,7 +56,8 @@ Every profile still sends the base record (method, route, status, latency, sizes
 **Recommended first production rollout: `metadata`.** The SDK default stays `full` for backwards compatibility. Start with `metadata`, check the request log, then move to `redacted` once you know what your payloads contain.
 </Tip>
 
-```python
+<CodeGroup>
+```python Python
 app.add_middleware(
     ApiLensMiddleware,
     api_key=os.environ["APILENS_API_KEY"],
@@ -50,87 +66,110 @@ app.add_middleware(
 )
 ```
 
-- **Env var:** `APILENS_CAPTURE_PROFILE=metadata`
-- **Django:** `APILENS_CAPTURE_PROFILE = "metadata"`
-- **Precedence:** explicit flag > the flag's env var / Django setting > `capture_profile` > default. `capture_profile="metadata", log_response_body=True` keeps response bodies only.
-- **Validated at startup.** An unknown profile name raises when the middleware is constructed.
+```js TypeScript
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  captureProfile: "metadata",
+});
+```
+
+```properties Java (Spring Boot)
+apilens.capture-profile=metadata
+```
+</CodeGroup>
+
+- **Env var:** `APILENS_CAPTURE_PROFILE=metadata` in every SDK. Django: `APILENS_CAPTURE_PROFILE = "metadata"`.
+- **Precedence:** explicit flag > the flag's env var / Django setting / Spring property > profile > default. `capture_profile="metadata", log_response_body=True` keeps response bodies only.
+- **Validated at startup.** An unknown profile name raises when the middleware or filter is created.
 
 ## Automatic header redaction
 
-Values of these headers are replaced with `[redacted]` before leaving your process:
+In every SDK, values of these headers are replaced with `[redacted]` before leaving your process:
 
 `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key`, `api-key`, `x-auth-token`, `x-amz-security-token`, `x-csrf-token`
 
-These built-ins always apply — you can only add to them (see [PII redaction](#pii-redaction-query-params-headers-body-fields) below), never remove them. Serialized headers are additionally capped at 8 KB per side, dropping the longest values first.
+These built-ins always apply: you can add to them, never remove them. The ingest edge strips the same headers again whatever the SDK sent. Serialized headers are capped at 8 KB per side, dropping the longest values first.
 
 ## Default masking patterns
 
-On top of the exact header names above, the SDK ships regex patterns that are **always on** — no configuration needed. Each is matched case-insensitively (`re.search`) against the query parameter, header, or JSON body field **name**, and a matching value is stored as `[redacted]`:
+On top of the exact header names above, the three SDKs and the ingest edge share the same regex lists, **always on**, no configuration needed. Each pattern is matched case-insensitively anywhere in the query parameter, header or JSON body field **name**, and a matching value is stored as `[redacted]`:
 
 | Applies to | Built-in patterns |
 |---|---|
 | Query params (`DEFAULT_MASK_QUERY_PARAMS`) | `auth`, `api.?key`, `secret`, `token`, `password`, `pwd` |
 | Headers (`DEFAULT_MASK_HEADER_PATTERNS`) | `auth`, `api.?key`, `secret`, `token`, `cookie` |
-| JSON body fields (`DEFAULT_MASK_BODY_FIELDS`) | `password`, `pwd`, `token`, `secret`, `auth`, `card.?number`, `ccv`, `cvv`, `cvc`, `ssn` |
+| JSON body fields, at any depth (`DEFAULT_MASK_BODY_FIELDS`) | `password`, `pwd`, `token`, `secret`, `auth`, `card.?number`, `ccv`, `cvv`, `cvc`, `ssn` |
 
 So a request to `/search?token=abc&q=shoes` is stored as `/search?token=[redacted]&q=shoes` with no config at all. Patterns are unanchored, so `token` also covers `access_token` and `auth` covers `x-auth-user`.
 
-- **Body masking covers strings and numbers.** `{"card_number": 4242424242424242}` is masked just like `{"card_number": "4242…"}`. A nested object or array under a matching name is masked whole; booleans and `null` stay visible.
-- **Unchanged when nothing matches.** A query string or body with no matching name is passed through byte-for-byte.
-- **Your patterns extend these, never replace them.** `redact_query_params`, `redact_headers` and `redact_body_fields` below are added to the defaults.
-- **Compiled once.** Defaults and your patterns are compiled into one regex per category when the middleware is created; nothing is compiled per request. An invalid pattern raises at startup.
+- **Body masking covers strings and numbers.** `{"card_number": 4242424242424242}` is masked just like `{"card_number": "4242…"}`. In the SDKs a nested object or array under a matching name is masked whole; booleans and `null` stay visible.
+- **Unchanged when nothing matches.** A query string or body with no matching name is passed through byte for byte.
+- **Your patterns extend these, never replace them.**
+- **Compiled once.** Defaults and your patterns are compiled when the middleware or filter is created, never per request. An invalid pattern fails at startup.
 
-## PII redaction: query params, headers, body fields
+## Your own masking patterns
 
-Beyond the built-in header list and default patterns, you can redact **more values by name** — query parameters, extra headers, and JSON body fields — with three middleware options:
+Add patterns for query parameters, headers and JSON body fields. They work like the defaults: matched against **names**, case-insensitively; matched **values** become `[redacted]`; names stay visible.
 
-```python
+<CodeGroup>
+```python Python
 app.add_middleware(
     ApiLensMiddleware,
     api_key="apilens_xxx",
     app_id="orders-api",
-    # Regexes matched case-insensitively against NAMES; matched VALUES
-    # are stored as [redacted]. Anchor for exact matches.
     redact_query_params=[r"^card_number$", r"token"],
-    redact_headers=[r"^x-internal-secret$"],        # on top of the built-ins
+    redact_headers=[r"^x-internal-secret$"],
     redact_body_fields=[r"^password$", r"^cvv$", r"card"],
 )
 ```
 
-How it behaves:
-
-- **Matching is by name, not value.** Each pattern is matched case-insensitively (`re.search`) against the query parameter name, header name, or JSON field name. Use `^…$` anchors for exact matches — an unanchored `token` also matches `access_token`.
-- **Values become `[redacted]`, names stay visible.** The request log still shows *what* was sent (`/charge?access_token=[redacted]&promo=SAVE10`), never the sensitive value.
-- **Body redaction walks nested JSON** — objects inside objects, objects inside arrays. A body of `{"user": {"card_number": "4242…"}}` comes out as `{"user": {"card_number": "[redacted]"}}`. Form-encoded bodies are masked field by field (see [below](#which-bodies-are-captured)). Other text bodies pass through unchanged; use the capture switches if you log sensitive plain-text payloads.
-- **Redaction happens in the SDK, in your process.** The raw value never reaches APILens — same guarantee as the built-in header redaction.
-- **It applies to both sides** — request *and* response headers and bodies.
-
-In Django the same three options are settings:
-
-```python
+```python Django
 APILENS_REDACT_QUERY_PARAMS = [r"^card_number$", r"token"]
 APILENS_REDACT_HEADERS = [r"^x-internal-secret$"]
 APILENS_REDACT_BODY_FIELDS = [r"^password$", r"^cvv$", r"card"]
 ```
 
+```js TypeScript
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  redactQueryParams: ["^card_number$", "token"],
+  redactHeaders: ["^x-internal-secret$"],
+  redactBodyFields: [/^password$/, "^cvv$", "card"],
+});
+```
+
+```properties Java (Spring Boot)
+apilens.redact-query-params[0]=^card_number$
+apilens.redact-headers[0]=^x-internal-secret$
+apilens.redact-body-fields[0]=^password$
+apilens.redact-body-fields[1]=card
+```
+</CodeGroup>
+
+Or, without a code change, in any SDK: `APILENS_REDACT_BODY_FIELDS=^password$,^ssn$` (comma-separated; put a regex that needs a literal comma in code instead).
+
+- **Use `^…$` anchors for exact matches.** An unanchored `token` also matches `access_token`.
+- **Body redaction walks nested JSON**: objects inside objects, objects inside arrays. `{"user": {"card_number": "4242…"}}` comes out as `{"user": {"card_number": "[redacted]"}}`.
+- **It applies to both sides**: request *and* response headers and bodies.
+- **Redaction happens in the SDK, in your process.** The raw value never reaches APILens.
+
 <Note>
-Redaction applies to values captured going forward — it cannot retroactively scrub requests that were already recorded without it. Configure it **before** pointing production traffic at APILens.
+Masking applies to records captured going forward. It cannot scrub requests that were already stored without it (they age out with [retention](#retention)). Configure it **before** pointing production traffic at APILens.
 </Note>
 
 ## Which bodies are captured
 
-Bodies are captured by **content type**, read from the `Content-Type` header of each side:
+Bodies are captured by **content type**, read from the `Content-Type` header of each side. All three SDKs share the default list:
 
 | Content type | What is stored |
 |---|---|
 | `application/json`, any `application/*+json` (`problem+json`, `vnd.api+json`, …) | The body, with [JSON field masking](#default-masking-patterns) |
 | `text/*` (`text/plain`, `text/html`, `text/csv`, …) | The body as text |
 | `application/x-www-form-urlencoded` | The body, with each field masked like a query parameter: a field whose name matches a body-field **or** query-parameter pattern is stored as `[redacted]`, so `user=ada&password=x` becomes `user=ada&password=[redacted]` |
-| Anything else: `multipart/form-data` uploads, images, PDFs, archives, `application/octet-stream`, or no `Content-Type` at all | A placeholder such as `[multipart/form-data, 48213 bytes omitted]`. The body is never buffered or read by the SDK, so large uploads and downloads cost nothing. |
+| Anything else: `multipart/form-data` uploads, images, PDFs, archives, `application/octet-stream`, or no `Content-Type` at all | A placeholder such as `[multipart/form-data, 48213 bytes omitted]`. The body is never buffered or read, so large uploads and downloads cost nothing. |
 
 - **Parameters are ignored** (`application/json; charset=utf-8` counts as `application/json`), and matching is case-insensitive.
-- **Mask callbacks only see captured bodies.** `mask_request_body` / `mask_response_body` are not called for an omitted body.
-- **Override the list** with `capture_content_types` (Django: `APILENS_CAPTURE_CONTENT_TYPES`, a list or comma-separated string). It **replaces** the defaults, and entries are shell-style globs:
+- **Change the list** with `capture_content_types` (Python; Django `APILENS_CAPTURE_CONTENT_TYPES`) or `captureContentTypes` (TypeScript), or `APILENS_CAPTURE_CONTENT_TYPES` in either. It **replaces** the defaults, and entries are shell-style globs. **Java:** not available; the list above is fixed.
 
 ```python
 app.add_middleware(
@@ -149,15 +188,62 @@ app.add_middleware(
 ```
 
 <Warning>
-Adding a type such as `multipart/*` or `application/octet-stream` makes the SDK buffer those bodies (up to `max_payload_bytes`) and send them as text. Field masking only understands JSON and form-encoded bodies, so values inside other formats are sent unmasked unless a mask callback handles them.
+Adding a type such as `multipart/*` or `application/octet-stream` makes the SDK buffer those bodies (up to the body cap) and send them as text. Field masking only understands JSON and form-encoded bodies, so values inside other formats are sent unmasked unless a [mask callback](#body-mask-callbacks) handles them.
 </Warning>
 
-## Masking error-trace logs: `mask_log_record`
+## Body mask callbacks
 
-When a request raises or returns a 5xx, the SDK sends an `ERROR` log record (message plus stack trace) correlated to the request's trace. Messages and stack traces can contain secrets, so every log record goes through two steps before it is queued:
+Field patterns match by name. For everything they can't express (XML, free text, card numbers inside a value, or "drop every body under `/kyc`"), give the SDK a callback that sees the captured raw body. All three SDKs have one per side:
 
-1. **Your `mask_log_record(record)` callback**, if set. It receives the `LogRecord` and returns it (edited or replaced) to send it, or `None` to drop it.
-2. **Built-in `key=value` masking**, always on. In the message, the stack-trace payload and attribute values, any `name=value`, `name: value` or `'name': 'value'` pair whose name matches a default sensitive pattern (every query, header and body pattern in the table above) has its value replaced with `[redacted]`. `token=abc` becomes `token=[redacted]`, and `Authorization: Bearer abc` becomes `Authorization: [redacted]`. Attributes whose key matches are masked whole.
+| SDK | Request | Response | Body type |
+|---|---|---|---|
+| Python | `mask_request_body(info, body)` | `mask_response_body(info, body)` | `bytes` |
+| TypeScript | `maskRequestBody(info, body)` | `maskResponseBody(info, body)` | `Buffer` |
+| Java | `maskRequestBody((info, body) -> …)` | `maskResponseBody((info, body) -> …)` | `byte[]` |
+
+The request info carries `method`, `path`, `raw_path` (query already redacted), `headers` and `content_type`; the response info carries `request`, `status_code`, `headers` and `content_type` (camelCase in TypeScript and Java).
+
+<CodeGroup>
+```python Python
+def mask_request_body(info, body: bytes) -> bytes | None:
+    if info.path.startswith("/kyc"):
+        return None  # stored as [masked]
+    return body
+
+app.add_middleware(ApiLensMiddleware, api_key="apilens_xxx", app_id="orders-api",
+                   mask_request_body=mask_request_body)
+# Django: APILENS_MASK_REQUEST_BODY = "myapp.apilens.mask_request_body"
+```
+
+```js TypeScript
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  maskRequestBody: (info, body) => (info.path.startsWith("/kyc") ? null : body),
+  maskResponseBody: (info, body) =>
+    Buffer.from(body.toString().replace(/\d{12,19}/g, "####")),
+});
+```
+
+```java Java
+@Bean
+ApiLensSpringOptionsCustomizer apiLensBodyMasking() {
+  return options -> options
+      .maskRequestBody((info, body) -> info.path().startsWith("/kyc") ? null : body);
+}
+```
+</CodeGroup>
+
+- **Order is fixed:** callback first, then your regex field patterns, then the built-in defaults. The built-ins still apply to whatever the callback returns, so it cannot switch them off.
+- **Return the bytes to store, or `null` / `None`** to store the whole body as `[masked]`.
+- **Fail closed.** If the callback throws, or returns something that is not bytes (a `Promise` included, in TypeScript), the body is stored as `[masked]`, never raw.
+- **Only captured bodies are passed.** Callbacks are not called for an omitted body (wrong content type, sampled out, capture off), and they receive the body already truncated to the body cap.
+
+## Masking error-trace logs
+
+When a request raises or returns a 5xx, the SDK sends an `ERROR` log record (message plus stack trace) correlated to the request's trace. Messages and stack traces can contain secrets.
+
+- **All SDKs:** the ingest edge masks every log record before it is stored. Any `name=value`, `name: value` or `'name': 'value'` pair in the message whose name matches a built-in or [policy](#server-side-privacy-policy) pattern has its value replaced, and JSON fields in the payload are masked like a body.
+- **Python only:** `mask_log_record` lets you edit or drop a record in your process, and the same built-in `key=value` masking then runs in the SDK too. TypeScript and Java do not have this callback; turn the error log off with `captureSpans: false` / `apilens.capture-spans=false` if its content must not leave the process.
 
 ```python
 import re
@@ -177,56 +263,63 @@ app.add_middleware(ApiLensMiddleware, client=client, app_id="orders-api")
 ```
 
 - **The callback runs first and cannot turn the built-ins off.** If it puts a `token=…` back into the message, that value is still masked.
-- **Fail closed.** If the callback raises, or returns anything other than a `LogRecord` or `None`, the record is dropped. It is never sent unmasked.
-- **It covers every log record**: the automatic error-trace logs today, and any application logs the SDK sends in future.
+- **Fail closed.** If the callback raises, or returns anything other than a `LogRecord` or `None`, the record is dropped, never sent unmasked.
+- **Django:** set `APILENS_MASK_LOG_RECORD` to the callable or its dotted import path. A path that cannot be resolved raises at startup.
 
-In Django, set `APILENS_MASK_LOG_RECORD` to the callable or its dotted import path (`"myapp.apilens.mask_log_record"`). An import path that cannot be resolved raises at startup.
+## Client IP
 
-## Client IP: `capture_ip` and `anonymize_ip`
+The client IP is taken from the first `X-Forwarded-For` entry, then `X-Real-IP`, then the socket peer. Python and Java have two options, applied in your process before the record is built:
 
-The client IP is taken from the first `X-Forwarded-For` entry, then `X-Real-IP`, then the socket peer. Two options control what is sent, both applied in your process before the record is built:
+| Option | Python | Java | Env var | Effect |
+|---|---|---|---|---|
+| Drop the IP | `capture_ip=False` (Django `APILENS_CAPTURE_IP = False`) | `apilens.capture-ip=false` | `APILENS_CAPTURE_IP=false` | No IP is sent at all. Wins over anonymisation. |
+| Anonymise the IP | `anonymize_ip=True` (Django `APILENS_ANONYMIZE_IP = True`) | `apilens.anonymize-ip=true` | `APILENS_ANONYMIZE_IP=true` | IPv4 keeps its /24 (`203.0.113.42` → `203.0.113.0`); IPv6 keeps its /48 (`2001:db8:85a3:8d3::1` → `2001:db8:85a3::`). IPv4-mapped IPv6 is treated as IPv4. A value that is not a valid IP is dropped rather than sent. |
 
-| Option | Env var | Django setting | Effect |
-|---|---|---|---|
-| `capture_ip=False` | `APILENS_CAPTURE_IP=false` | `APILENS_CAPTURE_IP = False` | No IP is sent at all. Wins over `anonymize_ip`. |
-| `anonymize_ip=True` | `APILENS_ANONYMIZE_IP=true` | `APILENS_ANONYMIZE_IP = True` | IPv4 keeps its /24 (`203.0.113.42` → `203.0.113.0`); IPv6 keeps its /48 (`2001:db8:85a3:8d3::1` → `2001:db8:85a3::`). IPv4-mapped IPv6 is treated as IPv4. A value that is not a valid IP is dropped rather than sent. |
+**TypeScript:** not available yet; the SDK always sends the client IP in full.
 
-Both are client options, so they cover every framework integration:
-
-```python
-from apilens import ApiLensClient, ApiLensConfig
-
-client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx", anonymize_ip=True))
-```
-
-With the one-line `ApiLensMiddleware` (which builds its own client), use the env vars. As with the other privacy switches, the env vars can only tighten capture: `APILENS_CAPTURE_IP=false` beats `capture_ip=True` in code, never the other way round.
+In Python both are client options (`ApiLensConfig(anonymize_ip=True)`), so they cover every framework integration; with the one-line `ApiLensMiddleware`, use the env vars. Outside Spring, Java's `IpPrivacy.apply(ip, captureIp, anonymizeIp)` applies the same rule. The env vars can only tighten capture: `APILENS_CAPTURE_IP=false` beats `capture_ip=True` in code, never the other way round.
 
 <Note>
-**Limitation:** an anonymised IP is a network, not a client. All callers in the same /24 (IPv4) or /48 (IPv6) show up as **one** IP in the consumer and IP filters and are counted together, so per-IP breakdowns become per-network breakdowns. Requests recorded before you turned anonymisation on keep their full IP, so the same caller can appear under both values for a while.
+**Limitation:** an anonymised IP is a network, not a client. All callers in the same /24 (IPv4) or /48 (IPv6) show up as **one** IP in the consumer and IP filters and are counted together. Requests recorded before you turned anonymisation on keep their full IP until they age out.
 </Note>
 
-## Excluding paths (health checks, probes)
+## Excluding requests
 
-Some endpoints should never be recorded at all — load-balancer health checks, readiness probes, metrics scrapes. Pass `exclude_paths` and matching requests bypass the SDK entirely: no request record, no span, no error log, and no body buffering.
+Some endpoints should never be recorded: load-balancer health checks, readiness probes, metrics scrapes. Matching requests bypass the SDK entirely: no record, no span, no error log, and no body buffering.
 
-```python
+<CodeGroup>
+```python Python
 app.add_middleware(
     ApiLensMiddleware,
     api_key="apilens_xxx",
     app_id="orders-api",
-    exclude_paths=[r"^/health$", r"^/ready$", r"^/metrics"],
+    exclude_paths=[r"^/internal/", r"^/metrics"],
+    exclude_user_agents=[r"^uptimerobot"],
 )
 ```
 
-- **Matched against the actual path**, not the route template, case-insensitively (`re.search`), with the query string removed. `^`/`$` anchor to the path: `r"^/metrics$"` skips `/metrics` and `/metrics?probe=1` but not `/metrics/cpu` or `/api/metrics`.
-- **Compiled once at startup.** An invalid regex raises when the middleware is constructed, not on the first request.
-- **Django:** `APILENS_EXCLUDE_PATHS = [r"^/health$", r"^/ready$"]` (a comma-separated string also works).
-- **Environment variable:** `APILENS_EXCLUDE_PATHS="^/health$,^/ready$"` adds patterns on top of the ones in code, for every framework. Because it is split on commas, put any regex that needs a literal comma (`{1,3}`) in code instead.
-- **User agents:** `exclude_user_agents=[r"^uptimerobot"]` (Django `APILENS_EXCLUDE_USER_AGENTS`, env var `APILENS_EXCLUDE_USER_AGENTS`) skips requests whose `User-Agent` header matches, with the same case-insensitive `re.search` semantics.
+```js TypeScript
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  excludePaths: ["^/internal/", /^\/metrics/],
+  excludeUserAgents: ["^uptimerobot"],
+});
+```
+
+```properties Java (Spring Boot)
+apilens.exclude-paths[0]=^/internal/
+apilens.exclude-paths[1]=^/metrics
+apilens.exclude-user-agents[0]=^uptimerobot
+```
+</CodeGroup>
+
+- **Matched against the actual path**, not the route template, case-insensitively, with the query string removed. `^`/`$` anchor to the path: `^/metrics$` skips `/metrics` and `/metrics?probe=1` but not `/metrics/cpu`.
+- **Compiled once at startup.** An invalid regex fails when the middleware or filter is created.
+- **Environment variables** `APILENS_EXCLUDE_PATHS` and `APILENS_EXCLUDE_USER_AGENTS` (comma-separated) **add** patterns on top of the ones in code, in every SDK. Django reads the same names as settings.
 
 ### Default exclusions
 
-Health checks, probes and browser housekeeping files are excluded out of the box, before your `exclude_paths` are checked. The built-in lists (`DEFAULT_EXCLUDED_PATHS` and `DEFAULT_EXCLUDED_USER_AGENTS` in `apilens/client/_exclusions.py`), all case-insensitive:
+Health checks, probes and browser housekeeping files are excluded out of the box, before your own patterns are checked. The three SDKs ship the same lists (`DEFAULT_EXCLUDED_PATHS` and `DEFAULT_EXCLUDED_USER_AGENTS`), all case-insensitive:
 
 | Paths | User agents |
 |---|---|
@@ -246,62 +339,99 @@ Health checks, probes and browser housekeeping files are excluded out of the box
 | `/sw\.js$` | |
 | `/\.well-known/` | |
 
-That covers `/health`, `/healthz`, `/health_checks`, `/heartbeat`, `/ping`, `/ready`, `/live`, favicon, robots, sitemap, manifest and service-worker files, anything under `/.well-known/`, and the Kubernetes, Google Cloud, Azure and generic health-check probe user agents. To record them, pass `default_exclusions=False` (Django: `APILENS_DEFAULT_EXCLUSIONS = False`); your own `exclude_paths` and `exclude_user_agents` still apply.
+That covers `/health`, `/healthz`, `/health_checks`, `/heartbeat`, `/ping`, `/ready`, `/live`, favicon, robots, sitemap, manifest and service-worker files, anything under `/.well-known/`, and the Kubernetes, Google Cloud, Azure and generic health-check probe user agents. To record them, turn the defaults off with `default_exclusions=False` (Django `APILENS_DEFAULT_EXCLUSIONS = False`), `defaultExclusions: false`, `apilens.default-exclusions=false` or `APILENS_DEFAULT_EXCLUSIONS=false`; your own patterns still apply.
 
 ## Sampling request detail
 
-`sample_rate` (0.0–1.0, default `1.0`) keeps the request **detail** — headers, bodies, spans and the auto error-trace log — for that fraction of requests. **Sampling never changes metrics:** every request still sends its base record (method, path, status, latency, sizes, consumer, IP, user agent, trace id), so request counts, error rates and latency percentiles stay exact. A sampled-out request reaches APILens with `sampled=false` and no detail.
+`sample_rate` / `sampleRate` (0.0–1.0, default `1.0`) keeps the request **detail** (headers, bodies, and in Python and Java the spans and error log) for that fraction of requests. **Sampling never changes metrics:** every request still sends its base record (method, path, status, latency, sizes, consumer, trace id) with `sampled=false`, so counts, error rates and latency percentiles stay exact. The bodies of sampled-out requests are never buffered.
+
+Two callbacks refine the rate per request in every SDK: `sample_on_request` / `sampleOnRequest` before the handler runs, and `sample_on_response` / `sampleOnResponse` after the response, once the status, latency and consumer are known. The response callback can drop a kept request's detail but never bring back one the request stage dropped. A callback that throws is logged once and ignored.
 
 ```python
-app.add_middleware(
-    ApiLensMiddleware,
-    api_key="apilens_xxx",
-    app_id="orders-api",
-    sample_rate=0.1,   # detail for ~10% of requests; metrics from 100%
-)
+def sample(info):
+    return info.status_code >= 400   # keep detail for failed requests only
+
+app.add_middleware(ApiLensMiddleware, api_key="apilens_xxx", app_id="orders-api",
+                   sample_rate=0.1, sample_on_response=sample)
 ```
 
-- **Decided once per request**, before the handler runs, with a fast PRNG. `1.0` and `0.0` are exact; `1.0` sends exactly what the SDK sent before sampling existed.
-- **Bodies of sampled-out requests are never buffered**, so a low rate also lowers the SDK's memory and CPU overhead.
-- **Trace context still flows.** A sampled-out request continues the caller's `traceparent` and propagates it to downstream calls, so child services make their own sampling decision.
-- **Validated at startup.** A value outside 0.0–1.0 raises when the middleware is constructed.
-- **Django:** `APILENS_SAMPLE_RATE = 0.1`.
+See [Sampling](/sdk-reference/sampling) for every return value and the callbacks' fields.
 
-## Turning capture down (or off)
+## Remote capture policy
 
-```python
-app.add_middleware(
-    ApiLensMiddleware,
-    api_key="apilens_xxx",
-    app_id="orders-api",
-    capture_profile="metadata",     # no headers, bodies or validation errors
-    # or, with no preset:
-    enable_request_logging=False,   # no headers, no bodies
-    # or, more surgical:
-    log_request_body=False,
-    log_response_body=False,
-    capture_headers=False,
-    max_payload_bytes=4096,         # keep bodies but cap them tighter (0 = none)
-)
+Each app has a capture policy you set in APILens, under **Settings → Capture** or with `PUT /api/v1/apps/{id}/capture-policy`. The SDKs receive it on their [heartbeat](/ingest/heartbeat) and apply it from the next request, within about two minutes and without a redeploy:
+
+| Field | Effect |
+|---|---|
+| `enabled: false` | The SDKs stop sending records (heartbeats continue). The kill switch. |
+| `sample_rate` | Samples out more requests; their base records are still sent. |
+| `capture_headers`, `capture_request_body`, `capture_response_body` | `false` drops that part of the detail. |
+| `max_payload_bytes` | Cuts bodies shorter. The edge also enforces it ([below](#server-side-caps)). |
+
+The remote policy **only narrows** what is captured: a local setting that captures less always wins, and the policy never turns on what your code turned off. A failed heartbeat keeps the previous policy. An app without a saved policy captures everything its SDK config allows.
+
+## Server-side privacy policy
+
+The second line of defence. Each project, and each app within it, has a **deny list** applied by the ingest edge to every request and log record before it is stored, whatever SDK (or client) sent it. Set it under **Settings → Privacy** in the project, where a live tester shows what a sample value becomes, or with `PUT /api/v1/projects/{slug}/privacy-policy` (signed-in session; owners, admins and members):
+
+```json
+{
+  "mask_query_params": ["^session$"],
+  "mask_headers": ["^x-tenant-key$"],
+  "mask_body_fields": ["^iban$", "^dob$"]
+}
 ```
 
-These environment variables act as deploy-time kill switches, overriding code:
+Add `?app=<slug>` to address one app's policy instead of the project-wide one. `GET` on the same path returns the policy and the built-in defaults.
 
-- `APILENS_CAPTURE_SPANS=false` — stop all span and error-trace capture
-- `APILENS_PARAMETRIZE_PATHS=false` — disable heuristic path templating
-- `APILENS_CAPTURE_IP=false` — stop sending client IPs
-- `APILENS_ANONYMIZE_IP=true` — truncate client IPs (IPv4 /24, IPv6 /48)
+- **What it masks:** query parameter values in `raw_path`, captured header values, JSON body field values (strings and numbers, at any depth) and `key=value` pairs in log messages, form-encoded bodies and other text bodies. Values become `[redacted]`; names stay visible.
+- **What applies:** the built-in defaults (the [same lists](#default-masking-patterns) and [sensitive headers](#automatic-header-redaction) as the SDKs) **plus** the project's policy **plus** the record's app's policy. Policies only add patterns; nothing removes the defaults.
+- **Patterns** are case-insensitive RE2 regexes matched against names, at most 50 per list and 256 bytes each. An invalid pattern is refused when you save, with the offending entry named.
+- **Changes take effect** on the edges within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default).
+- **Fail closed.** If the edge cannot read a project's policy, it refuses the batch with `503` and `Retry-After` rather than store records without it; the SDKs retry.
+- Masked records are counted in the app's [ingest health](/ingest/ingest-health) (`masked`), so you can see the edge catching what an SDK config missed.
+
+### Server-side caps
+
+The edge also caps what any client can store, after masking:
+
+- Request and response **payloads** at the app's capture-policy `max_payload_bytes`, or 64 KB without one.
+- Request and response **headers** at 8 KB per side.
+
+A value cut by the edge ends with `…[truncated]` and is counted as `truncated` in [ingest health](/ingest/ingest-health).
+
+## Deploy-time kill switches
+
+Every option above can be set from the environment in all three SDKs, so tightening capture needs no code change (`APILENS_CAPTURE_PROFILE=metadata`, `APILENS_CAPTURE_HEADERS=false`, `APILENS_REDACT_BODY_FIELDS=…`). Most env vars lose to a value set explicitly in code; these act as kill switches and win over code, but only in the direction that captures less:
+
+- `APILENS_CAPTURE_SPANS=false`: stop all span and error-trace capture
+- `APILENS_CAPTURE_IP=false`: stop sending client IPs (Python, Java)
+- `APILENS_ANONYMIZE_IP=true`: truncate client IPs to IPv4 /24, IPv6 /48 (Python, Java)
+- `APILENS_PARAMETRIZE_PATHS=false`: disable heuristic path templating
+- `APILENS_EXCLUDE_PATHS` / `APILENS_EXCLUDE_USER_AGENTS`: add exclusions on top of the ones in code
+
+For a running fleet, the [remote capture policy](#remote-capture-policy) does the same from the dashboard.
+
+## Retention
+
+Telemetry is stored in ClickHouse and deleted automatically by table TTL; there is nothing to configure and no way to extend it per project.
+
+| Data | Kept for |
+|---|---|
+| Request records (`api_requests`): headers, bodies, query strings, IPs, validation errors | **90 days** |
+| Error-trace logs (`api_logs`) and trace spans (`api_spans`) | 30 days |
+| Per-minute traffic rollups (`api_requests_1m`) | 30 days |
+| Per-hour traffic rollups (`api_requests_1h`) and deploy markers (`api_deploys`): counts and latencies only, no payloads | 400 days |
+| Consumer list (`api_consumers`): the ids and names your code passed to `set_consumer`, with first/last seen | No TTL |
+
+Metadata (users, projects, apps, keys, policies) lives in Postgres. Requests recorded before you tightened capture or added a pattern keep what was captured until their 90 days run out.
 
 ## What APILens never does
 
-- **Never reads or infers identity.** No decoding of `Authorization` headers, JWTs, or sessions. The Consumers page shows only what your code passes to `set_consumer()`.
-- **Never blocks or breaks a request.** Telemetry failures are retried and then dropped silently; nothing propagates into your handlers.
-- **Never traces its own traffic.** The SDK's calls to the ingest endpoints are excluded from spans.
-
-## What's still missing
-
-Callback-based masking — a custom function deciding per request whether to drop a whole body (e.g. everything under `/admin/`) — is **not available yet**; it's on the [roadmap](/roadmap). The regex options above plus the capture switches cover everything else.
+- **Never reads or infers identity.** No decoding of `Authorization` headers, JWTs or sessions. The Consumers page shows only what your code passes to `set_consumer()`.
+- **Never blocks or breaks a request.** Telemetry failures are retried and then dropped; nothing propagates into your handlers, and a throwing callback is contained.
+- **Never traces its own traffic.** The SDKs' calls to the ingest endpoints are excluded from spans.
 
 <Note>
-Data is stored in ClickHouse (telemetry) and Postgres (metadata) operated by APILens. If you need data to stay entirely on your infrastructure, point `base_url` at a self-hosted ingest service — see the [Ingest API](/ingest/ingest-api).
+If you need data to stay entirely on your infrastructure, run APILens yourself and point `base_url` / `baseUrl` / `apilens.base-url` at your own ingest. See the [Ingest API](/ingest/ingest-api).
 </Note>
