@@ -146,6 +146,7 @@ Spring properties use the `apilens.*` prefix:
 | `apilens.exclude-paths` | empty |
 | `apilens.exclude-user-agents` | empty |
 | `apilens.default-exclusions` | `true` |
+| `apilens.sample-rate` | `1.0` |
 
 Redaction accepts case-insensitive regexes matched against names:
 
@@ -255,6 +256,50 @@ Without Spring Boot, pass the same settings to
 `ApiLensSpringOptions.builder().excludePaths(...).excludeUserAgents(...).defaultExclusions(...)`.
 The `APILENS_EXCLUDE_PATHS` environment variable (comma-separated) adds path
 patterns on top.
+
+## Sampling
+
+Sampling never changes metrics. Every request still sends its base record
+(method, route, status, latency, sizes, consumer, trace id), so traffic, error
+and latency charts stay exact. A sampled-out request only loses its detail:
+headers, bodies, its span and its automatic error log, and its record carries
+`sampled: false`. The trace context is still propagated to the handler and
+downstream services, so they can decide independently.
+
+`apilens.sample-rate` (`0.0`–`1.0`, default `1.0`) is the fraction of requests
+whose detail is kept. Two callbacks refine it, each returning a
+`SampleDecision`: `KEEP`, `DROP`, `SampleDecision.probability(p)` or
+`UNDECIDED`.
+
+- `sampleOnRequest` (`RequestSampler`) runs before the handler, with a
+  `RequestInfo` (`method`, `path`, `rawPath`, `headers`, `userAgent()`). A
+  request it drops is final, and its body is never buffered. `UNDECIDED` falls
+  back to `sample-rate`.
+- `sampleOnResponse` (`ResponseSampler`) runs after the handler, with a
+  `SampleResponseInfo` (`request`, `route`, `statusCode`, `responseTimeMs`,
+  `consumer`, `requestDecision`). It can drop a request but cannot keep one the
+  request stage dropped. `UNDECIDED` keeps the prior decision. When it is set,
+  the `sample-rate` roll for requests the request stage left undecided happens
+  after it, so it can keep every error even at a low rate.
+
+A callback that throws or returns `null` counts as `UNDECIDED` (logged once);
+exceptions never reach the handler.
+
+```java
+@Bean
+ApiLensSpringOptionsCustomizer apiLensSampling() {
+  return options -> options
+      .sampleRate(0.1)
+      // Never keep detail for internal endpoints.
+      .sampleOnRequest(request -> request.path().startsWith("/internal/")
+          ? SampleDecision.DROP
+          : SampleDecision.UNDECIDED)
+      // Keep every server error; everything else follows sample-rate.
+      .sampleOnResponse(response -> response.statusCode() >= 500
+          ? SampleDecision.KEEP
+          : SampleDecision.UNDECIDED);
+}
+```
 
 ## Publishing
 

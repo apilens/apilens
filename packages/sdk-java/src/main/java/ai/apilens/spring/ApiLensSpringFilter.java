@@ -10,6 +10,8 @@ import ai.apilens.RequestExcluder;
 import ai.apilens.RequestInfo;
 import ai.apilens.RequestRecord;
 import ai.apilens.ResponseInfo;
+import ai.apilens.SampleResponseInfo;
+import ai.apilens.Sampler;
 import ai.apilens.SpanRecord;
 import ai.apilens.TraceContext;
 import ai.apilens.internal.Strings;
@@ -29,6 +31,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.BiFunction;
+import java.util.function.DoubleSupplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -46,6 +49,7 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
   private final ApiLensConsumerResolver consumerResolver;
   private final Redactor redactor;
   private final RequestExcluder excluder;
+  private final Sampler sampler;
 
   public ApiLensSpringFilter(ApiLensClient client, ApiLensSpringOptions options) {
     this(client, options, null);
@@ -55,6 +59,15 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
       ApiLensClient client,
       ApiLensSpringOptions options,
       ApiLensConsumerResolver consumerResolver) {
+    this(client, options, consumerResolver, null);
+  }
+
+  /** {@code random} replaces the sampling PRNG in tests; {@code null} uses the default. */
+  ApiLensSpringFilter(
+      ApiLensClient client,
+      ApiLensSpringOptions options,
+      ApiLensConsumerResolver consumerResolver,
+      DoubleSupplier random) {
     this.client = client;
     this.options = options == null ? ApiLensSpringOptions.builder().build() : options;
     this.consumerResolver = consumerResolver;
@@ -67,6 +80,11 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         this.options.excludeUserAgents(),
         this.options.defaultExclusions(),
         true);
+    this.sampler = new Sampler(
+        this.options.sampleRate(),
+        this.options.sampleOnRequest(),
+        this.options.sampleOnResponse(),
+        random);
   }
 
   /**
@@ -87,7 +105,10 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
       HttpServletRequest request,
       HttpServletResponse response,
       FilterChain filterChain) throws ServletException, IOException {
-    ContentCachingRequestWrapper requestWrapper = wrapRequest(request);
+    // Sampling runs before any body buffering: a request dropped here is not wrapped, so its
+    // body is never copied. The response is still wrapped for the base record's response size.
+    Sampler.RequestDecision sampling = sampler.onRequest(() -> requestInfo(request));
+    HttpServletRequest requestWrapper = sampling.mayKeep() ? wrapRequest(request) : request;
     ContentCachingResponseWrapper responseWrapper = wrapResponse(response);
     Instant startedAt = Instant.now();
     long startedNanos = System.nanoTime();
@@ -108,7 +129,8 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         throw error;
       } finally {
         try {
-          capture(requestWrapper, responseWrapper, startedAt, startedNanos, statusCode, trace, capturedException, capturedError);
+          capture(requestWrapper, responseWrapper, sampling, startedAt, startedNanos, statusCode, trace,
+              capturedException, capturedError);
         } catch (Exception ex) {
           LOGGER.log(Level.WARNING, "Error while logging request in API Lens Spring filter", ex);
         } finally {
@@ -134,8 +156,9 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
   }
 
   private void capture(
-      ContentCachingRequestWrapper request,
+      HttpServletRequest request,
       ContentCachingResponseWrapper response,
+      Sampler.RequestDecision sampling,
       Instant startedAt,
       long startedNanos,
       int statusCode,
@@ -153,18 +176,22 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
     int finalStatusCode = statusCode <= 0 ? response.getStatus() : statusCode;
     double elapsedMs = Math.max((System.nanoTime() - startedNanos) / 1_000_000.0, 0.0);
     ApiLensConsumer consumer = resolveConsumer(request, response);
+    // Sampled out: the base record is still sent (sampled=false) so metrics stay exact, but
+    // without headers, bodies, span or error log. The trace context was still made current.
+    boolean sampled = sampler.onResponse(sampling, () -> new SampleResponseInfo(
+        requestInfo(request), endpointPath, finalStatusCode, elapsedMs, consumer, sampling.callback()));
 
     String requestPayload = "";
     String responsePayload = "";
-    if (options.capturePayloads() && options.maxPayloadBytes() > 0) {
+    if (sampled && options.capturePayloads() && options.maxPayloadBytes() > 0) {
       // Content-type aware: JSON / text / form-encoded bodies go through the mask callback and
       // then the regex masking; anything else is stored as "[<content-type>, N bytes omitted]".
       RequestInfo requestInfo = new RequestInfo(
           method, rawRequestPath, rawPath, lowerHeaders(requestHeaders(request)));
-      if (options.logRequestBody()) {
+      if (options.logRequestBody() && request instanceof ContentCachingRequestWrapper cached) {
         String contentType = Strings.clean(request.getContentType());
         requestPayload = capturedPayload(
-            request.getContentAsByteArray(), contentType, requestSize(request),
+            cached.getContentAsByteArray(), contentType, requestSize(request),
             options.maskRequestBody(), requestInfo);
       }
       if (options.logResponseBody()) {
@@ -194,14 +221,15 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         .consumer(consumer)
         .requestPayload(requestPayload)
         .responsePayload(responsePayload)
-        .requestHeaders(options.captureHeaders() ? redactor.serializeHeaders(requestHeaders(request)) : "")
-        .responseHeaders(options.captureHeaders() ? redactor.serializeHeaders(responseHeaders(response)) : "")
+        .requestHeaders(sampled && options.captureHeaders() ? redactor.serializeHeaders(requestHeaders(request)) : "")
+        .responseHeaders(sampled && options.captureHeaders() ? redactor.serializeHeaders(responseHeaders(response)) : "")
         .baseUrl(baseUrl(request))
         .traceId(trace.traceId())
         .spanId(trace.spanId())
+        .sampled(sampled)
         .build());
 
-    if (options.captureSpans()) {
+    if (sampled && options.captureSpans()) {
       boolean isError = capturedException != null || capturedError != null || finalStatusCode >= 500;
       client.captureSpan(SpanRecord.builder()
           .timestamp(startedAt)
@@ -255,6 +283,16 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         .appId(client.config().appId())
         .payload(payload)
         .build());
+  }
+
+  private RequestInfo requestInfo(HttpServletRequest request) {
+    String method = Strings.firstNonBlank(request.getMethod(), "GET").toUpperCase();
+    String rawRequestPath = Strings.normalizePath(request.getRequestURI());
+    String rawPath = rawRequestPath;
+    if (!Strings.isBlank(request.getQueryString())) {
+      rawPath = rawRequestPath + "?" + redactor.redactQuery(request.getQueryString());
+    }
+    return new RequestInfo(method, rawRequestPath, rawPath, lowerHeaders(requestHeaders(request)));
   }
 
   private <T> String capturedPayload(

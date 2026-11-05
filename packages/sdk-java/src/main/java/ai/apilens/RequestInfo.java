@@ -21,4 +21,9 @@ public record RequestInfo(String method, String path, String rawPath, Map<String
   public String contentType() {
     return headers.getOrDefault("content-type", "");
   }
+
+  /** The request {@code User-Agent} header, or an empty string. */
+  public String userAgent() {
+    return headers.getOrDefault("user-agent", "");
+  }
 }

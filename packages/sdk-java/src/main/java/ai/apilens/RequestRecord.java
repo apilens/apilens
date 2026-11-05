@@ -32,6 +32,7 @@ public final class RequestRecord {
   private final String spanId;
   private final String release;
   private final String commit;
+  private final boolean sampled;
 
   private RequestRecord(Builder builder) {
     this.timestamp = builder.timestamp == null ? Instant.now() : builder.timestamp;
@@ -59,6 +60,7 @@ public final class RequestRecord {
     this.spanId = Strings.clean(builder.spanId);
     this.release = Strings.clean(builder.release);
     this.commit = Strings.clean(builder.commit);
+    this.sampled = builder.sampled;
   }
 
   public static Builder builder() {
@@ -67,6 +69,14 @@ public final class RequestRecord {
 
   public String path() {
     return path;
+  }
+
+  /**
+   * {@code false} when sampling dropped this request's detail: the record still counts for
+   * traffic, latency and error metrics, but carries no headers, bodies, span or error log.
+   */
+  public boolean sampled() {
+    return sampled;
   }
 
   /** Queue-size estimate: variable-length fields plus a fixed per-record overhead. */
@@ -114,6 +124,7 @@ public final class RequestRecord {
     out.put("span_id", spanId);
     out.put("release", Strings.firstNonBlank(release, config.release()));
     out.put("commit", Strings.firstNonBlank(commit, config.commit()));
+    out.put("sampled", sampled);
     return out;
   }
 
@@ -143,6 +154,7 @@ public final class RequestRecord {
     private String spanId = "";
     private String release = "";
     private String commit = "";
+    private boolean sampled = true;
 
     private Builder() {}
 
@@ -277,6 +289,12 @@ public final class RequestRecord {
 
     public Builder commit(String commit) {
       this.commit = commit;
+      return this;
+    }
+
+    /** Defaults to {@code true}; {@code false} marks a sampled-out base record. */
+    public Builder sampled(boolean sampled) {
+      this.sampled = sampled;
       return this;
     }
 
