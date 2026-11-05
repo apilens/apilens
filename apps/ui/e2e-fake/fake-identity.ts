@@ -84,6 +84,14 @@
 //   GET  /api/v1/traffic/endpoints?project=        newest first, and totals/p95 over them; 404 otherwise
 //   GET  /api/v1/deploys/changes?project=          deploys with before/after numbers (#597), as seeded
 //   POST /__fake/deploys {project, deploys}        test hook: what that answers for `project`
+//   GET  /api/v1/consumers?project=&group=         consumers of shop (#596) as seeded, each with the group the
+//   GET  /api/v1/consumers/{consumer_id}?project=  fake assigned it; `group` filters to its members; detail as seeded
+//   GET|POST /api/v1/projects/shop/consumer-groups shop's consumer groups (#596): list (by name) and create; a name
+//   PUT|DELETE /api/v1/projects/shop/consumer-groups/{id}  taken ignoring case answers 409 conflict
+//   PUT|DELETE /api/v1/projects/shop/consumers/{consumer_id}/group  assign (moves it out of its previous
+//                                                  group) and unassign; writes answer 403 without project.update
+//   POST /__fake/consumers {project, summary, points, consumers, details, groups?, assignments?}
+//                                                  test hook: what those answer; resets shop's groups
 //   POST /__fake/query-down {project, down}        test hook: those reads answer 503 for `project`
 //   GET  /api/v1/project?project=shop              shop's apps (#598): one app `shop` unless seeded
 //   GET|PUT /api/v1/apps/{id}/capture-policy       the app's capture policy (#598): everything captured
@@ -460,6 +468,19 @@ const ingestedRows = new Map<
 const queryDown = new Set<string>();
 /** Project slug → the deploys `GET /deploys/changes` answers, as seeded by `/__fake/deploys` (#597). */
 const deployChanges = new Map<string, Record<string, unknown>[]>();
+/** Project slug → what the consumers reads answer (#596), as seeded by `/__fake/consumers`. */
+const consumersSeed = new Map<
+  string,
+  { summary: unknown; points: unknown[]; consumers: Record<string, unknown>[]; details: Record<string, Record<string, unknown>> }
+>();
+/** shop's consumer groups and which group each consumer is in (#596): a consumer is in at most one. */
+let consumerGroups: { id: string; name: string; created_at: string; updated_at: string }[] = [];
+const consumerAssignments = new Map<string, string>();
+const groupRef = (consumer: string) => {
+  const g = consumerGroups.find((x) => x.id === consumerAssignments.get(consumer));
+  return g ? { id: g.id, name: g.name } : undefined;
+};
+const groupOut = (g: (typeof consumerGroups)[number]) => ({ ...g, consumers: [...consumerAssignments.values()].filter((id) => id === g.id).length });
 
 /** shop's apps (#598), their saved capture policies and what their SDKs reported, by app id. */
 const DEFAULT_APP = { id: "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d", slug: PROJECT, name: "Shop" };
@@ -1358,6 +1379,93 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
     if (queryDown.has(slug)) return problem(res, 503, "unavailable");
     return send(res, 200, { window_minutes: 60, deploys: deployChanges.get(slug) ?? [] });
+  }
+  // Consumers (#596), as seeded, with the groups this fake keeps; same access rules as above.
+  const consumerPath = path.match(/^\/api\/v1\/consumers(?:\/([^/]+))?$/);
+  if (req.method === "GET" && consumerPath) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const slug = url.searchParams.get("project") ?? "";
+    if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
+    if (queryDown.has(slug)) return problem(res, 503, "unavailable");
+    const seed = consumersSeed.get(slug) ?? { summary: { consumers: 0, new: 0, returning: 0 }, points: [], consumers: [], details: {} };
+    const range = url.searchParams.get("range") ?? "24h";
+    if (consumerPath[1] !== undefined) {
+      const id = decodeURIComponent(consumerPath[1]);
+      const detail = seed.details[id];
+      if (!detail) return problem(res, 404, "not_found");
+      return send(res, 200, { ...detail, consumer_id: id, range, group: groupRef(id) });
+    }
+    const group = url.searchParams.get("group");
+    const rows = seed.consumers
+      .filter((c) => !group || consumerAssignments.get(String(c.consumer_id)) === group)
+      .map((c) => ({ ...c, group: groupRef(String(c.consumer_id)) }));
+    return send(res, 200, { range, from: "", to: "", bucket_seconds: 900, summary: seed.summary, points: seed.points, consumers: rows });
+  }
+  if (req.method === "POST" && path === "/__fake/consumers") {
+    // Test hook: replaces what the consumers reads answer for `project`, and shop's groups.
+    const b = await readBody(req);
+    consumersSeed.set(String(b.project), {
+      summary: b.summary ?? { consumers: 0, new: 0, returning: 0 },
+      points: Array.isArray(b.points) ? b.points : [],
+      consumers: Array.isArray(b.consumers) ? (b.consumers as Record<string, unknown>[]) : [],
+      details: (b.details as Record<string, Record<string, unknown>>) ?? {},
+    });
+    const at = new Date().toISOString();
+    consumerGroups = Array.isArray(b.groups) ? (b.groups as { id: string; name: string }[]).map((g) => ({ id: g.id, name: g.name, created_at: at, updated_at: at })) : [];
+    consumerAssignments.clear();
+    for (const [c, g] of Object.entries((b.assignments as Record<string, string>) ?? {})) consumerAssignments.set(c, g);
+    return send(res, 204);
+  }
+  const groupsPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/(?:consumer-groups(?:\/([^/]+))?|consumers\/([^/]+)\/group)$/);
+  if (groupsPath) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    if (decodeURIComponent(groupsPath[1]) !== PROJECT) return problem(res, 404, "not_found");
+    const [, , groupId, consumerId] = groupsPath;
+    if (req.method === "GET" && groupId === undefined && consumerId === undefined) {
+      return send(res, 200, { groups: [...consumerGroups].sort((a, b) => a.name.localeCompare(b.name)).map(groupOut) });
+    }
+    if (!capabilitiesOf(user).includes("project.update")) return problem(res, 403, "forbidden");
+    const nameOf = async () => String((await readBody(req)).name ?? "").trim();
+    const taken = (name: string, except?: string) => consumerGroups.some((g) => g.id !== except && g.name.toLowerCase() === name.toLowerCase());
+    if (consumerId !== undefined) {
+      const consumer = decodeURIComponent(consumerId);
+      if (req.method === "DELETE") {
+        if (!consumerAssignments.delete(consumer)) return problem(res, 404, "not_found");
+        return send(res, 204);
+      }
+      if (req.method !== "PUT") return problem(res, 404, "not_found");
+      const target = String((await readBody(req)).group_id ?? "");
+      const g = consumerGroups.find((x) => x.id === target);
+      if (!g) return problem(res, 404, "not_found");
+      consumerAssignments.set(consumer, g.id);
+      return send(res, 200, { consumer_id: consumer, group: { id: g.id, name: g.name }, assigned_at: new Date().toISOString() });
+    }
+    if (groupId === undefined) {
+      if (req.method !== "POST") return problem(res, 404, "not_found");
+      const name = await nameOf();
+      if (name === "" || name.length > 128) return problem(res, 422, "validation_failed");
+      if (taken(name)) return problem(res, 409, "conflict");
+      const at = new Date().toISOString();
+      const g = { id: randomUUID(), name, created_at: at, updated_at: at };
+      consumerGroups.push(g);
+      return send(res, 201, groupOut(g));
+    }
+    const g = consumerGroups.find((x) => x.id === decodeURIComponent(groupId));
+    if (!g) return problem(res, 404, "not_found");
+    if (req.method === "DELETE") {
+      consumerGroups = consumerGroups.filter((x) => x !== g);
+      for (const [c, id] of consumerAssignments) if (id === g.id) consumerAssignments.delete(c);
+      return send(res, 204);
+    }
+    if (req.method !== "PUT") return problem(res, 404, "not_found");
+    const name = await nameOf();
+    if (name === "" || name.length > 128) return problem(res, 422, "validation_failed");
+    if (taken(name, g.id)) return problem(res, 409, "conflict");
+    g.name = name;
+    g.updated_at = new Date().toISOString();
+    return send(res, 200, groupOut(g));
   }
   if (req.method === "POST" && path === "/__fake/deploys") {
     // Test hook: replaces what `GET /deploys/changes` answers for `project`.
