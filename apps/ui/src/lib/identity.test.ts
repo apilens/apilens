@@ -573,4 +573,17 @@ describe("endpoint detail operations (#593)", () => {
     ]);
     expect(calls[1].body).toEqual(body);
   });
+
+  it("reads the errors dashboard with the project, range and environment, as the user", async () => {
+    const { client, calls } = recordingClient(() => json({}));
+    await client.errorStatuses("my-api", { range: "6h", env: "production" }, authed);
+    await client.errorStatus("my-api", 404, { range: "7d", env: "" }, authed);
+    await client.listErrors("my-api", { range: "1h", env: "staging" }, authed);
+    expect(calls.map((c) => [c.method, new URL(c.url).pathname, Object.fromEntries(new URL(c.url).searchParams)])).toEqual([
+      ["GET", "/api/v1/errors/status", { project: "my-api", range: "6h", env: "production" }],
+      ["GET", "/api/v1/errors/status/404", { project: "my-api", range: "7d" }],
+      ["GET", "/api/v1/errors", { project: "my-api", range: "1h", env: "staging" }],
+    ]);
+    expect(calls.every((c) => c.headers.get("authorization") === "Bearer jwt")).toBe(true);
+  });
 });

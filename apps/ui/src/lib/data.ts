@@ -41,6 +41,7 @@ export const VIEWS = [
   { slug: "incidents", label: "Incidents", section: "Monitor", badge: "1", warn: true },
   { slug: "explore", label: "Explore", section: "Monitor" },
   { slug: "traffic", label: "Traffic", section: "Monitor" },
+  { slug: "errors", label: "Errors", section: "Monitor" },
   { slug: "consumers", label: "Consumers", section: "Monitor" },
   { slug: "apps", label: "Apps", section: "Catalog" },
   { slug: "changes", label: "Changes", section: "Catalog" },
