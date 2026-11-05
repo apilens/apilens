@@ -28,6 +28,7 @@ import {
 } from "./identity";
 import { safeNext } from "./safe-next";
 import { SESSION_COOKIE_NAME, type SessionPayload, open } from "./session";
+import { redirectTo } from "@/lib/redirect";
 
 /** The Route Handler that exchanges a magic link and sets the session cookie. */
 export const LINK_ROUTE = "/api/auth/email/verify-link";
@@ -164,7 +165,7 @@ export async function verifyLanding(query: VerifyQuery, deps: LandingDeps): Prom
 // The exchange
 
 function redirect(req: NextRequest, location: string): NextResponse {
-  const res = NextResponse.redirect(new URL(location, req.url), 302);
+  const res = redirectTo(location, req.url);
   res.headers.set("Cache-Control", "no-store");
   // The token rides in this request's URL: keep it out of Referer headers.
   res.headers.set("Referrer-Policy", "no-referrer");

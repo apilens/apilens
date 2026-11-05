@@ -2156,10 +2156,114 @@
             "description": "The app whose requests the rule counts; it never changes.",
             "format": "uuid",
             "type": "string"
+          },
+          "channel_ids": {
+            "description": "Notification channels of the project to notify.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "condition": {
+            "description": "How the value compares to threshold for the rule to breach.",
+            "enum": [
+              "gt",
+              "gte",
+              "lt",
+              "lte"
+            ],
+            "type": "string"
+          },
+          "cron": {
+            "description": "Evaluation schedule: five cron fields (minute hour day-of-month month day-of-week, UTC) or a descriptor such as @hourly. Exactly one of every_s and cron.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether the rule is evaluated; omitted means true.",
+            "type": "boolean"
+          },
+          "environment": {
+            "description": "The environment whose requests the rule counts.",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "every_s": {
+            "description": "Evaluation frequency in seconds. Exactly one of every_s and cron.",
+            "format": "int32",
+            "maximum": 86400,
+            "minimum": 60,
+            "type": "integer"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/AlertFilters"
+          },
+          "metric": {
+            "description": "What the rule aggregates over its window: request count, error count, error rate (0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers.",
+            "enum": [
+              "traffic",
+              "errors",
+              "error_rate",
+              "p50",
+              "p75",
+              "p95",
+              "apdex",
+              "unique_consumers"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name; surrounding spaces are dropped.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "notify_after_s": {
+            "description": "How long the breach must hold before the first notification.",
+            "format": "int32",
+            "maximum": 86400,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "resolve_after_s": {
+            "description": "How long the breach must clear before the event resolves.",
+            "format": "int32",
+            "maximum": 86400,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "threshold": {
+            "description": "Not negative; at most 1 for error_rate and apdex.",
+            "format": "double",
+            "type": "number"
+          },
+          "window_s": {
+            "description": "The trailing window the metric is aggregated over, in whole minutes.",
+            "format": "int32",
+            "maximum": 86400,
+            "minimum": 60,
+            "multipleOf": 60,
+            "type": "integer"
           }
         },
         "required": [
-          "app_id"
+          "app_id",
+          "environment",
+          "name",
+          "metric",
+          "condition",
+          "threshold",
+          "window_s"
         ],
         "type": "object"
       },

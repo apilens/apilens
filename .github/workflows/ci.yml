@@ -119,11 +119,13 @@ jobs:
               - 'apps/ui/Dockerfile'
               - .github/workflows/ci.yml
             # Anything the e2e job exercises beyond the go/web/compose filters: the
-            # Go black-box suite and the Playwright specs (auth/onboarding funnel).
+            # Go black-box suite, the Playwright specs (auth/onboarding funnel and the
+            # observability surfaces) and the FastAPI example app those surfaces read.
             e2e:
               - 'test/e2e/**'
               - 'apps/ui/e2e/**'
               - 'apps/ui/playwright*.config.ts'
+              - 'examples/fastapi/**'
               - 'internal/identity/**'
               - 'authz/**'
               - .github/workflows/ci.yml
@@ -506,6 +508,33 @@ jobs:
         run: |
           timeout 120 sh -c 'until curl -fsS -o /dev/null "$APILENS_E2E_UI_URL/sign-in"; do sleep 2; done'
           pnpm --filter ui exec playwright test onboarding.spec.ts
+      # The FastAPI example app (examples/fastapi) sends the data the observability surfaces are
+      # tested on, to a project of its own (apart from the Go suite's data and quota). Seed also
+      # prints a one-time magic link for the dev owner (dev@example.com), so the browser signs in
+      # without email; reconcile writes the seeded project to SpiceDB so its owner can read it.
+      - name: Start the FastAPI example app
+        run: |
+          out="$($COMPOSE run --rm --no-deps --entrypoint /apilens apilens seed -project-slug e2e-surfaces -app-slug example-fastapi | tail -n 1)"
+          key="$(jq -r .api_key <<<"$out")"
+          link="$(jq -r .magic_link <<<"$out")"
+          if [ -z "$key" ] || [ "$key" = "null" ] || [ -z "$link" ] || [ "$link" = "null" ]; then
+            echo "::error::seed did not return api_key and magic_link"
+            exit 1
+          fi
+          echo "::add-mask::$key"
+          echo "::add-mask::$link"
+          $COMPOSE run --rm --no-deps --entrypoint /apilens apilens authz reconcile
+          APILENS_EXAMPLES_API_KEY="$key" $COMPOSE -f deploy/compose/compose.examples.yaml --profile examples \
+            up -d --build --wait --wait-timeout 300 example-fastapi
+          echo "APILENS_E2E_MAGIC_LINK=$link" >> "$GITHUB_ENV"
+      # Explore filters, the request drawer, the endpoint detail tabs, mark-as-expected and an
+      # alert rule that opens an incident (apps/ui/e2e/surfaces.spec.ts).
+      - name: Run browser e2e (observability surfaces)
+        env:
+          APILENS_E2E_UI_URL: http://localhost:3000
+          APILENS_E2E_PROJECT: e2e-surfaces
+          APILENS_E2E_EXAMPLE_URL: http://127.0.0.1:18001
+        run: pnpm --filter ui exec playwright test surfaces.spec.ts
       # playwright.config.ts keeps traces for failed tests (trace: retain-on-failure).
       - name: Upload Playwright traces
         if: failure()

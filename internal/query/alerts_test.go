@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/humatest"
 	"github.com/google/uuid"
 
 	"github.com/apilens/apilens/internal/alerts"
@@ -29,7 +30,7 @@ func status(err error) int {
 }
 
 func TestCheckRuleFields(t *testing.T) {
-	ok := alertRuleBody{
+	ok := AlertRuleBody{
 		Environment: " production ", Name: " p95 too slow ", Metric: "p95", Condition: "gt",
 		Threshold: 800, WindowS: 300, EveryS: ptr(int32(60)),
 	}
@@ -54,28 +55,28 @@ func TestCheckRuleFields(t *testing.T) {
 		t.Fatalf("cron rule = %+v", v)
 	}
 
-	bad := map[string]func(b *alertRuleBody){
-		"blank name":            func(b *alertRuleBody) { b.Name = "  " },
-		"long name":             func(b *alertRuleBody) { b.Name = strings.Repeat("n", 129) },
-		"blank environment":     func(b *alertRuleBody) { b.Environment = " " },
-		"long description":      func(b *alertRuleBody) { b.Description = strings.Repeat("d", 1025) },
-		"unknown metric":        func(b *alertRuleBody) { b.Metric = "p99" },
-		"unknown condition":     func(b *alertRuleBody) { b.Condition = "eq" },
-		"negative threshold":    func(b *alertRuleBody) { b.Threshold = -1 },
-		"NaN threshold":         func(b *alertRuleBody) { b.Threshold = math.NaN() },
-		"error rate above 1":    func(b *alertRuleBody) { b.Metric, b.Threshold = "error_rate", 5 },
-		"apdex above 1":         func(b *alertRuleBody) { b.Metric, b.Threshold = "apdex", 1.5 },
-		"window not minutes":    func(b *alertRuleBody) { b.WindowS = 90 },
-		"window too short":      func(b *alertRuleBody) { b.WindowS = 0 },
-		"no schedule":           func(b *alertRuleBody) { b.EveryS = nil },
-		"both schedules":        func(b *alertRuleBody) { b.Cron = ptr("@hourly") },
-		"empty cron":            func(b *alertRuleBody) { b.EveryS, b.Cron = nil, ptr(" ") },
-		"bad cron":              func(b *alertRuleBody) { b.EveryS, b.Cron = nil, ptr("every minute") },
-		"every too often":       func(b *alertRuleBody) { b.EveryS = ptr(int32(30)) },
-		"notify after too long": func(b *alertRuleBody) { b.NotifyAfterS = 86401 },
-		"negative resolve":      func(b *alertRuleBody) { b.ResolveAfterS = -1 },
-		"bad channel id":        func(b *alertRuleBody) { b.ChannelIDs = []string{"slack"} },
-		"too many channels": func(b *alertRuleBody) {
+	bad := map[string]func(b *AlertRuleBody){
+		"blank name":            func(b *AlertRuleBody) { b.Name = "  " },
+		"long name":             func(b *AlertRuleBody) { b.Name = strings.Repeat("n", 129) },
+		"blank environment":     func(b *AlertRuleBody) { b.Environment = " " },
+		"long description":      func(b *AlertRuleBody) { b.Description = strings.Repeat("d", 1025) },
+		"unknown metric":        func(b *AlertRuleBody) { b.Metric = "p99" },
+		"unknown condition":     func(b *AlertRuleBody) { b.Condition = "eq" },
+		"negative threshold":    func(b *AlertRuleBody) { b.Threshold = -1 },
+		"NaN threshold":         func(b *AlertRuleBody) { b.Threshold = math.NaN() },
+		"error rate above 1":    func(b *AlertRuleBody) { b.Metric, b.Threshold = "error_rate", 5 },
+		"apdex above 1":         func(b *AlertRuleBody) { b.Metric, b.Threshold = "apdex", 1.5 },
+		"window not minutes":    func(b *AlertRuleBody) { b.WindowS = 90 },
+		"window too short":      func(b *AlertRuleBody) { b.WindowS = 0 },
+		"no schedule":           func(b *AlertRuleBody) { b.EveryS = nil },
+		"both schedules":        func(b *AlertRuleBody) { b.Cron = ptr("@hourly") },
+		"empty cron":            func(b *AlertRuleBody) { b.EveryS, b.Cron = nil, ptr(" ") },
+		"bad cron":              func(b *AlertRuleBody) { b.EveryS, b.Cron = nil, ptr("every minute") },
+		"every too often":       func(b *AlertRuleBody) { b.EveryS = ptr(int32(30)) },
+		"notify after too long": func(b *AlertRuleBody) { b.NotifyAfterS = 86401 },
+		"negative resolve":      func(b *AlertRuleBody) { b.ResolveAfterS = -1 },
+		"bad channel id":        func(b *AlertRuleBody) { b.ChannelIDs = []string{"slack"} },
+		"too many channels": func(b *AlertRuleBody) {
 			for range 21 {
 				b.ChannelIDs = append(b.ChannelIDs, uuid.NewString())
 			}
@@ -193,6 +194,22 @@ func TestEventCursorRoundTrip(t *testing.T) {
 	for _, bad := range []string{"!!", "bm8tY29sb24", "eHg6eQ", "MTI6bm90LWEtdXVpZA"} {
 		if _, err := decodeEventCursor(bad); err == nil {
 			t.Errorf("%q: expected an error", bad)
+		}
+	}
+}
+
+// The create body embeds AlertRuleBody; Huma documents (and validates
+// against) the embedded fields only while that type is exported.
+func TestCreateAlertRuleSchemaHasRuleFields(t *testing.T) {
+	_, api := humatest.New(t)
+	Register(api, nil, nil)
+	schema := api.OpenAPI().Components.Schemas.Map()["CreateAlertRuleBody"]
+	if schema == nil {
+		t.Fatal("no CreateAlertRuleBody schema")
+	}
+	for _, prop := range []string{"app_id", "environment", "name", "metric", "condition", "threshold", "window_s", "every_s", "filters", "channel_ids"} {
+		if _, ok := schema.Properties[prop]; !ok {
+			t.Errorf("CreateAlertRuleBody has no %q property", prop)
 		}
 	}
 }

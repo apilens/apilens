@@ -137,8 +137,11 @@ type AlertRule struct {
 	UpdatedAt     time.Time       `json:"updated_at"`
 }
 
-// alertRuleBody is the editable part of a rule.
-type alertRuleBody struct {
+// AlertRuleBody is the editable part of a rule. It is exported because Huma
+// skips unexported embedded fields: createAlertRuleBody embeds it, and an
+// unexported type left its fields out of the create schema, so every create
+// was refused with "unexpected property".
+type AlertRuleBody struct {
 	Environment   string       `json:"environment" minLength:"1" maxLength:"64" doc:"The environment whose requests the rule counts."`
 	Name          string       `json:"name" minLength:"1" maxLength:"128" doc:"Display name; surrounding spaces are dropped."`
 	Description   string       `json:"description,omitempty" maxLength:"1024"`
@@ -157,7 +160,7 @@ type alertRuleBody struct {
 
 type createAlertRuleBody struct {
 	AppID string `json:"app_id" format:"uuid" doc:"The app whose requests the rule counts; it never changes."`
-	alertRuleBody
+	AlertRuleBody
 }
 
 // NotificationChannel is where a project's alert notifications go. Its
@@ -221,7 +224,7 @@ type createAlertRuleInput struct {
 type updateAlertRuleInput struct {
 	Project string `path:"project" maxLength:"63" doc:"Project slug."`
 	ID      string `path:"id" format:"uuid"`
-	Body    alertRuleBody
+	Body    AlertRuleBody
 }
 
 type createChannelInput struct {
@@ -433,7 +436,7 @@ func (s *Service) createAlertRule(ctx context.Context, in *createAlertRuleInput)
 	if err := s.checkRuleApp(ctx, project, appID); err != nil {
 		return nil, err
 	}
-	v, err := validateRule(ctx, q, project, in.Body.alertRuleBody)
+	v, err := validateRule(ctx, q, project, in.Body.AlertRuleBody)
 	if err != nil {
 		return nil, err
 	}
@@ -564,7 +567,7 @@ type validRule struct {
 
 // validateRule checks a rule body beyond what its schema does: names,
 // thresholds per metric, the schedule, filters and channels.
-func validateRule(ctx context.Context, q *db.Queries, project uuid.UUID, b alertRuleBody) (validRule, error) {
+func validateRule(ctx context.Context, q *db.Queries, project uuid.UUID, b AlertRuleBody) (validRule, error) {
 	v, err := checkRuleFields(b)
 	if err != nil {
 		return v, err
@@ -585,7 +588,7 @@ func validateRule(ctx context.Context, q *db.Queries, project uuid.UUID, b alert
 }
 
 // checkRuleFields checks the fields of a rule body that need no store.
-func checkRuleFields(b alertRuleBody) (validRule, error) {
+func checkRuleFields(b AlertRuleBody) (validRule, error) {
 	bad := huma.Error422UnprocessableEntity
 	v := validRule{
 		environment: strings.TrimSpace(b.Environment), name: strings.TrimSpace(b.Name),
