@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import type { NextFunction, Request, Response } from "express";
 
 import { ApiLensClient } from "./client.js";
+import { RequestExcluder } from "./exclusions.js";
 import { serializeHeaders } from "./sanitize.js";
 import {
   firstForwardedIp,
@@ -104,9 +105,26 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
     0,
     toNonNegativeInt(requestLogging.maxPayloadBytes, 8192),
   );
+  const excluder = new RequestExcluder({
+    excludePaths: config.excludePaths,
+    excludeUserAgents: config.excludeUserAgents,
+    defaultExclusions: config.defaultExclusions,
+  });
 
   const middleware = ((req: Request, res: Response, next: NextFunction) => {
     if (!enabled || !client.isEnabled() || req.method.toUpperCase() === "OPTIONS") {
+      next();
+      return;
+    }
+
+    // Excluded requests (health checks, probes) bypass capture entirely:
+    // nothing is wrapped, buffered or sent.
+    if (
+      excluder.shouldExclude(
+        req.originalUrl || req.url,
+        req.headers["user-agent"] as string | undefined,
+      )
+    ) {
       next();
       return;
     }

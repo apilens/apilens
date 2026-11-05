@@ -92,6 +92,56 @@ useApiLens(app, {
 
 `serializeHeaders(headers, { maxBytes })` is exported for manual capture.
 
+## Exclusions
+
+Excluded requests bypass capture entirely: nothing is buffered and no record
+is sent. Health checks and probes are excluded by default (same list as the
+Python SDK); all patterns are case-insensitive regexes, searched against the
+request path without the query string.
+
+Default paths (`DEFAULT_EXCLUDED_PATHS`):
+
+```
+/_?healthz?$
+/_?health[-_]?checks?$
+/_?heart[-_]?beats?$
+/ping$
+/ready$
+/live$
+/favicon(?:-[\w-]+)?\.(?:ico|png|svg)$
+/apple-touch-icon(?:-[\w-]+)?\.png$
+/robots\.txt$
+/sitemap\.xml$
+/manifest\.json$
+/site\.webmanifest$
+/service-worker\.js$
+/sw\.js$
+/\.well-known/
+```
+
+Default user agents (`DEFAULT_EXCLUDED_USER_AGENTS`):
+
+```
+health[-_ ]?check
+microsoft-azure-application-lb
+googlehc
+kube-probe
+```
+
+Add your own, or turn the defaults off:
+
+```js
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  excludePaths: ["^/internal/", /^\/status$/],
+  excludeUserAgents: ["uptimerobot"],
+  defaultExclusions: true, // false records health checks again
+});
+```
+
+`APILENS_EXCLUDE_PATHS` (comma-separated) adds path patterns on top. An
+invalid regex throws when the middleware is created, never per request.
+
 ## API
 
 - `useApiLens(app, config)`
