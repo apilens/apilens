@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .client import ApiLensClient
+from .client._env import env_defaults
 from .client._routes import blacksheep_route_template, blacksheep_set_route_pattern
 from .client.middleware import ApiLensASGIMiddleware
 
@@ -29,6 +30,7 @@ def _instrument_router(app) -> None:
     router._apilens_wrapped = True  # type: ignore[attr-defined]
 
 
+@env_defaults
 def instrument_app(
     app,
     client: ApiLensClient,

@@ -563,7 +563,56 @@ googlehc
 kube-probe
 ```
 
+### Environment variables
+
+Every capture, masking, sampling and exclusion option can be set from the
+environment, on every framework, so a kill switch or a new redaction pattern
+never needs a code change. Precedence: **explicit keyword argument > env var >
+default**. Django reads the same names from settings first: a Django setting
+wins over the env var, the env var over the default.
+
+Booleans accept `1`/`0`/`true`/`false` (also `yes`/`no`/`on`/`off`, any case).
+Lists are comma-separated (`APILENS_REDACT_BODY_FIELDS=^password$,^ssn$`); a
+regex that needs a literal comma must be passed as a list in code. Unset or
+empty variables are ignored; an unparseable value raises `ValueError` naming
+the variable at startup. `apilens.client._env.load_env_config()` returns the
+parsed values as a dict.
+
+| Variable | Option | Type | Default |
+|---|---|---|---|
+| `APILENS_API_KEY` | `api_key` | string | — (required) |
+| `APILENS_APP_ID` | `app_id` | string | `""` |
+| `APILENS_ENVIRONMENT` | `environment` | string | `"production"` |
+| `APILENS_BASE_URL` | `base_url` | string | `https://ingest.apilens.ai/v1` |
+| `APILENS_ENABLED` | `enabled` | bool | `true` |
+| `APILENS_CAPTURE_HEADERS` | `capture_headers` | bool | `true` |
+| `APILENS_CAPTURE_PAYLOADS` | `capture_payloads` | bool | `true` |
+| `APILENS_LOG_REQUEST_BODY` | `log_request_body` | bool | `true` |
+| `APILENS_LOG_RESPONSE_BODY` | `log_response_body` | bool | `true` |
+| `APILENS_MAX_PAYLOAD_BYTES` | `max_payload_bytes` | int | `65536` |
+| `APILENS_CAPTURE_CONTENT_TYPES` | `capture_content_types` | list | JSON, `+json`, `text/*`, form-encoded |
+| `APILENS_REDACT_QUERY_PARAMS` | `redact_query_params` | list | none |
+| `APILENS_REDACT_HEADERS` | `redact_headers` | list | none |
+| `APILENS_REDACT_BODY_FIELDS` | `redact_body_fields` | list | none |
+| `APILENS_EXCLUDE_PATHS` | `exclude_paths` | list, **added to** the code value | none |
+| `APILENS_EXCLUDE_USER_AGENTS` | `exclude_user_agents` | list, **added to** the code value | none |
+| `APILENS_DEFAULT_EXCLUSIONS` | `default_exclusions` | bool | `true` |
+| `APILENS_SAMPLE_RATE` | `sample_rate` | float 0.0–1.0 | `1.0` |
+| `APILENS_CAPTURE_IP` | `capture_ip` | bool; `false` wins over code | `true` |
+| `APILENS_ANONYMIZE_IP` | `anonymize_ip` | bool; `true` wins over code | `false` |
+| `APILENS_CAPTURE_SPANS` | `capture_spans` | bool; `false` wins over code | `true` |
+| `APILENS_BATCH_SIZE` | `batch_size` | int | `200` |
+| `APILENS_FLUSH_INTERVAL` | `flush_interval` | float (seconds) | `3.0` |
+
+`APILENS_EXCLUDE_PATHS` / `APILENS_EXCLUDE_USER_AGENTS` add to the patterns
+passed in code. `APILENS_CAPTURE_SPANS=false`, `APILENS_CAPTURE_IP=false` and
+`APILENS_ANONYMIZE_IP=true` are kill switches: they win over code, but only in
+the direction that captures less.
+
 ### Django settings
+
+Each setting below falls back to the environment variable of the same name;
+the setting wins when both are set.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -575,7 +624,12 @@ kube-probe
 | `APILENS_BATCH_SIZE` | `200` | Records per POST. |
 | `APILENS_FLUSH_INTERVAL` | `3.0` | Seconds between flushes. |
 | `APILENS_MAX_PAYLOAD_BYTES` | `65536` | Body capture cap; `0` disables bodies. |
+| `APILENS_ENABLED` | `True` | Master switch for the client (`False` sends nothing). |
 | `APILENS_CAPTURE_HEADERS` | `True` | Capture headers (redacted). |
+| `APILENS_CAPTURE_PAYLOADS` | `True` | Capture request/response bodies. |
+| `APILENS_LOG_REQUEST_BODY` / `APILENS_LOG_RESPONSE_BODY` | `True` | Toggle each body independently. |
+| `APILENS_REDACT_QUERY_PARAMS` / `APILENS_REDACT_HEADERS` / `APILENS_REDACT_BODY_FIELDS` | `[]` | Redaction regexes (list, or comma-separated in the env var). |
+| `APILENS_CAPTURE_IP` / `APILENS_ANONYMIZE_IP` | `True` / `False` | Client IP privacy. |
 | `APILENS_CAPTURE_SPANS` | `True` | Emit trace spans. |
 | `APILENS_SERVICE_NAME` | `APILENS_APP_ID` | Service name on spans. |
 | `APILENS_GET_CONSUMER` | `None` | Consumer resolver (callable or dotted path). |

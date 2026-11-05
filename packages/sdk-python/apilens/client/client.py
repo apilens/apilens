@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
 from .._version import __version__
+from ._env import apply_env_defaults
 from ._routes import cap_routes
 from ._sanitize import mask_log_attributes, mask_log_text
 from ._stats import ClientStats
@@ -309,9 +310,14 @@ def _detect_commit() -> str:
     return ""
 
 
+# Any field the caller does not pass is read from its ``APILENS_*`` env var
+# when set (api_key, base_url, environment, enabled, batch_size,
+# flush_interval, capture_ip, anonymize_ip): explicit kwarg > env > default.
+@apply_env_defaults
 @dataclass(slots=True)
 class ApiLensConfig:
-    api_key: str
+    # Required: pass it or set APILENS_API_KEY (the client raises without one).
+    api_key: str = ""
     project_slug: str = ""
     base_url: str = "https://ingest.apilens.ai/v1"
     environment: str = "production"
@@ -423,7 +429,7 @@ def _open(req: urllib.request.Request, config: ApiLensConfig):
 class ApiLensClient:
     def __init__(self, config: ApiLensConfig, *, start_worker: bool = True) -> None:
         if not config.api_key:
-            raise ValueError("api_key is required")
+            raise ValueError("api_key is required (pass it or set APILENS_API_KEY)")
         # project_slug is optional: the API key is project-level, so the server
         # derives the project from the key. You still pass app_id (which app).
 

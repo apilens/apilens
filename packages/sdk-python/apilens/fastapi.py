@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from .client import ApiLensClient, ApiLensConfig
+from .client._env import env_defaults
 from .client._routes import starlette_route_template
 from .client.middleware import ApiLensASGIMiddleware
 from .frameworks.fastapi import instrument_fastapi, set_consumer, track_consumer
@@ -34,6 +35,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         )
     """
 
+    @env_defaults  # options not passed are read from APILENS_* env vars
     def __init__(
         self,
         app,
@@ -123,6 +125,7 @@ class ApiLensMiddleware(ApiLensGatewayMiddleware):
     """Backward-compatible alias for ApiLensGatewayMiddleware."""
 
 
+@env_defaults
 def instrument_app(
     app,
     client: ApiLensClient,

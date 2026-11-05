@@ -3,10 +3,12 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from .client import ApiLensClient
+from .client._env import env_defaults
 from .client.middleware import set_consumer, track_consumer
 from .frameworks.flask import instrument_flask
 
 
+@env_defaults
 def instrument_app(
     app,
     client: ApiLensClient,

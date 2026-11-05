@@ -24,6 +24,7 @@ from ._capture import (
     _to_int,
     capture_response,
 )
+from ._env import env_defaults
 from ._exclusions import RequestExcluder
 from ._metadata import start_asgi_metadata, start_wsgi_metadata
 from ._routes import resolve_endpoint_path
@@ -306,6 +307,7 @@ def set_consumer(
 class ApiLensASGIMiddleware:
     """Generic ASGI middleware for HTTP request capture."""
 
+    @env_defaults  # options not passed are read from APILENS_* env vars
     def __init__(
         self,
         app,
@@ -692,6 +694,7 @@ class ApiLensASGIMiddleware:
 class ApiLensWSGIMiddleware:
     """WSGI wrapper for Flask and other WSGI applications."""
 
+    @env_defaults  # options not passed are read from APILENS_* env vars
     def __init__(
         self,
         app: Callable,

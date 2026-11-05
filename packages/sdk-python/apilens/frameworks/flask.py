@@ -3,10 +3,12 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ..client import ApiLensClient
+from ..client._env import env_defaults
 from ..client._routes import flask_route_template
 from ..client.middleware import ApiLensWSGIMiddleware, set_consumer, track_consumer
 
 
+@env_defaults
 def instrument_flask(
     app,
     client: ApiLensClient,

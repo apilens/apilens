@@ -11,6 +11,7 @@ from .client._attributes import (
     set_request_attribute,
     span_attributes,
 )
+from .client._env import load_env_config
 from .client._capture import CaptureContext, _normalize_path, _to_int, capture_response
 from .client._exclusions import RequestExcluder
 from .client._metadata import start_django_metadata
@@ -46,6 +47,18 @@ from .client.trace import (
 )
 
 _client_singleton: ApiLensClient | None = None
+
+_MISSING = object()
+
+
+def _setting(settings: Any, name: str, default: Any = None, env: dict[str, Any] | None = None) -> Any:
+    """``APILENS_<NAME>``: the Django setting when defined, else the env var of
+    the same name (parsed by ``load_env_config``), else ``default``."""
+    value = getattr(settings, f"APILENS_{name}", _MISSING)
+    if value is not _MISSING:
+        return value
+    env = load_env_config() if env is None else env
+    return env.get(name.lower(), default)
 
 
 def _resolve_get_consumer(settings: Any):
@@ -99,23 +112,25 @@ def _get_client_from_settings() -> ApiLensClient:
     except Exception as exc:  # pragma: no cover
         raise RuntimeError("Django settings are not available") from exc
 
-    api_key = getattr(settings, "APILENS_API_KEY", "")
+    env = load_env_config()
+    api_key = _setting(settings, "API_KEY", "", env)
     if not api_key:
-        raise RuntimeError("APILENS_API_KEY is required in Django settings")
+        raise RuntimeError("APILENS_API_KEY is required (Django setting or environment variable)")
     # Optional: the project-level API key identifies the project server-side.
     project_slug = getattr(settings, "APILENS_PROJECT_SLUG", "")
 
     cfg = ApiLensConfig(
         api_key=api_key,
         project_slug=project_slug,
-        base_url=getattr(settings, "APILENS_BASE_URL", "https://ingest.apilens.ai/v1"),
-        environment=getattr(settings, "APILENS_ENVIRONMENT", "production"),
+        base_url=_setting(settings, "BASE_URL", "https://ingest.apilens.ai/v1", env),
+        environment=_setting(settings, "ENVIRONMENT", "production", env),
         release=str(getattr(settings, "APILENS_RELEASE", "") or ""),
         commit=str(getattr(settings, "APILENS_COMMIT", "") or ""),
-        batch_size=int(getattr(settings, "APILENS_BATCH_SIZE", 200)),
-        flush_interval=float(getattr(settings, "APILENS_FLUSH_INTERVAL", 3.0)),
-        capture_ip=bool(getattr(settings, "APILENS_CAPTURE_IP", True)),
-        anonymize_ip=bool(getattr(settings, "APILENS_ANONYMIZE_IP", False)),
+        batch_size=int(_setting(settings, "BATCH_SIZE", 200, env)),
+        flush_interval=float(_setting(settings, "FLUSH_INTERVAL", 3.0, env)),
+        enabled=bool(_setting(settings, "ENABLED", True, env)),
+        capture_ip=bool(_setting(settings, "CAPTURE_IP", True, env)),
+        anonymize_ip=bool(_setting(settings, "ANONYMIZE_IP", False, env)),
         mask_log_record=_resolve_body_masker(settings, "APILENS_MASK_LOG_RECORD"),
     )
     _client_singleton = ApiLensClient(cfg)
@@ -172,21 +187,30 @@ class ApiLensDjangoMiddleware:
     def __init__(self, get_response):
         from django.conf import settings
 
+        # Every APILENS_* setting falls back to the env var of the same name
+        # (settings win over env vars, env vars over the defaults).
+        env = load_env_config()
         self.get_response = get_response
         self.client = _get_client_from_settings()
         self.project_slug = getattr(settings, "APILENS_PROJECT_SLUG", "")
-        self.app_id = getattr(settings, "APILENS_APP_ID", "")
+        self.app_id = _setting(settings, "APP_ID", "", env)
         if not self.app_id:
-            raise RuntimeError("APILENS_APP_ID is required in Django settings")
-        self.max_payload_bytes = int(getattr(settings, "APILENS_MAX_PAYLOAD_BYTES", 65536))
-        self.capture_headers = bool(getattr(settings, "APILENS_CAPTURE_HEADERS", True))
+            raise RuntimeError("APILENS_APP_ID is required (Django setting or environment variable)")
+        self.environment = _setting(settings, "ENVIRONMENT", None, env)
+        self.max_payload_bytes = max(0, int(_setting(settings, "MAX_PAYLOAD_BYTES", 65536, env)))
+        self.capture_headers = bool(_setting(settings, "CAPTURE_HEADERS", True, env))
+        # Body capture toggles: APILENS_CAPTURE_PAYLOADS gates both bodies,
+        # APILENS_LOG_REQUEST_BODY / APILENS_LOG_RESPONSE_BODY each one.
+        self.capture_payloads = bool(_setting(settings, "CAPTURE_PAYLOADS", True, env))
+        self.log_request_body = bool(_setting(settings, "LOG_REQUEST_BODY", True, env))
+        self.log_response_body = bool(_setting(settings, "LOG_RESPONSE_BODY", True, env))
         # PII redaction — regexes matched (case-insensitive) against query
         # parameter / header / JSON body field names; matched values are stored
         # as ``[redacted]``. Built-in sensitive headers always apply.
         self.redactor = Redactor(
-            query_params=list(getattr(settings, "APILENS_REDACT_QUERY_PARAMS", []) or []),
-            headers=list(getattr(settings, "APILENS_REDACT_HEADERS", []) or []),
-            body_fields=list(getattr(settings, "APILENS_REDACT_BODY_FIELDS", []) or []),
+            query_params=list(_setting(settings, "REDACT_QUERY_PARAMS", [], env) or []),
+            headers=list(_setting(settings, "REDACT_HEADERS", [], env) or []),
+            body_fields=list(_setting(settings, "REDACT_BODY_FIELDS", [], env) or []),
         )
         # Body mask callbacks ``(RequestInfo | ResponseInfo, bytes) -> bytes |
         # None`` (a callable or its dotted path). They run on the truncated raw
@@ -198,7 +222,7 @@ class ApiLensDjangoMiddleware:
         # a comma-separated string; default JSON, ``+json``, ``text/*`` and
         # form-encoded). Any other body (multipart, binary) is never read and
         # is stored as ``[<content-type>, N bytes omitted]``.
-        self.content_types = ContentTypeFilter(getattr(settings, "APILENS_CAPTURE_CONTENT_TYPES", None) or None)
+        self.content_types = ContentTypeFilter(_setting(settings, "CAPTURE_CONTENT_TYPES", None, env) or None)
         # Paths whose requests bypass capture entirely (health checks, probes).
         # A list of regexes or a comma-separated string; matched
         # case-insensitively against the path without query string. The
@@ -209,12 +233,12 @@ class ApiLensDjangoMiddleware:
         self.excluder = RequestExcluder(
             getattr(settings, "APILENS_EXCLUDE_PATHS", None) or None,
             getattr(settings, "APILENS_EXCLUDE_USER_AGENTS", None) or None,
-            default_exclusions=bool(getattr(settings, "APILENS_DEFAULT_EXCLUSIONS", True)),
+            default_exclusions=bool(_setting(settings, "DEFAULT_EXCLUSIONS", True, env)),
         )
         # APILENS_SAMPLE_RATE (0.0-1.0): fraction of requests whose detail is
         # kept. Sampled-out requests still send the base record (metrics stay
         # exact) with no headers, bodies, spans or error log.
-        self.sampler = DetailSampler(getattr(settings, "APILENS_SAMPLE_RATE", 1.0))
+        self.sampler = DetailSampler(_setting(settings, "SAMPLE_RATE", 1.0, env))
         # Heuristic path parametrization when the URL resolver gives no route
         # (env APILENS_PARAMETRIZE_PATHS wins over this setting).
         self.parametrize_paths = bool(getattr(settings, "APILENS_PARAMETRIZE_PATHS", True))
@@ -222,12 +246,12 @@ class ApiLensDjangoMiddleware:
         # Nothing is inferred automatically; it only runs the resolver you provide.
         self.get_consumer = _resolve_get_consumer(settings)
         # APILENS_CAPTURE_SPANS also works as an env kill-switch (env wins over the setting).
-        self.capture_spans = bool(getattr(settings, "APILENS_CAPTURE_SPANS", True)) and env_spans_enabled()
+        self.capture_spans = bool(_setting(settings, "CAPTURE_SPANS", True, env)) and env_spans_enabled()
         if self.capture_spans:
             configure_spans(
                 self.client,
                 app_id=self.app_id,
-                environment=getattr(settings, "APILENS_ENVIRONMENT", None),
+                environment=self.environment,
                 service_name=getattr(settings, "APILENS_SERVICE_NAME", "") or self.app_id,
             )
         # Graceful shutdown: Django has no lifespan hook (and request_finished
@@ -313,8 +337,10 @@ class ApiLensDjangoMiddleware:
         # view ran, so the mask callback sees ``set_request_attribute`` values.
         request_body = b""
         request_content_type = request.META.get("CONTENT_TYPE") or ""
-        capture_bodies = sampled and self.max_payload_bytes > 0
-        if capture_bodies and self.content_types.allows(request_content_type):
+        capture_bodies = sampled and self.max_payload_bytes > 0 and self.capture_payloads
+        capture_request_body = capture_bodies and self.log_request_body
+        capture_response_body = capture_bodies and self.log_response_body
+        if capture_request_body and self.content_types.allows(request_content_type):
             try:
                 request_body = request.body[: self.max_payload_bytes]
             except Exception:
@@ -360,7 +386,7 @@ class ApiLensDjangoMiddleware:
                     masker=self.mask_response_body,
                     info=response_info,
                 )
-                if capture_bodies
+                if capture_response_body
                 else ""
             )
             if capture_headers:
@@ -400,7 +426,7 @@ class ApiLensDjangoMiddleware:
                         masker=self.mask_request_body,
                         info=request_info,
                     )
-                    if capture_bodies
+                    if capture_request_body
                     else ""
                 )
             except Exception:
