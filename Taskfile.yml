@@ -7,6 +7,8 @@ vars:
   SQLC_IMAGE: sqlc/sqlc:1.31.1@sha256:70f53171d27b2424e9358869975455a6e955a5aa8e58a998a270a6e34e525537
   ZED_IMAGE: ghcr.io/authzed/zed:v1.2.1@sha256:075810514ce2b5b494240b8015dd1ee686b47c00e238a5925eaf5f5fe3c8d02e
   DEV_COMPOSE: deploy/compose/compose.dev.yaml
+  E2E_COMPOSE: docker compose --env-file deploy/compose/ci.env -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml
+  EXAMPLES_COMPOSE: "{{.E2E_COMPOSE}} -f deploy/compose/compose.examples.yaml --profile examples"
 
 # Defaults matching deploy/compose/compose.dev.yaml (local only).
 env:
@@ -142,6 +144,36 @@ tasks:
   e2e:down:
     cmds:
       - docker compose --env-file deploy/compose/ci.env -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml down -v
+
+  # -------------------------------------------------------- example apps
+  # FastAPI, Express and Spring apps instrumented with the SDKs from this repo
+  # (examples/, deploy/compose/compose.examples.yaml), run against the e2e
+  # stack. Posture: APILENS_EXAMPLES_POSTURE=off|metadata|redacted|full.
+  examples:up:
+    desc: "Start the e2e stack plus the FastAPI/Express/Spring example apps (posture: APILENS_EXAMPLES_POSTURE)"
+    cmds:
+      - task: e2e:up
+      - |
+        set -eu
+        for app in example-fastapi example-express example-spring; do
+          out="$({{.E2E_COMPOSE}} run --rm --no-deps --entrypoint /apilens apilens seed -app-slug "$app" | tail -n 1)"
+        done
+        key="$(printf '%s' "$out" | sed -n 's/.*"api_key":"\([^"]*\)".*/\1/p')"
+        read_key="$(printf '%s' "$out" | sed -n 's/.*"read_key":"\([^"]*\)".*/\1/p')"
+        if [ -z "$key" ]; then echo "seed did not return an api_key: $out" >&2; exit 1; fi
+        printf 'APILENS_EXAMPLES_API_KEY=%s\nAPILENS_EXAMPLES_READ_KEY=%s\n' "$key" "$read_key" > examples/.env
+        APILENS_EXAMPLES_API_KEY="$key" {{.EXAMPLES_COMPOSE}} up -d --build --wait --wait-timeout 600
+        echo "Examples up (posture ${APILENS_EXAMPLES_POSTURE:-full}); keys in examples/.env. Try: task examples:smoke"
+
+  examples:smoke:
+    desc: Hit every example endpoint once and check the status codes
+    cmds:
+      - bash examples/smoke.sh {{.CLI_ARGS}}
+
+  examples:down:
+    desc: Stop the example apps (the e2e stack keeps running; task e2e:down stops it)
+    cmds:
+      - APILENS_EXAMPLES_API_KEY=unused {{.EXAMPLES_COMPOSE}} rm -sf example-fastapi example-express example-spring
 
   # ------------------------------------------------------------- run
   build:

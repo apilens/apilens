@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- APILens example app: Spring Boot (MVC) + the Java SDK from this repo.
+     Install the SDK first: mvn -f packages/sdk-java/pom.xml install -DskipTests -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.5.16</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>ai.apilens.examples</groupId>
+  <artifactId>apilens-example-spring</artifactId>
+  <version>0.0.0</version>
+  <name>APILens Spring example</name>
+
+  <properties>
+    <java.version>21</java.version>
+    <apilens-java-sdk.version>0.1.0</apilens-java-sdk.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>ai.apilens</groupId>
+      <artifactId>apilens-java-sdk</artifactId>
+      <version>${apilens-java-sdk.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>app</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>

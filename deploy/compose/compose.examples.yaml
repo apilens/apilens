@@ -1,0 +1,91 @@
+# Example apps (profile `examples`) instrumented with the three SDKs from this
+# repo, for the e2e, failure-drill and benchmark tasks. Layer on top of the
+# CI stack; `task examples:up` does all of this (seed, key, build, wait):
+#
+#   APILENS_EXAMPLES_API_KEY=apl_live_... docker compose \
+#     --env-file deploy/compose/ci.env -f deploy/compose/compose.yaml \
+#     -f deploy/compose/compose.ci.yaml -f deploy/compose/compose.examples.yaml \
+#     --profile examples up -d --build --wait
+#
+# Every app serves the same endpoints (see examples/README.md) on 127.0.0.1:
+#   FastAPI  http://127.0.0.1:${APILENS_EXAMPLES_FASTAPI_PORT:-18001}  app example-fastapi
+#   Express  http://127.0.0.1:${APILENS_EXAMPLES_EXPRESS_PORT:-18002}  app example-express
+#   Spring   http://127.0.0.1:${APILENS_EXAMPLES_SPRING_PORT:-18003}   app example-spring
+#
+# Posture and SDK options come from the environment of `docker compose`:
+#   APILENS_EXAMPLES_POSTURE        off | metadata | redacted | full (default full);
+#                                   off runs the app without the SDK (bench baseline)
+#   APILENS_EXAMPLES_API_KEY        ingest key (required; `task examples:up` seeds one)
+#   APILENS_EXAMPLES_INGEST_URL     SDK base URL (default http://apilens:8080/v1)
+#   APILENS_EXAMPLES_ENVIRONMENT    environment name (default production)
+#   APILENS_EXAMPLES_SAMPLE_RATE    0.0-1.0 (default 1.0)
+#   APILENS_EXAMPLES_REDACT_BODY_FIELDS / _REDACT_HEADERS / _REDACT_QUERY_PARAMS
+#   APILENS_EXAMPLES_EXCLUDE_PATHS  comma-separated regexes, passed to every SDK
+# Outbound calls chain FastAPI -> Express -> Spring -> FastAPI (/orders/{id}).
+
+x-example: &example
+  profiles: ["examples"]
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:size=64m
+  depends_on:
+    apilens:
+      condition: service_healthy
+  deploy:
+    resources:
+      limits:
+        memory: 512m
+
+x-example-env: &example-env
+  EXAMPLE_POSTURE: ${APILENS_EXAMPLES_POSTURE:-full}
+  APILENS_API_KEY: ${APILENS_EXAMPLES_API_KEY:?set APILENS_EXAMPLES_API_KEY (task examples:up seeds one)}
+  APILENS_BASE_URL: ${APILENS_EXAMPLES_INGEST_URL:-http://apilens:8080/v1}
+  APILENS_ENVIRONMENT: ${APILENS_EXAMPLES_ENVIRONMENT:-production}
+  APILENS_SAMPLE_RATE: ${APILENS_EXAMPLES_SAMPLE_RATE:-1.0}
+  APILENS_REDACT_BODY_FIELDS: ${APILENS_EXAMPLES_REDACT_BODY_FIELDS:-}
+  APILENS_REDACT_HEADERS: ${APILENS_EXAMPLES_REDACT_HEADERS:-}
+  APILENS_REDACT_QUERY_PARAMS: ${APILENS_EXAMPLES_REDACT_QUERY_PARAMS:-}
+  APILENS_EXCLUDE_PATHS: ${APILENS_EXAMPLES_EXCLUDE_PATHS:-}
+
+services:
+  example-fastapi:
+    <<: *example
+    image: apilens-example-fastapi:dev
+    build:
+      context: ../..
+      dockerfile: examples/fastapi/Dockerfile
+    environment:
+      <<: *example-env
+      APILENS_APP_ID: example-fastapi
+      EXAMPLE_OUTBOUND_URL: http://example-express:3000/orders/7
+    ports:
+      - "127.0.0.1:${APILENS_EXAMPLES_FASTAPI_PORT:-18001}:8000"
+
+  example-express:
+    <<: *example
+    image: apilens-example-express:dev
+    build:
+      context: ../..
+      dockerfile: examples/express/Dockerfile
+    environment:
+      <<: *example-env
+      APILENS_APP_ID: example-express
+      EXAMPLE_OUTBOUND_URL: http://example-spring:8080/orders/7
+    ports:
+      - "127.0.0.1:${APILENS_EXAMPLES_EXPRESS_PORT:-18002}:3000"
+
+  example-spring:
+    <<: *example
+    image: apilens-example-spring:dev
+    build:
+      context: ../..
+      dockerfile: examples/spring/Dockerfile
+    environment:
+      <<: *example-env
+      APILENS_APP_ID: example-spring
+      EXAMPLE_OUTBOUND_URL: http://example-fastapi:8000/orders/7
+    ports:
+      - "127.0.0.1:${APILENS_EXAMPLES_SPRING_PORT:-18003}:8080"

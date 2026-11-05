@@ -1,0 +1,17 @@
+{
+  "name": "apilens-example-express",
+  "private": true,
+  "description": "APILens example app: Express + apilens-js-sdk (see examples/README.md)",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "apilens-js-sdk": "file:../../packages/sdk-typescript",
+    "express": "5.2.1",
+    "multer": "2.5.0"
+  }
+}

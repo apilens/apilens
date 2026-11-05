@@ -45,6 +45,9 @@ packages/sdk-python/build/
 # Java SDK
 packages/sdk-java/target/
 
+# Example apps (examples/)
+examples/spring/target/
+
 # Helm
 deploy/helm/**/charts/*.tgz
 
