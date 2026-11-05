@@ -48,4 +48,14 @@ public class ApiLensAutoConfiguration {
     registration.setName("apiLensSpringFilter");
     return registration;
   }
+
+  @Bean
+  @ConditionalOnMissingBean
+  @ConditionalOnBean(ApiLensSpringFilter.class)
+  public ApiLensMetadataReporter apiLensMetadataReporter(
+      ApiLensClient client,
+      ApiLensSpringFilter filter,
+      ObjectProvider<ApiLensConsumerResolver> consumerResolver) {
+    return new ApiLensMetadataReporter(client, filter, consumerResolver.getIfAvailable() != null);
+  }
 }

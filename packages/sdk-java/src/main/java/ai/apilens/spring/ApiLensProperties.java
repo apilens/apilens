@@ -57,6 +57,12 @@ public class ApiLensProperties {
   private boolean enabled = true;
   /** User-Agent of ingest requests; defaults to apilens-java-sdk/VERSION. */
   private String userAgent = "";
+  /** Whether POST /v1/heartbeat is sent (on start, every heartbeat-interval and on shutdown). */
+  private boolean sendHeartbeat = true;
+  /** Time between heartbeats; at least 10s. */
+  private Duration heartbeatInterval = Duration.ofSeconds(60);
+  /** Whether the app metadata report (POST /v1/metadata) is sent once the app is ready. */
+  private boolean sendMetadata = true;
   /** Whether request headers and bodies are captured at all. */
   private boolean enableRequestLogging = true;
   /**
@@ -128,6 +134,9 @@ public class ApiLensProperties {
         .retryBackoffMax(retryBackoffMax)
         .enabled(enabled)
         .userAgent(userAgent)
+        .sendHeartbeat(sendHeartbeat)
+        .heartbeatInterval(heartbeatInterval)
+        .sendMetadata(sendMetadata)
         .build();
   }
 
@@ -359,6 +368,33 @@ public class ApiLensProperties {
 
   public void setUserAgent(String userAgent) {
     this.userAgent = userAgent;
+  }
+
+  /** {@code apilens.send-heartbeat}: send {@code POST /v1/heartbeat} (default true). */
+  public boolean isSendHeartbeat() {
+    return sendHeartbeat;
+  }
+
+  public void setSendHeartbeat(boolean sendHeartbeat) {
+    this.sendHeartbeat = sendHeartbeat;
+  }
+
+  /** {@code apilens.heartbeat-interval}: time between heartbeats (default 60s, at least 10s). */
+  public Duration getHeartbeatInterval() {
+    return heartbeatInterval;
+  }
+
+  public void setHeartbeatInterval(Duration heartbeatInterval) {
+    this.heartbeatInterval = heartbeatInterval;
+  }
+
+  /** {@code apilens.send-metadata}: send the app metadata report on startup (default true). */
+  public boolean isSendMetadata() {
+    return sendMetadata;
+  }
+
+  public void setSendMetadata(boolean sendMetadata) {
+    this.sendMetadata = sendMetadata;
   }
 
   public boolean isEnableRequestLogging() {

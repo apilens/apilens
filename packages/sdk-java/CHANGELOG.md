@@ -19,6 +19,19 @@
   `log-request-body`, `log-response-body`, `max-payload-bytes`) are nullable so
   a profile can fill them; their accessors are now `getX()` returning
   `Boolean` / `Integer`.
+- Added the heartbeat: `POST /v1/heartbeat` on start, every
+  `heartbeatInterval` (`apilens.heartbeat-interval`, default 60 s, minimum
+  10 s) and a final one on shutdown, carrying SDK/runtime versions, pid,
+  uptime and `stats()`. Its response's capture policy is exposed as
+  `client.remotePolicy()` (`RemotePolicy`) and applied by the Spring filter;
+  it can only narrow capture (disable, lower sample rate, drop headers or
+  bodies, lower the body cap). `apilens.send-heartbeat` /
+  `APILENS_SEND_HEARTBEAT=false` turn it off.
+- Added the app metadata report: `POST /v1/metadata` once per process when the
+  Spring application is ready, with Spring Boot/Spring/Java versions, the
+  Spring MVC route templates and the effective capture config.
+  `apilens.send-metadata` / `APILENS_SEND_METADATA=false` turn it off.
+  `spring-webmvc` is now an optional dependency.
 - Built-in default masking patterns for query params, headers and JSON/form
   body fields (`Redactor.DEFAULT_MASK_*`, same lists as the Python SDK) are now
   always applied; user `redact-*` patterns extend them. Matching body fields

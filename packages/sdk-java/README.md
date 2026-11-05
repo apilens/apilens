@@ -167,6 +167,9 @@ Eclipse complete every property below with its description and default.
 | `apilens.exclude-user-agents` | empty | User-Agent regexes of requests not captured at all. |
 | `apilens.default-exclusions` | `true` | Built-in health-check/probe/static-file exclusions. |
 | `apilens.sample-rate` | `1.0` | Fraction of requests whose detail is kept. |
+| `apilens.send-heartbeat` | `true` | Send `POST /v1/heartbeat`; see [Heartbeat and remote capture policy](#heartbeat-and-remote-capture-policy). |
+| `apilens.heartbeat-interval` | `60s` | Time between heartbeats (at least `10s`). |
+| `apilens.send-metadata` | `true` | Send the [app metadata](#app-metadata) report once the app is ready. |
 | `apilens.filter-order` | `Integer.MAX_VALUE - 100` | Servlet filter order. |
 
 \* The default applies only when `apilens.capture-profile` does not set the
@@ -259,6 +262,8 @@ unparseable value throws `IllegalArgumentException` naming the variable.
 | `APILENS_ANONYMIZE_IP` | `anonymizeIp` | bool; `true` wins over code | `false` |
 | `APILENS_CAPTURE_SPANS` | `captureSpans` | bool | `true` |
 | `APILENS_SERVICE_NAME` | `serviceName` | string | app id |
+| `APILENS_SEND_HEARTBEAT` | `sendHeartbeat` | bool; `false` wins over code | `true` |
+| `APILENS_SEND_METADATA` | `sendMetadata` | bool; `false` wins over code | `true` |
 
 `APILENS_EXCLUDE_PATHS` / `APILENS_EXCLUDE_USER_AGENTS` are added by the
 filter to whatever is configured, with or without Spring.
@@ -454,6 +459,52 @@ ApiLensSpringOptionsCustomizer apiLensSampling() {
           : SampleDecision.UNDECIDED);
 }
 ```
+
+## Heartbeat and remote capture policy
+
+A daemon thread (`apilens-heartbeat`) sends `POST /v1/heartbeat` for the app:
+once on start, then every `heartbeat-interval` (default 60 s, at least 10 s),
+and once more with `"final": true` when the client shuts down (the Spring bean's
+destroy method). APILens uses it for app status and uptime.
+
+- **Body:** `app_id`, `environment` (the filter's), `instance_id` (a UUID per
+  client, `client.instanceId()`), `sdk_name` (`apilens-java-sdk`),
+  `sdk_version`, `runtime` (`java 21.0.5`), `pid`, `uptime_s`, `release`,
+  `commit`, `project_slug` and `stats` (the `client.stats()` snapshot). Never
+  the API key.
+- **Failures are silent:** no retries; 401/403/422 are logged once at WARNING,
+  everything else at FINE; 429/503 wait for `Retry-After`. Record delivery is
+  never affected.
+- **Turn it off:** `apilens.send-heartbeat=false` (`sendHeartbeat(false)`), or
+  env `APILENS_SEND_HEARTBEAT=false`.
+
+The response carries the app's capture policy, `client.remotePolicy()`
+(`RemotePolicy.CAPTURE_EVERYTHING` until the first heartbeat succeeds; a failed
+heartbeat keeps the previous one). The filter applies it from the next request,
+so a change in APILens reaches the app within one heartbeat interval. It can only
+**narrow** capture, never widen what the local options allow:
+
+| Policy field | Effect |
+|---|---|
+| `enabled: false` | No request, span or log records are sent; the filter bypasses requests. Heartbeats continue. |
+| `sample_rate` | Keeps that fraction of the requests local sampling keeps; the rest send only the base record (`sampled: false`). |
+| `capture_headers`, `capture_request_body`, `capture_response_body` | `false` turns that part off; `true` never turns on what is off locally. |
+| `max_payload_bytes` | The smaller of it and `max-payload-bytes`; `null` keeps the local cap. |
+
+## App metadata
+
+When the Spring application is ready, the SDK sends `POST /v1/metadata` once per
+process: `framework` (`spring-boot`), `framework_version`, `spring_version`,
+`java_version`, `sdk_version`, the route templates of every Spring MVC
+`RequestMappingHandlerMapping` (at most 2000; a mapping without a method
+condition is reported as `*`) and the effective capture config (masking
+patterns and exclusions including the built-ins, sample rate, delivery
+settings; callbacks only as `true`/`false`). Never sent: the API key, the CA
+bundle path, callback details. 408/429/5xx are retried up to 3 times. Turn it
+off with `apilens.send-metadata=false` or env `APILENS_SEND_METADATA=false`.
+Outside Spring, call `client.reportMetadata(environment, () -> body)`.
+
+The full contract is in the ingest docs (`apps/docs/ingest/heartbeat.mdx`).
 
 ## Publishing
 
