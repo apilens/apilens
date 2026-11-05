@@ -15,6 +15,7 @@ Observability tools see sensitive traffic, so this page is deliberately blunt ab
 | Request & response **headers** | Yes, with sensitive values redacted | `capture_headers=False`, plus `redact_headers=[…]` for your own patterns |
 | Request & response **bodies** | Yes, truncated at 64 KB | `capture_payloads=False`, `log_request_body` / `log_response_body` individually, or field-level `redact_body_fields=[…]` |
 | **Query strings** | Yes, as part of the exact request URL, with [default patterns](#default-masking-patterns) masked | `redact_query_params=[…]` per-parameter |
+| Entire requests to matching paths | Yes, unless excluded | `exclude_paths=[…]` regexes, or `APILENS_EXCLUDE_PATHS` |
 | Consumer identity | **No** — only what you explicitly set | `set_consumer(...)` |
 | Trace spans | Yes (timing + endpoint/URL names, no payloads) | `capture_spans=False` or `APILENS_CAPTURE_SPANS=false` |
 | Error stack traces | Yes, on unhandled exception or 5xx | disabled along with spans |
@@ -107,6 +108,24 @@ With the one-line `ApiLensMiddleware` (which builds its own client), use the env
 <Note>
 **Limitation:** an anonymised IP is a network, not a client. All callers in the same /24 (IPv4) or /48 (IPv6) show up as **one** IP in the consumer and IP filters and are counted together, so per-IP breakdowns become per-network breakdowns. Requests recorded before you turned anonymisation on keep their full IP, so the same caller can appear under both values for a while.
 </Note>
+
+## Excluding paths (health checks, probes)
+
+Some endpoints should never be recorded at all — load-balancer health checks, readiness probes, metrics scrapes. Pass `exclude_paths` and matching requests bypass the SDK entirely: no request record, no span, no error log, and no body buffering.
+
+```python
+app.add_middleware(
+    ApiLensMiddleware,
+    api_key="apilens_xxx",
+    app_id="orders-api",
+    exclude_paths=[r"^/health$", r"^/ready$", r"^/metrics"],
+)
+```
+
+- **Matched against the actual path**, not the route template, case-insensitively (`re.search`), with the query string removed. `^`/`$` anchor to the path: `r"^/health$"` skips `/health` and `/health?probe=1` but not `/healthz` or `/api/health`.
+- **Compiled once at startup.** An invalid regex raises when the middleware is constructed, not on the first request.
+- **Django:** `APILENS_EXCLUDE_PATHS = [r"^/health$", r"^/ready$"]` (a comma-separated string also works).
+- **Environment variable:** `APILENS_EXCLUDE_PATHS="^/health$,^/ready$"` adds patterns on top of the ones in code, for every framework. Because it is split on commas, put any regex that needs a literal comma (`{1,3}`) in code instead.
 
 ## Turning capture down (or off)
 

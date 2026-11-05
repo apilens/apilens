@@ -19,6 +19,7 @@ def instrument_app(
     redact_query_params: list[str] | None = None,
     redact_headers: list[str] | None = None,
     redact_body_fields: list[str] | None = None,
+    exclude_paths: list[str] | None = None,
     get_consumer: Callable[..., Any] | None = None,
 ):
     """Starlette integration via ASGI middleware."""
@@ -33,6 +34,7 @@ def instrument_app(
         redact_query_params=redact_query_params,
         redact_headers=redact_headers,
         redact_body_fields=redact_body_fields,
+        exclude_paths=exclude_paths,
         get_consumer=get_consumer,
         route_resolver=starlette_route_template,
     )

@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 from .client._capture import CaptureContext, _normalize_path, _to_int, capture_response
+from .client._exclude import PathExcluder
 from .client._routes import django_route_template, resolve_endpoint_path
 from .client._sanitize import Redactor, decode_utf8_safe, serialize_headers
 from .client import ApiLensClient, ApiLensConfig
@@ -138,6 +139,11 @@ class ApiLensDjangoMiddleware:
             headers=list(getattr(settings, "APILENS_REDACT_HEADERS", []) or []),
             body_fields=list(getattr(settings, "APILENS_REDACT_BODY_FIELDS", []) or []),
         )
+        # Paths whose requests bypass capture entirely (health checks, probes).
+        # A list of regexes or a comma-separated string; matched
+        # case-insensitively against the path without query string. The
+        # APILENS_EXCLUDE_PATHS env var adds to the setting.
+        self.exclude_paths = PathExcluder(getattr(settings, "APILENS_EXCLUDE_PATHS", None) or None)
         # Heuristic path parametrization when the URL resolver gives no route
         # (env APILENS_PARAMETRIZE_PATHS wins over this setting).
         self.parametrize_paths = bool(getattr(settings, "APILENS_PARAMETRIZE_PATHS", True))
@@ -164,6 +170,8 @@ class ApiLensDjangoMiddleware:
         return None
 
     def __call__(self, request):
+        if self.exclude_paths.matches(getattr(request, "path", "/")):
+            return self.get_response(request)
         started_at = time.perf_counter()
         response = None
         status_code = 500

@@ -58,6 +58,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
         redact_query_params: list[str] | None = None,
         redact_headers: list[str] | None = None,
         redact_body_fields: list[str] | None = None,
+        exclude_paths: list[str] | None = None,
         get_consumer: Callable[..., Any] | None = None,
     ) -> None:
         resolved_key = (api_key or client_id or "").strip()
@@ -96,6 +97,7 @@ class ApiLensGatewayMiddleware(ApiLensASGIMiddleware):
             redact_query_params=redact_query_params,
             redact_headers=redact_headers,
             redact_body_fields=redact_body_fields,
+            exclude_paths=exclude_paths,
             get_consumer=get_consumer,
             route_resolver=starlette_route_template,
         )
@@ -118,6 +120,7 @@ def instrument_app(
     capture_spans: bool = True,
     service_name: str = "",
     max_payload_bytes: int = 65536,
+    exclude_paths: list[str] | None = None,
 ):
     """Compatibility wrapper: prefer apilens.frameworks.fastapi.instrument_fastapi."""
     return instrument_fastapi(
@@ -132,6 +135,7 @@ def instrument_app(
         capture_spans=capture_spans,
         service_name=service_name,
         max_payload_bytes=max_payload_bytes,
+        exclude_paths=exclude_paths,
     )
 
 
