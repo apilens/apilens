@@ -91,6 +91,36 @@ An error thrown by a handler is caught by Hono (`app.onError`); the middleware r
 
 The middleware takes the same options as the [Express middleware](/setup-guides/express) — delivery, header and body capture, redaction, exclusions, sampling and tracing — plus `flushMode` and `waitUntil`. Where the runtime has `process.env`, every option can also be set with its `APILENS_*` environment variable.
 
+## Capture posture
+
+`captureProfile` picks what leaves the process in one word: `metadata` (no headers or bodies), `redacted` (headers and bodies with the default masking, 16 KB body cap) or `full` (the default). Every profile still sends the base record, so metrics and dashboards stay exact. For a first production rollout, start on `metadata`:
+
+```typescript
+instrumentHono(app, {
+  apiKey,
+  appId: "storefront-api",
+  captureProfile: "metadata",     // metadata | redacted | full
+});
+```
+
+An explicit option wins over the environment, so for a rollout leave the profile out of code and set `APILENS_CAPTURE_PROFILE` instead: the posture can then be widened or tightened with a redeploy. `metadata` still sends the URL with its query string, so add a `redactQueryParams` pattern for any parameter that carries personal data. See [Capture profiles](/getting-started/data-privacy#capture-profiles) and [phase 2 of the rollout guide](/guides/third-party-rollout#phase-2-capture-posture).
+
+## Environment variables
+
+Where the runtime has `process.env` (Node, Bun, Deno), every option has an `APILENS_*` variable, with the Python SDK's names, so keys, posture and patterns stay out of code. On Cloudflare Workers and Vercel Edge, pass the values from your bindings in the config instead. A typical deployment:
+
+```bash
+APILENS_API_KEY=apilens_...          # project key, from your secret store
+APILENS_APP_ID=storefront-api
+APILENS_ENVIRONMENT=production
+APILENS_CAPTURE_PROFILE=metadata     # metadata | redacted | full
+APILENS_REDACT_QUERY_PARAMS=^email$,token
+# Kill switch. Wins over code, in the direction that captures less:
+# APILENS_CAPTURE_SPANS=false        # no spans or error-trace logs
+```
+
+Precedence is **explicit option > env var > default**. `APILENS_ENABLED=false` turns the SDK off on the next deploy, as long as `enabled` is not set in code ([SDK runbook](/guides/sdk-runbook#stop-capture-kill-switch)). The JavaScript SDK always sends the client IP in full: `APILENS_CAPTURE_IP` and `APILENS_ANONYMIZE_IP` are not read yet. The full list is in the SDK's [environment variable reference](https://github.com/apilens/apilens/blob/v2/packages/sdk-typescript/README.md#environment-variables).
+
 ## Verify
 
 Send a few requests and open the **Traffic** page — your Hono app's endpoints appear with their route templates alongside your other services in the project.

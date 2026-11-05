@@ -4,7 +4,7 @@ description: "Monitor an Express API with the APILens JavaScript SDK (beta)."
 ---
 
 <Warning>
-The JavaScript SDK (`apilens-js-sdk`, v0.1.x) is **beta** and currently covers Express only. It captures metrics and request logs; automatic tracing and error-trace capture are Python-SDK features for now — see the [roadmap](/roadmap).
+The JavaScript SDK (`apilens-js-sdk`, v0.1.x) is **beta**. The Express middleware supports Express 4 and 5 and captures metrics, request logs, a server span per request and an error log for 5xx responses. The same SDK covers [Fastify](/setup-guides/fastify), [NestJS](/setup-guides/nestjs), [Koa](/setup-guides/koa) and [Hono](/setup-guides/hono).
 </Warning>
 
 ## Install
@@ -63,6 +63,36 @@ The config accepts both camelCase and snake_case keys. The client mirrors the Py
 | `maxRetries` | `3` | With exponential backoff |
 | `enabled` | `true` | Master kill switch |
 | `requestLogging` | — | Header/body capture configuration |
+
+## Capture posture
+
+`captureProfile` picks what leaves the process in one word: `metadata` (no headers or bodies), `redacted` (headers and bodies with the default masking, 16 KB body cap) or `full` (the default). Every profile still sends the base record, so metrics and dashboards stay exact. For a first production rollout, start on `metadata`:
+
+```javascript
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  appId: "storefront-web",
+  captureProfile: "metadata",     // metadata | redacted | full
+});
+```
+
+An explicit option wins over the environment, so for a rollout leave the profile out of code and set `APILENS_CAPTURE_PROFILE` instead: the posture can then be widened or tightened with a redeploy. `metadata` still sends the URL with its query string, so add a `redactQueryParams` pattern for any parameter that carries personal data. See [Capture profiles](/getting-started/data-privacy#capture-profiles) and [phase 2 of the rollout guide](/guides/third-party-rollout#phase-2-capture-posture).
+
+## Environment variables
+
+Every option has an `APILENS_*` variable, with the Python SDK's names, so keys, posture and patterns stay out of code. A typical deployment:
+
+```bash
+APILENS_API_KEY=apilens_...          # project key, from your secret store
+APILENS_APP_ID=storefront-web
+APILENS_ENVIRONMENT=production
+APILENS_CAPTURE_PROFILE=metadata     # metadata | redacted | full
+APILENS_REDACT_QUERY_PARAMS=^email$,token
+# Kill switch. Wins over code, in the direction that captures less:
+# APILENS_CAPTURE_SPANS=false        # no spans or error-trace logs
+```
+
+Precedence is **explicit option > env var > default**. `APILENS_ENABLED=false` turns the SDK off on the next deploy, as long as `enabled` is not set in code ([SDK runbook](/guides/sdk-runbook#stop-capture-kill-switch)). The JavaScript SDK always sends the client IP in full: `APILENS_CAPTURE_IP` and `APILENS_ANONYMIZE_IP` are not read yet. The full list is in the SDK's [environment variable reference](https://github.com/apilens/apilens/blob/v2/packages/sdk-typescript/README.md#environment-variables).
 
 ## Verify
 
