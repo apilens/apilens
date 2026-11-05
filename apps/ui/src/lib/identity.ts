@@ -1419,6 +1419,62 @@ export interface SavedViewBody {
   shared: boolean;
 }
 
+/**
+ * The body of `POST /projects/{project}/exports` (#579): the request log filter of an export, the
+ * fields meaning what the query parameters of `GET /requests` mean. `{}` exports the last 24 hours.
+ */
+export interface ExportFilterBody {
+  range?: QueryRange;
+  env?: string;
+  consumer_id?: string;
+  consumer_group?: string;
+  ip?: string;
+  method?: string;
+  path?: string;
+  url_contains?: string;
+  payload_contains?: string;
+  request_size_min?: number;
+  request_size_max?: number;
+  response_size_min?: number;
+  response_size_max?: number;
+  status?: string;
+  latency_min?: number;
+  latency_max?: number;
+  sampled?: "true" | "false";
+  trace_id?: string;
+}
+
+export type ExportStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "expired";
+
+/**
+ * `POST /projects/{project}/exports`, `GET /exports/{id}`, `POST /exports/{id}/cancel` (#579): a
+ * gzip-compressed CSV of the filtered request log, written by a background job. Completed exports
+ * expire 24 hours after they finish.
+ */
+export interface RequestExport {
+  id: string;
+  status: ExportStatus;
+  filter: ExportFilterBody;
+  from: string;
+  to: string;
+  row_limit: number;
+  /** Null until the job starts. */
+  total_rows: number | null;
+  rows_written: number;
+  /** 0 to 1; 1 once completed. */
+  progress: number;
+  size_bytes: number;
+  /** Why a failed export failed. */
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  expires_at: string | null;
+  /** Signed, relative to the API origin, while completed; needs no Authorization header. */
+  download_url: string | null;
+  download_url_expires_at: string | null;
+}
+
 // Errors dashboard, status-centric (#581), read by the Errors page (#594). Expected status codes
 // of each endpoint are not errors and excluded endpoints are left out, as on every dashboard read.
 
@@ -1800,6 +1856,12 @@ export function createClient(config: ClientConfig) {
       request<SavedView>("PUT", `/projects/${seg(projectSlug)}/views/${seg(id)}`, { ...o, body }),
     deleteSavedView: (projectSlug: string, id: string, o: Authed) =>
       request<void>("DELETE", `/projects/${seg(projectSlug)}/views/${seg(id)}`, o),
+
+    // query: request log exports (#579) -----------------------------------------------------
+    createRequestExport: (projectSlug: string, body: ExportFilterBody, o: Authed) =>
+      request<RequestExport>("POST", `/projects/${seg(projectSlug)}/exports`, { ...o, body }),
+    getRequestExport: (id: string, o: Authed) => request<RequestExport>("GET", `/exports/${seg(id)}`, o),
+    cancelRequestExport: (id: string, o: Authed) => request<RequestExport>("POST", `/exports/${seg(id)}/cancel`, o),
 
     // api: project API keys ---------------------------------------------------------------
     listApiKeys: (projectSlug: string, o: Authed) =>
