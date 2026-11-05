@@ -22,6 +22,9 @@ public final class RequestExcluder {
   /** Env var whose comma-separated patterns are added to the path patterns. */
   public static final String ENV_EXCLUDE_PATHS = "APILENS_EXCLUDE_PATHS";
 
+  /** Env var whose comma-separated patterns are added to the user-agent patterns. */
+  public static final String ENV_EXCLUDE_USER_AGENTS = "APILENS_EXCLUDE_USER_AGENTS";
+
   /** Built-in path patterns; turned off with {@code defaultExclusions=false}. */
   public static final List<String> DEFAULT_EXCLUDED_PATHS = List.of(
       "/_?healthz?$",
@@ -50,7 +53,7 @@ public final class RequestExcluder {
   private final List<Pattern> pathPatterns;
   private final List<Pattern> userAgentPatterns;
 
-  /** Built-in defaults plus {@code APILENS_EXCLUDE_PATHS}. */
+  /** Built-in defaults plus {@code APILENS_EXCLUDE_PATHS} / {@code APILENS_EXCLUDE_USER_AGENTS}. */
   public RequestExcluder() {
     this(List.of(), List.of(), true, true);
   }
@@ -81,6 +84,7 @@ public final class RequestExcluder {
       userAgents.addAll(DEFAULT_EXCLUDED_USER_AGENTS);
     }
     userAgents.addAll(splitPatterns(excludeUserAgents));
+    userAgents.addAll(splitPatterns(env.apply(ENV_EXCLUDE_USER_AGENTS)));
 
     this.pathPatterns = compile(paths);
     this.userAgentPatterns = compile(userAgents);

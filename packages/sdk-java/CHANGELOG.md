@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Added `captureProfile` presets (`CaptureProfile.METADATA` / `REDACTED` /
+  `FULL`, `apilens.capture-profile`, `APILENS_CAPTURE_PROFILE`) with the Python
+  and TypeScript semantics: a preset only fills capture flags left unset.
+- Added `ApiLensConfig.fromEnv()` / `builderFromEnv()` and
+  `ApiLensSpringOptions.fromEnv()` / `builderFromEnv()` reading `APILENS_*`
+  (parser: `ApiLensEnv`); precedence explicit > env > profile > default.
+  `APILENS_EXCLUDE_USER_AGENTS` is now added to the configured patterns, like
+  `APILENS_EXCLUDE_PATHS`.
+- Added the `apilens.capture-profile`, `apilens.max-queue-bytes`,
+  `apilens.max-batch-bytes` and `apilens.compress` Spring properties; every
+  `apilens.*` property now has a description in the generated
+  `spring-configuration-metadata.json` (the configuration processor is wired
+  explicitly in the compiler plugin).
+- `ApiLensProperties` capture flags (`capture-headers`, `capture-payloads`,
+  `log-request-body`, `log-response-body`, `max-payload-bytes`) are nullable so
+  a profile can fill them; their accessors are now `getX()` returning
+  `Boolean` / `Integer`.
 - Built-in default masking patterns for query params, headers and JSON/form
   body fields (`Redactor.DEFAULT_MASK_*`, same lists as the Python SDK) are now
   always applied; user `redact-*` patterns extend them. Matching body fields

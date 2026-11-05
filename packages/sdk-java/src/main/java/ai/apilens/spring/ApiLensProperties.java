@@ -1,6 +1,7 @@
 package ai.apilens.spring;
 
 import ai.apilens.ApiLensConfig;
+import ai.apilens.CaptureProfile;
 import java.time.Duration;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -8,45 +9,97 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /** Spring Boot properties for API Lens. */
 @ConfigurationProperties(prefix = "apilens")
 public class ApiLensProperties {
+  /** Project API key. Auto-configuration is enabled only when this is set. */
   private String apiKey = "";
+  /** Optional project slug assertion; the key already identifies the project. */
   private String projectSlug = "";
+  /** App slug the captured traffic belongs to. */
   private String appId = "";
+  /** Ingest base URL. */
   private String baseUrl = "https://ingest.apilens.ai/v1";
+  /** Request batch path, relative to the base URL. */
   private String ingestPath = "requests";
+  /** Span batch path, relative to the base URL. */
   private String spansPath = "traces";
+  /** Log batch path, relative to the base URL. */
   private String logsPath = "logs";
+  /** Environment label, e.g. production or staging (lower-cased). */
   private String environment = "production";
+  /** Release label; falls back to APILENS_RELEASE. */
   private String release = "";
+  /** Commit SHA; falls back to APILENS_COMMIT, GIT_COMMIT, SOURCE_VERSION, RENDER_GIT_COMMIT. */
   private String commit = "";
+  /** Records per ingest request (1-1000). */
   private int batchSize = 200;
+  /** Interval between background flushes. */
   private Duration flushInterval = Duration.ofSeconds(3);
+  /** HTTP timeout for one ingest request. */
   private Duration timeout = Duration.ofSeconds(5);
+  /** Whether the ingest TLS certificate is verified. */
   private boolean verifyTls = true;
+  /** PEM CA bundle used to verify the ingest TLS certificate. */
   private String caBundlePath = "";
+  /** Records each queue (requests, spans, logs) may hold; the oldest are dropped when full. */
   private int maxQueueSize = 10_000;
+  /** Estimated bytes the three queues may hold together; the oldest are dropped when full. */
+  private long maxQueueBytes = 67_108_864L;
+  /** Upper bound on one ingest request body (uncompressed JSON, at least 1024). */
+  private int maxBatchBytes = 4_194_304;
+  /** Whether batch bodies are gzipped (Content-Encoding: gzip). */
+  private boolean compress = true;
+  /** Retries for 408, 429, 5xx and network errors. */
   private int maxRetries = 3;
+  /** Base delay of the full-jitter exponential retry backoff. */
   private Duration retryBackoffBase = Duration.ofMillis(250);
+  /** Cap on one retry backoff delay. */
   private Duration retryBackoffMax = Duration.ofSeconds(5);
+  /** Master switch: false sends nothing. */
   private boolean enabled = true;
+  /** User-Agent of ingest requests; defaults to apilens-java-sdk/VERSION. */
   private String userAgent = "";
+  /** Whether request headers and bodies are captured at all. */
   private boolean enableRequestLogging = true;
-  private boolean logRequestBody = true;
-  private boolean logResponseBody = true;
-  private boolean capturePayloads = true;
-  private boolean captureHeaders = true;
+  /**
+   * Capture preset: metadata (no headers or bodies), redacted (headers and masked bodies, 16 KB
+   * cap) or full (the defaults). It only fills capture-headers, capture-payloads,
+   * log-request-body, log-response-body and max-payload-bytes when they are not set.
+   */
+  private CaptureProfile captureProfile;
+  /** Whether request bodies are captured. Default true, unless capture-profile says otherwise. */
+  private Boolean logRequestBody;
+  /** Whether response bodies are captured. Default true, unless capture-profile says otherwise. */
+  private Boolean logResponseBody;
+  /** Whether request and response bodies are captured. Default true, unless capture-profile says otherwise. */
+  private Boolean capturePayloads;
+  /** Whether request and response headers are captured (redacted). Default true, unless capture-profile says otherwise. */
+  private Boolean captureHeaders;
+  /** Whether a server span is emitted per request. */
   private boolean captureSpans = true;
+  /** Service name on spans; defaults to the app id. */
   private String serviceName = "";
-  private int maxPayloadBytes = 65_536;
+  /** Body capture cap in bytes; 0 disables bodies. Default 65536 (16384 under capture-profile=redacted). */
+  private Integer maxPayloadBytes;
+  /** Extra query-parameter name regexes whose values are redacted; built-ins always apply. */
   private List<String> redactQueryParams = List.of();
+  /** Extra header name regexes whose values are redacted; built-ins always apply. */
   private List<String> redactHeaders = List.of();
+  /** Extra JSON/form body field name regexes whose values are redacted; built-ins always apply. */
   private List<String> redactBodyFields = List.of();
+  /** Whether raw paths are grouped into route templates such as /orders/{id}. */
   private boolean parametrizePaths = true;
+  /** Whether the client IP is recorded at all. */
   private boolean captureIp = true;
+  /** Whether the client IP is truncated (IPv4 to /24, IPv6 to /48). */
   private boolean anonymizeIp = false;
+  /** Case-insensitive path regexes of requests that are not captured at all. */
   private List<String> excludePaths = List.of();
+  /** Case-insensitive User-Agent regexes of requests that are not captured at all. */
   private List<String> excludeUserAgents = List.of();
+  /** Whether the built-in health-check, probe and static-file exclusions apply. */
   private boolean defaultExclusions = true;
+  /** Fraction (0.0-1.0) of requests whose detail is kept; metrics always count every request. */
   private double sampleRate = 1.0;
+  /** Order of the servlet filter registration. */
   private int filterOrder = Integer.MAX_VALUE - 100;
 
   public ApiLensConfig toClientConfig() {
@@ -67,6 +120,9 @@ public class ApiLensProperties {
         .verifyTls(verifyTls)
         .caBundlePath(caBundlePath)
         .maxQueueSize(maxQueueSize)
+        .maxQueueBytes(maxQueueBytes)
+        .maxBatchBytes(maxBatchBytes)
+        .compress(compress)
         .maxRetries(maxRetries)
         .retryBackoffBase(retryBackoffBase)
         .retryBackoffMax(retryBackoffMax)
@@ -76,17 +132,30 @@ public class ApiLensProperties {
   }
 
   public ApiLensSpringOptions toSpringOptions() {
-    return ApiLensSpringOptions.builder()
+    ApiLensSpringOptions.Builder builder = ApiLensSpringOptions.builder();
+    // Unset capture flags stay unset so capture-profile can fill them.
+    if (logRequestBody != null) {
+      builder.logRequestBody(logRequestBody);
+    }
+    if (logResponseBody != null) {
+      builder.logResponseBody(logResponseBody);
+    }
+    if (capturePayloads != null) {
+      builder.capturePayloads(capturePayloads);
+    }
+    if (captureHeaders != null) {
+      builder.captureHeaders(captureHeaders);
+    }
+    if (maxPayloadBytes != null) {
+      builder.maxPayloadBytes(maxPayloadBytes);
+    }
+    return builder
         .environment(environment)
         .enabled(enabled)
         .enableRequestLogging(enableRequestLogging)
-        .logRequestBody(logRequestBody)
-        .logResponseBody(logResponseBody)
-        .capturePayloads(capturePayloads)
-        .captureHeaders(captureHeaders)
+        .captureProfile(captureProfile)
         .captureSpans(captureSpans)
         .serviceName(serviceName)
-        .maxPayloadBytes(maxPayloadBytes)
         .redactQueryParams(redactQueryParams)
         .redactHeaders(redactHeaders)
         .redactBodyFields(redactBodyFields)
@@ -228,6 +297,30 @@ public class ApiLensProperties {
     this.maxQueueSize = maxQueueSize;
   }
 
+  public long getMaxQueueBytes() {
+    return maxQueueBytes;
+  }
+
+  public void setMaxQueueBytes(long maxQueueBytes) {
+    this.maxQueueBytes = maxQueueBytes;
+  }
+
+  public int getMaxBatchBytes() {
+    return maxBatchBytes;
+  }
+
+  public void setMaxBatchBytes(int maxBatchBytes) {
+    this.maxBatchBytes = maxBatchBytes;
+  }
+
+  public boolean isCompress() {
+    return compress;
+  }
+
+  public void setCompress(boolean compress) {
+    this.compress = compress;
+  }
+
   public int getMaxRetries() {
     return maxRetries;
   }
@@ -276,35 +369,43 @@ public class ApiLensProperties {
     this.enableRequestLogging = enableRequestLogging;
   }
 
-  public boolean isLogRequestBody() {
+  public CaptureProfile getCaptureProfile() {
+    return captureProfile;
+  }
+
+  public void setCaptureProfile(CaptureProfile captureProfile) {
+    this.captureProfile = captureProfile;
+  }
+
+  public Boolean getLogRequestBody() {
     return logRequestBody;
   }
 
-  public void setLogRequestBody(boolean logRequestBody) {
+  public void setLogRequestBody(Boolean logRequestBody) {
     this.logRequestBody = logRequestBody;
   }
 
-  public boolean isLogResponseBody() {
+  public Boolean getLogResponseBody() {
     return logResponseBody;
   }
 
-  public void setLogResponseBody(boolean logResponseBody) {
+  public void setLogResponseBody(Boolean logResponseBody) {
     this.logResponseBody = logResponseBody;
   }
 
-  public boolean isCapturePayloads() {
+  public Boolean getCapturePayloads() {
     return capturePayloads;
   }
 
-  public void setCapturePayloads(boolean capturePayloads) {
+  public void setCapturePayloads(Boolean capturePayloads) {
     this.capturePayloads = capturePayloads;
   }
 
-  public boolean isCaptureHeaders() {
+  public Boolean getCaptureHeaders() {
     return captureHeaders;
   }
 
-  public void setCaptureHeaders(boolean captureHeaders) {
+  public void setCaptureHeaders(Boolean captureHeaders) {
     this.captureHeaders = captureHeaders;
   }
 
@@ -324,11 +425,11 @@ public class ApiLensProperties {
     this.serviceName = serviceName;
   }
 
-  public int getMaxPayloadBytes() {
+  public Integer getMaxPayloadBytes() {
     return maxPayloadBytes;
   }
 
-  public void setMaxPayloadBytes(int maxPayloadBytes) {
+  public void setMaxPayloadBytes(Integer maxPayloadBytes) {
     this.maxPayloadBytes = maxPayloadBytes;
   }
 
