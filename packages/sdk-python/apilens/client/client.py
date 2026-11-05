@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import os
@@ -28,6 +29,9 @@ DROP_REASONS = (DROP_QUEUE_FULL, DROP_QUEUE_BYTES, DROP_NON_RETRYABLE, DROP_RETR
 # Fixed per-record overhead added to the variable-length string fields when
 # estimating a queued record's size (object headers, scalars, short fields).
 RECORD_OVERHEAD_BYTES = 512
+
+# gzip level for ingest bodies: a good size/CPU trade-off for JSON batches.
+GZIP_LEVEL = 5
 
 
 class _NonRetryableIngestError(RuntimeError):
@@ -103,6 +107,9 @@ class ApiLensConfig:
     max_queue_size: int = 10_000
     max_queue_bytes: int = 64 * 1024 * 1024
     max_retries: int = 3
+    # gzip each batch body (``Content-Encoding: gzip``) on the flush thread.
+    # Falls back to plain JSON if compression fails; ``False`` always sends plain JSON.
+    compress: bool = True
     retry_backoff_base: float = 0.25
     retry_backoff_max: float = 5.0
 
@@ -421,6 +428,19 @@ class ApiLensClient:
 
     def _post_json(self, path: str, payload: dict) -> None:
         body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "X-API-Key": self.config.api_key,
+            "User-Agent": self.config.user_agent,
+        }
+        if self.config.compress:
+            # Runs on the flush thread (or an explicit flush/shutdown), never
+            # on the request path: capture only enqueues.
+            try:
+                body = gzip.compress(body, compresslevel=GZIP_LEVEL)
+                headers["Content-Encoding"] = "gzip"
+            except Exception as exc:  # identity fallback; never lose the batch
+                logger.debug("API Lens gzip failed, sending uncompressed: %s", exc)
 
         ingest_url = urllib.parse.urljoin(
             self.config.base_url.rstrip("/") + "/",
@@ -431,11 +451,7 @@ class ApiLensClient:
             ingest_url,
             method="POST",
             data=body,
-            headers={
-                "Content-Type": "application/json",
-                "X-API-Key": self.config.api_key,
-                "User-Agent": self.config.user_agent,
-            },
+            headers=headers,
         )
 
         try:
