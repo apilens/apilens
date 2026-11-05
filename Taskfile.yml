@@ -208,6 +208,28 @@ tasks:
         APILENS_E2E_EXAMPLES="http://127.0.0.1:${APILENS_EXAMPLES_FASTAPI_PORT:-18001},http://127.0.0.1:${APILENS_EXAMPLES_EXPRESS_PORT:-18002},http://127.0.0.1:${APILENS_EXAMPLES_SPRING_PORT:-18003}" \
           go test -count=1 -tags=e2e ./test/e2e/... -run '^TestExamplePrivacy$' -v
 
+  # Sampled-out requests still count; excluded paths never arrive
+  # (test/e2e/sampling_e2e_test.go): the example apps at sample rate 0.1 in an
+  # environment of their own, 1000 requests and 100 health checks per app.
+  test:e2e:sampling:
+    desc: "e2e: at sample rate 0.1 every request counts in /traffic/summary, ~10% keep detail, health checks never arrive"
+    cmds:
+      - |
+        set -eu
+        env_name="e2e-sampling-$(date +%s)"
+        APILENS_EXAMPLES_SAMPLE_RATE=0.1 APILENS_EXAMPLES_ENVIRONMENT="$env_name" "{{.TASK_EXE}}" examples:up
+        set -a; . examples/.env; set +a
+        APILENS_E2E_SAMPLING_ENV="$env_name" \
+        APILENS_E2E_BASE_URL="http://127.0.0.1:${APILENS_INGEST_PORT:-8080}" \
+        APILENS_E2E_API_KEY="$APILENS_EXAMPLES_API_KEY" \
+        APILENS_E2E_READ_KEY="$APILENS_EXAMPLES_READ_KEY" \
+        APILENS_E2E_APP=example-fastapi \
+        APILENS_E2E_CLICKHOUSE_HTTP=http://127.0.0.1:8123 \
+        APILENS_E2E_CLICKHOUSE_USER=apilens \
+        APILENS_E2E_CLICKHOUSE_PASSWORD=ci-clickhouse \
+        APILENS_E2E_EXAMPLES="http://127.0.0.1:${APILENS_EXAMPLES_FASTAPI_PORT:-18001},http://127.0.0.1:${APILENS_EXAMPLES_EXPRESS_PORT:-18002},http://127.0.0.1:${APILENS_EXAMPLES_SPRING_PORT:-18003}" \
+          go test -count=1 -tags=e2e ./test/e2e/... -run '^TestExampleSampling$' -v
+
   examples:down:
     desc: Stop the example apps (the e2e stack keeps running; task e2e:down stops it)
     cmds:
