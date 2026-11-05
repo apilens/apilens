@@ -5550,6 +5550,13 @@
       "RequestRow": {
         "additionalProperties": false,
         "properties": {
+          "app_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "consumer_group": {
+            "type": "string"
+          },
           "consumer_id": {
             "type": "string"
           },
@@ -5557,6 +5564,9 @@
             "type": "string"
           },
           "environment": {
+            "type": "string"
+          },
+          "ip_address": {
             "type": "string"
           },
           "method": {
@@ -5568,9 +5578,25 @@
           "raw_path": {
             "type": "string"
           },
+          "request_size": {
+            "description": "Request body size in bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "response_size": {
+            "description": "Response body size in bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "response_time_ms": {
             "format": "double",
             "type": "number"
+          },
+          "sampled": {
+            "description": "False when the SDK sampled the request out: a base record without headers or bodies.",
+            "type": "boolean"
           },
           "status_code": {
             "format": "int32",
@@ -5587,14 +5613,20 @@
         },
         "required": [
           "timestamp",
+          "app_id",
           "method",
           "path",
           "raw_path",
           "status_code",
           "response_time_ms",
+          "request_size",
+          "response_size",
           "environment",
+          "ip_address",
           "consumer_id",
           "consumer_name",
+          "consumer_group",
+          "sampled",
           "trace_id"
         ],
         "type": "object"
@@ -5611,7 +5643,12 @@
             "readOnly": true,
             "type": "string"
           },
+          "next_cursor": {
+            "description": "Pass as cursor for the next (older) page; empty on the last page.",
+            "type": "string"
+          },
           "requests": {
+            "description": "Newest first, then by trace id descending.",
             "items": {
               "$ref": "#/components/schemas/RequestRow"
             },
@@ -5622,7 +5659,8 @@
           }
         },
         "required": [
-          "requests"
+          "requests",
+          "next_cursor"
         ],
         "type": "object"
       },
@@ -16033,18 +16071,46 @@
             }
           },
           {
+            "description": "Only requests from this consumer id.",
             "explode": false,
             "in": "query",
-            "name": "status",
+            "name": "consumer_id",
             "schema": {
-              "default": "all",
-              "enum": [
-                "all",
-                "2xx",
-                "3xx",
-                "4xx",
-                "5xx"
-              ],
+              "description": "Only requests from this consumer id.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests from consumers of this group.",
+            "explode": false,
+            "in": "query",
+            "name": "consumer_group",
+            "schema": {
+              "description": "Only requests from consumers of this group.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests from this client IP address (exact match).",
+            "explode": false,
+            "in": "query",
+            "name": "ip",
+            "schema": {
+              "description": "Only requests from this client IP address (exact match).",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests with this HTTP method (case-insensitive).",
+            "explode": false,
+            "in": "query",
+            "name": "method",
+            "schema": {
+              "description": "Only requests with this HTTP method (case-insensitive).",
+              "pattern": "^[A-Za-z]{1,16}$",
               "type": "string"
             }
           },
@@ -16060,13 +16126,157 @@
             }
           },
           {
+            "description": "Only requests whose raw URL path (with query string) contains this text, ignoring case.",
+            "explode": false,
+            "in": "query",
+            "name": "url_contains",
+            "schema": {
+              "description": "Only requests whose raw URL path (with query string) contains this text, ignoring case.",
+              "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests whose request or response body contains this text, ignoring case. Bodies are only kept for sampled requests with body capture on.",
+            "explode": false,
+            "in": "query",
+            "name": "payload_contains",
+            "schema": {
+              "description": "Only requests whose request or response body contains this text, ignoring case. Bodies are only kept for sampled requests with body capture on.",
+              "maxLength": 1024,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests with a request body of at least this many bytes.",
+            "explode": false,
+            "in": "query",
+            "name": "request_size_min",
+            "schema": {
+              "description": "Only requests with a request body of at least this many bytes.",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only requests with a request body of at most this many bytes.",
+            "explode": false,
+            "in": "query",
+            "name": "request_size_max",
+            "schema": {
+              "description": "Only requests with a request body of at most this many bytes.",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only requests with a response body of at least this many bytes.",
+            "explode": false,
+            "in": "query",
+            "name": "response_size_min",
+            "schema": {
+              "description": "Only requests with a response body of at least this many bytes.",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only requests with a response body of at most this many bytes.",
+            "explode": false,
+            "in": "query",
+            "name": "response_size_max",
+            "schema": {
+              "description": "Only requests with a response body of at most this many bytes.",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Comma-separated status codes (404), classes (4xx) and inclusive ranges (500-503); a request matches when its status matches any term. all (the default) means every status.",
+            "explode": false,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "default": "all",
+              "description": "Comma-separated status codes (404), classes (4xx) and inclusive ranges (500-503); a request matches when its status matches any term. all (the default) means every status.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests that took at least this many milliseconds.",
+            "explode": false,
+            "in": "query",
+            "name": "latency_min",
+            "schema": {
+              "description": "Only requests that took at least this many milliseconds.",
+              "format": "double",
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Only requests that took at most this many milliseconds.",
+            "explode": false,
+            "in": "query",
+            "name": "latency_max",
+            "schema": {
+              "description": "Only requests that took at most this many milliseconds.",
+              "format": "double",
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Only requests the SDK kept in full (true) or sampled out to a base record (false); omitted means both.",
+            "explode": false,
+            "in": "query",
+            "name": "sampled",
+            "schema": {
+              "description": "Only requests the SDK kept in full (true) or sampled out to a base record (false); omitted means both.",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only requests of this trace.",
+            "explode": false,
+            "in": "query",
+            "name": "trace_id",
+            "schema": {
+              "description": "Only requests of this trace.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "next_cursor of the previous page; omitted means the first page.",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "next_cursor of the previous page; omitted means the first page.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size.",
             "explode": false,
             "in": "query",
             "name": "limit",
             "schema": {
               "default": 100,
+              "description": "Page size.",
               "format": "int64",
-              "maximum": 500,
+              "maximum": 200,
               "minimum": 1,
               "type": "integer"
             }
@@ -16102,7 +16312,7 @@
             "readKey": []
           }
         ],
-        "summary": "Most recent requests",
+        "summary": "Request log: filtered requests, newest first, with cursor pagination",
         "tags": [
           "Dashboard"
         ]

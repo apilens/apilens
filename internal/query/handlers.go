@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -54,7 +53,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	huma.Register(api, op("get-endpoint-errors", http.MethodGet, "/api/v1/endpoints/{method}/{path}/errors", "Endpoint errors: status breakdown, error-rate trend, validation errors and server exceptions"), s.endpointErrors)
 	huma.Register(api, op("list-consumers", http.MethodGet, "/api/v1/consumers", "Consumers: traffic with sparklines, and unique consumers over time split new vs returning"), s.consumers)
 	huma.Register(api, op("get-consumer", http.MethodGet, "/api/v1/consumers/{consumer_id}", "Consumer detail: first/last seen, requests and errors over time, recent requests and errors"), s.consumer)
-	huma.Register(api, op("list-requests", http.MethodGet, "/api/v1/requests", "Most recent requests"), s.requests)
+	huma.Register(api, op("list-requests", http.MethodGet, "/api/v1/requests", "Request log: filtered requests, newest first, with cursor pagination"), s.requests)
 	huma.Register(api, op("list-errors", http.MethodGet, "/api/v1/errors", "Failed requests grouped by endpoint and status"), s.errors)
 	huma.Register(api, op("get-trace", http.MethodGet, "/api/v1/traces/{trace_id}", "Spans and correlated logs of one trace"), s.trace)
 	huma.Register(api, op("list-deploys", http.MethodGet, "/api/v1/deploys", "Deploy markers in a time range"), s.deploys)
@@ -365,78 +364,8 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 	return out, rows.Err()
 }
 
-// ---------------------------------------------------------------- requests
-
-type requestsInput struct {
-	RangeInput
-	Status string `query:"status" enum:"all,2xx,3xx,4xx,5xx" default:"all"`
-	Path   string `query:"path" maxLength:"1024" doc:"Route template, e.g. /orders/{id}."`
-	Limit  int    `query:"limit" minimum:"1" maximum:"500" default:"100"`
-}
-
-type requestRow struct {
-	Timestamp      time.Time `json:"timestamp"`
-	Method         string    `json:"method"`
-	Path           string    `json:"path"`
-	RawPath        string    `json:"raw_path"`
-	StatusCode     uint16    `json:"status_code"`
-	ResponseTimeMs float64   `json:"response_time_ms"`
-	Environment    string    `json:"environment"`
-	ConsumerID     string    `json:"consumer_id"`
-	ConsumerName   string    `json:"consumer_name"`
-	TraceID        string    `json:"trace_id"`
-}
-
-type requestsOutput struct {
-	Body struct {
-		Requests []requestRow `json:"requests"`
-	}
-}
-
+// statusClasses are the status code ranges of the status filters.
 var statusClasses = map[string][2]int{"2xx": {200, 299}, "3xx": {300, 399}, "4xx": {400, 499}, "5xx": {500, 599}}
-
-func (s *Service) requests(ctx context.Context, in *requestsInput) (*requestsOutput, error) {
-	p, err := principalFrom(ctx)
-	if err != nil {
-		return nil, err
-	}
-	w, err := resolveWindow(in.Range, s.now())
-	if err != nil {
-		return nil, err
-	}
-	where, args := tenantFilter(p.ProjectID, in.Env)
-	clauses := []string{where, "timestamp >= ?", "timestamp < ?"}
-	args = append(args, w.from, w.to)
-	if r, ok := statusClasses[in.Status]; ok {
-		clauses = append(clauses, "status_code BETWEEN ? AND ?")
-		args = append(args, r[0], r[1])
-	}
-	if in.Path != "" {
-		clauses = append(clauses, "path = ?")
-		args = append(args, in.Path)
-	}
-	qctx, cancel := queryCtx(ctx)
-	defer cancel()
-	rows, err := s.ch.Query(qctx, `
-		SELECT timestamp, method, path, raw_path, status_code, response_time_ms, environment, consumer_id, consumer_name, trace_id
-		FROM api_requests WHERE `+strings.Join(clauses, " AND ")+`
-		ORDER BY timestamp DESC LIMIT ?`, append(args, in.Limit)...)
-	if err != nil {
-		return nil, internalError("requests", err)
-	}
-	defer func() { _ = rows.Close() }()
-	out := &requestsOutput{}
-	out.Body.Requests = []requestRow{}
-	for rows.Next() {
-		var r requestRow
-		if err := rows.Scan(&r.Timestamp, &r.Method, &r.Path, &r.RawPath, &r.StatusCode, &r.ResponseTimeMs,
-			&r.Environment, &r.ConsumerID, &r.ConsumerName, &r.TraceID); err != nil {
-			return nil, internalError("requests", err)
-		}
-		out.Body.Requests = append(out.Body.Requests, r)
-	}
-	return out, rows.Err()
-}
 
 // ---------------------------------------------------------------- errors
 
