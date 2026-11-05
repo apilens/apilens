@@ -6,6 +6,7 @@ import logging
 import time
 import traceback
 from collections.abc import Awaitable, Callable
+from types import MappingProxyType
 from typing import Any
 
 from ._attributes import (
@@ -30,7 +31,7 @@ from ._env import env_defaults
 from ._exclusions import RequestExcluder
 from ._metadata import start_asgi_metadata, start_wsgi_metadata
 from ._routes import resolve_endpoint_path
-from ._sampling import DetailSampler
+from ._sampling import RequestSampler, SampleOnRequest
 from ._sanitize import (
     BodyMasker,
     ContentTypeFilter,
@@ -362,6 +363,7 @@ class ApiLensASGIMiddleware:
         exclude_user_agents: list[str] | None = None,
         default_exclusions: bool = True,
         sample_rate: float = 1.0,
+        sample_on_request: SampleOnRequest | None = None,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
@@ -412,7 +414,10 @@ class ApiLensASGIMiddleware:
         # Fraction of requests (0.0-1.0) whose detail is kept. A sampled-out
         # request still sends its base record (so metrics stay exact) with
         # ``sampled=False`` and no headers, bodies, spans or error log.
-        self.sampler = DetailSampler(sample_rate)
+        # ``sample_on_request(RequestInfo) -> bool | float | None`` decides per
+        # request before the app runs: a bool is final, a float is a keep
+        # probability, ``None`` (or an exception, logged once) uses the rate.
+        self.sampler = RequestSampler(sample_rate, sample_on_request)
         # Framework hook that maps a matched request scope to its route template
         # (``/product/{id}``). Runs after the app handled the request, when
         # routing has resolved. Heuristic fallback applies when it returns None.
@@ -508,9 +513,21 @@ class ApiLensASGIMiddleware:
         # endpoint-template resolution.
         query = (scope.get("query_string") or b"").decode("latin-1")
         raw_path = f"{path}?{self.redactor.redact_query(query)}" if query else path
+        method = (scope.get("method") or "GET").upper()
+        client_ip = _extract_ip(headers, fallback=(scope.get("client") or ("", 0))[0] or "")
         trace_id, span_id, parent_span_id, trace_token = begin_request_trace(headers.get("traceparent"))
         # Sampled out: base record only. Trace context above still propagates.
-        sampled = self.sampler.sample()
+        # Decided before the app runs, so a sampled-out body is never buffered.
+        sampled = self.sampler.decide(
+            lambda: RequestInfo(
+                method=method,
+                path=path,
+                raw_path=raw_path,
+                headers=MappingProxyType(lower_headers(headers)),
+                query=query,
+                client_ip=client_ip,
+            )
+        )
         sampled_token = set_detail_sampled(sampled)
         capture_headers = self.capture_headers and sampled
         capture_payloads = self.capture_payloads and sampled
@@ -527,13 +544,13 @@ class ApiLensASGIMiddleware:
         request_body_size = 0
 
         ctx = CaptureContext(
-            method=(scope.get("method") or "GET").upper(),
+            method=method,
             path=path,
             raw_path=raw_path,
             project_slug=self.project_slug or self.client.config.project_slug,
             app_id=self.app_id,
             request_size=_to_int(headers.get("content-length"), 0),
-            ip_address=_extract_ip(headers, fallback=(scope.get("client") or ("", 0))[0] or ""),
+            ip_address=client_ip,
             user_agent=_extract_user_agent(headers),
             base_url=_detect_base_url_from_headers(headers, default_scheme=scope.get("scheme", "https")),
             request_headers=serialize_headers(headers, redactor=self.redactor) if capture_headers else "",
@@ -640,6 +657,8 @@ class ApiLensASGIMiddleware:
                 raw_path=raw_path,
                 headers=lower_headers(headers),
                 attributes=attributes,
+                query=query,
+                client_ip=client_ip,
             )
             request_payload = (
                 capture_body(
@@ -754,6 +773,7 @@ class ApiLensWSGIMiddleware:
         exclude_user_agents: list[str] | None = None,
         default_exclusions: bool = True,
         sample_rate: float = 1.0,
+        sample_on_request: SampleOnRequest | None = None,
         get_consumer: Callable[..., Any] | None = None,
         route_resolver: Callable[[dict], str | None] | None = None,
         parametrize_paths: bool = True,
@@ -788,8 +808,9 @@ class ApiLensWSGIMiddleware:
         self.excluder = RequestExcluder(
             exclude_paths, exclude_user_agents, default_exclusions=default_exclusions
         )
-        # Request-detail sampling — same semantics as the ASGI middleware.
-        self.sampler = DetailSampler(sample_rate)
+        # Request-detail sampling (``sample_rate`` + ``sample_on_request``) —
+        # same semantics as the ASGI middleware.
+        self.sampler = RequestSampler(sample_rate, sample_on_request)
         # Framework hook that maps a WSGI environ to its route template. Runs
         # after the app handled the request. Heuristic fallback when None.
         self.route_resolver = route_resolver
@@ -831,11 +852,6 @@ class ApiLensWSGIMiddleware:
         consumer_token = _consumer_ctx.set(None)
         attributes_token = begin_request_attributes()
         trace_id, span_id, parent_span_id, trace_token = begin_request_trace(environ.get("HTTP_TRACEPARENT"))
-        # Sampled out: base record only. Trace context above still propagates.
-        sampled = self.sampler.sample()
-        sampled_token = set_detail_sampled(sampled)
-        capture_headers = self.capture_headers and sampled
-        capture_payloads = self.capture_payloads and sampled
 
         clean_path = _normalize_path(environ.get("PATH_INFO") or "/")
         query = environ.get("QUERY_STRING")
@@ -847,7 +863,23 @@ class ApiLensWSGIMiddleware:
         else:
             ip_address = (environ.get("HTTP_X_REAL_IP") or "").strip() or (environ.get("REMOTE_ADDR") or "")
 
+        method = (environ.get("REQUEST_METHOD") or "GET").upper()
         request_headers = _wsgi_request_headers(environ)
+        # Sampled out: base record only. Trace context above still propagates.
+        # Decided before the body is read, so a sampled-out body never is.
+        sampled = self.sampler.decide(
+            lambda: RequestInfo(
+                method=method,
+                path=clean_path,
+                raw_path=path,
+                headers=MappingProxyType(dict(request_headers)),
+                query=query or "",
+                client_ip=ip_address,
+            )
+        )
+        sampled_token = set_detail_sampled(sampled)
+        capture_headers = self.capture_headers and sampled
+        capture_payloads = self.capture_payloads and sampled
         request_content_type = environ.get("CONTENT_TYPE") or ""
         capture_request_body = capture_payloads and self.log_request_body and self.max_payload_bytes > 0
         capture_response_body = capture_payloads and self.log_response_body and self.max_payload_bytes > 0
@@ -877,7 +909,7 @@ class ApiLensWSGIMiddleware:
         )
 
         ctx = CaptureContext(
-            method=(environ.get("REQUEST_METHOD") or "GET").upper(),
+            method=method,
             path=path,
             raw_path=path,
             project_slug=self.project_slug or self.client.config.project_slug,
@@ -983,6 +1015,8 @@ class ApiLensWSGIMiddleware:
                 raw_path=path,
                 headers=request_headers,
                 attributes=attributes,
+                query=query or "",
+                client_ip=ip_address,
             )
             ctx.request_payload = (
                 capture_body(

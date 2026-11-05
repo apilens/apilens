@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import replace
+from types import MappingProxyType
 from typing import Any
 
 from .client._attributes import (
@@ -16,7 +17,7 @@ from .client._capture import CaptureContext, _normalize_path, _to_int, capture_r
 from .client._exclusions import RequestExcluder
 from .client._metadata import start_django_metadata
 from .client._routes import django_route_template, resolve_endpoint_path
-from .client._sampling import DetailSampler
+from .client._sampling import RequestSampler
 from .client._sanitize import (
     ContentTypeFilter,
     Redactor,
@@ -238,7 +239,14 @@ class ApiLensDjangoMiddleware:
         # APILENS_SAMPLE_RATE (0.0-1.0): fraction of requests whose detail is
         # kept. Sampled-out requests still send the base record (metrics stay
         # exact) with no headers, bodies, spans or error log.
-        self.sampler = DetailSampler(_setting(settings, "SAMPLE_RATE", 1.0, env))
+        # APILENS_SAMPLE_ON_REQUEST (a callable or its dotted path)
+        # ``(RequestInfo) -> bool | float | None`` decides per request before
+        # the view runs and the body is read: a bool is final, a float is a
+        # keep probability, ``None`` (or an exception, logged once) uses the rate.
+        self.sampler = RequestSampler(
+            _setting(settings, "SAMPLE_RATE", 1.0, env),
+            _resolve_body_masker(settings, "APILENS_SAMPLE_ON_REQUEST"),
+        )
         # Heuristic path parametrization when the URL resolver gives no route
         # (env APILENS_PARAMETRIZE_PATHS wins over this setting).
         self.parametrize_paths = bool(getattr(settings, "APILENS_PARAMETRIZE_PATHS", True))
@@ -289,10 +297,6 @@ class ApiLensDjangoMiddleware:
         consumer_token = _consumer_ctx.set(None)
         attributes_token = begin_request_attributes()
         trace_id, span_id, parent_span_id, trace_token = begin_request_trace(request.META.get("HTTP_TRACEPARENT"))
-        # Sampled out: base record only. Trace context above still propagates.
-        sampled = self.sampler.sample()
-        sampled_token = set_detail_sampled(sampled)
-        capture_headers = self.capture_headers and sampled
 
         xff = (request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
         if xff:
@@ -310,8 +314,27 @@ class ApiLensDjangoMiddleware:
         # parameter values redacted); clean_path drives template resolution.
         query = request.META.get("QUERY_STRING") or ""
         raw_path = f"{clean_path}?{self.redactor.redact_query(query)}" if query else clean_path
+        method = (request.method or "GET").upper()
+        try:
+            request_headers = dict(request.headers.items())
+        except Exception:
+            request_headers = {}
+        # Sampled out: base record only. Trace context above still propagates.
+        # Decided before the body is read, so a sampled-out body never is.
+        sampled = self.sampler.decide(
+            lambda: RequestInfo(
+                method=method,
+                path=clean_path,
+                raw_path=raw_path,
+                headers=MappingProxyType(lower_headers(request_headers)),
+                query=query,
+                client_ip=ip_address,
+            )
+        )
+        sampled_token = set_detail_sampled(sampled)
+        capture_headers = self.capture_headers and sampled
         ctx = CaptureContext(
-            method=(request.method or "GET").upper(),
+            method=method,
             path=clean_path,
             raw_path=raw_path,
             project_slug=self.project_slug or self.client.config.project_slug,
@@ -324,10 +347,6 @@ class ApiLensDjangoMiddleware:
             span_id=span_id,
             sampled=sampled,
         )
-        try:
-            request_headers = dict(request.headers.items())
-        except Exception:
-            request_headers = {}
         if capture_headers:
             try:
                 ctx.request_headers = serialize_headers(request_headers, redactor=self.redactor)
@@ -346,7 +365,12 @@ class ApiLensDjangoMiddleware:
             except Exception:
                 request_body = b""
         request_info = RequestInfo(
-            method=ctx.method, path=clean_path, raw_path=raw_path, headers=lower_headers(request_headers)
+            method=ctx.method,
+            path=clean_path,
+            raw_path=raw_path,
+            headers=lower_headers(request_headers),
+            query=query,
+            client_ip=ip_address,
         )
 
         response_headers = ""
