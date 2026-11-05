@@ -55,6 +55,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	huma.Register(api, op("list-consumers", http.MethodGet, "/api/v1/consumers", "Consumers: traffic with sparklines, and unique consumers over time split new vs returning"), s.consumers)
 	huma.Register(api, op("get-consumer", http.MethodGet, "/api/v1/consumers/{consumer_id}", "Consumer detail: first/last seen, requests and errors over time, recent requests and errors"), s.consumer)
 	huma.Register(api, op("list-requests", http.MethodGet, "/api/v1/requests", "Request log: filtered requests, newest first, with cursor pagination"), s.requests)
+	huma.Register(api, op("get-request-timeline", http.MethodGet, "/api/v1/requests/timeline", "Request timeline: the filtered request log counted per time bucket by status class"), s.requestTimeline)
 	huma.Register(api, op("get-request", http.MethodGet, "/api/v1/requests/{id}", "Request detail: headers, bodies, validation errors, and the spans and logs of its trace"), s.requestDetail)
 	huma.Register(api, op("list-errors", http.MethodGet, "/api/v1/errors", "Failed requests grouped by endpoint and status"), s.errors)
 	huma.Register(api, op("get-trace", http.MethodGet, "/api/v1/traces/{trace_id}", "Spans and correlated logs of one trace"), s.trace)

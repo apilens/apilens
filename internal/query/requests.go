@@ -55,6 +55,10 @@ type requestsInput struct {
 	Cursor          string  `query:"cursor" maxLength:"256" doc:"next_cursor of the previous page; omitted means the first page."`
 	Limit           int     `query:"limit" minimum:"1" maximum:"200" default:"100" doc:"Page size."`
 
+	// A narrower window inside the range: the Explore timeline's zoom and jump (#587).
+	From time.Time `query:"from" doc:"Only requests at or after this time (RFC 3339); clamped to the range."`
+	To   time.Time `query:"to" doc:"Only requests before this time (RFC 3339); clamped to the range."`
+
 	// Which upper bounds were sent: their zero value is a real bound.
 	hasRequestSizeMax, hasResponseSizeMax, hasLatencyMax bool
 }
@@ -258,6 +262,26 @@ func requestFilter(in *requestsInput, clauses []string, args []any) ([]string, [
 	return clauses, args, nil
 }
 
+// narrowWindow is the part of w from `from` (inclusive) to `to` (exclusive);
+// a zero bound leaves that side of w as it is. Bounds are clamped to w, so a
+// zoom the moving range has left behind reads nothing rather than more.
+func narrowWindow(w window, from, to time.Time) (time.Time, time.Time, error) {
+	if !from.IsZero() && !to.IsZero() && !from.Before(to) {
+		return time.Time{}, time.Time{}, huma.Error422UnprocessableEntity("from must be before to")
+	}
+	lo, hi := w.from, w.to
+	if !from.IsZero() && from.After(lo) {
+		lo = from.UTC()
+	}
+	if !to.IsZero() && to.Before(hi) {
+		hi = to.UTC()
+	}
+	if hi.Before(lo) {
+		hi = lo
+	}
+	return lo, hi, nil
+}
+
 func (s *Service) requests(ctx context.Context, in *requestsInput) (*requestsOutput, error) {
 	p, err := principalFrom(ctx)
 	if err != nil {
@@ -267,9 +291,13 @@ func (s *Service) requests(ctx context.Context, in *requestsInput) (*requestsOut
 	if err != nil {
 		return nil, err
 	}
+	from, to, err := narrowWindow(w, in.From, in.To)
+	if err != nil {
+		return nil, err
+	}
 	limit := min(max(in.Limit, 1), maxRequestsPage)
 	where, args := tenantFilter(p.ProjectID, in.Env)
-	clauses, args, err := requestFilter(in, []string{where, "timestamp >= ?", "timestamp < ?"}, append(args, w.from, w.to))
+	clauses, args, err := requestFilter(in, []string{where, "timestamp >= ?", "timestamp < ?"}, append(args, from, to))
 	if err != nil {
 		return nil, err
 	}

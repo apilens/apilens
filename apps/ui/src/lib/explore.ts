@@ -3,6 +3,7 @@
 // unit-tested in explore.test.ts.
 import { RANGE_LABEL } from "./consumers";
 import { type ExploreFilters, NO_FILTERS, filterEntries, parseFilters } from "./explore-filters";
+import { type ExploreWindow, chartWindow, instantText, logWindow, parseWindow, windowEntries, windowText } from "./explore-timeline";
 import type { QueryRange, RequestRow } from "./identity";
 
 export const EXPLORE_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
@@ -22,8 +23,11 @@ export const OVERSCAN = 8;
 export const LATENCY_SLOW_MS = 500;
 export const LATENCY_FRUSTRATED_MS = 2_000;
 
-/** The page's state, all of it in the URL: `?range=` and the filters (#586) under their API names. */
-export interface ExploreState {
+/**
+ * The page's state, all of it in the URL: `?range=`, the timeline's zoom and jump point (#587,
+ * `?from=&to=&at=`) and the filters (#586) under their API names.
+ */
+export interface ExploreState extends ExploreWindow {
   range: QueryRange;
   filters: ExploreFilters;
 }
@@ -34,13 +38,17 @@ const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v
 /** Reads the page state from search params; anything unknown or invalid falls back to the default. */
 export function parseExploreQuery(params: SearchParams): ExploreState {
   const range = first(params.range);
-  return { range: EXPLORE_RANGES.includes(range as QueryRange) ? (range as QueryRange) : DEFAULT_RANGE, filters: parseFilters(params) };
+  return { range: EXPLORE_RANGES.includes(range as QueryRange) ? (range as QueryRange) : DEFAULT_RANGE, ...parseWindow(params), filters: parseFilters(params) };
 }
 
-/** The search string of `q` (with its `?`, or ""), defaults left out, filters in a fixed order. */
-function exploreSearch(q: Partial<ExploreState>, withRange: boolean): string {
+/**
+ * The search string of `q` (with its `?`, or ""), defaults left out, then `w` (the window) and the
+ * filters, each in a fixed order.
+ */
+function exploreSearch(q: Partial<ExploreState>, withRange: boolean, w: ExploreWindow): string {
   const p = new URLSearchParams();
   if (q.range && (withRange || q.range !== DEFAULT_RANGE)) p.set("range", q.range);
+  for (const [k, v] of windowEntries(w)) p.set(k, v);
   for (const [k, v] of filterEntries(q.filters ?? NO_FILTERS)) p.set(k, v);
   const s = p.toString();
   return s ? `?${s}` : "";
@@ -48,16 +56,30 @@ function exploreSearch(q: Partial<ExploreState>, withRange: boolean): string {
 
 /** The page URL for `q`, leaving defaults out. */
 export function exploreHref(project: string, q: Partial<ExploreState>): string {
-  return `/${encodeURIComponent(project)}/explore${exploreSearch(q, false)}`;
+  return `/${encodeURIComponent(project)}/explore${exploreSearch(q, false, q)}`;
 }
 
-/** The Route Handler the browser polls: `GET /api/projects/{slug}/requests?range=&<filters>`. */
+/**
+ * The Route Handler the browser polls: `GET /api/projects/{slug}/requests?range=&from=&to=&<filters>`,
+ * the window being the zoom with its end pulled in to the jump point.
+ */
 export function requestsPath(project: string, q: Pick<ExploreState, "range"> & Partial<ExploreState>): string {
-  return `/api/projects/${encodeURIComponent(project)}/requests${exploreSearch(q, true)}`;
+  return `/api/projects/${encodeURIComponent(project)}/requests${exploreSearch(q, true, logWindow(q))}`;
 }
 
-/** The scope in words: `the last 1 hour`. */
-export const scopeText = (q: Pick<ExploreState, "range">) => `the last ${RANGE_LABEL[q.range]}`;
+/** The timeline's Route Handler (#587): `GET /api/projects/{slug}/requests/timeline?range=&from=&to=&<filters>`, the zoom only. */
+export function timelinePath(project: string, q: Pick<ExploreState, "range"> & Partial<ExploreState>): string {
+  return `/api/projects/${encodeURIComponent(project)}/requests/timeline${exploreSearch(q, true, chartWindow(q))}`;
+}
+
+/**
+ * The scope in words: `the last 1 hour`; `the window from 10:02 to 10:14 UTC` when zoomed;
+ * `…, up to 10:10 UTC` after a jump.
+ */
+export function scopeText(q: Pick<ExploreState, "range"> & ExploreWindow): string {
+  const base = q.from && q.to ? `the window from ${windowText(q.from, q.to)}` : `the last ${RANGE_LABEL[q.range]}`;
+  return q.at ? `${base}, up to ${instantText(q.at)}` : base;
+}
 
 /** A stable key for a row: its trace id (one request row per trace), else its time and position. */
 export const rowKey = (r: Pick<RequestRow, "timestamp" | "trace_id">, i: number) => r.trace_id || `${r.timestamp}#${i}`;

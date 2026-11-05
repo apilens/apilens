@@ -25,11 +25,12 @@ import {
 } from "@/lib/explore";
 import { NO_FILTERS, activeCount } from "@/lib/explore-filters";
 import { formatAgo, shownPath } from "@/lib/first-data";
-import type { RequestRow } from "@/lib/identity";
+import type { RequestRow, RequestTimeline } from "@/lib/identity";
 import { formatLatency } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
 import { FilterBar } from "./filter-bar";
 import { RequestDrawer } from "./request-drawer";
+import { Timeline } from "./timeline";
 
 /** How many skeleton rows stand in while another range loads. */
 const SKELETON_ROWS = 8;
@@ -49,12 +50,14 @@ export function RequestLog({
   environments,
   query: q,
   initial,
+  timeline,
   now: serverNow,
 }: {
   project: string;
   environments: readonly string[];
   query: ExploreState;
   initial: RequestRow[] | null;
+  timeline: RequestTimeline | null;
   now: number;
 }) {
   const router = useRouter();
@@ -131,7 +134,8 @@ export function RequestLog({
       <div className="ex-bar">
         <nav className="ex-seg" aria-label="Time range">
           {EXPLORE_RANGES.map((r) => {
-            const href = exploreHref(project, { ...q, range: r });
+            // Another range starts over: the timeline's zoom and jump point (#587) belong to this one.
+            const href = exploreHref(project, { range: r, filters: q.filters });
             return (
               <a key={r} href={href} onClick={(e) => go(e, href)} aria-current={q.range === r ? "page" : undefined} title={`Last ${RANGE_LABEL[r]}`}>
                 {r}
@@ -151,6 +155,8 @@ export function RequestLog({
       </div>
 
       <FilterBar project={project} environments={environments} query={q} navigate={navigate} />
+
+      <Timeline project={project} query={q} initial={timeline} paused={paused} busy={loading} navigate={navigate} />
 
       {pollFailed && rows !== null ? (
         <div className="ex-notice" role="status">
@@ -266,7 +272,13 @@ function LogGrid({
     setScrollTop(el.scrollTop);
     setFocusKey(keys[index]);
     // The row may only be rendered after the scroll: focus it once it is in the DOM.
-    requestAnimationFrame(() => el.querySelector<HTMLElement>(`[data-index="${index}"]`)?.focus({ preventScroll: true }));
+    // With the timeline (#587) above, the grid can reach below the fold: bring the row onto the page
+    // too (the grid already shows it, so "nearest" moves only the page).
+    requestAnimationFrame(() => {
+      const row = el.querySelector<HTMLElement>(`[data-index="${index}"]`);
+      row?.focus({ preventScroll: true });
+      row?.scrollIntoView({ block: "nearest" });
+    });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {

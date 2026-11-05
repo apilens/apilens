@@ -1,11 +1,11 @@
 import type { ExploreState } from "@/lib/explore";
-import type { RequestRow } from "@/lib/identity";
+import type { RequestRow, RequestTimeline } from "@/lib/identity";
 import { RequestLog } from "./request-log";
 import "./explore.css";
 
 /**
  * `/<project>/explore` (#585). The request log: every request the SDK reported, newest first.
- * `rows` is null when the API could not answer.
+ * `rows` (and `timeline`, #587) is null when the API could not answer.
  */
 export function ExploreView({
   project,
@@ -13,6 +13,7 @@ export function ExploreView({
   environments,
   query,
   rows,
+  timeline,
   now,
 }: {
   project: string;
@@ -20,6 +21,7 @@ export function ExploreView({
   environments: readonly string[];
   query: ExploreState;
   rows: RequestRow[] | null;
+  timeline: RequestTimeline | null;
   now: number;
 }) {
   return (
@@ -29,7 +31,7 @@ export function ExploreView({
         <h1 className="cp-lede">Explore</h1>
         <p className="ex-lead">Every request your API served, newest first, as the SDK reported it.</p>
       </header>
-      <RequestLog project={project} environments={environments} query={query} initial={rows} now={now} />
+      <RequestLog project={project} environments={environments} query={query} initial={rows} timeline={timeline} now={now} />
     </div>
   );
 }
