@@ -48,6 +48,8 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	huma.Register(api, op("get-traffic-timeseries", http.MethodGet, "/api/v1/traffic/timeseries", "Requests and errors per time bucket"), s.timeseries)
 	huma.Register(api, op("list-endpoints", http.MethodGet, "/api/v1/traffic/endpoints", "Per-endpoint traffic, errors and latency"), s.endpoints)
 	huma.Register(api, op("get-endpoint-requests", http.MethodGet, "/api/v1/endpoints/{method}/{path}/requests", "Endpoint requests: totals, status split over time and top consumers"), s.endpointRequests)
+	huma.Register(api, op("get-endpoint-latency", http.MethodGet, "/api/v1/endpoints/{method}/{path}/latency", "Endpoint response time: percentiles, p50/p75/p95 trend and histogram"), s.endpointLatency)
+	huma.Register(api, op("get-endpoint-transfer", http.MethodGet, "/api/v1/endpoints/{method}/{path}/transfer", "Endpoint data transferred: byte totals, in/out series and size histograms"), s.endpointTransfer)
 	huma.Register(api, op("list-requests", http.MethodGet, "/api/v1/requests", "Most recent requests"), s.requests)
 	huma.Register(api, op("list-errors", http.MethodGet, "/api/v1/errors", "Failed requests grouped by endpoint and status"), s.errors)
 	huma.Register(api, op("get-trace", http.MethodGet, "/api/v1/traces/{trace_id}", "Spans and correlated logs of one trace"), s.trace)
