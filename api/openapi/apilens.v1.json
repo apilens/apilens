@@ -2098,6 +2098,10 @@
             "minimum": 0,
             "type": "integer"
           },
+          "discovered_only": {
+            "description": "True for a route an app declared (POST /v1/metadata) without traffic in the range; its counts are zero and it is listed after the endpoints with traffic.",
+            "type": "boolean"
+          },
           "error_rate": {
             "format": "double",
             "type": "number"
@@ -2136,7 +2140,8 @@
           "error_rate",
           "p50_ms",
           "p95_ms",
-          "apdex"
+          "apdex",
+          "discovered_only"
         ],
         "type": "object"
       },
