@@ -1,5 +1,7 @@
 package ai.apilens.spring;
 
+import ai.apilens.ApiLensEnv;
+import ai.apilens.CaptureProfile;
 import ai.apilens.RequestExcluder;
 import ai.apilens.RequestInfo;
 import ai.apilens.RequestSampler;
@@ -7,10 +9,15 @@ import ai.apilens.ResponseInfo;
 import ai.apilens.ResponseSampler;
 import ai.apilens.Sampler;
 import java.util.List;
+import java.util.Map;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 /** Request-capture options used by the Spring servlet filter. */
 public final class ApiLensSpringOptions {
+  /** Default {@code maxPayloadBytes} when neither the flag nor a capture profile sets it. */
+  public static final int DEFAULT_MAX_PAYLOAD_BYTES = 65_536;
+
   private final String environment;
   private final boolean enabled;
   private final boolean enableRequestLogging;
@@ -35,18 +42,33 @@ public final class ApiLensSpringOptions {
   private final double sampleRate;
   private final RequestSampler sampleOnRequest;
   private final ResponseSampler sampleOnResponse;
+  private final CaptureProfile captureProfile;
+  // As set on the builder (null = unset), so toBuilder() keeps the profile able to fill them.
+  private final Boolean explicitLogRequestBody;
+  private final Boolean explicitLogResponseBody;
+  private final Boolean explicitCapturePayloads;
+  private final Boolean explicitCaptureHeaders;
+  private final Integer explicitMaxPayloadBytes;
 
   private ApiLensSpringOptions(Builder builder) {
+    CaptureProfile.Resolved capture = CaptureProfile.resolve(
+        builder.captureProfile,
+        builder.captureHeaders,
+        builder.capturePayloads,
+        builder.logRequestBody,
+        builder.logResponseBody,
+        builder.maxPayloadBytes,
+        DEFAULT_MAX_PAYLOAD_BYTES);
     this.environment = builder.environment;
     this.enabled = builder.enabled;
     this.enableRequestLogging = builder.enableRequestLogging;
-    this.logRequestBody = builder.logRequestBody;
-    this.logResponseBody = builder.logResponseBody;
-    this.capturePayloads = builder.capturePayloads;
-    this.captureHeaders = builder.captureHeaders;
+    this.logRequestBody = capture.logRequestBody();
+    this.logResponseBody = capture.logResponseBody();
+    this.capturePayloads = capture.capturePayloads();
+    this.captureHeaders = capture.captureHeaders();
     this.captureSpans = builder.captureSpans;
     this.serviceName = builder.serviceName;
-    this.maxPayloadBytes = Math.max(builder.maxPayloadBytes, 0);
+    this.maxPayloadBytes = Math.max(capture.maxPayloadBytes(), 0);
     this.redactQueryParams = List.copyOf(builder.redactQueryParams);
     this.redactHeaders = List.copyOf(builder.redactHeaders);
     this.redactBodyFields = List.copyOf(builder.redactBodyFields);
@@ -61,25 +83,91 @@ public final class ApiLensSpringOptions {
     this.sampleRate = builder.sampleRate;
     this.sampleOnRequest = builder.sampleOnRequest;
     this.sampleOnResponse = builder.sampleOnResponse;
+    this.captureProfile = builder.captureProfile;
+    this.explicitLogRequestBody = builder.logRequestBody;
+    this.explicitLogResponseBody = builder.logResponseBody;
+    this.explicitCapturePayloads = builder.capturePayloads;
+    this.explicitCaptureHeaders = builder.captureHeaders;
+    this.explicitMaxPayloadBytes = builder.maxPayloadBytes;
   }
 
   public static Builder builder() {
     return new Builder();
   }
 
+  /**
+   * Capture options read from the {@code APILENS_*} environment variables, for apps without
+   * Spring Boot (Spring Boot binds the same variables to {@code apilens.*} itself).
+   *
+   * @throws IllegalArgumentException naming the variable when a value cannot be parsed
+   */
+  public static ApiLensSpringOptions fromEnv() {
+    return builderFromEnv().build();
+  }
+
+  /** {@link #fromEnv()} over a fixed map of variables. */
+  public static ApiLensSpringOptions fromEnv(Map<String, String> variables) {
+    return builderFromEnv(variables).build();
+  }
+
+  /**
+   * A builder pre-filled from the {@code APILENS_*} environment variables. Setters called on it
+   * afterwards win, so the precedence is explicit &gt; env &gt; capture profile &gt; default.
+   * {@code APILENS_EXCLUDE_PATHS} / {@code APILENS_EXCLUDE_USER_AGENTS} are not read here: the
+   * filter always adds them to the configured patterns.
+   */
+  public static Builder builderFromEnv() {
+    return builderFromEnv(ApiLensEnv.system());
+  }
+
+  /** {@link #builderFromEnv()} over a fixed map of variables. */
+  public static Builder builderFromEnv(Map<String, String> variables) {
+    return builderFromEnv(ApiLensEnv.of(variables));
+  }
+
+  private static Builder builderFromEnv(ApiLensEnv env) {
+    Builder builder = builder();
+    set(env.string("APILENS_ENVIRONMENT"), builder::environment);
+    set(env.bool("APILENS_ENABLED"), builder::enabled);
+    set(env.captureProfile("APILENS_CAPTURE_PROFILE"), builder::captureProfile);
+    set(env.bool("APILENS_CAPTURE_HEADERS"), builder::captureHeaders);
+    set(env.bool("APILENS_CAPTURE_PAYLOADS"), builder::capturePayloads);
+    set(env.bool("APILENS_LOG_REQUEST_BODY"), builder::logRequestBody);
+    set(env.bool("APILENS_LOG_RESPONSE_BODY"), builder::logResponseBody);
+    set(env.integer("APILENS_MAX_PAYLOAD_BYTES"), builder::maxPayloadBytes);
+    set(env.list("APILENS_REDACT_QUERY_PARAMS"), builder::redactQueryParams);
+    set(env.list("APILENS_REDACT_HEADERS"), builder::redactHeaders);
+    set(env.list("APILENS_REDACT_BODY_FIELDS"), builder::redactBodyFields);
+    set(env.bool("APILENS_DEFAULT_EXCLUSIONS"), builder::defaultExclusions);
+    set(env.number("APILENS_SAMPLE_RATE"), builder::sampleRate);
+    set(env.bool("APILENS_CAPTURE_IP"), builder::captureIp);
+    set(env.bool("APILENS_ANONYMIZE_IP"), builder::anonymizeIp);
+    set(env.bool("APILENS_CAPTURE_SPANS"), builder::captureSpans);
+    set(env.string("APILENS_SERVICE_NAME"), builder::serviceName);
+    return builder;
+  }
+
+  private static <T> void set(T value, Consumer<T> setter) {
+    if (value != null) {
+      setter.accept(value);
+    }
+  }
+
   /** A builder pre-filled with these options. */
   public Builder toBuilder() {
-    return new Builder()
+    Builder builder = new Builder();
+    builder.logRequestBody = explicitLogRequestBody;
+    builder.logResponseBody = explicitLogResponseBody;
+    builder.capturePayloads = explicitCapturePayloads;
+    builder.captureHeaders = explicitCaptureHeaders;
+    builder.maxPayloadBytes = explicitMaxPayloadBytes;
+    return builder
         .environment(environment)
         .enabled(enabled)
         .enableRequestLogging(enableRequestLogging)
-        .logRequestBody(logRequestBody)
-        .logResponseBody(logResponseBody)
-        .capturePayloads(capturePayloads)
-        .captureHeaders(captureHeaders)
+        .captureProfile(captureProfile)
         .captureSpans(captureSpans)
         .serviceName(serviceName)
-        .maxPayloadBytes(maxPayloadBytes)
         .redactQueryParams(redactQueryParams)
         .redactHeaders(redactHeaders)
         .redactBodyFields(redactBodyFields)
@@ -106,6 +194,11 @@ public final class ApiLensSpringOptions {
 
   public boolean enableRequestLogging() {
     return enableRequestLogging;
+  }
+
+  /** The capture preset the flags were resolved with; {@code null} when unset. */
+  public CaptureProfile captureProfile() {
+    return captureProfile;
   }
 
   public boolean logRequestBody() {
@@ -214,13 +307,15 @@ public final class ApiLensSpringOptions {
     private String environment = "";
     private boolean enabled = true;
     private boolean enableRequestLogging = true;
-    private boolean logRequestBody = true;
-    private boolean logResponseBody = true;
-    private boolean capturePayloads = true;
-    private boolean captureHeaders = true;
+    // null = unset: filled from captureProfile, then the default.
+    private Boolean logRequestBody;
+    private Boolean logResponseBody;
+    private Boolean capturePayloads;
+    private Boolean captureHeaders;
     private boolean captureSpans = true;
     private String serviceName = "";
-    private int maxPayloadBytes = 65_536;
+    private Integer maxPayloadBytes;
+    private CaptureProfile captureProfile;
     private List<String> redactQueryParams = List.of();
     private List<String> redactHeaders = List.of();
     private List<String> redactBodyFields = List.of();
@@ -250,6 +345,17 @@ public final class ApiLensSpringOptions {
 
     public Builder enableRequestLogging(boolean enableRequestLogging) {
       this.enableRequestLogging = enableRequestLogging;
+      return this;
+    }
+
+    /**
+     * Capture preset ({@code null} for none). It only fills {@code captureHeaders},
+     * {@code capturePayloads}, {@code logRequestBody}, {@code logResponseBody} and
+     * {@code maxPayloadBytes} when they are not set on this builder, so an individual flag
+     * always wins.
+     */
+    public Builder captureProfile(CaptureProfile captureProfile) {
+      this.captureProfile = captureProfile;
       return this;
     }
 

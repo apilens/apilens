@@ -124,31 +124,147 @@ With `micrometer-core` on the classpath, Spring Boot registers an
 
 ## Configuration
 
-Spring properties use the `apilens.*` prefix:
+Spring properties use the `apilens.*` prefix. The jar ships
+`META-INF/spring-configuration-metadata.json`, so IntelliJ, VS Code and
+Eclipse complete every property below with its description and default.
 
-| Property | Default |
-|---|---|
-| `apilens.api-key` | required to enable auto-configuration |
-| `apilens.app-id` | required |
-| `apilens.project-slug` | empty |
-| `apilens.base-url` | `https://ingest.apilens.ai/v1` |
-| `apilens.environment` | `production` |
-| `apilens.batch-size` | `200` |
-| `apilens.flush-interval` | `3s` |
-| `apilens.timeout` | `5s` |
-| `apilens.max-queue-size` | `10000` |
-| `apilens.max-retries` | `3` |
-| `apilens.log-request-body` | `true` |
-| `apilens.log-response-body` | `true` |
-| `apilens.capture-headers` | `true` |
-| `apilens.capture-spans` | `true` |
-| `apilens.max-payload-bytes` | `65536` |
-| `apilens.exclude-paths` | empty |
-| `apilens.exclude-user-agents` | empty |
-| `apilens.default-exclusions` | `true` |
-| `apilens.sample-rate` | `1.0` |
-| `apilens.capture-ip` | `true` |
-| `apilens.anonymize-ip` | `false` |
+| Property | Default | Description |
+|---|---|---|
+| `apilens.api-key` | required | Project API key; auto-configuration is enabled only when it is set. |
+| `apilens.app-id` | required | App slug. |
+| `apilens.project-slug` | empty | Optional project assertion. |
+| `apilens.base-url` | `https://ingest.apilens.ai/v1` | Ingest endpoint. |
+| `apilens.environment` | `production` | Environment label (lower-cased). |
+| `apilens.release` / `apilens.commit` | detected | Fall back to `APILENS_RELEASE` / `APILENS_COMMIT`, `GIT_COMMIT`, `SOURCE_VERSION`, `RENDER_GIT_COMMIT`. |
+| `apilens.enabled` | `true` | Master switch: `false` sends nothing. |
+| `apilens.batch-size` | `200` | Records per ingest request (1–1000). |
+| `apilens.flush-interval` | `3s` | Interval between background flushes. |
+| `apilens.timeout` | `5s` | HTTP timeout for one ingest request. |
+| `apilens.max-queue-size` | `10000` | Records per queue (requests, spans, logs). |
+| `apilens.max-queue-bytes` | `67108864` (64 MB) | Estimated bytes all three queues may hold together. |
+| `apilens.max-batch-bytes` | `4194304` (4 MB) | Upper bound on one ingest request body (min `1024`). |
+| `apilens.compress` | `true` | Gzip batch bodies. |
+| `apilens.max-retries` | `3` | Retries for 408, 429, 5xx and network errors. |
+| `apilens.retry-backoff-base` / `apilens.retry-backoff-max` | `250ms` / `5s` | Full-jitter backoff bounds. |
+| `apilens.verify-tls` / `apilens.ca-bundle-path` | `true` / empty | TLS verification of the ingest endpoint. |
+| `apilens.user-agent` | `apilens-java-sdk/<version>` | User-Agent of ingest requests. |
+| `apilens.capture-profile` | unset (= `full`) | `metadata`, `redacted` or `full`; see [Capture profiles](#capture-profiles). |
+| `apilens.enable-request-logging` | `true` | `false` turns off header and body capture. |
+| `apilens.capture-headers` | `true`* | Capture request/response headers (redacted). |
+| `apilens.capture-payloads` | `true`* | Capture request/response bodies. |
+| `apilens.log-request-body` | `true`* | Capture request bodies. |
+| `apilens.log-response-body` | `true`* | Capture response bodies. |
+| `apilens.max-payload-bytes` | `65536`* | Body capture cap; `0` disables bodies. |
+| `apilens.capture-spans` | `true` | Emit a server span per request. |
+| `apilens.service-name` | app id | Service name on spans. |
+| `apilens.redact-query-params` | empty | Extra query-param name regexes; built-ins always apply. |
+| `apilens.redact-headers` | empty | Extra header name regexes; built-ins always apply. |
+| `apilens.redact-body-fields` | empty | Extra JSON/form field name regexes; built-ins always apply. |
+| `apilens.parametrize-paths` | `true` | Group raw paths into route templates. |
+| `apilens.capture-ip` | `true` | `false` sends no client IP. |
+| `apilens.anonymize-ip` | `false` | Truncate IPv4 to /24, IPv6 to /48. |
+| `apilens.exclude-paths` | empty | Path regexes of requests not captured at all. |
+| `apilens.exclude-user-agents` | empty | User-Agent regexes of requests not captured at all. |
+| `apilens.default-exclusions` | `true` | Built-in health-check/probe/static-file exclusions. |
+| `apilens.sample-rate` | `1.0` | Fraction of requests whose detail is kept. |
+| `apilens.filter-order` | `Integer.MAX_VALUE - 100` | Servlet filter order. |
+
+\* The default applies only when `apilens.capture-profile` does not set the
+flag.
+
+Spring Boot also binds the matching environment variables
+(`APILENS_SAMPLE_RATE` to `apilens.sample-rate`, `APILENS_REDACT_HEADERS=a,b`
+to a list) with its usual precedence, where an OS environment variable
+overrides `application.properties`.
+
+## Capture profiles
+
+`capture-profile` picks a capture posture in one greppable setting, with the
+same names and semantics as the Python and TypeScript SDKs. It only fills the
+capture flags you did not set, so an individual flag always wins over it.
+
+| Profile | Headers | Bodies | Body cap | Use it for |
+|---|---|---|---|---|
+| `metadata` | off | off | — | First production rollout: method, path, status, latency, sizes and consumer only. |
+| `redacted` | on (sensitive values `[redacted]`) | on (built-in masking) | 16 KB | Debugging with payloads, masked. |
+| `full` | on | on | `max-payload-bytes` (64 KB) | Same as leaving it unset (the current defaults). |
+
+```properties
+apilens.capture-profile=metadata
+# Individual flags win over the preset: request bodies only.
+apilens.log-request-body=true
+```
+
+The built-in masking applies under every profile. Under `metadata`,
+`capture-payloads=true` asks for both bodies. In code, call
+`ApiLensSpringOptions.builder().captureProfile(CaptureProfile.METADATA)` (or
+set it from an `ApiLensSpringOptionsCustomizer`); an unknown name fails at
+startup.
+
+## Environment variables
+
+Without Spring Boot, `ApiLensConfig.fromEnv()` (client) and
+`ApiLensSpringOptions.fromEnv()` (capture options) read the same `APILENS_*`
+variables as the Python and TypeScript SDKs, so a rollout or a kill switch
+needs no code change:
+
+```java
+var client = new ApiLensClient(ApiLensConfig.builderFromEnv()
+    .appId("orders-api") // explicit setters win over the environment
+    .build());
+var filter = new ApiLensSpringFilter(client, ApiLensSpringOptions.fromEnv(), null);
+```
+
+Precedence: **explicit setter > env var > capture profile > default**
+(`builderFromEnv()` pre-fills a builder; setters called on it afterwards
+win). Booleans accept `1`/`0`/`true`/`false` (also `yes`/`no`/`on`/`off`, any
+case). Lists are comma-separated (`APILENS_REDACT_BODY_FIELDS=^password$,^ssn$`);
+a regex that needs a literal comma must be passed as a list in code. Durations
+are seconds and may be fractional. Unset or empty variables are ignored; an
+unparseable value throws `IllegalArgumentException` naming the variable.
+`ApiLensEnv` exposes the parser.
+
+| Variable | Option | Type | Default |
+|---|---|---|---|
+| `APILENS_API_KEY` | `apiKey` | string | — (required) |
+| `APILENS_APP_ID` | `appId` | string | `""` |
+| `APILENS_PROJECT_SLUG` | `projectSlug` | string | `""` |
+| `APILENS_ENVIRONMENT` | `environment` | string | `"production"` |
+| `APILENS_BASE_URL` | `baseUrl` | string | `https://ingest.apilens.ai/v1` |
+| `APILENS_ENABLED` | `enabled` | bool | `true` |
+| `APILENS_BATCH_SIZE` | `batchSize` | int | `200` |
+| `APILENS_FLUSH_INTERVAL` | `flushInterval` | seconds | `3` |
+| `APILENS_TIMEOUT` | `timeout` | seconds | `5` |
+| `APILENS_VERIFY_TLS` | `verifyTls` | bool | `true` |
+| `APILENS_CA_BUNDLE_PATH` | `caBundlePath` | string | `""` |
+| `APILENS_MAX_QUEUE_SIZE` | `maxQueueSize` | int | `10000` |
+| `APILENS_MAX_QUEUE_BYTES` | `maxQueueBytes` | long | `67108864` |
+| `APILENS_MAX_BATCH_BYTES` | `maxBatchBytes` | int | `4194304` |
+| `APILENS_COMPRESS` | `compress` | bool | `true` |
+| `APILENS_MAX_RETRIES` | `maxRetries` | int | `3` |
+| `APILENS_CAPTURE_PROFILE` | `captureProfile` | `metadata` / `redacted` / `full` | unset (= `full`) |
+| `APILENS_CAPTURE_HEADERS` | `captureHeaders` | bool | `true` |
+| `APILENS_CAPTURE_PAYLOADS` | `capturePayloads` | bool | `true` |
+| `APILENS_LOG_REQUEST_BODY` | `logRequestBody` | bool | `true` |
+| `APILENS_LOG_RESPONSE_BODY` | `logResponseBody` | bool | `true` |
+| `APILENS_MAX_PAYLOAD_BYTES` | `maxPayloadBytes` | int | `65536` |
+| `APILENS_REDACT_QUERY_PARAMS` | `redactQueryParams` | list | none (built-ins always apply) |
+| `APILENS_REDACT_HEADERS` | `redactHeaders` | list | none (built-ins always apply) |
+| `APILENS_REDACT_BODY_FIELDS` | `redactBodyFields` | list | none (built-ins always apply) |
+| `APILENS_EXCLUDE_PATHS` | `excludePaths` | list, **added to** the configured value | none |
+| `APILENS_EXCLUDE_USER_AGENTS` | `excludeUserAgents` | list, **added to** the configured value | none |
+| `APILENS_DEFAULT_EXCLUSIONS` | `defaultExclusions` | bool | `true` |
+| `APILENS_SAMPLE_RATE` | `sampleRate` | double 0.0–1.0 | `1.0` |
+| `APILENS_CAPTURE_IP` | `captureIp` | bool; `false` wins over code | `true` |
+| `APILENS_ANONYMIZE_IP` | `anonymizeIp` | bool; `true` wins over code | `false` |
+| `APILENS_CAPTURE_SPANS` | `captureSpans` | bool | `true` |
+| `APILENS_SERVICE_NAME` | `serviceName` | string | app id |
+
+`APILENS_EXCLUDE_PATHS` / `APILENS_EXCLUDE_USER_AGENTS` are added by the
+filter to whatever is configured, with or without Spring.
+`APILENS_CAPTURE_IP=false`, `APILENS_ANONYMIZE_IP=true` and
+`APILENS_PARAMETRIZE_PATHS=false` are kill switches: they win over code, but
+only in the direction that captures less.
 
 ## Masking
 
@@ -292,8 +408,8 @@ Comma-separated values (`apilens.exclude-paths=^/internal/,^/status$`) also
 work; use the indexed form for a regex that contains a comma (`\d{1,3}`).
 Without Spring Boot, pass the same settings to
 `ApiLensSpringOptions.builder().excludePaths(...).excludeUserAgents(...).defaultExclusions(...)`.
-The `APILENS_EXCLUDE_PATHS` environment variable (comma-separated) adds path
-patterns on top.
+The `APILENS_EXCLUDE_PATHS` / `APILENS_EXCLUDE_USER_AGENTS` environment
+variables (comma-separated) add patterns on top.
 
 ## Sampling
 

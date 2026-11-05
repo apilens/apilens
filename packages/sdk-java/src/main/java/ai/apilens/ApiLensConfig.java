@@ -3,6 +3,8 @@ package ai.apilens;
 import ai.apilens.internal.Strings;
 import java.time.Duration;
 import java.util.Locale;
+import java.util.Map;
+import java.util.function.Consumer;
 
 /** Runtime configuration for {@link ApiLensClient}. */
 public final class ApiLensConfig {
@@ -63,6 +65,60 @@ public final class ApiLensConfig {
 
   public static Builder builder() {
     return new Builder();
+  }
+
+  /**
+   * A config read from the {@code APILENS_*} environment variables, for apps without Spring Boot.
+   *
+   * @throws IllegalArgumentException naming the variable when a value cannot be parsed
+   */
+  public static ApiLensConfig fromEnv() {
+    return builderFromEnv().build();
+  }
+
+  /** {@link #fromEnv()} over a fixed map of variables. */
+  public static ApiLensConfig fromEnv(Map<String, String> variables) {
+    return builderFromEnv(variables).build();
+  }
+
+  /**
+   * A builder pre-filled from the {@code APILENS_*} environment variables. Setters called on it
+   * afterwards win, so the precedence is explicit &gt; env &gt; default.
+   */
+  public static Builder builderFromEnv() {
+    return builderFromEnv(ApiLensEnv.system());
+  }
+
+  /** {@link #builderFromEnv()} over a fixed map of variables. */
+  public static Builder builderFromEnv(Map<String, String> variables) {
+    return builderFromEnv(ApiLensEnv.of(variables));
+  }
+
+  static Builder builderFromEnv(ApiLensEnv env) {
+    Builder builder = builder();
+    set(env.string("APILENS_API_KEY"), builder::apiKey);
+    set(env.string("APILENS_PROJECT_SLUG"), builder::projectSlug);
+    set(env.string("APILENS_APP_ID"), builder::appId);
+    set(env.string("APILENS_BASE_URL"), builder::baseUrl);
+    set(env.string("APILENS_ENVIRONMENT"), builder::environment);
+    set(env.bool("APILENS_ENABLED"), builder::enabled);
+    set(env.integer("APILENS_BATCH_SIZE"), builder::batchSize);
+    set(env.seconds("APILENS_FLUSH_INTERVAL"), builder::flushInterval);
+    set(env.seconds("APILENS_TIMEOUT"), builder::timeout);
+    set(env.bool("APILENS_VERIFY_TLS"), builder::verifyTls);
+    set(env.string("APILENS_CA_BUNDLE_PATH"), builder::caBundlePath);
+    set(env.integer("APILENS_MAX_QUEUE_SIZE"), builder::maxQueueSize);
+    set(env.longValue("APILENS_MAX_QUEUE_BYTES"), builder::maxQueueBytes);
+    set(env.integer("APILENS_MAX_BATCH_BYTES"), builder::maxBatchBytes);
+    set(env.bool("APILENS_COMPRESS"), builder::compress);
+    set(env.integer("APILENS_MAX_RETRIES"), builder::maxRetries);
+    return builder;
+  }
+
+  private static <T> void set(T value, Consumer<T> setter) {
+    if (value != null) {
+      setter.accept(value);
+    }
   }
 
   public String apiKey() {

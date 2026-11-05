@@ -1,0 +1,29 @@
+{
+  "hints": [
+    {
+      "name": "apilens.capture-profile",
+      "values": [
+        {
+          "value": "metadata",
+          "description": "No headers or bodies: method, path, status, latency, sizes and consumer only. Recommended for a first production rollout."
+        },
+        {
+          "value": "redacted",
+          "description": "Headers and bodies on, masked by the built-in patterns, bodies capped at 16 KB."
+        },
+        {
+          "value": "full",
+          "description": "The defaults; same as leaving it unset."
+        }
+      ]
+    },
+    {
+      "name": "apilens.environment",
+      "values": [
+        { "value": "production" },
+        { "value": "staging" },
+        { "value": "development" }
+      ]
+    }
+  ]
+}
