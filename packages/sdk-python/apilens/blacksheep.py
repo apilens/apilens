@@ -3,6 +3,7 @@ from __future__ import annotations
 from .client._sampling import SampleOnRequest, SampleOnResponse
 from .client import ApiLensClient
 from .client._env import env_defaults
+from .client._profile import CaptureProfile
 from .client._routes import blacksheep_route_template, blacksheep_set_route_pattern
 from .client.middleware import ApiLensASGIMiddleware
 
@@ -39,6 +40,7 @@ def instrument_app(
     app_id: str = "",
     project_slug: str = "",
     environment: str | None = None,
+    capture_profile: CaptureProfile | None = None,
     capture_spans: bool = True,
     service_name: str = "",
     exclude_paths: list[str] | None = None,
@@ -60,6 +62,7 @@ def instrument_app(
         app_id=app_id,
         project_slug=project_slug,
         environment=environment,
+        capture_profile=capture_profile,
         capture_spans=capture_spans,
         service_name=service_name,
         exclude_paths=exclude_paths,

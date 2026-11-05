@@ -5,6 +5,7 @@ from typing import Any, Callable
 from ..client._sampling import SampleOnRequest, SampleOnResponse
 from ..client import ApiLensClient
 from ..client._env import env_defaults
+from ..client._profile import CaptureProfile
 from ..client._routes import starlette_route_template
 from ..client.middleware import ApiLensASGIMiddleware, set_consumer, track_consumer
 
@@ -17,6 +18,7 @@ def instrument_fastapi(
     project_slug: str = "",
     app_id: str = "",
     environment: str | None = None,
+    capture_profile: CaptureProfile | None = None,
     enable_request_logging: bool = True,
     log_request_body: bool = True,
     log_response_body: bool = True,
@@ -85,6 +87,7 @@ def instrument_fastapi(
         project_slug=project_slug,
         app_id=app_id,
         environment=environment,
+        capture_profile=capture_profile,
         enable_request_logging=enable_request_logging,
         log_request_body=log_request_body,
         log_response_body=log_response_body,

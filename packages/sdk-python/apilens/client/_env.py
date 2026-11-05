@@ -3,6 +3,8 @@
 Every capture, masking, sampling and exclusion option can be set from the
 environment, so a kill switch or a new redaction pattern never needs a code
 change. Precedence everywhere: explicit keyword argument > env var > default.
+``capture_profile`` (``APILENS_CAPTURE_PROFILE``) slots in just above the
+default for the capture flags it covers (see ``_profile``).
 Django settings of the same name win over the env var (see ``apilens.django``).
 
 Value syntax:
@@ -31,6 +33,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, TypeVar
 
 from ._exclude import split_patterns
+from ._profile import normalize_profile, profile_defaults
 
 ENV_PREFIX = "APILENS_"
 
@@ -82,6 +85,10 @@ def parse_mode(value: str, *, name: str = "value") -> str:
     return raw
 
 
+def parse_profile(value: str, *, name: str = "value") -> str | None:
+    return normalize_profile(value, name=name)
+
+
 #: Option name -> parser. The env var is ``APILENS_`` + the upper-cased name.
 ENV_OPTIONS: dict[str, Callable[..., Any]] = {
     "api_key": parse_str,
@@ -89,11 +96,13 @@ ENV_OPTIONS: dict[str, Callable[..., Any]] = {
     "environment": parse_str,
     "base_url": parse_str,
     "enabled": parse_bool,
+    "capture_profile": parse_profile,
     "capture_headers": parse_bool,
     "capture_payloads": parse_bool,
     "log_request_body": parse_bool,
     "log_response_body": parse_bool,
     "max_payload_bytes": parse_int,
+    "capture_validation_errors": parse_bool,
     "capture_content_types": parse_list,
     "redact_query_params": parse_list,
     "redact_headers": parse_list,
@@ -160,16 +169,27 @@ def fill_from_env(
     """``kwargs`` plus env values for every option ``func`` accepts that the
     call did not pass (positionally or by keyword, under any alias)."""
     env = load_env_config() if env is None else env
-    if not env:
+    if not env and kwargs.get("capture_profile") is None:
         return kwargs
     signature = inspect.signature(func)
     passed = signature.bind_partial(*args, **kwargs).arguments
     filled = dict(kwargs)
-    for option, params in _option_params(func).items():
+    by_option = _option_params(func)
+    for option, params in by_option.items():
         if option not in env or any(p in passed for p in params):
             continue
         for param in params:
             filled[param] = env[option]
+    # capture_profile (kwarg, else APILENS_CAPTURE_PROFILE) supplies defaults
+    # for the capture flags that were set neither in code nor by their own env
+    # var: an explicit flag always wins over the preset.
+    preset = profile_defaults(filled.get("capture_profile") or env.get("capture_profile"))
+    for option, value in preset.items():
+        params = by_option.get(option, ())
+        if option in env or any(p in passed for p in params):
+            continue
+        for param in params:
+            filled[param] = value
     return filled
 
 
