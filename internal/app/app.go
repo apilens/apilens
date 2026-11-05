@@ -334,6 +334,11 @@ func (a *App) initEdge(context.Context) (modules.Service, error) {
 		heartbeats = ingest.NewValkeyHeartbeats(a.valkey)
 	}
 	edge.WithHeartbeat(a.queries, heartbeats)
+	// Without Valkey the per-app health counters are not kept; Prometheus
+	// still has the totals.
+	if a.valkey != nil {
+		edge.WithStats(ingest.NewValkeyStats(a.valkey))
+	}
 	edge.Register(a.server.Mux())
 	ingest.RegisterOpenAPI(a.server.API())
 	return nil, nil
@@ -347,7 +352,11 @@ func (a *App) initQuery(context.Context) (modules.Service, error) {
 	// keys still work on the ?project= operations.
 	guard := a.guard()
 	api.UseMiddleware(query.AuthMiddleware(api, a.verifier, guard))
-	query.Register(api, query.NewService(a.chConn, a.queries).WithQuota(a.cfg.Ingest.Quota), guard)
+	svc := query.NewService(a.chConn, a.queries).WithQuota(a.cfg.Ingest.Quota)
+	if a.valkey != nil {
+		svc.WithIngestStats(ingest.NewValkeyStats(a.valkey))
+	}
+	query.Register(api, svc, guard)
 	return nil, nil
 }
 

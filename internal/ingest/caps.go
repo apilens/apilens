@@ -64,8 +64,9 @@ func (e *Edge) payloadCap(ctx context.Context, appID uuid.UUID) int {
 }
 
 // capRequests truncates the payloads and headers of every record in place
-// and counts each cut. It runs after redaction, so masking sees whole values.
-func (e *Edge) capRequests(ctx context.Context, apps map[string]uuid.UUID, recs []requestRecord) {
+// and counts each cut, per field and per app. It runs after redaction, so
+// masking sees whole values.
+func (e *Edge) capRequests(ctx context.Context, apps map[string]uuid.UUID, recs []requestRecord, t tally) {
 	caps := map[uuid.UUID]int{}
 	for i := range recs {
 		rec := &recs[i]
@@ -75,17 +76,19 @@ func (e *Edge) capRequests(ctx context.Context, apps map[string]uuid.UUID, recs 
 			n = e.payloadCap(ctx, appID)
 			caps[appID] = n
 		}
-		e.capField(FieldRequestPayload, &rec.RequestPayload, n)
-		e.capField(FieldResponsePayload, &rec.ResponsePayload, n)
-		e.capField(FieldRequestHeaders, &rec.RequestHeaders, maxHeaderBytes)
-		e.capField(FieldResponseHeaders, &rec.ResponseHeaders, maxHeaderBytes)
+		c := t.app(appID)
+		e.capField(c, FieldRequestPayload, &rec.RequestPayload, n)
+		e.capField(c, FieldResponsePayload, &rec.ResponsePayload, n)
+		e.capField(c, FieldRequestHeaders, &rec.RequestHeaders, maxHeaderBytes)
+		e.capField(c, FieldResponseHeaders, &rec.ResponseHeaders, maxHeaderBytes)
 	}
 }
 
-func (e *Edge) capField(field string, s *string, n int) {
+func (e *Edge) capField(c *Counts, field string, s *string, n int) {
 	var cut bool
 	if *s, cut = capBytes(*s, n); cut {
 		e.truncated.WithLabelValues(field).Inc()
+		c.Truncated++
 	}
 }
 

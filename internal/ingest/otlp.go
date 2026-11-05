@@ -136,6 +136,18 @@ func (e *Edge) otlpRequest(w http.ResponseWriter, r *http.Request, signal string
 // resourceInfo is what we take from an OTLP resource.
 type resourceInfo struct {
 	app, environment, service, release, commit string
+	records                                    int // spans or log records under the resource
+}
+
+// resourceIdents lists the app identifier of every record of an export.
+func resourceIdents(resources []resourceInfo) []string {
+	var idents []string
+	for _, ri := range resources {
+		for range ri.records {
+			idents = append(idents, ri.app)
+		}
+	}
+	return idents
 }
 
 func readResource(attrs []*commonpb.KeyValue) resourceInfo {
@@ -214,14 +226,18 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 	for i, rs := range req.GetResourceSpans() {
 		resources[i] = readResource(rs.GetResource().GetAttributes())
 		for _, ss := range rs.GetScopeSpans() {
-			total += len(ss.GetSpans())
+			resources[i].records += len(ss.GetSpans())
 		}
+		total += resources[i].records
 	}
 	if total > maxOTLPRecords {
 		e.otlpFail(w, c, signal, &apiError{status: http.StatusRequestEntityTooLarge, Detail: fmt.Sprintf("at most %d spans per export", maxOTLPRecords)})
 		return
 	}
+	t := tally{}
+	defer e.flushStats(r.Context(), t)
 	if aerr := e.admit(r.Context(), p.ProjectID, total, size); aerr != nil {
+		e.rejectRecords(r.Context(), p.ProjectID, signal, resourceIdents(resources), t)
 		e.otlpFail(w, c, signal, aerr)
 		return
 	}
@@ -242,6 +258,9 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 				row, valid := spanRow(sp, ri, now)
 				if !known || !valid {
 					rejected++
+					if known {
+						t.app(appID).Rejected++
+					}
 					continue
 				}
 				row.ProjectID, row.AppID = p.ProjectID, appID
@@ -254,6 +273,9 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 			e.otlpFail(w, c, signal, e.submitError(err))
 			return
 		}
+	}
+	for _, row := range rows {
+		t.app(row.AppID).Accepted++
 	}
 	e.records.WithLabelValues(signal, "accepted").Add(float64(len(rows)))
 	e.records.WithLabelValues(signal, "rejected").Add(float64(rejected))
@@ -335,14 +357,18 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 	for i, rl := range req.GetResourceLogs() {
 		resources[i] = readResource(rl.GetResource().GetAttributes())
 		for _, sl := range rl.GetScopeLogs() {
-			total += len(sl.GetLogRecords())
+			resources[i].records += len(sl.GetLogRecords())
 		}
+		total += resources[i].records
 	}
 	if total > maxOTLPRecords {
 		e.otlpFail(w, c, signal, &apiError{status: http.StatusRequestEntityTooLarge, Detail: fmt.Sprintf("at most %d log records per export", maxOTLPRecords)})
 		return
 	}
+	t := tally{}
+	defer e.flushStats(r.Context(), t)
 	if aerr := e.admit(r.Context(), p.ProjectID, total, size); aerr != nil {
+		e.rejectRecords(r.Context(), p.ProjectID, signal, resourceIdents(resources), t)
 		e.otlpFail(w, c, signal, aerr)
 		return
 	}
@@ -364,6 +390,9 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 				row, valid := logRow(lr, ri, scope, now)
 				if !known || !valid {
 					rejected++
+					if known {
+						t.app(appID).Rejected++
+					}
 					continue
 				}
 				row.ProjectID, row.AppID = p.ProjectID, appID
@@ -376,6 +405,9 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 			e.otlpFail(w, c, signal, e.submitError(err))
 			return
 		}
+	}
+	for _, row := range rows {
+		t.app(row.AppID).Accepted++
 	}
 	e.records.WithLabelValues(signal, "accepted").Add(float64(len(rows)))
 	e.records.WithLabelValues(signal, "rejected").Add(float64(rejected))

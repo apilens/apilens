@@ -49,6 +49,8 @@ type Service struct {
 	catalog Catalog
 	quota   IngestQuota // ingest limits reported by ingest-status
 	now     func() time.Time
+
+	ingestStats IngestStatsReader // nil: app ingest-stats answers 503
 }
 
 // NewService builds a Service.
