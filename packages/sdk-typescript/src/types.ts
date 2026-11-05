@@ -23,6 +23,8 @@ export type ApiLensRecordInput = {
   consumer_group?: string;
   request_payload?: string;
   response_payload?: string;
+  request_headers?: string;
+  response_headers?: string;
 };
 
 export type ApiLensRecord = {
@@ -43,6 +45,8 @@ export type ApiLensRecord = {
   consumer_group: string;
   request_payload: string;
   response_payload: string;
+  request_headers: string;
+  response_headers: string;
 };
 
 export type ApiLensClientConfig = {
@@ -85,6 +89,12 @@ export type RequestLoggingConfig = {
   logResponseBody?: boolean;
   capturePayloads?: boolean;
   maxPayloadBytes?: number;
+  /**
+   * Capture request/response headers as JSON (default true). Values of
+   * built-in sensitive headers are always sent as `[redacted]`; the blob is
+   * capped at 8 KB.
+   */
+  captureHeaders?: boolean;
 };
 
 export type ApiLensExpressConfig = ApiLensClientConfig & {
