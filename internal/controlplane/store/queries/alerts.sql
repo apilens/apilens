@@ -153,17 +153,55 @@ RETURNING *;
 -- name: ListAlertEvents :many
 -- A project's incidents feed, newest first, with the rule each belongs to.
 -- Pass the last row's started_at and id as the cursor to page; NULLs start
--- from the newest.
+-- from the newest. rule_id and state narrow the feed when set.
 SELECT e.*, r.name AS rule_name, r.app_id, r.environment, r.metric
 FROM alert_events e
 JOIN alert_rules r ON r.id = e.rule_id
 WHERE r.project_id = @project_id
+  AND (sqlc.narg(rule_id)::uuid IS NULL OR e.rule_id = sqlc.narg(rule_id)::uuid)
+  AND (sqlc.narg(state)::text IS NULL OR e.state = sqlc.narg(state)::text)
   AND (sqlc.narg(before_started_at)::timestamptz IS NULL
        OR (e.started_at, e.id) < (sqlc.narg(before_started_at)::timestamptz, sqlc.narg(before_id)::uuid))
 ORDER BY e.started_at DESC, e.id DESC
 LIMIT @row_limit;
 
+-- name: ListAlertIncidents :many
+-- A project's events grouped by rule: one row per rule of an active app
+-- with an event started at or after since, or one still open, with how
+-- many such events it has, its latest event and its trigger/resolve status
+-- ('ok' before the first evaluation). Rules with an open event come first,
+-- then by their latest event, newest first.
+SELECT r.id AS rule_id, r.name AS rule_name, r.app_id, r.environment, r.metric, r.condition, r.threshold,
+       COALESCE(s.status, 'ok')::text AS status,
+       g.events, g.first_started_at::timestamptz AS first_started_at,
+       l.id AS latest_event_id, l.state AS latest_state, l.value AS latest_value,
+       l.started_at AS latest_started_at, l.ended_at AS latest_ended_at, l.notified_at AS latest_notified_at
+FROM alert_rules r
+JOIN apps a ON a.id = r.app_id AND a.deleted_at IS NULL
+JOIN LATERAL (
+    SELECT count(*) AS events, min(e.started_at) AS first_started_at
+    FROM alert_events e
+    WHERE e.rule_id = r.id AND (e.started_at >= @since::timestamptz OR e.state = 'triggered')
+) g ON g.events > 0
+JOIN LATERAL (
+    SELECT e.id, e.state, e.value, e.started_at, e.ended_at, e.notified_at
+    FROM alert_events e
+    WHERE e.rule_id = r.id
+    ORDER BY e.started_at DESC, e.id DESC
+    LIMIT 1
+) l ON true
+LEFT JOIN alert_rule_state s ON s.rule_id = r.id
+WHERE r.project_id = @project_id
+ORDER BY (l.state = 'triggered') DESC, l.started_at DESC, r.id
+LIMIT @row_limit;
+
 -- Alert rule evaluation state.
+
+-- name: ListAlertRuleStates :many
+-- The latest evaluation of every evaluated rule of a project.
+SELECT s.* FROM alert_rule_state s
+JOIN alert_rules r ON r.id = s.rule_id
+WHERE r.project_id = @project_id;
 
 -- name: ListAlertRulesToEvaluate :many
 -- Every enabled rule of an active app of an active project with when it was

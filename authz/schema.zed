@@ -53,6 +53,9 @@ definition project {
 	/** manage_capture: change an app's remote capture policy (project admins, org owners and admins). */
 	permission manage_capture = admin + org->manage
 
+	/** manage_alerts: create, change and delete alert rules and notification channels, send test notifications (project admins, org owners and admins). */
+	permission manage_alerts = admin + org->manage
+
 	/** edit: project.update. */
 	permission edit = admin + editor + org->create_project
 

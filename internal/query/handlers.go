@@ -71,6 +71,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	registerSavedViews(api, s, guard)
 	registerConsumerGroups(api, s, guard)
 	registerExports(api, s, guard)
+	registerAlerts(api, s, guard)
 }
 
 // ---------------------------------------------------------------- project

@@ -57,6 +57,7 @@ const (
 	ProjectDelete        Permission = "delete"
 	ProjectManageKeys    Permission = "manage_keys"
 	ProjectManageCapture Permission = "manage_capture"
+	ProjectManageAlerts  Permission = "manage_alerts"
 	ProjectEdit          Permission = "edit"
 	ProjectView          Permission = "view"
 )

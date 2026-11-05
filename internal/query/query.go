@@ -52,6 +52,7 @@ type Service struct {
 
 	ingestStats IngestStatsReader // nil: app ingest-stats answers 503
 	exports     *exportDeps       // nil: the export operations answer 503
+	alerts      *alertDeps        // nil: the alert operations answer 503
 }
 
 // NewService builds a Service.
