@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/apilens/apilens/internal/authz"
@@ -54,6 +55,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	huma.Register(api, op("list-consumers", http.MethodGet, "/api/v1/consumers", "Consumers: traffic with sparklines, and unique consumers over time split new vs returning"), s.consumers)
 	huma.Register(api, op("get-consumer", http.MethodGet, "/api/v1/consumers/{consumer_id}", "Consumer detail: first/last seen, requests and errors over time, recent requests and errors"), s.consumer)
 	huma.Register(api, op("list-requests", http.MethodGet, "/api/v1/requests", "Request log: filtered requests, newest first, with cursor pagination"), s.requests)
+	huma.Register(api, op("get-request", http.MethodGet, "/api/v1/requests/{id}", "Request detail: headers, bodies, validation errors, and the spans and logs of its trace"), s.requestDetail)
 	huma.Register(api, op("list-errors", http.MethodGet, "/api/v1/errors", "Failed requests grouped by endpoint and status"), s.errors)
 	huma.Register(api, op("get-trace", http.MethodGet, "/api/v1/traces/{trace_id}", "Spans and correlated logs of one trace"), s.trace)
 	huma.Register(api, op("list-deploys", http.MethodGet, "/api/v1/deploys", "Deploy markers in a time range"), s.deploys)
@@ -484,43 +486,58 @@ func (s *Service) trace(ctx context.Context, in *traceInput) (*traceOutput, erro
 	defer cancel()
 	out := &traceOutput{}
 	out.Body.TraceID = in.TraceID
-	out.Body.Spans, out.Body.Logs = []spanOut{}, []traceLog{}
-
-	rows, err := s.ch.Query(qctx, `
-		SELECT span_id, parent_span_id, name, kind, service_name, timestamp, duration_ms, status, status_code, attributes
-		FROM api_spans WHERE project_id = ? AND trace_id = ? ORDER BY timestamp, span_id LIMIT 2000`, p.ProjectID, in.TraceID)
+	out.Body.Spans, out.Body.Logs, err = s.traceSpansAndLogs(qctx, p.ProjectID, in.TraceID)
 	if err != nil {
-		return nil, internalError("trace spans", err)
+		return nil, err
+	}
+	if len(out.Body.Spans) == 0 && len(out.Body.Logs) == 0 {
+		return nil, huma.Error404NotFound("no spans or logs for this trace in the project")
+	}
+	return out, nil
+}
+
+// traceSpansAndLogs reads the spans (at most 2000) and correlated logs (at
+// most 500) of one trace of a project, oldest first.
+func (s *Service) traceSpansAndLogs(ctx context.Context, project uuid.UUID, traceID string) ([]spanOut, []traceLog, error) {
+	spans, logs := []spanOut{}, []traceLog{}
+	rows, err := s.ch.Query(ctx, `
+		SELECT span_id, parent_span_id, name, kind, service_name, timestamp, duration_ms, status, status_code, attributes
+		FROM api_spans WHERE project_id = ? AND trace_id = ? ORDER BY timestamp, span_id LIMIT 2000`, project, traceID)
+	if err != nil {
+		return nil, nil, internalError("trace spans", err)
 	}
 	for rows.Next() {
 		var sp spanOut
 		if err := rows.Scan(&sp.SpanID, &sp.ParentSpanID, &sp.Name, &sp.Kind, &sp.ServiceName, &sp.Start, &sp.DurationMs,
 			&sp.Status, &sp.StatusCode, &sp.Attributes); err != nil {
 			_ = rows.Close()
-			return nil, internalError("trace spans", err)
+			return nil, nil, internalError("trace spans", err)
 		}
-		out.Body.Spans = append(out.Body.Spans, sp)
+		spans = append(spans, sp)
 	}
 	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, nil, internalError("trace spans", err)
+	}
 
-	logs, err := s.ch.Query(qctx, `
+	lrows, err := s.ch.Query(ctx, `
 		SELECT timestamp, level, message, span_id
-		FROM api_logs WHERE project_id = ? AND trace_id = ? ORDER BY timestamp LIMIT 500`, p.ProjectID, in.TraceID)
+		FROM api_logs WHERE project_id = ? AND trace_id = ? ORDER BY timestamp LIMIT 500`, project, traceID)
 	if err != nil {
-		return nil, internalError("trace logs", err)
+		return nil, nil, internalError("trace logs", err)
 	}
-	defer func() { _ = logs.Close() }()
-	for logs.Next() {
+	defer func() { _ = lrows.Close() }()
+	for lrows.Next() {
 		var l traceLog
-		if err := logs.Scan(&l.Timestamp, &l.Level, &l.Message, &l.SpanID); err != nil {
-			return nil, internalError("trace logs", err)
+		if err := lrows.Scan(&l.Timestamp, &l.Level, &l.Message, &l.SpanID); err != nil {
+			return nil, nil, internalError("trace logs", err)
 		}
-		out.Body.Logs = append(out.Body.Logs, l)
+		logs = append(logs, l)
 	}
-	if len(out.Body.Spans) == 0 && len(out.Body.Logs) == 0 {
-		return nil, huma.Error404NotFound("no spans or logs for this trace in the project")
+	if err := lrows.Err(); err != nil {
+		return nil, nil, internalError("trace logs", err)
 	}
-	return out, logs.Err()
+	return spans, logs, nil
 }
 
 // ---------------------------------------------------------------- deploys

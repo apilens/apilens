@@ -70,6 +70,7 @@ func (in *requestsInput) Resolve(ctx huma.Context) []error {
 }
 
 type requestRow struct {
+	ID             string    `json:"id" doc:"Opaque request id for GET /api/v1/requests/{id}."`
 	Timestamp      time.Time `json:"timestamp"`
 	AppID          string    `json:"app_id" format:"uuid"`
 	Method         string    `json:"method"`
@@ -277,7 +278,7 @@ func (s *Service) requests(ctx context.Context, in *requestsInput) (*requestsOut
 	// One row past the page tells whether there is a next one.
 	rows, err := s.ch.Query(qctx, `
 		SELECT timestamp, app_id, method, path, raw_path, status_code, response_time_ms, request_size, response_size,
-		       environment, ip_address, consumer_id, consumer_name, consumer_group, sampled, trace_id
+		       environment, ip_address, consumer_id, consumer_name, consumer_group, sampled, trace_id, span_id
 		FROM api_requests WHERE `+strings.Join(clauses, " AND ")+`
 		ORDER BY timestamp DESC, trace_id DESC LIMIT ?`, append(args, limit+1)...)
 	if err != nil {
@@ -296,13 +297,15 @@ func (s *Service) requests(ctx context.Context, in *requestsInput) (*requestsOut
 			r       requestRow
 			app     uuid.UUID
 			sampled uint8
+			span    string
 		)
 		if err := rows.Scan(&r.Timestamp, &app, &r.Method, &r.Path, &r.RawPath, &r.StatusCode, &r.ResponseTimeMs,
 			&r.RequestSize, &r.ResponseSize, &r.Environment, &r.IPAddress, &r.ConsumerID, &r.ConsumerName,
-			&r.ConsumerGroup, &sampled, &r.TraceID); err != nil {
+			&r.ConsumerGroup, &sampled, &r.TraceID, &span); err != nil {
 			return nil, internalError("requests", err)
 		}
 		r.AppID, r.Sampled = app.String(), sampled != 0
+		r.ID = requestID{ms: r.Timestamp.UnixMilli(), traceID: r.TraceID, spanID: span}.encode()
 		out.Body.Requests = append(out.Body.Requests, r)
 	}
 	if err := rows.Err(); err != nil {

@@ -5995,6 +5995,194 @@
         ],
         "type": "object"
       },
+      "RequestDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "app_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "attributes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Custom request attributes.",
+            "type": "object"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "consumer_group": {
+            "type": "string"
+          },
+          "consumer_id": {
+            "type": "string"
+          },
+          "consumer_name": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "id": {
+            "description": "Opaque request id, as in the request log.",
+            "type": "string"
+          },
+          "ip_address": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "raw_path": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "request_body": {
+            "description": "Request body as stored (often JSON text), empty when not captured. Redaction and truncation markers are kept.",
+            "type": "string"
+          },
+          "request_headers": {
+            "description": "Request headers as stored: a JSON object text, empty when not captured. Redaction and truncation markers are kept.",
+            "type": "string"
+          },
+          "request_size": {
+            "description": "Request body size in bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "response_body": {
+            "description": "Response body as stored (often JSON text), empty when not captured.",
+            "type": "string"
+          },
+          "response_headers": {
+            "description": "Response headers as stored: a JSON object text, empty when not captured.",
+            "type": "string"
+          },
+          "response_size": {
+            "description": "Response body size in bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "response_time_ms": {
+            "format": "double",
+            "type": "number"
+          },
+          "sampled": {
+            "description": "False when the SDK sampled the request out: a base record without headers or bodies.",
+            "type": "boolean"
+          },
+          "span_id": {
+            "type": "string"
+          },
+          "status_code": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "trace_id": {
+            "type": "string"
+          },
+          "user_agent": {
+            "type": "string"
+          },
+          "validation_errors": {
+            "description": "Field errors of a rejected request (usually a 422); empty when there were none.",
+            "items": {
+              "$ref": "#/components/schemas/RequestValidationError"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "timestamp",
+          "app_id",
+          "method",
+          "path",
+          "raw_path",
+          "status_code",
+          "response_time_ms",
+          "request_size",
+          "response_size",
+          "environment",
+          "ip_address",
+          "consumer_id",
+          "consumer_name",
+          "consumer_group",
+          "sampled",
+          "trace_id",
+          "span_id",
+          "user_agent",
+          "base_url",
+          "release",
+          "commit",
+          "request_headers",
+          "response_headers",
+          "request_body",
+          "response_body",
+          "attributes",
+          "validation_errors"
+        ],
+        "type": "object"
+      },
+      "RequestDetailOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RequestDetailOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "logs": {
+            "description": "Logs of the request's trace, oldest first (at most 500); empty without a trace id.",
+            "items": {
+              "$ref": "#/components/schemas/TraceLog"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "request": {
+            "$ref": "#/components/schemas/RequestDetail"
+          },
+          "spans": {
+            "description": "Spans of the request's trace, oldest first (at most 2000); empty without a trace id.",
+            "items": {
+              "$ref": "#/components/schemas/SpanOut"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "request",
+          "spans",
+          "logs"
+        ],
+        "type": "object"
+      },
       "RequestRow": {
         "additionalProperties": false,
         "properties": {
@@ -6012,6 +6200,10 @@
             "type": "string"
           },
           "environment": {
+            "type": "string"
+          },
+          "id": {
+            "description": "Opaque request id for GET /api/v1/requests/{id}.",
             "type": "string"
           },
           "ip_address": {
@@ -6060,6 +6252,7 @@
           }
         },
         "required": [
+          "id",
           "timestamp",
           "app_id",
           "method",
@@ -6076,6 +6269,26 @@
           "consumer_group",
           "sampled",
           "trace_id"
+        ],
+        "type": "object"
+      },
+      "RequestValidationError": {
+        "additionalProperties": false,
+        "properties": {
+          "loc": {
+            "type": "string"
+          },
+          "msg": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
         ],
         "type": "object"
       },
@@ -16934,6 +17147,69 @@
           }
         ],
         "summary": "Request log: filtered requests, newest first, with cursor pagination",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/requests/{id}": {
+      "get": {
+        "operationId": "get-request",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Request id from the id field of a request log row.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Request id from the id field of a request log row.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestDetailOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Request detail: headers, bodies, validation errors, and the spans and logs of its trace",
         "tags": [
           "Dashboard"
         ]
