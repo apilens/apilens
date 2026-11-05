@@ -36,6 +36,7 @@ from .client.middleware import (
     track_consumer,
 )
 from .client._shutdown import DEFAULT_SHUTDOWN_TIMEOUT, env_flush_on_shutdown, register_atexit
+from .client._validation import MAX_VALIDATION_BODY_BYTES, parse_validation_errors
 from .client.spans import configure_spans, env_spans_enabled, record_span
 from .client.trace import (
     begin_request_trace,
@@ -335,6 +336,14 @@ class ApiLensDjangoMiddleware:
                 response_header_map = dict(response.items())
             except Exception:
                 response_header_map = {}
+            # Django Ninja's 422 field errors, parsed whether or not the body
+            # itself is captured or the request's detail was sampled out.
+            ctx.validation_errors = parse_validation_errors(
+                status_code,
+                content[:MAX_VALIDATION_BODY_BYTES],
+                lower_headers(response_header_map).get("content-type"),
+                self.redactor,
+            )
             response_info = ResponseInfo(
                 request=request_info,
                 status_code=status_code,

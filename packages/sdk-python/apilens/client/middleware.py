@@ -45,6 +45,11 @@ from ._shutdown import (
     revive_client,
     shutdown_client_async,
 )
+from ._validation import (
+    MAX_VALIDATION_BODY_BYTES,
+    is_validation_response,
+    parse_validation_errors,
+)
 from .client import ApiLensClient
 from .spans import configure_spans, env_spans_enabled, record_error_log, record_span
 from .trace import (
@@ -514,6 +519,12 @@ class ApiLensASGIMiddleware:
         response_payload_len = 0
         response_headers_json = ""
         response_headers: dict[str, str] = {}
+        # A validation error response (422/400 JSON) is buffered separately so
+        # its field errors are parsed even when the response body itself is
+        # not captured or the request's detail was sampled out.
+        buffer_validation_body = False
+        validation_chunks: list[bytes] = []
+        validation_len = 0
         token = _consumer_ctx.set(None)
         attributes_token = begin_request_attributes()
 
@@ -532,7 +543,7 @@ class ApiLensASGIMiddleware:
 
         async def wrapped_send(message: dict[str, Any]) -> None:
             nonlocal status_code, response_size, response_payload_len, response_headers_json, response_headers
-            nonlocal buffer_response_body
+            nonlocal buffer_response_body, buffer_validation_body, validation_len
             msg_type = message.get("type")
             if msg_type == "http.response.start":
                 status_code = int(message.get("status") or 500)
@@ -540,11 +551,20 @@ class ApiLensASGIMiddleware:
                 buffer_response_body = capture_response_body and self.content_types.allows(
                     response_headers.get("content-type")
                 )
+                buffer_validation_body = is_validation_response(status_code, response_headers.get("content-type"))
                 if capture_headers:
                     response_headers_json = serialize_headers(response_headers, redactor=self.redactor)
             elif msg_type == "http.response.body":
                 body = message.get("body") or b""
                 response_size += len(body)
+                if buffer_validation_body and body:
+                    if validation_len + len(body) > MAX_VALIDATION_BODY_BYTES:
+                        # Truncated JSON would not parse; stop buffering.
+                        buffer_validation_body = False
+                        validation_chunks.clear()
+                    else:
+                        validation_chunks.append(body)
+                        validation_len += len(body)
                 if buffer_response_body and response_payload_len < self.max_payload_bytes:
                     remaining = self.max_payload_bytes - response_payload_len
                     part = body[:remaining]
@@ -623,6 +643,13 @@ class ApiLensASGIMiddleware:
                 else ""
             )
             ctx.request_payload = request_payload
+            if buffer_validation_body and validation_chunks:
+                ctx.validation_errors = parse_validation_errors(
+                    status_code,
+                    b"".join(validation_chunks),
+                    response_headers.get("content-type"),
+                    self.redactor,
+                )
             _apply_consumer(ctx, consumer)
             capture_response(
                 self.client,

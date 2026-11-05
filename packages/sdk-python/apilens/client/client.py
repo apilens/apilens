@@ -836,6 +836,7 @@ class ApiLensClient:
         span_id: str = "",
         sampled: bool = True,
         attributes: dict[str, str | int | float | bool] | None = None,
+        validation_errors: list[dict[str, str]] | None = None,
     ) -> None:
         record = RequestRecord(
             timestamp=timestamp or datetime.now(tz=timezone.utc),
@@ -863,6 +864,7 @@ class ApiLensClient:
             span_id=span_id,
             sampled=sampled,
             attributes=dict(attributes) if attributes else None,
+            validation_errors=list(validation_errors) if validation_errors else None,
         )
         self.capture_record(record)
 
