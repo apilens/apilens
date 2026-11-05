@@ -1,6 +1,6 @@
 # API Lens JavaScript SDK
 
-JavaScript SDK for API Lens with an Express-first middleware API.
+JavaScript SDK for API Lens with Express, Fastify and NestJS adapters.
 
 ## Install
 
@@ -42,6 +42,44 @@ process.on("SIGTERM", async () => {
   process.exit(0);
 });
 ```
+
+## Fastify
+
+```js
+import Fastify from "fastify";
+import { apiLensFastify, setConsumer } from "apilens-js-sdk/fastify";
+
+const app = Fastify();
+await app.register(apiLensFastify, { apiKey: process.env.APILENS_API_KEY, appId: "orders-api" });
+
+app.get("/v1/orders/:id", async (request) => {
+  setConsumer(request, { id: "user_123", group: "starter" });
+  return { ok: true };
+});
+```
+
+Register the plugin at the root, before the routes; it skips encapsulation so
+it covers every route. `path` is the matched `request.routeOptions.url` with
+`:id` spelled `{id}`. `instrumentFastify(app, config)` does the same without
+`register`.
+
+## NestJS
+
+```ts
+import { Module } from "@nestjs/common";
+import { ApiLensModule } from "apilens-js-sdk/nestjs";
+
+@Module({
+  imports: [ApiLensModule.forRoot({ apiKey: process.env.APILENS_API_KEY, appId: "orders-api" })],
+})
+export class AppModule {}
+```
+
+The module instruments the Express or Fastify platform underneath Nest when
+the app is created, and binds `ApiLensInterceptor` globally so a handler's
+error reaches the 5xx error log. `setConsumer(req, consumer)` from
+`apilens-js-sdk/nestjs` works with either platform's request; the client is
+injectable as `APILENS_CLIENT`.
 
 ## Manual capture
 
@@ -443,6 +481,8 @@ error log); `APILENS_CAPTURE_SPANS=false` does too, whatever the code says.
 - `instrumentExpress(app, config)` (alias)
 - `setConsumer(req, consumer)`
 - `trackConsumer(req, consumer)`
+- `apiLensFastify` / `instrumentFastify(app, config)` / `setConsumer(request, consumer)` (`apilens-js-sdk/fastify`)
+- `ApiLensModule.forRoot(config)` / `ApiLensInterceptor` / `setConsumer(req, consumer)` / `APILENS_CLIENT` (`apilens-js-sdk/nestjs`)
 - `ApiLensClient`
 - `loadEnvConfig(env?)`, `resolveConfig(config, env?)`
 

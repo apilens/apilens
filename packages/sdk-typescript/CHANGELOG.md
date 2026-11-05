@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fastify plugin (`apilens-js-sdk/fastify`: `apiLensFastify`, `instrumentFastify`,
+  `setConsumer`) on `onRequest` / `onSend` / `onError` / `onResponse`, with the
+  route template from `request.routeOptions.url` and the app's routes in the
+  metadata report.
+- NestJS module (`apilens-js-sdk/nestjs`: `ApiLensModule.forRoot()`,
+  `ApiLensInterceptor`, `setConsumer`, `APILENS_CLIENT`) that instruments the
+  Express or Fastify platform underneath Nest; reported as framework `nestjs`.
+- The request capture core (`src/capture.ts`) is shared by all adapters.
 - Tracing: W3C `trace_id` / `span_id` on every record (an incoming
   `traceparent` is continued), a `server` span per request and child `http`
   spans for outbound `http`/`https`/`fetch` calls (with `traceparent`

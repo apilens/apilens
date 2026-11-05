@@ -1,0 +1,73 @@
+---
+title: "Fastify"
+description: "Monitor a Fastify API with the APILens JavaScript SDK (beta)."
+---
+
+<Warning>
+The JavaScript SDK (`apilens-js-sdk`, v0.1.x) is **beta**. The Fastify plugin is tested with Fastify 5 on Node 18+.
+</Warning>
+
+## Install
+
+```bash
+npm install apilens-js-sdk
+```
+
+## Register the plugin
+
+```javascript
+import Fastify from "fastify";
+import { apiLensFastify } from "apilens-js-sdk/fastify";
+
+const app = Fastify();
+
+await app.register(apiLensFastify, {
+  apiKey: process.env.APILENS_API_KEY,
+  appId: "storefront-api",        // the app's slug from your APILens project
+  environment: "production",
+});
+
+app.get("/orders/:id", async (request) => {
+  return { id: request.params.id };
+});
+
+await app.listen({ port: 3000 });
+```
+
+Register the plugin at the root, **before** your routes. It skips Fastify's encapsulation (like `fastify-plugin`), so it covers every route of the app, including routes in plugins registered with a `prefix`. If you would rather not use `register`, `instrumentFastify(app, config)` attaches the same hooks and returns the client.
+
+The plugin captures each request on Fastify's own hooks: `onRequest` starts the capture and the trace, `onSend` reads the response payload, `onError` keeps a thrown error for the error log, and `onResponse` records the request. Requests are grouped by the route that matched (`request.routeOptions.url`), so `/orders/42` and `/orders/43` both count towards `/orders/{id}`.
+
+## Identify consumers
+
+Set the consumer on the request once your auth hook knows who is calling:
+
+```javascript
+import { setConsumer } from "apilens-js-sdk/fastify";
+
+app.addHook("preHandler", async (request) => {
+  if (request.user) {
+    setConsumer(request, { id: request.user.id, name: request.user.email, group: request.user.plan });
+  }
+});
+```
+
+A string works too (`setConsumer(request, "acme-corp")`), or pass a centralized `getConsumer(request, reply)` resolver in the config.
+
+## Options
+
+The plugin takes the same options as the [Express middleware](/setup-guides/express): delivery (`batchSize`, `flushIntervalMs`, `maxQueueSize`, …), header and body capture (`requestLogging`, `captureProfile`), redaction, exclusions, sampling and tracing. Every option can also be set with its `APILENS_*` environment variable.
+
+## Shut down cleanly
+
+Flush buffered records before the process exits:
+
+```javascript
+app.addHook("onClose", async () => {
+  await app.apilensClient?.handleShutdown({ flush: true });
+});
+```
+
+## Verify
+
+Send a few requests and open the **Traffic** page — your Fastify app's endpoints appear with their route templates alongside your other services in the project.
