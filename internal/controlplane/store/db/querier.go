@@ -22,6 +22,8 @@ type Querier interface {
 	// organization, so it does not count towards the last-owner rule.
 	CountOrgOwners(ctx context.Context, orgID uuid.UUID) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
+	// Alert rules.
+	CreateAlertRule(ctx context.Context, arg CreateAlertRuleParams) (AlertRule, error)
 	// Adds the environment unless the project already has one of that name.
 	CreateEnvironment(ctx context.Context, arg CreateEnvironmentParams) (int64, error)
 	// token_hash is the SHA-256 of the emailed token, never the token itself.
@@ -33,14 +35,21 @@ type Querier interface {
 	// layer locks the organization (LockOrganization), checks CountOrgOwners and
 	// only then demotes or removes an owner, in one transaction.
 	CreateMembership(ctx context.Context, arg CreateMembershipParams) (Membership, error)
+	// Notification channels. config_enc is the channel's JSON config sealed with
+	// the identity key-encryption key (internal/alerts: SealChannelConfig); it is
+	// never returned by the API.
+	CreateNotificationChannel(ctx context.Context, arg CreateNotificationChannelParams) (NotificationChannel, error)
 	// The caller adds the creator's owner membership in the same transaction.
 	CreateOrganization(ctx context.Context, arg CreateOrganizationParams) (Organization, error)
 	// Explicit project and environment queries of the projects API. The
 	// Upsert* queries in catalog.sql stay for the idempotent dev seed.
 	// Fails on projects_slug_active when an active project uses the slug.
 	CreateProject(ctx context.Context, arg CreateProjectParams) (CreateProjectRow, error)
+	// Deletes a rule and, by cascade, its events.
+	DeleteAlertRule(ctx context.Context, arg DeleteAlertRuleParams) (int64, error)
 	DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentParams) (int64, error)
 	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) (int64, error)
+	DeleteNotificationChannel(ctx context.Context, arg DeleteNotificationChannelParams) (int64, error)
 	DeleteOrgSSOConnection(ctx context.Context, orgID uuid.UUID) (int64, error)
 	// The domains among @domains that another active organization enforces SSO
 	// for. A domain is enforced by at most one organization.
@@ -48,6 +57,9 @@ type Querier interface {
 	// Resolves an ingest key to its project. Revoked, expired and keys of
 	// deleted projects never match.
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error)
+	// One rule of a project. Returns pgx.ErrNoRows when the project has no such
+	// rule.
+	GetAlertRule(ctx context.Context, arg GetAlertRuleParams) (AlertRule, error)
 	// An active app of an active project, with what authorizing a request on it
 	// needs (the project slug, which the authz guard resolves).
 	GetCaptureApp(ctx context.Context, id uuid.UUID) (GetCaptureAppRow, error)
@@ -74,6 +86,11 @@ type Querier interface {
 	// member.
 	GetMemberProject(ctx context.Context, arg GetMemberProjectParams) (GetMemberProjectRow, error)
 	GetMembership(ctx context.Context, arg GetMembershipParams) (Membership, error)
+	// One channel of a project. Returns pgx.ErrNoRows when the project has no
+	// such channel.
+	GetNotificationChannel(ctx context.Context, arg GetNotificationChannelParams) (NotificationChannel, error)
+	// A rule's open (triggered) event. Returns pgx.ErrNoRows when none is open.
+	GetOpenAlertEvent(ctx context.Context, ruleID uuid.UUID) (AlertEvent, error)
 	// One member of an organization with their user; no row when the user is
 	// not a member or their account is deleted.
 	GetOrgMember(ctx context.Context, arg GetOrgMemberParams) (GetOrgMemberRow, error)
@@ -96,6 +113,15 @@ type Querier interface {
 	// internal/controlplane/outbox.Emit, in the same transaction as the change
 	// the row describes. The relay (#291) reads rows in id order.
 	InsertOutbox(ctx context.Context, arg InsertOutboxParams) (int64, error)
+	// A project's incidents feed, newest first, with the rule each belongs to.
+	// Pass the last row's started_at and id as the cursor to page; NULLs start
+	// from the newest.
+	ListAlertEvents(ctx context.Context, arg ListAlertEventsParams) ([]ListAlertEventsRow, error)
+	// A project's rules; rules of deleted apps are skipped.
+	ListAlertRules(ctx context.Context, projectID uuid.UUID) ([]AlertRule, error)
+	// Every enabled rule of an active app of an active project: what the
+	// evaluator runs.
+	ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error)
 	// Active organizations with domain join on for the (lower-case) email
 	// domain that the user is not already a member of.
 	ListJoinableOrganizations(ctx context.Context, arg ListJoinableOrganizationsParams) ([]ListJoinableOrganizationsRow, error)
@@ -103,6 +129,10 @@ type Querier interface {
 	// (non-deleted) members of each, and the display names (name, or email when
 	// the name is blank) of up to three members, owners first then oldest.
 	ListJoinableOrganizationsWithCounts(ctx context.Context, arg ListJoinableOrganizationsWithCountsParams) ([]ListJoinableOrganizationsWithCountsRow, error)
+	ListNotificationChannels(ctx context.Context, projectID uuid.UUID) ([]NotificationChannel, error)
+	// The channels a rule notifies (alert_rules.channel_ids), for sending.
+	// Channels of other projects are never returned.
+	ListNotificationChannelsByIDs(ctx context.Context, arg ListNotificationChannelsByIDsParams) ([]NotificationChannel, error)
 	ListOrgMembers(ctx context.Context, orgID uuid.UUID) ([]ListOrgMembersRow, error)
 	ListOrgProjects(ctx context.Context, orgID uuid.UUID) ([]ListOrgProjectsRow, error)
 	ListPendingInvitations(ctx context.Context, orgID uuid.UUID) ([]Invitation, error)
@@ -151,10 +181,16 @@ type Querier interface {
 	// Serializes the transactions that save an enforcing connection, so two
 	// organizations cannot both start enforcing one domain.
 	LockSSOEnforcement(ctx context.Context) error
+	// Records the first notification of an event; later calls change nothing.
+	MarkAlertEventNotified(ctx context.Context, arg MarkAlertEventNotifiedParams) (int64, error)
 	MarkOutboxProcessed(ctx context.Context, id int64) error
 	// Wakes the relay. A NOTIFY sent inside a transaction is delivered on commit
 	// only, and never on rollback.
 	NotifyOutbox(ctx context.Context) error
+	// Alert events.
+	// Opens a triggered event for a rule. A rule has at most one open event, so
+	// this fails with a unique violation (alert_events_open) while one is open.
+	OpenAlertEvent(ctx context.Context, arg OpenAlertEventParams) (AlertEvent, error)
 	// Whether a member of the organization (with an account that is not
 	// deleted) uses the address; citext compares it case-insensitively.
 	OrgMemberEmailExists(ctx context.Context, arg OrgMemberEmailExistsParams) (bool, error)
@@ -162,10 +198,15 @@ type Querier interface {
 	// Age of the oldest unprocessed row, 0 when the outbox is drained.
 	OutboxLagSeconds(ctx context.Context) (float64, error)
 	ProjectSlugTaken(ctx context.Context, slug string) (bool, error)
+	// Drops a deleted channel from every rule of its project that notifies it.
+	// Run in the same transaction as DeleteNotificationChannel.
+	RemoveChannelFromAlertRules(ctx context.Context, arg RemoveChannelFromAlertRulesParams) (int64, error)
 	// Rotates the token and extends the expiry of a pending invitation. With
 	// sent_before set, only an invitation last sent (created or resent) at or
 	// before it is resent, so concurrent resends respect a cooldown.
 	ResendInvitation(ctx context.Context, arg ResendInvitationParams) (Invitation, error)
+	// Resolves an open event. Returns pgx.ErrNoRows when it is not open.
+	ResolveAlertEvent(ctx context.Context, arg ResolveAlertEventParams) (AlertEvent, error)
 	// Resolves an active project slug (globally unique) to its id and its
 	// active organization, for authorization of /…/{project} paths.
 	ResolveProjectSlug(ctx context.Context, slug string) (ResolveProjectSlugRow, error)
@@ -181,7 +222,11 @@ type Querier interface {
 	// Which of the given slugs active projects already use.
 	TakenProjectSlugs(ctx context.Context, slugs []string) ([]string, error)
 	TouchAPIKey(ctx context.Context, id uuid.UUID) error
+	// Replaces every editable field of a rule. The app and project never change.
+	UpdateAlertRule(ctx context.Context, arg UpdateAlertRuleParams) (AlertRule, error)
 	UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (Membership, error)
+	// Renames a channel and replaces its sealed config. The type never changes.
+	UpdateNotificationChannel(ctx context.Context, arg UpdateNotificationChannelParams) (NotificationChannel, error)
 	// NULL arguments leave the column unchanged. allowed_domains must be
 	// lower-case (checked by the table).
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)

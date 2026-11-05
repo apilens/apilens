@@ -12,6 +12,39 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AlertEvent struct {
+	ID         uuid.UUID
+	RuleID     uuid.UUID
+	State      string
+	Value      float64
+	StartedAt  time.Time
+	EndedAt    *time.Time
+	NotifiedAt *time.Time
+}
+
+type AlertRule struct {
+	ID            uuid.UUID
+	ProjectID     uuid.UUID
+	AppID         uuid.UUID
+	Environment   string
+	Name          string
+	Description   string
+	Metric        string
+	Condition     string
+	Threshold     float64
+	WindowS       int32
+	EveryS        *int32
+	Cron          *string
+	NotifyAfterS  int32
+	ResolveAfterS int32
+	Filters       []byte
+	ChannelIds    []uuid.UUID
+	Enabled       bool
+	CreatedBy     *uuid.UUID
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 type ApiKey struct {
 	ID         uuid.UUID
 	ProjectID  uuid.UUID
@@ -122,6 +155,17 @@ type Membership struct {
 	Role      string
 	InvitedBy *uuid.UUID
 	CreatedAt time.Time
+}
+
+type NotificationChannel struct {
+	ID        uuid.UUID
+	ProjectID uuid.UUID
+	Type      string
+	Name      string
+	ConfigEnc []byte
+	CreatedBy *uuid.UUID
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type OauthAuthRequest struct {
