@@ -1,0 +1,140 @@
+---
+title: "Exclusions"
+description: "Skip health checks, probes and any path or user agent you choose. Excluded requests are never recorded."
+---
+
+An excluded request bypasses the SDK entirely: the request and response are not wrapped, no body is buffered, and no record, span or log is sent. It does **not** count in traffic, error or latency metrics. That is the difference from [sampling](/sdk-reference/sampling), which keeps every request's record and drops only its detail.
+
+Use exclusions for traffic that is not your API's real usage: health checks, load-balancer and Kubernetes probes, uptime monitors, favicons.
+
+## Options
+
+| Python | TypeScript | Java | Default |
+|---|---|---|---|
+| `exclude_paths` | `excludePaths` | `excludePaths` (`apilens.exclude-paths`) | none |
+| `exclude_user_agents` | `excludeUserAgents` | `excludeUserAgents` (`apilens.exclude-user-agents`) | none |
+| `default_exclusions` | `defaultExclusions` | `defaultExclusions` (`apilens.default-exclusions`) | `true` |
+
+Each SDK also reads these environment variables. The two lists are **added to** the patterns set in code, so a rollout can exclude a noisy path without a code change:
+
+| Variable | Type |
+|---|---|
+| `APILENS_EXCLUDE_PATHS` | comma-separated regexes, added to `exclude_paths` |
+| `APILENS_EXCLUDE_USER_AGENTS` | comma-separated regexes, added to `exclude_user_agents` |
+| `APILENS_DEFAULT_EXCLUSIONS` | bool, default `true` |
+
+Django reads `APILENS_EXCLUDE_PATHS`, `APILENS_EXCLUDE_USER_AGENTS` and `APILENS_DEFAULT_EXCLUSIONS` from settings as well.
+
+## Default exclusions
+
+Unless you turn them off, these built-in patterns are checked first, before your own. They are the same in all three SDKs (`DEFAULT_EXCLUDED_PATHS` and `DEFAULT_EXCLUDED_USER_AGENTS`).
+
+Paths:
+
+```text
+/_?healthz?$
+/_?health[-_]?checks?$
+/_?heart[-_]?beats?$
+/ping$
+/ready$
+/live$
+/favicon(?:-[\w-]+)?\.(?:ico|png|svg)$
+/apple-touch-icon(?:-[\w-]+)?\.png$
+/robots\.txt$
+/sitemap\.xml$
+/manifest\.json$
+/site\.webmanifest$
+/service-worker\.js$
+/sw\.js$
+/\.well-known/
+```
+
+User agents:
+
+```text
+health[-_ ]?check
+microsoft-azure-application-lb
+googlehc
+kube-probe
+```
+
+That covers `/health`, `/healthz`, `/_health`, `/health-check`, `/heartbeat`, `/ping`, `/ready`, `/live` (at any depth, so `/api/v1/health` too), favicon, robots, sitemap, manifest and service-worker files, anything under `/.well-known/`, and the Kubernetes, Google Cloud, Azure and generic health-check probe user agents.
+
+Turning the defaults off records those requests again. Your own `exclude_paths` and `exclude_user_agents` still apply.
+
+## How patterns match
+
+- **Regex search, case-insensitive.** A pattern matches anywhere in the value unless you anchor it: `health` also matches `/api/healthcare/claims`; `^/health$` matches only `/health`.
+- **Paths are matched without the query string.** `/ping?probe=1` is checked as `/ping`.
+- **User agents are matched against the `User-Agent` header.** A request with no `User-Agent` is never excluded by a user-agent pattern.
+- **Compiled at startup.** An invalid regex fails when the middleware or filter is created, never per request.
+- **Commas split strings.** A pattern given as one comma-separated string (or env var) is split on commas, so a regex with a literal comma (`\d{1,3}`) must be passed as a list in code (Java: the indexed property form).
+
+## Path, not route template
+
+Exclusions are decided when the request arrives, before routing, so they match the **actual path** the client called, never the [route template](/sdk-reference/path-templating) the request would be grouped under. A pattern written as a template does not work:
+
+| Pattern | Matches `/orders/42/export`? |
+|---|---|
+| `^/orders/{id}/export$` | No: the URL holds `42`, not `{id}` (Java rejects the `{` as an invalid regex at startup) |
+| `^/orders/[^/]+/export$` | Yes |
+
+## Add your own
+
+<CodeGroup>
+```python Python
+app.add_middleware(
+    ApiLensMiddleware,
+    api_key="apilens_xxx",
+    app_id="orders-api",
+    exclude_paths=[r"^/internal/", r"^/orders/[^/]+/export$"],
+    exclude_user_agents=[r"^uptimerobot"],
+)
+```
+
+```ts TypeScript
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  appId: process.env.APILENS_APP_ID,
+  excludePaths: ["^/internal/", /^\/orders\/[^/]+\/export$/],
+  excludeUserAgents: ["^uptimerobot"],
+});
+```
+
+```properties Java
+# application.properties (Spring Boot)
+apilens.exclude-paths[0]=^/internal/
+apilens.exclude-paths[1]=^/orders/[^/]+/export$
+apilens.exclude-user-agents[0]=^uptimerobot
+```
+</CodeGroup>
+
+Or, for any SDK, from the environment:
+
+```bash
+export APILENS_EXCLUDE_PATHS='^/internal/,^/status$'
+export APILENS_EXCLUDE_USER_AGENTS='^uptimerobot'
+```
+
+## Record health checks again
+
+<CodeGroup>
+```python Python
+app.add_middleware(ApiLensMiddleware, ..., default_exclusions=False)
+# Django settings: APILENS_DEFAULT_EXCLUSIONS = False
+```
+
+```ts TypeScript
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  appId: process.env.APILENS_APP_ID,
+  defaultExclusions: false,
+});
+```
+
+```properties Java
+apilens.default-exclusions=false
+```
+</CodeGroup>
+
+`APILENS_DEFAULT_EXCLUSIONS=false` does the same without a code change.
