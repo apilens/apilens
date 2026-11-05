@@ -18,6 +18,49 @@ from .models import LogRecord, RequestRecord, SpanRecord
 
 logger = logging.getLogger("apilens")
 
+# Drop reasons reported by ``ApiLensClient.drop_counts()``.
+DROP_QUEUE_FULL = "queue_full"  # record-count cap (max_queue_size) hit
+DROP_QUEUE_BYTES = "queue_bytes"  # memory cap (max_queue_bytes) hit
+DROP_NON_RETRYABLE = "non_retryable"  # ingest rejected the batch with a 4xx
+DROP_RETRIES_EXHAUSTED = "retries_exhausted"  # batch still failing after max_retries
+DROP_REASONS = (DROP_QUEUE_FULL, DROP_QUEUE_BYTES, DROP_NON_RETRYABLE, DROP_RETRIES_EXHAUSTED)
+
+# Fixed per-record overhead added to the variable-length string fields when
+# estimating a queued record's size (object headers, scalars, short fields).
+RECORD_OVERHEAD_BYTES = 512
+
+
+class _NonRetryableIngestError(RuntimeError):
+    """Ingest answered with a 4xx (other than 429): retrying cannot succeed."""
+
+
+def _attrs_size(attributes: dict[str, str] | None) -> int:
+    if not attributes:
+        return 0
+    return sum(len(str(k)) + len(str(v)) for k, v in attributes.items())
+
+
+def estimate_record_bytes(record: RequestRecord | SpanRecord | LogRecord) -> int:
+    """Serialised-size estimate of a queued record: its variable-length string
+    fields plus a fixed ``RECORD_OVERHEAD_BYTES``. Cheap (no JSON encoding)."""
+    if isinstance(record, RequestRecord):
+        variable = (
+            len(record.request_payload)
+            + len(record.response_payload)
+            + len(record.request_headers)
+            + len(record.response_headers)
+            + len(record.raw_path)
+            + len(record.path)
+            + len(record.user_agent)
+        )
+    elif isinstance(record, SpanRecord):
+        variable = len(record.name) + _attrs_size(record.attributes)
+    elif isinstance(record, LogRecord):
+        variable = len(record.message) + len(record.payload) + _attrs_size(record.attributes)
+    else:  # pragma: no cover - defensive
+        variable = 0
+    return RECORD_OVERHEAD_BYTES + variable
+
 
 def _detect_release() -> str:
     return (os.getenv("APILENS_RELEASE") or "").strip()
@@ -54,7 +97,11 @@ class ApiLensConfig:
     verify_tls: bool = True
     ca_bundle_path: str = ""
 
+    # Queue bounds, applied to the request, span and log queues. The record cap
+    # is per queue; the byte cap is shared by all three (estimated size of the
+    # queued records). Either limit drops the oldest records first.
     max_queue_size: int = 10_000
+    max_queue_bytes: int = 64 * 1024 * 1024
     max_retries: int = 3
     retry_backoff_base: float = 0.25
     retry_backoff_max: float = 5.0
@@ -85,16 +132,25 @@ class ApiLensClient:
             raise ValueError("batch_size must be > 0")
         if config.max_queue_size <= 0:
             raise ValueError("max_queue_size must be > 0")
+        if config.max_queue_bytes <= 0:
+            raise ValueError("max_queue_bytes must be > 0")
 
         self.config = config
         self._queue: deque[RequestRecord] = deque()
         self._span_queue: deque[SpanRecord] = deque()
         self._log_queue: deque[LogRecord] = deque()
+        # Estimated size of each queued record, kept in a parallel deque per
+        # queue (keyed by id(queue)) so a pop releases exactly what was charged.
+        self._sizes: dict[int, deque[int]] = {
+            id(q): deque() for q in (self._queue, self._span_queue, self._log_queue)
+        }
+        self._bytes_by_queue: dict[int, int] = dict.fromkeys(self._sizes, 0)
+        self._queued_bytes = 0
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._wakeup = threading.Event()
         self._thread: threading.Thread | None = None
-        self._dropped = 0
+        self._drops: dict[str, int] = dict.fromkeys(DROP_REASONS, 0)
 
         if start_worker and self.config.enabled:
             self.start()
@@ -125,7 +181,21 @@ class ApiLensClient:
 
     @property
     def dropped_count(self) -> int:
-        return self._dropped
+        """Total records dropped for any reason (sum of ``drop_counts()``)."""
+        with self._lock:
+            return sum(self._drops.values())
+
+    def drop_counts(self) -> dict[str, int]:
+        """Records dropped so far, by reason: ``queue_full``, ``queue_bytes``,
+        ``non_retryable`` and ``retries_exhausted``."""
+        with self._lock:
+            return dict(self._drops)
+
+    @property
+    def queued_bytes(self) -> int:
+        """Estimated size of everything currently queued (all three queues)."""
+        with self._lock:
+            return self._queued_bytes
 
     def capture(
         self,
@@ -193,15 +263,7 @@ class ApiLensClient:
         if not self.config.enabled:
             return
         self._stamp_release(record)
-        with self._lock:
-            if len(self._queue) >= self.config.max_queue_size:
-                self._queue.popleft()
-                self._dropped += 1
-            self._queue.append(record)
-            queue_size = len(self._queue)
-
-        if queue_size >= self.config.batch_size:
-            self._wakeup.set()
+        self._enqueue(self._queue, record)
 
     def capture_many(self, records: list[RequestRecord]) -> None:
         for record in records:
@@ -211,29 +273,57 @@ class ApiLensClient:
         if not self.config.enabled:
             return
         self._stamp_release(record)
-        with self._lock:
-            if len(self._span_queue) >= self.config.max_queue_size:
-                self._span_queue.popleft()
-                self._dropped += 1
-            self._span_queue.append(record)
-            queue_size = len(self._span_queue)
-
-        if queue_size >= self.config.batch_size:
-            self._wakeup.set()
+        self._enqueue(self._span_queue, record)
 
     def capture_log(self, record: LogRecord) -> None:
         if not self.config.enabled:
             return
         self._stamp_release(record)
+        self._enqueue(self._log_queue, record)
+
+    def _enqueue(self, queue: deque, record) -> None:
+        size = estimate_record_bytes(record)
+        max_bytes = self.config.max_queue_bytes
         with self._lock:
-            if len(self._log_queue) >= self.config.max_queue_size:
-                self._log_queue.popleft()
-                self._dropped += 1
-            self._log_queue.append(record)
-            queue_size = len(self._log_queue)
+            if size > max_bytes:
+                # A single record over the whole budget would evict everything
+                # and still not fit: shed it instead.
+                self._drops[DROP_QUEUE_BYTES] += 1
+                return
+            if len(queue) >= self.config.max_queue_size:
+                self._popleft_locked(queue)
+                self._drops[DROP_QUEUE_FULL] += 1
+            while self._queued_bytes + size > max_bytes:
+                # Drop oldest from this queue first; once it is empty, from
+                # whichever other queue holds the most bytes.
+                victim = queue if queue else self._largest_queue()
+                if victim is None:  # pragma: no cover - accounting invariant
+                    break
+                self._popleft_locked(victim)
+                self._drops[DROP_QUEUE_BYTES] += 1
+            queue.append(record)
+            self._sizes[id(queue)].append(size)
+            self._bytes_by_queue[id(queue)] += size
+            self._queued_bytes += size
+            queue_size = len(queue)
 
         if queue_size >= self.config.batch_size:
             self._wakeup.set()
+
+    def _popleft_locked(self, queue: deque):
+        record = queue.popleft()
+        size = self._sizes[id(queue)].popleft()
+        self._bytes_by_queue[id(queue)] -= size
+        self._queued_bytes -= size
+        return record
+
+    def _largest_queue(self) -> deque | None:
+        best: deque | None = None
+        best_bytes = -1
+        for q in (self._queue, self._span_queue, self._log_queue):
+            if q and self._bytes_by_queue[id(q)] > best_bytes:
+                best, best_bytes = q, self._bytes_by_queue[id(q)]
+        return best
 
     def flush_once(self) -> int:
         total = 0
@@ -278,40 +368,33 @@ class ApiLensClient:
                 logger.exception("Unexpected error while flushing API Lens queue")
 
     def _pop_batch(self, size: int) -> list[RequestRecord]:
-        with self._lock:
-            if not self._queue:
-                return []
-            batch: list[RequestRecord] = []
-            for _ in range(min(size, len(self._queue))):
-                batch.append(self._queue.popleft())
-            return batch
+        return self._pop_from(self._queue, size)
 
     def _pop_span_batch(self, size: int) -> list[SpanRecord]:
-        with self._lock:
-            if not self._span_queue:
-                return []
-            batch: list[SpanRecord] = []
-            for _ in range(min(size, len(self._span_queue))):
-                batch.append(self._span_queue.popleft())
-            return batch
+        return self._pop_from(self._span_queue, size)
 
     def _pop_log_batch(self, size: int) -> list[LogRecord]:
+        return self._pop_from(self._log_queue, size)
+
+    def _pop_from(self, queue: deque, size: int) -> list:
         with self._lock:
-            if not self._log_queue:
+            if not queue:
                 return []
-            batch: list[LogRecord] = []
-            for _ in range(min(size, len(self._log_queue))):
-                batch.append(self._log_queue.popleft())
-            return batch
+            return [self._popleft_locked(queue) for _ in range(min(size, len(queue)))]
 
     def _send_batch_with_retry(self, batch, send=None) -> bool:
         send = send or self._send_batch
         last_error: Exception | None = None
+        reason = DROP_RETRIES_EXHAUSTED
         for attempt in range(self.config.max_retries + 1):
             try:
                 send(batch)
                 return True
-            except Exception as exc:  # pragma: no cover
+            except _NonRetryableIngestError as exc:
+                last_error = exc
+                reason = DROP_NON_RETRYABLE
+                break
+            except Exception as exc:
                 last_error = exc
                 if attempt >= self.config.max_retries:
                     break
@@ -321,8 +404,10 @@ class ApiLensClient:
                 )
                 time.sleep(backoff)
 
+        with self._lock:
+            self._drops[reason] += len(batch)
         if last_error is not None:
-            logger.warning("API Lens ingest request failed after retries: %s", last_error)
+            logger.warning("API Lens ingest request failed (%s): %s", reason, last_error)
         return False
 
     def _send_batch(self, batch: list[RequestRecord]) -> None:
@@ -368,7 +453,7 @@ class ApiLensClient:
                     raise RuntimeError(f"API Lens ingest returned status={status}")
         except urllib.error.HTTPError as exc:
             if 400 <= exc.code < 500 and exc.code != 429:
-                raise RuntimeError(f"Non-retryable ingest error status={exc.code}") from exc
+                raise _NonRetryableIngestError(f"Non-retryable ingest error status={exc.code}") from exc
             raise RuntimeError(f"Retryable ingest error status={exc.code}") from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Ingest network error: {exc}") from exc

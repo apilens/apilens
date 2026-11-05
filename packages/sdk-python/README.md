@@ -126,8 +126,8 @@ called each endpoint) and lean on the automatic [distributed tracing](#distribut
    batches (default 200 records, or every 3 seconds, whichever comes first) and
    POSTs them to the ingest endpoint with retries and exponential backoff.
 3. **It fails safe.** If the ingest endpoint is unreachable the queue absorbs the
-   backlog up to `max_queue_size` (default 10,000) and drops the **oldest**
-   records once full — your app keeps serving traffic regardless. Nothing the SDK
+   backlog up to `max_queue_size` (default 10,000) records and `max_queue_bytes`
+   (default 64 MB) and drops the **oldest** records once either is reached — your app keeps serving traffic regardless. Nothing the SDK
    does can raise into your handler.
 4. **Requests and spans share the pipeline.** Request records go to `/requests`;
    [trace spans](#distributed-tracing) go to `/traces` on the same batching client.
@@ -442,7 +442,8 @@ Passed to `ApiLensClient(ApiLensConfig(...))`, or expressed as keyword arguments
 | `batch_size` | `200` | Records per POST (also the flush trigger). Backend max is 1000. |
 | `flush_interval` | `3.0` | Seconds between automatic flushes. |
 | `timeout` | `5.0` | Per-request HTTP timeout, in seconds. |
-| `max_queue_size` | `10_000` | Queue cap; oldest records drop once full. |
+| `max_queue_size` | `10_000` | Record cap per queue; oldest records drop once full. |
+| `max_queue_bytes` | `64 * 1024 * 1024` | Memory cap shared by the request, span and log queues (estimated bytes); oldest records drop once exceeded. |
 | `max_retries` | `3` | Retry attempts per batch (exponential backoff). |
 | `verify_tls` | `True` | Verify the ingest server's TLS certificate. |
 | `ca_bundle_path` | `""` | Custom CA bundle for TLS verification. |
@@ -511,7 +512,8 @@ with ApiLensClient(ApiLensConfig(api_key="apilens_xxx")) as client:
 
 The context manager flushes on exit; otherwise call `client.shutdown(flush=True)`
 before your process ends. `client.dropped_count` reports records shed under
-backpressure.
+backpressure and `client.drop_counts()` breaks that total down by reason (see
+[Reliability & performance](#reliability--performance)).
 
 ---
 
@@ -519,8 +521,32 @@ backpressure.
 
 - **Non-blocking.** Capture only enqueues; all I/O happens on a background daemon
   thread. Ingest latency and outages never slow or fail your requests.
-- **Bounded memory.** The queue is capped (`max_queue_size`); once full it drops
-  the oldest records rather than growing without limit.
+- **Bounded memory.** Queued records are capped both by count
+  (`max_queue_size`, 10,000 per queue) and by size (`max_queue_bytes`, 64 MB
+  shared by the request, span and log queues). Whichever limit is hit first,
+  the oldest records are dropped rather than the queue growing without limit.
+  A record's size is estimated as the length of its payload, header, path and
+  user-agent strings (message/payload/attributes for logs and spans) plus a
+  fixed 512 B overhead.
+
+  Why both: with body capture on, a request record can carry up to
+  `max_payload_bytes` (64 KB) on *each* side plus up to 8 KB of header JSON per
+  side, so a count cap alone allows 10,000 × (2 × 64 KB + 2 × 8 KB + 512 B) ≈
+  **1.5 GB per worker**. The byte cap holds that at 64 MB: about 450 such
+  worst-case records, or ~120,000
+  records without bodies (512 B + a short path each) — at that point the count
+  cap binds first. Size it as `workers × max_queue_bytes` for the process
+  group's worst case; lower it for many-worker deployments, raise it if you
+  expect long ingest outages and have the headroom.
+- **Drop accounting.** `client.dropped_count` is the total; `client.drop_counts()`
+  returns it by reason:
+
+  | Reason | Meaning |
+  |---|---|
+  | `queue_full` | The queue reached `max_queue_size`; the oldest record was dropped. |
+  | `queue_bytes` | Queued bytes would exceed `max_queue_bytes`; the oldest record(s) were dropped (or a single record larger than the whole budget was shed). |
+  | `non_retryable` | Ingest rejected the batch with a 4xx other than 429; it is not retried. |
+  | `retries_exhausted` | The batch still failed (network, 5xx, 429) after `max_retries`. |
 - **Resilient delivery.** Failed batches retry with exponential backoff
   (0.25s → 5s, up to `max_retries`); non-retryable 4xx responses are not retried.
 - **Never raises into your app.** All SDK errors are caught and logged under the
