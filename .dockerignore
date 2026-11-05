@@ -39,6 +39,7 @@ coverage
 
 # Java SDK build output
 packages/sdk-java/target
+examples/spring/target
 
 # Not needed by any image
 apps/docs
