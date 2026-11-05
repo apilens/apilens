@@ -59,6 +59,13 @@
             ]
           },
           {
+            "group": "Rollout Kit",
+            "pages": [
+              "guides/rollout-intake",
+              "guides/redaction-manifest"
+            ]
+          },
+          {
             "group": "Platform",
             "pages": [
               "platform/projects-apps-keys",
