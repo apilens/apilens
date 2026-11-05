@@ -1,5 +1,6 @@
 import type { ExploreState } from "@/lib/explore";
 import type { RequestRow, RequestTimeline, SavedView } from "@/lib/identity";
+import { ExportMenu } from "./export";
 import { RequestLog } from "./request-log";
 import { SavedViews, ViewSwitcher } from "./saved-views";
 import "./explore.css";
@@ -7,7 +8,7 @@ import "./explore.css";
 /**
  * `/<project>/explore` (#585). The request log: every request the SDK reported, newest first.
  * `rows` (and `timeline`, #587) is null when the API could not answer; so is `views`, the saved
- * views (#589) the header's switcher lists. `me` is the signed-in user's id.
+ * views (#589) the header's switcher lists, beside Export (#590). `me` is the signed-in user's id.
  */
 export function ExploreView({
   project,
@@ -37,7 +38,10 @@ export function ExploreView({
           <p className="cp-h">{projectName} · Explore</p>
           <h1 className="cp-lede">Explore</h1>
           <p className="ex-lead">Every request your API served, newest first, as the SDK reported it.</p>
-          <ViewSwitcher />
+          <div className="ex-head__actions">
+            <ViewSwitcher />
+            <ExportMenu project={project} query={query} />
+          </div>
         </header>
         <RequestLog project={project} environments={environments} query={query} initial={rows} timeline={timeline} now={now} />
       </SavedViews>

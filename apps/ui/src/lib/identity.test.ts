@@ -418,6 +418,9 @@ describe("operations", () => {
     ["POST", "/projects/{slug}/views", (c) => c.createSavedView("a/b?c", { name: "5xx", surface: "explore", filter: {}, shared: false }, authed)],
     ["PUT", "/projects/{slug}/views/{id}", (c) => c.updateSavedView("a/b?c", "a/b?c", { name: "5xx", filter: {}, shared: true }, authed)],
     ["DELETE", "/projects/{slug}/views/{id}", (c) => c.deleteSavedView("a/b?c", "a/b?c", authed)],
+    ["POST", "/projects/{project}/exports", (c) => c.createRequestExport("a/b?c", { range: "1h" }, authed)],
+    ["GET", "/exports/{id}", (c) => c.getRequestExport("a/b?c", authed)],
+    ["POST", "/exports/{id}/cancel", (c) => c.cancelRequestExport("a/b?c", authed)],
   ];
 
   it.each(routes)("%s %s", async (method, template, call) => {

@@ -272,3 +272,26 @@ span.rd-j-tog { cursor: default; }
 .ex-views__confirm { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink); }
 .ex-views__actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
 .ex-btn-danger { background: transparent; border-color: color-mix(in srgb, var(--error) 55%, var(--border)); color: var(--error); }
+
+/* CSV export (#590): Export beside the view switcher, the recent exports in its popover, and the
+   toast that follows a running export, bottom right, one at a time. */
+.ex-head__actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-3); }
+.ex-head__actions > .ah-btn { margin-top: var(--space-4); }
+.ex-exports { list-style: none; margin: 0; padding: 0 0 4px; }
+.ex-exports__row { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; padding: 2px 4px 2px 8px; }
+.ex-exports__text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.ex-exports__title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 500 13px/18px var(--font-sans); color: var(--ink); }
+.ex-exports__meta { font: 400 12px/16px var(--font-sans); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.ex-exports__meta.is-err { color: var(--error); }
+.ex-toasts { position: fixed; right: 24px; bottom: 24px; z-index: 60; width: min(380px, calc(100vw - 32px)); pointer-events: none; }
+.ex-toast { display: flex; gap: var(--space-2); align-items: flex-start; padding: 12px 8px 12px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-1); box-shadow: var(--shadow-frame); pointer-events: auto; }
+.ex-toast.is-err { border-color: var(--error); }
+.ex-toast__body { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.ex-toast__title { margin: 0; font: 600 13px/20px var(--font-sans); color: var(--ink); }
+.ex-toast__detail { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.ex-toast__detail.is-err { color: var(--error); }
+.ex-toast__bar { height: 4px; margin-top: 4px; overflow: hidden; border-radius: var(--radius-pill); background: var(--surface-2); }
+.ex-toast__bar > span { display: block; height: 100%; background: var(--accent); transition: width .3s ease; }
+.ex-toast__actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+@media (max-width: 640px) { .ex-toasts { right: 16px; bottom: 16px; } }
+@media (prefers-reduced-motion: reduce) { .ex-toast__bar > span { transition: none; } }
