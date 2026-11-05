@@ -13,16 +13,21 @@ import java.nio.CharBuffer;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.BiFunction;
 import java.util.regex.Pattern;
 
 /** Redacts sensitive request data before it leaves the application. */
 public final class Redactor {
   public static final String REDACTED = "[redacted]";
+  /** Stored in place of a whole body that a mask callback dropped (returned null) or failed on. */
+  public static final String MASKED = "[masked]";
+  private static final String FORM_URLENCODED = "application/x-www-form-urlencoded";
   private static final int MAX_HEADER_BYTES = 8192;
   private static final int MAX_BODY_DEPTH = 32;
   private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -84,6 +89,98 @@ public final class Redactor {
     } catch (IOException ex) {
       return payload;
     }
+  }
+
+  /**
+   * Masks an {@code application/x-www-form-urlencoded} body with the query redactor: a field is
+   * redacted when its decoded name matches a query-param or a body-field pattern.
+   */
+  public String redactForm(String body) {
+    if (Strings.isBlank(body) || (queryParams.isEmpty() && bodyFields.isEmpty())) {
+      return body == null ? "" : body;
+    }
+    String[] pairs = body.split("&", -1);
+    List<String> out = new ArrayList<>(pairs.length);
+    for (String pair : pairs) {
+      int index = pair.indexOf('=');
+      String rawName = index >= 0 ? pair.substring(0, index) : pair;
+      String decodedName = decodeComponent(rawName);
+      if (matches(queryParams, decodedName) || matches(bodyFields, decodedName)) {
+        out.add(rawName + (index >= 0 ? "=" : "") + REDACTED);
+      } else {
+        out.add(pair);
+      }
+    }
+    return String.join("&", out);
+  }
+
+  /**
+   * Turns captured body bytes into the payload string that is sent.
+   *
+   * <p>Only JSON ({@code application/json}, {@code +json}), {@code text/*} and
+   * {@code application/x-www-form-urlencoded} bodies are captured; any other content type is
+   * stored as the {@link #omittedPlaceholder placeholder} and the callback never sees it.
+   *
+   * <p>Order is fixed: the {@code masker} callback runs first on the raw bytes (truncated to
+   * {@code maxBytes}), then the result is decoded and the regex masking is applied (form fields
+   * via the query redactor, everything else via {@link #redactBody}). The callback can rewrite or
+   * drop the body but can never switch the regex masking off.
+   *
+   * <p>Fail closed: if the callback returns {@code null} or throws, the whole body is stored as
+   * {@link #MASKED}; the raw body is never sent in that case.
+   */
+  public <T> String maskBody(
+      byte[] body,
+      String contentType,
+      BiFunction<? super T, byte[], byte[]> masker,
+      T info,
+      int maxBytes) {
+    if (body == null || body.length == 0 || maxBytes <= 0) {
+      return "";
+    }
+    if (!isCapturableContentType(contentType)) {
+      return omittedPlaceholder(contentType, body.length);
+    }
+    byte[] captured = body.length > maxBytes ? Arrays.copyOf(body, maxBytes) : body;
+    if (masker != null) {
+      byte[] result;
+      try {
+        result = masker.apply(info, captured.clone());
+      } catch (RuntimeException ex) {
+        return MASKED;
+      }
+      if (result == null) {
+        return MASKED;
+      }
+      captured = result;
+    }
+    String decoded = decodeUtf8Safe(captured, maxBytes);
+    return FORM_URLENCODED.equals(mediaType(contentType)) ? redactForm(decoded) : redactBody(decoded);
+  }
+
+  /**
+   * Whether a body of this content type is captured: JSON ({@code application/json} or a
+   * {@code +json} suffix), {@code text/*} or {@code application/x-www-form-urlencoded}. A missing
+   * content type is treated as {@code application/octet-stream} and is not captured.
+   */
+  public static boolean isCapturableContentType(String contentType) {
+    String media = mediaType(contentType);
+    return media.equals("application/json")
+        || media.endsWith("+json")
+        || media.startsWith("text/")
+        || media.equals(FORM_URLENCODED);
+  }
+
+  /** The payload stored for a body that is not captured: {@code [<content-type>, N bytes omitted]}. */
+  public static String omittedPlaceholder(String contentType, long size) {
+    String media = mediaType(contentType);
+    return "[" + (media.isEmpty() ? "application/octet-stream" : media) + ", " + Math.max(size, 0L) + " bytes omitted]";
+  }
+
+  private static String mediaType(String contentType) {
+    String value = Strings.clean(contentType).toLowerCase(Locale.ROOT);
+    int semicolon = value.indexOf(';');
+    return semicolon >= 0 ? value.substring(0, semicolon).trim() : value;
   }
 
   public String serializeHeaders(Map<String, ?> rawHeaders) {
