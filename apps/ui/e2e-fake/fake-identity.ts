@@ -91,6 +91,10 @@
 //   GET  /api/v1/apps/{id}/metadata                what the app's SDKs reported, per environment (#598)
 //   POST /__fake/apps {apps}                       test hook: replaces shop's apps [{id, slug, name,
 //                                                  policy?, environments?}], their policies and reports
+//   GET|PUT /api/v1/projects/shop/privacy-policy   shop's server-side deny list (#599): only the defaults
+//                                                  until saved; PUT answers 403 without project.update and
+//                                                  invalid_request naming a pattern JavaScript cannot compile
+//   POST /__fake/privacy {}                        test hook: forgets shop's saved deny list
 //   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?}
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  `role` is the user's role in acme (default owner);
@@ -477,6 +481,25 @@ function capturePolicyOf(app: { id: string; slug: string }): Record<string, unkn
     updated_at: null,
     updated_by: null,
     ...capturePolicies.get(app.id),
+  };
+}
+
+/** shop's saved deny list (#599); null until saved. */
+let privacyPolicy: { mask_query_params: string[]; mask_headers: string[]; mask_body_fields: string[]; updated_at: string } | null = null;
+
+function privacyPolicyOf(): Record<string, unknown> {
+  return {
+    app: null,
+    mask_query_params: privacyPolicy?.mask_query_params ?? [],
+    mask_headers: privacyPolicy?.mask_headers ?? [],
+    mask_body_fields: privacyPolicy?.mask_body_fields ?? [],
+    defaults: {
+      mask_query_params: ["auth", "api.?key", "secret", "token", "password", "pwd"],
+      mask_headers: ["auth", "api.?key", "secret", "token", "cookie"],
+      sensitive_headers: ["authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key", "x-auth-token", "x-amz-security-token", "x-csrf-token"],
+      mask_body_fields: ["password", "pwd", "token", "secret", "auth", "card.?number", "ccv", "cvv", "cvc", "ssn"],
+    },
+    updated_at: privacyPolicy?.updated_at ?? null,
   };
 }
 
@@ -1105,6 +1128,39 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   if (ssoPath) return orgSSO(req, res, ssoPath[1], ssoPath[2] !== undefined);
   const orgPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/(members|transfer-ownership|invitations)(?:\/([^/]+)(\/resend)?)?$/);
   if (orgPath) return orgs(req, res, orgPath[1], orgPath[2], orgPath[3], orgPath[4] !== undefined);
+  // shop's deny list (#599). Like the API: another project answers forbidden, saving needs
+  // `project.update`, and a pattern that does not compile answers invalid_request naming it.
+  const privacyPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/privacy-policy$/);
+  if (privacyPath) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    if (decodeURIComponent(privacyPath[1]) !== PROJECT) return problem(res, 403, "forbidden");
+    if (req.method === "GET") return send(res, 200, privacyPolicyOf());
+    if (req.method !== "PUT") return problem(res, 404, "not_found");
+    if (!capabilitiesOf(user).includes("project.update")) return problem(res, 403, "forbidden");
+    const body = await readBody(req);
+    const saved = { mask_query_params: [] as string[], mask_headers: [] as string[], mask_body_fields: [] as string[], updated_at: new Date().toISOString() };
+    for (const field of ["mask_query_params", "mask_headers", "mask_body_fields"] as const) {
+      const list = body[field] ?? [];
+      if (!Array.isArray(list) || list.length > 50) return problem(res, 422, "validation_failed");
+      for (const [i, raw] of list.entries()) {
+        const pat = String(raw).trim();
+        if (pat === "" || saved[field].includes(pat)) continue;
+        try {
+          new RegExp(pat, "i");
+        } catch {
+          return send(res, 400, { status: 400, title: "invalid_request", code: "invalid_request", detail: `${field}[${i}]: not a valid RE2 pattern` }, "application/problem+json");
+        }
+        saved[field].push(pat);
+      }
+    }
+    privacyPolicy = saved;
+    return send(res, 200, privacyPolicyOf());
+  }
+  if (req.method === "POST" && path === "/__fake/privacy") {
+    privacyPolicy = null;
+    return send(res, 204);
+  }
   const keysPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/api-keys(?:\/([^/]+))?$/);
   if (keysPath) {
     const user = signedInUser(req);
