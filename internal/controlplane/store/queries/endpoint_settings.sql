@@ -34,3 +34,31 @@ JOIN apps a ON a.id = es.app_id
 WHERE a.project_id = @project_id AND a.deleted_at IS NULL
   AND (es.excluded OR cardinality(es.expected_status_codes) > 0)
 ORDER BY es.app_id, es.method, es.path;
+
+-- name: GetAppSettings :one
+-- The app-wide settings of an active app of a project; no row when the app
+-- is unknown, deleted or in another project.
+SELECT a.id, a.latency_threshold_ms
+FROM apps a
+WHERE a.id = @id AND a.project_id = @project_id AND a.deleted_at IS NULL;
+
+-- name: UpdateAppLatencyThreshold :one
+UPDATE apps
+SET latency_threshold_ms = sqlc.narg(latency_threshold_ms)::integer
+WHERE id = @id AND deleted_at IS NULL
+RETURNING id, latency_threshold_ms;
+
+-- name: ListProjectEndpointLatencyThresholds :many
+-- The endpoints of a project's active apps with their own Apdex threshold.
+SELECT es.app_id, es.method, es.path, es.latency_threshold_ms::integer AS latency_threshold_ms
+FROM endpoint_settings es
+JOIN apps a ON a.id = es.app_id
+WHERE a.project_id = @project_id AND a.deleted_at IS NULL AND es.latency_threshold_ms IS NOT NULL
+ORDER BY es.app_id, es.method, es.path;
+
+-- name: ListProjectAppLatencyThresholds :many
+-- The active apps of a project with an app-wide Apdex threshold.
+SELECT a.id, a.latency_threshold_ms::integer AS latency_threshold_ms
+FROM apps a
+WHERE a.project_id = @project_id AND a.deleted_at IS NULL AND a.latency_threshold_ms IS NOT NULL
+ORDER BY a.id;

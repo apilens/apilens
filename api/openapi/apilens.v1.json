@@ -492,6 +492,44 @@
         ],
         "type": "object"
       },
+      "AppSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AppSettings.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "apdex_threshold_ms": {
+            "description": "The threshold that applies to the app's endpoints without their own: latency_threshold_ms, or 500.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "app_id": {
+            "description": "The app's id.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "latency_threshold_ms": {
+            "description": "Apdex threshold T in milliseconds for the app's endpoints that set none of their own; null means the default of 500 ms.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "app_id",
+          "latency_threshold_ms",
+          "apdex_threshold_ms"
+        ],
+        "type": "object"
+      },
       "AppStatus": {
         "additionalProperties": false,
         "properties": {
@@ -2047,6 +2085,14 @@
       "Endpoint": {
         "additionalProperties": false,
         "properties": {
+          "apdex": {
+            "description": "Apdex score from 0 to 1 against the endpoint's latency threshold (else its app's, else 500 ms); null without requests.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "client_errors": {
             "format": "int64",
             "minimum": 0,
@@ -2089,7 +2135,8 @@
           "server_errors",
           "error_rate",
           "p50_ms",
-          "p95_ms"
+          "p95_ms",
+          "apdex"
         ],
         "type": "object"
       },
@@ -2582,7 +2629,7 @@
             ]
           },
           "latency_threshold_ms": {
-            "description": "Response time in milliseconds above which a request of this endpoint is slow; null means the project default.",
+            "description": "Response time in milliseconds above which a request of this endpoint is slow, and its Apdex threshold T; null means the app default (500 ms when the app sets none).",
             "format": "int64",
             "type": [
               "integer",
@@ -3659,6 +3706,14 @@
       "LatencySummary": {
         "additionalProperties": false,
         "properties": {
+          "apdex": {
+            "description": "Apdex score from 0 to 1 over raw requests, against the endpoint's latency threshold (else its app's, else 500 ms); null without requests.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "avg_ms": {
             "format": "double",
             "type": "number"
@@ -3701,7 +3756,8 @@
           "p75_ms",
           "p90_ms",
           "p95_ms",
-          "p99_ms"
+          "p99_ms",
+          "apdex"
         ],
         "type": "object"
       },
@@ -5119,6 +5175,31 @@
         ],
         "type": "object"
       },
+      "PutAppSettingsInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/PutAppSettingsInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "latency_threshold_ms": {
+            "description": "Apdex threshold T in milliseconds (1 to 600000); omitted or null means the default of 500 ms.",
+            "format": "int64",
+            "maximum": 600000,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "PutCapturePolicyInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -5203,7 +5284,7 @@
             ]
           },
           "latency_threshold_ms": {
-            "description": "Response time in milliseconds (1 to 600000) above which a request is slow; omitted or null means the project default.",
+            "description": "Response time in milliseconds (1 to 600000) above which a request is slow, and the endpoint's Apdex threshold T; omitted or null means the app default (500 ms when the app sets none).",
             "format": "int64",
             "maximum": 600000,
             "minimum": 1,
@@ -6198,6 +6279,14 @@
             "readOnly": true,
             "type": "string"
           },
+          "apdex": {
+            "description": "Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied \u003c= T \u003c tolerating \u003c= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; null without requests.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "client_errors": {
             "description": "4xx responses, leaving out the expected status codes of each endpoint.",
             "format": "int64",
@@ -6259,7 +6348,8 @@
           "p50_ms",
           "p95_ms",
           "p99_ms",
-          "requests_per_minute"
+          "requests_per_minute",
+          "apdex"
         ],
         "type": "object"
       },
@@ -7458,6 +7548,128 @@
           }
         ],
         "summary": "Get what an app's SDKs reported on startup",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/apps/{id}/settings": {
+      "get": {
+        "description": "The app-wide latency (Apdex) threshold. Open to project viewers and the project's read key. The app-wide latency threshold is the Apdex threshold T of the app's endpoints whose settings set none (endpoint \u003e app \u003e 500 ms). An unknown app, or one in another project, answers 404.",
+        "operationId": "get-app-settings",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The app's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The app's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppSettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Get the settings of an app",
+        "tags": [
+          "Dashboard"
+        ]
+      },
+      "put": {
+        "description": "Replaces the app-wide latency (Apdex) threshold. Needs a user session with `manage_capture` on the app's project (project admins, organization owners and admins; 403 for other members). The app-wide latency threshold is the Apdex threshold T of the app's endpoints whose settings set none (endpoint \u003e app \u003e 500 ms). An unknown app, or one in another project, answers 404.",
+        "operationId": "put-app-settings",
+        "parameters": [
+          {
+            "description": "The app's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The app's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutAppSettingsInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppSettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Replace the settings of an app",
         "tags": [
           "Projects"
         ]

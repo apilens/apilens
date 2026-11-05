@@ -67,6 +67,9 @@ type Querier interface {
 	// One rule of a project. Returns pgx.ErrNoRows when the project has no such
 	// rule.
 	GetAlertRule(ctx context.Context, arg GetAlertRuleParams) (AlertRule, error)
+	// The app-wide settings of an active app of a project; no row when the app
+	// is unknown, deleted or in another project.
+	GetAppSettings(ctx context.Context, arg GetAppSettingsParams) (GetAppSettingsRow, error)
 	// An active app of an active project, with what authorizing a request on it
 	// needs (the project slug, which the authz guard resolves).
 	GetCaptureApp(ctx context.Context, id uuid.UUID) (GetCaptureAppRow, error)
@@ -171,7 +174,11 @@ type Querier interface {
 	ListPendingInvitationsWithInviter(ctx context.Context, orgID uuid.UUID) ([]ListPendingInvitationsWithInviterRow, error)
 	// Every key of the project, revoked ones included, newest first.
 	ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) ([]ListProjectAPIKeysRow, error)
+	// The active apps of a project with an app-wide Apdex threshold.
+	ListProjectAppLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppLatencyThresholdsRow, error)
 	ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppsRow, error)
+	// The endpoints of a project's active apps with their own Apdex threshold.
+	ListProjectEndpointLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]ListProjectEndpointLatencyThresholdsRow, error)
 	// The settings that change what the dashboard counts (an expected status
 	// code or exclusion) for the active apps of a project.
 	ListProjectEndpointSettings(ctx context.Context, projectID uuid.UUID) ([]ListProjectEndpointSettingsRow, error)
@@ -265,6 +272,7 @@ type Querier interface {
 	UnassignConsumerGroup(ctx context.Context, arg UnassignConsumerGroupParams) (int64, error)
 	// Replaces every editable field of a rule. The app and project never change.
 	UpdateAlertRule(ctx context.Context, arg UpdateAlertRuleParams) (AlertRule, error)
+	UpdateAppLatencyThreshold(ctx context.Context, arg UpdateAppLatencyThresholdParams) (UpdateAppLatencyThresholdRow, error)
 	UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (Membership, error)
 	// Renames a channel and replaces its sealed config. The type never changes.
 	UpdateNotificationChannel(ctx context.Context, arg UpdateNotificationChannelParams) (NotificationChannel, error)

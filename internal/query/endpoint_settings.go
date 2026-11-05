@@ -55,7 +55,7 @@ type EndpointSettings struct {
 	Method              string     `json:"method" doc:"HTTP method, upper case."`
 	Path                string     `json:"path" doc:"Route template."`
 	ExpectedStatusCodes []int      `json:"expected_status_codes" doc:"Status codes that are expected for this endpoint, ascending: requests answered with them do not count as client or server errors in the summary, timeseries, endpoint list and error list."`
-	LatencyThresholdMs  *int       `json:"latency_threshold_ms" required:"true" nullable:"true" doc:"Response time in milliseconds above which a request of this endpoint is slow; null means the project default."`
+	LatencyThresholdMs  *int       `json:"latency_threshold_ms" required:"true" nullable:"true" doc:"Response time in milliseconds above which a request of this endpoint is slow, and its Apdex threshold T; null means the app default (500 ms when the app sets none)."`
 	Excluded            bool       `json:"excluded" doc:"Whether the endpoint is left out of the summary, timeseries, endpoint list and error list. Its requests stay in the request log."`
 	UpdatedAt           *time.Time `json:"updated_at" required:"true" nullable:"true" doc:"When the settings were last saved; null if they never were (the defaults apply)."`
 	UpdatedBy           *string    `json:"updated_by" required:"true" nullable:"true" format:"uuid" doc:"The user who last saved the settings; null if they never were saved or that user is gone."`
@@ -82,7 +82,7 @@ type putEndpointSettingsInput struct {
 	EndpointRef
 	Body struct {
 		ExpectedStatusCodes []int `json:"expected_status_codes,omitempty" maxItems:"32" doc:"Status codes (100 to 599, at most 32) that are expected for this endpoint; duplicates are dropped. Omitted means none."`
-		LatencyThresholdMs  *int  `json:"latency_threshold_ms,omitempty" minimum:"1" maximum:"600000" nullable:"true" doc:"Response time in milliseconds (1 to 600000) above which a request is slow; omitted or null means the project default."`
+		LatencyThresholdMs  *int  `json:"latency_threshold_ms,omitempty" minimum:"1" maximum:"600000" nullable:"true" doc:"Response time in milliseconds (1 to 600000) above which a request is slow, and the endpoint's Apdex threshold T; omitted or null means the app default (500 ms when the app sets none)."`
 		Excluded            bool  `json:"excluded" doc:"Leave the endpoint out of the summary, timeseries, endpoint list and error list."`
 	}
 }
