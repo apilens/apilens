@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `APILENS_*` env-var config loader (`src/env.ts`, same names and syntax as
+  the Python SDK) for the client and the Express middleware; precedence is
+  explicit option > env var > default. `loadEnvConfig()` / `resolveConfig()`
+  are exported.
+- `captureProfile: "metadata" | "redacted" | "full"` (also
+  `APILENS_CAPTURE_PROFILE`) presets; individual flags win over the preset.
 - `maskRequestBody` / `maskResponseBody` callbacks `(info, body: Buffer) =>
   Buffer | null` run before the regex field masking; `null`, a throw or a
   non-Buffer return store `[masked]`.

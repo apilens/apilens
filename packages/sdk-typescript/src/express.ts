@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import type { NextFunction, Request, Response } from "express";
 
 import { ApiLensClient } from "./client.js";
+import { resolveConfig } from "./env.js";
 import { RequestExcluder } from "./exclusions.js";
 import { Sampler } from "./sampling.js";
 import { expressRouteTemplate, parametrizeEnabled, resolveEndpointPath } from "./routes.js";
@@ -145,7 +146,9 @@ function buildClient(config: ApiLensExpressConfig = {}): ApiLensClient {
   });
 }
 
-function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareWithClient {
+function createApiLensMiddleware(options: ApiLensExpressConfig = {}): MiddlewareWithClient {
+  // Explicit option > APILENS_* env var > captureProfile preset > default.
+  const config = resolveConfig(options);
   const client = buildClient(config);
   const environment = config.environment || config.env;
   const requestLogging = config.requestLogging || {};

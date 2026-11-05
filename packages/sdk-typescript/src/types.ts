@@ -145,6 +145,15 @@ export type ApiLensConsumer = {
   consumer_group?: string;
 };
 
+/**
+ * Capture posture preset (see `CAPTURE_PROFILES` in `env.ts`):
+ * - `metadata`: no headers and no bodies, only the base record;
+ * - `redacted`: headers and bodies on, bodies capped at 16 KB, built-in masking;
+ * - `full`: the current defaults (same as leaving it unset).
+ * Individual flags (in code or `APILENS_*`) always win over the preset.
+ */
+export type CaptureProfile = "metadata" | "redacted" | "full";
+
 export type RequestLoggingConfig = {
   logRequestBody?: boolean;
   logResponseBody?: boolean;
@@ -164,6 +173,11 @@ export type ApiLensExpressConfig = ApiLensClientConfig & {
   clientId?: string;
   client_id?: string;
   requestLogging?: RequestLoggingConfig;
+  /**
+   * Capture posture preset; fills only the `requestLogging` flags you did not
+   * set. Also `APILENS_CAPTURE_PROFILE`. Default: unset (= `full`).
+   */
+  captureProfile?: CaptureProfile;
   /**
    * Regexes (case-insensitive, searched against the request path without the
    * query string) whose matching requests bypass capture entirely. A string is

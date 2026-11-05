@@ -271,6 +271,76 @@ consumerId, consumerName, consumerGroup, sampled }`. A callback that throws is
 logged once and treated as `undefined`. A `sampleRate` outside `[0, 1]` throws
 when the middleware is created.
 
+## Capture profiles
+
+`captureProfile` picks a capture posture in one greppable setting. It only
+fills the `requestLogging` flags you did not set, so an individual flag (in
+code or from an `APILENS_*` variable) always wins over the preset.
+
+| Profile | Headers | Bodies | Body cap | Use it for |
+|---|---|---|---|---|
+| `metadata` | off | off | — | First production rollout: method, path, status, latency, sizes and consumer only. |
+| `redacted` | on (sensitive values `[redacted]`) | on (built-in masking) | 16 KB | Debugging with payloads, masked. |
+| `full` | on | on | `maxPayloadBytes` (8 KB) | Same as leaving it unset (the current defaults). |
+
+```js
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  captureProfile: "metadata",
+  // Individual flags win over the preset: request bodies only.
+  requestLogging: { logRequestBody: true },
+});
+```
+
+The built-in masking (`DEFAULT_MASK_*`, sensitive headers) applies under every
+profile. Under `metadata`, `requestLogging.capturePayloads: true` asks for both
+bodies. `APILENS_CAPTURE_PROFILE=metadata` sets the preset without a code
+change; a `captureProfile` in code wins over it. An unknown profile throws when
+the middleware is created.
+
+## Environment variables
+
+Every option below can be set from the environment, on both the client and the
+Express middleware, so a rollout or a kill switch needs no code change. The
+names and value syntax are the same as the Python SDK. Precedence:
+**explicit option > env var > default** (and the capture profile only fills
+flags still unset after that).
+
+Booleans accept `1`/`0`/`true`/`false` (also `yes`/`no`/`on`/`off`, any case).
+Lists are comma-separated (`APILENS_REDACT_BODY_FIELDS=^password$,^ssn$`); a
+regex that needs a literal comma must be passed as an array in code. Unset or
+empty variables are ignored; an unparseable value throws an `Error` naming the
+variable when the client or middleware is created. `loadEnvConfig()` returns
+the parsed values and `resolveConfig(config)` the effective config.
+
+| Variable | Option | Type | Default |
+|---|---|---|---|
+| `APILENS_API_KEY` | `apiKey` | string | — (required) |
+| `APILENS_APP_ID` | `appId` | string | `""` |
+| `APILENS_ENVIRONMENT` | `environment` | string | `"production"` |
+| `APILENS_BASE_URL` | `baseUrl` | string | `https://ingest.apilens.ai/v1` |
+| `APILENS_ENABLED` | `enabled` | bool | `true` |
+| `APILENS_CAPTURE_PROFILE` | `captureProfile` | `metadata` / `redacted` / `full` | unset (= `full`) |
+| `APILENS_CAPTURE_HEADERS` | `requestLogging.captureHeaders` | bool | `true` |
+| `APILENS_CAPTURE_PAYLOADS` | `requestLogging.capturePayloads` | bool | `true` |
+| `APILENS_LOG_REQUEST_BODY` | `requestLogging.logRequestBody` | bool | `true` |
+| `APILENS_LOG_RESPONSE_BODY` | `requestLogging.logResponseBody` | bool | `true` |
+| `APILENS_MAX_PAYLOAD_BYTES` | `requestLogging.maxPayloadBytes` | int | `8192` |
+| `APILENS_CAPTURE_CONTENT_TYPES` | `captureContentTypes` | list | JSON, `+json`, `text/*`, form-encoded |
+| `APILENS_REDACT_QUERY_PARAMS` | `redactQueryParams` | list | none (built-ins always apply) |
+| `APILENS_REDACT_HEADERS` | `redactHeaders` | list | none (built-ins always apply) |
+| `APILENS_REDACT_BODY_FIELDS` | `redactBodyFields` | list | none (built-ins always apply) |
+| `APILENS_EXCLUDE_PATHS` | `excludePaths` | list, **added to** the code value | none |
+| `APILENS_EXCLUDE_USER_AGENTS` | `excludeUserAgents` | list, **added to** the code value | none |
+| `APILENS_DEFAULT_EXCLUSIONS` | `defaultExclusions` | bool | `true` |
+| `APILENS_SAMPLE_RATE` | `sampleRate` | number 0–1 | `1` |
+| `APILENS_BATCH_SIZE` | `batchSize` | int | `200` |
+| `APILENS_FLUSH_INTERVAL` | `flushIntervalMs` | number, **seconds** | `3` (3000 ms) |
+
+Also read from the environment, with their own rules: `APILENS_RELEASE` /
+`APILENS_COMMIT` (release stamping) and `APILENS_PARAMETRIZE_PATHS=false`
+(wins over code, see [Path templating](#path-templating)).
+
 ## Delivery and health
 
 The client never blocks your request path and never grows without bound:
@@ -323,6 +393,7 @@ part of `droppedCount`.
 - `setConsumer(req, consumer)`
 - `trackConsumer(req, consumer)`
 - `ApiLensClient`
+- `loadEnvConfig(env?)`, `resolveConfig(config, env?)`
 
 ## Notes
 

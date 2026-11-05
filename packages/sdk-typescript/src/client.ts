@@ -10,6 +10,7 @@ import {
   toNumber,
 } from "./utils.js";
 import { detectCommit, detectRelease } from "./release.js";
+import { resolveConfig } from "./env.js";
 import type {
   ApiLensClientConfig,
   ApiLensClientStats,
@@ -289,6 +290,8 @@ class ApiLensClient {
     if (ApiLensClient.instance) {
       throw new Error("ApiLensClient is already initialized");
     }
+    // Explicit option > APILENS_* env var > default.
+    config = resolveConfig(config);
 
     this.config = {
       apiKey: String(config.apiKey || config.api_key || "").trim(),
