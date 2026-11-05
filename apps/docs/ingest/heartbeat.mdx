@@ -25,6 +25,7 @@ This page is the contract the Python, TypeScript and Java SDKs implement.
   "release": "2026.11.05",
   "commit": "9f2c1ab",
   "pid": 4242,
+  "uptime_s": 3600,
   "stats": { "queued": 3, "sent": 1200, "dropped": 0 }
 }
 ```
@@ -40,8 +41,14 @@ This page is the contract the Python, TypeScript and Java SDKs implement.
 | `release`, `commit` | no | Version and VCS commit of the monitored app. |
 | `pid` | no | OS process id; must not be negative. |
 | `stats` | no | The SDK's own counters since start, stored as sent. At most 16 KiB. |
+| `uptime_s` | no | Whole seconds since the process (instance) started. Accepted, not stored yet. |
+| `final` | no | `true` on the last heartbeat a process sends while shutting down. Accepted, not stored yet. |
 
-Unknown fields are ignored, so newer SDKs can send more. A body with an `api_key` field at any depth (`api_key`, `apiKey`, `api-key`, any case) is rejected with `422`: the key belongs in the header only.
+Unknown fields are ignored, so newer SDKs can send more.
+
+### When SDKs send it
+
+An SDK sends one heartbeat per app and environment it captures for: on start, then every **60 seconds** (configurable, never more often than every 10 seconds), and once more with `"final": true` when the process shuts down. A final heartbeat less than 10 seconds after the previous one gets `429`, which the SDK ignores. Heartbeats are never retried and never delay or block the delivery of requests, logs and spans; a failed one only waits for the next interval (or `Retry-After`). A body with an `api_key` field at any depth (`api_key`, `apiKey`, `api-key`, any case) is rejected with `422`: the key belongs in the header only.
 
 ## Response
 
