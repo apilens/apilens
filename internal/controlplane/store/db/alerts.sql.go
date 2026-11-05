@@ -355,14 +355,18 @@ SELECT e.id, e.rule_id, e.state, e.value, e.started_at, e.ended_at, e.notified_a
 FROM alert_events e
 JOIN alert_rules r ON r.id = e.rule_id
 WHERE r.project_id = $1
-  AND ($2::timestamptz IS NULL
-       OR (e.started_at, e.id) < ($2::timestamptz, $3::uuid))
+  AND ($2::uuid IS NULL OR e.rule_id = $2::uuid)
+  AND ($3::text IS NULL OR e.state = $3::text)
+  AND ($4::timestamptz IS NULL
+       OR (e.started_at, e.id) < ($4::timestamptz, $5::uuid))
 ORDER BY e.started_at DESC, e.id DESC
-LIMIT $4
+LIMIT $6
 `
 
 type ListAlertEventsParams struct {
 	ProjectID       uuid.UUID
+	RuleID          *uuid.UUID
+	State           *string
 	BeforeStartedAt *time.Time
 	BeforeID        *uuid.UUID
 	RowLimit        int32
@@ -384,10 +388,12 @@ type ListAlertEventsRow struct {
 
 // A project's incidents feed, newest first, with the rule each belongs to.
 // Pass the last row's started_at and id as the cursor to page; NULLs start
-// from the newest.
+// from the newest. rule_id and state narrow the feed when set.
 func (q *Queries) ListAlertEvents(ctx context.Context, arg ListAlertEventsParams) ([]ListAlertEventsRow, error) {
 	rows, err := q.db.Query(ctx, listAlertEvents,
 		arg.ProjectID,
+		arg.RuleID,
+		arg.State,
 		arg.BeforeStartedAt,
 		arg.BeforeID,
 		arg.RowLimit,
@@ -411,6 +417,138 @@ func (q *Queries) ListAlertEvents(ctx context.Context, arg ListAlertEventsParams
 			&i.AppID,
 			&i.Environment,
 			&i.Metric,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAlertIncidents = `-- name: ListAlertIncidents :many
+SELECT r.id AS rule_id, r.name AS rule_name, r.app_id, r.environment, r.metric, r.condition, r.threshold,
+       COALESCE(s.status, 'ok')::text AS status,
+       g.events, g.first_started_at::timestamptz AS first_started_at,
+       l.id AS latest_event_id, l.state AS latest_state, l.value AS latest_value,
+       l.started_at AS latest_started_at, l.ended_at AS latest_ended_at, l.notified_at AS latest_notified_at
+FROM alert_rules r
+JOIN apps a ON a.id = r.app_id AND a.deleted_at IS NULL
+JOIN LATERAL (
+    SELECT count(*) AS events, min(e.started_at) AS first_started_at
+    FROM alert_events e
+    WHERE e.rule_id = r.id AND (e.started_at >= $1::timestamptz OR e.state = 'triggered')
+) g ON g.events > 0
+JOIN LATERAL (
+    SELECT e.id, e.state, e.value, e.started_at, e.ended_at, e.notified_at
+    FROM alert_events e
+    WHERE e.rule_id = r.id
+    ORDER BY e.started_at DESC, e.id DESC
+    LIMIT 1
+) l ON true
+LEFT JOIN alert_rule_state s ON s.rule_id = r.id
+WHERE r.project_id = $2
+ORDER BY (l.state = 'triggered') DESC, l.started_at DESC, r.id
+LIMIT $3
+`
+
+type ListAlertIncidentsParams struct {
+	Since     time.Time
+	ProjectID uuid.UUID
+	RowLimit  int32
+}
+
+type ListAlertIncidentsRow struct {
+	RuleID           uuid.UUID
+	RuleName         string
+	AppID            uuid.UUID
+	Environment      string
+	Metric           string
+	Condition        string
+	Threshold        float64
+	Status           string
+	Events           int64
+	FirstStartedAt   time.Time
+	LatestEventID    uuid.UUID
+	LatestState      string
+	LatestValue      float64
+	LatestStartedAt  time.Time
+	LatestEndedAt    *time.Time
+	LatestNotifiedAt *time.Time
+}
+
+// A project's events grouped by rule: one row per rule of an active app
+// with an event started at or after since, or one still open, with how
+// many such events it has, its latest event and its trigger/resolve status
+// ('ok' before the first evaluation). Rules with an open event come first,
+// then by their latest event, newest first.
+func (q *Queries) ListAlertIncidents(ctx context.Context, arg ListAlertIncidentsParams) ([]ListAlertIncidentsRow, error) {
+	rows, err := q.db.Query(ctx, listAlertIncidents, arg.Since, arg.ProjectID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAlertIncidentsRow{}
+	for rows.Next() {
+		var i ListAlertIncidentsRow
+		if err := rows.Scan(
+			&i.RuleID,
+			&i.RuleName,
+			&i.AppID,
+			&i.Environment,
+			&i.Metric,
+			&i.Condition,
+			&i.Threshold,
+			&i.Status,
+			&i.Events,
+			&i.FirstStartedAt,
+			&i.LatestEventID,
+			&i.LatestState,
+			&i.LatestValue,
+			&i.LatestStartedAt,
+			&i.LatestEndedAt,
+			&i.LatestNotifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAlertRuleStates = `-- name: ListAlertRuleStates :many
+
+SELECT s.rule_id, s.evaluated_at, s.window_start, s.window_end, s.value, s.requests, s.breached, s.status, s.status_since FROM alert_rule_state s
+JOIN alert_rules r ON r.id = s.rule_id
+WHERE r.project_id = $1
+`
+
+// Alert rule evaluation state.
+// The latest evaluation of every evaluated rule of a project.
+func (q *Queries) ListAlertRuleStates(ctx context.Context, projectID uuid.UUID) ([]AlertRuleState, error) {
+	rows, err := q.db.Query(ctx, listAlertRuleStates, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AlertRuleState{}
+	for rows.Next() {
+		var i AlertRuleState
+		if err := rows.Scan(
+			&i.RuleID,
+			&i.EvaluatedAt,
+			&i.WindowStart,
+			&i.WindowEnd,
+			&i.Value,
+			&i.Requests,
+			&i.Breached,
+			&i.Status,
+			&i.StatusSince,
 		); err != nil {
 			return nil, err
 		}
@@ -472,7 +610,6 @@ func (q *Queries) ListAlertRules(ctx context.Context, projectID uuid.UUID) ([]Al
 }
 
 const listAlertRulesToEvaluate = `-- name: ListAlertRulesToEvaluate :many
-
 SELECT r.id, r.project_id, r.app_id, r.environment, r.name, r.description, r.metric, r.condition, r.threshold, r.window_s, r.every_s, r.cron, r.notify_after_s, r.resolve_after_s, r.filters, r.channel_ids, r.enabled, r.created_by, r.created_at, r.updated_at, s.evaluated_at AS last_evaluated_at
 FROM alert_rules r
 JOIN apps a ON a.id = r.app_id
@@ -506,7 +643,6 @@ type ListAlertRulesToEvaluateRow struct {
 	LastEvaluatedAt *time.Time
 }
 
-// Alert rule evaluation state.
 // Every enabled rule of an active app of an active project with when it was
 // last evaluated (NULL when never): what the evaluation job considers.
 func (q *Queries) ListAlertRulesToEvaluate(ctx context.Context) ([]ListAlertRulesToEvaluateRow, error) {

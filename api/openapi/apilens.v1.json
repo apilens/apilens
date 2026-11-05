@@ -116,6 +116,464 @@
         ],
         "type": "object"
       },
+      "AlertEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "app_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ended_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environment": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "notified_at": {
+            "description": "When the first notification went out; null until then.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "rule_name": {
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "triggered",
+              "resolved"
+            ],
+            "type": "string"
+          },
+          "value": {
+            "description": "The metric value that triggered the event.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "rule_id",
+          "rule_name",
+          "app_id",
+          "environment",
+          "metric",
+          "state",
+          "value",
+          "started_at",
+          "ended_at",
+          "notified_at"
+        ],
+        "type": "object"
+      },
+      "AlertEventsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AlertEventsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "events": {
+            "description": "Newest first.",
+            "items": {
+              "$ref": "#/components/schemas/AlertEvent"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "next_cursor": {
+            "description": "Pass as cursor for the next (older) page; empty on the last page.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "events",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "AlertFilters": {
+        "additionalProperties": false,
+        "properties": {
+          "consumer": {
+            "description": "Only requests of this consumer id, as the SDK reports it.",
+            "maxLength": 256,
+            "type": "string"
+          },
+          "endpoint": {
+            "description": "Only requests of this endpoint: \"METHOD /route/{template}\", or \"/route/{template}\" for every method.",
+            "maxLength": 512,
+            "type": "string"
+          },
+          "group": {
+            "description": "Only requests of the members of this consumer group (its id).",
+            "maxLength": 36,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AlertRule": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AlertRule.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "app_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "channel_ids": {
+            "description": "The notification channels the rule notifies.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "condition": {
+            "enum": [
+              "gt",
+              "gte",
+              "lt",
+              "lte"
+            ],
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cron": {
+            "description": "Evaluation schedule (five cron fields, UTC); null when every_s is set.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "every_s": {
+            "description": "Evaluation frequency in seconds; null when cron is set.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "filters": {
+            "$ref": "#/components/schemas/AlertFilters"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "metric": {
+            "enum": [
+              "traffic",
+              "errors",
+              "error_rate",
+              "p50",
+              "p75",
+              "p95",
+              "apdex",
+              "unique_consumers"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notify_after_s": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "resolve_after_s": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/AlertRuleState",
+            "description": "The latest evaluation; omitted before the first."
+          },
+          "threshold": {
+            "format": "double",
+            "type": "number"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "window_s": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "app_id",
+          "environment",
+          "name",
+          "description",
+          "metric",
+          "condition",
+          "threshold",
+          "window_s",
+          "every_s",
+          "cron",
+          "notify_after_s",
+          "resolve_after_s",
+          "filters",
+          "channel_ids",
+          "enabled",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "AlertRuleBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AlertRuleBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "channel_ids": {
+            "description": "Notification channels of the project to notify.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "condition": {
+            "description": "How the value compares to threshold for the rule to breach.",
+            "enum": [
+              "gt",
+              "gte",
+              "lt",
+              "lte"
+            ],
+            "type": "string"
+          },
+          "cron": {
+            "description": "Evaluation schedule: five cron fields (minute hour day-of-month month day-of-week, UTC) or a descriptor such as @hourly. Exactly one of every_s and cron.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether the rule is evaluated; omitted means true.",
+            "type": "boolean"
+          },
+          "environment": {
+            "description": "The environment whose requests the rule counts.",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "every_s": {
+            "description": "Evaluation frequency in seconds. Exactly one of every_s and cron.",
+            "format": "int32",
+            "maximum": 86400,
+            "minimum": 60,
+            "type": "integer"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/AlertFilters"
+          },
+          "metric": {
+            "description": "What the rule aggregates over its window: request count, error count, error rate (0 to 1), p50/p75/p95 response time in ms, Apdex (0 to 1) or unique consumers.",
+            "enum": [
+              "traffic",
+              "errors",
+              "error_rate",
+              "p50",
+              "p75",
+              "p95",
+              "apdex",
+              "unique_consumers"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name; surrounding spaces are dropped.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "notify_after_s": {
+            "description": "How long the breach must hold before the first notification.",
+            "format": "int32",
+            "maximum": 86400,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "resolve_after_s": {
+            "description": "How long the breach must clear before the event resolves.",
+            "format": "int32",
+            "maximum": 86400,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "threshold": {
+            "description": "Not negative; at most 1 for error_rate and apdex.",
+            "format": "double",
+            "type": "number"
+          },
+          "window_s": {
+            "description": "The trailing window the metric is aggregated over, in whole minutes.",
+            "format": "int32",
+            "maximum": 86400,
+            "minimum": 60,
+            "multipleOf": 60,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "environment",
+          "name",
+          "metric",
+          "condition",
+          "threshold",
+          "window_s"
+        ],
+        "type": "object"
+      },
+      "AlertRuleState": {
+        "additionalProperties": false,
+        "properties": {
+          "breached": {
+            "type": "boolean"
+          },
+          "evaluated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "since": {
+            "description": "When the rule entered status.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "description": "Trigger/resolve state: pending while the breach waits out notify_after_s, resolving while the clear waits out resolve_after_s.",
+            "enum": [
+              "ok",
+              "pending",
+              "triggered",
+              "resolving"
+            ],
+            "type": "string"
+          },
+          "value": {
+            "description": "The metric over the latest window; null when the window had no data.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "since",
+          "evaluated_at",
+          "value",
+          "breached"
+        ],
+        "type": "object"
+      },
+      "AlertRulesOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AlertRulesOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "rules": {
+            "description": "The project's rules by name; rules of deleted apps are left out.",
+            "items": {
+              "$ref": "#/components/schemas/AlertRule"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "rules"
+        ],
+        "type": "object"
+      },
       "AppEnvironmentReport": {
         "additionalProperties": false,
         "properties": {
@@ -924,6 +1382,56 @@
         ],
         "type": "object"
       },
+      "ChannelTestOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ChannelTestOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "sent": {
+            "description": "Always true; a failed send answers 502. Email is queued for sending.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sent"
+        ],
+        "type": "object"
+      },
+      "ChannelsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ChannelsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "channels": {
+            "description": "The project's channels by name.",
+            "items": {
+              "$ref": "#/components/schemas/NotificationChannel"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "channels"
+        ],
+        "type": "object"
+      },
       "ConnectedAccount": {
         "additionalProperties": false,
         "properties": {
@@ -1589,6 +2097,69 @@
         "required": [
           "name",
           "scopes"
+        ],
+        "type": "object"
+      },
+      "CreateAlertRuleBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/CreateAlertRuleBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "app_id": {
+            "description": "The app whose requests the rule counts; it never changes.",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_id"
+        ],
+        "type": "object"
+      },
+      "CreateChannelInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/CreateChannelInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "config": {
+            "additionalProperties": {},
+            "description": "Write-only channel config, sealed at rest and never returned. email: {\"addresses\": [\"oncall@example.com\", ...]} (1 to 20 plain addresses); slack and teams: {\"webhook_url\": \"https://...\"} (the incoming webhook URL); webhook: {\"url\": \"https://...\", \"secret\": \"...\"} (secret of at least 16 characters, signs every request). URLs must be https without credentials or a fragment; unknown keys are refused.",
+            "type": "object"
+          },
+          "name": {
+            "description": "Display name, unique in the project; surrounding spaces are dropped.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "email",
+              "slack",
+              "teams",
+              "webhook"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "config"
         ],
         "type": "object"
       },
@@ -3911,6 +4482,109 @@
         ],
         "type": "object"
       },
+      "Incident": {
+        "additionalProperties": false,
+        "properties": {
+          "app_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "condition": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "events": {
+            "description": "Events of the rule started in the range, plus one still open from before it.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "first_started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "latest": {
+            "$ref": "#/components/schemas/AlertEvent",
+            "description": "The rule's latest event."
+          },
+          "metric": {
+            "type": "string"
+          },
+          "open": {
+            "description": "Whether the latest event is still triggered.",
+            "type": "boolean"
+          },
+          "rule_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "rule_name": {
+            "type": "string"
+          },
+          "status": {
+            "description": "The rule's trigger/resolve state now.",
+            "enum": [
+              "ok",
+              "pending",
+              "triggered",
+              "resolving"
+            ],
+            "type": "string"
+          },
+          "threshold": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "rule_id",
+          "rule_name",
+          "app_id",
+          "environment",
+          "metric",
+          "condition",
+          "threshold",
+          "status",
+          "open",
+          "events",
+          "first_started_at",
+          "latest"
+        ],
+        "type": "object"
+      },
+      "IncidentsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/IncidentsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "incidents": {
+            "description": "One per rule with events: open ones first, then by latest event, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/Incident"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "range": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "range",
+          "incidents"
+        ],
+        "type": "object"
+      },
       "IngestCounts": {
         "additionalProperties": false,
         "properties": {
@@ -4783,6 +5457,60 @@
           "id",
           "slug",
           "name"
+        ],
+        "type": "object"
+      },
+      "NotificationChannel": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/NotificationChannel.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "email",
+              "slack",
+              "teams",
+              "webhook"
+            ],
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "name",
+          "created_by",
+          "created_at",
+          "updated_at"
         ],
         "type": "object"
       },
@@ -8029,6 +8757,35 @@
         },
         "required": [
           "backup_codes"
+        ],
+        "type": "object"
+      },
+      "UpdateChannelInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/UpdateChannelInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "config": {
+            "additionalProperties": {},
+            "description": "Replaces the channel config (same shape as on create); omitted keeps the current one. The type never changes.",
+            "type": "object"
+          },
+          "name": {
+            "description": "Display name, unique in the project; surrounding spaces are dropped.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
         ],
         "type": "object"
       },
@@ -15452,6 +16209,1185 @@
         ]
       }
     },
+    "/api/v1/projects/{project}/alerts/channels": {
+      "get": {
+        "description": "The project's channels by name. Configs are never returned. Open to a session that can view the project or to the project's read key.",
+        "operationId": "list-notification-channels",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "List the notification channels of a project",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "post": {
+        "description": "Creates an email, Slack, Teams or webhook channel. A name the project already uses answers 409. Needs a user session with manage_alerts on the project (project admins, organization owners and admins); 403 for other members.",
+        "operationId": "create-notification-channel",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateChannelInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannel"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Create a notification channel",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project}/alerts/channels/{id}": {
+      "delete": {
+        "description": "Deletes a channel and removes it from every rule that notifies it. Needs a user session with manage_alerts on the project (project admins, organization owners and admins); 403 for other members.",
+        "operationId": "delete-notification-channel",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Delete a notification channel",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "get": {
+        "description": "One channel, without its config. Open to a session that can view the project or to the project's read key.",
+        "operationId": "get-notification-channel",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannel"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Get a notification channel",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "put": {
+        "description": "Renames a channel and, when config is sent, replaces its config. A name the project already uses answers 409. Needs a user session with manage_alerts on the project (project admins, organization owners and admins); 403 for other members.",
+        "operationId": "update-notification-channel",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateChannelInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannel"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Update a notification channel",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project}/alerts/channels/{id}/test": {
+      "post": {
+        "description": "Sends a test notification through the channel now (email is queued). 502 when the channel does not accept it, with only the failure class or HTTP status, never the channel's secrets. Needs a user session with manage_alerts on the project (project admins, organization owners and admins); 403 for other members.",
+        "operationId": "test-notification-channel",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelTestOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Send a test notification",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project}/alerts/events": {
+      "get": {
+        "description": "The project's alert events (one per incident), newest first, with cursor pagination. Open to a session that can view the project or to the project's read key.",
+        "operationId": "list-alert-events",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the events of this rule.",
+            "explode": false,
+            "in": "query",
+            "name": "rule_id",
+            "schema": {
+              "description": "Only the events of this rule.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events in this state.",
+            "explode": false,
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "description": "Only events in this state.",
+              "enum": [
+                "triggered",
+                "resolved"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "next_cursor of the previous page; omitted means the first page.",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "next_cursor of the previous page; omitted means the first page.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertEventsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "List alert events",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project}/alerts/rules": {
+      "get": {
+        "description": "The project's alert rules by name, each with its latest evaluation. Open to a session that can view the project or to the project's read key.",
+        "operationId": "list-alert-rules",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRulesOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "List the alert rules of a project",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "post": {
+        "description": "Creates a threshold rule over one app and environment. Exactly one of every_s and cron sets when it is evaluated. An app or channel that is not the project's answers 422. Needs a user session with manage_alerts on the project (project admins, organization owners and admins); 403 for other members.",
+        "operationId": "create-alert-rule",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAlertRuleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRule"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Create an alert rule",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project}/alerts/rules/{id}": {
+      "delete": {
+        "description": "Deletes a rule and its events. Needs a user session with manage_alerts on the project (project admins, organization owners and admins); 403 for other members.",
+        "operationId": "delete-alert-rule",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Delete an alert rule",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "get": {
+        "description": "One rule with its latest evaluation. Open to a session that can view the project or to the project's read key.",
+        "operationId": "get-alert-rule",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRule"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Get an alert rule",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "put": {
+        "description": "Replaces every editable field of a rule; its app never changes. Needs a user session with manage_alerts on the project (project admins, organization owners and admins); 403 for other members.",
+        "operationId": "update-alert-rule",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertRuleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRule"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Replace an alert rule",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
     "/api/v1/projects/{project}/consumer-groups": {
       "get": {
         "description": "The project's consumer groups by name, with how many consumers each holds. Open to a session that can view the project or to the project's read key.",
@@ -16135,6 +18071,116 @@
           }
         ],
         "summary": "Export the request log as CSV",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project}/incidents": {
+      "get": {
+        "description": "The project's alert events grouped by rule: each rule with events in the range (or one still open), its latest event and its state now. Open to a session that can view the project or to the project's read key.",
+        "operationId": "list-incidents",
+        "parameters": [
+          {
+            "description": "Project slug.",
+            "in": "path",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "description": "Project slug.",
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Count the events started in this range ending now; open events always count.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "7d",
+              "description": "Count the events started in this range ending now; open events always count.",
+              "enum": [
+                "24h",
+                "7d",
+                "30d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Incidents feed",
         "tags": [
           "Projects"
         ]

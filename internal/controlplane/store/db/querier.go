@@ -149,11 +149,19 @@ type Querier interface {
 	InsertOutbox(ctx context.Context, arg InsertOutboxParams) (int64, error)
 	// A project's incidents feed, newest first, with the rule each belongs to.
 	// Pass the last row's started_at and id as the cursor to page; NULLs start
-	// from the newest.
+	// from the newest. rule_id and state narrow the feed when set.
 	ListAlertEvents(ctx context.Context, arg ListAlertEventsParams) ([]ListAlertEventsRow, error)
+	// A project's events grouped by rule: one row per rule of an active app
+	// with an event started at or after since, or one still open, with how
+	// many such events it has, its latest event and its trigger/resolve status
+	// ('ok' before the first evaluation). Rules with an open event come first,
+	// then by their latest event, newest first.
+	ListAlertIncidents(ctx context.Context, arg ListAlertIncidentsParams) ([]ListAlertIncidentsRow, error)
+	// Alert rule evaluation state.
+	// The latest evaluation of every evaluated rule of a project.
+	ListAlertRuleStates(ctx context.Context, projectID uuid.UUID) ([]AlertRuleState, error)
 	// A project's rules; rules of deleted apps are skipped.
 	ListAlertRules(ctx context.Context, projectID uuid.UUID) ([]AlertRule, error)
-	// Alert rule evaluation state.
 	// Every enabled rule of an active app of an active project with when it was
 	// last evaluated (NULL when never): what the evaluation job considers.
 	ListAlertRulesToEvaluate(ctx context.Context) ([]ListAlertRulesToEvaluateRow, error)

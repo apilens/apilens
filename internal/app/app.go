@@ -411,6 +411,20 @@ func (a *App) initQuery(context.Context) (modules.Service, error) {
 		return nil, err
 	}
 	svc.WithExports(a.pool, a.jobs, store)
+	// Notification channel configs are sealed with the identity
+	// key-encryption key; without one in this process channel writes and
+	// test notifications answer 503.
+	var sealer *keys.Sealer
+	if a.cfg.Identity.KeyEncryptionKey != "" {
+		kek, err := a.cfg.Identity.KEK()
+		if err != nil {
+			return nil, err
+		}
+		if sealer, err = keys.NewSealer(kek); err != nil {
+			return nil, err
+		}
+	}
+	svc.WithAlerts(a.pool, sealer, query.NewTestSender(a.pool, a.jobs, nil, a.cfg.Identity.PublicUIURL))
 	query.Register(api, svc, guard)
 	return nil, nil
 }
