@@ -10,6 +10,9 @@ const UI_URL = `http://localhost:${UI_PORT}`;
 export default defineConfig({
   testDir: "./e2e-fake",
   fullyParallel: false,
+  // One fake identity holds every spec's seeded state (apps, policies, counters): specs in
+  // parallel workers would overwrite each other's seeds, so run them one at a time.
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: 0,
   reporter: process.env.CI ? "github" : "list",
