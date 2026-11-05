@@ -260,6 +260,11 @@ tasks:
     cmds:
       - APILENS_EXAMPLES_API_KEY=unused {{.EXAMPLES_COMPOSE}} rm -sf example-fastapi example-express example-spring
 
+  bench:examples:
+    desc: "SDK overhead on the example apps: off vs metadata/redacted/full at 1 KB/32 KB (task examples:up first; docs/benchmarks/examples-overhead.md)"
+    cmds:
+      - bash tools/appbench/bench.sh {{.CLI_ARGS}}
+
   # ------------------------------------------------------------- run
   build:
     desc: Build the apilens binary into ./bin
