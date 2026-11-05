@@ -26,19 +26,32 @@ client = ApiLensClient(ApiLensConfig(api_key="apilens_xxx"))
 | `base_url` | `"https://ingest.apilens.ai/v1"` | Ingest base URL. Point at your own host if self-hosting ingest. |
 | `environment` | `"production"` | Environment label attached to every record. |
 | `batch_size` | `200` | Records per batch; reaching it triggers an immediate flush. |
+| `max_batch_bytes` | `4 * 1024 * 1024` | Byte cap on one POST's JSON body (uncompressed). A batch is cut at `batch_size` records or `max_batch_bytes`, whichever comes first. |
 | `flush_interval` | `3.0` | Seconds between background flushes. |
 | `mode` | `"thread"` | `"thread"`: a background thread flushes every `flush_interval`. `"inline"` (serverless): no thread; `client.flush()` sends synchronously and the ASGI/WSGI middlewares call it after each response is sent. Env `APILENS_MODE`. |
 | `timeout` | `5.0` | Per-request HTTP timeout (seconds). |
 | `verify_tls` | `True` | TLS certificate verification. |
 | `ca_bundle_path` | `""` | Custom CA bundle for private CAs. |
 | `max_queue_size` | `10_000` | Per-queue cap; oldest records are dropped when full. |
+| `max_queue_bytes` | `64 * 1024 * 1024` | Memory cap shared by the request, span and log queues; oldest records are dropped once exceeded. |
 | `max_retries` | `3` | Delivery attempts per batch. |
 | `retry_backoff_base` | `0.25` | Exponential backoff base (seconds). |
 | `retry_backoff_max` | `5.0` | Backoff ceiling (seconds). |
+| `compress` | `True` | gzip each batch (`Content-Encoding: gzip`); `False` sends plain JSON. |
+| `proxy_url` | `""` | Egress proxy for ingest traffic. Falls back to `APILENS_PROXY`, then `HTTPS_PROXY` / `HTTP_PROXY`. |
 | `enabled` | `True` | Master kill switch — `False` disables capture and the background worker. |
 | `capture_ip` | `True` | `False` sends no client IP at all. See [Client IP](/getting-started/data-privacy#client-ip-capture_ip-and-anonymize_ip). |
 | `anonymize_ip` | `False` | Truncate client IPs in-process: IPv4 to /24 (last octet zeroed), IPv6 to /48. |
+| `mask_log_record` | `None` | `(LogRecord) -> LogRecord \| None` run on every log record (auto error-trace logs) before it is queued: edit and return it, or return `None` to drop it. Built-in `key=value` masking runs afterwards; a callback that raises drops the record. See [Data privacy](/getting-started/data-privacy#masking-error-trace-logs-mask_log_record). |
+| `send_metadata` | `True` | Report framework, versions, route templates and the effective capture config once per process start. Env `APILENS_SEND_METADATA=false` also turns it off. |
+| `send_heartbeat` | `True` | Send a heartbeat on start, every `heartbeat_interval` and on shutdown; its response carries the remote capture policy. Env `APILENS_SEND_HEARTBEAT=false` also turns it off. |
+| `heartbeat_interval` | `60.0` | Seconds between heartbeats (minimum 10). |
+| `app_id` | `""` | App to send heartbeats for when the client is used without a middleware (middlewares register their own). |
+| `release` / `commit` | `""` | Deploy correlation stamped on every record. Empty auto-detects from `APILENS_RELEASE` / `APILENS_COMMIT` (also `GIT_COMMIT`, `SOURCE_VERSION`, `RENDER_GIT_COMMIT`). |
+| `on_stats` | `None` | `(ClientStats) -> None`, called on the flush thread every `flush_interval` with a stats snapshot (e.g. to export to Prometheus). Exceptions are ignored. |
+| `user_agent` | `"apilenss/<version>"` | `User-Agent` header the SDK sends to ingest. |
 | `ingest_path` / `spans_path` / `logs_path` | `"/requests"` / `"/traces"` / `"/logs"` | Endpoint paths, relative to `base_url`. |
+| `metadata_path` / `heartbeat_path` | `"/metadata"` / `"/heartbeat"` | Metadata and heartbeat endpoint paths, relative to `base_url`. |
 
 ## Middleware options (capture)
 
@@ -48,16 +61,25 @@ Accepted by `ApiLensMiddleware` (FastAPI), `instrument_app`/`instrument_flask`, 
 |---|---|---|
 | `app_id` | `""` | App slug — attributes traffic to an app in the project. **Required for tracing.** |
 | `environment` | client's value | Per-app override of the environment label. |
+| `capture_profile` | `None` (= `full`) | `"metadata"`, `"redacted"` or `"full"`: sets the defaults of the capture flags below; an explicit flag wins. See [Capture profiles](/getting-started/data-privacy#capture-profiles). |
 | `enable_request_logging` | `True` | Master switch for header + body capture. |
 | `log_request_body` | `True` | Capture request bodies. |
 | `log_response_body` | `True` | Capture response bodies. |
 | `capture_payloads` | `True` | AND-ed with `enable_request_logging` for bodies. |
 | `capture_headers` | `True` | Capture headers (sensitive values redacted — see [Data privacy](/getting-started/data-privacy)). |
 | `max_payload_bytes` | `65536` | Per-body truncation limit; `0` disables body capture. |
+| `capture_validation_errors` | `True` | Parse 400/422 framework validation responses into `validation_errors` (`loc`, `msg`, `type` only). ASGI and Django. |
 | `capture_content_types` | JSON, `+json`, `text/*`, form-encoded | Media-type globs whose bodies are captured; it replaces the defaults. Other bodies are stored as `[<content-type>, N bytes omitted]`. See [Data privacy](/getting-started/data-privacy#which-bodies-are-captured). |
 | `redact_query_params` | `None` | Regexes matched against query parameter names; matched values stored as `[redacted]`. |
 | `redact_headers` | `None` | Regexes matched against header names, on top of the built-in sensitive-header list. |
 | `redact_body_fields` | `None` | Regexes matched against JSON body field names (recursive, request and response). |
+| `mask_request_body` / `mask_response_body` | `None` | `(info, body: bytes) -> bytes \| None` callbacks on the captured (truncated) raw body. They run before regex field masking, then the built-in defaults; returning `None` or raising masks the whole body. |
+| `exclude_paths` | `None` | Regexes for paths to skip entirely (no record, span or log), matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` adds to it. |
+| `exclude_user_agents` | `None` | Regexes for `User-Agent` values to skip entirely (case-insensitive search). `APILENS_EXCLUDE_USER_AGENTS` adds to it. |
+| `default_exclusions` | `True` | Skip the built-in health/probe paths and probe user agents. `False` turns them off; your own exclusions still apply. See [Default exclusions](/getting-started/data-privacy#default-exclusions). |
+| `sample_rate` | `1.0` | Fraction (0.0–1.0) of requests whose detail (headers, bodies, spans, error log) is kept. The base record is always sent. See [Sampling](/sdk-reference/sampling). |
+| `sample_on_request` | `None` | `(RequestInfo) -> bool \| float \| None` evaluated before the handler; overrides `sample_rate` per request. |
+| `sample_on_response` | `None` | `(ResponseInfo) -> bool \| float \| None` evaluated after the response; can drop a kept request's detail, never un-drop one. |
 | `capture_spans` | `True` | Automatic tracing + error-trace capture. |
 | `service_name` | `""` | Span service name (defaults to the app id). |
 | `get_consumer` | `None` | Centralized consumer resolver — see [Consumer identification](/sdk-reference/consumers). |
@@ -88,11 +110,13 @@ parsed values as a dict.
 | `APILENS_ENVIRONMENT` | `environment` | string | `"production"` |
 | `APILENS_BASE_URL` | `base_url` | string | `https://ingest.apilens.ai/v1` |
 | `APILENS_ENABLED` | `enabled` | bool | `true` |
+| `APILENS_CAPTURE_PROFILE` | `capture_profile` | `metadata`, `redacted` or `full` | none (= `full`) |
 | `APILENS_CAPTURE_HEADERS` | `capture_headers` | bool | `true` |
 | `APILENS_CAPTURE_PAYLOADS` | `capture_payloads` | bool | `true` |
 | `APILENS_LOG_REQUEST_BODY` | `log_request_body` | bool | `true` |
 | `APILENS_LOG_RESPONSE_BODY` | `log_response_body` | bool | `true` |
 | `APILENS_MAX_PAYLOAD_BYTES` | `max_payload_bytes` | int | `65536` |
+| `APILENS_CAPTURE_VALIDATION_ERRORS` | `capture_validation_errors` | bool | `true` |
 | `APILENS_CAPTURE_CONTENT_TYPES` | `capture_content_types` | list | JSON, `+json`, `text/*`, form-encoded |
 | `APILENS_REDACT_QUERY_PARAMS` | `redact_query_params` | list | none |
 | `APILENS_REDACT_HEADERS` | `redact_headers` | list | none |
@@ -120,6 +144,7 @@ Other variables, outside this loader:
 | `APILENS_PARAMETRIZE_PATHS` | `0`/`false`/`no`/`off` disables the heuristic templating fallback. |
 | `APILENS_FLUSH_ON_SHUTDOWN` | `0`/`false`/`no`/`off` disables the automatic shutdown flush (lifespan and `atexit`). |
 | `APILENS_SEND_METADATA` | `false` never sends the startup app metadata report. |
+| `APILENS_SEND_HEARTBEAT` | `false` never sends heartbeats. |
 | `APILENS_PROXY` | Egress proxy for ingest traffic (`proxy_url`). |
 | `APILENS_RELEASE` / `APILENS_COMMIT` | Deploy correlation stamped on every record. |
 
