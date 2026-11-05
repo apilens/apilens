@@ -11,6 +11,12 @@
 
 export const REDACTED = "[redacted]";
 
+/**
+ * Stored in place of a whole body that a mask callback dropped (returned
+ * `null`) or failed on (threw / returned something that is not a `Buffer`).
+ */
+export const MASKED = "[masked]";
+
 /** Header names whose VALUES must never leave the app (case-insensitive). */
 export const SENSITIVE_HEADERS: ReadonlySet<string> = new Set([
   "authorization",
@@ -65,6 +71,27 @@ export const DEFAULT_MASK_BODY_FIELDS: readonly string[] = [
 ];
 
 export const MAX_HEADER_BYTES = 8192;
+
+/**
+ * Media types whose bodies are captured by default. Anything else (multipart
+ * uploads, images, archives, octet streams, ...) is never buffered and is
+ * stored as an `[<content-type>, N bytes omitted]` placeholder. Entries are
+ * shell-style globs matched case-insensitively against the media type with
+ * parameters (`; charset=...`) stripped. `captureContentTypes` replaces this
+ * list.
+ */
+export const DEFAULT_CAPTURE_CONTENT_TYPES: readonly string[] = [
+  "application/json",
+  "application/*+json",
+  "text/*",
+  "application/x-www-form-urlencoded",
+];
+
+/** Form-encoded bodies are masked field by field like a query string. */
+export const FORM_CONTENT_TYPE = "application/x-www-form-urlencoded";
+
+/** What a body with no Content-Type is treated as (RFC 9110 section 8.3). */
+const UNKNOWN_CONTENT_TYPE = "application/octet-stream";
 
 /**
  * How deep {@link Redactor.redactBody} walks nested JSON before giving up
@@ -191,6 +218,35 @@ function quoteComponent(value: string): string {
 }
 
 /**
+ * Replace the values of sensitive `name=value` pairs in url-encoded text.
+ * Text with no sensitive pair is returned unchanged, byte for byte;
+ * unparseable input is passed through untouched.
+ */
+function redactPairs(encoded: string, sensitive: (name: string) => boolean): string {
+  if (!encoded) {
+    return encoded;
+  }
+  try {
+    const pairs = parseQuery(encoded);
+    if (pairs.length === 0) {
+      return encoded;
+    }
+    if (!pairs.some(([name]) => sensitive(name))) {
+      // Nothing sensitive: keep the original encoding byte-for-byte.
+      return encoded;
+    }
+    return pairs
+      .map(
+        ([name, value]) =>
+          `${quoteComponent(name)}=${sensitive(name) ? REDACTED : quoteComponent(value)}`,
+      )
+      .join("&");
+  } catch (_error) {
+    return encoded;
+  }
+}
+
+/**
  * Compiled PII redaction rules for captured request data.
  *
  * Built once per middleware: the built-in `DEFAULT_MASK_*` patterns always
@@ -228,28 +284,21 @@ export class Redactor {
    * byte for byte; unparseable input is passed through untouched.
    */
   redactQuery(query: string): string {
-    if (!query) {
-      return query;
-    }
-    try {
-      const pairs = parseQuery(query);
-      if (pairs.length === 0) {
-        return query;
-      }
-      const pattern = this.queryParams;
-      if (!pairs.some(([name]) => pattern.test(name))) {
-        // Nothing sensitive: keep the original encoding byte-for-byte.
-        return query;
-      }
-      return pairs
-        .map(
-          ([name, value]) =>
-            `${quoteComponent(name)}=${pattern.test(name) ? REDACTED : quoteComponent(value)}`,
-        )
-        .join("&");
-    } catch (_error) {
-      return query;
-    }
+    const pattern = this.queryParams;
+    return redactPairs(query, (name) => pattern.test(name));
+  }
+
+  /**
+   * Redact matching field values in an `application/x-www-form-urlencoded`
+   * body. A form field is masked when its name matches the body field
+   * patterns or the query parameter patterns (built-ins included), so
+   * `password=x` is stored as `password=[redacted]`. Bodies with no matching
+   * field are returned byte for byte.
+   */
+  redactForm(payload: string): string {
+    const body = this.bodyFields;
+    const query = this.queryParams;
+    return redactPairs(payload, (name) => body.test(name) || query.test(name));
   }
 
   /**
@@ -358,4 +407,213 @@ export function serializeHeaders(
     }
   }
   return blob;
+}
+
+/** `"Application/JSON; charset=utf-8"` -> `"application/json"`. */
+export function mediaType(contentType: string | null | undefined): string {
+  return String(contentType || "").split(";", 1)[0].trim().toLowerCase();
+}
+
+/** Python `fnmatch.fnmatchcase` for the `*` / `?` globs content types use. */
+function globToRegExp(glob: string): RegExp {
+  const source = glob
+    .split("")
+    .map((ch) => {
+      if (ch === "*") {
+        return ".*";
+      }
+      if (ch === "?") {
+        return ".";
+      }
+      return ch.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    })
+    .join("");
+  return new RegExp(`^${source}$`);
+}
+
+/**
+ * Decides from the Content-Type whether a body is captured at all.
+ *
+ * Built once per middleware from `captureContentTypes` (default
+ * {@link DEFAULT_CAPTURE_CONTENT_TYPES}). Patterns are shell-style globs
+ * (`text/*`, `application/*+json`) matched case-insensitively against the
+ * media type without parameters. A body with no Content-Type is treated as
+ * `application/octet-stream`.
+ */
+export class ContentTypeFilter {
+  readonly patterns: readonly string[];
+  private readonly matchers: readonly RegExp[];
+
+  constructor(patterns?: string | ReadonlyArray<string> | null) {
+    const list =
+      patterns === undefined || patterns === null
+        ? DEFAULT_CAPTURE_CONTENT_TYPES
+        : typeof patterns === "string"
+          ? patterns.split(",")
+          : patterns;
+    this.patterns = [
+      ...new Set(
+        list.map((p) => String(p || "").trim().toLowerCase()).filter((p) => p.length > 0),
+      ),
+    ];
+    this.matchers = this.patterns.map(globToRegExp);
+  }
+
+  allows(contentType: string | null | undefined): boolean {
+    const mt = mediaType(contentType) || UNKNOWN_CONTENT_TYPE;
+    return this.matchers.some((re) => re.test(mt));
+  }
+}
+
+/**
+ * Placeholder stored instead of a body whose content type is not captured.
+ * Returns `""` for an empty body, so a bodiless request stays empty.
+ */
+export function omittedBody(contentType: string | null | undefined, size: number): string {
+  const n = Math.max(Math.floor(Number(size) || 0), 0);
+  if (n === 0) {
+    return "";
+  }
+  return `[${mediaType(contentType) || UNKNOWN_CONTENT_TYPE}, ${n} bytes omitted]`;
+}
+
+/**
+ * What a `maskRequestBody` callback is told about the request.
+ *
+ * `path` is the request path without query string; `rawPath` is the exact URL
+ * with sensitive query values already redacted. `headers` are the request
+ * headers with lower-cased names, unredacted (the callback runs in-process;
+ * nothing has left the app yet).
+ */
+export type RequestBodyInfo = {
+  readonly method: string;
+  readonly path: string;
+  readonly rawPath: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly contentType: string;
+};
+
+/** What a `maskResponseBody` callback is told about the response. */
+export type ResponseBodyInfo = {
+  readonly request: RequestBodyInfo;
+  readonly statusCode: number;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly contentType: string;
+};
+
+/**
+ * `(info, body) => Buffer | null`: return the (possibly rewritten) body bytes,
+ * or `null` to drop the whole body (stored as {@link MASKED}). A string
+ * return is accepted and UTF-8 encoded; anything else, or a throw, also
+ * stores {@link MASKED}.
+ */
+export type BodyMasker<Info> = (info: Info, body: Buffer) => Buffer | string | null | undefined;
+export type RequestBodyMasker = BodyMasker<RequestBodyInfo>;
+export type ResponseBodyMasker = BodyMasker<ResponseBodyInfo>;
+
+/** Header map with lower-cased names and string values, for the mask callback infos. */
+export function lowerHeaders(headers: HeaderMap | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!headers) {
+    return out;
+  }
+  for (const [key, value] of Object.entries(headers)) {
+    if (key && value !== undefined && value !== null) {
+      out[key.toLowerCase()] = headerValueToString(value);
+    }
+  }
+  return out;
+}
+
+/**
+ * Decode UTF-8, dropping an incomplete multibyte sequence at the tail.
+ *
+ * Payloads are captured by byte budget, so the cut can land in the middle of
+ * a multibyte character; trimming the dangling bytes avoids a trailing `�`.
+ */
+export function decodeUtf8Safe(data: Buffer): string {
+  if (!data || data.length === 0) {
+    return "";
+  }
+  let cut = data.length;
+  // Walk back to the lead byte of the last character (at most 3 continuation bytes).
+  let i = cut - 1;
+  while (i > 0 && cut - i < 4 && (data[i] & 0xc0) === 0x80) {
+    i -= 1;
+  }
+  const lead = data[i];
+  const need = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
+  if (lead >= 0xc0 && cut - i < need) {
+    cut = i;
+  }
+  return data.subarray(0, cut).toString("utf8");
+}
+
+export type MaskBodyOptions<Info> = {
+  redactor: Redactor;
+  masker?: BodyMasker<Info> | null;
+  info?: Info;
+  contentType?: string | null;
+};
+
+/**
+ * Turn captured body bytes into the payload string that is sent.
+ *
+ * Order is fixed: the user `masker` callback runs first on the (already
+ * truncated) raw bytes, then the result is decoded and the regex field
+ * masking (user patterns plus the built-in defaults) is applied by
+ * `redactor`. The callback can rewrite or drop the body but can never switch
+ * the built-ins off. Form-encoded bodies are masked field by field
+ * ({@link Redactor.redactForm}); everything else goes through the JSON field
+ * masking (a no-op for non-JSON text).
+ *
+ * Fail closed: if the callback returns `null`/`undefined`, throws, or returns
+ * something that is not a `Buffer`/`Uint8Array`/string, the whole body
+ * becomes {@link MASKED}; the raw body is never sent in that case.
+ */
+export function maskBody<Info>(body: Buffer, options: MaskBodyOptions<Info>): string {
+  if (!body || body.length === 0) {
+    return "";
+  }
+  let bytes = body;
+  if (options.masker) {
+    let result: unknown;
+    try {
+      // A copy: the callback cannot mutate the captured buffer.
+      result = options.masker(options.info as Info, Buffer.from(body));
+    } catch (_error) {
+      return MASKED;
+    }
+    if (typeof result === "string") {
+      bytes = Buffer.from(result, "utf8");
+    } else if (result instanceof Uint8Array) {
+      bytes = Buffer.from(result.buffer, result.byteOffset, result.byteLength);
+    } else {
+      return MASKED;
+    }
+  }
+  const text = decodeUtf8Safe(bytes);
+  if (mediaType(options.contentType) === FORM_CONTENT_TYPE) {
+    return options.redactor.redactForm(text);
+  }
+  return options.redactor.redactBody(text);
+}
+
+export type CaptureBodyOptions<Info> = MaskBodyOptions<Info> & {
+  /** Full body length in bytes, for the omitted-body placeholder. */
+  size: number;
+  contentTypes: ContentTypeFilter;
+};
+
+/**
+ * The payload string for one captured side (request or response). A body
+ * whose content type `contentTypes` does not allow is stored as the
+ * {@link omittedBody} placeholder (callers must not have buffered it); an
+ * allowed body goes through {@link maskBody}.
+ */
+export function captureBody<Info>(body: Buffer, options: CaptureBodyOptions<Info>): string {
+  if (!options.contentTypes.allows(options.contentType)) {
+    return omittedBody(options.contentType, options.size);
+  }
+  return maskBody(body, options);
 }

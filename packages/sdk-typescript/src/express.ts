@@ -5,7 +5,16 @@ import { ApiLensClient } from "./client.js";
 import { RequestExcluder } from "./exclusions.js";
 import { Sampler } from "./sampling.js";
 import { expressRouteTemplate, parametrizeEnabled, resolveEndpointPath } from "./routes.js";
-import { Redactor, serializeHeaders } from "./sanitize.js";
+import {
+  ContentTypeFilter,
+  FORM_CONTENT_TYPE,
+  Redactor,
+  captureBody,
+  lowerHeaders,
+  mediaType,
+  serializeHeaders,
+} from "./sanitize.js";
+import type { RequestBodyInfo, ResponseBodyInfo } from "./sanitize.js";
 import {
   firstForwardedIp,
   payloadToString,
@@ -62,6 +71,46 @@ function trackConsumer(
   consumer: ApiLensConsumer | string | null | undefined,
 ): void {
   setConsumer(req, consumer);
+}
+
+function headerString(value: unknown): string {
+  if (value === undefined || value === null) {
+    return "";
+  }
+  return Array.isArray(value) ? value.map(String).join(", ") : String(value);
+}
+
+/**
+ * The captured request body as bytes, at most `maxBytes`. Express hands the
+ * body over already parsed: a parsed form (`express.urlencoded`) is
+ * re-encoded as a form so it is masked field by field; other objects are
+ * serialized as JSON.
+ */
+function requestBodyBytes(body: unknown, contentType: string, maxBytes: number): Buffer {
+  if (body === undefined || body === null || maxBytes <= 0) {
+    return Buffer.alloc(0);
+  }
+  if (Buffer.isBuffer(body)) {
+    return body.subarray(0, maxBytes);
+  }
+  if (typeof body === "string") {
+    return Buffer.from(body, "utf8").subarray(0, maxBytes);
+  }
+  if (
+    mediaType(contentType) === FORM_CONTENT_TYPE &&
+    typeof body === "object" &&
+    !Array.isArray(body)
+  ) {
+    const form = new URLSearchParams();
+    for (const [name, value] of Object.entries(body as Record<string, unknown>)) {
+      const values = Array.isArray(value) ? value : [value];
+      for (const v of values) {
+        form.append(name, typeof v === "string" ? v : JSON.stringify(v) ?? "");
+      }
+    }
+    return Buffer.from(form.toString(), "utf8").subarray(0, maxBytes);
+  }
+  return Buffer.from(payloadToString(body, maxBytes), "utf8");
 }
 
 function buildClient(config: ApiLensExpressConfig = {}): ApiLensClient {
@@ -121,6 +170,9 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
     headers: config.redactHeaders,
     bodyFields: config.redactBodyFields,
   });
+  // Bodies of other media types (multipart, binary) are never buffered and
+  // are stored as an "[<type>, N bytes omitted]" placeholder.
+  const contentTypes = new ContentTypeFilter(config.captureContentTypes);
   // Validated here: an out-of-range sampleRate throws at startup.
   const sampler = new Sampler({
     sampleRate: config.sampleRate,
@@ -193,6 +245,14 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
     const responseChunks: Buffer[] = [];
     let responseSize = 0;
     let bufferedSize = 0;
+    // Decided on the first body chunk, once the handler has set Content-Type.
+    let bufferResponse: boolean | undefined;
+    const responseCapturable = (): boolean => {
+      if (bufferResponse === undefined) {
+        bufferResponse = contentTypes.allows(headerString(res.getHeader("content-type")));
+      }
+      return bufferResponse;
+    };
 
     const originalWrite = res.write.bind(res);
     const originalEnd = res.end.bind(res);
@@ -213,7 +273,8 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
         logResponseBody &&
         maxPayloadBytes > 0 &&
         chunk &&
-        bufferedSize < maxPayloadBytes
+        bufferedSize < maxPayloadBytes &&
+        responseCapturable()
       ) {
         const raw = Buffer.isBuffer(chunk)
           ? chunk
@@ -248,7 +309,8 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
         logResponseBody &&
         maxPayloadBytes > 0 &&
         chunk &&
-        bufferedSize < maxPayloadBytes
+        bufferedSize < maxPayloadBytes &&
+        responseCapturable()
       ) {
         const raw = Buffer.isBuffer(chunk)
           ? chunk
@@ -288,19 +350,56 @@ function createApiLensMiddleware(config: ApiLensExpressConfig = {}): MiddlewareW
           sampled,
         }));
 
-        // Redacted here, before capture(): raw values never reach the queue.
-        // A sampled-out request sends only the base record: no headers or bodies.
-        const requestPayload =
-          sampled && capturePayloads && logRequestBody
-            ? redactor.redactBody(payloadToString(req.body, maxPayloadBytes))
-            : "";
-        const responsePayload =
-          sampled && capturePayloads && logResponseBody
-            ? redactor.redactBody(Buffer.concat(responseChunks).toString("utf8"))
-            : "";
-
         const contentLength = toNumber(res.getHeader("content-length"), 0);
         const finalResponseSize = contentLength > 0 ? contentLength : responseSize;
+
+        // Masked here, before capture(): raw values never reach the queue.
+        // The user mask callbacks run first, then the regex field masking.
+        // A sampled-out request sends only the base record: no headers or bodies.
+        const capturing = sampled && capturePayloads;
+        const requestContentType = headerString(req.headers["content-type"]);
+        let requestInfo: RequestBodyInfo | undefined;
+        const getRequestInfo = (): RequestBodyInfo => {
+          requestInfo ??= {
+            method,
+            path: rawPath,
+            rawPath: rawPathWithQuery,
+            headers: lowerHeaders(req.headers),
+            contentType: requestContentType,
+          };
+          return requestInfo;
+        };
+        const requestPayload =
+          capturing && logRequestBody
+            ? captureBody(requestBodyBytes(req.body, requestContentType, maxPayloadBytes), {
+                size: requestSize,
+                contentType: requestContentType,
+                contentTypes,
+                redactor,
+                masker: config.maskRequestBody,
+                info: config.maskRequestBody ? getRequestInfo() : undefined,
+              })
+            : "";
+        let responsePayload = "";
+        if (capturing && logResponseBody) {
+          const responseContentType = headerString(res.getHeader("content-type"));
+          const responseInfo: ResponseBodyInfo | undefined = config.maskResponseBody
+            ? {
+                request: getRequestInfo(),
+                statusCode: res.statusCode,
+                headers: lowerHeaders(res.getHeaders()),
+                contentType: responseContentType,
+              }
+            : undefined;
+          responsePayload = captureBody(Buffer.concat(responseChunks), {
+            size: Math.max(finalResponseSize, 0),
+            contentType: responseContentType,
+            contentTypes,
+            redactor,
+            masker: config.maskResponseBody,
+            info: responseInfo,
+          });
+        }
 
         client.capture({
           timestamp: new Date(),

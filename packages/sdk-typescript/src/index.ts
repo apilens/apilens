@@ -33,21 +33,33 @@ export type {
   SamplerOptions,
 } from "./sampling.js";
 export {
+  ContentTypeFilter,
+  DEFAULT_CAPTURE_CONTENT_TYPES,
   DEFAULT_MASK_BODY_FIELDS,
   DEFAULT_MASK_HEADER_PATTERNS,
   DEFAULT_MASK_QUERY_PARAMS,
+  FORM_CONTENT_TYPE,
+  MASKED,
   MAX_BODY_DEPTH,
   MAX_HEADER_BYTES,
   REDACTED,
   Redactor,
   SENSITIVE_HEADERS,
+  captureBody,
+  maskBody,
+  omittedBody,
   serializeHeaders,
 } from "./sanitize.js";
 export type {
+  BodyMasker,
   HeaderMap,
   HeaderValue,
   RedactorOptions,
   RedactPattern,
+  RequestBodyInfo,
+  RequestBodyMasker,
+  ResponseBodyInfo,
+  ResponseBodyMasker,
   SerializeHeadersOptions,
 } from "./sanitize.js";
 export type {
