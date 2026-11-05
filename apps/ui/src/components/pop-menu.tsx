@@ -13,6 +13,8 @@ export function PopMenu({
   triggerRef,
   label,
   align = "start",
+  role = "menu",
+  id,
   children,
 }: {
   open: boolean;
@@ -20,6 +22,9 @@ export function PopMenu({
   triggerRef: RefObject<HTMLElement | null>;
   label: string;
   align?: "start" | "end" | "side" | "up" | "side-up";
+  /** `dialog` for a small inline form in place of menu items. */
+  role?: "menu" | "dialog";
+  id?: string;
   children: ReactNode;
 }) {
   const menu = useRef<HTMLDivElement>(null);
@@ -63,7 +68,7 @@ export function PopMenu({
 
   if (!open || !pos) return null;
   return createPortal(
-    <div ref={menu} className="ah cp-orgmenu org-pop" role="menu" aria-label={label} style={{ top: pos.top, bottom: pos.bottom, left: pos.left }}>
+    <div ref={menu} className="ah cp-orgmenu org-pop" id={id} role={role} aria-label={label} style={{ top: pos.top, bottom: pos.bottom, left: pos.left }}>
       {children}
     </div>,
     document.body,

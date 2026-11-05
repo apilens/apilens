@@ -73,7 +73,18 @@ async function signIn(page: Page, next = PAGE) {
 const tiles = (page: Page) => page.locator("dl.tr-tiles .tr-tile__value");
 const endpointsTable = (page: Page) => page.getByRole("table", { name: "Endpoints" });
 
+/** Forgets every saved endpoint setting (#600) and puts back shop's one app. */
+async function resetSettings() {
+  await fetch(`${IDENTITY}/__fake/endpoint`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project: "shop", method: "GET", path: "/orders/{id}", tabs: {} }),
+  });
+  await fetch(`${IDENTITY}/__fake/apps`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apps: [] }) });
+}
+
 test.afterEach(async () => {
+  await resetSettings();
   await queryDown(false);
   // Other specs read shop's traffic from the requests the fake edge stored.
   await seed({});
@@ -101,11 +112,11 @@ test("shows requests, errors, latency and Apdex tiles, the status-split chart an
   expect(await fill(".tr-fill-4xx")).not.toBe(await fill(".tr-fill-5xx"));
   await expect(page.getByRole("img", { name: /Response time/ })).toHaveAttribute("aria-label", /p95 of 413 ms/);
 
-  await expect(endpointsTable(page).getByRole("columnheader")).toHaveText(["Endpoint", "Requests", "4xx", "5xx", "p50", "p95", "Apdex"]);
+  await expect(endpointsTable(page).getByRole("columnheader")).toHaveText(["Endpoint", "Requests", "4xx", "5xx", "p50", "p95", "Apdex", "Settings"]);
   const rows = endpointsTable(page).locator("tbody tr");
   await expect(rows).toHaveCount(2);
-  await expect(rows.nth(0).getByRole("cell")).toHaveText(["GET /orders/{id}", "8,200", "290 (3.5%)", "2 (<0.1%)", "31 ms", "220 ms", "0.97"]);
-  await expect(rows.nth(1).getByRole("cell")).toHaveText(["POST /charge", "4,200", "20 (0.5%)", "60 (1.4%)", "410 ms", "1.82 s", "0.61"]);
+  await expect(rows.nth(0).getByRole("cell")).toHaveText(["GET /orders/{id}", "8,200", "290 (3.5%)", "2 (<0.1%)", "31 ms", "220 ms", "0.97", ""]);
+  await expect(rows.nth(1).getByRole("cell")).toHaveText(["POST /charge", "4,200", "20 (0.5%)", "60 (1.4%)", "410 ms", "1.82 s", "0.61", ""]);
 
   const a11y = await new AxeBuilder({ page }).include(".tr").analyze();
   expect(a11y.violations).toEqual([]);
@@ -230,4 +241,142 @@ test("stacks at phone width without sideways scrolling", async ({ page }) => {
   await expect(endpointsTable(page).locator("tbody tr")).toHaveCount(2);
   const overflow = await page.locator(".app-main").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+  // The row's settings button stays on the row and opens its menu.
+  await endpointsTable(page).getByRole("button", { name: "Settings for POST /charge" }).click();
+  await expect(page.getByRole("menu", { name: "Settings for POST /charge" })).toBeInViewport();
+});
+
+// The endpoint row menu (#600) ---------------------------------------------------------------
+
+const rowMenu = (page: Page, ep: string) => page.getByRole("menu", { name: `Settings for ${ep}` });
+
+async function openRowMenu(page: Page, ep: string) {
+  await endpointsTable(page).getByRole("button", { name: `Settings for ${ep}` }).click();
+  const menu = rowMenu(page, ep);
+  await expect(menu).toBeVisible();
+  // The settings load when the menu opens.
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" })).toBeEnabled();
+  return menu;
+}
+
+test("the row menu marks 404 as expected and takes it back", async ({ page }) => {
+  await seed();
+  await signIn(page);
+  const trigger = endpointsTable(page).getByRole("button", { name: "Settings for GET /orders/{id}" });
+  await expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+  let menu = await openRowMenu(page, "GET /orders/{id}");
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(menu.getByRole("menuitemcheckbox")).toHaveText(["Mark 404 as expected", "Exclude from metrics"]);
+  await expect(menu.getByRole("menuitem", { name: /^Response time threshold/ })).toContainText("App default");
+  const a11y = await new AxeBuilder({ page }).include(".org-pop").analyze();
+  expect(a11y.violations).toEqual([]);
+
+  const mark = menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" });
+  await expect(mark).toHaveAttribute("aria-checked", "false");
+  await mark.click();
+  await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await expect(page.getByRole("status").filter({ hasText: "GET /orders/{id} no longer counts 404 responses as client errors." })).toBeVisible();
+
+  menu = await openRowMenu(page, "GET /orders/{id}");
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" })).toHaveAttribute("aria-checked", "true");
+  await menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "GET /orders/{id} counts 404 responses as client errors again." })).toBeVisible();
+  menu = await openRowMenu(page, "GET /orders/{id}");
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" })).toHaveAttribute("aria-checked", "false");
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+});
+
+test("the row menu sets the response time threshold in a small form", async ({ page }) => {
+  await seed();
+  await signIn(page);
+  const menu = await openRowMenu(page, "POST /charge");
+  await menu.getByRole("menuitem", { name: /^Response time threshold/ }).click();
+  const form = page.getByRole("dialog", { name: "Response time threshold for POST /charge" });
+  await expect(form).toBeVisible();
+  const field = form.getByRole("textbox", { name: "Response time threshold (ms)" });
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue("");
+
+  await field.fill("0");
+  await form.getByRole("button", { name: "Save threshold" }).click();
+  await expect(form.getByRole("alert")).toHaveText("Enter whole milliseconds from 1 to 600,000, or leave it empty for the app default.");
+  await expect(field).toHaveAttribute("aria-invalid", "true");
+
+  await field.fill("1500");
+  await form.getByRole("button", { name: "Save threshold" }).click();
+  await expect(form).toBeHidden();
+  await expect(page.getByRole("status").filter({ hasText: "POST /charge counts requests slower than 1,500 ms as slow." })).toBeVisible();
+
+  // Reopened, the menu and its form show the saved threshold.
+  const again = await openRowMenu(page, "POST /charge");
+  await expect(again.getByRole("menuitem", { name: /^Response time threshold/ })).toContainText("1,500 ms");
+  await again.getByRole("menuitem", { name: /^Response time threshold/ }).click();
+  await expect(page.getByRole("textbox", { name: "Response time threshold (ms)" })).toHaveValue("1500");
+  await page.getByRole("button", { name: "Back" }).click();
+  await expect(rowMenu(page, "POST /charge")).toBeVisible();
+});
+
+test("the row menu excludes an endpoint from metrics", async ({ page }) => {
+  await seed();
+  await signIn(page);
+  const menu = await openRowMenu(page, "POST /charge");
+  await menu.getByRole("menuitemcheckbox", { name: "Exclude from metrics" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "POST /charge is excluded from metrics." })).toBeVisible();
+  // The table reads itself again and leaves the endpoint out.
+  await expect(endpointsTable(page).locator("tbody tr")).toHaveCount(1);
+  await expect(endpointsTable(page).getByRole("link", { name: "POST /charge" })).toHaveCount(0);
+
+  // Its endpoint page says so and can include it again.
+  await page.goto("/shop/endpoints/POST/%2Fcharge");
+  await expect(page.locator(".ep-badge")).toHaveText("Excluded from dashboards");
+});
+
+test("the row menu is read-only without capture.manage", async ({ page }) => {
+  await seed();
+  const res = await fetch(`${IDENTITY}/__fake/handoff`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ next: PAGE, capabilities: ["project.read"] }),
+  });
+  const { code } = (await res.json()) as { code: string };
+  await page.goto(`/auth/callback?code=${code}`);
+  await page.waitForURL((url) => url.pathname === PAGE);
+  await endpointsTable(page).getByRole("button", { name: "Settings for GET /orders/{id}" }).click();
+  const menu = rowMenu(page, "GET /orders/{id}");
+  await expect(menu.getByText("Only project admins can change endpoint settings.")).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: /^Response time threshold/ })).toContainText("App default");
+  for (const item of await menu.getByRole("menuitemcheckbox").all()) await expect(item).toBeDisabled();
+  await expect(menu.getByRole("menuitem", { name: /^Response time threshold/ })).toBeDisabled();
+});
+
+test("the row menu picks the app when the project has several", async ({ page }) => {
+  const shop = "7f1c2a3b-4d5e-4f60-8a9b-0c1d2e3f4a5b";
+  const billing = "8a2d3b4c-5e6f-4a71-9bac-1d2e3f4a5b6c";
+  await fetch(`${IDENTITY}/__fake/apps`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ apps: [{ id: shop, slug: "shop", name: "Shop" }, { id: billing, slug: "billing", name: "Billing" }] }),
+  });
+  await seed();
+  await signIn(page);
+  let menu = await openRowMenu(page, "GET /orders/{id}");
+  await expect(menu.getByRole("menuitemradio")).toHaveText(["Shop", "Billing"]);
+  await expect(menu.getByRole("menuitemradio", { name: "Shop" })).toHaveAttribute("aria-checked", "true");
+  await menu.getByRole("menuitemradio", { name: "Billing" }).click();
+  await expect(menu.getByRole("menuitemradio", { name: "Billing" })).toHaveAttribute("aria-checked", "true");
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" })).toBeEnabled();
+  await menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "no longer counts 404 responses" })).toBeVisible();
+
+  // Saved for Billing only.
+  menu = await openRowMenu(page, "GET /orders/{id}");
+  await expect(menu.getByRole("menuitemradio", { name: "Billing" })).toHaveAttribute("aria-checked", "true");
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" })).toHaveAttribute("aria-checked", "true");
+  await menu.getByRole("menuitemradio", { name: "Shop" }).click();
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" })).toBeEnabled();
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Mark 404 as expected" })).toHaveAttribute("aria-checked", "false");
 });

@@ -85,6 +85,24 @@
 .ep-err { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--error); }
 .ep-dialog__actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 
+/* Endpoint row menu (#600): a settings button at the end of an endpoint row, above the link that
+   covers the row, opening a menu (or a small form) portalled to <body>. */
+.tr-table td.ep-rowmenu__cell { width: 1%; padding-top: 0; padding-bottom: 0; text-align: right; }
+.ep-rowmenu { position: relative; z-index: 1; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--ink-muted); cursor: pointer; }
+.ep-rowmenu svg { width: 16px; height: 16px; }
+.ep-rowmenu:hover, .ep-rowmenu.is-open { border-color: var(--border-strong); background: var(--surface-1); color: var(--ink); }
+.ep-rowmenu:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.ep-rowmenu__note { margin: 4px 0; padding: 0 8px; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ep-rowmenu__note.ep-err { color: var(--error); }
+.ep-rowmenu__value { margin-left: auto; padding-left: var(--space-2); font: 400 12px/1 var(--font-mono); color: var(--ink-muted); white-space: nowrap; }
+.org-pop .cp-sitem:disabled { opacity: 0.55; cursor: not-allowed; }
+.ep-rowmenu__form { display: flex; flex-direction: column; gap: 6px; padding: 6px; }
+.ep-rowmenu__form label { font: 500 13px/20px var(--font-sans); color: var(--ink); }
+.ep-rowmenu__actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
+.ep-rowmenu__said { margin: 0; padding: 0 var(--space-4) var(--space-3); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.ep-rowmenu__said:empty { display: none; }
+.ep-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
 @media (max-width: 900px) {
   .ep-pair { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
@@ -94,4 +112,6 @@
   .ep-locked { flex-direction: column; width: 100%; }
   .ep-locked > div + div { border-left: 0; border-top: 1px solid var(--border); }
   .ep-tabs { margin-left: calc(-1 * var(--space-4)); margin-right: calc(-1 * var(--space-4)); padding: 0 var(--space-4); }
+  .tr-table td.ep-rowmenu__cell { position: absolute; top: var(--space-2); right: var(--space-2); width: auto; padding: 0; }
+  .tr-table tr.tr-row:has(.ep-rowmenu__cell) td.tr-ep { padding-right: 40px; }
 }

@@ -6,7 +6,7 @@
 // to show, never a raw error. Authorization is the API's: `manage_capture` on the project.
 import { isProjectSlug } from "@/lib/api-keys";
 import { isAppId } from "@/lib/capture-policy";
-import { checkSettings, parseEndpointRef, settingsError } from "@/lib/endpoint-detail";
+import { checkSettings, loadSettingsError, parseEndpointRef, settingsError } from "@/lib/endpoint-detail";
 import { type EndpointSettings, identity, isApiError } from "@/lib/identity";
 import { withActionSession } from "@/lib/server-session";
 
@@ -25,6 +25,24 @@ export async function saveEndpointSettings(project: string, appId: string, metho
     } catch (err) {
       if (!isApiError(err)) throw err;
       return { ok: false, error: settingsError(err.code), code: err.code };
+    }
+  });
+}
+
+/**
+ * Reads the settings of endpoint `method` `path` of app `appId` in `project`, for the endpoint row
+ * menu on Traffic (#600), which reads them only when it opens.
+ */
+export async function loadEndpointSettings(project: string, appId: string, method: string, path: string): Promise<SaveEndpointSettingsResult> {
+  const ep = typeof method === "string" && typeof path === "string" && path.startsWith("/") ? parseEndpointRef(method, path) : null;
+  if (!isProjectSlug(project) || !isAppId(appId) || !ep) return { ok: false, error: loadSettingsError("not_found"), code: "not_found" };
+  return withActionSession(async (session) => {
+    try {
+      const settings = await session.call((o) => identity().getEndpointSettings(project, appId, ep.method, ep.path, o));
+      return { ok: true, settings };
+    } catch (err) {
+      if (!isApiError(err)) throw err;
+      return { ok: false, error: loadSettingsError(err.code), code: err.code };
     }
   });
 }
