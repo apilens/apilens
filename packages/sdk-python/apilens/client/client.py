@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
 from .._version import __version__
+from ._routes import cap_routes
 from ._sanitize import mask_log_attributes, mask_log_text
 from ._stats import ClientStats
 from .models import LogRecord, RequestRecord, SpanRecord
@@ -77,6 +78,44 @@ TROUBLESHOOTING_URL = "https://apilens.ai/docs/support/troubleshooting"
 DROP_LOG_INTERVAL_SECONDS = 60.0
 # ``last_error`` strings are truncated to this many characters.
 MAX_LAST_ERROR_CHARS = 512
+
+# App metadata (``POST /v1/metadata``, see ``ApiLensClient.report_metadata``).
+# Sent from a daemon thread this long after the middleware is built, so the
+# framework has registered its routes; retried up to METADATA_MAX_RETRIES times.
+METADATA_DELAY_SECONDS = 1.0
+METADATA_MAX_RETRIES = 3
+# Env kill switch: APILENS_SEND_METADATA=false never sends the report.
+ENV_SEND_METADATA = "APILENS_SEND_METADATA"
+# (pid, base_url, app_id, environment) already reported by this process.
+_metadata_reported: set[tuple[int, str, str, str]] = set()
+_metadata_lock = threading.Lock()
+
+
+def env_send_metadata_enabled() -> bool:
+    raw = os.getenv(ENV_SEND_METADATA)
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _is_api_key_name(name: str) -> bool:
+    """Mirror of the ingest edge's check: ``api_key`` / ``apiKey`` / ``api-key``."""
+    normalised = name.lower()
+    for ch in "_-. ":
+        normalised = normalised.replace(ch, "")
+    return normalised == "apikey"
+
+
+def _strip_api_key_fields(value):
+    """Copy of ``value`` without object keys naming an API key, at any depth
+    (the ingest edge rejects a metadata body that has one)."""
+    if isinstance(value, dict):
+        return {
+            k: _strip_api_key_fields(v) for k, v in value.items() if not _is_api_key_name(str(k))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_strip_api_key_fields(v) for v in value]
+    return value
 
 
 class _IngestError(RuntimeError):
@@ -256,6 +295,11 @@ class ApiLensConfig:
     ingest_path: str = "/requests"
     spans_path: str = "/traces"
     logs_path: str = "/logs"
+    metadata_path: str = "/metadata"
+    # Report framework, versions, route templates and the effective capture
+    # config once per process start (``POST /v1/metadata``). Env
+    # APILENS_SEND_METADATA=false turns it off.
+    send_metadata: bool = True
 
     # Deploy correlation: stamped on every request/span/log record so the
     # dashboard can answer "did this release cause the regression?". When left
@@ -385,6 +429,8 @@ class ApiLensClient:
         self._stats_reported_at: float | None = None
         self._drops_logged_total = 0
         self._drops_logged_at: float | None = None
+        # Thread sending the app metadata report, if this client started one.
+        self._metadata_thread: threading.Thread | None = None
 
         if start_worker and self.config.enabled:
             self.start()
@@ -412,6 +458,91 @@ class ApiLensClient:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.shutdown(flush=True)
+
+    def report_metadata(
+        self,
+        build: Callable[[], dict | None],
+        *,
+        app_id: str,
+        environment: str = "",
+        delay: float | None = None,
+    ) -> bool:
+        """Send the app metadata report once per process, without blocking.
+
+        ``build`` returns the ``POST /v1/metadata`` body (see
+        ``apilens.client._metadata``); it runs on a daemon thread ``delay``
+        seconds (default ``METADATA_DELAY_SECONDS``) from now, so routes
+        registered after the middleware are included. Only the first call per process for an app and environment
+        starts a report; later ones (more middleware instances, more clients)
+        return ``False``. Disabled with ``send_metadata=False``,
+        ``enabled=False`` or env ``APILENS_SEND_METADATA=false``.
+        """
+        if not (self.config.enabled and self.config.send_metadata and env_send_metadata_enabled()):
+            return False
+        if not app_id:
+            return False
+        key = (os.getpid(), self.config.base_url, app_id, environment or self.config.environment)
+        with _metadata_lock:
+            if key in _metadata_reported:
+                return False
+            _metadata_reported.add(key)
+        if delay is None:
+            delay = METADATA_DELAY_SECONDS
+        thread = threading.Thread(
+            target=self._metadata_worker, args=(build, delay), daemon=True, name="apilens-metadata"
+        )
+        thread.start()
+        self._metadata_thread = thread
+        return True
+
+    def _metadata_worker(self, build: Callable[[], dict | None], delay: float) -> None:
+        if delay > 0 and self._stop.wait(delay):
+            return  # shut down before the report was due
+        try:
+            payload = build()
+        except Exception:
+            logger.debug("API Lens could not build the app metadata report", exc_info=True)
+            return
+        if payload:
+            self.send_metadata(payload)
+
+    def send_metadata(self, payload: dict) -> bool:
+        """POST one app metadata report now; ``True`` on 2xx.
+
+        Keys naming an API key are removed at any depth and the routes list is
+        normalised and capped at ``MAX_METADATA_ROUTES``. 408/429/5xx and
+        network errors are retried up to ``METADATA_MAX_RETRIES`` times (after
+        ``Retry-After`` when the server sends one); any other 4xx is final.
+        """
+        body = _strip_api_key_fields(dict(payload))
+        body["routes"] = cap_routes(body.get("routes"))
+        encoded = _dumps(body)
+        last_error: Exception | None = None
+        for attempt in range(METADATA_MAX_RETRIES + 1):
+            try:
+                self._post_body(self.config.metadata_path, encoded)
+                return True
+            except _NonRetryableIngestError as exc:
+                logger.warning(
+                    "API Lens ingest rejected the app metadata report with status %s: %s",
+                    exc.status,
+                    exc.body or "<empty body>",
+                )
+                return False
+            except Exception as exc:
+                last_error = exc
+                if attempt >= METADATA_MAX_RETRIES:
+                    break
+                retry_after = getattr(exc, "retry_after", None)
+                self._sleep(
+                    retry_after
+                    if retry_after is not None
+                    else backoff_delay(
+                        attempt, self.config.retry_backoff_base, self.config.retry_backoff_max
+                    )
+                )
+        logger.debug("API Lens app metadata report failed: %s", last_error)
+        return False
 
     @property
     def dropped_count(self) -> int:

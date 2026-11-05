@@ -171,7 +171,7 @@ class Redactor:
     log still shows *what* was sent, never the sensitive value itself.
     """
 
-    __slots__ = ("query_params", "headers", "body_fields")
+    __slots__ = ("query_params", "headers", "body_fields", "patterns")
 
     def __init__(
         self,
@@ -185,6 +185,13 @@ class Redactor:
             _DEFAULT_HEADER_RE if not headers else _compile(DEFAULT_MASK_HEADER_PATTERNS, headers)
         )
         self.body_fields = _compile(DEFAULT_MASK_BODY_FIELDS, body_fields)
+        # Effective source patterns (built-ins first), reported in the app
+        # metadata so the dashboard shows what is actually redacted.
+        self.patterns: dict[str, tuple[str, ...]] = {
+            "query_params": (*DEFAULT_MASK_QUERY_PARAMS, *query_params),
+            "headers": (*DEFAULT_MASK_HEADER_PATTERNS, *headers),
+            "body_fields": (*DEFAULT_MASK_BODY_FIELDS, *body_fields),
+        }
 
     def header_matches(self, name: str) -> bool:
         return self.headers.search(name) is not None

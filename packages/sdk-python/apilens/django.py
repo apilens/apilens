@@ -13,6 +13,7 @@ from .client._attributes import (
 )
 from .client._capture import CaptureContext, _normalize_path, _to_int, capture_response
 from .client._exclusions import RequestExcluder
+from .client._metadata import start_django_metadata
 from .client._routes import django_route_template, resolve_endpoint_path
 from .client._sampling import DetailSampler
 from .client._sanitize import (
@@ -233,6 +234,9 @@ class ApiLensDjangoMiddleware:
         )
         if self.flush_on_shutdown:
             register_atexit(self.client, self.shutdown_timeout)
+        # App metadata (POST /v1/metadata): framework, versions, URLconf route
+        # templates and the effective config, once per process, off-thread.
+        start_django_metadata(self)
 
     def process_exception(self, request, exception):
         """Django calls this when a view raises — stash it so ``__call__``'s
