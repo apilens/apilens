@@ -217,6 +217,10 @@ function normalizeRecord(
   defaultCommit = "",
 ): ApiLensRecord {
   const payload = input || ({} as ApiLensRecordInput);
+  // A sampled-out record keeps its base fields (it still counts in metrics)
+  // but never carries detail, whatever the caller passed.
+  const sampled = payload.sampled !== false;
+  const detail = (value: string | undefined): string => (sampled ? String(value || "") : "");
   return {
     timestamp: toISO8601(payload.timestamp),
     environment: String(payload.environment || defaultEnvironment || "production"),
@@ -233,12 +237,13 @@ function normalizeRecord(
     consumer_id: String(payload.consumer_id || ""),
     consumer_name: String(payload.consumer_name || ""),
     consumer_group: String(payload.consumer_group || ""),
-    request_payload: String(payload.request_payload || ""),
-    response_payload: String(payload.response_payload || ""),
-    request_headers: String(payload.request_headers || ""),
-    response_headers: String(payload.response_headers || ""),
+    request_payload: detail(payload.request_payload),
+    response_payload: detail(payload.response_payload),
+    request_headers: detail(payload.request_headers),
+    response_headers: detail(payload.response_headers),
     release: String(payload.release || defaultRelease || ""),
     commit: String(payload.commit || defaultCommit || ""),
+    sampled,
   };
 }
 

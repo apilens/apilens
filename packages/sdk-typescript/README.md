@@ -176,6 +176,40 @@ useApiLens(app, {
 `APILENS_EXCLUDE_PATHS` (comma-separated) adds path patterns on top. An
 invalid regex throws when the middleware is created, never per request.
 
+## Sampling
+
+Sampling never changes metrics. A sampled-out request still sends its base
+record (method, path, status, latency, sizes, consumer) with `sampled: false`;
+only headers and bodies are dropped, and its response body is never buffered.
+
+```js
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  sampleRate: 0.1, // keep detail for 10% of requests (default 1)
+  // Runs when the request arrives: true/false is final, a number is a
+  // probability, undefined falls back to sampleRate.
+  sampleOnRequest: (info) => (info.path.startsWith("/admin") ? true : undefined),
+  // Runs after the response; undefined keeps the prior decision. It can
+  // drop detail but never resurrect a request sampled out on request.
+  sampleOnResponse: (info) => (info.statusCode >= 400 ? true : undefined),
+});
+```
+
+Keep detail only for errors:
+
+```js
+useApiLens(app, {
+  apiKey: process.env.APILENS_API_KEY,
+  sampleOnResponse: (info) => info.statusCode >= 400,
+});
+```
+
+`sampleOnRequest` gets `{ method, path, query, userAgent, headers, clientIp }`;
+`sampleOnResponse` gets `{ method, route, rawPath, statusCode, responseTimeMs,
+consumerId, consumerName, consumerGroup, sampled }`. A callback that throws is
+logged once and treated as `undefined`. A `sampleRate` outside `[0, 1]` throws
+when the middleware is created.
+
 ## Delivery and health
 
 The client never blocks your request path and never grows without bound:

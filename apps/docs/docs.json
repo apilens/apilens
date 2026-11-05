@@ -55,6 +55,7 @@
               "sdk-reference/python-configuration",
               "sdk-reference/consumers",
               "sdk-reference/path-templating",
+              "sdk-reference/sampling",
               "sdk-reference/tracing"
             ]
           },
