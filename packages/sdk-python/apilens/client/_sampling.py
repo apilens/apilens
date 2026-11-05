@@ -84,17 +84,19 @@ class DetailSampler:
         self.rate = validate_sample_rate(rate)
         self._random = (rng or _rng).random
 
-    def sample(self) -> bool:
-        rate = self.rate
+    def sample(self, cap: float = 1.0) -> bool:
+        """Keep with probability ``rate``, never above ``cap`` (the remote
+        capture policy's sample rate, which can only lower it)."""
+        rate = min(self.rate, cap)
         if rate >= 1.0:
             return True
         if rate <= 0.0:
             return False
         return self._random() < rate
 
-    def decide(self, info: Callable[[], Any]) -> bool:
+    def decide(self, info: Callable[[], Any], cap: float = 1.0) -> bool:
         """Sample one request (``info`` is unused without a callback)."""
-        return self.sample()
+        return self.sample(cap)
 
 
 class RequestSampler(DetailSampler):
@@ -127,28 +129,35 @@ class RequestSampler(DetailSampler):
         self.callback = callback
         self._warned = False
 
-    def decide(self, info: Callable[[], Any]) -> bool:
+    def decide(self, info: Callable[[], Any], cap: float = 1.0) -> bool:
         """Sample one request. ``info`` builds its RequestInfo; it is only
-        called when a callback is configured, so the default path stays free."""
+        called when a callback is configured, so the default path stays free.
+
+        ``cap`` is the remote capture policy's sample rate. It only narrows:
+        the rate becomes ``min(sample_rate, cap)``, and a callback's keep
+        verdict is kept with probability ``cap``. ``cap <= 0`` drops every
+        request's detail without asking the callback."""
         callback = self.callback
         if callback is None:
-            return self.sample()
+            return self.sample(cap)
+        if cap <= 0.0:
+            return False
         try:
             verdict = callback(info())
         except Exception:
             self._warn("apilens: sample_on_request raised; falling back to sample_rate", exc_info=True)
-            return self.sample()
+            return self.sample(cap)
         decision = _verdict(verdict, self._random)
         if decision is None:
-            return self.sample()
+            return self.sample(cap)
         if decision is not _UNUSABLE:
-            return decision
+            return decision and (cap >= 1.0 or self._random() < cap)
         self._warn(
             "apilens: sample_on_request returned %r (expected bool, float or None); "
             "falling back to sample_rate",
             verdict,
         )
-        return self.sample()
+        return self.sample(cap)
 
     def _warn(self, message: str, *args: Any, exc_info: bool = False) -> None:
         if self._warned:
