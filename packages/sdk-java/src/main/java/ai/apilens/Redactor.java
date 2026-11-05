@@ -22,7 +22,15 @@ import java.util.Map;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
 
-/** Redacts sensitive request data before it leaves the application. */
+/**
+ * Redacts sensitive request data before it leaves the application.
+ *
+ * <p>The built-in {@code DEFAULT_MASK_*} patterns always apply and user-supplied patterns extend
+ * them, never replace them. Every pattern is matched case-insensitively with
+ * {@link java.util.regex.Matcher#find()} against the <em>name</em> of the query parameter, header
+ * or JSON body field; use anchors for exact matches ({@code ^card_number$}). Patterns are compiled
+ * once, in the constructor.
+ */
 public final class Redactor {
   public static final String REDACTED = "[redacted]";
   /** Stored in place of a whole body that a mask callback dropped (returned null) or failed on. */
@@ -42,22 +50,39 @@ public final class Redactor {
       "x-amz-security-token",
       "x-csrf-token");
 
-  private final List<Pattern> queryParams;
-  private final List<Pattern> headers;
-  private final List<Pattern> bodyFields;
+  /** Query-parameter name patterns that are always masked. */
+  public static final List<String> DEFAULT_MASK_QUERY_PARAMS =
+      List.of("auth", "api.?key", "secret", "token", "password", "pwd");
+  /** Header name patterns that are always masked, on top of the exact sensitive header names. */
+  public static final List<String> DEFAULT_MASK_HEADER_PATTERNS =
+      List.of("auth", "api.?key", "secret", "token", "cookie");
+  /** JSON / form body field name patterns that are always masked. */
+  public static final List<String> DEFAULT_MASK_BODY_FIELDS = List.of(
+      "password", "pwd", "token", "secret", "auth", "card.?number", "ccv", "cvv", "cvc", "ssn");
+
+  private final Pattern queryParams;
+  private final Pattern headers;
+  private final Pattern bodyFields;
 
   public Redactor() {
     this(List.of(), List.of(), List.of());
   }
 
+  /**
+   * @param queryParams extra query-parameter name patterns
+   * @param headers extra header name patterns
+   * @param bodyFields extra body field name patterns
+   * @throws java.util.regex.PatternSyntaxException when a user pattern is not a valid regex
+   */
   public Redactor(List<String> queryParams, List<String> headers, List<String> bodyFields) {
-    this.queryParams = compile(queryParams);
-    this.headers = compile(headers);
-    this.bodyFields = compile(bodyFields);
+    this.queryParams = compile(DEFAULT_MASK_QUERY_PARAMS, queryParams);
+    this.headers = compile(DEFAULT_MASK_HEADER_PATTERNS, headers);
+    this.bodyFields = compile(DEFAULT_MASK_BODY_FIELDS, bodyFields);
   }
 
+  /** Masks matching parameter values; a query with no matching name is returned unchanged. */
   public String redactQuery(String query) {
-    if (Strings.isBlank(query) || queryParams.isEmpty()) {
+    if (Strings.isBlank(query)) {
       return query == null ? "" : query;
     }
     String[] pairs = query.split("&", -1);
@@ -75,17 +100,25 @@ public final class Redactor {
     return String.join("&", out);
   }
 
+  /**
+   * Masks matching field values in a JSON body, recursively.
+   *
+   * <p>A matching field is masked when its value is a string or a number, and also when it is a
+   * nested object or array (masked whole). Booleans and {@code null} carry no secret and stay
+   * visible. A body with no matching field, and any non-JSON payload, is returned unchanged.
+   */
   public String redactBody(String payload) {
-    if (Strings.isBlank(payload) || bodyFields.isEmpty()) {
+    if (Strings.isBlank(payload)) {
       return payload == null ? "" : payload;
     }
     try {
       JsonNode root = MAPPER.readTree(payload);
-      if (!root.isObject() && !root.isArray()) {
+      if (root == null || (!root.isObject() && !root.isArray())) {
         return payload;
       }
-      JsonNode redacted = redactNode(root, 0);
-      return MAPPER.writeValueAsString(redacted);
+      boolean[] changed = {false};
+      JsonNode redacted = redactNode(root, 0, changed);
+      return changed[0] ? MAPPER.writeValueAsString(redacted) : payload;
     } catch (IOException ex) {
       return payload;
     }
@@ -96,7 +129,7 @@ public final class Redactor {
    * redacted when its decoded name matches a query-param or a body-field pattern.
    */
   public String redactForm(String body) {
-    if (Strings.isBlank(body) || (queryParams.isEmpty() && bodyFields.isEmpty())) {
+    if (Strings.isBlank(body)) {
       return body == null ? "" : body;
     }
     String[] pairs = body.split("&", -1);
@@ -216,22 +249,27 @@ public final class Redactor {
     }
   }
 
-  private JsonNode redactNode(JsonNode node, int depth) {
+  private JsonNode redactNode(JsonNode node, int depth, boolean[] changed) {
     if (depth > MAX_BODY_DEPTH) {
       return node;
     }
     if (node.isObject()) {
-      ObjectNode copy = ((ObjectNode) node).deepCopy();
-      copy.fieldNames().forEachRemaining(name -> {
-        JsonNode child = copy.get(name);
-        copy.set(name, matches(bodyFields, name) ? TextNode.valueOf(REDACTED) : redactNode(child, depth + 1));
+      ObjectNode copy = MAPPER.createObjectNode();
+      node.fields().forEachRemaining(entry -> {
+        JsonNode child = entry.getValue();
+        if (!child.isNull() && !child.isBoolean() && matches(bodyFields, entry.getKey())) {
+          copy.set(entry.getKey(), TextNode.valueOf(REDACTED));
+          changed[0] = true;
+        } else {
+          copy.set(entry.getKey(), redactNode(child, depth + 1, changed));
+        }
       });
       return copy;
     }
     if (node.isArray()) {
       ArrayNode array = MAPPER.createArrayNode();
       for (JsonNode child : node) {
-        array.add(redactNode(child, depth + 1));
+        array.add(redactNode(child, depth + 1, changed));
       }
       return array;
     }
@@ -267,21 +305,29 @@ public final class Redactor {
     }
   }
 
-  private static List<Pattern> compile(List<String> values) {
-    if (values == null || values.isEmpty()) {
-      return List.of();
+  /**
+   * Combines the built-in and user patterns into ONE case-insensitive regex. Each source pattern
+   * is validated on its own (so a bad user regex fails with a precise error) and wrapped in its own
+   * non-capturing group so alternation cannot change its meaning.
+   */
+  private static Pattern compile(List<String> defaults, List<String> extra) {
+    List<String> patterns = new ArrayList<>(defaults);
+    if (extra != null) {
+      extra.stream().filter(value -> !Strings.isBlank(value)).forEach(patterns::add);
     }
-    return values.stream()
-        .filter(value -> !Strings.isBlank(value))
-        .map(value -> Pattern.compile(value, Pattern.CASE_INSENSITIVE))
-        .toList();
+    StringBuilder union = new StringBuilder();
+    for (String pattern : patterns) {
+      Pattern.compile(pattern);
+      if (union.length() > 0) {
+        union.append('|');
+      }
+      union.append("(?:").append(pattern).append(')');
+    }
+    return Pattern.compile(union.toString(), Pattern.CASE_INSENSITIVE);
   }
 
-  private static boolean matches(List<Pattern> patterns, String name) {
-    if (patterns == null || patterns.isEmpty() || name == null) {
-      return false;
-    }
-    return patterns.stream().anyMatch(pattern -> pattern.matcher(name).find());
+  private static boolean matches(Pattern pattern, String name) {
+    return name != null && pattern.matcher(name).find();
   }
 
   private static String decodeComponent(String value) {

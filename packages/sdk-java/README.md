@@ -147,17 +147,55 @@ Spring properties use the `apilens.*` prefix:
 | `apilens.exclude-user-agents` | empty |
 | `apilens.default-exclusions` | `true` |
 | `apilens.sample-rate` | `1.0` |
+| `apilens.capture-ip` | `true` |
+| `apilens.anonymize-ip` | `false` |
 
-Redaction accepts case-insensitive regexes matched against names:
+## Masking
+
+Values are replaced with `[redacted]`; names stay visible. Built-in patterns
+are always applied, with no configuration, and your patterns extend them
+(they never replace them). Every pattern is a case-insensitive regex searched
+for in the query-parameter, header or JSON/form field *name*:
+
+| List | Built-in patterns |
+|---|---|
+| Query params (`Redactor.DEFAULT_MASK_QUERY_PARAMS`) | `auth`, `api.?key`, `secret`, `token`, `password`, `pwd` |
+| Headers (`Redactor.DEFAULT_MASK_HEADER_PATTERNS`) | `auth`, `api.?key`, `secret`, `token`, `cookie` |
+| Body fields (`Redactor.DEFAULT_MASK_BODY_FIELDS`) | `password`, `pwd`, `token`, `secret`, `auth`, `card.?number`, `ccv`, `cvv`, `cvc`, `ssn` |
+
+The exact header names `authorization`, `proxy-authorization`, `cookie`,
+`set-cookie`, `x-api-key`, `api-key`, `x-auth-token`, `x-amz-security-token`
+and `x-csrf-token` are also always redacted. So `?token=abc` is captured as
+`?token=[redacted]` out of the box.
+
+A matching body field is masked when its value is a string, a number, or a
+nested object/array (masked whole); booleans and `null` stay visible. A body or
+query with nothing to mask is sent unchanged. Add your own patterns (anchor for
+an exact match):
 
 ```properties
-apilens.redact-query-params[0]=token
+apilens.redact-query-params[0]=^card_number$
 apilens.redact-headers[0]=x-private-.*
-apilens.redact-body-fields[0]=password
+apilens.redact-body-fields[0]=^iban$
 ```
 
-Built-in sensitive headers such as `authorization`, `cookie`, and `x-api-key`
-are always redacted.
+An invalid regex fails at startup with a `PatternSyntaxException`.
+
+## Client IP privacy
+
+```properties
+apilens.capture-ip=true     # false: no client IP is sent at all
+apilens.anonymize-ip=false  # true: IPv4 truncated to /24, IPv6 to /48
+```
+
+The IP is taken from the first `X-Forwarded-For` entry, then `X-Real-IP`, then
+the socket address. With `anonymize-ip`, `203.0.113.42` is sent as
+`203.0.113.0` and `2001:db8:85a3:8d3::1` as `2001:db8:85a3::`; IPv4-mapped IPv6
+is treated as IPv4, and a value that is not a parseable IP is dropped. The
+`APILENS_CAPTURE_IP=false` and `APILENS_ANONYMIZE_IP=true` environment
+variables tighten this per deployment and cannot loosen what is configured.
+Outside Spring, `IpPrivacy.apply(ip, captureIp, anonymizeIp)` applies the same
+policy.
 
 ## Body capture and mask callbacks
 

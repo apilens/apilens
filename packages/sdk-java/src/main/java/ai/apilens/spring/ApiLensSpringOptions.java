@@ -25,6 +25,8 @@ public final class ApiLensSpringOptions {
   private final List<String> redactHeaders;
   private final List<String> redactBodyFields;
   private final boolean parametrizePaths;
+  private final boolean captureIp;
+  private final boolean anonymizeIp;
   private final List<String> excludePaths;
   private final List<String> excludeUserAgents;
   private final boolean defaultExclusions;
@@ -49,6 +51,8 @@ public final class ApiLensSpringOptions {
     this.redactHeaders = List.copyOf(builder.redactHeaders);
     this.redactBodyFields = List.copyOf(builder.redactBodyFields);
     this.parametrizePaths = builder.parametrizePaths;
+    this.captureIp = builder.captureIp;
+    this.anonymizeIp = builder.anonymizeIp;
     this.excludePaths = List.copyOf(builder.excludePaths);
     this.excludeUserAgents = List.copyOf(builder.excludeUserAgents);
     this.defaultExclusions = builder.defaultExclusions;
@@ -80,6 +84,8 @@ public final class ApiLensSpringOptions {
         .redactHeaders(redactHeaders)
         .redactBodyFields(redactBodyFields)
         .parametrizePaths(parametrizePaths)
+        .captureIp(captureIp)
+        .anonymizeIp(anonymizeIp)
         .excludePaths(excludePaths)
         .excludeUserAgents(excludeUserAgents)
         .defaultExclusions(defaultExclusions)
@@ -146,6 +152,16 @@ public final class ApiLensSpringOptions {
     return parametrizePaths;
   }
 
+  /** Whether the client IP is recorded at all; {@code false} sends an empty IP. */
+  public boolean captureIp() {
+    return captureIp;
+  }
+
+  /** Whether the client IP is truncated (IPv4 to /24, IPv6 to /48) before it is recorded. */
+  public boolean anonymizeIp() {
+    return anonymizeIp;
+  }
+
   /** Extra case-insensitive path regexes; a matching request is not captured. */
   public List<String> excludePaths() {
     return excludePaths;
@@ -209,6 +225,8 @@ public final class ApiLensSpringOptions {
     private List<String> redactHeaders = List.of();
     private List<String> redactBodyFields = List.of();
     private boolean parametrizePaths = true;
+    private boolean captureIp = true;
+    private boolean anonymizeIp = false;
     private List<String> excludePaths = List.of();
     private List<String> excludeUserAgents = List.of();
     private boolean defaultExclusions = true;
@@ -287,6 +305,16 @@ public final class ApiLensSpringOptions {
 
     public Builder parametrizePaths(boolean parametrizePaths) {
       this.parametrizePaths = parametrizePaths;
+      return this;
+    }
+
+    public Builder captureIp(boolean captureIp) {
+      this.captureIp = captureIp;
+      return this;
+    }
+
+    public Builder anonymizeIp(boolean anonymizeIp) {
+      this.anonymizeIp = anonymizeIp;
       return this;
     }
 

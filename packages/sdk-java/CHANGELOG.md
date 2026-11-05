@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Built-in default masking patterns for query params, headers and JSON/form
+  body fields (`Redactor.DEFAULT_MASK_*`, same lists as the Python SDK) are now
+  always applied; user `redact-*` patterns extend them. Matching body fields
+  with boolean or `null` values stay visible, nested objects/arrays are masked
+  whole, and bodies with nothing to mask are sent unchanged.
+- Added `apilens.capture-ip` / `apilens.anonymize-ip` (`captureIp` /
+  `anonymizeIp` on `ApiLensSpringOptions`) and `IpPrivacy`: IPv4 truncated to
+  /24, IPv6 to /48. `APILENS_CAPTURE_IP=false` / `APILENS_ANONYMIZE_IP=true`
+  can only tighten the configured policy.
 - Added sampling: `sampleRate` (`apilens.sample-rate`) plus `sampleOnRequest` /
   `sampleOnResponse` callbacks returning `SampleDecision` (`KEEP`, `DROP`,
   `probability(p)`, `UNDECIDED`). A sampled-out request still sends its base

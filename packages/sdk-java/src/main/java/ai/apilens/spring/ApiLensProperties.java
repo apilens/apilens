@@ -41,6 +41,8 @@ public class ApiLensProperties {
   private List<String> redactHeaders = List.of();
   private List<String> redactBodyFields = List.of();
   private boolean parametrizePaths = true;
+  private boolean captureIp = true;
+  private boolean anonymizeIp = false;
   private List<String> excludePaths = List.of();
   private List<String> excludeUserAgents = List.of();
   private boolean defaultExclusions = true;
@@ -89,6 +91,8 @@ public class ApiLensProperties {
         .redactHeaders(redactHeaders)
         .redactBodyFields(redactBodyFields)
         .parametrizePaths(parametrizePaths)
+        .captureIp(captureIp)
+        .anonymizeIp(anonymizeIp)
         .excludePaths(excludePaths)
         .excludeUserAgents(excludeUserAgents)
         .defaultExclusions(defaultExclusions)
@@ -358,6 +362,22 @@ public class ApiLensProperties {
 
   public void setParametrizePaths(boolean parametrizePaths) {
     this.parametrizePaths = parametrizePaths;
+  }
+
+  public boolean isCaptureIp() {
+    return captureIp;
+  }
+
+  public void setCaptureIp(boolean captureIp) {
+    this.captureIp = captureIp;
+  }
+
+  public boolean isAnonymizeIp() {
+    return anonymizeIp;
+  }
+
+  public void setAnonymizeIp(boolean anonymizeIp) {
+    this.anonymizeIp = anonymizeIp;
   }
 
   public List<String> getExcludePaths() {

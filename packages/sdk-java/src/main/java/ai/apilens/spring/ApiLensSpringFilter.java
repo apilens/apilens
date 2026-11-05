@@ -3,6 +3,7 @@ package ai.apilens.spring;
 import ai.apilens.ApiLensClient;
 import ai.apilens.ApiLensConsumer;
 import ai.apilens.ApiLensConsumers;
+import ai.apilens.IpPrivacy;
 import ai.apilens.LogRecord;
 import ai.apilens.PathTemplates;
 import ai.apilens.Redactor;
@@ -216,7 +217,7 @@ public class ApiLensSpringFilter extends OncePerRequestFilter {
         .appId(client.config().appId())
         .requestSize(requestSize(request))
         .responseSize(responseSize(response))
-        .ipAddress(clientIp(request))
+        .ipAddress(IpPrivacy.apply(clientIp(request), options.captureIp(), options.anonymizeIp()))
         .userAgent(request.getHeader("User-Agent"))
         .consumer(consumer)
         .requestPayload(requestPayload)
