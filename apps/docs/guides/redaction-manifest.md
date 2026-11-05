@@ -16,7 +16,7 @@ Copy this template into the target repository next to the SDK configuration and 
 3. **Pattern**: the regex added to the SDK option for that location (`redact_query_params`, `redact_headers` or `redact_body_fields`). Patterns are matched case-insensitively and unanchored against the field **name**. Write `default` when a [built-in pattern](/getting-started/data-privacy#default-masking-patterns) already covers the field.
 4. **Source file**: the file, and the symbol or line, in the service that defines the field (a serializer, schema, DTO or route handler), so a reviewer can verify it.
 5. **PII tag**: the tag from the intake inventory (`email`, `card`, `token`, ...).
-6. **Verified**: the date the field was confirmed masked in captured data.
+6. **Verified**: the date the field was confirmed masked in captured data, by a clean [PII audit](/guides/pii-audit) run.
 
 Values in the URL path itself (for example an email in `/users/{email}`) cannot be masked by name. Record them with location `path` and resolve them by excluding the route or changing it.
 

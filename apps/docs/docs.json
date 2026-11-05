@@ -62,7 +62,8 @@
             "group": "Rollout Kit",
             "pages": [
               "guides/rollout-intake",
-              "guides/redaction-manifest"
+              "guides/redaction-manifest",
+              "guides/pii-audit"
             ]
           },
           {
