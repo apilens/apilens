@@ -1,14 +1,19 @@
 import Link from "next/link";
 import { conditionText, eventDuration, formatMetric, formatSpan, incidentHref, incidentsHref, ruleHref, ruleSummary, scheduleText } from "@/lib/alerts";
 import type { AlertEvent, AlertRule } from "@/lib/identity";
+import { type SearchParams, trailHrefs } from "@/lib/pagination";
 import { formatExact } from "@/lib/passkey-settings";
+import { Pagination } from "../pagination/pagination";
 import { Empty, LoadFailed, StatusBadge } from "./common";
+import { IncidentChart } from "./incident-chart";
 
 /**
  * `/<project>/incidents/<rule>` (#610): one alert rule's incidents as a timeline, newest first:
  * when each triggered and with what value, when the first notification went out, and when it
- * resolved (or how long it has been open). `rule` is the rule as saved; `events` is null when the
- * API could not answer. `now` is the load time.
+ * resolved (or how long it has been open), a page at a time with Newer and Older (the API's
+ * cursors, `nextCursor` null on the oldest page), above them their values against the threshold
+ * as a hoverable chart. `rule` is the rule as saved; `events` is null when the API could not
+ * answer; `params` are the page's search params. `now` is the load time.
  */
 export function IncidentTimeline({
   project,
@@ -16,7 +21,8 @@ export function IncidentTimeline({
   rule,
   app,
   events,
-  more,
+  nextCursor,
+  params,
   now,
 }: {
   project: string;
@@ -24,9 +30,11 @@ export function IncidentTimeline({
   rule: AlertRule;
   app: string | undefined;
   events: AlertEvent[] | null;
-  more: boolean;
+  nextCursor: string | null;
+  params: SearchParams;
   now: number;
 }) {
+  const pages = trailHrefs(incidentHref(project, rule.id), params, nextCursor);
   return (
     <div className="page al">
       <header className="pagehead al-head">
@@ -77,9 +85,19 @@ export function IncidentTimeline({
       {events === null ? (
         <LoadFailed text="We couldn’t load this rule’s incidents just now." href={incidentHref(project, rule.id)} />
       ) : events.length === 0 ? (
-        <Empty>This rule has no incidents yet.</Empty>
+        pages.page > 1 ? (
+          <Empty>
+            No older incidents.{" "}
+            <Link className="cp-link" href={pages.newestHref}>
+              Back to the newest
+            </Link>
+          </Empty>
+        ) : (
+          <Empty>This rule has no incidents yet.</Empty>
+        )
       ) : (
         <div className="al-card">
+          {events.length > 1 ? <IncidentChart rule={rule} events={events} now={now} /> : null}
           <ol className="al-timeline" aria-label="Incidents of this rule">
             {events.map((e) => (
               <li key={e.id} className={`al-event${e.ended_at ? "" : " al-event--open"}`}>
@@ -118,9 +136,24 @@ export function IncidentTimeline({
               </li>
             ))}
           </ol>
+          {pages.olderHref || pages.newerHref ? (
+            <div className="al-pager">
+              <p>
+                Page {pages.page}, newest first
+                {pages.page > 2 ? (
+                  <>
+                    {" · "}
+                    <Link className="cp-link" href={pages.newestHref}>
+                      Newest
+                    </Link>
+                  </>
+                ) : null}
+              </p>
+              <Pagination mode="cursor" newerHref={pages.newerHref} olderHref={pages.olderHref} label="Incident pages" />
+            </div>
+          ) : null}
         </div>
       )}
-      {more ? <p className="al-hint">Showing the latest {events?.length ?? 0} incidents.</p> : null}
     </div>
   );
 }

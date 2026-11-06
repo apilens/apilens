@@ -82,11 +82,11 @@ test("shows each request's time, method, path, status, latency, consumer and siz
   await expect(page.getByRole("heading", { level: 1, name: "Explore" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Views" }).getByRole("link", { name: "Explore" })).toHaveAttribute("aria-current", "page");
 
-  await expect(grid(page).getByRole("columnheader")).toHaveText(["Time", "Method", "Path", "Status", "Latency", "Consumer", "Size"]);
+  await expect(grid(page).getByRole("columnheader")).toHaveText(["Time (UTC)", "Method", "Path", "Status", "Latency", "Consumer", "Size"]);
   await expect(bodyRows(page)).toHaveCount(3);
-  await expect(rowAt(page, 0).getByRole("gridcell")).toHaveText(["3m ago", "GET", "/orders/1000", "200", "42 ms", "Acme Corp", "1.2 KB"]);
-  await expect(rowAt(page, 1).getByRole("gridcell")).toHaveText(["10m ago", "POST", "/charge", "502", "2.48 s", "Anonymous", "88 B"]);
-  await expect(rowAt(page, 2).getByRole("gridcell")).toHaveText(["17m ago", "GET", "/orders/1002Sampled out", "404", "640 ms", "c_beta", "0 B"]);
+  await expect(rowAt(page, 0).getByRole("gridcell")).toHaveText([/^\d\d:\d\d:\d\d\.\d{3}$/, "GET", "/orders/1000", "200", "42 ms", "Acme Corp", "1.2 KB"]);
+  await expect(rowAt(page, 1).getByRole("gridcell")).toHaveText([/^\d\d:\d\d:\d\d\.\d{3}$/, "POST", "/charge", "502", "2.48 s", "–", "88 B"]);
+  await expect(rowAt(page, 2).getByRole("gridcell")).toHaveText([/^\d\d:\d\d:\d\d\.\d{3}$/, "GET", "/orders/1002Sampled out", "404", "640 ms", "c_beta", "0 B"]);
 
   // Status and latency carry meaning in color: 4xx and 5xx differ, slow and frustrated differ.
   const color = (sel: string) => grid(page).locator(sel).first().evaluate((el) => getComputedStyle(el).color);
@@ -155,6 +155,26 @@ test("moves between rows with the keyboard and leaves ⌘K to the switcher", asy
 
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByRole("dialog", { name: "Switch scope" })).toBeVisible();
+});
+
+test("walks back past the newest 200 with Older, live only on the newest page", async ({ page }) => {
+  await seed(Array.from({ length: 230 }, (_, i) => row(i, { trace_id: `t${i}`, timestamp: ago(i + 1) })));
+  await signIn(page);
+  await expect(grid(page)).toHaveAttribute("aria-rowcount", "201");
+  await expect(page.locator(".ex-foot p")).toHaveText(/^The newest 200 requests/);
+  const pages = page.getByRole("navigation", { name: "Request log pages" });
+  await pages.getByRole("link", { name: "Older" }).click();
+  await expect(page).toHaveURL(/cursor=/);
+  await expect(grid(page)).toHaveAttribute("aria-rowcount", "31");
+  await expect(page.locator(".ex-foot p")).toHaveText(/^Requests 201–230 from the newest .* Live updates run on the newest page only\.$/);
+  await expect(page.locator(".ex-live__state")).toHaveText("Older page, not live");
+  await expect(page.getByRole("button", { name: "Pause" })).toHaveCount(0);
+  await expect(pages.locator("[aria-disabled=true]", { hasText: "Older" })).toHaveCount(1);
+
+  await page.getByRole("link", { name: "Back to newest" }).click();
+  await expect(page).not.toHaveURL(/cursor=/);
+  await expect(grid(page)).toHaveAttribute("aria-rowcount", "201");
+  await expect(page.locator(".ex-live__state")).toHaveText("Live");
 });
 
 test("reads the log again every 5 s while live, and not while paused", async ({ page }) => {

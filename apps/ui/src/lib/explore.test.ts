@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  logCaption,
+  logPages,
   LOG_LIMIT,
   OVERSCAN,
   ROW_HEIGHT,
@@ -75,6 +77,7 @@ describe("row formatting", () => {
   });
   it("keys rows by trace id, else by time and position", () => {
     expect(rowKey({ timestamp: "t", trace_id: "abc" }, 3)).toBe("abc");
+    expect(rowKey({ id: "r1", timestamp: "t", trace_id: "abc" }, 3)).toBe("r1");
     expect(rowKey({ timestamp: "t", trace_id: "" }, 3)).toBe("t#3");
   });
 });
@@ -116,10 +119,33 @@ describe("moveFocus", () => {
   });
 });
 
+describe("older pages", () => {
+  const q = parseExploreQuery({ range: "6h", status: "5xx" });
+  it("walks older with the API cursor, keeping the range and filters, and back", () => {
+    const first = logPages("shop", q, [], "c1");
+    expect(first.page).toBe(1);
+    expect(first.newerHref).toBeNull();
+    expect(first.olderHref).toBe("/shop/explore?range=6h&status=5xx&cursor=c1");
+    const second = logPages("shop", q, ["c1"], "c2");
+    expect(second.page).toBe(2);
+    expect(second.olderHref).toBe("/shop/explore?range=6h&status=5xx&cursor=c1.c2");
+    expect(second.newerHref).toBe("/shop/explore?range=6h&status=5xx");
+    expect(second.newestHref).toBe("/shop/explore?range=6h&status=5xx");
+    expect(logPages("shop", q, ["c1"], "").olderHref).toBeNull();
+  });
+  it("never carries the cursor into a range or filter link", () => {
+    expect(exploreHref("shop", q)).not.toContain("cursor");
+  });
+  it("captions the newest and an older page", () => {
+    expect(logCaption(q, 1, 200, true)).toBe("The newest 200 requests in the last 6 hours matching the filters, newest first.");
+    expect(logCaption(q, 3, 12, false)).toBe("Requests 401–412 from the newest in the last 6 hours, newest first. Live updates run on the newest page only.");
+  });
+});
+
 describe("logPoll", () => {
   it("reads rows", () => {
-    expect(logPoll(200, { ok: true, requests: [{ method: "GET" }] })).toEqual({ kind: "rows", rows: [{ method: "GET" }] });
-    expect(logPoll(200, { ok: true, requests: null })).toEqual({ kind: "rows", rows: [] });
+    expect(logPoll(200, { ok: true, requests: [{ method: "GET" }], next_cursor: "c1" })).toEqual({ kind: "rows", rows: [{ method: "GET" }], older: "c1" });
+    expect(logPoll(200, { ok: true, requests: null })).toEqual({ kind: "rows", rows: [], older: "" });
   });
   it("sends an expired session to sign in", () => {
     expect(logPoll(401, { ok: false, code: "session_expired", next: "/sign-in?reason=session_expired" })).toEqual({

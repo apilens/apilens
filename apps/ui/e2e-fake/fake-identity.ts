@@ -150,7 +150,7 @@
 //   PUT|DELETE /api/v1/projects/shop/alerts/channels/{id}   taken ignoring case answers 409
 //   POST /api/v1/projects/shop/alerts/channels/{id}/test    a test send: 200 {sent}, or 502 for a channel
 //                                                  whose config URL contains "gone" (HTTP 410 in the detail)
-//   GET  /api/v1/projects/shop/alerts/events?rule_id=  events newest first
+//   GET  /api/v1/projects/shop/alerts/events?rule_id=&limit=&cursor=  events newest first, paged
 //   GET  /api/v1/projects/{slug}/incidents         events grouped by rule, open first (empty for created projects);
 //                                                  alert writes answer 403 without alerts.manage
 //   POST /__fake/alerts {trigger?: {rule, value}, resolve?: rule, reset?}
@@ -2009,7 +2009,12 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
           (!status.length || status.some((t) => (/^[1-5]xx$/.test(t) ? String(r.status_code)[0] === t[0] : String(r.status_code) === t)));
         // A row's `detail` seeds the request drawer (#588); the log does not carry it.
         const listed = seeded.filter(matches).map(({ detail: _detail, ...r }) => r);
-        return send(res, 200, { requests: listed.slice(0, limit), next_cursor: "" });
+        // Pages like the API: an opaque cursor (an offset here) and next_cursor while rows remain.
+        const cursor = url.searchParams.get("cursor") ?? "";
+        const offset = cursor ? Number(Buffer.from(cursor, "base64url").toString().replace(/^r/, "")) : 0;
+        if (cursor && !Number.isInteger(offset)) return problem(res, 422, "invalid_request");
+        const next = offset + limit < listed.length ? Buffer.from(`r${offset + limit}`).toString("base64url") : "";
+        return send(res, 200, { requests: listed.slice(offset, offset + limit), next_cursor: next });
       }
       return send(res, 200, { requests: rows.slice(0, limit) });
     }
@@ -2814,8 +2819,15 @@ async function alerts(req: IncomingMessage, res: ServerResponse, path: string, u
 
   if (kind === "events") {
     const rule = url.searchParams.get("rule_id");
-    const events = alertEvents.filter((e) => !rule || e.rule_id === rule).map(eventOut);
-    return send(res, 200, { events, next_cursor: "" }), true;
+    const all = alertEvents.filter((e) => !rule || e.rule_id === rule).map(eventOut);
+    // Pages like the API: `limit` (default 50) from the `cursor` on; the cursor is opaque (an offset here).
+    const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50));
+    const cursor = url.searchParams.get("cursor") ?? "";
+    const from = cursor ? Number(Buffer.from(cursor, "base64url").toString().replace(/^o/, "")) : 0;
+    if (cursor && !Number.isInteger(from)) return problem(res, 422, "invalid_request"), true;
+    const events = all.slice(from, from + limit);
+    const next = from + limit < all.length ? Buffer.from(`o${from + limit}`).toString("base64url") : "";
+    return send(res, 200, { events, next_cursor: next }), true;
   }
 
   if (req.method !== "GET" && !capabilitiesOf(user).includes("alerts.manage")) return problem(res, 403, "forbidden"), true;
