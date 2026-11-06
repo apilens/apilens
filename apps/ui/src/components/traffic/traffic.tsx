@@ -1,6 +1,7 @@
 import { RANGE_LABEL, formatCount, formatPerMinute, formatRate } from "@/lib/consumers";
 import type { EndpointTraffic, NamedApp, QueryRange, TrafficPoint, TrafficSummary } from "@/lib/identity";
 import {
+  ENDPOINTS_LIMIT,
   ENDPOINTS_LOAD_FAILED,
   TIMESERIES_LOAD_FAILED,
   TRAFFIC_LOAD_FAILED,
@@ -14,8 +15,10 @@ import {
   statusRows,
   trafficHref,
 } from "@/lib/traffic";
+import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { EndpointRowMenu, EndpointRowMenus } from "../endpoint/row-menu";
 import { ObIcon } from "../onboarding/ob";
+import { Pagination } from "../pagination/pagination";
 import { LatencyChart, Sparkline, StatusChart } from "./charts";
 import { EnvPicker } from "./env-picker";
 import { LiveControl, LiveNumber } from "./live";
@@ -37,6 +40,7 @@ export function TrafficView({
   points,
   endpoints,
   apps = null,
+  params = {},
 }: {
   project: string;
   projectName: string;
@@ -47,7 +51,12 @@ export function TrafficView({
   endpoints: EndpointTraffic[] | null;
   /** The project's apps, whose endpoint settings each row's menu edits (#600); null hides the menus. */
   apps?: NamedApp[] | null;
+  /** The page's search params as read, for the endpoints table's `?page=&per=`. */
+  params?: SearchParams;
 }) {
+  // Every endpoint the API listed, paged here; the range and environment links leave `page` out,
+  // so they start again at page 1, and a page past the end (the list shrank while live) clamps.
+  const page = slicePage(endpoints ?? [], parsePage(params));
   return (
     <div className="page tr">
       <header className="pagehead">
@@ -109,12 +118,18 @@ export function TrafficView({
               <p className="tr-empty" role="status">
                 No endpoints with requests in {scopeText(q)}.
               </p>
-            ) : apps && apps.length > 0 ? (
-              <EndpointRowMenus project={project} apps={apps}>
-                <EndpointsTable project={project} q={q} endpoints={endpoints} menus />
-              </EndpointRowMenus>
             ) : (
-              <EndpointsTable project={project} q={q} endpoints={endpoints} />
+              <>
+                {apps && apps.length > 0 ? (
+                  <EndpointRowMenus project={project} apps={apps}>
+                    <EndpointsTable project={project} q={q} endpoints={page.rows} menus />
+                  </EndpointRowMenus>
+                ) : (
+                  <EndpointsTable project={project} q={q} endpoints={page.rows} />
+                )}
+                <Pagination pathname={trafficHref(project, {})} params={params} total={page.window.total} label="Endpoints pages" />
+                {endpoints.length >= ENDPOINTS_LIMIT ? <p className="tr-cap">The {formatCount(ENDPOINTS_LIMIT)} busiest endpoints are listed.</p> : null}
+              </>
             )}
           </section>
         </>
@@ -164,7 +179,14 @@ function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points:
           <span className="tr-tile__sub">
             {formatCount(s.client_errors)} 4xx, {formatCount(s.server_errors)} 5xx
           </span>
-          <Sparkline values={points.map((p) => p.client_errors + p.server_errors)} />
+          <Sparkline
+            values={points.map((p) => (p.requests > 0 ? (p.client_errors + p.server_errors) / p.requests : 0))}
+            hover={{
+              label: "Error rate",
+              range,
+              points: points.map((p) => ({ ts: p.ts, text: `${formatRate(p.client_errors + p.server_errors, p.requests)} (${formatCount(p.client_errors)} 4xx, ${formatCount(p.server_errors)} 5xx)` })),
+            }}
+          />
         </dd>
       </div>
       <div>
@@ -176,7 +198,7 @@ function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points:
           <span className="tr-tile__sub">
             p50 {formatLatency(s.p50_ms)}, p99 {formatLatency(s.p99_ms)}
           </span>
-          <Sparkline values={points.map((p) => p.p95_ms)} />
+          <Sparkline values={points.map((p) => p.p95_ms)} hover={{ label: "p95", range, points: points.map((p) => ({ ts: p.ts, text: formatLatency(p.p95_ms) })) }} />
         </dd>
       </div>
       <div>

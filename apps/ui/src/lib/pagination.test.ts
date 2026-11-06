@@ -9,6 +9,7 @@ import {
   pageForPer,
   pageHref,
   pageItems,
+  pageKeys,
   pageOffset,
   pageWindow,
   parsePage,
@@ -184,5 +185,20 @@ describe("hrefs", () => {
   it("builds cursor links with only one direction", () => {
     expect(cursorHref("/x", { after: "a1", page: "2", env: "prod" }, { before: "b9" })).toBe("/x?env=prod&before=b9");
     expect(cursorHref("/x", { before: "b9" }, { after: "a1" }, { before: "newer", after: "older" })).toBe("/x?before=b9&older=a1");
+  });
+});
+
+describe("per-table keys", () => {
+  const keys = { page: "vpage", per: "vper" };
+  it("defaults to page and per", () => {
+    expect(pageKeys()).toEqual({ page: "page", per: "per" });
+  });
+  it("reads only the table's own keys", () => {
+    expect(parsePage({ page: "4", per: "100", vpage: "2", vper: "50" }, { keys })).toEqual({ page: 2, per: 50 });
+    expect(parsePage({ page: "4" }, { keys })).toEqual({ page: 1, per: 25 });
+  });
+  it("writes only the table's own keys, keeping the other table's position", () => {
+    expect(pageHref("/x", { page: "3", vpage: "2" }, { page: 4 }, { keys })).toBe("/x?page=3&vpage=4");
+    expect(pageHref("/x", { page: "3", vpage: "2", vper: "50" }, { page: 1, per: 25 }, { keys })).toBe("/x?page=3");
   });
 });
