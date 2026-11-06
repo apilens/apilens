@@ -45,6 +45,71 @@
 .ap-update, .ap-drops { font: 500 12px/18px var(--font-sans); color: var(--warn); }
 .ap-drops { margin: 0; }
 
+/* Hoverable marks and the actions menu sit above the card-wide link, so they get the pointer. */
+.ap-card .ct-box, .ap-menu { position: relative; z-index: 1; }
+.ap-card .tr-spark--hover { height: 24px; }
+.ap-card .tr-spark--hover svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.ap-card .tr-spark--hover polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.ap-card .ap-health.ct-box { display: flex; width: 100%; }
+
+.ap-card__tools { flex: none; display: flex; align-items: center; gap: var(--space-2); }
+.ap-menu { display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--ink-muted); cursor: pointer; }
+.ap-menu svg { width: 16px; height: 16px; fill: currentColor; }
+.ap-menu:hover, .ap-menu.is-open { border-color: var(--border-strong); background: var(--surface-1); color: var(--ink); }
+.ap-menu:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.ap-menu__note { margin: 4px 8px; max-width: 250px; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+
+.ap-origin { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); margin: 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ap-tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-pill); font: 500 11px/1 var(--font-sans); color: var(--ink); white-space: nowrap; }
+.ap-tag--new { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--ok-soft); color: var(--accent-ink); }
+
+/* Notices above the cards: rejected data (warning), new apps, read-only. */
+.ap-notice { margin: 0 0 var(--space-4); }
+.ap-notice code { font: 400 12.5px/20px var(--font-mono); }
+.ap-notice__body { min-width: 0; }
+.ap-notice__body h2 { margin: 0; font: 600 14px/22px var(--font-sans); color: var(--ink); }
+.ap-notice__body p + p, .ap-notice__body p + ul, .ap-notice__body ul + p { margin-top: var(--space-2); }
+.ap-notice--warn { border-color: color-mix(in srgb, var(--warn) 35%, var(--border)); background: var(--warn-soft); }
+.ap-notice--warn svg { color: var(--warn); }
+.ap-notice--new { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.ap-notice--new svg { color: var(--accent-ink); }
+.ap-readonly { color: var(--ink-muted); }
+.ap-rejlist { margin: 0; padding-left: 18px; font: 400 13px/20px var(--font-sans); overflow-wrap: anywhere; }
+.ap-fix-h { font-weight: 600; }
+.ap-newlist { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; padding: 0; list-style: none; }
+.ap-newlist li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.ap-newlist__actions { display: inline-flex; gap: var(--space-1); }
+.ap-empty div p + p { margin-top: var(--space-2); }
+
+.ap-said { min-height: 0; margin: 0 0 var(--space-3); font: 400 13px/20px var(--font-sans); color: var(--ok); }
+.ap-said:empty { margin: 0; }
+.ap-said--err { color: var(--error); }
+
+.ap .pg { margin-top: var(--space-4); }
+
+/* Archived, merged and deleted apps: collapsed below the cards. */
+.ap-archived { margin-top: var(--space-8); border-top: 1px solid var(--border); padding-top: var(--space-4); }
+.ap-archived summary { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; font: 600 14px/22px var(--font-sans); color: var(--ink); border-radius: var(--radius-sm); }
+.ap-archived summary:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.ap-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--radius-pill); background: var(--surface-2); font: 500 12px/1 var(--font-sans); color: var(--ink-muted); }
+.ap-archived__lead { margin-top: var(--space-2); }
+.ap-archived__list { margin: var(--space-3) 0 0; padding: 0; list-style: none; }
+.ap-arow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); padding: var(--space-3) 0; border-top: 1px solid var(--border); }
+.ap-arow__main { flex: 1 1 280px; min-width: 0; }
+.ap-arow__name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); margin: 0 0 2px; font: 400 14px/22px var(--font-sans); color: var(--ink); overflow-wrap: anywhere; }
+.ap-arow__name b { font-weight: 600; }
+.ap-arow__name code { font: 400 12px/18px var(--font-mono); color: var(--ink-muted); }
+.ap-arow__actions { display: inline-flex; gap: var(--space-1); }
+.ap-state { display: inline-flex; align-items: center; height: 20px; padding: 0 var(--space-2); border-radius: var(--radius-pill); background: var(--surface-2); font: 500 11px/1 var(--font-sans); color: var(--ink-muted); }
+.ap-state--deleted { background: var(--error-soft); color: var(--error); }
+.ap-confirm { flex-basis: 100%; }
+.ap-confirm code { padding: 1px 6px; }
+
+/* Merge dialog */
+.ap-select { padding: 0 10px; }
+.ap-select select { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: inherit; font: inherit; }
+.ap-explain { margin: var(--space-4) 0 0; color: var(--ink); }
+
 @media (max-width: 760px) {
   .ap-grid { grid-template-columns: minmax(0, 1fr); }
 }
