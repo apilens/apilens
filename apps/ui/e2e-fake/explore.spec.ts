@@ -82,11 +82,11 @@ test("shows each request's time, method, path, status, latency, consumer and siz
   await expect(page.getByRole("heading", { level: 1, name: "Explore" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Views" }).getByRole("link", { name: "Explore" })).toHaveAttribute("aria-current", "page");
 
-  await expect(grid(page).getByRole("columnheader")).toHaveText(["Time", "Method", "Path", "Status", "Latency", "Consumer", "Size"]);
+  await expect(grid(page).getByRole("columnheader")).toHaveText(["Time (UTC)", "Method", "Path", "Status", "Latency", "Consumer", "Size"]);
   await expect(bodyRows(page)).toHaveCount(3);
-  await expect(rowAt(page, 0).getByRole("gridcell")).toHaveText(["3m ago", "GET", "/orders/1000", "200", "42 ms", "Acme Corp", "1.2 KB"]);
-  await expect(rowAt(page, 1).getByRole("gridcell")).toHaveText(["10m ago", "POST", "/charge", "502", "2.48 s", "Anonymous", "88 B"]);
-  await expect(rowAt(page, 2).getByRole("gridcell")).toHaveText(["17m ago", "GET", "/orders/1002Sampled out", "404", "640 ms", "c_beta", "0 B"]);
+  await expect(rowAt(page, 0).getByRole("gridcell")).toHaveText([/^\d\d:\d\d:\d\d\.\d{3}$/, "GET", "/orders/1000", "200", "42 ms", "Acme Corp", "1.2 KB"]);
+  await expect(rowAt(page, 1).getByRole("gridcell")).toHaveText([/^\d\d:\d\d:\d\d\.\d{3}$/, "POST", "/charge", "502", "2.48 s", "–", "88 B"]);
+  await expect(rowAt(page, 2).getByRole("gridcell")).toHaveText([/^\d\d:\d\d:\d\d\.\d{3}$/, "GET", "/orders/1002Sampled out", "404", "640 ms", "c_beta", "0 B"]);
 
   // Status and latency carry meaning in color: 4xx and 5xx differ, slow and frustrated differ.
   const color = (sel: string) => grid(page).locator(sel).first().evaluate((el) => getComputedStyle(el).color);

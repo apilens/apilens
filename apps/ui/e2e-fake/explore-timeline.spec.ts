@@ -78,7 +78,15 @@ test.afterEach(async () => {
 test("draws requests over time by status, with a legend and per-bar tooltips", async ({ page }) => {
   await signIn(page);
   await expect(timeline(page)).toBeVisible();
-  await expect(timeline(page).getByRole("list", { name: "Legend" }).getByRole("listitem")).toHaveText(["Successful", "4xx", "5xx"]);
+  await expect(timeline(page).getByRole("list", { name: "Requests by status" }).getByRole("listitem")).toHaveText([
+    "12 requests",
+    "Successful 6",
+    "4xx 3",
+    "5xx 3",
+    "All errors 50.0%",
+  ]);
+  // The error counts are quick filters for the log.
+  await expect(timeline(page).getByRole("link", { name: "5xx 3" })).toHaveAttribute("href", /status=5xx/);
   await expect(plot(page)).toHaveAttribute("aria-label", /^Requests over time: 12 requests from /);
   // One bar per minute of the hour; every seeded request is drawn in its status class.
   await expect(timeline(page).locator(".ex-tl__bar")).toHaveCount(60);

@@ -232,7 +232,7 @@ export function Timeline({
               <>
                 <span className={`ex-tl__swatch ${s.className}`} aria-hidden="true" />
                 {s.label}
-                {n !== null ? <span className="ex-tl__n">{formatCount(n)}</span> : null}
+                {n !== null ? <> <span className="ex-tl__n">{formatCount(n)}</span></> : null}
               </>
             );
             if (!quick || n === null || (n === 0 && q.filters.status !== quick)) return <li key={s.key}>{label}</li>;
@@ -257,7 +257,7 @@ export function Timeline({
                 const { href, active } = statusQuickHref(project, q, "4xx,5xx");
                 return (
                   <a className="ex-tl__quick" href={href} aria-current={active ? "true" : undefined} title={active ? "Show every status again" : "Show only errors (4xx and 5xx) in the log"} onClick={(e) => go(e, href)}>
-                    All errors
+                    All errors{" "}
                     <span className="ex-tl__n">{formatShare((totals.client_errors + totals.server_errors) / Math.max(1, totals.requests))}</span>
                   </a>
                 );
@@ -346,7 +346,7 @@ export function Timeline({
               <span>{formatInstant(timeline.to, style)} UTC</span>
             </div>
           ) : null}
-          <p id={`${id}-hint`} className="ex-tl__sr">
+          <p id={`${id}-hint`} className="ex-tl__hint">
             Click a bar to show the log from that time back, or drag across bars to zoom in. With the keyboard, arrow keys pick a bar, Shift with the arrows selects several, and Enter applies.
           </p>
           <p className="ex-tl__sr" aria-live="polite">
