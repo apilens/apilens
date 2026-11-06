@@ -115,9 +115,12 @@
 //                                                  saved; PUT answers 403 without capture.manage
 //   GET  /api/v1/deploys/changes?project=          deploys with before/after numbers (#597), as seeded
 //   POST /__fake/deploys {project, deploys}        test hook: what that answers for `project`
-//   GET  /api/v1/consumers?project=&group=         consumers of shop (#596) as seeded, each with the group the
-//   GET  /api/v1/consumers/{consumer_id}?project=  fake assigned it; `group` filters to its members; detail as seeded
-//   GET|POST /api/v1/projects/shop/consumer-groups shop's consumer groups (#596): list (by name) and create; a name
+//   GET  /api/v1/consumers?project=&group=&search=&sort=&limit=&offset=  consumers of shop (#596) as seeded,
+//                                                  each with its seeded SDK consumer_group; `group` filters by it
+//   GET  /api/v1/consumers/{consumer_id}?project=  detail as seeded, recent lists paged by limit/offset
+//   GET  /api/v1/consumer-groups?project=          the seeded consumers rolled up by consumer_group
+//   GET|POST /api/v1/projects/shop/consumer-groups shop's dashboard consumer groups (#596, deprecated; alert rules
+//                                                  still list them): list (by name) and create; a name
 //   PUT|DELETE /api/v1/projects/shop/consumer-groups/{id}  taken ignoring case answers 409 conflict
 //   PUT|DELETE /api/v1/projects/shop/consumers/{consumer_id}/group  assign (moves it out of its previous
 //                                                  group) and unassign; writes answer 403 without project.update
@@ -2055,9 +2058,10 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (queryDown.has(slug)) return problem(res, 503, "unavailable");
     return send(res, 200, { window_minutes: 60, deploys: deployChanges.get(slug) ?? [] });
   }
-  // Consumers (#596), as seeded, with the groups this fake keeps; same access rules as above.
-  const consumerPath = path.match(/^\/api\/v1\/consumers(?:\/([^/]+))?$/);
-  if (req.method === "GET" && consumerPath) {
+  // Consumers (#596), as seeded, each with the SDK group it was seeded with (consumer_group); same
+  // access rules as above. The list and the group roll-up search, sort and page like the API.
+  const consumerPath = path.match(/^\/api\/v1\/(consumers|consumer-groups)(?:\/([^/]+))?$/);
+  if (req.method === "GET" && consumerPath && !(consumerPath[1] === "consumer-groups" && consumerPath[2] !== undefined)) {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
     const slug = url.searchParams.get("project") ?? "";
@@ -2065,20 +2069,56 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (queryDown.has(slug)) return problem(res, 503, "unavailable");
     const seed = consumersSeed.get(slug) ?? { summary: { consumers: 0, new: 0, returning: 0 }, points: [], consumers: [], details: {} };
     const range = url.searchParams.get("range") ?? "24h";
-    if (consumerPath[1] !== undefined) {
-      const id = decodeURIComponent(consumerPath[1]);
+    const num = (k: string, d: number) => Number(url.searchParams.get(k) ?? d);
+    const limit = num("limit", consumerPath[1] === "consumers" && consumerPath[2] !== undefined ? 50 : 100);
+    const offset = num("offset", 0);
+    const search = (url.searchParams.get("search") ?? "").toLowerCase();
+    const sort = url.searchParams.get("sort") ?? "requests";
+    const n = (r: Record<string, unknown>, k: string) => Number(r[k] ?? 0);
+    const order = (rows: Record<string, unknown>[]) =>
+      [...rows].sort((x, y) =>
+        sort === "errors"
+          ? n(y, "client_errors") + n(y, "server_errors") - (n(x, "client_errors") + n(x, "server_errors")) || n(y, "requests") - n(x, "requests")
+          : sort === "last_seen"
+            ? String(y.last_seen).localeCompare(String(x.last_seen))
+            : sort === "consumers"
+              ? n(y, "consumers") - n(x, "consumers") || n(y, "requests") - n(x, "requests")
+              : n(y, "requests") - n(x, "requests"),
+      );
+    const page = <T,>(rows: T[]) => rows.slice(offset, offset + limit);
+    if (consumerPath[1] === "consumer-groups") {
+      const by = new Map<string, Record<string, unknown>>();
+      for (const c of seed.consumers) {
+        const g = String(c.consumer_group ?? "");
+        if (!g || (search && !g.toLowerCase().includes(search))) continue;
+        const cur = by.get(g) ?? { group: g, consumers: 0, requests: 0, successful: 0, client_errors: 0, server_errors: 0, last_seen: "", sparkline: [] as number[] };
+        for (const k of ["requests", "successful", "client_errors", "server_errors"]) cur[k] = n(cur, k) + n(c, k);
+        cur.consumers = n(cur, "consumers") + 1;
+        if (String(c.last_seen) > String(cur.last_seen)) cur.last_seen = c.last_seen;
+        cur.sparkline = ((c.sparkline as number[]) ?? []).map((v, i) => v + ((cur.sparkline as number[])[i] ?? 0));
+        by.set(g, cur);
+      }
+      const all = order([...by.values()]);
+      return send(res, 200, { range, from: "2026-11-05T10:00:00Z", to: "", bucket_seconds: 900, total: all.length, groups: page(all) });
+    }
+    if (consumerPath[2] !== undefined) {
+      const id = decodeURIComponent(consumerPath[2]);
       const detail = seed.details[id];
       if (!detail) return problem(res, 404, "not_found");
-      return send(res, 200, { ...detail, consumer_id: id, range, group: groupRef(id) });
+      const recent = (k: string) => page((detail[k] as unknown[]) ?? []);
+      return send(res, 200, { top_endpoints: [], ...detail, consumer_id: id, range, recent_requests: recent("recent_requests"), recent_errors: recent("recent_errors") });
     }
     const group = url.searchParams.get("group");
-    const rows = seed.consumers
-      .filter((c) => !group || consumerAssignments.get(String(c.consumer_id)) === group)
-      .map((c) => ({ ...c, group: groupRef(String(c.consumer_id)) }));
-    return send(res, 200, { range, from: "", to: "", bucket_seconds: 900, summary: seed.summary, points: seed.points, consumers: rows });
+    const inGroup = seed.consumers.filter((c) => !group || c.consumer_group === group);
+    const matched = order(inGroup.filter((c) => !search || String(c.consumer_id).toLowerCase().includes(search) || String(c.consumer_name).toLowerCase().includes(search)));
+    const totals = { requests: 0, successful: 0, client_errors: 0, server_errors: 0 };
+    for (const c of inGroup) for (const k of Object.keys(totals) as (keyof typeof totals)[]) totals[k] += n(c, k);
+    const summary = group ? { consumers: inGroup.length, new: inGroup.filter((c) => c.new).length, returning: inGroup.filter((c) => !c.new).length } : seed.summary;
+    return send(res, 200, { range, from: "2026-11-05T10:00:00Z", to: "", bucket_seconds: 900, summary, totals, points: seed.points, total: matched.length, consumers: page(matched) });
   }
   if (req.method === "POST" && path === "/__fake/consumers") {
-    // Test hook: replaces what the consumers reads answer for `project`, and shop's groups.
+    // Test hook: replaces what the consumers reads answer for `project`, and shop's dashboard groups
+    // (deprecated; the alert rule editor still lists them).
     const b = await readBody(req);
     consumersSeed.set(String(b.project), {
       summary: b.summary ?? { consumers: 0, new: 0, returning: 0 },

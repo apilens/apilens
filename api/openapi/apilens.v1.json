@@ -1568,6 +1568,52 @@
         ],
         "type": "object"
       },
+      "ConsumerEndpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "client_errors": {
+            "description": "Requests with a 4xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "method": {
+            "description": "HTTP method.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Route template the requests matched, e.g. /orders/{id}.",
+            "type": "string"
+          },
+          "requests": {
+            "description": "All requests.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_errors": {
+            "description": "Requests with a 5xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "successful": {
+            "description": "Requests with a status code below 400.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "method",
+          "path",
+          "requests",
+          "successful",
+          "client_errors",
+          "server_errors"
+        ],
+        "type": "object"
+      },
       "ConsumerGroup": {
         "additionalProperties": false,
         "properties": {
@@ -1657,6 +1703,131 @@
         ],
         "type": "object"
       },
+      "ConsumerGroupTraffic": {
+        "additionalProperties": false,
+        "properties": {
+          "client_errors": {
+            "description": "Requests with a 4xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "consumers": {
+            "description": "Distinct identified consumers with requests tagged with the group in the range.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "group": {
+            "description": "The consumer group as the SDK reported it.",
+            "type": "string"
+          },
+          "last_seen": {
+            "description": "Last request tagged with the group in the range.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "requests": {
+            "description": "All requests.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_errors": {
+            "description": "Requests with a 5xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sparkline": {
+            "description": "Requests per bucket of the range (bucket_seconds wide), oldest first, zero-filled.",
+            "items": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "successful": {
+            "description": "Requests with a status code below 400.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "group",
+          "consumers",
+          "last_seen",
+          "sparkline",
+          "requests",
+          "successful",
+          "client_errors",
+          "server_errors"
+        ],
+        "type": "object"
+      },
+      "ConsumerGroupTrafficOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ConsumerGroupTrafficOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "bucket_seconds": {
+            "description": "Width of each sparkline bucket, in seconds.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "from": {
+            "description": "Start of the range (inclusive, bucket-aligned).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "groups": {
+            "description": "One page of groups (limit, offset), in sort order.",
+            "items": {
+              "$ref": "#/components/schemas/ConsumerGroupTraffic"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
+            "type": "string"
+          },
+          "to": {
+            "description": "End of the range (exclusive, bucket-aligned).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "total": {
+            "description": "Groups matching search in the range, across all pages.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "range",
+          "from",
+          "to",
+          "bucket_seconds",
+          "total",
+          "groups"
+        ],
+        "type": "object"
+      },
       "ConsumerGroupsOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -1702,6 +1873,10 @@
             "format": "int64",
             "type": "integer"
           },
+          "consumer_group": {
+            "description": "Most recent non-empty consumer group the SDK reported for the consumer in the range; empty when none.",
+            "type": "string"
+          },
           "consumer_id": {
             "description": "Consumer id the SDK reported.",
             "type": "string"
@@ -1719,10 +1894,6 @@
             "description": "Start of the range (inclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
-          },
-          "group": {
-            "$ref": "#/components/schemas/ConsumerGroupRef",
-            "description": "The consumer group the consumer is assigned to; absent when none."
           },
           "last_seen": {
             "description": "Last request ever seen from the consumer in the project.",
@@ -1748,7 +1919,7 @@
             "type": "string"
           },
           "recent_errors": {
-            "description": "The consumer's latest 4xx and 5xx requests in the range (at most 50), newest first.",
+            "description": "One page (limit, offset) of the consumer's 4xx and 5xx requests in the range, newest first.",
             "items": {
               "$ref": "#/components/schemas/RequestRow"
             },
@@ -1758,7 +1929,7 @@
             ]
           },
           "recent_requests": {
-            "description": "The consumer's latest requests in the range (at most 50), newest first.",
+            "description": "One page (limit, offset) of the consumer's requests in the range, newest first.",
             "items": {
               "$ref": "#/components/schemas/RequestRow"
             },
@@ -1775,11 +1946,22 @@
             "description": "End of the range (exclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
+          },
+          "top_endpoints": {
+            "description": "The endpoints the consumer called most in the range (at most 10), most requests first.",
+            "items": {
+              "$ref": "#/components/schemas/ConsumerEndpoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           }
         },
         "required": [
           "consumer_id",
           "consumer_name",
+          "consumer_group",
           "first_seen",
           "last_seen",
           "new",
@@ -1789,6 +1971,7 @@
           "bucket_seconds",
           "summary",
           "points",
+          "top_endpoints",
           "recent_requests",
           "recent_errors"
         ],
@@ -1803,6 +1986,10 @@
             "minimum": 0,
             "type": "integer"
           },
+          "consumer_group": {
+            "description": "Most recent non-empty consumer group the SDK reported for the consumer in the range; empty when none.",
+            "type": "string"
+          },
           "consumer_id": {
             "description": "Consumer id the SDK reported.",
             "type": "string"
@@ -1815,10 +2002,6 @@
             "description": "First request ever seen from the consumer in the project.",
             "format": "date-time",
             "type": "string"
-          },
-          "group": {
-            "$ref": "#/components/schemas/ConsumerGroupRef",
-            "description": "The consumer group the consumer is assigned to; absent when none."
           },
           "last_seen": {
             "description": "Last request ever seen from the consumer in the project.",
@@ -1863,6 +2046,7 @@
         "required": [
           "consumer_id",
           "consumer_name",
+          "consumer_group",
           "first_seen",
           "last_seen",
           "new",
@@ -1934,7 +2118,7 @@
             "type": "integer"
           },
           "consumers": {
-            "description": "Consumers by requests, most first.",
+            "description": "One page of consumers (limit, offset), in sort order.",
             "items": {
               "$ref": "#/components/schemas/ConsumerRow"
             },
@@ -1970,6 +2154,16 @@
             "description": "End of the range (exclusive, bucket-aligned).",
             "format": "date-time",
             "type": "string"
+          },
+          "total": {
+            "description": "Consumers matching group and search in the range, across all pages.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/StatusSplit",
+            "description": "Requests of identified consumers in the range by outcome (group applied, search not)."
           }
         },
         "required": [
@@ -1978,7 +2172,9 @@
           "to",
           "bucket_seconds",
           "summary",
+          "totals",
           "points",
+          "total",
           "consumers"
         ],
         "type": "object"
@@ -8749,6 +8945,42 @@
         ],
         "type": "object"
       },
+      "StatusSplit": {
+        "additionalProperties": false,
+        "properties": {
+          "client_errors": {
+            "description": "Requests with a 4xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requests": {
+            "description": "All requests.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_errors": {
+            "description": "Requests with a 5xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "successful": {
+            "description": "Requests with a status code below 400.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requests",
+          "successful",
+          "client_errors",
+          "server_errors"
+        ],
+        "type": "object"
+      },
       "SummaryOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -13026,9 +13258,149 @@
         ]
       }
     },
+    "/api/v1/consumer-groups": {
+      "get": {
+        "description": "Each consumer group the SDK reported in the range (consumer_group on a request, such as the company or plan a user belongs to), with its requests by outcome, distinct consumers, last request and a sparkline, most requests first. Requests without a group are left out. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "operationId": "list-consumer-group-traffic",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only groups whose name contains this text, ignoring case.",
+            "explode": false,
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "description": "Only groups whose name contains this text, ignoring case.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Order of groups, largest or latest first: requests, errors (4xx and 5xx), consumers or last_seen.",
+            "explode": false,
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "default": "requests",
+              "description": "Order of groups, largest or latest first: requests, errors (4xx and 5xx), consumers or last_seen.",
+              "enum": [
+                "requests",
+                "errors",
+                "consumers",
+                "last_seen"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Most groups to list.",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Most groups to list.",
+              "format": "int64",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Groups to skip, for paging. Past the end answers an empty page with the real total.",
+            "explode": false,
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "default": 0,
+              "description": "Groups to skip, for paging. Past the end answers an empty page with the real total.",
+              "format": "int64",
+              "maximum": 100000,
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsumerGroupTrafficOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Consumer groups the SDK reports, with their traffic",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
     "/api/v1/consumers": {
       "get": {
-        "description": "Consumers with requests in the range, most requests first, each with an outcome split and a sparkline; plus unique consumers per bucket split into new (first seen in the bucket) and returning. group narrows to one consumer group. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "description": "The users of the API (consumers the SDK identified) with requests in the range, one page in sort order, each with an outcome split, a sparkline and the latest consumer group the SDK reported; plus the total, request totals and unique consumers per bucket split into new (first seen in the bucket) and returning. group keeps the requests the SDK tagged with that group; search matches consumer ids and names. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "list-consumers",
         "parameters": [
           {
@@ -13074,27 +13446,71 @@
             }
           },
           {
-            "description": "Only the consumers in this consumer group (an id from list-consumer-groups); empty means all.",
+            "description": "Only requests the SDK tagged with this consumer group (the consumer_group it reports); empty means all.",
             "explode": false,
             "in": "query",
             "name": "group",
             "schema": {
-              "description": "Only the consumers in this consumer group (an id from list-consumer-groups); empty means all.",
-              "format": "uuid",
+              "description": "Only requests the SDK tagged with this consumer group (the consumer_group it reports); empty means all.",
+              "examples": [
+                "Acme Corp"
+              ],
+              "maxLength": 256,
               "type": "string"
             }
           },
           {
-            "description": "Most consumers to list, by requests.",
+            "description": "Only consumers whose id or name contains this text, ignoring case. Narrows consumers and total, not summary, totals or points.",
+            "explode": false,
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "description": "Only consumers whose id or name contains this text, ignoring case. Narrows consumers and total, not summary, totals or points.",
+              "maxLength": 256,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Order of consumers, largest or latest first: requests, errors (4xx and 5xx) or last_seen (last request in the range).",
+            "explode": false,
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "default": "requests",
+              "description": "Order of consumers, largest or latest first: requests, errors (4xx and 5xx) or last_seen (last request in the range).",
+              "enum": [
+                "requests",
+                "errors",
+                "last_seen"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Most consumers to list.",
             "explode": false,
             "in": "query",
             "name": "limit",
             "schema": {
               "default": 100,
-              "description": "Most consumers to list, by requests.",
+              "description": "Most consumers to list.",
               "format": "int64",
               "maximum": 500,
               "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Consumers to skip, for paging. Past the end answers an empty page with the real total.",
+            "explode": false,
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "default": 0,
+              "description": "Consumers to skip, for paging. Past the end answers an empty page with the real total.",
+              "format": "int64",
+              "maximum": 100000,
+              "minimum": 0,
               "type": "integer"
             }
           }
@@ -13137,7 +13553,7 @@
     },
     "/api/v1/consumers/{consumer_id}": {
       "get": {
-        "description": "One consumer: when it was first and last seen, its group, requests by outcome per bucket and its latest requests and errors. A consumer the project never saw answers 404. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "description": "One consumer: when it was first and last seen, the latest group the SDK reported for it, requests by outcome per bucket, its top endpoints and a page of its latest requests and errors. A consumer the project never saw answers 404. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-consumer",
         "parameters": [
           {
@@ -13190,11 +13606,39 @@
             "schema": {
               "description": "The consumer id the SDK reports, URL-encoded as one path segment.",
               "examples": [
-                "acme-mobile"
+                "usr_1f3a9c"
               ],
               "maxLength": 256,
               "minLength": 1,
               "type": "string"
+            }
+          },
+          {
+            "description": "Most recent requests, and most recent errors, to list.",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "description": "Most recent requests, and most recent errors, to list.",
+              "format": "int64",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Recent requests and errors to skip, for paging. Their totals are summary.requests and summary.client_errors plus summary.server_errors.",
+            "explode": false,
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "default": 0,
+              "description": "Recent requests and errors to skip, for paging. Their totals are summary.requests and summary.client_errors plus summary.server_errors.",
+              "format": "int64",
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
             }
           }
         ],
@@ -18734,7 +19178,8 @@
     },
     "/api/v1/projects/{project}/consumer-groups": {
       "get": {
-        "description": "The project's consumer groups by name, with how many consumers each holds. Open to a session that can view the project or to the project's read key.",
+        "deprecated": true,
+        "description": "Deprecated: consumer groups now come from the SDK (consumer_group on each request, listed by list-consumer-group-traffic); the dashboard no longer creates or assigns them. Kept for alert rules that filter by one of these groups. The project's consumer groups by name, with how many consumers each holds. Open to a session that can view the project or to the project's read key.",
         "operationId": "list-consumer-groups",
         "parameters": [
           {
@@ -18814,7 +19259,8 @@
         ]
       },
       "post": {
-        "description": "Creates an empty consumer group. Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers. A name the project already uses answers 409.",
+        "deprecated": true,
+        "description": "Deprecated: consumer groups now come from the SDK (consumer_group on each request, listed by list-consumer-group-traffic); the dashboard no longer creates or assigns them. Kept for alert rules that filter by one of these groups. Creates an empty consumer group. Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers. A name the project already uses answers 409.",
         "operationId": "create-consumer-group",
         "parameters": [
           {
@@ -18916,7 +19362,8 @@
     },
     "/api/v1/projects/{project}/consumer-groups/{id}": {
       "delete": {
-        "description": "Deletes a group; its consumers become ungrouped. Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers.",
+        "deprecated": true,
+        "description": "Deprecated: consumer groups now come from the SDK (consumer_group on each request, listed by list-consumer-group-traffic); the dashboard no longer creates or assigns them. Kept for alert rules that filter by one of these groups. Deletes a group; its consumers become ungrouped. Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers.",
         "operationId": "delete-consumer-group",
         "parameters": [
           {
@@ -19010,7 +19457,8 @@
         ]
       },
       "put": {
-        "description": "Renames a group; its consumers stay. Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers. A name the project already uses answers 409.",
+        "deprecated": true,
+        "description": "Deprecated: consumer groups now come from the SDK (consumer_group on each request, listed by list-consumer-group-traffic); the dashboard no longer creates or assigns them. Kept for alert rules that filter by one of these groups. Renames a group; its consumers stay. Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers. A name the project already uses answers 409.",
         "operationId": "rename-consumer-group",
         "parameters": [
           {
@@ -19123,7 +19571,8 @@
     },
     "/api/v1/projects/{project}/consumers/{consumer_id}/group": {
       "delete": {
-        "description": "Leaves the consumer ungrouped. Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers. A consumer without a group answers 404.",
+        "deprecated": true,
+        "description": "Deprecated: consumer groups now come from the SDK (consumer_group on each request, listed by list-consumer-group-traffic); the dashboard no longer creates or assigns them. Kept for alert rules that filter by one of these groups. Leaves the consumer ungrouped. Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers. A consumer without a group answers 404.",
         "operationId": "unassign-consumer-group",
         "parameters": [
           {
@@ -19221,7 +19670,8 @@
         ]
       },
       "put": {
-        "description": "Assigns a consumer to a group of the project, moving it out of the group it was in (a consumer is in at most one group). Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers. A group that is not one of the project's answers 404.",
+        "deprecated": true,
+        "description": "Deprecated: consumer groups now come from the SDK (consumer_group on each request, listed by list-consumer-group-traffic); the dashboard no longer creates or assigns them. Kept for alert rules that filter by one of these groups. Assigns a consumer to a group of the project, moving it out of the group it was in (a consumer is in at most one group). Needs a user session that can edit the project (project admins and editors, organization members); 403 for viewers. A group that is not one of the project's answers 404.",
         "operationId": "assign-consumer-group",
         "parameters": [
           {

@@ -19,11 +19,19 @@ import (
 	"github.com/apilens/apilens/internal/platform/server"
 )
 
-// Consumer groups: named groups of a project's API consumers. A consumer is
-// in at most one group; assigning it to a group moves it out of the one it
-// was in. Everyone who can view the project (and its read key) lists the
-// groups; project editors (project admins and editors, organization members)
-// create, rename and delete them and assign consumers.
+// Consumer groups: named groups of a project's API consumers, assigned in
+// the dashboard. A consumer is in at most one group; assigning it to a group
+// moves it out of the one it was in. Everyone who can view the project (and
+// its read key) lists the groups; project editors (project admins and
+// editors, organization members) create, rename and delete them and assign
+// consumers.
+//
+// Deprecated: a consumer's group now comes from the SDK (consumer_group on
+// each request; see list-consumer-group-traffic and the consumers
+// operations), and the dashboard no longer creates or assigns groups. The
+// operations and their Postgres storage stay only because alert rules may
+// still filter by one of these groups (alerts.Filters.Group); they go once
+// alert rules filter by the SDK group.
 
 // ConsumerGroupsPath is the collection of a project's consumer groups. The
 // project is {project}, its slug, as authz.Guard reads it.
@@ -36,6 +44,16 @@ const ConsumerGroupPath = ConsumerGroupsPath + "/{id}"
 const ConsumerGroupAssignmentPath = server.APIPrefix + "/projects/{" + authz.ParamProject + "}/consumers/{consumer_id}/group"
 
 const maxGroupNameLen = 128
+
+// deprecatedGroups opens the description of every dashboard group operation.
+const deprecatedGroups = "Deprecated: consumer groups now come from the SDK (consumer_group on each request, listed by " +
+	"list-consumer-group-traffic); the dashboard no longer creates or assigns them. Kept for alert rules that filter by one of these groups. "
+
+// ConsumerGroupRef names a dashboard consumer group.
+type ConsumerGroupRef struct {
+	ID   string `json:"id" format:"uuid" doc:"The group's id."`
+	Name string `json:"name" doc:"The group's display name."`
+}
 
 // ConsumerGroupStore is the control-plane subset the consumer group
 // operations use; *db.Queries satisfies it. The Service's Catalog must
@@ -128,9 +146,10 @@ func registerConsumerGroups(api huma.API, s *Service, guard *authz.Guard) {
 		Method:      http.MethodGet,
 		Path:        ConsumerGroupsPath,
 		Summary:     "List the consumer groups of a project",
-		Description: "The project's consumer groups by name, with how many consumers each holds. " +
+		Description: deprecatedGroups + "The project's consumer groups by name, with how many consumers each holds. " +
 			"Open to a session that can view the project or to the project's read key.",
 		Tags:        []string{server.TagProjects},
+		Deprecated:  true,
 		Security:    readers,
 		Middlewares: view,
 	}, guarded...), s.listConsumerGroups)
@@ -139,8 +158,9 @@ func registerConsumerGroups(api huma.API, s *Service, guard *authz.Guard) {
 		Method:        http.MethodPost,
 		Path:          ConsumerGroupsPath,
 		Summary:       "Create a consumer group",
-		Description:   "Creates an empty consumer group. " + editors + " A name the project already uses answers 409.",
+		Description:   deprecatedGroups + "Creates an empty consumer group. " + editors + " A name the project already uses answers 409.",
 		Tags:          []string{server.TagProjects},
+		Deprecated:    true,
 		Security:      session,
 		Middlewares:   edit,
 		DefaultStatus: http.StatusCreated,
@@ -150,8 +170,9 @@ func registerConsumerGroups(api huma.API, s *Service, guard *authz.Guard) {
 		Method:      http.MethodPut,
 		Path:        ConsumerGroupPath,
 		Summary:     "Rename a consumer group",
-		Description: "Renames a group; its consumers stay. " + editors + " A name the project already uses answers 409.",
+		Description: deprecatedGroups + "Renames a group; its consumers stay. " + editors + " A name the project already uses answers 409.",
 		Tags:        []string{server.TagProjects},
+		Deprecated:  true,
 		Security:    session,
 		Middlewares: edit,
 	}, writeGuarded...), s.renameConsumerGroup)
@@ -160,8 +181,9 @@ func registerConsumerGroups(api huma.API, s *Service, guard *authz.Guard) {
 		Method:        http.MethodDelete,
 		Path:          ConsumerGroupPath,
 		Summary:       "Delete a consumer group",
-		Description:   "Deletes a group; its consumers become ungrouped. " + editors,
+		Description:   deprecatedGroups + "Deletes a group; its consumers become ungrouped. " + editors,
 		Tags:          []string{server.TagProjects},
+		Deprecated:    true,
 		Security:      session,
 		Middlewares:   edit,
 		DefaultStatus: http.StatusNoContent,
@@ -171,9 +193,10 @@ func registerConsumerGroups(api huma.API, s *Service, guard *authz.Guard) {
 		Method:      http.MethodPut,
 		Path:        ConsumerGroupAssignmentPath,
 		Summary:     "Put a consumer in a group",
-		Description: "Assigns a consumer to a group of the project, moving it out of the group it was in (a consumer is in at most one group). " +
+		Description: deprecatedGroups + "Assigns a consumer to a group of the project, moving it out of the group it was in (a consumer is in at most one group). " +
 			editors + " A group that is not one of the project's answers 404.",
 		Tags:        []string{server.TagProjects},
+		Deprecated:  true,
 		Security:    session,
 		Middlewares: edit,
 	}, writeGuarded...), s.assignConsumerGroup)
@@ -182,8 +205,9 @@ func registerConsumerGroups(api huma.API, s *Service, guard *authz.Guard) {
 		Method:        http.MethodDelete,
 		Path:          ConsumerGroupAssignmentPath,
 		Summary:       "Take a consumer out of its group",
-		Description:   "Leaves the consumer ungrouped. " + editors + " A consumer without a group answers 404.",
+		Description:   deprecatedGroups + "Leaves the consumer ungrouped. " + editors + " A consumer without a group answers 404.",
 		Tags:          []string{server.TagProjects},
+		Deprecated:    true,
 		Security:      session,
 		Middlewares:   edit,
 		DefaultStatus: http.StatusNoContent,
