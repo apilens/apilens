@@ -2,7 +2,7 @@
 
 import { type KeyboardEvent, type PointerEvent, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { formatCount, stackBars } from "@/lib/consumers";
-import { type ExploreState, LOG_POLL_MS, exploreHref, timelinePath } from "@/lib/explore";
+import { type ExploreState, LOG_POLL_MS, exploreHref, statusQuickHref, timelinePath } from "@/lib/explore";
 import {
   DRAG_THRESHOLD_PX,
   TIMELINE_LOAD_FAILED,
@@ -16,10 +16,12 @@ import {
   labelStyle,
   moveBucket,
   selectionWindow,
+  timelineTotals,
   timeX,
   timelinePoll,
   windowText,
 } from "@/lib/explore-timeline";
+import { formatShare } from "@/lib/endpoint-detail";
 import type { RequestTimeline } from "@/lib/identity";
 import { plotWidth } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
@@ -27,7 +29,7 @@ import { ObIcon } from "../onboarding/ob";
 /** The viewBox width drawn before the plot is measured (server render), stretched by CSS. */
 const FALLBACK_W = 960;
 /** Plot height in px; the CSS uses the same number. */
-const H = 96;
+const H = 64;
 
 /** The plot's measured width in CSS px, null until measured (same pattern as the Traffic charts). */
 function useMeasuredWidth<T extends HTMLElement>() {
@@ -132,6 +134,7 @@ export function Timeline({
 
   const buckets = timeline?.buckets ?? [];
   const count = buckets.length;
+  const totals = timeline ? timelineTotals(timeline) : null;
 
   const jump = (i: number) => {
     if (!timeline) return;
@@ -214,13 +217,53 @@ export function Timeline({
         <h2 id={`${id}-h`} className="ex-tl__title">
           Requests over time
         </h2>
-        <ul className="ex-tl__legend" aria-label="Legend">
-          {TIMELINE_SERIES.map((s) => (
-            <li key={s.key}>
-              <span className={`ex-tl__swatch ${s.className}`} aria-hidden="true" />
-              {s.label}
+        {/* The legend is the summary: each status class with its count in the timeline's window. The
+            error counts are quick filters (the log narrowed to them; again to undo). */}
+        <ul className="ex-tl__legend" aria-label="Requests by status">
+          {totals ? (
+            <li className="ex-tl__total">
+              <strong>{formatCount(totals.requests)}</strong> {totals.requests === 1 ? "request" : "requests"}
             </li>
-          ))}
+          ) : null}
+          {TIMELINE_SERIES.map((s) => {
+            const n = totals ? totals[s.key] : null;
+            const quick = s.key === "client_errors" ? "4xx" : s.key === "server_errors" ? "5xx" : null;
+            const label = (
+              <>
+                <span className={`ex-tl__swatch ${s.className}`} aria-hidden="true" />
+                {s.label}
+                {n !== null ? <span className="ex-tl__n">{formatCount(n)}</span> : null}
+              </>
+            );
+            if (!quick || n === null || (n === 0 && q.filters.status !== quick)) return <li key={s.key}>{label}</li>;
+            const { href, active } = statusQuickHref(project, q, quick);
+            return (
+              <li key={s.key}>
+                <a
+                  className="ex-tl__quick"
+                  href={href}
+                  aria-current={active ? "true" : undefined}
+                  title={active ? "Show every status again" : `Show only ${quick} responses in the log`}
+                  onClick={(e) => go(e, href)}
+                >
+                  {label}
+                </a>
+              </li>
+            );
+          })}
+          {totals && totals.client_errors + totals.server_errors > 0 ? (
+            <li>
+              {(() => {
+                const { href, active } = statusQuickHref(project, q, "4xx,5xx");
+                return (
+                  <a className="ex-tl__quick" href={href} aria-current={active ? "true" : undefined} title={active ? "Show every status again" : "Show only errors (4xx and 5xx) in the log"} onClick={(e) => go(e, href)}>
+                    All errors
+                    <span className="ex-tl__n">{formatShare((totals.client_errors + totals.server_errors) / Math.max(1, totals.requests))}</span>
+                  </a>
+                );
+              })()}
+            </li>
+          ) : null}
         </ul>
         <div className="ex-tl__scope">
           {zoomed && q.from && q.to ? (
@@ -303,7 +346,7 @@ export function Timeline({
               <span>{formatInstant(timeline.to, style)} UTC</span>
             </div>
           ) : null}
-          <p id={`${id}-hint`} className="ex-tl__hint">
+          <p id={`${id}-hint`} className="ex-tl__sr">
             Click a bar to show the log from that time back, or drag across bars to zoom in. With the keyboard, arrow keys pick a bar, Shift with the arrows selects several, and Enter applies.
           </p>
           <p className="ex-tl__sr" aria-live="polite">

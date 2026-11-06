@@ -103,7 +103,7 @@ test("Explore: the run's requests arrive, and the filters narrow them, kept in t
   await expect(page.getByRole("heading", { level: 1, name: "Explore" })).toBeVisible();
   await expect(chips(page).getByRole("listitem").filter({ hasNot: page.getByRole("button", { name: "Clear all" }) })).toHaveText([`URL contains “${RUN}”`]);
   await expect(bodyRows(page)).toHaveCount(SEEDED, { timeout: 30_000 });
-  await expect(grid(page).getByRole("columnheader")).toHaveText(["Time", "Method", "Path", "Status", "Latency", "Consumer", "Size"]);
+  await expect(grid(page).getByRole("columnheader")).toHaveText(["Time (UTC)", "Method", "Path", "Status", "Latency", "Consumer", "Size"]);
 
   // Status, typed into the bar: applies once typing pauses.
   await page.getByRole("button", { name: "Filters (1)" }).click();

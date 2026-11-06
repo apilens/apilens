@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type KeyboardEvent, type MouseEvent, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { RANGE_LABEL } from "@/lib/consumers";
 import {
   EXPLORE_RANGES,
@@ -16,6 +16,7 @@ import {
   isSampledOut,
   latencyTone,
   logPoll,
+  logTime,
   moveFocus,
   requestsPath,
   rowKey,
@@ -52,6 +53,7 @@ export function RequestLog({
   initial,
   timeline,
   now: serverNow,
+  actions,
 }: {
   project: string;
   environments: readonly string[];
@@ -59,6 +61,8 @@ export function RequestLog({
   initial: RequestRow[] | null;
   timeline: RequestTimeline | null;
   now: number;
+  /** The saved-view switcher and Export, at the right end of the toolbar. */
+  actions?: ReactNode;
 }) {
   const router = useRouter();
   const [rows, setRows] = useState<RequestRow[] | null>(initial);
@@ -131,7 +135,9 @@ export function RequestLog({
 
   return (
     <>
-      <div className="ex-bar">
+      {/* The toolbar: one row of range, filters, saved view, Export and Live. The filter form opens
+          on its own full-width line under it (.ex-filters is display: contents). */}
+      <div className="ex-tools">
         <nav className="ex-seg" aria-label="Time range">
           {EXPLORE_RANGES.map((r) => {
             // Another range starts over: the timeline's zoom and jump point (#587) belong to this one.
@@ -143,18 +149,20 @@ export function RequestLog({
             );
           })}
         </nav>
-        <div className="ex-live">
-          <span className={`ex-live__state${paused ? " is-paused" : ""}`}>
-            <span className="ex-live__dot" aria-hidden="true" />
-            {paused ? "Paused" : "Live"}
-          </span>
-          <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" aria-pressed={paused} onClick={() => setPaused((p) => !p)}>
-            {paused ? "Resume" : "Pause"}
-          </button>
+        <FilterBar project={project} environments={environments} query={q} navigate={navigate} />
+        <div className="ex-tools__end">
+          {actions}
+          <div className="ex-live">
+            <span className={`ex-live__state${paused ? " is-paused" : ""}`}>
+              <span className="ex-live__dot" aria-hidden="true" />
+              {paused ? "Paused" : "Live"}
+            </span>
+            <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" aria-pressed={paused} onClick={() => setPaused((p) => !p)}>
+              {paused ? "Resume" : "Pause"}
+            </button>
+          </div>
         </div>
       </div>
-
-      <FilterBar project={project} environments={environments} query={q} navigate={navigate} />
 
       <Timeline project={project} query={q} initial={timeline} paused={paused} busy={loading} navigate={navigate} />
 
@@ -200,6 +208,8 @@ export function RequestLog({
 }
 
 const COLUMNS = ["Time", "Method", "Path", "Status", "Latency", "Consumer", "Size"] as const;
+/** What a header cell says, where it says more than the column's name. */
+const HEADER: Partial<Record<(typeof COLUMNS)[number], string>> = { Time: "Time (UTC)" };
 
 /** The grid: a header row and a scrolling, virtualised body. `rows` null draws skeleton rows. */
 function LogGrid({
@@ -325,7 +335,7 @@ function LogGrid({
           <div className="ex-row ex-row--head" role="row" aria-rowindex={1}>
             {COLUMNS.map((c) => (
               <div key={c} role="columnheader" className={`ex-cell ex-cell--${c.toLowerCase()}`}>
-                {c}
+                {HEADER[c] ?? c}
               </div>
             ))}
           </div>
@@ -360,9 +370,12 @@ const LogRow = memo(function LogRow({
   const path = shownPath(r);
   const tone = latencyTone(r.response_time_ms);
   const status = statusClass(r.status_code);
+  const time = logTime(r.timestamp, now);
+  // The URL as requested is what reads apart row to row; the route it matched is in the title.
+  const pathTitle = r.path && r.path !== path ? `${path}\nRoute ${r.method.toUpperCase()} ${r.path}` : path;
   return (
     <div
-      className={`ex-row${onOpen && r.id ? " is-openable" : ""}`}
+      className={`ex-row${onOpen && r.id ? " is-openable" : ""}${status === "4xx" || status === "5xx" ? ` is-${status}` : ""}`}
       role="row"
       aria-rowindex={index + 2}
       data-index={index}
@@ -372,15 +385,18 @@ const LogRow = memo(function LogRow({
       style={{ transform: `translateY(${index * ROW_HEIGHT}px)` }}
     >
       <div role="gridcell" className="ex-cell ex-cell--time">
-        <time dateTime={r.timestamp} title={r.timestamp}>
-          {formatAgo(r.timestamp, now)}
+        <time dateTime={r.timestamp} title={`${formatAgo(r.timestamp, now)} · ${r.timestamp}`}>
+          {/* Another day: the date takes the milliseconds' place, so the column keeps its width. */}
+          {time.day ? <span className="ex-time__day">{time.day} </span> : null}
+          {time.clock}
+          {time.day ? null : <span className="ex-time__ms">{time.ms}</span>}
         </time>
       </div>
       <div role="gridcell" className="ex-cell ex-cell--method">
         {r.method.toUpperCase()}
       </div>
       <div role="gridcell" className="ex-cell ex-cell--path">
-        <code title={path}>{path}</code>
+        <code title={pathTitle}>{path}</code>
         {isSampledOut(r) ? (
           <span className="ex-sampled" title="Sampled out: the SDK kept a base record without headers or bodies.">
             Sampled out
@@ -394,7 +410,13 @@ const LogRow = memo(function LogRow({
         {formatLatency(r.response_time_ms)}
       </div>
       <div role="gridcell" className="ex-cell ex-cell--consumer">
-        {consumer === null ? <span className="ex-muted">Anonymous</span> : <span title={consumer}>{consumer}</span>}
+        {consumer === null ? (
+          <span className="ex-faint" title="No consumer identified: the app did not call set_consumer for this request.">
+            –
+          </span>
+        ) : (
+          <span title={consumer}>{consumer}</span>
+        )}
       </div>
       <div role="gridcell" className="ex-cell ex-cell--size">
         {formatBytes(r.response_size)}

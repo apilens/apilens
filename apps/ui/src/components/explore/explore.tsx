@@ -38,12 +38,22 @@ export function ExploreView({
           <p className="cp-h">{projectName} · Explore</p>
           <h1 className="cp-lede">Explore</h1>
           <p className="ex-lead">Every request your API served, newest first, as the SDK reported it.</p>
-          <div className="ex-head__actions">
-            <ViewSwitcher />
-            <ExportMenu project={project} query={query} />
-          </div>
         </header>
-        <RequestLog project={project} environments={environments} query={query} initial={rows} timeline={timeline} now={now} />
+        {/* One toolbar row: range, filters, then the saved view and Export at the right edge. */}
+        <RequestLog
+          project={project}
+          environments={environments}
+          query={query}
+          initial={rows}
+          timeline={timeline}
+          now={now}
+          actions={
+            <>
+              <ViewSwitcher />
+              <ExportMenu project={project} query={query} />
+            </>
+          }
+        />
       </SavedViews>
     </div>
   );
