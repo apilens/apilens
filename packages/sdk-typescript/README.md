@@ -64,14 +64,16 @@ dependencies.
 
 ---
 
-## The two values you need
+## The values you need
 
 | Value | What it is | Where to find it |
 |-------|-----------|------------------|
 | `apiKey` | **Project-level** key. One key works for every app in the project — the server derives the project from the key. | Project → API keys, in the [dashboard](https://app.apilens.ai). |
-| `appId` | The slug of the specific app (service) you're instrumenting, so traffic is attributed to the right app. | The app's page in the dashboard. |
+| `appId` | *Optional.* Name of the app (service) you're instrumenting, e.g. `"orders-api"` or `"Orders API"` — the server normalizes it to a slug and creates apps it hasn't seen. Falls back to env `APILENS_APP_ID`, then `OTEL_SERVICE_NAME`; with none set, data goes to the project's default app. | Any name you choose, or the app's page in the dashboard. |
 
-Both are required: the client throws at startup without them. `projectSlug`
+`apiKey` is required: the client throws at startup without it. The app choice
+is logged once at info, e.g. `APILens: app "orders-api" (from APILENS_APP_ID)`.
+`projectSlug`
 is **optional** — you only pass it if you want the SDK to assert the key
 belongs to a specific project. `baseUrl` defaults to
 `https://ingest.apilens.ai/v1`.
@@ -401,7 +403,7 @@ across a boundary the SDK doesn't patch (a message queue, a gRPC call).
 
 ### Turning tracing on and off
 
-Tracing is on by default wherever an `appId` is set. Request analytics keep
+Tracing is on by default (with or without an `appId`). Request analytics keep
 working with tracing off — you just stop emitting trace ids, spans, `traceparent`
 propagation and the error log.
 
@@ -459,7 +461,7 @@ adapter (which builds the client for you).
 | `sendMetadata` | `true` | Report framework, versions, route templates and the effective capture config once per process start (`POST /v1/metadata`). Env `APILENS_SEND_METADATA=false` also turns it off. See [App metadata](#app-metadata). |
 | `sendHeartbeat` | `true` | Send `POST /v1/heartbeat` on start, every `heartbeatIntervalMs` and on shutdown; its response carries the remote capture policy. Env `APILENS_SEND_HEARTBEAT=false` also turns it off. See [Heartbeat](#heartbeat). |
 | `heartbeatIntervalMs` | `60000` | Milliseconds between heartbeats. Minimum 10 000 (ingest answers 429 to faster ones); a lower value throws. |
-| `appId` | — (required) | App the client sends records and heartbeats for. The adapters pass theirs through. |
+| `appId` | `APILENS_APP_ID` → `OTEL_SERVICE_NAME` → `""` | App the client sends records and heartbeats for (free-form name). Empty: records go to the project's default app and no heartbeat/metadata is sent. The adapters pass theirs through. |
 | `onStats` | `undefined` | `(stats) => void`, called after every flush with a [stats snapshot](#sdk-health--stats), e.g. to export to Prometheus or StatsD. A throw is logged at debug and ignored. |
 | `retryBackoffBaseMs` / `retryBackoffMaxMs` | `250` / `5000` | Base and ceiling, in milliseconds, of the exponential retry backoff. |
 | `maskLogRecord` | — | **Not in the JS SDK**: the auto error log carries only the error message and stack, with no request data. |
@@ -519,7 +521,7 @@ options.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `appId` | — (required) | **Required for ingestion.** Which app the traffic belongs to. |
+| `appId` | client's | Which app the traffic belongs to (optional; see above). |
 | `environment` | client's | Override the environment label per app (alias `env`). |
 | `enableRequestLogging` | — | **Not in the JS SDK**: use `captureProfile: "metadata"` to keep only the base record. |
 | `captureProfile` | unset (= `full`) | `"metadata"`, `"redacted"` or `"full"`; sets the defaults of the capture flags (see [capture profiles](#capture-profiles)). |
@@ -665,7 +667,7 @@ the parsed values and `resolveConfig(config)` the effective config.
 | Variable | Option | Type | Default |
 |---|---|---|---|
 | `APILENS_API_KEY` | `apiKey` | string | — (required) |
-| `APILENS_APP_ID` | `appId` | string | — (required) |
+| `APILENS_APP_ID` | `appId` | string | `OTEL_SERVICE_NAME`, else `""` (default app) |
 | `APILENS_ENVIRONMENT` | `environment` | string | `"production"` |
 | `APILENS_BASE_URL` | `baseUrl` | string | `https://ingest.apilens.ai/v1` |
 | `APILENS_ENABLED` | `enabled` | bool | `true` |
@@ -1056,14 +1058,13 @@ your app.
 6. Make sure the path isn't a [default exclusion](#default-exclusions)
    (`/health`, `/ping`, ...) and the request isn't `OPTIONS`.
 
-**`apiKey is required` / `appId is required` at startup.** Pass both, or set
-`APILENS_API_KEY` / `APILENS_APP_ID`.
+**`apiKey is required` at startup.** Pass it, or set `APILENS_API_KEY`.
 
 **`ApiLensClient is already initialized`.** Only one client can exist per
 process: instrument each app once, or pass `client: ApiLensClient.getInstance()`.
 
-**`422 Unprocessable Entity` from ingest.** `appId` is missing or doesn't match an
-app in the key's project. Set it to the app slug from the dashboard.
+**`422 Unprocessable Entity` from ingest.** Check the record fields; `appId` itself
+is free-form (an unseen name creates the app).
 
 **`401 Unauthorized`.** The API key is missing, revoked, or not project-scoped.
 
@@ -1071,8 +1072,7 @@ app in the key's project. Set it to the app slug from the dashboard.
 `@koa/bodyparser`) and check the content type is in `captureContentTypes` and
 no capture profile turned bodies off.
 
-**Spans/traces are empty.** Ensure an `appId` is set (spans require it) and
-`APILENS_CAPTURE_SPANS` isn't `false`. Spans are captured automatically for the
+**Spans/traces are empty.** Ensure `APILENS_CAPTURE_SPANS` isn't `false`. Spans are captured automatically for the
 request and for outbound `http`/`https`/`fetch` calls made while handling it.
 
 **Data lost on deploys.** Call `client.handleShutdown({ flush: true })` from your

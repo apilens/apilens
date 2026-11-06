@@ -1,3 +1,4 @@
+import { logAppChoice, resolveAppId } from "./app.js";
 import {
   isNonEmptyString,
   normalizePath,
@@ -383,13 +384,16 @@ class ApiLensClient {
     if (ApiLensClient.instance) {
       throw new Error("ApiLensClient is already initialized");
     }
+    // Optional app name: code > APILENS_APP_ID > OTEL_SERVICE_NAME > "" (the
+    // project's default app). Free-form; the server slugifies it.
+    const app = resolveAppId(config.appId || config.app_id);
     // Explicit option > APILENS_* env var > default.
     config = resolveConfig(config);
 
     this.config = {
       apiKey: String(config.apiKey || config.api_key || "").trim(),
       projectSlug: String(config.projectSlug || config.project_slug || "").trim(),
-      appId: String(config.appId || config.app_id || "").trim(),
+      appId: app.appId,
       baseUrl: String(
         config.baseUrl || config.base_url || "https://ingest.apilens.ai/v1",
       ),
@@ -438,10 +442,8 @@ class ApiLensClient {
       throw new Error("apiKey is required");
     }
     // projectSlug is optional: the API key is project-level, so the server
-    // derives the project from the key. appId selects which app in the project.
-    if (!isNonEmptyString(this.config.appId)) {
-      throw new Error("appId is required");
-    }
+    // derives the project from the key. appId (optional) selects which app.
+    logAppChoice(this.config.logger, app.appId, app.source);
     if (!(this.config.heartbeatIntervalMs >= HEARTBEAT_MIN_INTERVAL_MS)) {
       throw new Error(
         `heartbeatIntervalMs must be >= ${HEARTBEAT_MIN_INTERVAL_MS} (ingest rate-limits faster heartbeats)`,
@@ -449,10 +451,13 @@ class ApiLensClient {
     }
 
     this.queue = [];
-    this.heartbeatApps.set(`${this.config.appId}\0${this.config.environment}`, {
-      appId: this.config.appId,
-      environment: this.config.environment,
-    });
+    // Heartbeats need an app; without one only requests, spans and logs go out.
+    if (this.config.appId) {
+      this.heartbeatApps.set(`${this.config.appId}\0${this.config.environment}`, {
+        appId: this.config.appId,
+        environment: this.config.environment,
+      });
+    }
 
     ApiLensClient.instance = this;
 
@@ -1001,6 +1006,10 @@ class ApiLensClient {
     }: { appId?: string; environment?: string; delayMs?: number } = {},
   ): boolean {
     if (!this.config.enabled || !this.config.sendMetadata || !envFlagEnabled(ENV_SEND_METADATA)) {
+      return false;
+    }
+    // Metadata needs an app; skipped when none is configured.
+    if (!appId) {
       return false;
     }
     const key = `${this.config.baseUrl}\0${appId}\0${environment}`;
