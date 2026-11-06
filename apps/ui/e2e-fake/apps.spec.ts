@@ -48,8 +48,8 @@ const APPS = [
   { id: LEGACY, slug: "legacy", name: "legacy", status: { status: "silent", last_seen_at: ago(9 * 86_400), sdks: [{ name: "apilens-go", versions: ["0.8.0"], latest_version: "0.9.2", outdated_instances: 1 }] } },
 ];
 
-async function seedApps(apps: Record<string, unknown>[] = APPS) {
-  const res = await fetch(`${IDENTITY}/__fake/apps`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apps }) });
+async function seedApps(apps: Record<string, unknown>[] = APPS, rejections: Record<string, unknown>[] = []) {
+  const res = await fetch(`${IDENTITY}/__fake/apps`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apps, rejections }) });
   expect(res.status).toBe(204);
 }
 
@@ -87,7 +87,7 @@ test("shows a card per app with its traffic, health, SDK status and version agai
   await expect(checkout.locator(".ap-pill")).toHaveText("Reporting");
   await expect(checkout.locator(".ap-metrics dt")).toHaveText(["Requests/min", "Error rate", "p95"]);
   await expect(checkout.locator(".ap-metrics dd")).toHaveText(["120", "2.0%", "413 ms"]);
-  await expect(checkout.locator("svg.tr-spark polyline")).toHaveCount(1);
+  await expect(checkout.locator(".tr-spark polyline")).toHaveCount(1);
   await expect(checkout.locator(".ap-health")).toHaveText("Healthy");
   await expect(checkout.locator(".ap-sdk")).toHaveText("apilens-python 0.4.0");
   await expect(checkout.locator(".ap-update")).toHaveCount(0);
@@ -120,6 +120,76 @@ test("shows a card per app with its traffic, health, SDK status and version agai
   await worker.locator(".ap-metrics").click({ force: true });
   await page.waitForURL("**/shop/apps/refunds-worker");
   await expect(page.getByRole("navigation", { name: "Views" }).getByRole("link", { name: "Apps" })).toHaveAttribute("aria-current", "page");
+});
+
+test("says where each app came from, flags new SDK apps to keep or merge, and archives and restores", async ({ page }) => {
+  await seedApps([
+    { ...APPS[0], managed: { is_default: true, created_by: "dashboard", created_at: "2026-10-02T10:00:00Z" } },
+    { ...APPS[1], managed: { created_by: "sdk", created_by_key_name: "prod-backend", first_seen_at: ago(3600), new: true } },
+    APPS[2],
+  ]);
+  await signIn(page);
+  await expect(card(page, "Checkout API").locator(".ap-origin")).toHaveText(/Default app.*Added in the dashboard · Oct 2/);
+  await expect(card(page, "refunds-worker").locator(".ap-origin")).toContainText("Added by the SDK from key prod-backend");
+  const fresh = page.getByRole("region", { name: "New app detected" });
+  await expect(fresh).toContainText("refunds-worker");
+  await fresh.getByRole("button", { name: "Keep refunds-worker" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Kept refunds-worker." })).toBeVisible();
+  await expect(fresh).toHaveCount(0);
+
+  // The menu works from the keyboard; the default app cannot be archived.
+  await card(page, "Checkout API").getByRole("button", { name: "Actions for Checkout API" }).click();
+  await expect(page.getByRole("menuitem", { name: "Archive" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await card(page, "legacy").getByRole("button", { name: "Actions for legacy" }).click();
+  await expect(page.getByRole("menuitem", { name: "Rename…" })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("menuitem", { name: "Archive" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("list", { name: "Apps" }).getByRole("listitem")).toHaveCount(2);
+  const archived = page.locator("details.ap-archived");
+  await archived.locator("summary").click();
+  await archived.getByRole("button", { name: "Restore legacy" }).click();
+  await expect(page.getByRole("list", { name: "Apps" }).getByRole("listitem")).toHaveCount(3);
+});
+
+test("merges an app: the dialog says past data stays under the old name", async ({ page }) => {
+  await seedApps();
+  await signIn(page);
+  await card(page, "legacy").getByRole("button", { name: "Actions for legacy" }).click();
+  await page.getByRole("menuitem", { name: "Merge into…" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("combobox", { name: "Merge into" }).selectOption({ label: "Checkout API (checkout-api)" });
+  await expect(dialog).toContainText("Data already received stays under legacy; it is not moved or rewritten.");
+  await dialog.getByRole("button", { name: "Merge app" }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.locator("details.ap-archived summary").click();
+  await expect(page.locator("details.ap-archived")).toContainText("Merged into checkout-api.");
+});
+
+test("explains rejected records and is read-only without capture.manage", async ({ page }) => {
+  await seedApps(APPS, [{ app: "orders-api", reason: "app_create_forbidden", records: 1204, last_day: new Date().toISOString().slice(0, 10) }]);
+  const res = await fetch(`${IDENTITY}/__fake/handoff`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ next: PAGE, capabilities: ["project.read"] }) });
+  const { code } = (await res.json()) as { code: string };
+  await page.goto(`/auth/callback?code=${code}`);
+  await page.waitForURL((url) => url.pathname === PAGE);
+  const notice = page.getByRole("region", { name: "Some data was rejected" });
+  await expect(notice).toContainText("orders-api: 1,204 records, the key can’t create apps");
+  await expect(notice).toContainText("Turn on “Can create apps” for the key");
+  await expect(page.getByRole("button", { name: /^Actions for/ })).toHaveCount(0);
+  await expect(page.locator(".ap")).toContainText("You can see this project’s apps but not change them.");
+});
+
+test("pages the cards in the URL and sends a page past the end to the last page", async ({ page }) => {
+  await seedApps(Array.from({ length: 14 }, (_, i) => ({ slug: `svc-${String(i).padStart(2, "0")}`, name: `svc-${String(i).padStart(2, "0")}` })));
+  await signIn(page);
+  await expect(page.getByRole("list", { name: "Apps" }).getByRole("listitem")).toHaveCount(12);
+  await page.getByRole("navigation", { name: "App pages" }).getByRole("link", { name: "Page 2" }).click();
+  await page.waitForURL(/page=2/);
+  await expect(page.getByRole("list", { name: "Apps" }).getByRole("listitem")).toHaveCount(2);
+  await page.goto(`${PAGE}?page=5`);
+  await page.waitForURL(/page=2/);
 });
 
 test("an app that never sent a heartbeat says so", async ({ page }) => {

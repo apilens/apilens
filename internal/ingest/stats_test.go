@@ -30,23 +30,8 @@ var billingApp = uuid.MustParse("33333333-3333-4333-8333-333333333333")
 // twoApps resolves "storefront" and "billing".
 type twoApps struct{}
 
-func (twoApps) Resolve(_ context.Context, _ uuid.UUID, idents []string) (map[string]uuid.UUID, error) {
-	out := map[string]uuid.UUID{}
-	var unknown []string
-	for _, id := range idents {
-		switch id {
-		case "storefront":
-			out[id] = testApp
-		case "billing":
-			out[id] = billingApp
-		default:
-			unknown = append(unknown, id)
-		}
-	}
-	if len(unknown) > 0 {
-		return nil, &catalog.UnknownAppsError{Identifiers: unknown}
-	}
-	return out, nil
+func (twoApps) ResolveFor(_ context.Context, _ uuid.UUID, c catalog.Caller, idents []string) (catalog.Result, error) {
+	return staticResolve(c, idents, map[string]uuid.UUID{"storefront": testApp, "billing": billingApp})
 }
 
 // memStats is an in-memory StatsStore.

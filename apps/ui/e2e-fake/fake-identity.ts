@@ -74,6 +74,13 @@
 //                                                  on projects the user created in onboarding (#333);
 //   DELETE /api/v1/projects/shop/api-keys/{id}     revoke (204, or 410 api_key_gone). Creating and
 //                                                  revoking answer 403 without the capability
+//   PUT  /api/v1/projects/shop/api-keys/{id}/access an ingest key's app access: {can_create_apps, app_ids}
+//                                                  (null: every app; a limited key never creates apps)
+//   GET  /api/v1/projects/shop/apps                shop's apps with origin and lifecycle (the first is the
+//                                                  default unless seeded); PATCH/DELETE .../apps/{id} and
+//                                                  POST .../apps/{id}/{archive|restore|acknowledge|merge}
+//                                                  need capture.manage (403 otherwise)
+//   GET  /api/v1/projects/shop/app-rejections      records rejected for app names, as /__fake/apps seeded them
 //   GET  /api/v1/projects/{slug}/ingest-status     {received, first_at, last_at, count_1h} of shop or a
 //                                                  project the user created (#334); 403 otherwise
 //   POST /v1/requests                              the ingest edge's v1 endpoint (#334): an X-API-Key
@@ -167,8 +174,9 @@
 //                                                  ({summary, points}), else none
 //   POST /__fake/apps {apps}                       test hook: replaces shop's apps [{id, slug, name,
 //                                                  policy?, environments?, ingest?, sdk_stats?, status?,
-//                                                  traffic?}], their policies, reports, health counters,
-//                                                  SDK status and traffic
+//                                                  traffic?, managed?}], their policies, reports, health
+//                                                  counters, SDK status, traffic and lifecycle (managed:
+//                                                  any ManagedApp field), plus {rejections?}
 //   GET|PUT /api/v1/projects/shop/privacy-policy   shop's server-side deny list (#599): only the defaults
 //                                                  until saved; PUT answers 403 without project.update and
 //                                                  invalid_request naming a pattern JavaScript cannot compile
@@ -508,6 +516,9 @@ interface FakeApiKey {
   name: string;
   prefix: string;
   scopes: string[];
+  can_create_apps: boolean;
+  app_ids: string[] | null;
+  apps_seen: { app_id: string; slug: string; name: string; first_seen_at: string; last_seen_at: string }[];
   created_at: string;
   expires_at: string | null;
   last_used_at: string | null;
@@ -623,8 +634,44 @@ let savedViews: FakeView[] = [];
 let savedViewWritesDown = false;
 
 /** shop's apps (#598), their saved capture policies and what their SDKs reported, by app id. */
-const DEFAULT_APP = { id: "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d", slug: PROJECT, name: "Shop" };
-let shopApps: { id: string; slug: string; name: string }[] = [DEFAULT_APP];
+const DEFAULT_APP: FakeApp = { id: "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d", slug: PROJECT, name: "Shop" };
+/** An app of shop; the lifecycle fields (`GET /projects/shop/apps`) default to an active app a person added. */
+interface FakeApp {
+  id: string;
+  slug: string;
+  name: string;
+  managed?: Record<string, unknown>;
+}
+let shopApps: FakeApp[] = [DEFAULT_APP];
+/** Records the ingest edge rejected for app names (`GET /projects/shop/app-rejections`), seeded by `/__fake/apps`. */
+let appRejectionSeed: Record<string, unknown>[] = [];
+
+/** shop's app as `GET /projects/shop/apps` lists it. The first app is the default unless a seed says otherwise. */
+function managedApp(app: FakeApp, i: number): Record<string, unknown> {
+  const anyDefault = shopApps.some((a) => a.managed?.is_default === true);
+  return {
+    id: app.id,
+    slug: app.slug,
+    name: app.name,
+    state: "active",
+    created_by: "dashboard",
+    created_by_key_id: null,
+    created_by_key_name: null,
+    created_at: "2026-10-01T09:00:00Z",
+    first_seen_at: null,
+    last_seen_at: null,
+    archived_at: null,
+    deleted_at: null,
+    restorable_until: null,
+    acknowledged_at: null,
+    new: false,
+    is_default: !anyDefault && i === 0,
+    merged_into: null,
+    merged_into_slug: null,
+    ...app.managed,
+  };
+}
+const isActive = (app: FakeApp) => (app.managed?.state ?? "active") === "active";
 const capturePolicies = new Map<string, Record<string, unknown>>();
 const appReports = new Map<string, Record<string, unknown>[]>();
 /** Ingest health (#602): seeded edge counters per day, newest last ("off": 503), and SDK counters. */
@@ -680,6 +727,9 @@ function seedApiKey(input: Record<string, unknown>): FakeApiKey {
     name: String(input.name ?? "Key"),
     prefix: String(input.prefix ?? `apl_live_${token().slice(0, 7)}`),
     scopes: Array.isArray(input.scopes) ? input.scopes.map(String) : ["ingest"],
+    can_create_apps: Array.isArray(input.app_ids) ? false : input.can_create_apps !== false,
+    app_ids: Array.isArray(input.app_ids) ? input.app_ids.map(String) : null,
+    apps_seen: Array.isArray(input.apps_seen) ? (input.apps_seen as FakeApiKey["apps_seen"]) : [],
     created_at: String(input.created_at ?? new Date().toISOString()),
     expires_at: typeof input.expires_at === "string" ? input.expires_at : null,
     last_used_at: typeof input.last_used_at === "string" ? input.last_used_at : null,
@@ -1401,7 +1451,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     privacyPolicy = null;
     return send(res, 204);
   }
-  const keysPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/api-keys(?:\/([^/]+))?$/);
+  const keysPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/api-keys(?:\/([^/]+)(\/access)?)?$/);
   if (keysPath) {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
@@ -1415,18 +1465,23 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (req.method === "GET" && sub === undefined) return send(res, 200, list);
     if (req.method === "POST" && sub === undefined) {
       if (!allowed("api_keys.create")) return problem(res, 403, "forbidden");
-      const { name, scopes, expires_at: expires } = await readBody(req);
+      const { name, scopes, expires_at: expires, can_create_apps: canCreate, app_ids: appIds } = await readBody(req);
       const label = typeof name === "string" ? name.trim() : "";
       const picked = Array.isArray(scopes) ? scopes.map(String) : [];
       const valid = picked.length > 0 && picked.every((s) => s === "ingest" || s === "read") && new Set(picked).size === picked.length;
       const when = typeof expires === "string" ? Date.parse(expires) : undefined;
       if (!label || label.length > 100 || !valid || (when !== undefined && !(when > Date.now()))) return problem(res, 400, "invalid_request");
+      const limited = Array.isArray(appIds) ? appIds.map(String) : null;
+      if (limited && (limited.length === 0 || !limited.every((id) => shopApps.some((a) => a.id === id)))) return problem(res, 400, "invalid_request");
       const raw = `apl_live_${token()}`;
       const created: FakeApiKey = {
         id: randomUUID(),
         name: label,
         prefix: raw.slice(0, 16),
         scopes: ["ingest", "read"].filter((s) => picked.some((p) => p === s)),
+        can_create_apps: picked.includes("ingest") && !limited && canCreate !== false,
+        app_ids: picked.includes("ingest") ? limited : null,
+        apps_seen: [],
         created_at: new Date().toISOString(),
         expires_at: when === undefined ? null : new Date(when).toISOString(),
         last_used_at: null,
@@ -1436,7 +1491,18 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       rawKeys.set(raw, { project: keysProject, id: created.id, user });
       return send(res, 201, { ...created, key: raw });
     }
-    if (req.method === "DELETE" && sub !== undefined) {
+    if (req.method === "PUT" && sub !== undefined && keysPath[3]) {
+      if (!allowed("api_keys.create")) return problem(res, 403, "forbidden");
+      const found = list.find((k) => k.id === decodeURIComponent(sub));
+      if (!found || found.revoked_at) return problem(res, 410, "api_key_gone");
+      const { can_create_apps: canCreate, app_ids: appIds } = await readBody(req);
+      const limited = Array.isArray(appIds) ? appIds.map(String) : null;
+      if (typeof canCreate !== "boolean" || (limited && (limited.length === 0 || !limited.every((id) => shopApps.some((a) => a.id === id))))) return problem(res, 400, "invalid_request");
+      found.app_ids = limited;
+      found.can_create_apps = limited ? false : canCreate;
+      return send(res, 200, found);
+    }
+    if (req.method === "DELETE" && sub !== undefined && !keysPath[3]) {
       if (!allowed("api_keys.revoke")) return problem(res, 403, "forbidden");
       const found = list.find((k) => k.id === decodeURIComponent(sub));
       if (!found) return problem(res, 410, "api_key_gone");
@@ -1486,13 +1552,76 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     ingestedRows.set(holder.project, rows);
     return send(res, 200, { accepted: list.length });
   }
+  // shop's apps with their origin and lifecycle (apps come from the SDK). Reads need a view of the
+  // project; writes need `capture.manage`, like the API.
+  const managedPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/(apps|app-rejections)(?:\/([^/]+)(?:\/(archive|restore|acknowledge|merge))?)?$/);
+  if (managedPath) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    if (decodeURIComponent(managedPath[1]) !== PROJECT) return problem(res, 404, "not_found");
+    if (managedPath[2] === "app-rejections") {
+      if (req.method !== "GET") return problem(res, 404, "not_found");
+      return send(res, 200, { days: Number(url.searchParams.get("days") ?? 7), available: true, rejections: appRejectionSeed });
+    }
+    const [, , , rawId, verb] = managedPath;
+    if (rawId === undefined) {
+      if (req.method !== "GET") return problem(res, 404, "not_found");
+      return send(res, 200, { apps: shopApps.map(managedApp) });
+    }
+    if (!capabilitiesOf(user).includes("capture.manage")) return problem(res, 403, "forbidden");
+    const index = shopApps.findIndex((a) => a.id === decodeURIComponent(rawId));
+    if (index < 0) return problem(res, 404, "not_found");
+    const app = shopApps[index];
+    const now = managedApp(app, index);
+    const set = (patch: Record<string, unknown>) => {
+      app.managed = { ...app.managed, ...patch };
+    };
+    const refuse = (code: string, detail: string) => send(res, code === "slug_taken" ? 409 : 400, { status: 400, title: code, code, detail }, "application/problem+json");
+    const DEFAULT_REFUSED = "The default app receives records that name no app; it cannot be archived, merged or deleted.";
+    if (req.method === "PATCH" && !verb) {
+      const { name } = await readBody(req);
+      const label = typeof name === "string" ? name.trim() : "";
+      if (!label || label.length > 100) return problem(res, 400, "invalid_request");
+      app.name = label;
+      return send(res, 204);
+    }
+    if (req.method === "DELETE" && !verb) {
+      if (now.is_default) return refuse("invalid_request", DEFAULT_REFUSED);
+      const t = Date.now();
+      set({ state: "deleted", deleted_at: new Date(t).toISOString(), restorable_until: new Date(t + 30 * 86_400_000).toISOString() });
+      return send(res, 204);
+    }
+    if (req.method === "POST" && verb === "archive") {
+      if (now.is_default) return refuse("invalid_request", DEFAULT_REFUSED);
+      set({ state: "archived", archived_at: new Date().toISOString(), new: false });
+      return send(res, 204);
+    }
+    if (req.method === "POST" && verb === "restore") {
+      if (now.state === "active") return refuse("invalid_request", "The app is active; only archived, merged or deleted apps can be restored.");
+      set({ state: "active", archived_at: null, deleted_at: null, restorable_until: null, merged_into: null, merged_into_slug: null });
+      return send(res, 204);
+    }
+    if (req.method === "POST" && verb === "acknowledge") {
+      set({ new: false, acknowledged_at: new Date().toISOString() });
+      return send(res, 204);
+    }
+    if (req.method === "POST" && verb === "merge") {
+      if (now.is_default) return refuse("invalid_request", DEFAULT_REFUSED);
+      const { into } = await readBody(req);
+      const target = shopApps.find((a) => a.id === into);
+      if (!target || target.id === app.id || !isActive(target)) return refuse("invalid_request", "Pick an active app other than this one.");
+      set({ state: "merged", merged_into: target.id, merged_into_slug: target.slug, archived_at: new Date().toISOString(), new: false });
+      return send(res, 204);
+    }
+    return problem(res, 404, "not_found");
+  }
   // shop's apps and their capture policies (#598). Like the API, an app in a project the user
   // cannot view answers 404; saving needs `capture.manage`.
   if (req.method === "GET" && path === "/api/v1/project") {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
     if (url.searchParams.get("project") !== PROJECT) return problem(res, 404, "not_found");
-    return send(res, 200, { org: { id: "org_acme", slug: "acme", name: "Acme" }, project: { id: "prj_shop", slug: PROJECT, name: "Shop" }, apps: shopApps, environments: ["production"] });
+    return send(res, 200, { org: { id: "org_acme", slug: "acme", name: "Acme" }, project: { id: "prj_shop", slug: PROJECT, name: "Shop" }, apps: shopApps.filter(isActive).map(({ id, slug, name }) => ({ id, slug, name })), environments: ["production"] });
   }
   const appPath = path.match(/^\/api\/v1\/apps\/([^/]+)\/(capture-policy|metadata)$/);
   if (appPath) {
@@ -1566,15 +1695,18 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   }
   if (req.method === "POST" && path === "/__fake/apps") {
     // Test hook: replaces shop's apps, their saved policies, their SDK reports and health counters.
-    const { apps } = await readBody(req);
+    const { apps, rejections } = await readBody(req);
     const list = Array.isArray(apps) ? (apps as Record<string, unknown>[]) : [];
+    appRejectionSeed = Array.isArray(rejections) ? (rejections as Record<string, unknown>[]) : [];
     capturePolicies.clear();
     appReports.clear();
     appIngest.clear();
     appSdkStats.clear();
     appStatuses.clear();
     appTraffic.clear();
-    shopApps = list.length ? list.map((a) => ({ id: String(a.id ?? randomUUID()), slug: String(a.slug), name: String(a.name ?? a.slug) })) : [DEFAULT_APP];
+    shopApps = list.length
+      ? list.map((a) => ({ id: String(a.id ?? randomUUID()), slug: String(a.slug), name: String(a.name ?? a.slug), managed: typeof a.managed === "object" && a.managed !== null ? (a.managed as Record<string, unknown>) : undefined }))
+      : [DEFAULT_APP];
     list.forEach((a, i) => {
       const id = shopApps[i].id;
       if (typeof a.policy === "object" && a.policy !== null) capturePolicies.set(id, a.policy as Record<string, unknown>);

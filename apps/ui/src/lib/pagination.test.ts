@@ -12,6 +12,7 @@ import {
   pageItems,
   pageKeys,
   pageOffset,
+  pageRedirect,
   pageWindow,
   parsePage,
   parseTrail,
@@ -160,6 +161,24 @@ describe("pageForPer", () => {
     expect(pageForPer(w, 50)).toBe(2);
     expect(pageForPer(w, 100)).toBe(1);
     expect(pageForPer(pageWindow({ page: 1, per: 25 }, 0), 50)).toBe(1);
+  });
+});
+
+describe("pageRedirect", () => {
+  it("points a page past the end at the last page, keeping the other params", () => {
+    expect(pageRedirect("/p", { page: "5", sort: "p95" }, 60)).toBe("/p?page=3&sort=p95");
+    expect(pageRedirect("/p", { page: "4" }, 75)).toBe("/p?page=3");
+  });
+
+  it("drops the page when the list is empty or the page is written as 1 or junk", () => {
+    expect(pageRedirect("/p", { page: "2" }, 0)).toBe("/p");
+    expect(pageRedirect("/p", { page: "0" }, 10)).toBeNull();
+    expect(pageRedirect("/p", { page: "x" }, 10)).toBeNull();
+  });
+
+  it("leaves a page that exists alone", () => {
+    expect(pageRedirect("/p", { page: "2" }, 26)).toBeNull();
+    expect(pageRedirect("/p", {}, 0)).toBeNull();
   });
 });
 

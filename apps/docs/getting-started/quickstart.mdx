@@ -13,14 +13,11 @@ This guide takes you from an empty dashboard to live traffic, request logs, and 
       <img src="/images/apps.png" alt="Apps page listing services in a project" />
     </Frame>
   </Step>
-  <Step title="Add an app">
-    Inside the project, click **Create App** and pick your framework. Each app represents one deployable service — `orders-api`, `payment-service`, and so on. The app's slug becomes the `app_id` you pass to the SDK.
-  </Step>
   <Step title="Create an API key">
     Go to **Settings → API keys** and create a key. Copy it now — the full key is shown only once.
 
     <Note>
-    API keys are **project-level**: one key authenticates every app in the project. The SDK's `app_id` tells APILens which app the traffic belongs to.
+    API keys are **project-level**: one key authenticates every service in the project. The SDK's `app_id` tells APILens which app the traffic belongs to, and an app name the project doesn't have yet creates the app. There is nothing to register first.
     </Note>
   </Step>
   <Step title="Install the SDK">
@@ -41,10 +38,12 @@ This guide takes you from an empty dashboard to live traffic, request logs, and 
     app.add_middleware(
         ApiLensMiddleware,
         api_key="apilens_xxx",       # better: os.environ["APILENS_API_KEY"]
-        app_id="orders-api",
+        app_id="orders-api",         # your service's name, or set APILENS_APP_ID
         env="development",           # defaults to "production"
     )
     ```
+
+    Each app is one deployable service: `orders-api`, `payment-service`, and so on. `orders-api` appears on the **Apps** page with its first request. Without an app name (no `app_id`, `APILENS_APP_ID` or `OTEL_SERVICE_NAME`) data goes to the project's default app.
   </Step>
   <Step title="Send a few requests">
     Run your service and hit any endpoint a couple of times:

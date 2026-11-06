@@ -52,7 +52,7 @@ Project-level permissions outside the UI vocabulary:
 
 | Permission | Org owner | Org admin | Org member | Org viewer | Project admin | Project editor | Project viewer |
 | --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
-| `project#manage_capture` (an app's remote capture policy, `PUT /api/v1/apps/{id}/capture-policy`) | ✓ | ✓ | | | ✓ | | |
+| `project#manage_capture` (an app's remote capture policy, `PUT /api/v1/apps/{id}/capture-policy`; renaming, archiving, restoring, merging, deleting and acknowledging apps, `/api/v1/projects/{slug}/apps/{id}/...`) | ✓ | ✓ | | | ✓ | | |
 | `project#manage_alerts` (alert rules and notification channels, `POST/PUT/DELETE /api/v1/projects/{project}/alerts/...`) | ✓ | ✓ | | | ✓ | | |
 
 ## Enforcement in the API

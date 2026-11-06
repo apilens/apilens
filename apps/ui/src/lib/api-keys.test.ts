@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  APP_NAME_PLACEHOLDER,
+  KEYS_PAGE,
+  accessBody,
+  accessError,
+  accessOf,
+  appScopeText,
+  appsSeen,
+  checkAppIds,
+  nameList,
+  permissionSummary,
+  revealAppHint,
+  revealSnippet,
   apiKeysError,
   checkExpiresAt,
   checkKeyName,
@@ -15,6 +27,7 @@ import {
   withCreated,
 } from "./api-keys";
 import type { ApiKey } from "./identity";
+import { pageRedirect, parsePage, slicePage } from "./pagination";
 
 const NOW = Date.parse("2026-11-04T12:00:00Z");
 
@@ -23,6 +36,9 @@ const key = (over: Partial<ApiKey> = {}): ApiKey => ({
   name: "Production",
   prefix: "apl_live_abcdefg",
   scopes: ["ingest"],
+  can_create_apps: true,
+  app_ids: null,
+  apps_seen: [],
   last_used_at: null,
   created_at: "2026-11-01T10:00:00Z",
   expires_at: null,
@@ -142,5 +158,113 @@ describe("apiKeysError", () => {
     expect(apiKeysError("forbidden")).toBe("You don’t have permission to manage this project’s API keys.");
     expect(apiKeysError("api_key_gone")).toMatch(/no longer exists/);
     expect(apiKeysError("anything")).toBe("Something went wrong. Try again in a moment.");
+  });
+
+  it("says an unknown app was picked when an access change is refused as invalid", () => {
+    expect(accessError("invalid_request")).toBe("One of the apps no longer exists. Reload the page and choose again.");
+    expect(accessError("api_key_gone")).toMatch(/no longer exists/);
+  });
+});
+
+const A1 = "11111111-1111-4111-8111-111111111111";
+const A2 = "22222222-2222-4222-8222-222222222222";
+const A3 = "33333333-3333-4333-8333-333333333333";
+
+describe("permissionSummary", () => {
+  it("says what an ingest key does with apps", () => {
+    expect(permissionSummary(key())).toBe("Ingest · Can create apps");
+    expect(permissionSummary(key({ can_create_apps: false }))).toBe("Ingest · Existing apps only");
+    expect(permissionSummary(key({ app_ids: [A1, A2], can_create_apps: false }))).toBe("Ingest · Limited to 2 apps");
+    expect(permissionSummary(key({ app_ids: [A1], can_create_apps: true }))).toBe("Ingest · Limited to 1 app");
+    expect(permissionSummary(key({ scopes: ["ingest", "read", "apps:create"] }))).toBe("Ingest, Read · Can create apps");
+  });
+
+  it("leaves app access out for keys that send nothing", () => {
+    expect(permissionSummary(key({ scopes: ["read"] }))).toBe("Read");
+    expect(permissionSummary(key({ scopes: null }))).toBe("No access");
+  });
+});
+
+describe("accessOf and accessBody", () => {
+  it("treats a key limited to apps as never creating apps", () => {
+    expect(accessOf(key({ app_ids: [A1], can_create_apps: true }))).toEqual({ canCreateApps: false, appIds: [A1] });
+    expect(accessOf(key({ can_create_apps: false }))).toEqual({ canCreateApps: false, appIds: null });
+    expect(accessBody({ canCreateApps: true, appIds: [A2] })).toEqual({ can_create_apps: false, app_ids: [A2] });
+    expect(accessBody({ canCreateApps: true, appIds: null })).toEqual({ can_create_apps: true, app_ids: null });
+  });
+});
+
+describe("appScopeText", () => {
+  const names = new Map([
+    [A1, "Checkout API"],
+    [A2, "Orders"],
+    [A3, "Billing"],
+  ]);
+
+  it("names the allowed apps, or says all apps", () => {
+    expect(appScopeText(key(), names)).toBe("All apps");
+    expect(appScopeText(key({ app_ids: [A1] }), names)).toBe("Checkout API");
+    expect(appScopeText(key({ app_ids: [A1, A2] }), names)).toBe("Checkout API and Orders");
+    expect(appScopeText(key({ app_ids: [A2, "44444444-4444-4444-8444-444444444444"] }), names)).toBe("Orders and a removed app");
+    expect(appScopeText(key({ scopes: ["read"] }), names)).toBe("");
+  });
+
+  it("shortens long lists", () => {
+    expect(nameList(["a", "b", "c", "d", "e"])).toBe("a, b, c and 2 more");
+    expect(nameList(["a", "b", "c"])).toBe("a, b and c");
+    expect(nameList([])).toBe("");
+  });
+});
+
+describe("appsSeen", () => {
+  it("lists the most recent first and tolerates null", () => {
+    const seen = [
+      { app_id: A1, slug: "checkout", name: "Checkout", first_seen_at: "2026-11-01T00:00:00Z", last_seen_at: "2026-11-02T00:00:00Z" },
+      { app_id: A2, slug: "orders", name: "Orders", first_seen_at: "2026-11-01T00:00:00Z", last_seen_at: "2026-11-04T00:00:00Z" },
+    ];
+    expect(appsSeen(key({ apps_seen: seen })).map((a) => a.slug)).toEqual(["orders", "checkout"]);
+    expect(appsSeen(key({ apps_seen: null }))).toEqual([]);
+  });
+});
+
+describe("checkAppIds", () => {
+  it("passes null through as every app and deduplicates ids", () => {
+    expect(checkAppIds(undefined)).toEqual({ ok: true, appIds: null });
+    expect(checkAppIds(null)).toEqual({ ok: true, appIds: null });
+    expect(checkAppIds([A1, A2, A1])).toEqual({ ok: true, appIds: [A1, A2] });
+  });
+
+  it("refuses an empty pick and junk", () => {
+    expect(checkAppIds([])).toEqual({ ok: false, error: "Choose at least one app, or allow every app." });
+    expect(checkAppIds(["checkout"]).ok).toBe(false);
+    expect(checkAppIds("x").ok).toBe(false);
+  });
+});
+
+describe("revealSnippet", () => {
+  const slugs = new Map([[A2, "orders"]]);
+
+  it("shows the key and a placeholder app name to replace", () => {
+    expect(revealSnippet("apl_live_x", { canCreateApps: true, appIds: null }, slugs)).toBe(`export APILENS_API_KEY=apl_live_x\nexport APILENS_APP_ID=${APP_NAME_PLACEHOLDER}`);
+    expect(revealAppHint({ canCreateApps: true, appIds: null })).toContain("The app appears in Apps automatically");
+  });
+
+  it("names an allowed app for a key limited to apps", () => {
+    expect(revealSnippet("k", { canCreateApps: false, appIds: [A2] }, slugs)).toBe("export APILENS_API_KEY=k\nexport APILENS_APP_ID=orders");
+    expect(revealAppHint({ canCreateApps: false, appIds: [A2] })).toContain("any other app name is rejected");
+    expect(revealAppHint({ canCreateApps: false, appIds: null })).toContain("doesn’t create apps");
+  });
+});
+
+describe("keys pagination", () => {
+  const many = Array.from({ length: 60 }, (_, i) => key({ id: `k${i}` }));
+
+  it("slices 25 keys a page and keeps a page past the end out of the URL", () => {
+    const { rows, window } = slicePage(many, parsePage({ page: "3" }, KEYS_PAGE));
+    expect(rows).toHaveLength(10);
+    expect(window.pages).toBe(3);
+    expect(pageRedirect("/shop/settings/keys", { page: "7" }, 60, KEYS_PAGE)).toBe("/shop/settings/keys?page=3");
+    expect(pageRedirect("/shop/settings/keys", { page: "2" }, 0, KEYS_PAGE)).toBe("/shop/settings/keys");
+    expect(pageRedirect("/shop/settings/keys", {}, 25, KEYS_PAGE)).toBeNull();
   });
 });

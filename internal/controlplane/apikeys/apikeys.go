@@ -53,7 +53,14 @@ type Principal struct {
 	ProjectSlug string
 	OrgID       uuid.UUID
 	Scopes      []string
+	// AppIDs limits the key to these apps; nil allows every app.
+	AppIDs []uuid.UUID
 }
+
+// CanCreateApps reports whether ingest may create apps from the app names
+// this key's data carries: the key has the apps:create scope and is not
+// limited to some apps.
+func (p Principal) CanCreateApps() bool { return p.AppIDs == nil && p.HasScope(ScopeAppsCreate) }
 
 // HasScope reports whether the key carries scope.
 func (p Principal) HasScope(scope string) bool {
@@ -185,7 +192,7 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 		}
 		e := entry{valid: true, principal: Principal{
 			KeyID: row.ID, ProjectID: row.ProjectID, ProjectSlug: row.ProjectSlug,
-			OrgID: row.OrgID, Scopes: row.Scopes,
+			OrgID: row.OrgID, Scopes: row.Scopes, AppIDs: row.AppIds,
 		}}
 		v.positive.Add(hash, e)
 		return e, nil

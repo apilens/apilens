@@ -758,14 +758,30 @@ export interface CreateProjectRequest {
   environments?: string[];
 }
 
-export type ApiKeyScope = "ingest" | "read";
+/** `apps:create` is set by the server on an ingest key that may create apps (`can_create_apps`). */
+export type ApiKeyScope = "ingest" | "read" | "apps:create";
+
+/** An app a key has sent data for (`KeyApp`); `apps_seen` lists the most recent first. */
+export interface KeyApp {
+  app_id: string;
+  slug: string;
+  name: string;
+  first_seen_at: string;
+  last_seen_at: string;
+}
 
 /** `GET /projects/{slug}/api-keys` item (#285). */
 export interface ApiKey {
   id: string;
   name: string;
   prefix: string;
-  scopes: ApiKeyScope[];
+  scopes: ApiKeyScope[] | null;
+  /** Data with an app name the project does not have yet creates that app. */
+  can_create_apps: boolean;
+  /** The apps the key may send data for; null for every app. */
+  app_ids: string[] | null;
+  /** The apps the key has sent data for, most recent first. */
+  apps_seen: KeyApp[] | null;
   last_used_at: string | null;
   created_at: string;
   expires_at?: string | null;
@@ -776,6 +792,16 @@ export interface CreateApiKeyRequest {
   name: string;
   scopes: ApiKeyScope[];
   expires_at?: string;
+  /** Default true for ingest keys; a key limited to apps never creates apps. */
+  can_create_apps?: boolean;
+  /** Omitted for every app. */
+  app_ids?: string[];
+}
+
+/** `PUT /projects/{slug}/api-keys/{id}/access`. */
+export interface UpdateApiKeyAccessRequest {
+  can_create_apps: boolean;
+  app_ids: string[] | null;
 }
 
 /** `POST /projects/{slug}/api-keys`: the raw `key` is returned exactly once. */
@@ -1355,6 +1381,60 @@ export interface NamedApp {
   id: string;
   slug: string;
   name: string;
+}
+
+/** Where an app stands: in use, archived, merged into another, or deleted (restorable for 30 days). */
+export type AppState = "active" | "archived" | "merged" | "deleted";
+
+/** `GET /projects/{slug}/apps` item: an app with its origin and lifecycle. */
+export interface ManagedApp {
+  id: string;
+  slug: string;
+  name: string;
+  state: AppState;
+  /** `sdk`: created the first time an SDK sent its name; `dashboard`: created by a person. */
+  created_by: "sdk" | "dashboard";
+  created_by_key_id: string | null;
+  created_by_key_name: string | null;
+  created_at: string;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  archived_at: string | null;
+  deleted_at: string | null;
+  restorable_until: string | null;
+  acknowledged_at: string | null;
+  /** Created by an SDK in the last 7 days and not acknowledged yet. */
+  new: boolean;
+  /** Receives records that name no app; cannot be archived, merged or deleted. */
+  is_default: boolean;
+  merged_into: string | null;
+  merged_into_slug: string | null;
+}
+
+/** Why the ingest edge rejected records for an app name. */
+export type AppRejectionReason =
+  | "app_create_forbidden"
+  | "app_not_allowed"
+  | "app_deleted"
+  | "app_limit"
+  | "app_rate_limit"
+  | "invalid_app_name"
+  | "unknown_app";
+
+/** One app name and reason of `GET /projects/{slug}/app-rejections`. */
+export interface AppRejection {
+  app: string;
+  reason: AppRejectionReason;
+  records: number;
+  /** `YYYY-MM-DD` (UTC) of the last rejection. */
+  last_day: string;
+}
+
+export interface AppRejections {
+  days: number;
+  /** False when the install keeps no ingest counters. */
+  available: boolean;
+  rejections: AppRejection[] | null;
 }
 
 /** `GET /project?project=` (query role): the project, its apps and its recent environments. */
@@ -2230,6 +2310,26 @@ export function createClient(config: ClientConfig) {
       request<CreatedApiKey>("POST", `/projects/${seg(projectSlug)}/api-keys`, { ...o, body }),
     revokeApiKey: (projectSlug: string, id: string, o: Authed) =>
       request<void>("DELETE", `/projects/${seg(projectSlug)}/api-keys/${seg(id)}`, o),
+    updateApiKeyAccess: (projectSlug: string, id: string, body: UpdateApiKeyAccessRequest, o: Authed) =>
+      request<ApiKey>("PUT", `/projects/${seg(projectSlug)}/api-keys/${seg(id)}/access`, { ...o, body }),
+
+    // api: the project's apps, created by SDKs or in the dashboard ---------------------------
+    listManagedApps: (projectSlug: string, o: Authed) =>
+      request<{ apps: ManagedApp[] | null }>("GET", `/projects/${seg(projectSlug)}/apps`, o),
+    renameApp: (projectSlug: string, id: string, name: string, o: Authed) =>
+      request<void>("PATCH", `/projects/${seg(projectSlug)}/apps/${seg(id)}`, { ...o, body: { name } }),
+    archiveApp: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("POST", `/projects/${seg(projectSlug)}/apps/${seg(id)}/archive`, o),
+    restoreApp: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("POST", `/projects/${seg(projectSlug)}/apps/${seg(id)}/restore`, o),
+    acknowledgeApp: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("POST", `/projects/${seg(projectSlug)}/apps/${seg(id)}/acknowledge`, o),
+    mergeApp: (projectSlug: string, id: string, into: string, o: Authed) =>
+      request<void>("POST", `/projects/${seg(projectSlug)}/apps/${seg(id)}/merge`, { ...o, body: { into } }),
+    deleteApp: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("DELETE", `/projects/${seg(projectSlug)}/apps/${seg(id)}`, o),
+    appRejections: (projectSlug: string, days: number, o: Authed) =>
+      request<AppRejections>("GET", `/projects/${seg(projectSlug)}/app-rejections`, { ...o, query: { days } }),
   };
 }
 

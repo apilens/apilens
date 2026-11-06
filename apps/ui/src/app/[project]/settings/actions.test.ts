@@ -4,6 +4,7 @@ import { ApiError } from "@/lib/identity";
 const createApiKey = vi.fn();
 const revokeApiKey = vi.fn();
 const listApiKeys = vi.fn();
+const updateApiKeyAccess = vi.fn();
 let expired = false;
 
 class Redirect extends Error {
@@ -19,7 +20,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/identity", async (orig) => ({
   ...(await orig<typeof import("@/lib/identity")>()),
-  identity: () => ({ createApiKey, revokeApiKey, listApiKeys }),
+  identity: () => ({ createApiKey, revokeApiKey, listApiKeys, updateApiKeyAccess }),
 }));
 vi.mock("@/lib/server-session", async (orig) => {
   const real = await orig<typeof import("@/lib/server-session")>();
@@ -97,6 +98,53 @@ describe("createApiKey", () => {
   it("sends an expired session to sign-in", async () => {
     expired = true;
     await expect(actions.createApiKey("shop", { name: "CI", scopes: ["ingest"] })).rejects.toBeInstanceOf(Redirect);
+  });
+
+  it("sends app access for ingest keys: a key limited to apps never creates apps", async () => {
+    createApiKey.mockResolvedValue({ ...listed, key: "k" });
+    await actions.createApiKey("shop", { name: "CI", scopes: ["ingest"], canCreateApps: false });
+    expect(createApiKey).toHaveBeenLastCalledWith("shop", { name: "CI", scopes: ["ingest"], can_create_apps: false }, { accessToken: "a" });
+    await actions.createApiKey("shop", { name: "CI", scopes: ["ingest"], canCreateApps: true, appIds: [APP, APP] });
+    expect(createApiKey).toHaveBeenLastCalledWith("shop", { name: "CI", scopes: ["ingest"], can_create_apps: false, app_ids: [APP] }, { accessToken: "a" });
+    // A read-only key sends no data: app access is left out.
+    await actions.createApiKey("shop", { name: "CI", scopes: ["read"], canCreateApps: false, appIds: [APP] });
+    expect(createApiKey).toHaveBeenLastCalledWith("shop", { name: "CI", scopes: ["read"] }, { accessToken: "a" });
+  });
+
+  it("refuses an empty or bad app pick without calling the API", async () => {
+    expect(await actions.createApiKey("shop", { name: "CI", scopes: ["ingest"], appIds: [] })).toEqual({ ok: false, error: "Choose at least one app, or allow every app." });
+    expect(await actions.createApiKey("shop", { name: "CI", scopes: ["ingest"], appIds: ["../x"] })).toMatchObject({ ok: false });
+    expect(createApiKey).not.toHaveBeenCalled();
+  });
+});
+
+const APP = "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
+
+describe("updateApiKeyAccess", () => {
+  it("puts the access and answers the key", async () => {
+    const now = { ...listed, can_create_apps: false, app_ids: [APP] };
+    updateApiKeyAccess.mockResolvedValue(now);
+    expect(await actions.updateApiKeyAccess("shop", ID, { canCreateApps: true, appIds: [APP] })).toEqual({ ok: true, key: now });
+    expect(updateApiKeyAccess).toHaveBeenCalledWith("shop", ID, { can_create_apps: false, app_ids: [APP] }, { accessToken: "a" });
+    await actions.updateApiKeyAccess("shop", ID, { canCreateApps: true, appIds: null });
+    expect(updateApiKeyAccess).toHaveBeenLastCalledWith("shop", ID, { can_create_apps: true, app_ids: null }, { accessToken: "a" });
+  });
+
+  it("checks the key and the apps first", async () => {
+    expect(await actions.updateApiKeyAccess("shop", "nope", { canCreateApps: true, appIds: null })).toMatchObject({ ok: false, code: "api_key_gone" });
+    expect(await actions.updateApiKeyAccess("shop", ID, { canCreateApps: false, appIds: [] })).toMatchObject({ ok: false });
+    expect(updateApiKeyAccess).not.toHaveBeenCalled();
+  });
+
+  it("says an unknown app or a gone key in a sentence", async () => {
+    updateApiKeyAccess.mockRejectedValueOnce(new ApiError({ status: 400, code: "invalid_request" }));
+    expect(await actions.updateApiKeyAccess("shop", ID, { canCreateApps: false, appIds: [APP] })).toEqual({
+      ok: false,
+      code: "invalid_request",
+      error: "One of the apps no longer exists. Reload the page and choose again.",
+    });
+    updateApiKeyAccess.mockRejectedValueOnce(new ApiError({ status: 410, code: "api_key_gone" }));
+    expect(await actions.updateApiKeyAccess("shop", ID, { canCreateApps: true, appIds: null })).toMatchObject({ ok: false, code: "api_key_gone" });
   });
 });
 

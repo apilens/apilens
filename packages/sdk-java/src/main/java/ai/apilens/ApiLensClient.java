@@ -160,9 +160,8 @@ public class ApiLensClient implements AutoCloseable {
     if (Strings.isBlank(config.apiKey())) {
       throw new IllegalArgumentException("apiKey is required");
     }
-    if (Strings.isBlank(config.appId())) {
-      throw new IllegalArgumentException("appId is required");
-    }
+    // appId is optional (see ApiLensConfig#appId); say once which app the data goes to.
+    LOGGER.info(config.describeAppChoice());
     URI.create(config.baseUrl());
 
     for (String reason : DROP_REASONS) {
@@ -336,10 +335,8 @@ public class ApiLensClient implements AutoCloseable {
    * the constructor. Registering an app twice does nothing.
    */
   public void registerApp(String appId, String environment) {
+    // "" is the project's default app (no app name configured); its heartbeats carry app_id "".
     String app = Strings.clean(appId);
-    if (app.isEmpty()) {
-      return;
-    }
     String env = Strings.isBlank(environment)
         ? config.environment()
         : environment.trim().toLowerCase(Locale.ROOT);

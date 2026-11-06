@@ -27,6 +27,7 @@ from ._capture import (
     _to_int,
     capture_response,
 )
+from ._app import resolve_and_log_app_id
 from ._env import env_defaults
 from ._profile import CaptureProfile, normalize_profile
 from ._exclusions import RequestExcluder
@@ -411,7 +412,9 @@ class ApiLensASGIMiddleware:
         self.app = app
         self.client = client
         self.project_slug = project_slug
-        self.app_id = app_id
+        # Optional: code > APILENS_APP_ID > OTEL_SERVICE_NAME > "" (the
+        # project's default app). Free-form; the server slugifies it.
+        self.app_id = app_id = resolve_and_log_app_id(app_id)
         self.environment = environment
         # ``capture_profile`` ("metadata" | "redacted" | "full") already set the
         # defaults of the capture flags below (see ``_profile``); flags passed
@@ -478,9 +481,9 @@ class ApiLensASGIMiddleware:
         # Return a str, dict, object or None. Never invoked automatically
         # against auth state — it only runs the resolver you provide.
         self.get_consumer = get_consumer
-        # Spans need an app_id to be ingestible; skip configuration without one.
+        # Without an app_id spans carry an empty one, like requests and logs.
         # APILENS_CAPTURE_SPANS=false is a global kill-switch (env wins over code).
-        self.capture_spans = capture_spans and bool(app_id) and env_spans_enabled()
+        self.capture_spans = capture_spans and env_spans_enabled()
         if self.capture_spans:
             configure_spans(
                 client,
@@ -867,7 +870,9 @@ class ApiLensWSGIMiddleware:
         self.app = app
         self.client = client
         self.project_slug = project_slug
-        self.app_id = app_id
+        # Optional: code > APILENS_APP_ID > OTEL_SERVICE_NAME > "" (the
+        # project's default app). Free-form; the server slugifies it.
+        self.app_id = app_id = resolve_and_log_app_id(app_id)
         self.environment = environment
         self.capture_profile = normalize_profile(capture_profile)
         self.enable_request_logging = enable_request_logging
@@ -906,9 +911,9 @@ class ApiLensWSGIMiddleware:
         # Return a str, dict, object or None. Prefer calling track_consumer()
         # inside your view when you have the framework request object.
         self.get_consumer = get_consumer
-        # Spans need an app_id to be ingestible; skip configuration without one.
+        # Without an app_id spans carry an empty one, like requests and logs.
         # APILENS_CAPTURE_SPANS=false is a global kill-switch (env wins over code).
-        self.capture_spans = capture_spans and bool(app_id) and env_spans_enabled()
+        self.capture_spans = capture_spans and env_spans_enabled()
         if self.capture_spans:
             configure_spans(
                 client,

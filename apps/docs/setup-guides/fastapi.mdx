@@ -24,7 +24,7 @@ app = FastAPI()
 app.add_middleware(
     ApiLensMiddleware,
     api_key=os.environ["APILENS_API_KEY"],
-    app_id="orders-api",          # the app's slug from your APILens project
+    app_id="orders-api",          # your service's name; the app appears on first data
     env="production",             # default; use "staging", "development", ...
 )
 ```

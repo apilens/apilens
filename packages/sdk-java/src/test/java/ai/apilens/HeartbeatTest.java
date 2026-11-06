@@ -162,13 +162,15 @@ class HeartbeatTest {
       ApiLensClient client = stoppedClient(stub, b -> {});
       client.registerApp("orders-api", "Staging");
       client.registerApp("orders-api", "staging");
+      // "" is the project's default app: enrolled like any other.
       client.registerApp("", "production");
 
       assertTrue(client.sendHeartbeat());
-      List<String> envs = new ArrayList<>();
-      stub.heartbeats().forEach(beat -> envs.add(beat.body().get("environment").asText()));
-      envs.sort(String::compareTo);
-      assertEquals(List.of("production", "staging"), envs);
+      List<String> beats = new ArrayList<>();
+      stub.heartbeats().forEach(beat -> beats.add(
+          beat.body().get("app_id").asText() + "@" + beat.body().get("environment").asText()));
+      beats.sort(String::compareTo);
+      assertEquals(List.of("@production", "orders-api@production", "orders-api@staging"), beats);
     }
   }
 
