@@ -725,7 +725,7 @@ function joinedOrgs(id: string) {
       slug: o.slug,
       name: o.name,
       role: "member",
-      projects: o.projects.map((p) => ({ id: `prj_${p}`, slug: p, name: p, environments: ["production"] })),
+      projects: o.projects.map((p) => ({ id: `prj_${p}`, slug: p, name: p, environments: ["production"], app_count: 1 })),
     }));
 }
 
@@ -811,7 +811,7 @@ const GLOBEX = {
   slug: "globex",
   name: "Globex",
   role: "member",
-  projects: [{ id: "prj_globex", slug: "storefront", name: "storefront", environments: ["production"] }],
+  projects: [{ id: "prj_globex", slug: "storefront", name: "storefront", environments: ["production"], app_count: 1 }],
 };
 /** Users who accepted an invitation. */
 const joinedGlobex = new Set<string>();
@@ -840,7 +840,7 @@ const ENV_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const createdProjectsOf = (id: string, org: string) =>
   [...createdProjects.values()]
     .filter((p) => p.owner === id && p.org === org)
-    .map(({ id: pid, slug, name, environments }) => ({ id: pid, slug, name, environments }));
+    .map(({ id: pid, slug, name, environments }) => ({ id: pid, slug, name, environments, app_count: 1 }));
 const createdOrgsOf = (id: string) =>
   [...createdOrgs.values()].filter((o) => o.owner === id).map(({ owner: _owner, ...o }) => ({ ...o, projects: createdProjectsOf(id, o.slug) }));
 
@@ -865,7 +865,7 @@ function context(id: string) {
         slug: "acme",
         name: "Acme",
         role,
-        projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"] }, ...createdProjectsOf(id, "acme")],
+        projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"], app_count: shopApps.length }, ...createdProjectsOf(id, "acme")],
       },
       ...(joinedGlobex.has(id) ? [GLOBEX] : []),
       ...createdOrgsOf(id),

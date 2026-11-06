@@ -78,14 +78,14 @@ const ACME: ContextOrg = {
   slug: "acme",
   name: "Acme",
   role: "owner",
-  projects: [{ id: "p1", slug: "shop", name: "shop", environments: ["production"] }],
+  projects: [{ id: "p1", slug: "shop", name: "shop", environments: ["production"], app_count: 1 }],
 };
 const GLOBEX: ContextOrg = {
   id: "o2",
   slug: "globex",
   name: "Globex",
   role: "member",
-  projects: [{ id: "p2", slug: "storefront", name: "storefront", environments: ["production"] }],
+  projects: [{ id: "p2", slug: "storefront", name: "storefront", environments: ["production"], app_count: 1 }],
 };
 
 function ctx(onboarding: OnboardingState, orgs: ContextOrg[] = []): UserContext {

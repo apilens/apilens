@@ -34,6 +34,7 @@ type ContextProject struct {
 	Slug         string   `json:"slug"`
 	Name         string   `json:"name"`
 	Environments []string `json:"environments" doc:"The project's environment names, sorted."`
+	AppCount     int      `json:"app_count" minimum:"0" doc:"The number of the project's active (not deleted) apps."`
 }
 
 // ContextOrg is an organization in the user context.
@@ -136,7 +137,7 @@ func toUserContext(uc usercontext.Context, amr []string) UserContext {
 			if envs == nil {
 				envs = []string{}
 			}
-			org.Projects = append(org.Projects, ContextProject{ID: pr.ID.String(), Slug: pr.Slug, Name: pr.Name, Environments: envs})
+			org.Projects = append(org.Projects, ContextProject{ID: pr.ID.String(), Slug: pr.Slug, Name: pr.Name, Environments: envs, AppCount: pr.AppCount})
 		}
 		out.Orgs = append(out.Orgs, org)
 	}

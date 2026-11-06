@@ -2064,6 +2064,12 @@
       "ContextProject": {
         "additionalProperties": false,
         "properties": {
+          "app_count": {
+            "description": "The number of the project's active (not deleted) apps.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "environments": {
             "description": "The project's environment names, sorted.",
             "items": {
@@ -2089,7 +2095,8 @@
           "id",
           "slug",
           "name",
-          "environments"
+          "environments",
+          "app_count"
         ],
         "type": "object"
       },

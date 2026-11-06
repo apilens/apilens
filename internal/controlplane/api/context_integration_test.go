@@ -83,6 +83,15 @@ func TestUserContext(t *testing.T) {
 	f.mustCreateProject(t, ada, "gone", "Ghost", "ghost")
 	f.exec(t, `UPDATE organizations SET deleted_at = now() WHERE slug = 'gone'`)
 
+	// Every project gets a default app on create; checkout also gets two
+	// more active apps and a deleted one.
+	f.exec(t, `INSERT INTO apps (id, project_id, slug, name, deleted_at)
+		SELECT v.id, p.id, v.slug, v.slug, v.deleted_at
+		FROM projects p
+		JOIN organizations o ON o.id = p.org_id AND o.slug = 'acme'
+		CROSS JOIN (VALUES ($1::uuid, 'api', NULL::timestamptz), ($2::uuid, 'worker', NULL::timestamptz), ($3::uuid, 'old', now())) AS v(id, slug, deleted_at)
+		WHERE p.slug = 'checkout'`, uuid.New(), uuid.New(), uuid.New())
+
 	f.exec(t, `UPDATE users SET preferences = '{"home":"requests","last_project_slug":"checkout"}', onboarding = '{"step":"install"}' WHERE id = $1`, ada)
 
 	before := checker.calls.Load()
@@ -121,10 +130,10 @@ func TestUserContext(t *testing.T) {
 		t.Fatalf("orgs = %+v, want %+v", got, want)
 	}
 	checkout := c.Orgs[0].Projects[0]
-	if checkout.Name != "Checkout" || !slices.Equal(checkout.Environments, []string{"production", "staging"}) {
+	if checkout.Name != "Checkout" || !slices.Equal(checkout.Environments, []string{"production", "staging"}) || checkout.AppCount != 3 {
 		t.Fatalf("checkout = %+v", checkout)
 	}
-	if web := c.Orgs[0].Projects[1]; !slices.Equal(web.Environments, []string{"production"}) {
+	if web := c.Orgs[0].Projects[1]; !slices.Equal(web.Environments, []string{"production"}) || web.AppCount != 1 {
 		t.Fatalf("web = %+v", web)
 	}
 	if c.LastProjectSlug == nil || *c.LastProjectSlug != "checkout" {

@@ -277,7 +277,8 @@ type Querier interface {
 	// number of active projects and (non-deleted) members of each.
 	ListUserOrganizationsWithCounts(ctx context.Context, userID uuid.UUID) ([]ListUserOrganizationsWithCountsRow, error)
 	// The active projects of every active organization the user belongs to
-	// (memberships_user, then projects_org), by organization then name.
+	// (memberships_user, then projects_org), by organization then name, with
+	// the number of active apps of each (apps_project_slug_active).
 	ListUserProjects(ctx context.Context, userID uuid.UUID) ([]ListUserProjectsRow, error)
 	// Locks a rule for the transaction that records its evaluation, so two runs
 	// cannot step its state at once. Returns pgx.ErrNoRows when the rule was
