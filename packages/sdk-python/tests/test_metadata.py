@@ -329,7 +329,6 @@ def test_disabled_reports_nothing(monkeypatch):
     build = lambda: {"app_id": "a"}
     assert _client(send_metadata=False).report_metadata(build, app_id="a") is False
     assert _client(enabled=False).report_metadata(build, app_id="b") is False
-    assert _client().report_metadata(build, app_id="") is False
     monkeypatch.setenv("APILENS_SEND_METADATA", "false")
     assert _client().report_metadata(build, app_id="c") is False
 
@@ -455,11 +454,18 @@ def test_asgi_middleware_learns_the_app_from_the_first_scope(ingest):
     assert len(server.requests) == 1
 
 
-def test_middleware_without_app_id_reports_nothing(ingest):
+def test_middleware_without_app_id_reports_for_the_default_app(ingest):
+    """No app name configured: the report still goes out, with ``app_id=""``
+    (the server files it under the project's default app)."""
     server = ingest(200)
-    mw = ApiLensASGIMiddleware(_noop_app, _client(server.base_url), capture_spans=False)
-    assert mw._metadata_hint is None
-    assert not server.got.wait(0.2)
+    client = _client(server.base_url)
+    mw = ApiLensASGIMiddleware(_noop_app, client, capture_spans=False)
+    assert mw.app_id == ""
+    assert mw._metadata_hint is not None
+    mw._metadata_hint.note(None)
+    _join(client)
+    assert len(server.requests) == 1
+    assert server.requests[0][2]["app_id"] == ""
 
 
 # ── Real frameworks (skipped when not installed) ────────────────────────────

@@ -552,13 +552,9 @@ export class CaptureCore {
     // Heuristic fallback for unmatched routes; APILENS_PARAMETRIZE_PATHS=false
     // overrides it. Matched framework routes are always used.
     this.parametrizePaths = config.parametrizePaths !== false;
-    // Trace ids, request + outbound spans and the error log. Spans need an app
-    // id; APILENS_CAPTURE_SPANS=false wins over code.
-    this.captureSpans =
-      this.enabled &&
-      config.captureSpans !== false &&
-      envSpansEnabled() &&
-      Boolean(client.config.appId);
+    // Trace ids, request + outbound spans and the error log (with an empty
+    // app_id when none is configured); APILENS_CAPTURE_SPANS=false wins over code.
+    this.captureSpans = this.enabled && config.captureSpans !== false && envSpansEnabled();
     if (this.captureSpans) {
       this.spanRecorder = new SpanRecorder(
         client,

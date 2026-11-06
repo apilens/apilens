@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ChannelsSettings } from "@/components/alerts/channels";
 import { AppShell } from "@/components/app-shell";
 import { ApiKeysSettings } from "@/components/project-settings/api-keys";
@@ -9,12 +9,13 @@ import { IngestHealth, type IngestLoad } from "@/components/project-settings/ing
 import { PrivacySettings } from "@/components/project-settings/privacy";
 import { CHANNELS_SECTION } from "@/lib/alerts";
 import { getContext, getSession } from "@/lib/auth/server";
-import { KEYS_SECTION } from "@/lib/api-keys";
+import { KEYS_PAGE, KEYS_SECTION } from "@/lib/api-keys";
 import { CAPTURE_SECTION } from "@/lib/capture-policy";
 import { PROJECT_SETTINGS } from "@/lib/data";
 import { EVENTS_SHOWN, HEALTH_CHECKS_SECTION } from "@/lib/health-checks";
-import { type ApiKey, type AppIngestStats, type NamedApp, type NotificationChannel, type PrivacyPolicy, identity, isApiError } from "@/lib/identity";
+import { type ApiKey, type AppIngestStats, type ManagedApp, type NamedApp, type NotificationChannel, type PrivacyPolicy, identity, isApiError } from "@/lib/identity";
 import { INGEST_DAYS, INGEST_SECTION } from "@/lib/ingest-health";
+import { pageRedirect } from "@/lib/pagination";
 import { PRIVACY_SECTION } from "@/lib/privacy-policy";
 import { findProject } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
@@ -28,6 +29,18 @@ async function loadApiKeys(project: string, next: string): Promise<ApiKey[] | nu
   const session = await getSession();
   try {
     return (await session.call((o) => identity().listApiKeys(project, o))) ?? [];
+  } catch (err) {
+    if (isSessionExpired(err)) redirectToRefresh(next);
+    if (isApiError(err)) return null;
+    throw err;
+  }
+}
+
+/** `GET /projects/{slug}/apps` (every state), to name the apps keys are limited to and offer them; null when unreadable. */
+async function loadManagedApps(project: string, next: string): Promise<ManagedApp[] | null> {
+  const session = await getSession();
+  try {
+    return (await session.call((o) => identity().listManagedApps(project, o))).apps ?? [];
   } catch (err) {
     if (isSessionExpired(err)) redirectToRefresh(next);
     if (isApiError(err)) return null;
@@ -151,7 +164,7 @@ export default async function SettingsPage({
   searchParams,
 }: {
   params: Promise<{ project: string; section?: string[] }>;
-  searchParams: Promise<{ app?: string | string[] }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { project, section } = await params;
   if (section && (section.length > 1 || !SECTIONS.includes(section[0]))) notFound();
@@ -160,10 +173,14 @@ export default async function SettingsPage({
   const found = findProject(context, project);
   if (!found) notFound();
   if (section?.[0] === KEYS_SECTION) {
-    const keys = await loadApiKeys(project, next);
+    const query = await searchParams;
+    const [keys, apps] = await Promise.all([loadApiKeys(project, next), loadManagedApps(project, next)]);
+    // A page past the end (the list shrank, or a hand-edited URL) lands on the last page.
+    const fix = keys ? pageRedirect(next, query, keys.length, KEYS_PAGE) : null;
+    if (fix) redirect(fix);
     return (
       <AppShell context={context} project={project} view={PROJECT_SETTINGS.slug}>
-        <ApiKeysSettings project={project} projectName={found.project.name} initial={keys} now={Date.now()} />
+        <ApiKeysSettings project={project} projectName={found.project.name} initial={keys} apps={apps} params={query} now={Date.now()} />
       </AppShell>
     );
   }

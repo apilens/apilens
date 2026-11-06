@@ -195,8 +195,7 @@ func TestHeartbeatRejects(t *testing.T) {
 		name, body string
 		code       int
 	}{
-		{"missing app", `{"instance_id":"i"}`, http.StatusUnprocessableEntity},
-		{"unknown app", `{"app_id":"nope","instance_id":"i"}`, http.StatusUnprocessableEntity},
+		{"unknown app", `{"app_id":"nope","instance_id":"i"}`, http.StatusForbidden},
 		{"wrong project", `{"project_slug":"other","app_id":"storefront","instance_id":"i"}`, http.StatusUnprocessableEntity},
 		{"missing instance", `{"app_id":"storefront"}`, http.StatusUnprocessableEntity},
 		{"blank instance", `{"app_id":"storefront","instance_id":"  "}`, http.StatusUnprocessableEntity},

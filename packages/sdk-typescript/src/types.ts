@@ -125,6 +125,11 @@ export type ApiLensClientConfig = {
   api_key?: string;
   projectSlug?: string;
   project_slug?: string;
+  /**
+   * App name (free-form, e.g. "Orders API"; the server slugifies it). Optional:
+   * falls back to env `APILENS_APP_ID`, then `OTEL_SERVICE_NAME`; with none set,
+   * data goes to the project's default app.
+   */
   appId?: string;
   app_id?: string;
   baseUrl?: string;

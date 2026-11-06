@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/valkey-io/valkey-go"
+
+	"github.com/apilens/apilens/internal/controlplane/catalog"
 )
 
 // Per-app ingest health counters. The edge counts what it did to the records
@@ -148,12 +150,12 @@ func (e *Edge) rejectRecords(ctx context.Context, projectID uuid.UUID, signal st
 	if len(lookup) == 0 {
 		return
 	}
-	apps, err := e.apps.Resolve(ctx, projectID, lookup)
+	res, err := e.apps.ResolveFor(ctx, projectID, catalog.Caller{LookupOnly: true}, lookup)
 	if err != nil {
 		return
 	}
 	for _, id := range idents {
-		if appID, ok := apps[id]; ok {
+		if appID, ok := res.Apps[id]; ok {
 			t.app(appID).Rejected++
 		}
 	}

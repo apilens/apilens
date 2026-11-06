@@ -37,9 +37,11 @@ type Verifier interface {
 	Verify(ctx context.Context, raw string) (apikeys.Principal, error)
 }
 
-// AppResolver maps SDK app identifiers (UUID or slug) to app IDs.
+// AppResolver maps the app identifiers of one call (UUID, slug or app
+// name; "" for records naming no app) to app IDs, creating apps the key may
+// create; *catalog.AppResolver satisfies it.
 type AppResolver interface {
-	Resolve(ctx context.Context, projectID uuid.UUID, identifiers []string) (map[string]uuid.UUID, error)
+	ResolveFor(ctx context.Context, projectID uuid.UUID, c catalog.Caller, identifiers []string) (catalog.Result, error)
 }
 
 // Edge serves the ingest endpoints.
@@ -59,13 +61,20 @@ type Edge struct {
 	heartbeats     HeartbeatStore // nil: /v1/heartbeat answers 503
 	heartbeatCache HeartbeatCache // nil: no heartbeat rate limit or last-seen key
 
+	keyApps       KeyAppStore       // nil: which apps a key sends for is not recorded
+	keySeen       keyAppSeen        // throttles keyApps writes
+	appRejections AppRejectionStore // nil: app rejections count in Prometheus only
+
 	records   *prometheus.CounterVec
 	batches   *prometheus.CounterVec
 	rejected  *prometheus.CounterVec
 	truncated *prometheus.CounterVec
 	masked    *prometheus.CounterVec
-	quotaLog  atomic.Int64 // unix nanos of the last "quota unavailable" log line
-	statsLog  atomic.Int64 // unix nanos of the last "stats unavailable" log line
+	// appRejected counts records refused because of their app, by reason.
+	appRejected *prometheus.CounterVec
+	appsCreated prometheus.Counter
+	quotaLog    atomic.Int64 // unix nanos of the last "quota unavailable" log line
+	statsLog    atomic.Int64 // unix nanos of the last "stats unavailable" log line
 }
 
 // New builds the edge. reg may be nil.
@@ -87,6 +96,15 @@ func New(verifier Verifier, apps AppResolver, sink pipeline.Sink, cfg config.Ing
 		masked: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "apilens_ingest_masked_total", Help: "Records in which the server-side privacy policy masked at least one value, by signal.",
 		}, []string{"signal"}),
+		appRejected: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "apilens_ingest_app_rejected_records_total", Help: "Records refused because of the app they name (key may not create it, app scope, app limits, deleted app), by reason.",
+		}, []string{"reason"}),
+		appsCreated: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "apilens_ingest_apps_created_total", Help: "Apps created by ingest from an app name it had not seen.",
+		}),
+	}
+	for _, r := range catalog.Reasons {
+		e.appRejected.WithLabelValues(r)
 	}
 	for _, f := range truncatedFields {
 		e.truncated.WithLabelValues(f)
@@ -95,7 +113,7 @@ func New(verifier Verifier, apps AppResolver, sink pipeline.Sink, cfg config.Ing
 		e.masked.WithLabelValues(s)
 	}
 	if reg != nil {
-		reg.MustRegister(e.records, e.batches, e.rejected, e.truncated, e.masked)
+		reg.MustRegister(e.records, e.batches, e.rejected, e.truncated, e.masked, e.appRejected, e.appsCreated)
 	}
 	return e
 }
@@ -247,40 +265,6 @@ func (e *Edge) submitError(err error) *apiError {
 		e.logger.Error("sink rejected batch", "error", err)
 		return errUnavailable("Could not store records, retry later")
 	}
-}
-
-// resolveApps validates project_slug and maps app identifiers. allowEmpty
-// lets deploys omit app_id (project-wide).
-func (e *Edge) resolveApps(ctx context.Context, p apikeys.Principal, slugs, idents []string, allowEmpty bool) (map[string]uuid.UUID, *apiError) {
-	for _, s := range slugs {
-		if s = strings.TrimSpace(s); s != "" && s != p.ProjectSlug {
-			return nil, errValidation("project_slug must match the API key project '%s'", p.ProjectSlug)
-		}
-	}
-	var lookup []string
-	for _, id := range idents {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			if allowEmpty {
-				continue
-			}
-			return nil, errValidation("app_id is required for every record")
-		}
-		lookup = append(lookup, id)
-	}
-	if len(lookup) == 0 {
-		return map[string]uuid.UUID{}, nil
-	}
-	m, err := e.apps.Resolve(ctx, p.ProjectID, lookup)
-	var unknown *catalog.UnknownAppsError
-	switch {
-	case errors.As(err, &unknown):
-		return nil, errValidation("Invalid app identifiers: %s", strings.Join(unknown.Identifiers, ", "))
-	case err != nil:
-		e.logger.Error("app resolution unavailable", "error", err)
-		return nil, errUnavailable("Catalog unavailable, retry later")
-	}
-	return m, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

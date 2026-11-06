@@ -230,6 +230,17 @@ export function pageHref(pathname: string, params: ParamsInput, to: { page?: num
 }
 
 /**
+ * The canonical link when `?page=` names a page other than the one shown (past the last page, a
+ * page that emptied after the last row on it was removed, or a page with no rows at all): redirect
+ * there so the URL and the page agree. Null when the URL is already right.
+ */
+export function pageRedirect(pathname: string, params: ParamsInput, total: number, options?: PageOptions): string | null {
+  const state = parsePage(params, options);
+  const w = pageWindow(state, total);
+  return w.page !== state.page ? pageHref(pathname, params, { page: w.page }, options) : null;
+}
+
+/**
  * Cursor paging (no total): the link that shows the rows before or after a cursor the API
  * returned. `page` and the other cursor are dropped, so only one direction is ever in the URL.
  */
