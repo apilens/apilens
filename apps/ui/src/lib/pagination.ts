@@ -42,10 +42,26 @@ export interface PageState {
   per: number;
 }
 
-/** Per-table options: the sizes offered and the default (which must be one of them). */
+/**
+ * Per-table options: the sizes offered and the default (which must be one of them), and the URL
+ * keys when one page shows several paged tables at once (default `page` and `per`), e.g.
+ * `{ page: "vpage", per: "vper" }` for a second table, so each keeps its own position.
+ */
 export interface PageOptions {
   sizes?: readonly number[];
   defaultPer?: number;
+  keys?: PageKeys;
+}
+
+/** The URL parameters one table's paging reads and writes. */
+export interface PageKeys {
+  page: string;
+  per: string;
+}
+
+/** The keys of a table: its own, else `page` and `per`. */
+export function pageKeys(o: PageOptions = {}): PageKeys {
+  return o.keys ?? { page: PAGE_PARAM, per: PER_PARAM };
 }
 
 const first = (v: string | string[] | null | undefined) => (Array.isArray(v) ? v[0] : (v ?? undefined));
@@ -70,8 +86,9 @@ function wholeNumber(v: string | undefined): number | null {
  */
 export function parsePage(params: ParamsInput, options?: PageOptions): PageState {
   const { sizes, defaultPer } = sizesOf(options);
-  const page = wholeNumber(get(params, PAGE_PARAM));
-  const per = wholeNumber(get(params, PER_PARAM));
+  const keys = pageKeys(options);
+  const page = wholeNumber(get(params, keys.page));
+  const per = wholeNumber(get(params, keys.per));
   return { page: page !== null && page >= 1 ? page : 1, per: per !== null && sizes.includes(per) ? per : defaultPer };
 }
 
@@ -217,14 +234,15 @@ export function hrefWithoutPage(pathname: string, params: ParamsInput, patch: Re
  */
 export function pageHref(pathname: string, params: ParamsInput, to: { page?: number; per?: number }, options?: PageOptions): string {
   const { defaultPer } = sizesOf(options);
+  const keys = pageKeys(options);
   const p = toSearch(params);
   if (to.per !== undefined) {
-    if (to.per === defaultPer) p.delete(PER_PARAM);
-    else p.set(PER_PARAM, String(to.per));
+    if (to.per === defaultPer) p.delete(keys.per);
+    else p.set(keys.per, String(to.per));
   }
   if (to.page !== undefined) {
-    if (to.page <= 1) p.delete(PAGE_PARAM);
-    else p.set(PAGE_PARAM, String(Math.floor(to.page)));
+    if (to.page <= 1) p.delete(keys.page);
+    else p.set(keys.page, String(Math.floor(to.page)));
   }
   return withQuery(pathname, p);
 }
