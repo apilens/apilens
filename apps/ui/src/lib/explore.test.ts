@@ -77,6 +77,7 @@ describe("row formatting", () => {
   });
   it("keys rows by trace id, else by time and position", () => {
     expect(rowKey({ timestamp: "t", trace_id: "abc" }, 3)).toBe("abc");
+    expect(rowKey({ id: "r1", timestamp: "t", trace_id: "abc" }, 3)).toBe("r1");
     expect(rowKey({ timestamp: "t", trace_id: "" }, 3)).toBe("t#3");
   });
 });

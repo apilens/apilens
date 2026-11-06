@@ -82,8 +82,12 @@ export function scopeText(q: Pick<ExploreState, "range"> & ExploreWindow): strin
   return q.at ? `${base}, up to ${instantText(q.at)}` : base;
 }
 
-/** A stable key for a row: its trace id (one request row per trace), else its time and position. */
-export const rowKey = (r: Pick<RequestRow, "timestamp" | "trace_id">, i: number) => r.trace_id || `${r.timestamp}#${i}`;
+/**
+ * A stable key for a row: its request id (unique per request), else its trace id, else its time and
+ * position. A trace can hold more than one request row (an app calling itself), so the trace id
+ * alone is not unique.
+ */
+export const rowKey = (r: Pick<RequestRow, "timestamp" | "trace_id"> & { id?: string }, i: number) => r.id || r.trace_id || `${r.timestamp}#${i}`;
 
 /** The status class of a response code, for the chip: 4xx warn, 5xx error, the rest neutral. */
 export function statusClass(code: number): "2xx" | "3xx" | "4xx" | "5xx" | "other" {

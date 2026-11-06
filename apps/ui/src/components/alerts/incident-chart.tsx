@@ -26,7 +26,9 @@ export function IncidentChart({ rule, events, now }: { rule: Pick<AlertRule, "me
   const hover = useChartHover<HTMLDivElement>(n, "slot");
   const i = hover.index;
   const values = rows.map((e) => (Number.isFinite(e.value) ? Math.max(0, e.value) : 0));
-  const top = niceMax(Math.max(rule.threshold, ...values) * 1.1);
+  // A round top above the highest value and the threshold; rates (0..1) round in hundredths.
+  const raw = Math.max(rule.threshold, ...values) * 1.1;
+  const top = raw > 0 && raw < 1 ? niceMax(raw * 100) / 100 : niceMax(raw);
   const y = (v: number) => H - (Math.max(0, v) / top) * H;
   const slot = n ? W / n : W;
   const gap = slot > 6 ? Math.min(8, slot * 0.25) : 0;
