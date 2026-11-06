@@ -1,8 +1,7 @@
 /* Alerts (#610): incidents, their timeline, alert rules, the rule editor and alert channels.
    Tokens from tokens.css only; status chips are the system's .ah-badge. At phone width each
    table row stacks into labelled lines, so the page never scrolls sideways. */
-.al { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
-.al--narrow { max-width: 760px; }
+/* Page width and gutters come from .page (styles/page.css). */
 .al-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
 .al-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-6); }
 .al-head .os-tabs { flex: 1 1 100%; }
@@ -93,7 +92,6 @@ a.al-name:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 
 .al-channel__note.ok { color: var(--ok); }
 
 @media (max-width: 760px) {
-  .al { padding: var(--space-4) var(--space-4) var(--space-12); }
   .al-grid, .al-grid--3 { grid-template-columns: minmax(0, 1fr); }
   .al-channel { padding: var(--space-4); }
   .al-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

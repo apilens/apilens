@@ -36,7 +36,7 @@ export function IncidentsView({
   const open = (incidents ?? []).filter((i) => i.open);
   const resolved = (incidents ?? []).filter((i) => !i.open);
   return (
-    <div className="al">
+    <div className="page al">
       {notice}
       <AlertsHeader project={project} projectName={projectName} tab="incidents" title="Incidents" lead="Alert rules that breached their threshold: open ones first, then everything resolved in the range." />
 

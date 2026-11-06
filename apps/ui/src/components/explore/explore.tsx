@@ -32,7 +32,7 @@ export function ExploreView({
   now: number;
 }) {
   return (
-    <div className="ex">
+    <div className="page ex">
       <SavedViews project={project} me={me} query={query} initial={views}>
         <header className="pagehead">
           <p className="cp-h">{projectName} · Explore</p>

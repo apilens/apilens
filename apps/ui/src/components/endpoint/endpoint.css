@@ -111,7 +111,7 @@
   .ep-settings { margin-left: 0; }
   .ep-locked { flex-direction: column; width: 100%; }
   .ep-locked > div + div { border-left: 0; border-top: 1px solid var(--border); }
-  .ep-tabs { margin-left: calc(-1 * var(--space-4)); margin-right: calc(-1 * var(--space-4)); padding: 0 var(--space-4); }
+  .ep-tabs { margin-left: calc(-1 * var(--page-pad-x)); margin-right: calc(-1 * var(--page-pad-x)); padding: 0 var(--page-pad-x); }
   .tr-table td.ep-rowmenu__cell { position: absolute; top: var(--space-2); right: var(--space-2); width: auto; padding: 0; }
   .tr-table tr.tr-row:has(.ep-rowmenu__cell) td.tr-ep { padding-right: 40px; }
 }

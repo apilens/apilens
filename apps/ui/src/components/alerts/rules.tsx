@@ -29,7 +29,7 @@ export function RulesView({
 }) {
   const manage = useCan("alerts.manage").allowed;
   return (
-    <div className="al">
+    <div className="page al">
       <AlertsHeader project={project} projectName={projectName} tab="rules" title="Alert rules" lead="Each rule watches one metric of one app and environment and opens an incident when it breaches its threshold.">
         {manage && rules !== null ? (
           <Link className="ah-btn ah-btn--primary ah-btn--sm" href={newRuleHref(project)}>

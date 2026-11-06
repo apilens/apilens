@@ -37,7 +37,7 @@ type Note = { tone: "ok" | "err"; text: string } | null;
 export function ChannelsSettings({ project, projectName, channels }: { project: string; projectName: string; channels: NotificationChannel[] | null }) {
   const manage = useCan("alerts.manage").allowed;
   return (
-    <div className="os al-form">
+    <div className="page page--measure os al-form">
       <header className="os-head">
         <p className="cp-h">{projectName} · Settings</p>
         <h1 className="cp-lede">Alert channels</h1>

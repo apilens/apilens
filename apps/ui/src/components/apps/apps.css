@@ -1,7 +1,7 @@
 /* Apps overview (#591). Tokens from tokens.css only. Color carries meaning: the reporting pill and
    the health line use --ok, --warn and --error, always next to a word, never color alone. The app
    name link covers its card, so the whole card opens the app. Cards wrap to one column on phones. */
-.ap { max-width: 1120px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
+/* Page width and gutters come from .page (styles/page.css). */
 .ap-lead { margin: var(--space-2) 0 var(--space-6); font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
 .ap-muted { margin: 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 
@@ -46,6 +46,5 @@
 .ap-drops { margin: 0; }
 
 @media (max-width: 760px) {
-  .ap { padding: var(--space-4) var(--space-4) var(--space-12); }
   .ap-grid { grid-template-columns: minmax(0, 1fr); }
 }

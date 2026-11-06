@@ -31,7 +31,7 @@ export function HealthChecks({ project, projectName, load }: { project: string; 
   const { apps, checks } = load;
   const appName = (id: string) => apps?.find((a) => a.id === id)?.name ?? "Unknown app";
   return (
-    <div className="os cps hc">
+    <div className="page page--measure os cps hc">
       <header className="os-head">
         <p className="cp-h">{projectName} · Settings</p>
         <h1 className="cp-lede">Health checks</h1>

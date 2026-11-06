@@ -40,7 +40,7 @@ export interface IngestLoad {
 export function IngestHealth({ project, projectName, load }: { project: string; projectName: string; load: IngestLoad }) {
   const { apps, app } = load;
   return (
-    <div className="os cps ih">
+    <div className="page page--measure os cps ih">
       <header className="os-head">
         <p className="cp-h">{projectName} · Settings</p>
         <h1 className="cp-lede">Ingest health</h1>

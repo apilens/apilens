@@ -63,7 +63,7 @@ export function OrgSSOSettings({ org, connection }: { org: OrgRef; connection: S
   const owner = canManageSSO(org.role);
   const [conn, setConn] = useState(connection);
   return (
-    <div className="os">
+    <div className="page page--measure os">
       <header className="os-head">
         <p className="cp-h">Organization</p>
         <h1 className="cp-lede">Settings</h1>

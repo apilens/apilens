@@ -1,5 +1,5 @@
 /* Organization settings (#347). Tokens from tokens.css only; inputs reuse .ob-in / .ob-sw. */
-.os { max-width: 760px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
+/* Page width and gutters come from .page / .page--measure (styles/page.css). */
 .os-head { margin-bottom: var(--space-8); }
 .os-head .cp-lede { margin-top: 2px; }
 
@@ -71,7 +71,6 @@
 .os .ah-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 
 @media (max-width: 860px) {
-  .os { padding: var(--space-4) var(--space-4) var(--space-12); }
   .os-card__head, .os-card__body, .os-card__foot { padding-left: var(--space-4); padding-right: var(--space-4); }
   .os-danger { flex-direction: column; align-items: stretch; }
 }

@@ -29,7 +29,7 @@ export default async function IncidentPage({ params }: { params: Promise<{ proje
   return (
     <AppShell context={context} project={project} view="incidents">
       {rule === null ? (
-        <div className="al">
+        <div className="page al">
           <LoadFailed text="We couldn’t load this alert rule just now." href={next} />
         </div>
       ) : (

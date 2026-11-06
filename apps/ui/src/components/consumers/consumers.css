@@ -3,7 +3,7 @@
    successful is muted ink, 4xx --warn and 5xx --error. Every chart has a legend, so no series is
    told apart by color alone. At phone width tables stack into labelled lines, never scrolling
    sideways. */
-.cs { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
+/* Page width and gutters come from .page (styles/page.css). */
 .cs-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
 .cs-muted { color: var(--ink-muted); }
 .cs-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -105,7 +105,6 @@ section.cs-card { padding: var(--space-4) var(--space-4) var(--space-3); }
 .cs-confirm { margin: var(--space-2) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink); }
 
 @media (max-width: 760px) {
-  .cs { padding: var(--space-4) var(--space-4) var(--space-12); }
   .cs-tiles { gap: var(--space-4); }
   .cs-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .cs-table, .cs-table tbody, .cs-table tr, .cs-table td { display: block; width: auto; }

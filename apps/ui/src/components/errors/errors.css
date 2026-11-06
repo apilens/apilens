@@ -55,7 +55,7 @@
 .er-err { margin: var(--space-2) 0 0; font: 400 13px/20px var(--font-sans); color: var(--error); }
 
 @media (max-width: 760px) {
-  .er-tabs, .er-dtabs { margin-left: calc(-1 * var(--space-4)); margin-right: calc(-1 * var(--space-4)); padding: 0 var(--space-4); }
+  .er-tabs, .er-dtabs { margin-left: calc(-1 * var(--page-pad-x)); margin-right: calc(-1 * var(--page-pad-x)); padding: 0 var(--page-pad-x); }
   .er-modal__in { padding: var(--space-4); }
   .er-modal .tr-table { border: 0; }
 }

@@ -60,7 +60,7 @@ export function ErrorsView({
   // A shared link may name an environment the project no longer lists; keep it selectable.
   const envs = q.env && !environments.includes(q.env) ? [...environments, q.env] : environments;
   return (
-    <div className="tr er">
+    <div className="page tr er">
       <header className="pagehead">
         <p className="cp-h">{projectName} · Errors</p>
         <h1 className="cp-lede">Errors</h1>

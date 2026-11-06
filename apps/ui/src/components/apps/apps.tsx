@@ -39,7 +39,7 @@ export interface AppCardData {
 export function AppsView({ project, projectName, apps, now }: { project: string; projectName: string; apps: AppCardData[] | null; now: number }) {
   const attention = (apps ?? []).filter((a) => a.status !== null && needsAttention(a.status)).length;
   return (
-    <div className="ap">
+    <div className="page ap">
       <header className="pagehead">
         <p className="cp-h">{projectName} · Apps</p>
         <h1 className="cp-lede">Apps</h1>

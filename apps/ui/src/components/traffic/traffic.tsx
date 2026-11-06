@@ -49,7 +49,7 @@ export function TrafficView({
   apps?: NamedApp[] | null;
 }) {
   return (
-    <div className="tr">
+    <div className="page tr">
       <header className="pagehead">
         <p className="cp-h">{projectName} · Traffic</p>
         <h1 className="cp-lede">Traffic</h1>

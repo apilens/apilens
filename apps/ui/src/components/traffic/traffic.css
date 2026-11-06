@@ -2,7 +2,7 @@
    muted ink (context), 4xx --warn and 5xx --error, the p95 line the accent. Every chart has a
    legend, so no series is told apart by color alone. At phone width the tiles go two by two and the
    table stacks into labelled lines, never scrolling sideways. */
-.tr { max-width: 1120px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
+/* Page width and gutters come from .page (styles/page.css). */
 .tr-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
 .tr-muted { color: var(--ink-muted); }
 
@@ -96,7 +96,6 @@
 }
 
 @media (max-width: 760px) {
-  .tr { padding: var(--space-4) var(--space-4) var(--space-12); }
   .tr-tile__value { font-size: 20px; line-height: 28px; }
   .tr-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .tr-table, .tr-table tbody, .tr-table tr, .tr-table td { display: block; width: auto; }
