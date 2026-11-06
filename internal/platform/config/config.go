@@ -104,7 +104,14 @@ type IngestConfig struct {
 	KeyCacheTTL          time.Duration `koanf:"key_cache_ttl"`
 	KeyNegativeTTL       time.Duration `koanf:"key_negative_ttl"`
 	AppCacheTTL          time.Duration `koanf:"app_cache_ttl"`
-	Quota                QuotaConfig   `koanf:"quota"`
+	// MaxAppsPerProject bounds the apps (archived ones included) ingest may
+	// grow a project to by creating apps from SDK app names; 0 disables it.
+	MaxAppsPerProject int `koanf:"max_apps_per_project"`
+	// MaxNewAppsPerHour bounds the apps ingest creates in one project per
+	// rolling hour (a guard against app names that change per process); 0
+	// disables it.
+	MaxNewAppsPerHour int         `koanf:"max_new_apps_per_hour"`
+	Quota             QuotaConfig `koanf:"quota"`
 }
 
 // QuotaConfig caps how much one project may ingest. Each limit is a token
@@ -441,6 +448,8 @@ func Defaults() map[string]any {
 		"ingest.key_cache_ttl":             "60s",
 		"ingest.key_negative_ttl":          "10s",
 		"ingest.app_cache_ttl":             "60s",
+		"ingest.max_apps_per_project":      50,
+		"ingest.max_new_apps_per_hour":     10,
 		"ingest.quota.records_per_minute":  0,
 		"ingest.quota.bytes_per_day":       0,
 		"sink.mode":                        "direct",
@@ -626,6 +635,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Ingest.MaxBodyBytes <= 0 || c.Ingest.MaxRecordsPerRequest <= 0 {
 		errs = append(errs, errors.New("ingest.max_body_bytes and ingest.max_records_per_request must be > 0"))
+	}
+	if c.Ingest.MaxAppsPerProject < 0 || c.Ingest.MaxNewAppsPerHour < 0 {
+		errs = append(errs, errors.New("ingest.max_apps_per_project and ingest.max_new_apps_per_hour must be >= 0 (0 disables)"))
 	}
 	if c.Ingest.KeyCacheSize <= 0 {
 		errs = append(errs, errors.New("ingest.key_cache_size must be > 0"))

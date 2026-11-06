@@ -20,27 +20,43 @@ import (
 const (
 	APIKeysPath = ProjectPath + "/api-keys"
 	APIKeyPath  = APIKeysPath + "/{id}"
+	// APIKeyAccessPath is what a key may do with apps.
+	APIKeyAccessPath = APIKeyPath + "/access"
 )
 
 // APIKeyService creates, lists and revokes project API keys;
 // *apikeys.Service satisfies it.
 type APIKeyService interface {
-	Create(ctx context.Context, user uuid.UUID, slug, name string, scopes []string, expiresAt *time.Time) (apikeys.Created, error)
+	CreateKey(ctx context.Context, user uuid.UUID, slug string, k apikeys.NewKey) (apikeys.Created, error)
 	List(ctx context.Context, user uuid.UUID, slug string) ([]apikeys.Key, error)
+	UpdateAccess(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID, a apikeys.Access) (apikeys.Key, error)
 	Revoke(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID) error
 }
 
 // APIKey is a project API key as listed to members. The raw key is never
 // returned after creation.
 type APIKey struct {
-	ID         string     `json:"id" format:"uuid"`
-	Name       string     `json:"name"`
-	Prefix     string     `json:"prefix" doc:"The first characters of the key, for recognising it."`
-	Scopes     []string   `json:"scopes" doc:"What the key may do: ingest (send telemetry), read (query the project's data)."`
-	CreatedAt  time.Time  `json:"created_at"`
-	ExpiresAt  *time.Time `json:"expires_at" required:"true" nullable:"true" doc:"When the key stops working; null if never."`
-	LastUsedAt *time.Time `json:"last_used_at" required:"true" nullable:"true" doc:"When the key was last used (recorded at most every few minutes); null if never."`
-	RevokedAt  *time.Time `json:"revoked_at" required:"true" nullable:"true" doc:"When the key was revoked; null while it is active."`
+	ID     string   `json:"id" format:"uuid"`
+	Name   string   `json:"name"`
+	Prefix string   `json:"prefix" doc:"The first characters of the key, for recognising it."`
+	Scopes []string `json:"scopes" doc:"What the key may do: ingest (send telemetry), apps:create (ingest may create an app from an app name it has not seen), read (query the project's data)."`
+	// CanCreateApps is apps:create on a key not limited to some apps.
+	CanCreateApps bool       `json:"can_create_apps" doc:"Whether data sent with the key creates an app the first time it names one the project does not have. False for keys without apps:create and for keys limited to some apps."`
+	AppIDs        []string   `json:"app_ids" required:"true" nullable:"true" doc:"The apps the key may send data for; null means every app of the project."`
+	AppsSeen      []KeyApp   `json:"apps_seen" doc:"The apps the key sent data for, most recent first (recorded at most once a minute)."`
+	CreatedAt     time.Time  `json:"created_at"`
+	ExpiresAt     *time.Time `json:"expires_at" required:"true" nullable:"true" doc:"When the key stops working; null if never."`
+	LastUsedAt    *time.Time `json:"last_used_at" required:"true" nullable:"true" doc:"When the key was last used (recorded at most every few minutes); null if never."`
+	RevokedAt     *time.Time `json:"revoked_at" required:"true" nullable:"true" doc:"When the key was revoked; null while it is active."`
+}
+
+// KeyApp is an app a key sent data for.
+type KeyApp struct {
+	AppID       string    `json:"app_id" format:"uuid"`
+	Slug        string    `json:"slug"`
+	Name        string    `json:"name"`
+	FirstSeenAt time.Time `json:"first_seen_at"`
+	LastSeenAt  time.Time `json:"last_seen_at"`
 }
 
 // CreatedAPIKey is a new key with its raw value.
@@ -53,10 +69,26 @@ type CreatedAPIKey struct {
 type CreateAPIKeyInput struct {
 	ProjectSlugInput
 	Body struct {
-		Name      string     `json:"name" minLength:"1" maxLength:"100" doc:"Display name; surrounding spaces are trimmed."`
-		Scopes    []string   `json:"scopes" minItems:"1" maxItems:"2" uniqueItems:"true" enum:"ingest,read" doc:"What the key may do: ingest (send telemetry), read (query the project's data)."`
-		ExpiresAt *time.Time `json:"expires_at,omitempty" doc:"When the key stops working; must be in the future. Omit for a key that does not expire."`
+		Name          string     `json:"name" minLength:"1" maxLength:"100" doc:"Display name; surrounding spaces are trimmed."`
+		Scopes        []string   `json:"scopes" minItems:"1" maxItems:"2" uniqueItems:"true" enum:"ingest,read" doc:"What the key may do: ingest (send telemetry), read (query the project's data)."`
+		ExpiresAt     *time.Time `json:"expires_at,omitempty" doc:"When the key stops working; must be in the future. Omit for a key that does not expire."`
+		CanCreateApps *bool      `json:"can_create_apps,omitempty" doc:"For an ingest key: whether data sent with it creates an app the first time it names one the project does not have (adds the apps:create scope). Defaults to true."`
+		AppIDs        []string   `json:"app_ids,omitempty" maxItems:"100" doc:"Limit the key to these apps of the project; omit for every app. A limited key never creates apps."`
 	}
+}
+
+// UpdateAPIKeyAccessInput is the request of PUT /api/v1/projects/{slug}/api-keys/{id}/access.
+type UpdateAPIKeyAccessInput struct {
+	APIKeyInput
+	Body struct {
+		CanCreateApps bool     `json:"can_create_apps" doc:"Whether data sent with the key creates apps it names that the project does not have (ingest keys only)."`
+		AppIDs        []string `json:"app_ids" required:"true" nullable:"true" maxItems:"100" doc:"The apps the key may send data for; null for every app. A limited key never creates apps."`
+	}
+}
+
+// APIKeyOutput is a single key.
+type APIKeyOutput struct {
+	Body APIKey
 }
 
 // CreateAPIKeyOutput is the response of POST /api/v1/projects/{slug}/api-keys.
@@ -116,6 +148,18 @@ func (k *APIKeys) Register(api huma.API) {
 	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), k.list)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "update-api-key-access",
+		Method:      http.MethodPut,
+		Path:        APIKeyAccessPath,
+		Summary:     "Change what an API key may do with apps",
+		Description: "Replaces whether the key may create apps (the apps:create scope) and which apps it may send data for (null: every app). " +
+			"Every process forgets the cached key, so the change applies to the next request. A revoked key or an id the project does not have answers `api_key_gone` (410); " +
+			"an app id the project does not have answers `invalid_request`. Owners, admins and members only. Audited as `api_key.updated`. " + notMember,
+		Tags:     tags,
+		Security: security,
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeAPIKeyGone, identity.CodeInternal), k.updateAccess)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID:   "revoke-api-key",
 		Method:        http.MethodDelete,
 		Path:          APIKeyPath,
@@ -134,15 +178,29 @@ func toAPIKey(key apikeys.Key) APIKey {
 	if scopes == nil {
 		scopes = []string{}
 	}
+	seen := make([]KeyApp, 0, len(key.AppsSeen))
+	for _, s := range key.AppsSeen {
+		seen = append(seen, KeyApp{AppID: s.AppID.String(), Slug: s.Slug, Name: s.Name, FirstSeenAt: s.FirstSeenAt.UTC(), LastSeenAt: s.LastSeenAt.UTC()})
+	}
+	var appIDs []string
+	if key.AppIDs != nil {
+		appIDs = make([]string, len(key.AppIDs))
+		for i, id := range key.AppIDs {
+			appIDs[i] = id.String()
+		}
+	}
 	return APIKey{
-		ID:         key.ID.String(),
-		Name:       key.Name,
-		Prefix:     key.Prefix,
-		Scopes:     scopes,
-		CreatedAt:  key.CreatedAt.UTC(),
-		ExpiresAt:  utc(key.ExpiresAt),
-		LastUsedAt: utc(key.LastUsedAt),
-		RevokedAt:  utc(key.RevokedAt),
+		ID:            key.ID.String(),
+		Name:          key.Name,
+		Prefix:        key.Prefix,
+		Scopes:        scopes,
+		CanCreateApps: key.CanCreateApps(),
+		AppIDs:        appIDs,
+		AppsSeen:      seen,
+		CreatedAt:     key.CreatedAt.UTC(),
+		ExpiresAt:     utc(key.ExpiresAt),
+		LastUsedAt:    utc(key.LastUsedAt),
+		RevokedAt:     utc(key.RevokedAt),
 	}
 }
 
@@ -174,7 +232,13 @@ func (k *APIKeys) create(ctx context.Context, in *CreateAPIKeyInput) (*CreateAPI
 	if err != nil {
 		return nil, err
 	}
-	c, err := k.svc.Create(ctx, uid, in.Slug, in.Body.Name, in.Body.Scopes, in.Body.ExpiresAt)
+	appIDs, err := parseIDs(in.Body.AppIDs)
+	if err != nil {
+		return nil, err
+	}
+	c, err := k.svc.CreateKey(ctx, uid, in.Slug, apikeys.NewKey{
+		Name: in.Body.Name, Scopes: in.Body.Scopes, ExpiresAt: in.Body.ExpiresAt, CanCreateApps: in.Body.CanCreateApps, AppIDs: appIDs,
+	})
 	if err != nil {
 		return nil, k.problem(ctx, "create api key", err)
 	}
@@ -195,6 +259,42 @@ func (k *APIKeys) list(ctx context.Context, in *ProjectSlugInput) (*ListAPIKeysO
 		out.Body = append(out.Body, toAPIKey(key))
 	}
 	return out, nil
+}
+
+// parseIDs parses app ids; nil stays nil (every app).
+func parseIDs(in []string) ([]uuid.UUID, error) {
+	if in == nil {
+		return nil, nil
+	}
+	out := make([]uuid.UUID, len(in))
+	for i, s := range in {
+		id, err := uuid.Parse(s)
+		if err != nil {
+			return nil, identity.Err(identity.CodeInvalidRequest)
+		}
+		out[i] = id
+	}
+	return out, nil
+}
+
+func (k *APIKeys) updateAccess(ctx context.Context, in *UpdateAPIKeyAccessInput) (*APIKeyOutput, error) {
+	uid, err := signedInUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(in.ID)
+	if err != nil {
+		return nil, identity.Err(identity.CodeInvalidRequest)
+	}
+	appIDs, err := parseIDs(in.Body.AppIDs)
+	if err != nil {
+		return nil, err
+	}
+	key, err := k.svc.UpdateAccess(ctx, uid, in.Slug, id, apikeys.Access{CanCreateApps: in.Body.CanCreateApps, AppIDs: appIDs})
+	if err != nil {
+		return nil, k.problem(ctx, "update api key access", err)
+	}
+	return &APIKeyOutput{Body: toAPIKey(key)}, nil
 }
 
 func (k *APIKeys) revoke(ctx context.Context, in *APIKeyInput) (*struct{}, error) {

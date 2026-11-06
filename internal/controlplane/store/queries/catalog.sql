@@ -13,6 +13,7 @@ DO UPDATE SET name = projects.name
 RETURNING id, org_id, slug, name, created_at;
 
 -- name: UpsertApp :one
+-- Registers an app (seed, tests); never changes an existing one.
 INSERT INTO apps (id, project_id, slug, name, framework)
 VALUES (@id, @project_id, @slug, @name, @framework)
 ON CONFLICT (project_id, slug) WHERE deleted_at IS NULL
