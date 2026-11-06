@@ -474,3 +474,20 @@ def test_django_body_toggles_gate_capture(django_settings, monkeypatch):
     (record,) = client.records
     assert record["request_payload"] == ""
     assert record["response_payload"] == '{"ok":true}'
+
+
+def test_django_app_id_is_optional(django_settings, monkeypatch):
+    """Setting > APILENS_APP_ID > OTEL_SERVICE_NAME > "" (the default app)."""
+    settings, apilens_django = django_settings
+    from django.http import HttpResponse
+
+    monkeypatch.delattr(settings, "APILENS_APP_ID")
+    monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
+    build = lambda: apilens_django.ApiLensDjangoMiddleware(lambda request: HttpResponse("ok"))
+    assert build().app_id == ""
+    monkeypatch.setenv("OTEL_SERVICE_NAME", "Orders API")
+    assert build().app_id == "Orders API"
+    monkeypatch.setenv("APILENS_APP_ID", "env-app")
+    assert build().app_id == "env-app"
+    monkeypatch.setattr(settings, "APILENS_APP_ID", "setting-app", raising=False)
+    assert build().app_id == "setting-app"
