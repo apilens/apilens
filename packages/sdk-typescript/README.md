@@ -461,7 +461,7 @@ adapter (which builds the client for you).
 | `sendMetadata` | `true` | Report framework, versions, route templates and the effective capture config once per process start (`POST /v1/metadata`). Env `APILENS_SEND_METADATA=false` also turns it off. See [App metadata](#app-metadata). |
 | `sendHeartbeat` | `true` | Send `POST /v1/heartbeat` on start, every `heartbeatIntervalMs` and on shutdown; its response carries the remote capture policy. Env `APILENS_SEND_HEARTBEAT=false` also turns it off. See [Heartbeat](#heartbeat). |
 | `heartbeatIntervalMs` | `60000` | Milliseconds between heartbeats. Minimum 10 000 (ingest answers 429 to faster ones); a lower value throws. |
-| `appId` | `APILENS_APP_ID` → `OTEL_SERVICE_NAME` → `""` | App the client sends records and heartbeats for (free-form name). Empty: records go to the project's default app and no heartbeat/metadata is sent. The adapters pass theirs through. |
+| `appId` | `APILENS_APP_ID` → `OTEL_SERVICE_NAME` → `""` | App the client sends records and heartbeats for (free-form name). Empty: everything (records, heartbeats, metadata) goes to the project's default app with `app_id: ""`. The adapters pass theirs through. |
 | `onStats` | `undefined` | `(stats) => void`, called after every flush with a [stats snapshot](#sdk-health--stats), e.g. to export to Prometheus or StatsD. A throw is logged at debug and ignored. |
 | `retryBackoffBaseMs` / `retryBackoffMaxMs` | `250` / `5000` | Base and ceiling, in milliseconds, of the exponential retry backoff. |
 | `maskLogRecord` | — | **Not in the JS SDK**: the auto error log carries only the error message and stack, with no request data. |

@@ -335,10 +335,8 @@ public class ApiLensClient implements AutoCloseable {
    * the constructor. Registering an app twice does nothing.
    */
   public void registerApp(String appId, String environment) {
+    // "" is the project's default app (no app name configured); its heartbeats carry app_id "".
     String app = Strings.clean(appId);
-    if (app.isEmpty()) {
-      return;
-    }
     String env = Strings.isBlank(environment)
         ? config.environment()
         : environment.trim().toLowerCase(Locale.ROOT);
@@ -515,10 +513,6 @@ public class ApiLensClient implements AutoCloseable {
    */
   public boolean reportMetadata(String environment, Supplier<Map<String, Object>> build) {
     if (!config.enabled() || !config.sendMetadata() || build == null) {
-      return false;
-    }
-    // Metadata needs an app; skipped when none is configured (records still go out).
-    if (Strings.isBlank(config.appId())) {
       return false;
     }
     String env = Strings.isBlank(environment)

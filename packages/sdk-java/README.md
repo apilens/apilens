@@ -328,7 +328,7 @@ auto-configuration.
 | `sendMetadata` | `true` | Report framework, versions, route templates and the effective capture config once per process (`POST /v1/metadata`). Env `APILENS_SEND_METADATA=false` also turns it off. See [App metadata](#app-metadata). |
 | `sendHeartbeat` | `true` | Send `POST /v1/heartbeat` on start, every `heartbeatInterval` and on shutdown; its response carries the remote capture policy. Env `APILENS_SEND_HEARTBEAT=false` also turns it off. See [Heartbeat](#heartbeat). |
 | `heartbeatInterval` | `Duration.ofSeconds(60)` | Time between heartbeats. Minimum 10 s (ingest answers 429 to faster ones). |
-| `appId` | `APILENS_APP_ID` → `OTEL_SERVICE_NAME` → `""` | App the records and heartbeats belong to (free-form name). Empty: records go to the project's default app and no heartbeat/metadata is sent. |
+| `appId` | `APILENS_APP_ID` → `OTEL_SERVICE_NAME` → `""` | App the records and heartbeats belong to (free-form name). Empty: everything (records, heartbeats, metadata) goes to the project's default app with `app_id: ""`. |
 | `onStats` | **not available** | Python only. Read `client.stats()` yourself, or let the [Micrometer binder](#sdk-health--stats) export it. |
 | `release` / `commit` | detected | Release and commit sent with the heartbeat. Fall back to `APILENS_RELEASE` / `APILENS_COMMIT`, `GIT_COMMIT`, `SOURCE_VERSION`, `RENDER_GIT_COMMIT`. |
 | `retryBackoffBase` / `retryBackoffMax` | `250ms` / `5s` | Full-jitter backoff bounds. |

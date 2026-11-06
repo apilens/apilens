@@ -1,7 +1,6 @@
 package ai.apilens;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -82,12 +81,15 @@ class AppIdTest {
           .build());
       client.stop();
       assertTrue(infos.contains(NONE), infos.toString());
-      assertFalse(client.reportMetadata("", Map::of));
 
       client.capture(RequestRecord.builder().method("GET").path("/orders").statusCode(200).build());
       assertEquals(1, client.flushAll());
       assertEquals(List.of("/v1/requests"), server.paths());
       assertTrue(server.bodies().get(0).contains("\"app_id\":\"\""), server.bodies().get(0));
+
+      // The default app is enrolled for heartbeats too (the stub answers 200), with app_id "".
+      assertTrue(client.sendHeartbeat());
+      assertEquals("", client.heartbeatPayload("", "", false).get("app_id"));
       client.shutdown(false);
     } finally {
       logger.removeHandler(handler);

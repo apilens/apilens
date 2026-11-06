@@ -4,7 +4,7 @@ import { describeAppChoice, resolveAppId } from "../src/app.js";
 import { ApiLensClient } from "../src/client.js";
 import type { ApiLensClientConfig } from "../src/types.js";
 
-const VARS = ["APILENS_APP_ID", "OTEL_SERVICE_NAME"] as const;
+const VARS = ["APILENS_APP_ID", "OTEL_SERVICE_NAME", "APILENS_SEND_HEARTBEAT", "APILENS_SEND_METADATA"] as const;
 const saved: Record<string, string | undefined> = {};
 
 beforeEach(() => {
@@ -90,18 +90,22 @@ describe("ApiLensClient app id", () => {
     expect(second.infos).toContain('APILens: app "otel" (from OTEL_SERVICE_NAME)');
   });
 
-  it("omitted: no throw, empty app_id on the wire, no heartbeat or metadata", async () => {
+  it("omitted: no throw, empty app_id on every signal (default app)", async () => {
+    // tests/setup.ts turns both off process-wide; restored by afterEach.
+    process.env.APILENS_SEND_HEARTBEAT = "true";
+    process.env.APILENS_SEND_METADATA = "true";
     const { client, infos, sent } = makeClient({ sendHeartbeat: true, sendMetadata: true });
     expect(client.config.appId).toBe("");
     expect(infos).toContain(describeAppChoice("", ""));
-    expect(client.reportMetadata(() => ({}))).toBe(false);
     client.capture({ method: "GET", path: "/orders", status_code: 200, response_time_ms: 1 });
     await client.flushAll();
     const requests = sent.filter((s) => s.url.endsWith("/requests"));
     expect(requests).toHaveLength(1);
     const records = requests[0].body.requests as Array<Record<string, unknown>>;
     expect(records[0].app_id).toBe("");
-    expect(await client.sendHeartbeat()).toBe(false);
-    expect(sent.some((s) => s.url.endsWith("/heartbeat"))).toBe(false);
+    expect(await client.sendHeartbeat()).toBe(true);
+    const heartbeat = sent.find((s) => s.url.endsWith("/heartbeat"));
+    expect(heartbeat?.body.app_id).toBe("");
+    expect(client.reportMetadata(() => ({ app_id: "", routes: [] }), { delayMs: 0 })).toBe(true);
   });
 });

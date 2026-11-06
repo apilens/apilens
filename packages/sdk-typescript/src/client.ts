@@ -451,13 +451,11 @@ class ApiLensClient {
     }
 
     this.queue = [];
-    // Heartbeats need an app; without one only requests, spans and logs go out.
-    if (this.config.appId) {
-      this.heartbeatApps.set(`${this.config.appId}\0${this.config.environment}`, {
-        appId: this.config.appId,
-        environment: this.config.environment,
-      });
-    }
+    // An empty appId is the project's default app; its heartbeats carry app_id "".
+    this.heartbeatApps.set(`${this.config.appId}\0${this.config.environment}`, {
+      appId: this.config.appId,
+      environment: this.config.environment,
+    });
 
     ApiLensClient.instance = this;
 
@@ -811,10 +809,8 @@ class ApiLensClient {
    * the same app again does nothing.
    */
   public registerApp(appId: string, environment?: string): void {
+    // "" is the project's default app (no app name configured).
     const app = String(appId || "").trim();
-    if (!app) {
-      return;
-    }
     const env = String(environment || this.config.environment);
     const key = `${app}\0${env}`;
     if (this.heartbeatApps.has(key)) {
@@ -1006,10 +1002,6 @@ class ApiLensClient {
     }: { appId?: string; environment?: string; delayMs?: number } = {},
   ): boolean {
     if (!this.config.enabled || !this.config.sendMetadata || !envFlagEnabled(ENV_SEND_METADATA)) {
-      return false;
-    }
-    // Metadata needs an app; skipped when none is configured.
-    if (!appId) {
       return false;
     }
     const key = `${this.config.baseUrl}\0${appId}\0${environment}`;
