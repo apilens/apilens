@@ -34,6 +34,7 @@ import (
 //	endpoint   GET /a for odd i, POST /b for even i
 //	status     404 for i = 3, 7; 500 for i = 10, 20; else 200
 //	consumer   alice for i%4 = 1, bob for 2, carol for 3, none for 0
+//	group      partners for alice and bob, none for the others
 //
 // Requests outside the window, in another environment or of another app
 // are noise that no metric may count.
@@ -79,10 +80,11 @@ func TestEvaluate(t *testing.T) {
 			status = 500
 		}
 		consumer := []string{"", "alice", "bob", "carol"}[i%4]
+		group := []string{"", "partners", "partners", ""}[i%4]
 		return pipeline.RequestRow{
 			ProjectID: seed.ProjectID, AppID: app, Environment: env, Timestamp: ts,
 			Method: method, Path: path, RawPath: path, StatusCode: status,
-			ResponseTimeMs: float64(10 * i), ConsumerID: consumer, Sampled: true,
+			ResponseTimeMs: float64(10 * i), ConsumerID: consumer, ConsumerGroup: group, Sampled: true,
 		}
 	}
 	for i := 1; i <= 20; i++ {
@@ -94,7 +96,7 @@ func TestEvaluate(t *testing.T) {
 	for _, ts := range []time.Time{window.Start.Add(-time.Second), window.End, now} {
 		r := row(seed.AppID, "production", ts, 10)
 		r.ResponseTimeMs = 100000
-		r.ConsumerID = "mallory"
+		r.ConsumerID, r.ConsumerGroup = "mallory", "partners"
 		rows = append(rows, r)
 	}
 	if err := pipeline.ClickHouseInserters(conn).Requests(ctx, rows); err != nil {
@@ -108,22 +110,6 @@ func TestEvaluate(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO endpoint_settings (app_id, method, path, latency_threshold_ms) VALUES ($1, 'POST', '/b', 1000)`, seed.AppID); err != nil {
 		t.Fatal(err)
 	}
-	// A consumer group of alice and bob, and an empty one.
-	pair, empty := uuid.New(), uuid.New()
-	for _, g := range []struct {
-		id   uuid.UUID
-		name string
-	}{{pair, "partners"}, {empty, "nobody"}} {
-		if _, err := pool.Exec(ctx, `INSERT INTO consumer_groups (id, project_id, name) VALUES ($1, $2, $3)`, g.id, seed.ProjectID, g.name); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, c := range []string{"alice", "bob"} {
-		if _, err := pool.Exec(ctx, `INSERT INTO consumer_group_members (project_id, consumer_id, group_id) VALUES ($1, $2, $3)`, seed.ProjectID, c, pair); err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	ev := alerts.NewEvaluator(conn, pool, logger, prometheus.NewRegistry())
 	rule := func(m alerts.Metric, f alerts.Filters) alerts.Rule {
 		return alerts.Rule{
@@ -161,10 +147,14 @@ func TestEvaluate(t *testing.T) {
 		{"apdex of GET /a", alerts.MetricApdex, alerts.Filters{Endpoint: "GET /a"}, want{0.75, 1e-9, 10}},
 		{"traffic of alice", alerts.MetricTraffic, alerts.Filters{Consumer: "alice"}, want{5, 0, 5}},
 		{"p50 of alice", alerts.MetricP50, alerts.Filters{Consumer: "alice"}, want{90, 10, 5}},
-		{"traffic of a group", alerts.MetricTraffic, alerts.Filters{Group: pair.String()}, want{10, 0, 10}},
-		{"errors of a group", alerts.MetricErrors, alerts.Filters{Group: pair.String()}, want{1, 0, 10}},
-		{"unique consumers of a group", alerts.MetricUniqueConsumers, alerts.Filters{Group: pair.String()}, want{2, 0, 10}},
-		{"traffic of an empty group", alerts.MetricTraffic, alerts.Filters{Group: empty.String()}, want{0, 0, 0}},
+		{"traffic of a group", alerts.MetricTraffic, alerts.Filters{Group: "partners"}, want{10, 0, 10}},
+		{"errors of a group", alerts.MetricErrors, alerts.Filters{Group: "partners"}, want{1, 0, 10}},
+		{"error rate of a group", alerts.MetricErrorRate, alerts.Filters{Group: "partners"}, want{0.1, 1e-9, 10}},
+		{"unique consumers of a group", alerts.MetricUniqueConsumers, alerts.Filters{Group: "partners"}, want{2, 0, 10}},
+		{"traffic of a group on GET /a", alerts.MetricTraffic, alerts.Filters{Group: "partners", Endpoint: "GET /a"}, want{5, 0, 5}},
+		// Group names match exactly, as the SDK reports them.
+		{"traffic of a group in another case", alerts.MetricTraffic, alerts.Filters{Group: "Partners"}, want{0, 0, 0}},
+		{"traffic of a group not seen yet", alerts.MetricTraffic, alerts.Filters{Group: "nobody"}, want{0, 0, 0}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -206,12 +196,6 @@ func TestEvaluate(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid group", func(t *testing.T) {
-		if _, err := ev.Evaluate(ctx, rule(alerts.MetricTraffic, alerts.Filters{Group: "partners"}), now); !errors.Is(err, alerts.ErrInvalidFilters) {
-			t.Errorf("err = %v, want ErrInvalidFilters", err)
-		}
-	})
-
 	t.Run("job records state of due rules", func(t *testing.T) {
 		create := func(name string, m alerts.Metric, cond alerts.Condition, threshold float64, every *int32, cron *string, filters string, enabled bool) uuid.UUID {
 			t.Helper()
@@ -228,11 +212,15 @@ func TestEvaluate(t *testing.T) {
 		minute, fiveMin := int32(60), "*/5 * * * *"
 		errRate := create("error rate", alerts.MetricErrorRate, alerts.ConditionGT, 0.1, &minute, nil, `{}`, true)
 		p95 := create("p95 of GET /a", alerts.MetricP95, alerts.ConditionGTE, 1000, nil, &fiveMin, `{"endpoint":"GET /a"}`, true)
+		group := create("traffic of partners", alerts.MetricTraffic, alerts.ConditionGTE, 10, &minute, nil, `{"group":"partners"}`, true)
 		off := create("disabled", alerts.MetricTraffic, alerts.ConditionGT, 0, &minute, nil, `{}`, false)
 
 		n, err := ev.RunDue(ctx, now)
-		if err != nil || n != 2 {
-			t.Fatalf("RunDue = %d, %v; want 2 rules", n, err)
+		if err != nil || n != 3 {
+			t.Fatalf("RunDue = %d, %v; want 3 rules", n, err)
+		}
+		if s, err := q.GetAlertRuleState(ctx, group); err != nil || s.Value == nil || *s.Value != 10 || s.Requests != 10 || !s.Breached {
+			t.Errorf("group state = %+v, %v", s, err)
 		}
 		s, err := q.GetAlertRuleState(ctx, errRate)
 		if err != nil {
@@ -269,12 +257,12 @@ func TestEvaluate(t *testing.T) {
 		if n, err := ev.RunDue(ctx, now.Add(30*time.Second)); err != nil || n != 0 {
 			t.Errorf("RunDue +30s = %d, %v; want 0", n, err)
 		}
-		if n, err := ev.RunDue(ctx, now.Add(time.Minute)); err != nil || n != 1 {
-			t.Errorf("RunDue +1m = %d, %v; want 1", n, err)
+		if n, err := ev.RunDue(ctx, now.Add(time.Minute)); err != nil || n != 2 {
+			t.Errorf("RunDue +1m = %d, %v; want 2", n, err)
 		}
 		next := now.Truncate(time.Hour).Add(5 * time.Minute)
-		if n, err := ev.RunDue(ctx, next.Add(time.Second)); err != nil || n != 2 {
-			t.Errorf("RunDue at next */5 tick = %d, %v; want 2", n, err)
+		if n, err := ev.RunDue(ctx, next.Add(time.Second)); err != nil || n != 3 {
+			t.Errorf("RunDue at next */5 tick = %d, %v; want 3", n, err)
 		}
 
 		// A rule with a broken cron is skipped without failing the run.
@@ -289,7 +277,7 @@ func TestEvaluate(t *testing.T) {
 		var durations []time.Duration
 		for range 10 {
 			for _, m := range alerts.Metrics {
-				for _, f := range []alerts.Filters{{}, {Endpoint: "GET /a"}, {Group: pair.String()}} {
+				for _, f := range []alerts.Filters{{}, {Endpoint: "GET /a"}, {Group: "partners"}} {
 					r := rule(m, f)
 					if _, err := q.CreateAlertRule(ctx, db.CreateAlertRuleParams{
 						ID: r.ID, ProjectID: r.ProjectID, AppID: r.AppID, Environment: r.Environment, Name: "perf " + r.ID.String(),

@@ -3,6 +3,7 @@ package alerts
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -61,11 +62,11 @@ func TestConditionBreached(t *testing.T) {
 }
 
 func TestParseFilters(t *testing.T) {
-	f, err := ParseFilters([]byte(`{"consumer":"alice","group":"` + uuid.Nil.String() + `","endpoint":"get /users/{id}","other":1}`))
+	f, err := ParseFilters([]byte(`{"consumer":"alice","group":"Acme Corp","endpoint":"get /users/{id}","other":1}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.Consumer != "alice" || f.Group != uuid.Nil.String() {
+	if f.Consumer != "alice" || f.Group != "Acme Corp" {
 		t.Errorf("filters = %+v", f)
 	}
 	if m, p := f.endpoint(); m != "GET" || p != "/users/{id}" {
@@ -161,7 +162,7 @@ func TestRuleFromRow(t *testing.T) {
 func TestBuildQuerySource(t *testing.T) {
 	scope := queryScope{project: uuid.New(), app: uuid.New(), environment: "production", window: WindowAt(time.Now(), 300)}
 	for _, m := range Metrics {
-		for _, f := range []Filters{{}, {Endpoint: "GET /a"}, {Consumer: "alice"}, {Group: uuid.NewString()}} {
+		for _, f := range []Filters{{}, {Endpoint: "GET /a"}, {Consumer: "alice"}, {Group: "Acme Corp"}} {
 			s := scope
 			s.filters = f
 			q, err := buildQuery(m, s)
@@ -176,6 +177,30 @@ func TestBuildQuerySource(t *testing.T) {
 			if got := strings.Count(q.sql, "?"); got != len(q.args) {
 				t.Errorf("%s %+v: %d placeholders, %d args\n%s", m, f, got, len(q.args), q.sql)
 			}
+		}
+	}
+	if _, err := buildQuery("p99", scope); err == nil {
+		t.Error("unknown metric: want error")
+	}
+}
+
+// TestBuildQueryGroup checks a group filter binds the SDK group name to
+// consumer_group on raw rows, for every metric.
+func TestBuildQueryGroup(t *testing.T) {
+	scope := queryScope{
+		project: uuid.New(), app: uuid.New(), environment: "production", window: WindowAt(time.Now(), 300),
+		filters: Filters{Group: "Acme Corp"},
+	}
+	for _, m := range Metrics {
+		q, err := buildQuery(m, scope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(q.sql, " AND consumer_group = ?") || strings.Contains(q.sql, "consumer_id = ?") {
+			t.Errorf("%s: group condition missing\n%s", m, q.sql)
+		}
+		if !slices.Contains(q.args, any("Acme Corp")) {
+			t.Errorf("%s: args %v lack the group name", m, q.args)
 		}
 	}
 	if _, err := buildQuery("p99", scope); err == nil {

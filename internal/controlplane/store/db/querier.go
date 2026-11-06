@@ -18,9 +18,6 @@ type Querier interface {
 	AcceptInvitation(ctx context.Context, id uuid.UUID) (Invitation, error)
 	AcknowledgeApp(ctx context.Context, id uuid.UUID) error
 	ArchiveApp(ctx context.Context, id uuid.UUID) error
-	// Puts a consumer in a group of the same project, moving it out of the group
-	// it was in. No row when the group is not one of the project's.
-	AssignConsumerGroup(ctx context.Context, arg AssignConsumerGroupParams) (ConsumerGroupMember, error)
 	// Cancels a queued or running export. No row means it already finished.
 	CancelRequestExport(ctx context.Context, id uuid.UUID) (RequestExport, error)
 	// The relay's batch: the oldest unprocessed rows, locked until its
@@ -36,7 +33,6 @@ type Querier interface {
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
 	// Alert rules.
 	CreateAlertRule(ctx context.Context, arg CreateAlertRuleParams) (AlertRule, error)
-	CreateConsumerGroup(ctx context.Context, arg CreateConsumerGroupParams) (ConsumerGroup, error)
 	// Adds the environment unless the project already has one of that name.
 	CreateEnvironment(ctx context.Context, arg CreateEnvironmentParams) (int64, error)
 	// Active HTTP health checks (internal/alerts: the alerts.health_checks job;
@@ -68,7 +64,6 @@ type Querier interface {
 	DeleteApp(ctx context.Context, id uuid.UUID) error
 	DeleteAppAlias(ctx context.Context, arg DeleteAppAliasParams) error
 	DeleteAppAliasesTo(ctx context.Context, appID uuid.UUID) error
-	DeleteConsumerGroup(ctx context.Context, arg DeleteConsumerGroupParams) (int64, error)
 	DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentParams) (int64, error)
 	// Deletes a check and its events.
 	DeleteHealthCheck(ctx context.Context, arg DeleteHealthCheckParams) (int64, error)
@@ -107,7 +102,6 @@ type Querier interface {
 	GetCaptureApp(ctx context.Context, id uuid.UUID) (GetCaptureAppRow, error)
 	// The capture policy row of an active app; no row means capture everything.
 	GetCapturePolicy(ctx context.Context, appID uuid.UUID) (GetCapturePolicyRow, error)
-	GetConsumerGroup(ctx context.Context, arg GetConsumerGroupParams) (GetConsumerGroupRow, error)
 	// Queries behind GET /api/v1/users/me/context: the signed-in user and every
 	// organization and project they can see, read in a fixed number of round
 	// trips whatever the number of organizations and projects.
@@ -216,13 +210,6 @@ type Querier interface {
 	ListAppMetadata(ctx context.Context, appID uuid.UUID) ([]ListAppMetadataRow, error)
 	// When any key last sent records for each app of the project.
 	ListAppsLastSeen(ctx context.Context, projectID uuid.UUID) ([]ListAppsLastSeenRow, error)
-	// The groups of the given consumers of a project (consumers without a group
-	// are left out).
-	ListConsumerGroupAssignments(ctx context.Context, arg ListConsumerGroupAssignmentsParams) ([]ListConsumerGroupAssignmentsRow, error)
-	// The consumer ids in one group of a project.
-	ListConsumerGroupMembers(ctx context.Context, arg ListConsumerGroupMembersParams) ([]string, error)
-	// The groups of a project with how many consumers each holds, by name.
-	ListConsumerGroups(ctx context.Context, projectID uuid.UUID) ([]ListConsumerGroupsRow, error)
 	// Every enabled rule of an active app of an active project: what the
 	// evaluator runs.
 	ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error)
@@ -372,7 +359,6 @@ type Querier interface {
 	// Run in the same transaction as DeleteNotificationChannel.
 	RemoveChannelFromAlertRules(ctx context.Context, arg RemoveChannelFromAlertRulesParams) (int64, error)
 	RenameApp(ctx context.Context, arg RenameAppParams) error
-	RenameConsumerGroup(ctx context.Context, arg RenameConsumerGroupParams) (ConsumerGroup, error)
 	RepointAppAliases(ctx context.Context, arg RepointAppAliasesParams) error
 	// Apps merged into the source follow it to the target.
 	RepointMergedApps(ctx context.Context, arg RepointMergedAppsParams) error
@@ -411,7 +397,6 @@ type Querier interface {
 	TouchAPIKey(ctx context.Context, id uuid.UUID) error
 	// Un-archives an archived app that was not merged into another.
 	UnarchiveApp(ctx context.Context, id uuid.UUID) (UnarchiveAppRow, error)
-	UnassignConsumerGroup(ctx context.Context, arg UnassignConsumerGroupParams) (int64, error)
 	// Apps merged into a deleted app stay archived but no longer point at it.
 	UnmergeAppsFrom(ctx context.Context, appID *uuid.UUID) error
 	// Replaces a key's scopes and app scope (NULL = every app).

@@ -3,7 +3,6 @@
 package query_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -14,31 +13,19 @@ import (
 	"testing"
 	"time"
 
-	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
-	"github.com/danielgtaylor/huma/v2"
-	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 
-	schema "github.com/apilens/apilens/authz"
-	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
 	"github.com/apilens/apilens/internal/controlplane/bootstrap"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/migrations"
 	"github.com/apilens/apilens/internal/pipeline"
-	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/ch"
 	"github.com/apilens/apilens/internal/platform/config"
 	"github.com/apilens/apilens/internal/platform/server"
-	"github.com/apilens/apilens/internal/platform/spicedb"
 	"github.com/apilens/apilens/internal/query"
 	"github.com/apilens/apilens/internal/testutil"
 )
-
-type groupRef struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
 
 type consumerCounts struct {
 	Consumers uint64 `json:"consumers"`
@@ -358,181 +345,5 @@ func TestConsumers(t *testing.T) {
 	}
 	if code := get(theirs.ReadKey, "/api/v1/consumers/fresh", nil); code != http.StatusNotFound {
 		t.Fatalf("their read key on my consumer: %d, want 404", code)
-	}
-}
-
-// TestConsumerGroups drives the deprecated dashboard consumer group CRUD and
-// assignment (kept for alert rules) through the API against Postgres and a
-// real SpiceDB.
-func TestConsumerGroups(t *testing.T) {
-	ctx := context.Background()
-	logger := testutil.Logger(t)
-	pool := testutil.MigratedPostgres(t)
-	sdb, err := spicedb.Connect(testutil.SpiceDB(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = sdb.Close() }()
-	if err := spicedb.ApplySchema(ctx, sdb, schema.Schema, logger); err != nil {
-		t.Fatal(err)
-	}
-	seed, err := bootstrap.Seed(ctx, pool, bootstrap.Options{OrgSlug: "acme", ProjectSlug: "shop", AppSlug: "storefront", Environment: "production"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	member, viewer, outsider := uuid.New(), uuid.New(), uuid.New()
-	for i, u := range []uuid.UUID{member, viewer, outsider} {
-		email := []string{"member@example.com", "viewer@example.com", "outsider@example.com"}[i]
-		if _, err := pool.Exec(ctx, `INSERT INTO users (id, email) VALUES ($1, $2)`, u, email); err != nil {
-			t.Fatal(err)
-		}
-	}
-	client := authz.New(sdb, nil, authz.Options{}, logger, nil)
-	if _, err := client.WriteRelationships(ctx, seed.OrgID.String(), []*v1.RelationshipUpdate{
-		touch("project", seed.ProjectID.String(), "org", "organization", seed.OrgID.String()),
-		touch("organization", seed.OrgID.String(), "member", "user", member.String()),
-		touch("project", seed.ProjectID.String(), "viewer", "user", viewer.String()),
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	srv := server.New(config.ServerConfig{}, slog.New(slog.NewTextHandler(io.Discard, nil)), prometheus.NewRegistry())
-	api := srv.API()
-	api.UseMiddleware(func(hctx huma.Context, next func(huma.Context)) {
-		if id := hctx.Header("X-Test-User"); id != "" {
-			hctx = huma.WithContext(hctx, authn.WithPrincipal(hctx.Context(), authn.Principal{Kind: authn.KindUser, UserID: uuid.MustParse(id)}))
-		}
-		next(hctx)
-	})
-	q := db.New(pool)
-	verifier := apikeys.NewVerifier(q, apikeys.Options{Size: 100, TTL: time.Minute, NegativeTTL: time.Minute}, logger, nil)
-	guard := authz.NewGuard(client, authz.NewPGResolver(pool), authz.GuardOptions{}, logger)
-	api.UseMiddleware(query.AuthMiddleware(api, verifier, guard))
-	query.Register(api, query.NewService(nil, q), guard)
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-
-	do := func(method, path string, user uuid.UUID, body any, out any) int {
-		t.Helper()
-		var rd io.Reader
-		if body != nil {
-			b, _ := json.Marshal(body)
-			rd = bytes.NewReader(b)
-		}
-		req, _ := http.NewRequestWithContext(ctx, method, ts.URL+path, rd)
-		if user != uuid.Nil {
-			req.Header.Set("X-Test-User", user.String())
-		} else {
-			req.Header.Set("Authorization", "Bearer "+seed.ReadKey)
-		}
-		if body != nil {
-			req.Header.Set("Content-Type", "application/json")
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = resp.Body.Close() }()
-		if out != nil && resp.StatusCode/100 == 2 {
-			if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-				t.Fatal(err)
-			}
-		}
-		return resp.StatusCode
-	}
-	type group struct {
-		ID        string `json:"id"`
-		Name      string `json:"name"`
-		Consumers int64  `json:"consumers"`
-	}
-	type groups struct {
-		Groups []group `json:"groups"`
-	}
-	type assignment struct {
-		ConsumerID string   `json:"consumer_id"`
-		Group      groupRef `json:"group"`
-	}
-	const base = "/api/v1/projects/shop/consumer-groups"
-	const consumer = "/api/v1/projects/shop/consumers/"
-	list := func(user uuid.UUID) []group {
-		t.Helper()
-		var l groups
-		if code := do(http.MethodGet, base, user, nil, &l); code != http.StatusOK {
-			t.Fatalf("list as %v: %d", user, code)
-		}
-		return l.Groups
-	}
-
-	var partners, internal group
-	if code := do(http.MethodPost, base, member, map[string]any{"name": " Partners "}, &partners); code != http.StatusCreated || partners.Name != "Partners" {
-		t.Fatalf("create Partners: %d %+v", code, partners)
-	}
-	if code := do(http.MethodPost, base, member, map[string]any{"name": "Internal"}, &internal); code != http.StatusCreated {
-		t.Fatalf("create Internal: %d", code)
-	}
-	if code := do(http.MethodPost, base, member, map[string]any{"name": "partners"}, nil); code != http.StatusConflict {
-		t.Fatalf("duplicate name (other case): %d, want 409", code)
-	}
-	if code := do(http.MethodPost, base, viewer, map[string]any{"name": "Viewers"}, nil); code != http.StatusForbidden {
-		t.Fatalf("viewer creates: %d, want 403", code)
-	}
-	if code := do(http.MethodPost, base, uuid.Nil, map[string]any{"name": "Keys"}, nil); code != http.StatusUnauthorized {
-		t.Fatalf("read key creates: %d, want 401", code)
-	}
-	if code := do(http.MethodGet, base, outsider, nil, nil); code != http.StatusNotFound {
-		t.Fatalf("outsider lists: %d, want 404", code)
-	}
-
-	// Assign "acme-mobile" to Partners, then to Internal: it moves.
-	var a assignment
-	if code := do(http.MethodPut, consumer+"acme-mobile/group", member, map[string]any{"group_id": partners.ID}, &a); code != http.StatusOK || a.Group.Name != "Partners" {
-		t.Fatalf("assign to Partners: %d %+v", code, a)
-	}
-	if code := do(http.MethodPut, consumer+"acme%2Fweb/group", member, map[string]any{"group_id": partners.ID}, &a); code != http.StatusOK || a.ConsumerID != "acme/web" {
-		t.Fatalf("assign an id with a slash: %d %+v", code, a)
-	}
-	if code := do(http.MethodPut, consumer+"acme-mobile/group", member, map[string]any{"group_id": internal.ID}, &a); code != http.StatusOK || a.Group.ID != internal.ID {
-		t.Fatalf("move to Internal: %d %+v", code, a)
-	}
-	counts := map[string]int64{}
-	for _, g := range list(uuid.Nil) { // the read key lists groups too
-		counts[g.Name] = g.Consumers
-	}
-	if counts["Partners"] != 1 || counts["Internal"] != 1 || len(counts) != 2 {
-		t.Fatalf("after move: %v", counts)
-	}
-	if code := do(http.MethodPut, consumer+"acme-mobile/group", member, map[string]any{"group_id": uuid.NewString()}, nil); code != http.StatusNotFound {
-		t.Fatalf("assign to unknown group: %d, want 404", code)
-	}
-	if code := do(http.MethodPut, consumer+"acme-mobile/group", viewer, map[string]any{"group_id": partners.ID}, nil); code != http.StatusForbidden {
-		t.Fatalf("viewer assigns: %d, want 403", code)
-	}
-
-	// Rename, delete, unassign.
-	var renamed group
-	if code := do(http.MethodPut, base+"/"+internal.ID, member, map[string]any{"name": "Staff"}, &renamed); code != http.StatusOK || renamed.Name != "Staff" || renamed.Consumers != 1 {
-		t.Fatalf("rename: %d %+v", code, renamed)
-	}
-	if code := do(http.MethodPut, base+"/"+internal.ID, member, map[string]any{"name": "PARTNERS"}, nil); code != http.StatusConflict {
-		t.Fatalf("rename onto another name: %d, want 409", code)
-	}
-	if code := do(http.MethodDelete, consumer+"acme%2Fweb/group", member, nil, nil); code != http.StatusNoContent {
-		t.Fatalf("unassign: %d", code)
-	}
-	if code := do(http.MethodDelete, consumer+"acme%2Fweb/group", member, nil, nil); code != http.StatusNotFound {
-		t.Fatalf("unassign again: %d, want 404", code)
-	}
-	if code := do(http.MethodDelete, base+"/"+internal.ID, member, nil, nil); code != http.StatusNoContent {
-		t.Fatalf("delete: %d", code)
-	}
-	if code := do(http.MethodDelete, base+"/"+internal.ID, member, nil, nil); code != http.StatusNotFound {
-		t.Fatalf("delete again: %d, want 404", code)
-	}
-	// Deleting the group left acme-mobile ungrouped.
-	if code := do(http.MethodDelete, consumer+"acme-mobile/group", member, nil, nil); code != http.StatusNotFound {
-		t.Fatalf("unassign after group deletion: %d, want 404", code)
-	}
-	if got := list(viewer); len(got) != 1 || got[0].Name != "Partners" || got[0].Consumers != 0 {
-		t.Fatalf("final groups: %+v", got)
 	}
 }

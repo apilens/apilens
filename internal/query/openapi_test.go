@@ -21,8 +21,7 @@ var documentedOperations = []string{
 	"list-requests", "get-request-timeline", "get-request", "get-trace",
 	"create-request-export", "get-request-export", "cancel-request-export", "download-request-export",
 	"list-saved-views", "get-saved-view", "create-saved-view", "update-saved-view", "delete-saved-view",
-	"list-consumers", "get-consumer", "list-consumer-group-traffic", "list-consumer-groups", "create-consumer-group", "rename-consumer-group",
-	"delete-consumer-group", "assign-consumer-group", "unassign-consumer-group",
+	"list-consumers", "get-consumer", "list-consumer-group-traffic",
 	"list-errors", "get-error-statuses", "get-error-status",
 	"get-app-status", "get-app-ingest-stats", "get-ingest-status", "list-deploys", "list-deploy-changes", "get-deploy", "get-deploy-comparison",
 }

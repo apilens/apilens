@@ -184,21 +184,6 @@ type CapturePolicy struct {
 	UpdatedBy           *uuid.UUID
 }
 
-type ConsumerGroup struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
-	Name      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type ConsumerGroupMember struct {
-	ProjectID  uuid.UUID
-	ConsumerID string
-	GroupID    uuid.UUID
-	AssignedAt time.Time
-}
-
 type EndpointSetting struct {
 	AppID               uuid.UUID
 	Method              string
