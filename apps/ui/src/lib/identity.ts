@@ -994,6 +994,8 @@ export interface DeploySide {
 
 /** One deploy of `GET /deploys/changes` (#597), newest first. */
 export interface DeployChange {
+  /** A stable hash of the deploy's report: `GET /deploys/{id}`. */
+  id: string;
   deployed_at: string;
   release: string;
   commit: string;
@@ -1012,7 +1014,101 @@ export interface DeployChange {
 /** `GET /deploys/changes`. */
 export interface DeployChanges {
   window_minutes: number;
+  /** Deploys matching env and app on every page. */
+  total: number;
   deploys: DeployChange[] | null;
+}
+
+/** The scope and page of `GET /deploys/changes`. */
+export interface DeployChangesQuery {
+  range?: QueryRange;
+  limit?: number;
+  offset?: number;
+  env?: string;
+  /** An app's id; absent means every app, project-wide deploys included. */
+  app?: string;
+}
+
+/** The previous or next deploy of the same app and environment. */
+export interface DeployRef {
+  id: string;
+  release: string;
+  deployed_at: string;
+}
+
+/** One minute around a deploy in `GET /deploys/{id}`. */
+export interface DeployPoint {
+  ts: string;
+  requests: number;
+  client_errors: number;
+  server_errors: number;
+  p95_ms: number;
+}
+
+/** `GET /deploys/{id}`: one deploy, its windows, the minutes around it and its neighbours. */
+export interface DeployDetail {
+  deploy: DeployChange & { received_at: string };
+  window_minutes: number;
+  before_from: string;
+  /** The deploy's own minute: in the series, in neither side. */
+  deploy_minute: string;
+  after_from: string;
+  after_to: string;
+  /** Minutes the after window covers so far. */
+  after_minutes: number;
+  previous?: DeployRef;
+  next?: DeployRef;
+  series: DeployPoint[] | null;
+}
+
+/** One side of an endpoint in `GET /deploys/{id}/comparison`. */
+export interface DeploySplitSide extends DeploySide {
+  client_errors: number;
+  server_errors: number;
+}
+
+export interface DeployEndpoint {
+  method: string;
+  path: string;
+  /** compared: traffic on both sides; new: only after; gone: only before. */
+  change: "compared" | "new" | "gone";
+  before: DeploySplitSide;
+  after: DeploySplitSide;
+}
+
+export interface DeployStatusCount {
+  status_code: number;
+  before: number;
+  after: number;
+  new: boolean;
+}
+
+export interface DeployException {
+  exception_type: string;
+  message: string;
+  before: number;
+  after: number;
+  new: boolean;
+  method: string;
+  path: string;
+}
+
+export interface DeployConsumer {
+  consumer_id: string;
+  consumer_name: string;
+  before_requests: number;
+  before_errors: number;
+  after_requests: number;
+  after_errors: number;
+}
+
+/** `GET /deploys/{id}/comparison`: what changed with a deploy. */
+export interface DeployComparison {
+  endpoints: DeployEndpoint[] | null;
+  statuses: DeployStatusCount[] | null;
+  exceptions: DeployException[] | null;
+  consumers: DeployConsumer[] | null;
+  consumers_affected: number;
 }
 
 // Alerts (#609): threshold rules, notification channels, events and the incidents feed. -----
@@ -1996,8 +2092,15 @@ export function createClient(config: ClientConfig) {
         ...o,
         query: { project: projectSlug, ...trafficScope(q), ...(q.limit !== undefined ? { limit: q.limit } : {}) },
       }),
-    deployChanges: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
-      request<DeployChanges>("GET", "/deploys/changes", { ...o, query: { project: projectSlug, ...q } }),
+    deployChanges: (projectSlug: string, q: DeployChangesQuery, o: Authed) =>
+      request<DeployChanges>("GET", "/deploys/changes", {
+        ...o,
+        query: { project: projectSlug, range: q.range, limit: q.limit, offset: q.offset || undefined, env: q.env || undefined, app: q.app || undefined },
+      }),
+    getDeploy: (projectSlug: string, id: string, o: Authed) =>
+      request<DeployDetail>("GET", `/deploys/${seg(id)}`, { ...o, query: { project: projectSlug } }),
+    deployComparison: (projectSlug: string, id: string, o: Authed) =>
+      request<DeployComparison>("GET", `/deploys/${seg(id)}/comparison`, { ...o, query: { project: projectSlug } }),
 
     // api: alerts (#609) -------------------------------------------------------------------
     listAlertRules: (projectSlug: string, o: Authed) =>

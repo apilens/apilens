@@ -2056,7 +2056,10 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const slug = url.searchParams.get("project") ?? "";
     if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
     if (queryDown.has(slug)) return problem(res, 503, "unavailable");
-    return send(res, 200, { window_minutes: 60, deploys: deployChanges.get(slug) ?? [] });
+    const all = (deployChanges.get(slug) ?? []).map((d, i) => ({ id: (i + 1).toString(16).padStart(16, "a"), ...(d as object) }));
+    const offset = Number(url.searchParams.get("offset") ?? 0) || 0;
+    const limit = Number(url.searchParams.get("limit") ?? 25) || 25;
+    return send(res, 200, { window_minutes: 60, total: all.length, deploys: all.slice(offset, offset + limit) });
   }
   // Consumers (#596), as seeded, each with the SDK group it was seeded with (consumer_group); same
   // access rules as above. The list and the group roll-up search, sort and page like the API.

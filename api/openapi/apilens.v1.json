@@ -2819,6 +2819,10 @@
             "description": "Environment deployed to.",
             "type": "string"
           },
+          "id": {
+            "description": "The deploy's id: a stable hash of its report, for GET /api/v1/deploys/{id}.",
+            "type": "string"
+          },
           "release": {
             "description": "Release name or version that was deployed.",
             "type": "string"
@@ -2829,6 +2833,7 @@
           }
         },
         "required": [
+          "id",
           "deployed_at",
           "release",
           "commit",
@@ -2863,6 +2868,11 @@
               "null"
             ]
           },
+          "total": {
+            "description": "Deploys of the range matching env and app, on every page.",
+            "format": "int64",
+            "type": "integer"
+          },
           "window_minutes": {
             "description": "Length of the before and after windows, in minutes.",
             "format": "int64",
@@ -2871,7 +2881,297 @@
         },
         "required": [
           "window_minutes",
+          "total",
           "deploys"
+        ],
+        "type": "object"
+      },
+      "DeployComparisonOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/DeployComparisonOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "consumers": {
+            "description": "Consumers that got errors after the deploy, most errors first (at most 20).",
+            "items": {
+              "$ref": "#/components/schemas/DeployConsumer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "consumers_affected": {
+            "description": "Every consumer that got errors after the deploy, beyond the 20 listed.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "endpoints": {
+            "description": "Endpoints with traffic on either side: compared ones by biggest regression first, then new, then gone (at most 500).",
+            "items": {
+              "$ref": "#/components/schemas/DeployEndpoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "exceptions": {
+            "description": "Server exceptions on either side, most frequent after the deploy first (at most 50).",
+            "items": {
+              "$ref": "#/components/schemas/DeployException"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "statuses": {
+            "description": "Error status codes on either side, most frequent after the deploy first (at most 50).",
+            "items": {
+              "$ref": "#/components/schemas/DeployStatus"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "endpoints",
+          "statuses",
+          "exceptions",
+          "consumers",
+          "consumers_affected"
+        ],
+        "type": "object"
+      },
+      "DeployConsumer": {
+        "additionalProperties": false,
+        "properties": {
+          "after_errors": {
+            "description": "Requests answered 4xx or 5xx after the deploy.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "after_requests": {
+            "description": "Requests after the deploy.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "before_errors": {
+            "description": "Requests answered 4xx or 5xx before the deploy.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "before_requests": {
+            "description": "Requests before the deploy.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "consumer_id": {
+            "description": "Consumer id.",
+            "type": "string"
+          },
+          "consumer_name": {
+            "description": "Latest consumer name; empty when not reported.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "consumer_id",
+          "consumer_name",
+          "before_requests",
+          "before_errors",
+          "after_requests",
+          "after_errors"
+        ],
+        "type": "object"
+      },
+      "DeployDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "received_at": {
+            "description": "When APILens received the deploy report.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "received_at"
+        ],
+        "type": "object"
+      },
+      "DeployDetailOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/DeployDetailOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "after_from": {
+            "description": "Start of the after window (inclusive), the minute after the deploy's.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "after_minutes": {
+            "description": "Minutes the after window covers so far; window_minutes once it is complete.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "after_to": {
+            "description": "End of the after window (exclusive); before window_minutes have passed, the end of the current minute.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "before_from": {
+            "description": "Start of the before window (inclusive); it ends at the deploy's minute.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "deploy": {
+            "$ref": "#/components/schemas/DeployDetail",
+            "description": "The deploy, with its before and after traffic."
+          },
+          "deploy_minute": {
+            "description": "The deploy's own minute: mixed traffic, in neither window.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "next": {
+            "$ref": "#/components/schemas/DeployRef",
+            "description": "The deploy after this one of the same app and environment; absent when none."
+          },
+          "previous": {
+            "$ref": "#/components/schemas/DeployRef",
+            "description": "The deploy before this one of the same app and environment; absent when none."
+          },
+          "series": {
+            "description": "Every minute from before_from to after_to, oldest first and zero-filled, the deploy's minute included.",
+            "items": {
+              "$ref": "#/components/schemas/DeployPoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "window_minutes": {
+            "description": "Length of the before and after windows, in minutes.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deploy",
+          "window_minutes",
+          "before_from",
+          "deploy_minute",
+          "after_from",
+          "after_to",
+          "after_minutes",
+          "series"
+        ],
+        "type": "object"
+      },
+      "DeployEndpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/SplitSide",
+            "description": "The after window."
+          },
+          "before": {
+            "$ref": "#/components/schemas/SplitSide",
+            "description": "The hour before the deploy's minute."
+          },
+          "change": {
+            "description": "compared: traffic on both sides; new: requests only after the deploy; gone: requests only before.",
+            "enum": [
+              "compared",
+              "new",
+              "gone"
+            ],
+            "type": "string"
+          },
+          "method": {
+            "description": "HTTP method.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Route template.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "path",
+          "change",
+          "before",
+          "after"
+        ],
+        "type": "object"
+      },
+      "DeployException": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "description": "Times raised after the deploy.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "before": {
+            "description": "Times raised before the deploy.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "exception_type": {
+            "description": "Exception class; empty when the SDK reported none.",
+            "type": "string"
+          },
+          "message": {
+            "description": "Exception message.",
+            "type": "string"
+          },
+          "method": {
+            "description": "HTTP method of the endpoint that last raised it; empty when not reported.",
+            "type": "string"
+          },
+          "new": {
+            "description": "Raised after the deploy but not in the hour before.",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "Route of the endpoint that last raised it; empty when not reported.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "exception_type",
+          "message",
+          "before",
+          "after",
+          "new",
+          "method",
+          "path"
         ],
         "type": "object"
       },
@@ -2906,6 +3206,105 @@
           "commit",
           "environment",
           "url"
+        ],
+        "type": "object"
+      },
+      "DeployPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "client_errors": {
+            "description": "Requests answered 4xx.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "p95_ms": {
+            "description": "p95 latency of the minute; 0 without requests.",
+            "format": "double",
+            "type": "number"
+          },
+          "requests": {
+            "description": "Requests in the minute.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_errors": {
+            "description": "Requests answered 5xx.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ts": {
+            "description": "Start of the minute.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "requests",
+          "client_errors",
+          "server_errors",
+          "p95_ms"
+        ],
+        "type": "object"
+      },
+      "DeployRef": {
+        "additionalProperties": false,
+        "properties": {
+          "deployed_at": {
+            "description": "When the deploy happened, as reported.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "The deploy's id.",
+            "type": "string"
+          },
+          "release": {
+            "description": "Release name or version that was deployed.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "release",
+          "deployed_at"
+        ],
+        "type": "object"
+      },
+      "DeployStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "description": "Requests answered with it after the deploy.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "before": {
+            "description": "Requests answered with it before the deploy.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "new": {
+            "description": "Seen after the deploy but not in the hour before.",
+            "type": "boolean"
+          },
+          "status_code": {
+            "description": "HTTP status code, 400 or above.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status_code",
+          "before",
+          "after",
+          "new"
         ],
         "type": "object"
       },
@@ -8945,6 +9344,28 @@
         ],
         "type": "object"
       },
+      "SplitSide": {
+        "additionalProperties": false,
+        "properties": {
+          "client_errors": {
+            "description": "Requests answered 4xx.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_errors": {
+            "description": "Requests answered 5xx.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "client_errors",
+          "server_errors"
+        ],
+        "type": "object"
+      },
       "StatusSplit": {
         "additionalProperties": false,
         "properties": {
@@ -13764,7 +14185,7 @@
     },
     "/api/v1/deploys/changes": {
       "get": {
-        "description": "The most recent deploys of the range, newest first, each with requests, error rate and p95 of its app (or the project for a project-wide deploy) in the hour before and the hour after the deploy's minute, to spot releases that changed behaviour. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "description": "The most recent deploys of the range, newest first, each with requests, error rate and p95 of its app (or the project for a project-wide deploy) in the hour before and the hour after the deploy's minute, to spot releases that changed behaviour. app narrows to one app's deploys; offset pages through them and total counts every deploy that matches. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "list-deploy-changes",
         "parameters": [
           {
@@ -13810,6 +14231,17 @@
             }
           },
           {
+            "description": "App id; empty means the deploys of every app, project-wide ones included. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means the deploys of every app, project-wide ones included. An app of another project matches nothing.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
             "description": "Most recent deploys to compare.",
             "explode": false,
             "in": "query",
@@ -13820,6 +14252,20 @@
               "format": "int64",
               "maximum": 50,
               "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Deploys to skip, newest first, for paging; past the end answers no deploys and the same total.",
+            "explode": false,
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "default": 0,
+              "description": "Deploys to skip, newest first, for paging; past the end answers no deploys and the same total.",
+              "format": "int64",
+              "maximum": 10000,
+              "minimum": 0,
               "type": "integer"
             }
           }
@@ -13855,6 +14301,148 @@
           }
         ],
         "summary": "Deploys with error rate and p95 one hour before and after each",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/deploys/{id}": {
+      "get": {
+        "description": "The deploy the id names (from list-deploy-changes), with requests, error rate and p95 of its app (or the project for a project-wide deploy) in its environment in the hour before and the hour after its minute, requests, 4xx, 5xx and p95 per minute across both windows, and the previous and next deploy of the same app and environment. An unknown id, or another project's, answers 404. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "operationId": "get-deploy",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Deploy id, as list-deploy-changes returns it.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Deploy id, as list-deploy-changes returns it.",
+              "examples": [
+                "9f3a1b2c4d5e6f70"
+              ],
+              "maxLength": 16,
+              "pattern": "^[0-9a-f]{1,16}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployDetailOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "One deploy: before/after error rate and p95, traffic per minute around it, previous and next deploy",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/deploys/{id}/comparison": {
+      "get": {
+        "description": "Over the same hour before and hour after as get-deploy: per endpoint requests, 4xx, 5xx, error rate and p95 on each side (biggest regression first, then endpoints seen only after, then endpoints seen only before), error status codes and server exceptions with their count on each side (new ones have none before), and the consumers that got errors after the deploy. An unknown id, or another project's, answers 404. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "operationId": "get-deploy-comparison",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Deploy id, as list-deploy-changes returns it.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Deploy id, as list-deploy-changes returns it.",
+              "examples": [
+                "9f3a1b2c4d5e6f70"
+              ],
+              "maxLength": 16,
+              "pattern": "^[0-9a-f]{1,16}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployComparisonOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "What changed with a deploy: per-endpoint before/after, error status codes, exceptions and consumers with errors",
         "tags": [
           "Dashboard"
         ]
