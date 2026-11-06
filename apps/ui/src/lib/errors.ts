@@ -5,6 +5,7 @@
 // unit-tested in errors.test.ts.
 import { RANGE_LABEL } from "./consumers";
 import type { EndpointSettings, PutEndpointSettingsRequest, QueryRange } from "./identity";
+import { DEFAULT_PER, type PageOptions, parsePage } from "./pagination";
 import { DEFAULT_RANGE, TRAFFIC_RANGES } from "./traffic";
 
 export const ERRORS_TABS = [
@@ -23,13 +24,19 @@ export const DETAIL_TABS = [
 export type DetailTab = (typeof DETAIL_TABS)[number]["slug"];
 const DEFAULT_DETAIL: DetailTab = "summary";
 
+/** The paging of the open tab's table (`?page=&per=`) and of the modal's list (`?dpage=&dper=`). */
+export const TABLE_PAGING: PageOptions = {};
+export const DETAIL_PAGING: PageOptions = { sizes: [10, 25, 50], defaultPer: 10, keys: { page: "dpage", per: "dper" } };
+const DETAIL_PER = 10;
+
 /** The longest environment name the API takes. */
 const MAX_ENV = 64;
 
 /**
- * The page's state, all of it in the URL: `?tab=&range=&env=&code=&view=`. An empty env means all
- * environments; `code` is the error status code whose modal is open (null when none), `view` the
- * modal's open view.
+ * The page's state, all of it in the URL: `?tab=&range=&env=&code=&view=&page=&per=&dpage=&dper=`.
+ * An empty env means all environments; `code` is the error status code whose modal is open (null
+ * when none), `view` the modal's open view. `page`/`per` page the open tab's table, `dpage`/`dper`
+ * the modal's list (consumers or endpoints).
  */
 export interface ErrorsState {
   tab: ErrorsTab;
@@ -37,6 +44,10 @@ export interface ErrorsState {
   env: string;
   code: number | null;
   view: DetailTab;
+  page: number;
+  per: number;
+  dpage: number;
+  dper: number;
 }
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -55,25 +66,39 @@ export function parseErrorsQuery(params: SearchParams): ErrorsState {
   const rawCode = first(params.code) ?? "";
   const code = /^\d{3}$/.test(rawCode) ? Number(rawCode) : Number.NaN;
   const view = first(params.view);
+  const table = parsePage(params, TABLE_PAGING);
+  const detail = parsePage(params, DETAIL_PAGING);
   return {
     tab: ERRORS_TABS.some((t) => t.slug === tab) ? (tab as ErrorsTab) : DEFAULT_TAB,
     range: TRAFFIC_RANGES.includes(range as QueryRange) ? (range as QueryRange) : DEFAULT_RANGE,
     env: env.length <= MAX_ENV ? env : "",
     code: isErrorCode(code) ? code : null,
     view: DETAIL_TABS.some((t) => t.slug === view) ? (view as DetailTab) : DEFAULT_DETAIL,
+    page: table.page,
+    per: table.per,
+    dpage: detail.page,
+    dper: detail.per,
   };
 }
 
-/** The page URL for `q`, leaving defaults out. The modal (code, view) belongs to the status tab. */
+/**
+ * The page URL for `q`, leaving defaults out. The modal (code, view and its list's page) belongs to
+ * the status tab. Links that change the tab, range or environment pass `page: 1` (the reader starts
+ * again at the top); `per` is a preference and stays.
+ */
 export function errorsHref(project: string, q: Partial<ErrorsState>): string {
   const p = new URLSearchParams();
   const tab = q.tab ?? DEFAULT_TAB;
   if (tab !== DEFAULT_TAB) p.set("tab", tab);
   if (q.range && q.range !== DEFAULT_RANGE) p.set("range", q.range);
   if (q.env) p.set("env", q.env);
+  if (q.page && q.page > 1) p.set("page", String(q.page));
+  if (q.per && q.per !== DEFAULT_PER) p.set("per", String(q.per));
   if (tab === "status" && q.code && isErrorCode(q.code)) {
     p.set("code", String(q.code));
     if (q.view && q.view !== DEFAULT_DETAIL) p.set("view", q.view);
+    if (q.dpage && q.dpage > 1) p.set("dpage", String(q.dpage));
+    if (q.dper && q.dper !== DETAIL_PER) p.set("dper", String(q.dper));
   }
   const s = p.toString();
   return `/${encodeURIComponent(project)}/errors${s ? `?${s}` : ""}`;
@@ -179,6 +204,12 @@ export function markExpectedError(code: string): string {
     default:
       return "Something went wrong. Try again in a moment.";
   }
+}
+
+/** The plain search params of `href` (a page URL), for <Pagination params>. */
+export function hrefParams(href: string): Record<string, string> {
+  const i = href.indexOf("?");
+  return i < 0 ? {} : Object.fromEntries(new URLSearchParams(href.slice(i + 1)));
 }
 
 export const STATUSES_LOAD_FAILED = "We couldn’t load errors just now.";

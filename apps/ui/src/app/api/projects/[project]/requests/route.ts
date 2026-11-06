@@ -1,5 +1,6 @@
 // GET /api/projects/{slug}/requests?range=&<filters>: the project's newest requests (#585), at most
-// 200, from `GET /requests` as the signed-in user, narrowed by the Explore filters (#586). Answers `{ok: true, requests}` or `{ok: false, code}`
+// 200, from `GET /requests` as the signed-in user, narrowed by the Explore filters (#586). Answers
+// `{ok: true, requests, next_cursor}` (next_cursor "" when there are no older rows) or `{ok: false, code}`
 // (`forbidden`, `not_found`, `rate_limited`, ...; `session_expired` with 401). The Explore request
 // log polls it every 5 s while live.
 import { type NextRequest, NextResponse } from "next/server";
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ proj
       // `from`/`to` (#587) are the window requestsPath already narrowed to the jump point.
       const { range, from, to, filters } = parseExploreQuery(Object.fromEntries(req.nextUrl.searchParams));
       const page = await session.call((o) => identity().listRequests(project, { range, from, to, limit: LOG_LIMIT, ...filterQuery(filters) }, o));
-      return NextResponse.json({ ok: true, requests: page.requests ?? [] }, { headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json({ ok: true, requests: page.requests ?? [], next_cursor: page.next_cursor ?? "" }, { headers: { "Cache-Control": "no-store" } });
     } catch (err) {
       if (isSessionExpired(err)) throw err;
       return fromError(err);

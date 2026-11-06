@@ -78,6 +78,9 @@
 
 .ex-row--skeleton .ex-bone { display: block; height: 10px; border-radius: 5px; background: var(--surface-2); }
 .ex-foot { margin: 0; padding: var(--space-2) var(--space-4); border-top: 1px solid var(--border); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ex-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-4); }
+.ex-foot p { margin: 0; }
+.ex-foot .pg { padding: 0; }
 
 /* Filter bar (#586): the Filters button, the active filters as removable chips, and the form. */
 .ex-filters { margin-bottom: var(--space-4); }
@@ -260,7 +263,8 @@ span.rd-j-tog { cursor: default; }
 .ex-tl__axis { display: flex; justify-content: space-between; margin-top: 4px; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }
 .ex-tl__error { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 var(--space-2); font: 400 13px/20px var(--font-sans); color: var(--ink); }
 .ex-tl__error svg { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--ink-muted); }
-.ex-tl__sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* The keyboard help: read by screen readers (aria-describedby on the plot), not shown. */
+.ex-tl__hint, .ex-tl__sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Motion only for readers who allow it (#587 acceptance: respects reduced motion). */
 @media (prefers-reduced-motion: no-preference) {

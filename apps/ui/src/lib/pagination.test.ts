@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PER,
+  MAX_TRAIL,
   clampPage,
   cursorHref,
   hrefWithoutPage,
@@ -12,8 +13,11 @@ import {
   pageOffset,
   pageWindow,
   parsePage,
+  parseTrail,
   rangeText,
   slicePage,
+  trailCursor,
+  trailHrefs,
   withoutPage,
 } from "./pagination";
 
@@ -184,5 +188,47 @@ describe("hrefs", () => {
   it("builds cursor links with only one direction", () => {
     expect(cursorHref("/x", { after: "a1", page: "2", env: "prod" }, { before: "b9" })).toBe("/x?env=prod&before=b9");
     expect(cursorHref("/x", { before: "b9" }, { after: "a1" }, { before: "newer", after: "older" })).toBe("/x?before=b9&older=a1");
+  });
+});
+
+describe("cursor trail", () => {
+  it("reads the trail, empty when missing or malformed", () => {
+    expect(parseTrail({})).toEqual([]);
+    expect(parseTrail({ cursor: "a1.b2" })).toEqual(["a1", "b2"]);
+    expect(parseTrail({ cursor: "a1..b2" })).toEqual([]);
+    expect(parseTrail({ cursor: "a1.b/2" })).toEqual([]);
+    expect(trailCursor(["a1", "b2"])).toBe("b2");
+    expect(trailCursor([])).toBeUndefined();
+  });
+  it("walks older, newer and back to the newest page", () => {
+    const first = trailHrefs("/x", { range: "1h" }, "c1");
+    expect(first).toEqual({ olderHref: "/x?range=1h&cursor=c1", newerHref: null, newestHref: "/x?range=1h", page: 1 });
+    const third = trailHrefs("/x", { range: "1h", cursor: "c1.c2" }, "c3");
+    expect(third.olderHref).toBe("/x?range=1h&cursor=c1.c2.c3");
+    expect(third.newerHref).toBe("/x?range=1h&cursor=c1");
+    expect(third.page).toBe(3);
+  });
+  it("has no Older on the oldest page", () => {
+    expect(trailHrefs("/x", { cursor: "c1" }, "").olderHref).toBeNull();
+    expect(trailHrefs("/x", { cursor: "c1" }, null).newerHref).toBe("/x");
+  });
+  it("caps the trail", () => {
+    const long = Array.from({ length: MAX_TRAIL }, (_, i) => `c${i}`).join(".");
+    const { olderHref } = trailHrefs("/x", { cursor: long }, "next");
+    const kept = new URL(olderHref ?? "", "http://h").searchParams.get("cursor")?.split(".") ?? [];
+    expect(kept).toHaveLength(MAX_TRAIL);
+    expect(kept[kept.length - 1]).toBe("next");
+  });
+});
+
+describe("custom keys", () => {
+  const keys = { page: "opage", per: "oper" };
+  it("reads and writes a second list's page under its own keys", () => {
+    expect(parsePage({ page: "4", opage: "2", oper: "50" }, { keys })).toEqual({ page: 2, per: 50 });
+    expect(pageHref("/x", { page: "4", opage: "2" }, { page: 3 }, { keys })).toBe("/x?page=4&opage=3");
+    expect(pageHref("/x", { page: "4", opage: "2" }, { page: 1, per: 25 }, { keys })).toBe("/x?page=4");
+  });
+  it("drops the extra page keys on a filter change", () => {
+    expect(withoutPage({ page: "2", opage: "3", range: "7d" }, ["opage"]).toString()).toBe("range=7d");
   });
 });

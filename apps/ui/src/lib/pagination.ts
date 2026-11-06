@@ -42,20 +42,28 @@ export interface PageState {
   per: number;
 }
 
-/** Per-table options: the sizes offered and the default (which must be one of them). */
+/**
+ * Per-table options: the sizes offered and the default (which must be one of them), and the URL
+ * keys, for a page with two paged lists (or a paged list inside a modal over a paged table):
+ * `keys: { page: "opage", per: "oper" }`. Default `page` and `per`.
+ */
 export interface PageOptions {
   sizes?: readonly number[];
   defaultPer?: number;
+  keys?: { page: string; per: string };
 }
 
 const first = (v: string | string[] | null | undefined) => (Array.isArray(v) ? v[0] : (v ?? undefined));
 const get = (params: ParamsInput, key: string) => (params instanceof URLSearchParams ? (params.get(key) ?? undefined) : first(params[key]));
 
-function sizesOf(o: PageOptions = {}): { sizes: readonly number[]; defaultPer: number } {
+function sizesOf(o: PageOptions = {}): { sizes: readonly number[]; defaultPer: number; keys: { page: string; per: string } } {
   const sizes = o.sizes && o.sizes.length > 0 ? o.sizes : PAGE_SIZES;
   const defaultPer = o.defaultPer !== undefined && sizes.includes(o.defaultPer) ? o.defaultPer : sizes.includes(DEFAULT_PER) ? DEFAULT_PER : sizes[0];
-  return { sizes, defaultPer };
+  return { sizes, defaultPer, keys: o.keys ?? { page: PAGE_PARAM, per: PER_PARAM } };
 }
+
+/** The URL keys of a table's page and page size (`page`/`per` unless `options.keys` names others). */
+export const pageKeys = (options?: PageOptions) => sizesOf(options).keys;
 
 /** A whole number written in plain digits (`"3"`, not `"3.5"`, `"3e2"`, `"0x3"` or `" 3"`). */
 function wholeNumber(v: string | undefined): number | null {
@@ -69,9 +77,9 @@ function wholeNumber(v: string | undefined): number | null {
  * total): use pageWindow or clampPage.
  */
 export function parsePage(params: ParamsInput, options?: PageOptions): PageState {
-  const { sizes, defaultPer } = sizesOf(options);
-  const page = wholeNumber(get(params, PAGE_PARAM));
-  const per = wholeNumber(get(params, PER_PARAM));
+  const { sizes, defaultPer, keys } = sizesOf(options);
+  const page = wholeNumber(get(params, keys.page));
+  const per = wholeNumber(get(params, keys.per));
   return { page: page !== null && page >= 1 ? page : 1, per: per !== null && sizes.includes(per) ? per : defaultPer };
 }
 
@@ -191,10 +199,14 @@ function withQuery(pathname: string, p: URLSearchParams): string {
   return s ? `${pathname}?${s}` : pathname;
 }
 
-/** `params` without `page`, so a link built from them starts at page 1. Everything else is kept. */
-export function withoutPage(params: ParamsInput): URLSearchParams {
+/**
+ * `params` without `page` (and without any other page `keys` passed, e.g. a second list's), so a
+ * link built from them starts at page 1. Everything else is kept.
+ */
+export function withoutPage(params: ParamsInput, keys: readonly string[] = []): URLSearchParams {
   const p = toSearch(params);
   p.delete(PAGE_PARAM);
+  for (const k of keys) p.delete(k);
   return p;
 }
 
@@ -216,17 +228,70 @@ export function hrefWithoutPage(pathname: string, params: ParamsInput, patch: Re
  * size are left out of the URL, so the canonical first page has no `page` at all.
  */
 export function pageHref(pathname: string, params: ParamsInput, to: { page?: number; per?: number }, options?: PageOptions): string {
-  const { defaultPer } = sizesOf(options);
+  const { defaultPer, keys } = sizesOf(options);
   const p = toSearch(params);
   if (to.per !== undefined) {
-    if (to.per === defaultPer) p.delete(PER_PARAM);
-    else p.set(PER_PARAM, String(to.per));
+    if (to.per === defaultPer) p.delete(keys.per);
+    else p.set(keys.per, String(to.per));
   }
   if (to.page !== undefined) {
-    if (to.page <= 1) p.delete(PAGE_PARAM);
-    else p.set(PAGE_PARAM, String(Math.floor(to.page)));
+    if (to.page <= 1) p.delete(keys.page);
+    else p.set(keys.page, String(Math.floor(to.page)));
   }
   return withQuery(pathname, p);
+}
+
+// Forward-only cursors ----------------------------------------------------------------------
+//
+// Some APIs only page one way: each answer carries a `next_cursor` for the older rows and nothing
+// for the newer ones (GET /requests, GET /alerts/events). To still offer Newer, the URL keeps the
+// trail of cursors walked so far (`?cursor=c1.c2.c3`, the current page's cursor last): Older
+// appends the API's next_cursor, Newer drops the last one, Newest drops them all. The trail is
+// capped, so a very long walk forgets its first steps (Newer then lands on the newest page early)
+// rather than growing the URL without bound.
+
+/** The URL key of the cursor trail. */
+export const TRAIL_PARAM = "cursor";
+/** The most cursors a trail keeps. */
+export const MAX_TRAIL = 30;
+const CURSOR = /^[A-Za-z0-9_-]{1,256}$/;
+
+/** The cursor trail in `params` (empty on the newest page); a trail with any malformed cursor reads as empty. */
+export function parseTrail(params: ParamsInput, key = TRAIL_PARAM): string[] {
+  const raw = get(params, key);
+  if (!raw) return [];
+  const trail = raw.split(".");
+  return trail.every((c) => CURSOR.test(c)) ? trail.slice(-MAX_TRAIL) : [];
+}
+
+/** The cursor of the page the trail is on (what to pass the API), or undefined on the newest page. */
+export const trailCursor = (trail: readonly string[]): string | undefined => trail[trail.length - 1];
+
+/**
+ * The links of a forward-only cursor list: `olderHref` with the API's `next` cursor appended (null
+ * when the API sent none: the oldest page), `newerHref` one step back (null on the newest page) and
+ * `newestHref` back to the start. Every other parameter is kept.
+ */
+export function trailHrefs(
+  pathname: string,
+  params: ParamsInput,
+  next: string | null | undefined,
+  key = TRAIL_PARAM,
+): { olderHref: string | null; newerHref: string | null; newestHref: string; page: number } {
+  const trail = parseTrail(params, key);
+  const at = (t: string[]) => {
+    const p = toSearch(params);
+    p.delete(PAGE_PARAM);
+    if (t.length) p.set(key, t.join("."));
+    else p.delete(key);
+    return withQuery(pathname, p);
+  };
+  return {
+    olderHref: next && CURSOR.test(next) ? at([...trail, next].slice(-MAX_TRAIL)) : null,
+    newerHref: trail.length ? at(trail.slice(0, -1)) : null,
+    newestHref: at([]),
+    page: trail.length + 1,
+  };
 }
 
 /**

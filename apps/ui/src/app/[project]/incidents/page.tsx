@@ -32,6 +32,7 @@ export default async function IncidentsPage({ params, searchParams }: { params: 
         incidents={feed ? (feed.incidents ?? []) : null}
         apps={appNames(apps)}
         now={Date.now()}
+        params={sp}
         // "I'll do this later" on the onboarding install step (#333) opens the project here with a reminder.
         notice={sp[LATER_PARAM] === LATER_VALUE ? <SetupReminder project={project} /> : null}
       />

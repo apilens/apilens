@@ -3,6 +3,7 @@ import { RANGE_LABEL, consumerLabel, formatCount, formatRate } from "@/lib/consu
 import { endpointPageHref, formatPercent, formatShare } from "@/lib/endpoint-detail";
 import {
   DETAIL_LOAD_FAILED,
+  DETAIL_PAGING,
   DETAIL_TABS,
   ERRORS_TABS,
   type ErrorsState,
@@ -11,15 +12,20 @@ import {
   errorsHref,
   errorsScopeText,
   formatPerHour,
+  hrefParams,
   reasonPhrase,
   statusClass,
+  TABLE_PAGING,
 } from "@/lib/errors";
 import type { ErrorGroup, ErrorStatusDetail, ErrorStatusRow, ErrorStatuses } from "@/lib/identity";
+import { type PageOptions, slicePage } from "@/lib/pagination";
 import { formatExact } from "@/lib/passkey-settings";
 import { TRAFFIC_RANGES } from "@/lib/traffic";
-import { StackedChart } from "../endpoint/charts";
 import { ScopeSelect } from "../endpoint/filters";
 import { ObIcon } from "../onboarding/ob";
+import { Pagination } from "../pagination/pagination";
+import { Sparkline } from "../traffic/charts";
+import { CountBars } from "./charts";
 import { ErrorModal, MarkExpected } from "./modal";
 import "../traffic/traffic.css";
 import "./errors.css";
@@ -57,6 +63,8 @@ export function ErrorsView({
   detail: DetailLoad | undefined;
 }) {
   const href = (patch: Partial<ErrorsState>) => errorsHref(project, { ...q, code: null, ...patch });
+  // Another tab, range or environment starts the table again at its first page.
+  const scopeHref = (patch: Partial<ErrorsState>) => href({ ...patch, page: 1 });
   // A shared link may name an environment the project no longer lists; keep it selectable.
   const envs = q.env && !environments.includes(q.env) ? [...environments, q.env] : environments;
   return (
@@ -71,7 +79,7 @@ export function ErrorsView({
         <div className="tr-bar__scope">
           <nav className="tr-seg" aria-label="Time range">
             {TRAFFIC_RANGES.map((r) => (
-              <a key={r} href={href({ range: r })} aria-current={q.range === r ? "page" : undefined} title={`Last ${RANGE_LABEL[r]}`}>
+              <a key={r} href={scopeHref({ range: r })} aria-current={q.range === r ? "page" : undefined} title={`Last ${RANGE_LABEL[r]}`}>
                 {r}
               </a>
             ))}
@@ -79,14 +87,14 @@ export function ErrorsView({
           <ScopeSelect
             label="Environment"
             value={q.env}
-            options={[{ value: "", label: "All environments", href: href({ env: "" }) }, ...envs.map((e) => ({ value: e, label: e, href: href({ env: e }) }))]}
+            options={[{ value: "", label: "All environments", href: scopeHref({ env: "" }) }, ...envs.map((e) => ({ value: e, label: e, href: scopeHref({ env: e }) }))]}
           />
         </div>
       </div>
 
       <nav className="cp-tabs er-tabs" aria-label="Error views">
         {ERRORS_TABS.map((t) => (
-          <a key={t.slug} href={href({ tab: t.slug })} className={q.tab === t.slug ? "on" : undefined} aria-current={q.tab === t.slug ? "page" : undefined}>
+          <a key={t.slug} href={scopeHref({ tab: t.slug })} className={q.tab === t.slug ? "on" : undefined} aria-current={q.tab === t.slug ? "page" : undefined}>
             {t.label}
           </a>
         ))}
@@ -146,6 +154,14 @@ function Card({ id, title, table, children }: { id: string; title: string; table
   );
 }
 
+/**
+ * The pager under a table: `href` is the page's URL as it stands (errorsHref of the state), so
+ * every page link keeps the rest of it.
+ */
+function Pager({ project, href, total, label, options }: { project: string; href: string; total: number; label: string; options: PageOptions }) {
+  return <Pagination pathname={`/${encodeURIComponent(project)}/errors`} params={hrefParams(href)} total={total} label={label} {...options} />;
+}
+
 const Empty = ({ children }: { children: ReactNode }) => (
   <p className="tr-empty" role="status">
     {children}
@@ -188,7 +204,7 @@ function StatusTab({ project, q, data }: { project: string; q: ErrorsState; data
         ]}
       />
       <Card id="er-time" title="Errors over time">
-        <StackedChart
+        <CountBars
           label="Errors by status class"
           summary={`${formatCount(s.client_errors)} 4xx and ${formatCount(s.server_errors)} 5xx responses in ${errorsScopeText(q)}.`}
           rows={rows}
@@ -196,7 +212,6 @@ function StatusTab({ project, q, data }: { project: string; q: ErrorsState; data
             { key: "client", label: "4xx", className: "er-c-4xx" },
             { key: "server", label: "5xx", className: "er-c-5xx" },
           ]}
-          unit="count"
           range={q.range}
         />
       </Card>
@@ -204,62 +219,91 @@ function StatusTab({ project, q, data }: { project: string; q: ErrorsState; data
         {statuses.length === 0 ? (
           <Empty>No error responses in {errorsScopeText(q)}.</Empty>
         ) : (
-          <StatusTable project={project} q={q} statuses={statuses} />
+          <StatusTable project={project} q={q} statuses={statuses} points={data.points ?? []} series={data.series ?? []} />
         )}
       </Card>
     </>
   );
 }
 
-function StatusTable({ project, q, statuses }: { project: string; q: ErrorsState; statuses: ErrorStatusRow[] }) {
+function StatusTable({
+  project,
+  q,
+  statuses,
+  points,
+  series,
+}: {
+  project: string;
+  q: ErrorsState;
+  statuses: ErrorStatusRow[];
+  points: { ts: string }[];
+  series: NonNullable<ErrorStatuses["series"]>;
+}) {
+  const { rows, window } = slicePage(statuses, q);
+  const counts = new Map(series.map((s) => [s.status_code, s.counts ?? []]));
   return (
-    <table className="tr-table" aria-label="Error status codes">
-      <thead>
-        <tr>
-          <th scope="col">Status</th>
-          <th scope="col" className="tr-num">
-            Responses
-          </th>
-          <th scope="col" className="tr-num">
-            Share of requests
-          </th>
-          <th scope="col" className="tr-num">
-            Endpoints
-          </th>
-          <th scope="col" className="tr-num">
-            Consumers
-          </th>
-          <th scope="col">Last seen</th>
-        </tr>
-      </thead>
-      <tbody>
-        {statuses.map((r) => (
-          <tr key={r.status_code} className="tr-row">
-            <td className="tr-ep" data-label="Status">
-              <a className="tr-ep__link er-code-link" href={errorsHref(project, { ...q, code: r.status_code, view: "summary" })} aria-haspopup="dialog">
-                <Status code={r.status_code} /> <span>{reasonPhrase(r.status_code) || `Status ${r.status_code}`}</span>
-              </a>
-            </td>
-            <td className="tr-num" data-label="Responses">
-              {formatCount(r.count)}
-            </td>
-            <td className="tr-num" data-label="Share of requests">
-              {formatShare(r.share)}
-            </td>
-            <td className="tr-num" data-label="Endpoints">
-              {formatCount(r.endpoints)}
-            </td>
-            <td className="tr-num" data-label="Consumers">
-              {formatCount(r.consumers)}
-            </td>
-            <td data-label="Last seen">
-              <When iso={r.last_seen} />
-            </td>
+    <>
+      <table className="tr-table" aria-label="Error status codes">
+        <thead>
+          <tr>
+            <th scope="col">Status</th>
+            <th scope="col" className="tr-num">
+              Responses
+            </th>
+            <th scope="col" className="tr-num">
+              Share of requests
+            </th>
+            <th scope="col" className="tr-num">
+              Endpoints
+            </th>
+            <th scope="col" className="tr-num">
+              Consumers
+            </th>
+            <th scope="col" className="er-trend-h">
+              Over time
+            </th>
+            <th scope="col">Last seen</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.status_code} className="tr-row">
+              <td className="tr-ep" data-label="Status">
+                <a className="tr-ep__link er-code-link" href={errorsHref(project, { ...q, code: r.status_code, view: "summary", dpage: 1 })} aria-haspopup="dialog">
+                  <Status code={r.status_code} /> <span>{reasonPhrase(r.status_code) || `Status ${r.status_code}`}</span>
+                </a>
+              </td>
+              <td className="tr-num" data-label="Responses">
+                {formatCount(r.count)}
+              </td>
+              <td className="tr-num" data-label="Share of requests">
+                {formatShare(r.share)}
+              </td>
+              <td className="tr-num" data-label="Endpoints">
+                {formatCount(r.endpoints)}
+              </td>
+              <td className="tr-num" data-label="Consumers">
+                {formatCount(r.consumers)}
+              </td>
+              <td className="er-trend" data-label="Over time">
+                <Trend code={r.status_code} counts={counts.get(r.status_code) ?? []} points={points} range={q.range} />
+              </td>
+              <td data-label="Last seen">
+                <When iso={r.last_seen} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Pager project={project} href={errorsHref(project, q)} total={window.total} label="Error status code pages" options={TABLE_PAGING} />
+    </>
   );
+}
+
+/** One status code's responses per bucket as a hoverable sparkline; nothing when the API sent no series. */
+function Trend({ code, counts, points, range }: { code: number; counts: number[]; points: { ts: string }[]; range: ErrorsState["range"] }) {
+  if (counts.length === 0 || counts.length !== points.length) return <span className="tr-muted">–</span>;
+  return <Sparkline values={counts} hover={{ label: `${code} responses`, range, points: points.map((p, i) => ({ ts: p.ts, text: formatCount(counts[i]) })) }} />;
 }
 
 // Detail modal ------------------------------------------------------------------------------
@@ -274,7 +318,7 @@ function Detail({ project, q, load }: { project: string; q: ErrorsState; load: D
         {DETAIL_TABS.map((t) => (
           <a
             key={t.slug}
-            href={errorsHref(project, { ...q, code: d.status_code, view: t.slug })}
+            href={errorsHref(project, { ...q, code: d.status_code, view: t.slug, dpage: 1 })}
             className={q.view === t.slug ? "on" : undefined}
             aria-current={q.view === t.slug ? "page" : undefined}
           >
@@ -288,7 +332,7 @@ function Detail({ project, q, load }: { project: string; q: ErrorsState; load: D
             No {d.status_code} responses counted as errors in {errorsScopeText(q)}. Endpoints where {d.status_code} is expected are not counted.
           </Empty>
         ) : q.view === "consumers" ? (
-          <ConsumersView d={d} />
+          <ConsumersView project={project} q={q} d={d} />
         ) : q.view === "details" ? (
           <DetailsView project={project} q={q} d={d} />
         ) : (
@@ -323,12 +367,11 @@ function SummaryView({ q, d }: { q: ErrorsState; d: ErrorStatusDetail }) {
       </dl>
       <section className="er-freq" aria-labelledby="er-freq">
         <h3 id="er-freq">Frequency</h3>
-        <StackedChart
+        <CountBars
           label={`${d.status_code} responses over time`}
           summary={`${formatCount(d.occurrences)} responses in ${errorsScopeText(q)}, ${formatPerHour(d.per_hour)} per hour.`}
           rows={(d.points ?? []).map((p) => ({ ts: p.ts, count: p.count }))}
           series={[{ key: "count", label: `${d.status_code} responses`, className: `er-c-${statusClass(d.status_code)}` }]}
-          unit="count"
           range={q.range}
         />
       </section>
@@ -336,8 +379,9 @@ function SummaryView({ q, d }: { q: ErrorsState; d: ErrorStatusDetail }) {
   );
 }
 
-function ConsumersView({ d }: { d: ErrorStatusDetail }) {
-  const consumers = d.consumer_breakdown ?? [];
+function ConsumersView({ project, q, d }: { project: string; q: ErrorsState; d: ErrorStatusDetail }) {
+  const all = d.consumer_breakdown ?? [];
+  const { rows: consumers, window } = slicePage(all, { page: q.dpage, per: q.dper });
   return (
     <>
       {d.anonymous ? (
@@ -348,68 +392,78 @@ function ConsumersView({ d }: { d: ErrorStatusDetail }) {
       {consumers.length === 0 ? (
         <Empty>No identified consumers got {d.status_code} responses.</Empty>
       ) : (
-        <table className="tr-table er-table" aria-label="Consumer breakdown">
-          <thead>
-            <tr>
-              <th scope="col">Consumer</th>
-              <th scope="col" className="tr-num">
-                Responses
-              </th>
-              <th scope="col" className="tr-num">
-                Share
-              </th>
-              <th scope="col">Last seen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {consumers.map((c) => (
-              <tr key={c.consumer_id}>
-                <td data-label="Consumer">{consumerLabel(c)}</td>
-                <td className="tr-num" data-label="Responses">
-                  {formatCount(c.count)}
-                </td>
-                <td className="tr-num" data-label="Share">
-                  {formatShare(c.share)}
-                </td>
-                <td data-label="Last seen">
-                  <When iso={c.last_seen} />
-                </td>
+        <>
+          <table className="tr-table er-table" aria-label="Consumer breakdown">
+            <thead>
+              <tr>
+                <th scope="col">Consumer</th>
+                <th scope="col" className="tr-num">
+                  Responses
+                </th>
+                <th scope="col" className="tr-num">
+                  Share
+                </th>
+                <th scope="col">Last seen</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {consumers.map((c) => (
+                <tr key={c.consumer_id}>
+                  <td data-label="Consumer">{consumerLabel(c)}</td>
+                  <td className="tr-num" data-label="Responses">
+                    {formatCount(c.count)}
+                  </td>
+                  <td className="tr-num er-share" data-label="Share">
+                    <span className="er-meter" aria-hidden="true">
+                      <span className={`er-c-${statusClass(d.status_code)}`} style={{ width: `${Math.min(100, Math.max(0, c.share * 100))}%` }} />
+                    </span>
+                    {formatShare(c.share)}
+                  </td>
+                  <td data-label="Last seen">
+                    <When iso={c.last_seen} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Pager project={project} href={errorsHref(project, q)} total={window.total} label="Consumer pages" options={DETAIL_PAGING} />
+        </>
       )}
     </>
   );
 }
 
 function DetailsView({ project, q, d }: { project: string; q: ErrorsState; d: ErrorStatusDetail }) {
-  const endpoints = d.endpoint_breakdown ?? [];
-  if (endpoints.length === 0) return <Empty>No endpoints answered with {d.status_code} in {errorsScopeText(q)}.</Empty>;
+  const all = d.endpoint_breakdown ?? [];
+  if (all.length === 0) return <Empty>No endpoints answered with {d.status_code} in {errorsScopeText(q)}.</Empty>;
+  const { rows: endpoints, window } = slicePage(all, { page: q.dpage, per: q.dper });
   return (
-    <ul className="er-eps" aria-label="Endpoints">
-      {endpoints.map((e) => (
-        <li key={`${e.method} ${e.path}`} className="er-ep">
-          <div className="er-ep__head">
-            <p className="er-ep__name">
-              <EndpointName method={e.method} path={e.path} />
+    <>
+      <ul className="er-eps" aria-label="Endpoints">
+        {endpoints.map((e) => (
+          <li key={`${e.method} ${e.path}`} className="er-ep">
+            <div className="er-ep__head">
+              <p className="er-ep__name">
+                <EndpointName method={e.method} path={e.path} />
+              </p>
+              <a className="cp-link" href={endpointPageHref(project, { method: e.method.toUpperCase(), path: e.path }, { tab: "errors", range: q.range, env: q.env })}>
+                Endpoint errors
+              </a>
+            </div>
+            <p className="er-ep__facts">
+              {formatCount(e.count)} {e.count === 1 ? "response" : "responses"}, {formatCount(e.consumers)} {e.consumers === 1 ? "consumer" : "consumers"}, last <When iso={e.last_seen} />
             </p>
-            <a className="cp-link" href={endpointPageHref(project, { method: e.method.toUpperCase(), path: e.path }, { tab: "errors", range: q.range, env: q.env })}>
-              Endpoint errors
-            </a>
-          </div>
-          <p className="er-ep__facts">
-            {formatCount(e.count)} {e.count === 1 ? "response" : "responses"}, {formatCount(e.consumers)} {e.consumers === 1 ? "consumer" : "consumers"}, last <When iso={e.last_seen} />
-          </p>
-          <p className="er-ep__facts">
-            {e.validation_errors ? `${formatCount(e.validation_errors)} with validation errors` : "No validation errors"}
-            {", "}
-            {e.exceptions ? `${formatCount(e.exceptions)} server exceptions` : "no server exceptions"}
-          </p>
-          <MarkExpected project={project} method={e.method.toUpperCase()} path={e.path} code={d.status_code} />
-        </li>
-      ))}
-    </ul>
+            <p className="er-ep__facts">
+              {e.validation_errors ? `${formatCount(e.validation_errors)} with validation errors` : "No validation errors"}
+              {", "}
+              {e.exceptions ? `${formatCount(e.exceptions)} server exceptions` : "no server exceptions"}
+            </p>
+            <MarkExpected project={project} method={e.method.toUpperCase()} path={e.path} code={d.status_code} />
+          </li>
+        ))}
+      </ul>
+      <Pager project={project} href={errorsHref(project, q)} total={window.total} label="Endpoint pages" options={DETAIL_PAGING} />
+    </>
   );
 }
 
@@ -417,49 +471,53 @@ function DetailsView({ project, q, d }: { project: string; q: ErrorsState; d: Er
 
 function IssuesTab({ project, q, data }: { project: string; q: ErrorsState; data: ErrorGroup[] | null }) {
   if (data === null) return <LoadFailed text={ISSUES_LOAD_FAILED} href={errorsHref(project, q)} />;
+  const { rows, window } = slicePage(data, q);
   return (
     <Card id="er-issues" title="Failed requests by endpoint and status" table>
       {data.length === 0 ? (
         <Empty>No failed requests in {errorsScopeText(q)}.</Empty>
       ) : (
-        <table className="tr-table" aria-label="Issues">
-          <thead>
-            <tr>
-              <th scope="col">Endpoint</th>
-              <th scope="col">Status</th>
-              <th scope="col" className="tr-num">
-                Responses
-              </th>
-              <th scope="col" className="tr-num">
-                Consumers
-              </th>
-              <th scope="col">Last seen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((g) => (
-              <tr key={`${g.method} ${g.path} ${g.status_code}`} className="tr-row">
-                <td className="tr-ep" data-label="Endpoint">
-                  <a className="tr-ep__link" href={endpointPageHref(project, { method: g.method.toUpperCase(), path: g.path }, { tab: "errors", range: q.range, env: q.env })}>
-                    <EndpointName method={g.method} path={g.path} />
-                  </a>
-                </td>
-                <td data-label="Status">
-                  <Status code={g.status_code} />
-                </td>
-                <td className="tr-num" data-label="Responses">
-                  {formatCount(g.count)}
-                </td>
-                <td className="tr-num" data-label="Consumers">
-                  {formatCount(g.consumers)}
-                </td>
-                <td data-label="Last seen">
-                  <When iso={g.last_seen} />
-                </td>
+        <>
+          <table className="tr-table" aria-label="Issues">
+            <thead>
+              <tr>
+                <th scope="col">Endpoint</th>
+                <th scope="col">Status</th>
+                <th scope="col" className="tr-num">
+                  Responses
+                </th>
+                <th scope="col" className="tr-num">
+                  Consumers
+                </th>
+                <th scope="col">Last seen</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((g) => (
+                <tr key={`${g.method} ${g.path} ${g.status_code}`} className="tr-row">
+                  <td className="tr-ep" data-label="Endpoint">
+                    <a className="tr-ep__link" href={endpointPageHref(project, { method: g.method.toUpperCase(), path: g.path }, { tab: "errors", range: q.range, env: q.env })}>
+                      <EndpointName method={g.method} path={g.path} />
+                    </a>
+                  </td>
+                  <td data-label="Status">
+                    <Status code={g.status_code} />
+                  </td>
+                  <td className="tr-num" data-label="Responses">
+                    {formatCount(g.count)}
+                  </td>
+                  <td className="tr-num" data-label="Consumers">
+                    {formatCount(g.consumers)}
+                  </td>
+                  <td data-label="Last seen">
+                    <When iso={g.last_seen} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Pager project={project} href={errorsHref(project, q)} total={window.total} label="Issue pages" options={TABLE_PAGING} />
+        </>
       )}
     </Card>
   );

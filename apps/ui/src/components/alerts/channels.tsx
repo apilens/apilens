@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useId, useState, useTransition } from "react";
 import { createChannel, deleteChannel, testChannel, updateChannel } from "@/app/[project]/incidents/actions";
 import {
@@ -18,8 +18,10 @@ import {
   rulesHref,
 } from "@/lib/alerts";
 import type { ChannelType, NotificationChannel } from "@/lib/identity";
+import { parsePage, slicePage } from "@/lib/pagination";
 import { useCan } from "@/lib/permissions";
 import { ObIcon } from "../onboarding/ob";
+import { Pagination } from "../pagination/pagination";
 import "../org-settings/members.css";
 import "../org-settings/org-settings.css";
 import "./alerts.css";
@@ -36,6 +38,8 @@ type Note = { tone: "ok" | "err"; text: string } | null;
  */
 export function ChannelsSettings({ project, projectName, channels }: { project: string; projectName: string; channels: NotificationChannel[] | null }) {
   const manage = useCan("alerts.manage").allowed;
+  const params = useSearchParams();
+  const { rows: shown, window } = slicePage(channels ?? [], parsePage(params));
   return (
     <div className="page page--measure os al-form">
       <header className="os-head">
@@ -75,11 +79,14 @@ export function ChannelsSettings({ project, projectName, channels }: { project: 
               <p>{channels.length === 0 ? "No channels yet." : `${channels.length} ${channels.length === 1 ? "channel" : "channels"}, by name.`}</p>
             </div>
             {channels.length > 0 ? (
-              <ul className="al-channels" aria-label="Alert channels">
-                {channels.map((c) => (
-                  <ChannelRow key={c.id} project={project} channel={c} manage={manage} />
-                ))}
-              </ul>
+              <>
+                <ul className="al-channels" aria-label="Alert channels">
+                  {shown.map((c) => (
+                    <ChannelRow key={c.id} project={project} channel={c} manage={manage} />
+                  ))}
+                </ul>
+                <Pagination pathname={channelsHref(project)} params={params} total={window.total} label="Alert channel pages" />
+              </>
             ) : (
               <div className="os-card__body">
                 <p className="al-hint">{manage ? "Add one below, then pick it on each alert rule that should notify it." : "A project admin can add one."}</p>
