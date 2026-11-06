@@ -187,6 +187,39 @@ test("says so when the alerts API cannot answer, with a way to try again", async
   await expect(page.getByRole("status").filter({ hasText: "No open incidents." })).toBeVisible();
 });
 
+test("a rule's timeline pages its incidents with Newer and Older, and charts their values", async ({ page }) => {
+  await signIn(page, "/shop/incidents/rules/new");
+  await page.getByLabel("Name").fill("Busy rule");
+  await page.getByRole("button", { name: "Create rule" }).click();
+  await page.waitForURL("**/shop/incidents/rules");
+  // 30 incidents, the newest still open: one page of 25 and one of 5.
+  for (let k = 29; k >= 0; k--) {
+    await fake({ trigger: { rule: "Busy rule", value: 0.1 + k / 100, minutes_ago: k * 10 + 1 } });
+    if (k > 0) await fake({ resolve: "Busy rule" });
+  }
+  await page.goto("/shop/incidents");
+  await page.getByRole("link", { name: "Busy rule" }).click();
+  const events = page.getByRole("list", { name: "Incidents of this rule" }).locator(":scope > li");
+  await expect(events).toHaveCount(25);
+  const pages = page.getByRole("navigation", { name: "Incident pages" });
+  await expect(pages.locator("[aria-disabled=true]", { hasText: "Newer" })).toHaveCount(1);
+
+  // The chart reads each incident's value to the keyboard: the newest is the last bar.
+  const chart = page.getByRole("group", { name: /^Value of each incident/ });
+  await chart.focus();
+  await chart.press("End");
+  await expect(page.locator(".al-chart .ct-sr")).toHaveText(/Value: 10%, Threshold: > 5%, Ongoing for/);
+
+  await pages.getByRole("link", { name: "Older" }).click();
+  await expect(page).toHaveURL(/cursor=/);
+  await expect(events).toHaveCount(5);
+  await expect(page.getByText("Page 2, newest first")).toBeVisible();
+  await expect(pages.locator("[aria-disabled=true]", { hasText: "Older" })).toHaveCount(1);
+  await pages.getByRole("link", { name: "Newer" }).click();
+  await expect(page).not.toHaveURL(/cursor=/);
+  await expect(events).toHaveCount(25);
+});
+
 test("stacks incidents at phone width without sideways scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page, "/shop/incidents/rules/new");

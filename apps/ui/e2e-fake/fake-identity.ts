@@ -1979,7 +1979,12 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
           (!status.length || status.some((t) => (/^[1-5]xx$/.test(t) ? String(r.status_code)[0] === t[0] : String(r.status_code) === t)));
         // A row's `detail` seeds the request drawer (#588); the log does not carry it.
         const listed = seeded.filter(matches).map(({ detail: _detail, ...r }) => r);
-        return send(res, 200, { requests: listed.slice(0, limit), next_cursor: "" });
+        // Pages like the API: an opaque cursor (an offset here) and next_cursor while rows remain.
+        const cursor = url.searchParams.get("cursor") ?? "";
+        const offset = cursor ? Number(Buffer.from(cursor, "base64url").toString().replace(/^r/, "")) : 0;
+        if (cursor && !Number.isInteger(offset)) return problem(res, 422, "invalid_request");
+        const next = offset + limit < listed.length ? Buffer.from(`r${offset + limit}`).toString("base64url") : "";
+        return send(res, 200, { requests: listed.slice(offset, offset + limit), next_cursor: next });
       }
       return send(res, 200, { requests: rows.slice(0, limit) });
     }
