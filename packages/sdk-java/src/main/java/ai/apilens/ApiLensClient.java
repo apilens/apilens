@@ -160,9 +160,8 @@ public class ApiLensClient implements AutoCloseable {
     if (Strings.isBlank(config.apiKey())) {
       throw new IllegalArgumentException("apiKey is required");
     }
-    if (Strings.isBlank(config.appId())) {
-      throw new IllegalArgumentException("appId is required");
-    }
+    // appId is optional (see ApiLensConfig#appId); say once which app the data goes to.
+    LOGGER.info(config.describeAppChoice());
     URI.create(config.baseUrl());
 
     for (String reason : DROP_REASONS) {
@@ -516,6 +515,10 @@ public class ApiLensClient implements AutoCloseable {
    */
   public boolean reportMetadata(String environment, Supplier<Map<String, Object>> build) {
     if (!config.enabled() || !config.sendMetadata() || build == null) {
+      return false;
+    }
+    // Metadata needs an app; skipped when none is configured (records still go out).
+    if (Strings.isBlank(config.appId())) {
       return false;
     }
     String env = Strings.isBlank(environment)
