@@ -12,9 +12,10 @@ import { getContext, getSession } from "@/lib/auth/server";
 import { KEYS_SECTION } from "@/lib/api-keys";
 import { CAPTURE_SECTION } from "@/lib/capture-policy";
 import { PROJECT_SETTINGS } from "@/lib/data";
-import { EVENTS_SHOWN, HEALTH_CHECKS_SECTION } from "@/lib/health-checks";
+import { CHECKS_PAGE, EVENTS_SHOWN, HEALTH_CHECKS_SECTION } from "@/lib/health-checks";
 import { type ApiKey, type AppIngestStats, type NamedApp, type NotificationChannel, type PrivacyPolicy, identity, isApiError } from "@/lib/identity";
 import { INGEST_DAYS, INGEST_SECTION } from "@/lib/ingest-health";
+import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { PRIVACY_SECTION } from "@/lib/privacy-policy";
 import { findProject } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
@@ -115,10 +116,11 @@ async function loadIngest(project: string, appSlug: string | undefined, next: st
 }
 
 /**
- * The project's apps and environments, its health checks and each check's latest failures (#608).
+ * The project's apps and environments, its health checks and the latest failures of the checks on
+ * the page `search` names (#608): the list is paged, so only those checks' events are fetched.
  * Each part is null when the API could not answer (the page says so).
  */
-async function loadHealthChecks(project: string, next: string): Promise<HealthChecksLoad> {
+async function loadHealthChecks(project: string, search: SearchParams, next: string): Promise<HealthChecksLoad> {
   const session = await getSession();
   const attempt = async <T,>(fn: () => Promise<T>): Promise<T | null> => {
     try {
@@ -136,7 +138,7 @@ async function loadHealthChecks(project: string, next: string): Promise<HealthCh
   const checks = checked ? (checked.health_checks ?? []) : null;
   const events = Object.fromEntries(
     await Promise.all(
-      (checks ?? []).map(async (c) => {
+      slicePage(checks ?? [], parsePage(search, CHECKS_PAGE)).rows.map(async (c) => {
         const got = await attempt(() => session.call((o) => identity().healthCheckEvents(project, c.id, EVENTS_SHOWN, o)));
         return [c.id, got ? (got.events ?? []) : null] as const;
       }),
@@ -151,7 +153,7 @@ export default async function SettingsPage({
   searchParams,
 }: {
   params: Promise<{ project: string; section?: string[] }>;
-  searchParams: Promise<{ app?: string | string[] }>;
+  searchParams: Promise<SearchParams>;
 }) {
   const { project, section } = await params;
   if (section && (section.length > 1 || !SECTIONS.includes(section[0]))) notFound();
@@ -194,10 +196,11 @@ export default async function SettingsPage({
     );
   }
   if (section?.[0] === HEALTH_CHECKS_SECTION) {
-    const load = await loadHealthChecks(project, next);
+    const search = await searchParams;
+    const load = await loadHealthChecks(project, search, next);
     return (
       <AppShell context={context} project={project} view={PROJECT_SETTINGS.slug}>
-        <HealthChecks project={project} projectName={found.project.name} load={load} />
+        <HealthChecks project={project} projectName={found.project.name} load={load} search={search} />
       </AppShell>
     );
   }

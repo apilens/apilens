@@ -45,3 +45,4 @@
   .ss-table td[data-label] { color: var(--ink); }
   .ss-act { position: absolute; top: 10px; right: var(--space-4); width: auto; padding: 0 !important; }
 }
+.ss-pages { border-top: 1px solid var(--border); }

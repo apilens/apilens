@@ -65,6 +65,8 @@
   .om-bar > .om-gate, .om-bar > .ah-btn { flex: 1; }
   .om-bar .ah-btn { width: 100%; }
   .om-status { order: 3; width: 100%; }
+  /* A hidden reason must not widen the page: anchor it to the control's left edge. */
+  .om-bar .om-tip { left: 0; right: auto; transform: none; }
   .om-table thead { display: none; }
   .om-table, .om-table tbody, .om-table tr { display: block; }
   .om-table tbody tr { position: relative; padding: 12px var(--space-4); border-top: 1px solid var(--border); }
