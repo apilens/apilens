@@ -61,7 +61,7 @@ export function PerformanceView({
   const explanation = apdexExplanation(app && settings ? { name: app.name, thresholdMs: settings.apdex_threshold_ms } : null);
 
   return (
-    <div className="tr pf">
+    <div className="page tr pf">
       <header className="pagehead">
         <p className="cp-h">{projectName} · Performance</p>
         <h1 className="cp-lede">Performance</h1>

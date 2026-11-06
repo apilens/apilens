@@ -1,6 +1,5 @@
 /* Project settings → API keys (#350). Tokens from tokens.css only; the card and table reuse
    .os-card (org settings) and .pk-table (Security → Passkeys); inputs reuse .ob-in. */
-.ak { max-width: 1040px; }
 .ak-card { margin-top: 0; }
 .ak-name { font-weight: 500; overflow-wrap: anywhere; }
 .ak-table .pk-name { width: auto; min-width: 140px; }

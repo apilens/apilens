@@ -25,7 +25,7 @@ export default async function Page({ params, searchParams }: { params: Promise<P
   const later = (await searchParams)[LATER_PARAM] === LATER_VALUE;
   return (
     <AppShell context={context} project={project} view={view}>
-      {later ? <SetupReminder project={project} /> : null}
+      <div className="page">{later ? <SetupReminder project={project} /> : null}</div>
     </AppShell>
   );
 }

@@ -160,7 +160,7 @@ export function RuleEditor({
   if (editing && !apps.some((a) => a.id === draft.app_id)) appOptions.unshift({ value: draft.app_id, label: "Unknown app" });
 
   return (
-    <div className="al al--narrow">
+    <div className="page page--measure al">
       <AlertsHeader project={project} projectName={projectName} tab="rules" title={editing ? rule.name : "New alert rule"}>
         {editing ? (
           <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={incidentHref(project, rule.id)}>

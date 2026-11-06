@@ -1,9 +1,12 @@
 "use client";
 
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
-import { formatBucket, formatCount, sparklinePoints, stackBars } from "@/lib/consumers";
+import { pointX, tooltipText } from "@/lib/chart-hover";
+import { RANGE_LABEL, formatBucket, formatCount, sparklinePoints, stackBars } from "@/lib/consumers";
 import type { QueryRange } from "@/lib/identity";
 import { type StatusRow, formatLatency, latencyTop, linePath, plotWidth } from "@/lib/traffic";
+import { ChartAnnounce, ChartTooltip, Crosshair } from "../charts/chart-tooltip";
+import { useChartHover } from "../charts/use-chart-hover";
 
 /** The viewBox width drawn before the box is measured (server render), stretched by CSS. */
 const FALLBACK_W = 960;
@@ -149,12 +152,65 @@ export function LatencyChart({ label, summary, rows, range }: { label: string; s
   );
 }
 
-/** A tile's recent history as a small line; decorative (the tile has the number). */
-export function Sparkline({ values }: { values: readonly number[] }) {
+const SPARK_W = 120;
+const SPARK_H = 24;
+
+/**
+ * A tile's recent history as a small line. Without `hover` it is decorative (the tile has the
+ * number). With `hover` it is the reference use of the shared chart hover (components/charts):
+ * hovering, tapping or arrowing through it shows that point's bucket and exact value in a tooltip,
+ * with a crosshair and a dot on the line, and reads it to screen readers. `hover.points[i]` is the
+ * bucket time and the formatted value of `values[i]`, formatted by the caller (formatCount,
+ * formatLatency…) so the server can pass it.
+ */
+export function Sparkline({
+  values,
+  hover,
+}: {
+  values: readonly number[];
+  hover?: { label: string; range: QueryRange; points: readonly { ts: string; text: string }[] };
+}) {
   if (values.length === 0) return <span className="tr-spark" aria-hidden="true" />;
+  if (hover && hover.points.length === values.length) return <HoverSparkline values={values} {...hover} />;
   return (
-    <svg className="tr-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-      <polyline points={sparklinePoints(values, 120, 24)} />
+    <svg className="tr-spark" viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <polyline points={sparklinePoints(values, SPARK_W, SPARK_H)} />
     </svg>
+  );
+}
+
+function HoverSparkline({ values, label, range, points }: { values: readonly number[]; label: string; range: QueryRange; points: readonly { ts: string; text: string }[] }) {
+  const n = values.length;
+  const hover = useChartHover<HTMLDivElement>(n, "point");
+  const i = hover.index;
+  const max = Math.max(...values, 0);
+  // The same y as sparklinePoints, in px (the box is SPARK_H px tall).
+  const y = (v: number) => (max > 0 ? SPARK_H - 1 - (v / max) * (SPARK_H - 2) : SPARK_H - 1);
+  const title = i !== null ? formatBucket(points[i].ts, range) : "";
+  const rows = i !== null ? [{ label, value: points[i].text }] : [];
+  const first = points[0];
+  const last = points[n - 1];
+  return (
+    <>
+      <div
+        ref={hover.ref}
+        className="tr-spark tr-spark--hover ct-box"
+        role="group"
+        aria-label={`${label} in the last ${RANGE_LABEL[range]}, from ${first.text} (${formatBucket(first.ts, range)}) to ${last.text} (${formatBucket(last.ts, range)}). Use the arrow keys to read each point.`}
+        {...hover.bind}
+      >
+        <svg viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} preserveAspectRatio="none" aria-hidden="true" focusable="false">
+          <polyline points={sparklinePoints(values, SPARK_W, SPARK_H)} />
+          {i !== null ? <Crosshair x={pointX(i, SPARK_W, n, "point")} height={SPARK_H} /> : null}
+        </svg>
+        {i !== null && hover.width > 0 ? (
+          <>
+            <span className="ct-dot-html" style={{ left: pointX(i, hover.width, n, "point"), top: y(values[i]) }} />
+            <ChartTooltip x={pointX(i, hover.width, n, "point")} boxWidth={hover.width} title={title} rows={rows} />
+          </>
+        ) : null}
+      </div>
+      <ChartAnnounce text={i !== null ? tooltipText(title, rows) : ""} />
+    </>
   );
 }

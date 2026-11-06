@@ -1,7 +1,7 @@
 /* Changes (#597): deploys with before → after error rate and p95. Tokens from tokens.css only;
    a worse change is --error on --error-soft, a better one --ok on --ok-soft, the rest muted. At
    phone width each deploy stacks into labelled lines, so the page never scrolls sideways. */
-.ch { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
+/* Page width and gutters come from .page (styles/page.css). */
 .ch-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
 
 .ch-notice { display: flex; gap: 10px; align-items: flex-start; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); font: 400 14px/22px var(--font-sans); color: var(--ink); }
@@ -37,7 +37,6 @@
 .ch-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 @media (max-width: 760px) {
-  .ch { padding: var(--space-4) var(--space-4) var(--space-12); }
   .ch-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .ch-table, .ch-table tbody, .ch-table tr, .ch-table td { display: block; width: auto; }
   .ch-table tr.ch-row { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); }

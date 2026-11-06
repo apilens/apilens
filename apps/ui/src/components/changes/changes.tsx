@@ -15,7 +15,7 @@ const TONE_LABEL: Record<Delta["tone"], string> = { worse: "worse", better: "bet
  */
 export function ChangesView({ project, projectName, deploys, now }: { project: string; projectName: string; deploys: DeployChange[] | null; now: number }) {
   return (
-    <div className="ch">
+    <div className="page ch">
       <header className="pagehead">
         <p className="cp-h">{projectName} · Changes</p>
         <h1 className="cp-lede">Deploys</h1>

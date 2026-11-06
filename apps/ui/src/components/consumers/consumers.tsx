@@ -60,7 +60,7 @@ export function ConsumersView({
 }) {
   const filterGroup = q.group ? groups?.find((g) => g.id === q.group) : undefined;
   return (
-    <div className="cs">
+    <div className="page cs">
       <header className="pagehead">
         <p className="cp-h">{projectName} · Consumers</p>
         <h1 className="cp-lede">Consumers</h1>

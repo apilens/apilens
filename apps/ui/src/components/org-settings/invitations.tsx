@@ -63,7 +63,7 @@ export function OrgInvitationsSettings({ org, invitations, manage, now: rendered
   const gate = manage ? ({ allowed: true } as const) : ({ allowed: false, reason: NO_ACCESS } as const);
 
   return (
-    <div className="os om">
+    <div className="page os om">
       <header className="os-head">
         <p className="cp-h">Organization</p>
         <h1 className="cp-lede">Invitations</h1>

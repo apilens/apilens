@@ -37,7 +37,7 @@ const CTX: UserContext = {
     onboarding: { step: null, completed: true },
     created_at: "2026-11-01T00:00:00Z",
   },
-  orgs: [{ id: "o1", slug: "acme", name: "Acme", role: "owner", projects: [{ id: "p1", slug: "shop", name: "shop", environments: ["production"] }] }],
+  orgs: [{ id: "o1", slug: "acme", name: "Acme", role: "owner", projects: [{ id: "p1", slug: "shop", name: "shop", environments: ["production"], app_count: 1 }] }],
   last_project_slug: "shop",
   onboarding: { step: null, completed: true },
   capabilities: {},

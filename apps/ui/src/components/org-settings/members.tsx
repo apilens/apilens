@@ -58,7 +58,7 @@ export function OrgMembersSettings({ org, members, viewer }: { org: OrgRef; memb
   const transfer = transferGate(viewer, members);
 
   return (
-    <div className="os om">
+    <div className="page os om">
       <header className="os-head">
         <p className="cp-h">Organization</p>
         <h1 className="cp-lede">Members</h1>

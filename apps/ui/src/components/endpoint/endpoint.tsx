@@ -70,7 +70,7 @@ export function EndpointView({
   const saved = settings.settings;
 
   return (
-    <div className="tr ep">
+    <div className="page tr ep">
       <header className="pagehead ep-head">
         <p className="cp-h">
           {projectName} ·{" "}

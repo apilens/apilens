@@ -79,6 +79,8 @@ test("shows a card per app with its traffic, health, SDK status and version agai
   await expect(page.getByRole("navigation", { name: "Views" }).getByRole("link", { name: "Apps" })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".ap-lead")).toContainText("2 apps need attention.");
   await expect(page.getByRole("list", { name: "Apps" }).getByRole("listitem")).toHaveCount(3);
+  // The project switcher counts the project's apps from the context (app_count).
+  await expect(page.locator(".oh--project small")).toHaveText("Project · 3 apps");
 
   const checkout = card(page, "Checkout API");
   await expect(checkout.locator(".ap-slug")).toHaveText("checkout-api");

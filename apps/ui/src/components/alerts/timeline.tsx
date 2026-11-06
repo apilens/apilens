@@ -28,7 +28,7 @@ export function IncidentTimeline({
   now: number;
 }) {
   return (
-    <div className="al">
+    <div className="page al">
       <header className="pagehead al-head">
         <div>
           <p className="cp-h">

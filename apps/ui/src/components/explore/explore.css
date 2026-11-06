@@ -3,7 +3,7 @@
    above 2 s (it also says so in its title, never by color alone). Rows are a fixed 32px (ROW_HEIGHT
    in lib/explore.ts): the log renders only the rows in view and positions them by that height. At
    phone width the consumer and size columns drop, so the page never scrolls sideways. */
-.ex { max-width: 1280px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
+/* Page width and gutters come from .page (styles/page.css). */
 .ex-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
 
 .ex-muted, .ex-faint { color: var(--ink-muted); }
@@ -211,7 +211,6 @@ span.rd-j-tog { cursor: default; }
 }
 
 @media (max-width: 760px) {
-  .ex { padding: var(--space-4) var(--space-4) var(--space-12); }
   .ex-row { grid-template-columns: 76px 60px minmax(0, 1fr) 52px 64px; }
   .ex-tools__end { margin-left: 0; }
   .ex-time__ms, .ex-time__day { display: none; }

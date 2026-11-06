@@ -571,6 +571,8 @@ export interface ContextProject {
   slug: string;
   name: string;
   environments: string[];
+  /** Active (not deleted) apps in the project. */
+  app_count: number;
 }
 
 export interface ContextOrg {

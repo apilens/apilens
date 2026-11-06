@@ -1,5 +1,4 @@
 /* Organization settings → Members (#345). Tokens from tokens.css only. */
-.om { max-width: 960px; }
 .om .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 .om-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }

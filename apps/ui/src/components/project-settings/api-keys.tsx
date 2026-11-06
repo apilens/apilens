@@ -71,7 +71,7 @@ export function ApiKeysSettings({ project, projectName, initial, now }: { projec
   );
 
   return (
-    <div className="os ak">
+    <div className="page os ak">
       <header className="os-head">
         <p className="cp-h">{projectName} · Settings</p>
         <h1 className="cp-lede">API keys</h1>
