@@ -13,6 +13,7 @@ import type {
   Incident,
   IncidentsRange,
 } from "./identity";
+import type { PageOptions } from "./pagination";
 
 // ---------------------------------------------------------------- routes
 
@@ -29,6 +30,16 @@ export const ruleHref = (project: string, id: string) => `${base(project)}/incid
 export const channelsHref = (project: string) => `${base(project)}/settings/${CHANNELS_SECTION}`;
 
 // ---------------------------------------------------------------- incidents
+
+/**
+ * The incidents page pages its two lists apart: open incidents under `?opage=&oper=`, resolved
+ * ones under `?page=&per=`. Another range starts both again at page 1 (incidentsHref keeps only
+ * the range).
+ */
+export const OPEN_PAGING: PageOptions = { keys: { page: "opage", per: "oper" } };
+export const RESOLVED_PAGING: PageOptions = {};
+/** How many of a rule's incidents one page of its timeline shows. */
+export const EVENTS_PAGE = 25;
 
 export const INCIDENTS_RANGE: IncidentsRange = "7d";
 export const INCIDENTS_RANGES: { value: IncidentsRange; label: string }[] = [

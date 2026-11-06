@@ -15,6 +15,8 @@ import {
   formatBytes,
   isSampledOut,
   latencyTone,
+  logCaption,
+  logPages,
   logPoll,
   logTime,
   moveFocus,
@@ -29,6 +31,7 @@ import { formatAgo, shownPath } from "@/lib/first-data";
 import type { RequestRow, RequestTimeline } from "@/lib/identity";
 import { formatLatency } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
+import { Pagination } from "../pagination/pagination";
 import { FilterBar } from "./filter-bar";
 import { RequestDrawer } from "./request-drawer";
 import { Timeline } from "./timeline";
@@ -43,7 +46,9 @@ const SKELETON_ROWS = 8;
  * Home and End move between them; keys with ⌘, Ctrl or Alt pass through (⌘K still opens the
  * switcher). While live it reads the log again every 5 s (not while the tab is hidden), keeping
  * the row in focus and the rows in view where they are; Pause stops it (WCAG 2.2.2). A click on a
- * row, or Enter on the focused one, opens the request drawer (#588).
+ * row, or Enter on the focused one, opens the request drawer (#588). Older and Newer under the log
+ * walk back past the newest 200 with the API's cursor (`trail`, `older`; lib/explore logPages);
+ * live polling runs on the newest page only, and the toolbar says so on an older one.
  * `initial` is null when the API could not answer the first read.
  */
 export function RequestLog({
@@ -51,6 +56,8 @@ export function RequestLog({
   environments,
   query: q,
   initial,
+  trail,
+  older: initialOlder,
   timeline,
   now: serverNow,
   actions,
@@ -59,6 +66,8 @@ export function RequestLog({
   environments: readonly string[];
   query: ExploreState;
   initial: RequestRow[] | null;
+  trail: string[];
+  older: string;
   timeline: RequestTimeline | null;
   now: number;
   /** The saved-view switcher and Export, at the right end of the toolbar. */
@@ -66,6 +75,8 @@ export function RequestLog({
 }) {
   const router = useRouter();
   const [rows, setRows] = useState<RequestRow[] | null>(initial);
+  // The cursor of the rows older than the ones shown, kept in step with the poll.
+  const [older, setOlder] = useState(initialOlder);
   const [now, setNow] = useState(serverNow);
   const [paused, setPaused] = useState(false);
   const [pollFailed, setPollFailed] = useState(false);
@@ -78,16 +89,21 @@ export function RequestLog({
   // The poll reads the same range and filters as the page (#586).
   const pollPath = requestsPath(project, q);
   const filtered = activeCount(q.filters) > 0;
+  const pages = logPages(project, q, trail, older);
+  // Only the newest page is live: an older page is a fixed slice of the past.
+  const paged = pages.page > 1;
+  const live = !paused && !paged;
 
   // A new server read (another range, Try again) replaces what the poller had.
   useEffect(() => {
     setRows(initial);
+    setOlder(initialOlder);
     setNow(serverNow);
     setPollFailed(false);
-  }, [initial, serverNow]);
+  }, [initial, initialOlder, serverNow]);
 
   useEffect(() => {
-    if (paused) return;
+    if (!live) return;
     let inflight: AbortController | null = null;
     const tick = async () => {
       if (document.visibilityState !== "visible" || inflight) return;
@@ -105,6 +121,7 @@ export function RequestLog({
         }
         setPollFailed(false);
         setRows(result.rows);
+        setOlder(result.older);
         setNow(Date.now());
       } catch (err) {
         if ((err as Error).name !== "AbortError") setPollFailed(true);
@@ -117,7 +134,7 @@ export function RequestLog({
       window.clearInterval(id);
       inflight?.abort();
     };
-  }, [paused, pollPath]);
+  }, [live, pollPath]);
 
   const go = (e: MouseEvent<HTMLAnchorElement>, href: string) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
@@ -152,19 +169,31 @@ export function RequestLog({
         <FilterBar project={project} environments={environments} query={q} navigate={navigate} />
         <div className="ex-tools__end">
           {actions}
-          <div className="ex-live">
-            <span className={`ex-live__state${paused ? " is-paused" : ""}`}>
-              <span className="ex-live__dot" aria-hidden="true" />
-              {paused ? "Paused" : "Live"}
-            </span>
-            <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" aria-pressed={paused} onClick={() => setPaused((p) => !p)}>
-              {paused ? "Resume" : "Pause"}
-            </button>
-          </div>
+          {paged ? (
+            <div className="ex-live">
+              <span className="ex-live__state is-paused" title="Live updates run on the newest page only.">
+                <span className="ex-live__dot" aria-hidden="true" />
+                Older page, not live
+              </span>
+              <a className="ah-btn ah-btn--ghost ah-btn--sm" href={pages.newestHref} onClick={(e) => go(e, pages.newestHref)}>
+                Back to newest
+              </a>
+            </div>
+          ) : (
+            <div className="ex-live">
+              <span className={`ex-live__state${paused ? " is-paused" : ""}`}>
+                <span className="ex-live__dot" aria-hidden="true" />
+                {paused ? "Paused" : "Live"}
+              </span>
+              <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" aria-pressed={paused} onClick={() => setPaused((p) => !p)}>
+                {paused ? "Resume" : "Pause"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      <Timeline project={project} query={q} initial={timeline} paused={paused} busy={loading} navigate={navigate} />
+      <Timeline project={project} query={q} initial={timeline} paused={!live} busy={loading} navigate={navigate} />
 
       {pollFailed && rows !== null ? (
         <div className="ex-notice" role="status">
@@ -188,7 +217,14 @@ export function RequestLog({
       ) : rows.length === 0 ? (
         <div className="ex-notice" role="status">
           <ObIcon name="info" />
-          {filtered ? (
+          {paged ? (
+            <p>
+              No older requests in {scopeText(q)}.{" "}
+              <a className="cp-link" href={pages.newestHref} onClick={(e) => go(e, pages.newestHref)}>
+                Back to the newest
+              </a>
+            </p>
+          ) : filtered ? (
             <p>
               No requests in {scopeText(q)} match these filters.{" "}
               <a className="cp-link" href={clearHref} onClick={(e) => go(e, clearHref)}>
@@ -200,7 +236,13 @@ export function RequestLog({
           )}
         </div>
       ) : (
-        <LogGrid rows={rows} now={now} onOpen={open} caption={`The newest ${rows.length === 1 ? "request" : `${rows.length} requests`} in ${scopeText(q)}${filtered ? " matching the filters" : ""}, newest first.`} />
+        <LogGrid
+          rows={rows}
+          now={now}
+          onOpen={open}
+          caption={logCaption(q, pages.page, rows.length, filtered)}
+          pager={<Pagination mode="cursor" newerHref={pages.newerHref} olderHref={pages.olderHref} label="Request log pages" />}
+        />
       )}
       {opened ? <RequestDrawer key={opened.id} project={project} row={opened} onClose={() => setOpened(null)} /> : null}
     </>
@@ -218,12 +260,15 @@ function LogGrid({
   caption,
   busy = false,
   onOpen,
+  pager,
 }: {
   rows: RequestRow[] | null;
   now: number;
   caption: string;
   busy?: boolean;
   onOpen?: (row: RequestRow) => void;
+  /** Newer and Older, beside the caption. */
+  pager?: ReactNode;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -344,7 +389,12 @@ function LogGrid({
           {shown}
         </div>
       </div>
-      {caption ? <p className="ex-foot">{caption}</p> : null}
+      {caption ? (
+        <div className="ex-foot">
+          <p>{caption}</p>
+          {pager}
+        </div>
+      ) : null}
     </div>
   );
 }

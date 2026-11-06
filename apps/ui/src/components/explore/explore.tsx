@@ -16,6 +16,8 @@ export function ExploreView({
   environments,
   query,
   rows,
+  trail,
+  older,
   timeline,
   views,
   me,
@@ -26,6 +28,10 @@ export function ExploreView({
   environments: readonly string[];
   query: ExploreState;
   rows: RequestRow[] | null;
+  /** The cursors walked back to this page of the log (empty on the newest page). */
+  trail: string[];
+  /** The API's cursor of the rows older than these ("" when there are none). */
+  older: string;
   timeline: RequestTimeline | null;
   views: SavedView[] | null;
   me: string;
@@ -45,6 +51,8 @@ export function ExploreView({
           environments={environments}
           query={query}
           initial={rows}
+          trail={trail}
+          older={older}
           timeline={timeline}
           now={now}
           actions={
