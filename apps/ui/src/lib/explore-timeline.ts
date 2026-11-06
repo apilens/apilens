@@ -196,3 +196,15 @@ export function timelinePoll(status: number, body: unknown): TimelinePoll {
 }
 
 export const TIMELINE_LOAD_FAILED = "We couldn’t load the timeline just now. The log below still works.";
+
+/** The timeline's window summed: all requests and each status class (the header's summary). */
+export function timelineTotals(t: Pick<RequestTimeline, "buckets">): Pick<RequestTimelineBucket, "requests" | "successful" | "client_errors" | "server_errors"> {
+  const sum = { requests: 0, successful: 0, client_errors: 0, server_errors: 0 };
+  for (const b of t.buckets ?? []) {
+    sum.requests += b.requests;
+    sum.successful += b.successful;
+    sum.client_errors += b.client_errors;
+    sum.server_errors += b.server_errors;
+  }
+  return sum;
+}

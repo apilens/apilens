@@ -13,7 +13,7 @@ export const LOG_LIMIT = 200;
 /** How often the log reads again while live. Every range ends now, so the log can always be live. */
 export const LOG_POLL_MS = 5_000;
 /** Height of one row in px; the virtual window depends on it, so the CSS uses the same number. */
-export const ROW_HEIGHT = 40;
+export const ROW_HEIGHT = 32;
 /** Rows rendered above and below the visible ones. */
 export const OVERSCAN = 8;
 /**
@@ -118,6 +118,36 @@ export function formatBytes(n: number | null | undefined): string {
 /** Who made the request: the consumer's name, else its id, else null when it was anonymous. */
 export function consumerOf(r: Pick<RequestRow, "consumer_id" | "consumer_name">): string | null {
   return (r.consumer_name ?? "").trim() || (r.consumer_id ?? "").trim() || null;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+
+/**
+ * When a request happened, for the log's Time column (UTC, like every chart): the clock time to the
+ * millisecond (`10:51:03` and `.214`), with the day in front (`Nov 5`) when it is not `now`'s UTC day.
+ * Unparseable times read as a dash.
+ */
+export function logTime(ts: string, now: number): { day: string; clock: string; ms: string } {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return { day: "", clock: "–", ms: "" };
+  const n = new Date(now);
+  const sameDay = d.getUTCFullYear() === n.getUTCFullYear() && d.getUTCMonth() === n.getUTCMonth() && d.getUTCDate() === n.getUTCDate();
+  return {
+    day: sameDay ? "" : `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`,
+    clock: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`,
+    ms: `.${pad(d.getUTCMilliseconds(), 3)}`,
+  };
+}
+
+/**
+ * The quick status filter behind a count in the timeline header: the log narrowed to one status
+ * class (`4xx`, `5xx`, or `4xx,5xx` for every error), or back to all statuses when that filter is
+ * already on. The other filters and the range stay; a zoom or jump point starts over.
+ */
+export function statusQuickHref(project: string, q: ExploreState, status: string): { href: string; active: boolean } {
+  const active = q.filters.status === status;
+  return { href: exploreHref(project, { range: q.range, filters: { ...q.filters, status: active ? "" : status } }), active };
 }
 
 /** True when the SDK sampled the request out: a base record without headers or bodies. */
