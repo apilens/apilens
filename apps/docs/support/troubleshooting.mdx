@@ -9,14 +9,13 @@ Work top-down — each check takes seconds:
 
 1. **Package installed and middleware added?** Remember: install `apilenss` (double *s*), import `apilens`.
 2. **API key valid?** It must be a project-level key from *this* project's **Settings → API keys**. Check the key's `last_used_at` there — if it updates, ingest is receiving you and the problem is filtering, not delivery.
-3. **`app_id` correct?** It must match an app slug in the project. Traffic with an unknown `app_id` won't appear under your apps.
+3. **Which app?** The SDK logs the app name it uses at startup. A new name creates a new app, so a typo shows up as a second app on the **Apps** page (merge it into the right one). No name sends data to the project's default app. If the Apps page shows a notice about rejected records, the key cannot create apps, is limited to other apps, an app limit was reached, or the app was deleted.
 4. **Time range & filters.** Widen the range, clear the filter bar, check the app selector and environment filter (SDK default environment is `production` — local runs often set `development`).
 5. **Process long-lived enough to flush?** The SDK flushes every 3 seconds in a background thread. A script that exits immediately should use the client as a context manager so it flushes on exit.
 6. **Egress.** Your service must reach `https://ingest.apilens.ai`. For private CAs set `ca_bundle_path`; check proxy/firewall rules.
 
 ## Traces or Trace tab empty
 
-- Tracing requires a non-empty **`app_id`** — with a key alone you get metrics but no spans.
 - Check `capture_spans=True` isn't overridden and `APILENS_CAPTURE_SPANS` isn't set to a falsey value in the deploy environment (the env var wins over code).
 - A clean request shows nothing in its *Exceptions* tab — that's expected. Exceptions are recorded only on unhandled exceptions or 5xx responses.
 - Cross-service traces stitch only if every hop runs the middleware and your HTTP client is `requests` or `httpx` (that's where `traceparent` is injected).
