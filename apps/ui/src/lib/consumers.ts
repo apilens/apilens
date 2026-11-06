@@ -1,63 +1,89 @@
-// The Consumers page (#596): who calls the project's API, new vs returning, per-consumer traffic
-// with a sparkline, one consumer's requests and errors, and consumer groups. Pure helpers (URL
-// state, chart geometry, group roll-ups, copy), unit-tested in consumers.test.ts.
-import type { ConsumerGroup, ConsumerRow, QueryRange, StatusSplit } from "./identity";
+// The Consumers page (#596): the users of the project's API (the consumer the SDK identifies on
+// each request, usually the customer's own user id), new vs returning, per-user traffic with a
+// sparkline, one user's requests and errors, and the groups the SDK reports (`consumer_group`,
+// e.g. the company or plan a user belongs to). Groups are never created or assigned here. Pure
+// helpers (URL state, chart geometry, copy), unit-tested in consumers.test.ts.
+import type { QueryRange, StatusSplit } from "./identity";
 
 export const CONSUMER_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
 export const DEFAULT_RANGE: QueryRange = "24h";
 export const RANGE_LABEL: Record<QueryRange, string> = { "1h": "1 hour", "6h": "6 hours", "24h": "24 hours", "7d": "7 days" };
 
-/** How many consumers the individual list asks for, and the groups roll-up (it sums them). */
-export const LIST_LIMIT = 100;
-export const GROUPS_LIMIT = 500;
-export const MAX_GROUP_NAME = 128;
+/** Longest consumer id, group name and search the API takes. */
+export const MAX_TEXT = 256;
 
 export type ConsumersBy = "consumers" | "groups";
 export type DetailTab = "requests" | "errors";
+export type ConsumerSort = "requests" | "errors" | "last_seen";
+export type GroupSort = ConsumerSort | "consumers";
+const CONSUMER_SORTS: readonly ConsumerSort[] = ["requests", "errors", "last_seen"];
+const GROUP_SORTS: readonly GroupSort[] = ["requests", "errors", "consumers", "last_seen"];
 
-/** The page's state, all of it in the URL: `?range=&by=&group=&consumer=&tab=`. */
+/** The page's state, all of it in the URL: `?range=&by=&group=&consumer=&tab=&q=&sort=` (plus `page`/`per`). */
 export interface ConsumersQuery {
   range: QueryRange;
   by: ConsumersBy;
-  /** A consumer group id the list is filtered to, or null. */
+  /** An SDK consumer group the consumers list is narrowed to, or null. */
   group: string | null;
   /** The consumer whose detail is open, or null. */
   consumer: string | null;
   tab: DetailTab;
+  /** Search over consumer ids and names (or group names, by group); "" for none. */
+  q: string;
+  /** The table's order; `consumers` only applies by group. */
+  sort: GroupSort;
 }
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+const text = (v: string | undefined) => {
+  const t = (v ?? "").trim();
+  return t !== "" && t.length <= MAX_TEXT ? t : null;
+};
 
 /** Reads the page state from search params; anything unknown falls back to the default. */
 export function parseConsumersQuery(params: SearchParams): ConsumersQuery {
   const range = first(params.range);
-  const group = first(params.group);
-  const consumer = first(params.consumer);
+  const by: ConsumersBy = first(params.by) === "groups" ? "groups" : "consumers";
+  const sort = first(params.sort);
+  const sorts: readonly string[] = by === "groups" ? GROUP_SORTS : CONSUMER_SORTS;
   return {
     range: CONSUMER_RANGES.includes(range as QueryRange) ? (range as QueryRange) : DEFAULT_RANGE,
-    by: first(params.by) === "groups" ? "groups" : "consumers",
-    group: group && UUID.test(group) ? group.toLowerCase() : null,
-    consumer: consumer && consumer.length <= 256 ? consumer : null,
+    by,
+    group: by === "groups" ? null : text(first(params.group)),
+    consumer: (() => {
+      const c = first(params.consumer);
+      return c && c.length <= MAX_TEXT ? c : null;
+    })(),
     tab: first(params.tab) === "errors" ? "errors" : "requests",
+    q: text(first(params.q)) ?? "",
+    sort: sort && sorts.includes(sort) ? (sort as GroupSort) : "requests",
   };
 }
 
-/** The page URL for `q`, leaving defaults out. */
+/**
+ * The page URL for `q`, leaving defaults out. It never carries `page`: every link built here (a
+ * range, view, filter, search, sort or tab change) starts again at page 1.
+ */
 export function consumersHref(project: string, q: Partial<ConsumersQuery>): string {
   const p = new URLSearchParams();
   if (q.range && q.range !== DEFAULT_RANGE) p.set("range", q.range);
-  if (q.by === "groups") p.set("by", "groups");
-  if (q.group && q.by !== "groups") p.set("group", q.group);
   if (q.consumer) {
     p.set("consumer", q.consumer);
     if (q.tab === "errors") p.set("tab", "errors");
+  } else {
+    if (q.by === "groups") p.set("by", "groups");
+    if (q.group && q.by !== "groups") p.set("group", q.group);
+    if (q.q) p.set("q", q.q);
+    if (q.sort && q.sort !== "requests" && (q.by === "groups" || q.sort !== "consumers")) p.set("sort", q.sort);
   }
   const s = p.toString();
   return `/${encodeURIComponent(project)}/consumers${s ? `?${s}` : ""}`;
 }
+
+/** The view of one SDK group: its consumers, in the range. */
+export const groupHref = (project: string, group: string, range: QueryRange) => consumersHref(project, { range, group });
 
 /** What a consumer is called: its reported name, else its id. */
 export const consumerLabel = (c: { consumer_id: string; consumer_name: string }) => c.consumer_name.trim() || c.consumer_id;
@@ -91,6 +117,13 @@ export function formatBucket(ts: string, range: QueryRange): string {
   const t = Date.parse(ts);
   if (Number.isNaN(t)) return "";
   return `${(range === "7d" || range === "24h" ? BUCKET_DAY : BUCKET_TIME).format(t)} UTC`;
+}
+
+/** The start of each of `count` buckets from `from`, `seconds` wide (ISO strings); [] when unknown. */
+export function bucketTimes(from: string, seconds: number, count: number): string[] {
+  const t = Date.parse(from);
+  if (Number.isNaN(t) || !(seconds > 0) || count <= 0) return [];
+  return Array.from({ length: count }, (_, i) => new Date(t + i * seconds * 1000).toISOString());
 }
 
 /** A round axis top at or above `n` (1, 2, 2.5 or 5 times a power of ten); 1 for nothing. */
@@ -151,65 +184,6 @@ export function sparklinePoints(values: readonly number[], width: number, height
 }
 
 const round = (n: number) => Math.round(n * 10) / 10;
-
-/** A consumer group with the traffic of its consumers in the list. */
-export interface GroupRollup extends StatusSplit {
-  group: ConsumerGroup;
-  /** Consumers of the group seen in the range (among the listed ones). */
-  active: number;
-  sparkline: number[];
-}
-
-/** Sums the listed consumers' traffic per group, groups in their given order. */
-export function rollupGroups(groups: readonly ConsumerGroup[], consumers: readonly ConsumerRow[]): GroupRollup[] {
-  const by = new Map<string, GroupRollup>(
-    groups.map((group) => [group.id, { group, active: 0, requests: 0, successful: 0, client_errors: 0, server_errors: 0, sparkline: [] }]),
-  );
-  for (const c of consumers) {
-    const g = c.group ? by.get(c.group.id) : undefined;
-    if (!g) continue;
-    g.active += 1;
-    g.requests += c.requests;
-    g.successful += c.successful;
-    g.client_errors += c.client_errors;
-    g.server_errors += c.server_errors;
-    (c.sparkline ?? []).forEach((v, i) => {
-      g.sparkline[i] = (g.sparkline[i] ?? 0) + v;
-    });
-  }
-  return [...by.values()];
-}
-
-/** The group name as it will be saved, or why it cannot be. */
-export function checkGroupName(raw: unknown): { ok: true; name: string } | { ok: false; error: string } {
-  const name = typeof raw === "string" ? raw.trim() : "";
-  if (name === "") return { ok: false, error: "Enter a name for the group." };
-  if ([...name].length > MAX_GROUP_NAME) return { ok: false, error: `Use at most ${MAX_GROUP_NAME} characters.` };
-  return { ok: true, name };
-}
-
-/** A sentence for a failed group change, by API error code. */
-export function groupError(code: string): string {
-  switch (code) {
-    case "conflict":
-      return "This project already has a group with that name.";
-    case "validation_failed":
-    case "bad_request":
-    case "invalid_request":
-      return `Use a name of 1 to ${MAX_GROUP_NAME} characters.`;
-    case "forbidden":
-      return "You can’t change consumer groups in this project. Ask a project admin.";
-    case "not_found":
-      return "That group no longer exists. Reload the page to see the current groups.";
-    case "authz_unavailable":
-    case "network_error":
-    case "timeout":
-    case "unavailable":
-      return "We couldn’t reach APILens. Check your connection and try again.";
-    default:
-      return "Something went wrong. Try again in a moment.";
-  }
-}
 
 export const CONSUMERS_LOAD_FAILED = "We couldn’t load consumers just now.";
 export const CONSUMER_LOAD_FAILED = "We couldn’t load this consumer just now.";

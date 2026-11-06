@@ -417,11 +417,7 @@ describe("operations", () => {
     ["GET", "/consumers", (c) => c.listConsumers("web", { range: "7d" }, authed)],
     ["GET", "/consumers/{consumer_id}", (c) => c.getConsumer("web", "a/b?c", { range: "7d" }, authed)],
     ["GET", "/projects/{slug}/consumer-groups", (c) => c.listConsumerGroups("a/b?c", authed)],
-    ["POST", "/projects/{slug}/consumer-groups", (c) => c.createConsumerGroup("a/b?c", "Partners", authed)],
-    ["PUT", "/projects/{slug}/consumer-groups/{id}", (c) => c.renameConsumerGroup("a/b?c", "a/b?c", "Partners", authed)],
-    ["DELETE", "/projects/{slug}/consumer-groups/{id}", (c) => c.deleteConsumerGroup("a/b?c", "a/b?c", authed)],
-    ["PUT", "/projects/{slug}/consumers/{consumer_id}/group", (c) => c.assignConsumerGroup("a/b?c", "a/b?c", "g1", authed)],
-    ["DELETE", "/projects/{slug}/consumers/{consumer_id}/group", (c) => c.unassignConsumerGroup("a/b?c", "a/b?c", authed)],
+    ["GET", "/consumer-groups", (c) => c.listConsumerGroupTraffic("web", { range: "7d", sort: "consumers" }, authed)],
     ["GET", "/projects/{slug}/views", (c) => c.listSavedViews("a/b?c", "explore", authed)],
     ["POST", "/projects/{slug}/views", (c) => c.createSavedView("a/b?c", { name: "5xx", surface: "explore", filter: {}, shared: false }, authed)],
     ["PUT", "/projects/{slug}/views/{id}", (c) => c.updateSavedView("a/b?c", "a/b?c", { name: "5xx", filter: {}, shared: true }, authed)],
@@ -459,7 +455,7 @@ describe("operations", () => {
     await client.trafficSummary("my-api", "24h", authed);
     await client.listEndpoints("my-api", { range: "7d", limit: 500 }, authed);
     await client.deployChanges("my-api", { range: "7d", limit: 25 }, authed);
-    await client.listConsumers("my-api", { range: "6h", group: "g1", limit: 100 }, authed);
+    await client.listConsumers("my-api", { range: "6h", group: "Acme Corp", search: "priya", sort: "errors", limit: 25, offset: 50 }, authed);
     await client.getConsumer("my-api", "acme", { range: "1h" }, authed);
     await client.trafficSummary("my-api", { range: "6h", env: "production" }, authed);
     await client.trafficTimeseries("my-api", { range: "1h", env: "" }, authed);
@@ -469,7 +465,7 @@ describe("operations", () => {
       { project: "my-api", range: "24h" },
       { project: "my-api", range: "7d", limit: "500" },
       { project: "my-api", range: "7d", limit: "25" },
-      { project: "my-api", range: "6h", group: "g1", limit: "100" },
+      { project: "my-api", range: "6h", group: "Acme Corp", search: "priya", sort: "errors", limit: "25", offset: "50" },
       { project: "my-api", range: "1h" },
       { project: "my-api", range: "6h", env: "production" },
       { project: "my-api", range: "1h" },

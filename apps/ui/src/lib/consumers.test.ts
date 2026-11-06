@@ -1,51 +1,68 @@
 import { describe, expect, it } from "vitest";
 import {
-  checkGroupName,
+  bucketTimes,
   consumerLabel,
   consumersHref,
   formatBucket,
   formatPerMinute,
   formatRate,
-  groupError,
+  groupHref,
   niceMax,
   parseConsumersQuery,
-  rollupGroups,
   sparklinePoints,
   stackBars,
 } from "./consumers";
-import type { ConsumerGroup, ConsumerRow } from "./identity";
 
-const GID = "0192f0c4-7a1b-7c3d-8e4f-5a6b7c8d9e0f";
+const DEFAULTS = { range: "24h", by: "consumers", group: null, consumer: null, tab: "requests", q: "", sort: "requests" };
 
 describe("parseConsumersQuery", () => {
   it("defaults everything", () => {
-    expect(parseConsumersQuery({})).toEqual({ range: "24h", by: "consumers", group: null, consumer: null, tab: "requests" });
+    expect(parseConsumersQuery({})).toEqual(DEFAULTS);
   });
 
   it("reads known values and drops the rest", () => {
-    expect(parseConsumersQuery({ range: "7d", by: "groups", group: GID.toUpperCase(), consumer: "acme", tab: "errors" })).toEqual({
+    expect(parseConsumersQuery({ range: "7d", group: " Acme Corp ", consumer: "usr_1f3a9c", tab: "errors", q: " priya ", sort: "last_seen" })).toEqual({
       range: "7d",
-      by: "groups",
-      group: GID,
-      consumer: "acme",
+      by: "consumers",
+      group: "Acme Corp",
+      consumer: "usr_1f3a9c",
       tab: "errors",
+      q: "priya",
+      sort: "last_seen",
     });
-    expect(parseConsumersQuery({ range: "30d", by: "x", group: "nope", consumer: "x".repeat(257), tab: "y" })).toEqual(parseConsumersQuery({}));
+    expect(parseConsumersQuery({ range: "30d", by: "x", group: "x".repeat(257), consumer: "x".repeat(257), tab: "y", q: "  ", sort: "p95" })).toEqual(DEFAULTS);
     expect(parseConsumersQuery({ range: ["6h", "7d"] }).range).toBe("6h");
+  });
+
+  it("sorts groups by users too, and never filters groups by a group", () => {
+    expect(parseConsumersQuery({ by: "groups", sort: "consumers", group: "Initech" })).toMatchObject({ by: "groups", sort: "consumers", group: null });
+    expect(parseConsumersQuery({ sort: "consumers" }).sort).toBe("requests");
   });
 });
 
 describe("consumersHref", () => {
   it("leaves defaults out and encodes the consumer", () => {
     expect(consumersHref("shop", {})).toBe("/shop/consumers");
-    expect(consumersHref("shop", { range: "24h", by: "consumers", tab: "requests" })).toBe("/shop/consumers");
+    expect(consumersHref("shop", DEFAULTS as never)).toBe("/shop/consumers");
     expect(consumersHref("shop", { range: "7d", consumer: "acme/eu 1", tab: "errors" })).toBe("/shop/consumers?range=7d&consumer=acme%2Feu+1&tab=errors");
-    expect(consumersHref("shop", { group: GID })).toBe(`/shop/consumers?group=${GID}`);
+    expect(consumersHref("shop", { group: "Acme Corp", q: "priya", sort: "errors" })).toBe("/shop/consumers?group=Acme+Corp&q=priya&sort=errors");
+    expect(groupHref("shop", "Umbrella Health", "1h")).toBe("/shop/consumers?range=1h&group=Umbrella+Health");
   });
 
-  it("drops the group filter and tab where they do not apply", () => {
-    expect(consumersHref("shop", { by: "groups", group: GID })).toBe("/shop/consumers?by=groups");
+  it("drops what does not apply, and never carries a page", () => {
+    expect(consumersHref("shop", { by: "groups", group: "Initech", sort: "consumers" })).toBe("/shop/consumers?by=groups&sort=consumers");
+    expect(consumersHref("shop", { sort: "consumers" })).toBe("/shop/consumers");
     expect(consumersHref("shop", { tab: "errors" })).toBe("/shop/consumers");
+    expect(consumersHref("shop", { consumer: "u1", q: "x", group: "G", sort: "errors" })).toBe("/shop/consumers?consumer=u1");
+    expect(consumersHref("shop", { page: 3 } as never)).toBe("/shop/consumers");
+  });
+});
+
+describe("bucketTimes", () => {
+  it("lists each bucket's start", () => {
+    expect(bucketTimes("2026-11-05T14:00:00Z", 900, 3)).toEqual(["2026-11-05T14:00:00.000Z", "2026-11-05T14:15:00.000Z", "2026-11-05T14:30:00.000Z"]);
+    expect(bucketTimes("", 900, 3)).toEqual([]);
+    expect(bucketTimes("2026-11-05T14:00:00Z", 0, 3)).toEqual([]);
   });
 });
 
@@ -107,50 +124,5 @@ describe("sparklinePoints", () => {
     expect(sparklinePoints([0, 5, 10], 100, 22)).toBe("0,21 50,11 100,1");
     expect(sparklinePoints([0, 0], 10, 10)).toBe("0,9 10,9");
     expect(sparklinePoints([], 10, 10)).toBe("");
-  });
-});
-
-describe("rollupGroups", () => {
-  const group = (id: string, name: string): ConsumerGroup => ({ id, name, consumers: 0, created_at: "", updated_at: "" });
-  const row = (id: string, groupId: string | null, requests: number, c4: number, c5: number, spark: number[]): ConsumerRow => ({
-    consumer_id: id,
-    consumer_name: id,
-    group: groupId ? { id: groupId, name: groupId } : undefined,
-    first_seen: "",
-    last_seen: "",
-    new: false,
-    requests,
-    successful: requests - c4 - c5,
-    client_errors: c4,
-    server_errors: c5,
-    sparkline: spark,
-  });
-
-  it("sums each group's listed consumers, keeping empty groups", () => {
-    const out = rollupGroups(
-      [group("a", "Partners"), group("b", "Internal")],
-      [row("c1", "a", 10, 1, 0, [4, 6]), row("c2", "a", 5, 0, 2, [5, 0]), row("c3", null, 99, 9, 9, [99, 0])],
-    );
-    expect(out.map((g) => [g.group.name, g.active, g.requests, g.client_errors, g.server_errors, g.sparkline])).toEqual([
-      ["Partners", 2, 15, 1, 2, [9, 6]],
-      ["Internal", 0, 0, 0, 0, []],
-    ]);
-  });
-});
-
-describe("groups", () => {
-  it("checks names like the API", () => {
-    expect(checkGroupName("  Partners ")).toEqual({ ok: true, name: "Partners" });
-    expect(checkGroupName("   ").ok).toBe(false);
-    expect(checkGroupName(42).ok).toBe(false);
-    expect(checkGroupName("x".repeat(128)).ok).toBe(true);
-    expect(checkGroupName("x".repeat(129)).ok).toBe(false);
-  });
-
-  it("says what went wrong", () => {
-    expect(groupError("conflict")).toMatch(/already has a group/);
-    expect(groupError("forbidden")).toMatch(/Ask a project admin/);
-    expect(groupError("unavailable")).toMatch(/couldn’t reach/);
-    expect(groupError("weird")).toMatch(/Something went wrong/);
   });
 });
