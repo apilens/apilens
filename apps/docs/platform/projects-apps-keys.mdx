@@ -1,45 +1,133 @@
 ---
 title: "Projects, apps & API keys"
-description: "How APILens organizes your services — and why keys are project-level."
+description: "A project is your product, an app is one service in it, and keys are per project. Apps come from the SDK: the app name your service sends creates the app."
 ---
 
-APILens is structured around how modern backends are actually built: a product is rarely one service. The hierarchy is simple:
+APILens follows how backends are built: a product is rarely one service.
 
 ```
-Project  (your product, e.g. "Neel's Store")
+Project  (your product, e.g. "Store")
  ├── App: catalog-service      ─┐
- ├── App: cart-service          │  one project-level API key
- ├── App: payment-service       ├─ authenticates all of them;
- ├── App: order-service         │  app_id attributes the traffic
+ ├── App: cart-service          │  API keys belong to the project;
+ ├── App: payment-service       ├─ the app name each SDK sends
+ ├── App: order-service         │  decides which app the data is for
  └── App: inventory-service    ─┘
 ```
 
-<Frame caption="One project, one app per microservice">
+<Frame caption="One project, one app per service">
   <img src="/images/apps.png" alt="Apps in a project" />
 </Frame>
 
-## Projects
+| | What it is | Who creates it |
+|---|---|---|
+| **Project** | One product or system. Its dashboards, consumers and traces span all its apps. | You, in the dashboard. |
+| **App** | One deployable service of the project (`orders-api`, `payments`). | The SDK, the first time it sends data with an app name the project does not have. Each project also has a **default app**. |
+| **API key** | A secret that lets a service send data to one project. A project can have many named keys. | You, in **Project settings → API keys**. |
 
-A project groups the services of one product so they share a dashboard: the Traffic page aggregates across apps (filterable per app), consumers are project-wide, and traces stitch across services. Project names and slugs are globally unique.
+## Apps come from the SDK
 
-## Apps
+You don't register apps before you instrument a service. Configure the SDK with the service's name, deploy, and the app appears on the **Apps** page with its first request:
 
-An app is one deployable service. Its slug is the **`app_id`** you pass to the SDK, and it's what the app selector filters by. Create one app per service — not per environment; environments (`production`, `staging`, …) are a label on the telemetry itself, set via the SDK's `environment` option.
+<CodeGroup>
+```python Python
+app.add_middleware(ApiLensMiddleware, api_key=os.environ["APILENS_API_KEY"], app_id="Orders API")
+```
+```ts TypeScript
+useApiLens(app, { apiKey: process.env.APILENS_API_KEY, appId: "orders-api" });
+```
+```yaml Spring Boot
+apilens:
+  api-key: ${APILENS_API_KEY}
+  app-id: orders-api
+```
+</CodeGroup>
+
+The name is normalised to the app's **slug**: lower case, spaces and underscores become `-`, other characters are dropped, at most 63 characters. `Orders API`, `orders_api` and `orders-api` are the same app. The text you sent first is kept as the app's display name; you can rename it later without changing the slug.
+
+### Where the SDK gets the app name
+
+All three SDKs (Python, TypeScript, Java) look in this order and log once at startup which name they use and where it came from:
+
+1. The value in code or config: `app_id` (Python), `appId` (TypeScript, Java), `apilens.app-id` (Spring Boot), `APILENS_APP_ID` (Django setting).
+2. The environment variable `APILENS_APP_ID`.
+3. The environment variable `OTEL_SERVICE_NAME`, so services already named for OpenTelemetry need nothing new.
+4. Nothing: the data goes to the project's **default app**.
+
+```log
+APILens: app "orders-api" (from APILENS_APP_ID)
+APILens: no app name configured; data goes to the project's default app (set app_id, APILENS_APP_ID or OTEL_SERVICE_NAME)
+```
+
+OpenTelemetry exporters sending to `/otlp/v1/*` are attributed by the resource attribute `apilens.app`, else `service.name`.
+
+### The default app
+
+Every project has a default app, created with the project and named after it. Records that carry no app name land there. It cannot be archived, merged or deleted.
 
 ## API keys
 
-Keys live at the **project** level: create them in **Settings → API keys**, and one key authenticates ingest for every app in the project.
+Keys belong to the **project**. Create them in **Project settings → API keys**; the full key is shown once, then only its prefix. Name keys after who uses them (`prod-backend`, `team-payments`, `deploy-pipeline`) so the Apps page can tell you which key brought an app in, and so you can revoke one without touching the others.
 
-- The full key is shown **once**, at creation. Afterwards only the prefix and last-used time are visible.
-- Keys can be named (per deploy environment or per team) and revoked independently.
-- `last_used_at` tells you whether a key is still active before you revoke it.
+Each key shows its permissions, which apps it may send for, the apps it has actually sent data for, and when it was last used.
 
-<Tip>
-One key per *deployment environment* (e.g. `prod-key`, `staging-key`) is a good default — you can revoke staging experiments without touching production, and `last_used_at` stays meaningful.
-</Tip>
+### Can create apps
 
-Why project-level instead of per-app? Adding a sixth microservice shouldn't mean minting and distributing a sixth secret. The key authenticates *the project*; the SDK's `app_id` (which is not a secret) does the attribution. If a key leaks, you rotate one credential and redeploy the project's services with the new value.
+A new key **can create apps** by default (the `apps:create` permission): data with an app name the project does not have creates the app. Turn it off for a key when apps should only come from names that already exist, for example a shared CI key. Data from such a key that names an unknown app is rejected with:
+
+```json
+{"error": "app_create_forbidden", "detail": "app \"orders-api\" does not exist in project store and this API key cannot create apps; turn on \"Can create apps\" for the key in Project settings → API keys, or send an existing app name"}
+```
+
+### Limit a key to some apps
+
+A key can be limited to a list of apps (**Limit to apps**). Data for any other app is rejected with `app_not_allowed`, and a limited key never creates apps. Use it when one team's key must not write into another team's services. It limits what a key can **send**; everyone in the project still **sees** every app (see [separate projects](#recommended-setup) when that matters).
+
+Permission and scope changes apply to the next request: every ingest process drops the cached key.
+
+## Limits
+
+Two guards keep a misconfigured app name (for example one that includes a hostname or pod id) from flooding a project with apps:
+
+| Setting | Default | What happens over it |
+|---|---|---|
+| `ingest.max_apps_per_project` | `50` | The new app is not created (`app_limit`). |
+| `ingest.max_new_apps_per_hour` | `10` per project | The new app is not created (`app_rate_limit`) until the hour has passed. |
+
+Self-hosted installs set them in the config file or as `APILENS_INGEST__MAX_APPS_PER_PROJECT` and `APILENS_INGEST__MAX_NEW_APPS_PER_HOUR`; `0` disables a limit.
+
+Only the records for the **new** app are rejected; everything else in the same batch is stored. The response says what happened:
+
+```json
+{
+  "accepted": 120,
+  "rejected": [
+    {"app_id": "orders-api-7f9c", "app": "orders-api-7f9c", "records": 3, "error": "app_rate_limit",
+     "detail": "app \"orders-api-7f9c\" was not created: 10 new apps were already created in project store in the last hour (ingest.max_new_apps_per_hour); check that the SDK's app name does not change per process or deploy, or try again later"}
+  ]
+}
+```
+
+The **Apps** page shows a notice with the rejected counts per app name and reason for the last 7 days, and the Prometheus counter `apilens_ingest_app_rejected_records_total{reason}` counts them too.
+
+## Managing apps
+
+From the actions menu of an app on the **Apps** page (project admins and organization owners and admins):
+
+- **New app detected.** An app the SDK created in the last 7 days is flagged until someone keeps it (**Keep**) or merges it into another app.
+- **Rename** changes the display name. The slug, which SDKs send, never changes.
+- **Archive** hides an app you no longer use. If data for it arrives again, it comes back automatically (and the audit log records `app.restored` by the SDK).
+- **Merge into…** fixes typos and forks: merging `ordrs-api` into `orders-api` archives `ordrs-api` and makes its name an alias, so **future** data sent as `ordrs-api` lands in `orders-api`. Data already stored is **not** rewritten and stays under the old app. **Restore** undoes the merge for future data.
+- **Delete** removes an app. Its name stays reserved for **30 days**: data naming it is rejected with `app "X" was deleted on <date>; restore it from Apps`, and **Restore** brings it back. After 30 days a new app may be created with that name.
+
+Archived, merged and recently deleted apps are listed in the collapsed **Archived** section.
+
+## Recommended setup
+
+- **One project per product.** Everything a customer request can touch belongs together, so traces and consumers stitch across services.
+- **One app per service**, named the same in every environment. Environments (`production`, `staging`) are a label on the data (the SDK's `environment` option), not separate apps.
+- **A named key per team or deploy pipeline.** You can see which key brought each app in, limit a team's key to its own apps, and revoke one key without redeploying everything.
+- **Separate projects when teams must not see each other's data.** App scoping limits what a key can write; it does not hide data from project members.
 
 ## Dashboard sign-in
 
-The dashboard itself (your human account, not the telemetry) authenticates via the APILens identity service: magic-link email, passkeys (WebAuthn), or password — with optional TOTP two-factor and backup codes. Dashboard sessions never share credentials with ingest; API keys can't log into the dashboard and dashboard sessions can't ingest telemetry.
+The dashboard (your human account, not the telemetry) authenticates via the APILens identity service: magic-link email, passkeys, or password, with optional TOTP two-factor. API keys cannot sign in to the dashboard and dashboard sessions cannot send telemetry.

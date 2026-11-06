@@ -1,8 +1,9 @@
 import { RANGE_LABEL, formatCount } from "@/lib/consumers";
 import { latencyBucketLabel } from "@/lib/endpoint-detail";
-import type { AppSettings, EndpointTraffic, NamedApp, TrafficLatency } from "@/lib/identity";
+import type { AppSettings, EndpointTraffic, NamedApp, QueryRange, TrafficLatency } from "@/lib/identity";
 import {
   PERFORMANCE_LOAD_FAILED,
+  PERF_ENDPOINTS_LIMIT,
   PERF_ENDPOINTS_LOAD_FAILED,
   type PerformanceState,
   apdexExplanation,
@@ -11,10 +12,12 @@ import {
   perfScopeText,
   performanceHref,
 } from "@/lib/performance";
+import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { TRAFFIC_RANGES, formatApdex, formatLatency } from "@/lib/traffic";
 import { Histogram, LinesChart } from "../endpoint/charts";
 import { ScopeSelect } from "../endpoint/filters";
 import { ObIcon } from "../onboarding/ob";
+import { Pagination } from "../pagination/pagination";
 import { Sparkline } from "../traffic/charts";
 import { LiveControl, LiveNumber } from "../traffic/live";
 import { ApdexTile } from "./apdex";
@@ -45,6 +48,7 @@ export function PerformanceView({
   latency,
   endpoints,
   threshold,
+  params = {},
 }: {
   project: string;
   projectName: string;
@@ -53,6 +57,8 @@ export function PerformanceView({
   latency: TrafficLatency | null;
   endpoints: EndpointTraffic[] | null;
   threshold: AppThresholdLoad;
+  /** The page's search params as read, for the endpoints table's `?page=&per=`. */
+  params?: SearchParams;
 }) {
   const href = (patch: Partial<PerformanceState>) => performanceHref(project, { ...q, ...patch });
   // A shared link may name an environment the project no longer lists; keep it selectable.
@@ -61,7 +67,7 @@ export function PerformanceView({
   const explanation = apdexExplanation(app && settings ? { name: app.name, thresholdMs: settings.apdex_threshold_ms } : null);
 
   return (
-    <div className="tr pf">
+    <div className="page tr pf">
       <header className="pagehead">
         <p className="cp-h">{projectName} · Performance</p>
         <h1 className="cp-lede">Performance</h1>
@@ -106,7 +112,7 @@ export function PerformanceView({
         </div>
       ) : (
         <>
-          <Tiles latency={latency} explanation={explanation} />
+          <Tiles latency={latency} explanation={explanation} range={q.range} />
           <section className="tr-card" aria-labelledby="pf-over-time">
             <h2 id="pf-over-time">Response time over time</h2>
             <LinesChart
@@ -135,7 +141,7 @@ export function PerformanceView({
           {endpoints === null ? (
             <LoadFailed text={PERF_ENDPOINTS_LOAD_FAILED} href={href({})} />
           ) : (
-            <EndpointsTable project={project} q={q} endpoints={byP95(endpoints)} />
+            <EndpointsTable project={project} q={q} endpoints={byP95(endpoints)} params={params} />
           )}
         </section>
       ) : null}
@@ -157,13 +163,13 @@ function LoadFailed({ text, href }: { text: string; href: string }) {
   );
 }
 
-function Tiles({ latency, explanation }: { latency: TrafficLatency; explanation: readonly string[] }) {
+function Tiles({ latency, explanation, range }: { latency: TrafficLatency; explanation: readonly string[]; range: QueryRange }) {
   const s = latency.summary;
   const points = latency.points ?? [];
   const tiles = [
-    { label: "p50 response time", value: s.p50_ms, sub: `average ${formatLatency(s.avg_ms)}`, key: "p50_ms" as const },
-    { label: "p75 response time", value: s.p75_ms, sub: `p90 ${formatLatency(s.p90_ms)}`, key: "p75_ms" as const },
-    { label: "p95 response time", value: s.p95_ms, sub: `p99 ${formatLatency(s.p99_ms)}, slowest ${formatLatency(s.max_ms)}`, key: "p95_ms" as const },
+    { label: "p50 response time", short: "p50", value: s.p50_ms, sub: `average ${formatLatency(s.avg_ms)}`, key: "p50_ms" as const },
+    { label: "p75 response time", short: "p75", value: s.p75_ms, sub: `p90 ${formatLatency(s.p90_ms)}`, key: "p75_ms" as const },
+    { label: "p95 response time", short: "p95", value: s.p95_ms, sub: `p99 ${formatLatency(s.p99_ms)}, slowest ${formatLatency(s.max_ms)}`, key: "p95_ms" as const },
   ];
   return (
     <dl className="tr-tiles pf-tiles">
@@ -175,7 +181,7 @@ function Tiles({ latency, explanation }: { latency: TrafficLatency; explanation:
               <LiveNumber text={formatLatency(t.value)} />
             </span>
             <span className="tr-tile__sub">{t.sub}</span>
-            <Sparkline values={points.map((p) => p[t.key])} />
+            <Sparkline values={points.map((p) => p[t.key])} hover={{ label: t.short, range, points: points.map((p) => ({ ts: p.ts, text: formatLatency(p[t.key]) })) }} />
           </dd>
         </div>
       ))}
@@ -196,56 +202,62 @@ function HistogramCard({ latency }: { latency: TrafficLatency }) {
   );
 }
 
-function EndpointsTable({ project, q, endpoints }: { project: string; q: PerformanceState; endpoints: EndpointTraffic[] }) {
-  if (endpoints.length === 0) {
+function EndpointsTable({ project, q, endpoints: all, params }: { project: string; q: PerformanceState; endpoints: EndpointTraffic[]; params: SearchParams }) {
+  if (all.length === 0) {
     return (
       <p className="tr-empty" role="status">
         No endpoints with requests in {perfScopeText(q)}.
       </p>
     );
   }
+  // Paged here, slowest first; the range, environment and app links leave `page` out (page 1).
+  const { rows: endpoints, window } = slicePage(all, parsePage(params));
   return (
-    <table className="tr-table" aria-label="Endpoints by p95 response time">
-      <thead>
-        <tr>
-          <th scope="col">Endpoint</th>
-          <th scope="col" className="tr-num">
-            Requests
-          </th>
-          <th scope="col" className="tr-num">
-            p50
-          </th>
-          <th scope="col" className="tr-num" aria-sort="descending">
-            p95
-          </th>
-          <th scope="col" className="tr-num">
-            Apdex
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {endpoints.map((ep) => (
-          <tr key={`${ep.method} ${ep.path}`} className="tr-row">
-            <td className="tr-ep" data-label="Endpoint">
-              <a className="tr-ep__link" href={endpointLatencyHref(project, ep, q)}>
-                <b>{ep.method.toUpperCase()}</b> <code>{ep.path}</code>
-              </a>
-            </td>
-            <td className="tr-num" data-label="Requests">
-              {formatCount(ep.requests)}
-            </td>
-            <td className="tr-num" data-label="p50">
-              {formatLatency(ep.p50_ms)}
-            </td>
-            <td className="tr-num" data-label="p95">
-              {formatLatency(ep.p95_ms)}
-            </td>
-            <td className="tr-num" data-label="Apdex">
-              {formatApdex(ep.apdex)}
-            </td>
+    <>
+      <table className="tr-table" aria-label="Endpoints by p95 response time">
+        <thead>
+          <tr>
+            <th scope="col">Endpoint</th>
+            <th scope="col" className="tr-num">
+              Requests
+            </th>
+            <th scope="col" className="tr-num">
+              p50
+            </th>
+            <th scope="col" className="tr-num" aria-sort="descending">
+              p95
+            </th>
+            <th scope="col" className="tr-num">
+              Apdex
+            </th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {endpoints.map((ep) => (
+            <tr key={`${ep.method} ${ep.path}`} className="tr-row">
+              <td className="tr-ep" data-label="Endpoint">
+                <a className="tr-ep__link" href={endpointLatencyHref(project, ep, q)}>
+                  <b>{ep.method.toUpperCase()}</b> <code>{ep.path}</code>
+                </a>
+              </td>
+              <td className="tr-num" data-label="Requests">
+                {formatCount(ep.requests)}
+              </td>
+              <td className="tr-num" data-label="p50">
+                {formatLatency(ep.p50_ms)}
+              </td>
+              <td className="tr-num" data-label="p95">
+                {formatLatency(ep.p95_ms)}
+              </td>
+              <td className="tr-num" data-label="Apdex">
+                {formatApdex(ep.apdex)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Pagination pathname={performanceHref(project, {})} params={params} total={window.total} label="Endpoints by p95 pages" />
+      {all.length >= PERF_ENDPOINTS_LIMIT ? <p className="tr-cap">The {formatCount(PERF_ENDPOINTS_LIMIT)} busiest endpoints are ranked.</p> : null}
+    </>
   );
 }

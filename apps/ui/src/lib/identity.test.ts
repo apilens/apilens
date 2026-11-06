@@ -394,6 +394,15 @@ describe("operations", () => {
       (c) => c.createApiKey("a/b?c", { name: "ingest", scopes: ["ingest"] }, authed),
     ],
     ["DELETE", "/projects/{slug}/api-keys/{id}", (c) => c.revokeApiKey("a/b?c", "a/b?c", authed)],
+    ["PUT", "/projects/{slug}/api-keys/{id}/access", (c) => c.updateApiKeyAccess("a/b?c", "a/b?c", { can_create_apps: false, app_ids: ["a1"] }, authed)],
+    ["GET", "/projects/{slug}/apps", (c) => c.listManagedApps("a/b?c", authed)],
+    ["PATCH", "/projects/{slug}/apps/{id}", (c) => c.renameApp("a/b?c", "a/b?c", "Orders", authed)],
+    ["POST", "/projects/{slug}/apps/{id}/archive", (c) => c.archiveApp("a/b?c", "a/b?c", authed)],
+    ["POST", "/projects/{slug}/apps/{id}/restore", (c) => c.restoreApp("a/b?c", "a/b?c", authed)],
+    ["POST", "/projects/{slug}/apps/{id}/acknowledge", (c) => c.acknowledgeApp("a/b?c", "a/b?c", authed)],
+    ["POST", "/projects/{slug}/apps/{id}/merge", (c) => c.mergeApp("a/b?c", "a/b?c", "b1", authed)],
+    ["DELETE", "/projects/{slug}/apps/{id}", (c) => c.deleteApp("a/b?c", "a/b?c", authed)],
+    ["GET", "/projects/{slug}/app-rejections", (c) => c.appRejections("a/b?c", 7, authed)],
     ["GET", "/projects/{slug}/privacy-policy", (c) => c.getPrivacyPolicy("a/b?c", authed)],
     [
       "PUT",
@@ -414,14 +423,11 @@ describe("operations", () => {
     ["GET", "/traffic/timeseries", (c) => c.trafficTimeseries("web", { range: "7d" }, authed)],
     ["GET", "/traffic/latency", (c) => c.trafficLatency("web", { range: "7d" }, authed)],
     ["GET", "/deploys/changes", (c) => c.deployChanges("web", { range: "7d" }, authed)],
+    ["GET", "/deploys/{id}", (c) => c.getDeploy("web", "a/b?c", authed)],
+    ["GET", "/deploys/{id}/comparison", (c) => c.deployComparison("web", "a/b?c", authed)],
     ["GET", "/consumers", (c) => c.listConsumers("web", { range: "7d" }, authed)],
     ["GET", "/consumers/{consumer_id}", (c) => c.getConsumer("web", "a/b?c", { range: "7d" }, authed)],
-    ["GET", "/projects/{slug}/consumer-groups", (c) => c.listConsumerGroups("a/b?c", authed)],
-    ["POST", "/projects/{slug}/consumer-groups", (c) => c.createConsumerGroup("a/b?c", "Partners", authed)],
-    ["PUT", "/projects/{slug}/consumer-groups/{id}", (c) => c.renameConsumerGroup("a/b?c", "a/b?c", "Partners", authed)],
-    ["DELETE", "/projects/{slug}/consumer-groups/{id}", (c) => c.deleteConsumerGroup("a/b?c", "a/b?c", authed)],
-    ["PUT", "/projects/{slug}/consumers/{consumer_id}/group", (c) => c.assignConsumerGroup("a/b?c", "a/b?c", "g1", authed)],
-    ["DELETE", "/projects/{slug}/consumers/{consumer_id}/group", (c) => c.unassignConsumerGroup("a/b?c", "a/b?c", authed)],
+    ["GET", "/consumer-groups", (c) => c.listConsumerGroupTraffic("web", { range: "7d", sort: "consumers" }, authed)],
     ["GET", "/projects/{slug}/views", (c) => c.listSavedViews("a/b?c", "explore", authed)],
     ["POST", "/projects/{slug}/views", (c) => c.createSavedView("a/b?c", { name: "5xx", surface: "explore", filter: {}, shared: false }, authed)],
     ["PUT", "/projects/{slug}/views/{id}", (c) => c.updateSavedView("a/b?c", "a/b?c", { name: "5xx", filter: {}, shared: true }, authed)],
@@ -459,7 +465,7 @@ describe("operations", () => {
     await client.trafficSummary("my-api", "24h", authed);
     await client.listEndpoints("my-api", { range: "7d", limit: 500 }, authed);
     await client.deployChanges("my-api", { range: "7d", limit: 25 }, authed);
-    await client.listConsumers("my-api", { range: "6h", group: "g1", limit: 100 }, authed);
+    await client.listConsumers("my-api", { range: "6h", group: "Acme Corp", search: "priya", sort: "errors", limit: 25, offset: 50 }, authed);
     await client.getConsumer("my-api", "acme", { range: "1h" }, authed);
     await client.trafficSummary("my-api", { range: "6h", env: "production" }, authed);
     await client.trafficTimeseries("my-api", { range: "1h", env: "" }, authed);
@@ -469,7 +475,7 @@ describe("operations", () => {
       { project: "my-api", range: "24h" },
       { project: "my-api", range: "7d", limit: "500" },
       { project: "my-api", range: "7d", limit: "25" },
-      { project: "my-api", range: "6h", group: "g1", limit: "100" },
+      { project: "my-api", range: "6h", group: "Acme Corp", search: "priya", sort: "errors", limit: "25", offset: "50" },
       { project: "my-api", range: "1h" },
       { project: "my-api", range: "6h", env: "production" },
       { project: "my-api", range: "1h" },

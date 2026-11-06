@@ -16,6 +16,8 @@ export function ExploreView({
   environments,
   query,
   rows,
+  trail,
+  older,
   timeline,
   views,
   me,
@@ -26,24 +28,40 @@ export function ExploreView({
   environments: readonly string[];
   query: ExploreState;
   rows: RequestRow[] | null;
+  /** The cursors walked back to this page of the log (empty on the newest page). */
+  trail: string[];
+  /** The API's cursor of the rows older than these ("" when there are none). */
+  older: string;
   timeline: RequestTimeline | null;
   views: SavedView[] | null;
   me: string;
   now: number;
 }) {
   return (
-    <div className="ex">
+    <div className="page ex">
       <SavedViews project={project} me={me} query={query} initial={views}>
         <header className="pagehead">
           <p className="cp-h">{projectName} · Explore</p>
           <h1 className="cp-lede">Explore</h1>
           <p className="ex-lead">Every request your API served, newest first, as the SDK reported it.</p>
-          <div className="ex-head__actions">
-            <ViewSwitcher />
-            <ExportMenu project={project} query={query} />
-          </div>
         </header>
-        <RequestLog project={project} environments={environments} query={query} initial={rows} timeline={timeline} now={now} />
+        {/* One toolbar row: range, filters, then the saved view and Export at the right edge. */}
+        <RequestLog
+          project={project}
+          environments={environments}
+          query={query}
+          initial={rows}
+          trail={trail}
+          older={older}
+          timeline={timeline}
+          now={now}
+          actions={
+            <>
+              <ViewSwitcher />
+              <ExportMenu project={project} query={query} />
+            </>
+          }
+        />
       </SavedViews>
     </div>
   );

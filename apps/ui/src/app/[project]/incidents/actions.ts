@@ -36,7 +36,7 @@ function ruleDraft(v: unknown): RuleDraft {
     notify_after_min: str(o.notify_after_min, 16),
     resolve_after_min: str(o.resolve_after_min, 16),
     consumer: str(o.consumer, 1024),
-    group: str(o.group, 64),
+    group: str(o.group, 1024),
     endpoint: str(o.endpoint),
     channel_ids: Array.isArray(o.channel_ids) ? o.channel_ids.filter(isId).slice(0, 64) : [],
     enabled: o.enabled !== false,

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  logCaption,
+  logPages,
   LOG_LIMIT,
   OVERSCAN,
   ROW_HEIGHT,
@@ -16,6 +18,8 @@ import {
   scopeText,
   statusClass,
   visibleWindow,
+  logTime,
+  statusQuickHref,
 } from "./explore";
 import { NO_FILTERS } from "./explore-filters";
 
@@ -73,22 +77,24 @@ describe("row formatting", () => {
   });
   it("keys rows by trace id, else by time and position", () => {
     expect(rowKey({ timestamp: "t", trace_id: "abc" }, 3)).toBe("abc");
+    expect(rowKey({ id: "r1", timestamp: "t", trace_id: "abc" }, 3)).toBe("r1");
     expect(rowKey({ timestamp: "t", trace_id: "" }, 3)).toBe("t#3");
   });
 });
 
 describe("visibleWindow", () => {
+  // Expressed in rows, so the cases hold whatever ROW_HEIGHT is: a viewport of 15 rows.
+  const VIEW = 15 * ROW_HEIGHT;
   it("renders the rows in view plus overscan, never all 200", () => {
-    const w = visibleWindow(0, 600, 200);
-    expect(w).toEqual({ start: 0, end: 600 / ROW_HEIGHT + OVERSCAN });
-    const mid = visibleWindow(4000, 600, 200);
+    expect(visibleWindow(0, VIEW, 200)).toEqual({ start: 0, end: 15 + OVERSCAN });
+    const mid = visibleWindow(100 * ROW_HEIGHT, VIEW, 200);
     expect(mid).toEqual({ start: 100 - OVERSCAN, end: 100 + 15 + OVERSCAN });
     expect(mid.end - mid.start).toBeLessThan(40);
   });
   it("clamps to the row count", () => {
-    expect(visibleWindow(7600, 600, 200)).toEqual({ start: 190 - OVERSCAN, end: 200 });
-    expect(visibleWindow(99_999, 600, 10)).toEqual({ start: 10, end: 10 });
-    expect(visibleWindow(0, 600, 0)).toEqual({ start: 0, end: 0 });
+    expect(visibleWindow(190 * ROW_HEIGHT, VIEW, 200)).toEqual({ start: 190 - OVERSCAN, end: 200 });
+    expect(visibleWindow(99_999, VIEW, 10)).toEqual({ start: 10, end: 10 });
+    expect(visibleWindow(0, VIEW, 0)).toEqual({ start: 0, end: 0 });
   });
   it("renders one screen from the top before layout", () => {
     expect(visibleWindow(0, 0, 200)).toEqual({ start: 0, end: 20 + OVERSCAN });
@@ -113,10 +119,33 @@ describe("moveFocus", () => {
   });
 });
 
+describe("older pages", () => {
+  const q = parseExploreQuery({ range: "6h", status: "5xx" });
+  it("walks older with the API cursor, keeping the range and filters, and back", () => {
+    const first = logPages("shop", q, [], "c1");
+    expect(first.page).toBe(1);
+    expect(first.newerHref).toBeNull();
+    expect(first.olderHref).toBe("/shop/explore?range=6h&status=5xx&cursor=c1");
+    const second = logPages("shop", q, ["c1"], "c2");
+    expect(second.page).toBe(2);
+    expect(second.olderHref).toBe("/shop/explore?range=6h&status=5xx&cursor=c1.c2");
+    expect(second.newerHref).toBe("/shop/explore?range=6h&status=5xx");
+    expect(second.newestHref).toBe("/shop/explore?range=6h&status=5xx");
+    expect(logPages("shop", q, ["c1"], "").olderHref).toBeNull();
+  });
+  it("never carries the cursor into a range or filter link", () => {
+    expect(exploreHref("shop", q)).not.toContain("cursor");
+  });
+  it("captions the newest and an older page", () => {
+    expect(logCaption(q, 1, 200, true)).toBe("The newest 200 requests in the last 6 hours matching the filters, newest first.");
+    expect(logCaption(q, 3, 12, false)).toBe("Requests 401–412 from the newest in the last 6 hours, newest first. Live updates run on the newest page only.");
+  });
+});
+
 describe("logPoll", () => {
   it("reads rows", () => {
-    expect(logPoll(200, { ok: true, requests: [{ method: "GET" }] })).toEqual({ kind: "rows", rows: [{ method: "GET" }] });
-    expect(logPoll(200, { ok: true, requests: null })).toEqual({ kind: "rows", rows: [] });
+    expect(logPoll(200, { ok: true, requests: [{ method: "GET" }], next_cursor: "c1" })).toEqual({ kind: "rows", rows: [{ method: "GET" }], older: "c1" });
+    expect(logPoll(200, { ok: true, requests: null })).toEqual({ kind: "rows", rows: [], older: "" });
   });
   it("sends an expired session to sign in", () => {
     expect(logPoll(401, { ok: false, code: "session_expired", next: "/sign-in?reason=session_expired" })).toEqual({
@@ -128,5 +157,32 @@ describe("logPoll", () => {
     expect(logPoll(503, { ok: false, code: "unavailable" })).toEqual({ kind: "error", code: "unavailable" });
     expect(logPoll(502, null)).toEqual({ kind: "error", code: "unavailable" });
     expect(logPoll(0, "nope")).toEqual({ kind: "error", code: "network_error" });
+  });
+});
+
+describe("logTime", () => {
+  const now = Date.parse("2026-11-06T10:52:00Z");
+  it("shows the UTC clock time to the millisecond, without a day for today", () => {
+    expect(logTime("2026-11-06T10:51:03.214Z", now)).toEqual({ day: "", clock: "10:51:03", ms: ".214" });
+  });
+  it("puts the day in front for another UTC day", () => {
+    expect(logTime("2026-11-05T23:59:59.007Z", now)).toEqual({ day: "Nov 5", clock: "23:59:59", ms: ".007" });
+  });
+  it("reads an unparseable time as a dash", () => {
+    expect(logTime("nope", now)).toEqual({ day: "", clock: "–", ms: "" });
+  });
+});
+
+describe("statusQuickHref", () => {
+  const q = { range: "6h" as const, filters: { ...NO_FILTERS, method: "POST" }, at: "2026-11-06T10:00:00Z" };
+  it("narrows to a status class, keeping the other filters and the range", () => {
+    const r = statusQuickHref("demo", q, "5xx");
+    expect(r.active).toBe(false);
+    expect(r.href).toBe("/demo/explore?range=6h&method=POST&status=5xx");
+  });
+  it("clears the status filter when that class is already on", () => {
+    const r = statusQuickHref("demo", { ...q, filters: { ...q.filters, status: "5xx" } }, "5xx");
+    expect(r.active).toBe(true);
+    expect(r.href).toBe("/demo/explore?range=6h&method=POST");
   });
 });

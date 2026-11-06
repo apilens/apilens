@@ -67,12 +67,12 @@ Requires Python 3.10+. The only hard dependencies are `opentelemetry-api` and
 
 ---
 
-## The two values you need
+## The values you need
 
 | Value | What it is | Where to find it |
 |-------|-----------|------------------|
 | `api_key` | **Project-level** key. One key works for every app in the project — the server derives the project from the key. | Project → API keys, in the [dashboard](https://app.apilens.ai). |
-| `app_id` | The slug of the specific app (service) you're instrumenting, so traffic is attributed to the right app. | The app's page in the dashboard. |
+| `app_id` | *Optional.* Name of the app (service) you're instrumenting, e.g. `"orders-api"` or `"Orders API"` — the server normalizes it to a slug and creates apps it hasn't seen. Falls back to env `APILENS_APP_ID`, then `OTEL_SERVICE_NAME`; with none set, data goes to the project's default app. | Any name you choose, or the app's page in the dashboard. |
 
 `project_slug` is **optional** — you only pass it if you want the SDK to assert
 the key belongs to a specific project. `base_url` defaults to
@@ -434,7 +434,7 @@ doesn't patch (a message queue, a gRPC call, a manually built client).
 
 ### Turning tracing on and off
 
-Tracing is on by default wherever an `app_id` is set. Request analytics keep
+Tracing is on by default (with or without an `app_id`). Request analytics keep
 working with tracing off — you just stop emitting spans (and the outbound-HTTP
 auto-instrumentation).
 
@@ -546,7 +546,7 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `app_id` | `""` | **Required for ingestion.** Which app the traffic belongs to. |
+| `app_id` | `""` | Which app the traffic belongs to (free-form name). Fallback: `APILENS_APP_ID` → `OTEL_SERVICE_NAME` → the project's default app. The choice is logged once at INFO, e.g. `APILens: app "orders-api" (from APILENS_APP_ID)`. |
 | `environment` | client's | Override the environment label per app. |
 | `enable_request_logging` | `True` | Master switch for header and body capture; `False` keeps only the base record. |
 | `capture_profile` | `None` (= `full`) | `"metadata"`, `"redacted"` or `"full"`; sets the defaults of the capture flags (see [capture profiles](#capture-profiles)). |
@@ -745,7 +745,7 @@ the setting wins when both are set.
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `APILENS_API_KEY` | — (required) | Project-level API key. |
-| `APILENS_APP_ID` | — (required) | App slug. |
+| `APILENS_APP_ID` | `""` | App name (optional; falls back to `OTEL_SERVICE_NAME`, then the default app). |
 | `APILENS_PROJECT_SLUG` | `""` | Optional project assertion. |
 | `APILENS_BASE_URL` | `https://ingest.apilens.ai/v1` | Ingest endpoint. |
 | `APILENS_ENVIRONMENT` | `"production"` | Environment label. |

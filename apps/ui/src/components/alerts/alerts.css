@@ -1,8 +1,7 @@
 /* Alerts (#610): incidents, their timeline, alert rules, the rule editor and alert channels.
    Tokens from tokens.css only; status chips are the system's .ah-badge. At phone width each
    table row stacks into labelled lines, so the page never scrolls sideways. */
-.al { max-width: 1040px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
-.al--narrow { max-width: 760px; }
+/* Page width and gutters come from .page (styles/page.css). */
 .al-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
 .al-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-6); }
 .al-head .os-tabs { flex: 1 1 100%; }
@@ -55,6 +54,24 @@ a.al-name:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 
 .al-event__steps { display: grid; gap: 2px; margin: var(--space-2) 0 0; padding: 0; list-style: none; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 .al-event__steps b { font-weight: 500; color: var(--ink); }
 
+/* The incidents chart above the timeline: open --error, resolved neutral, the threshold dashed. */
+.al-chart { margin: 0; padding: var(--space-4) var(--space-4) var(--space-3); border-bottom: 1px solid var(--border); min-width: 0; }
+.al-legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0 0 var(--space-6); padding: 0; list-style: none; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.al-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.al-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.al-swatch-threshold { display: inline-block; width: 14px; border-top: 2px dashed var(--ink-muted); }
+.al-chart__box { cursor: crosshair; }
+.al-chart__box svg { display: block; width: 100%; height: 120px; overflow: visible; }
+.al-chart__top { position: absolute; top: -20px; right: 0; font: 400 11px/14px var(--font-mono); color: var(--ink-muted); }
+.al-c-open { fill: var(--error); background: var(--error); }
+.al-c-resolved { fill: var(--ink-muted); background: var(--ink-muted); }
+.al-threshold { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.al-base { stroke: var(--border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.al-axis { display: flex; justify-content: space-between; gap: var(--space-4); margin-top: 4px; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }
+.al-axis span:last-child { text-align: right; }
+.al-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); padding: 0 0 0 var(--space-4); border-top: 1px solid var(--border); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.al-pager .pg { padding-right: var(--space-4); }
+
 /* Rule editor and channels. */
 .al-form .os-card + .os-card { margin-top: var(--space-6); }
 .al-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--space-4); }
@@ -93,7 +110,6 @@ a.al-name:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 
 .al-channel__note.ok { color: var(--ok); }
 
 @media (max-width: 760px) {
-  .al { padding: var(--space-4) var(--space-4) var(--space-12); }
   .al-grid, .al-grid--3 { grid-template-columns: minmax(0, 1fr); }
   .al-channel { padding: var(--space-4); }
   .al-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

@@ -31,7 +31,7 @@ function StatusLine({ status, id }: { status: Status; id: string }) {
 export function OrgGeneralSettings({ org }: { org: Org }) {
   const manage = canManageOrg(org.role);
   return (
-    <div className="os">
+    <div className="page page--measure os">
       <header className="os-head">
         <p className="cp-h">Organization</p>
         <h1 className="cp-lede">Settings</h1>

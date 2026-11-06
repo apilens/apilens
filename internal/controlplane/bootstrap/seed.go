@@ -84,14 +84,19 @@ func Seed(ctx context.Context, pool *pgxpool.Pool, o Options) (Result, error) {
 	return res, err
 }
 
-// issueKey creates a single-scope key and returns its raw value.
+// issueKey creates a key with scope and returns its raw value.
 func issueKey(ctx context.Context, q *db.Queries, projectID uuid.UUID, name, scope string) (string, error) {
 	raw, prefix, hash, err := apikeys.Generate()
 	if err != nil {
 		return "", err
 	}
+	scopes := []string{scope}
+	if scope == apikeys.ScopeIngest {
+		// Like keys created in the dashboard, ingest keys may create apps.
+		scopes = append(scopes, apikeys.ScopeAppsCreate)
+	}
 	if _, err := q.CreateAPIKey(ctx, db.CreateAPIKeyParams{
-		ID: newID(), ProjectID: projectID, Name: name, Prefix: prefix, KeyHash: hash, Scopes: []string{scope},
+		ID: newID(), ProjectID: projectID, Name: name, Prefix: prefix, KeyHash: hash, Scopes: scopes,
 	}); err != nil {
 		return "", fmt.Errorf("%s key: %w", scope, err)
 	}

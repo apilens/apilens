@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type KeyboardEvent, type MouseEvent, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { RANGE_LABEL } from "@/lib/consumers";
 import {
   EXPLORE_RANGES,
@@ -15,7 +15,10 @@ import {
   formatBytes,
   isSampledOut,
   latencyTone,
+  logCaption,
+  logPages,
   logPoll,
+  logTime,
   moveFocus,
   requestsPath,
   rowKey,
@@ -28,6 +31,7 @@ import { formatAgo, shownPath } from "@/lib/first-data";
 import type { RequestRow, RequestTimeline } from "@/lib/identity";
 import { formatLatency } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
+import { Pagination } from "../pagination/pagination";
 import { FilterBar } from "./filter-bar";
 import { RequestDrawer } from "./request-drawer";
 import { Timeline } from "./timeline";
@@ -42,7 +46,9 @@ const SKELETON_ROWS = 8;
  * Home and End move between them; keys with ⌘, Ctrl or Alt pass through (⌘K still opens the
  * switcher). While live it reads the log again every 5 s (not while the tab is hidden), keeping
  * the row in focus and the rows in view where they are; Pause stops it (WCAG 2.2.2). A click on a
- * row, or Enter on the focused one, opens the request drawer (#588).
+ * row, or Enter on the focused one, opens the request drawer (#588). Older and Newer under the log
+ * walk back past the newest 200 with the API's cursor (`trail`, `older`; lib/explore logPages);
+ * live polling runs on the newest page only, and the toolbar says so on an older one.
  * `initial` is null when the API could not answer the first read.
  */
 export function RequestLog({
@@ -50,18 +56,27 @@ export function RequestLog({
   environments,
   query: q,
   initial,
+  trail,
+  older: initialOlder,
   timeline,
   now: serverNow,
+  actions,
 }: {
   project: string;
   environments: readonly string[];
   query: ExploreState;
   initial: RequestRow[] | null;
+  trail: string[];
+  older: string;
   timeline: RequestTimeline | null;
   now: number;
+  /** The saved-view switcher and Export, at the right end of the toolbar. */
+  actions?: ReactNode;
 }) {
   const router = useRouter();
   const [rows, setRows] = useState<RequestRow[] | null>(initial);
+  // The cursor of the rows older than the ones shown, kept in step with the poll.
+  const [older, setOlder] = useState(initialOlder);
   const [now, setNow] = useState(serverNow);
   const [paused, setPaused] = useState(false);
   const [pollFailed, setPollFailed] = useState(false);
@@ -74,16 +89,21 @@ export function RequestLog({
   // The poll reads the same range and filters as the page (#586).
   const pollPath = requestsPath(project, q);
   const filtered = activeCount(q.filters) > 0;
+  const pages = logPages(project, q, trail, older);
+  // Only the newest page is live: an older page is a fixed slice of the past.
+  const paged = pages.page > 1;
+  const live = !paused && !paged;
 
   // A new server read (another range, Try again) replaces what the poller had.
   useEffect(() => {
     setRows(initial);
+    setOlder(initialOlder);
     setNow(serverNow);
     setPollFailed(false);
-  }, [initial, serverNow]);
+  }, [initial, initialOlder, serverNow]);
 
   useEffect(() => {
-    if (paused) return;
+    if (!live) return;
     let inflight: AbortController | null = null;
     const tick = async () => {
       if (document.visibilityState !== "visible" || inflight) return;
@@ -101,6 +121,7 @@ export function RequestLog({
         }
         setPollFailed(false);
         setRows(result.rows);
+        setOlder(result.older);
         setNow(Date.now());
       } catch (err) {
         if ((err as Error).name !== "AbortError") setPollFailed(true);
@@ -113,7 +134,7 @@ export function RequestLog({
       window.clearInterval(id);
       inflight?.abort();
     };
-  }, [paused, pollPath]);
+  }, [live, pollPath]);
 
   const go = (e: MouseEvent<HTMLAnchorElement>, href: string) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
@@ -131,7 +152,9 @@ export function RequestLog({
 
   return (
     <>
-      <div className="ex-bar">
+      {/* The toolbar: one row of range, filters, saved view, Export and Live. The filter form opens
+          on its own full-width line under it (.ex-filters is display: contents). */}
+      <div className="ex-tools">
         <nav className="ex-seg" aria-label="Time range">
           {EXPLORE_RANGES.map((r) => {
             // Another range starts over: the timeline's zoom and jump point (#587) belong to this one.
@@ -143,20 +166,34 @@ export function RequestLog({
             );
           })}
         </nav>
-        <div className="ex-live">
-          <span className={`ex-live__state${paused ? " is-paused" : ""}`}>
-            <span className="ex-live__dot" aria-hidden="true" />
-            {paused ? "Paused" : "Live"}
-          </span>
-          <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" aria-pressed={paused} onClick={() => setPaused((p) => !p)}>
-            {paused ? "Resume" : "Pause"}
-          </button>
+        <FilterBar project={project} environments={environments} query={q} navigate={navigate} />
+        <div className="ex-tools__end">
+          {actions}
+          {paged ? (
+            <div className="ex-live">
+              <span className="ex-live__state is-paused" title="Live updates run on the newest page only.">
+                <span className="ex-live__dot" aria-hidden="true" />
+                Older page, not live
+              </span>
+              <a className="ah-btn ah-btn--ghost ah-btn--sm" href={pages.newestHref} onClick={(e) => go(e, pages.newestHref)}>
+                Back to newest
+              </a>
+            </div>
+          ) : (
+            <div className="ex-live">
+              <span className={`ex-live__state${paused ? " is-paused" : ""}`}>
+                <span className="ex-live__dot" aria-hidden="true" />
+                {paused ? "Paused" : "Live"}
+              </span>
+              <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" aria-pressed={paused} onClick={() => setPaused((p) => !p)}>
+                {paused ? "Resume" : "Pause"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      <FilterBar project={project} environments={environments} query={q} navigate={navigate} />
-
-      <Timeline project={project} query={q} initial={timeline} paused={paused} busy={loading} navigate={navigate} />
+      <Timeline project={project} query={q} initial={timeline} paused={!live} busy={loading} navigate={navigate} />
 
       {pollFailed && rows !== null ? (
         <div className="ex-notice" role="status">
@@ -180,7 +217,14 @@ export function RequestLog({
       ) : rows.length === 0 ? (
         <div className="ex-notice" role="status">
           <ObIcon name="info" />
-          {filtered ? (
+          {paged ? (
+            <p>
+              No older requests in {scopeText(q)}.{" "}
+              <a className="cp-link" href={pages.newestHref} onClick={(e) => go(e, pages.newestHref)}>
+                Back to the newest
+              </a>
+            </p>
+          ) : filtered ? (
             <p>
               No requests in {scopeText(q)} match these filters.{" "}
               <a className="cp-link" href={clearHref} onClick={(e) => go(e, clearHref)}>
@@ -192,7 +236,13 @@ export function RequestLog({
           )}
         </div>
       ) : (
-        <LogGrid rows={rows} now={now} onOpen={open} caption={`The newest ${rows.length === 1 ? "request" : `${rows.length} requests`} in ${scopeText(q)}${filtered ? " matching the filters" : ""}, newest first.`} />
+        <LogGrid
+          rows={rows}
+          now={now}
+          onOpen={open}
+          caption={logCaption(q, pages.page, rows.length, filtered)}
+          pager={<Pagination mode="cursor" newerHref={pages.newerHref} olderHref={pages.olderHref} label="Request log pages" />}
+        />
       )}
       {opened ? <RequestDrawer key={opened.id} project={project} row={opened} onClose={() => setOpened(null)} /> : null}
     </>
@@ -200,6 +250,8 @@ export function RequestLog({
 }
 
 const COLUMNS = ["Time", "Method", "Path", "Status", "Latency", "Consumer", "Size"] as const;
+/** What a header cell says, where it says more than the column's name. */
+const HEADER: Partial<Record<(typeof COLUMNS)[number], string>> = { Time: "Time (UTC)" };
 
 /** The grid: a header row and a scrolling, virtualised body. `rows` null draws skeleton rows. */
 function LogGrid({
@@ -208,12 +260,15 @@ function LogGrid({
   caption,
   busy = false,
   onOpen,
+  pager,
 }: {
   rows: RequestRow[] | null;
   now: number;
   caption: string;
   busy?: boolean;
   onOpen?: (row: RequestRow) => void;
+  /** Newer and Older, beside the caption. */
+  pager?: ReactNode;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -325,7 +380,7 @@ function LogGrid({
           <div className="ex-row ex-row--head" role="row" aria-rowindex={1}>
             {COLUMNS.map((c) => (
               <div key={c} role="columnheader" className={`ex-cell ex-cell--${c.toLowerCase()}`}>
-                {c}
+                {HEADER[c] ?? c}
               </div>
             ))}
           </div>
@@ -334,7 +389,12 @@ function LogGrid({
           {shown}
         </div>
       </div>
-      {caption ? <p className="ex-foot">{caption}</p> : null}
+      {caption ? (
+        <div className="ex-foot">
+          <p>{caption}</p>
+          {pager}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -360,9 +420,12 @@ const LogRow = memo(function LogRow({
   const path = shownPath(r);
   const tone = latencyTone(r.response_time_ms);
   const status = statusClass(r.status_code);
+  const time = logTime(r.timestamp, now);
+  // The URL as requested is what reads apart row to row; the route it matched is in the title.
+  const pathTitle = r.path && r.path !== path ? `${path}\nRoute ${r.method.toUpperCase()} ${r.path}` : path;
   return (
     <div
-      className={`ex-row${onOpen && r.id ? " is-openable" : ""}`}
+      className={`ex-row${onOpen && r.id ? " is-openable" : ""}${status === "4xx" || status === "5xx" ? ` is-${status}` : ""}`}
       role="row"
       aria-rowindex={index + 2}
       data-index={index}
@@ -372,15 +435,18 @@ const LogRow = memo(function LogRow({
       style={{ transform: `translateY(${index * ROW_HEIGHT}px)` }}
     >
       <div role="gridcell" className="ex-cell ex-cell--time">
-        <time dateTime={r.timestamp} title={r.timestamp}>
-          {formatAgo(r.timestamp, now)}
+        <time dateTime={r.timestamp} title={`${formatAgo(r.timestamp, now)} · ${r.timestamp}`}>
+          {/* Another day: the date takes the milliseconds' place, so the column keeps its width. */}
+          {time.day ? <span className="ex-time__day">{time.day} </span> : null}
+          {time.clock}
+          {time.day ? null : <span className="ex-time__ms">{time.ms}</span>}
         </time>
       </div>
       <div role="gridcell" className="ex-cell ex-cell--method">
         {r.method.toUpperCase()}
       </div>
       <div role="gridcell" className="ex-cell ex-cell--path">
-        <code title={path}>{path}</code>
+        <code title={pathTitle}>{path}</code>
         {isSampledOut(r) ? (
           <span className="ex-sampled" title="Sampled out: the SDK kept a base record without headers or bodies.">
             Sampled out
@@ -394,7 +460,13 @@ const LogRow = memo(function LogRow({
         {formatLatency(r.response_time_ms)}
       </div>
       <div role="gridcell" className="ex-cell ex-cell--consumer">
-        {consumer === null ? <span className="ex-muted">Anonymous</span> : <span title={consumer}>{consumer}</span>}
+        {consumer === null ? (
+          <span className="ex-faint" title="No consumer identified: the app did not call set_consumer for this request.">
+            –
+          </span>
+        ) : (
+          <span title={consumer}>{consumer}</span>
+        )}
       </div>
       <div role="gridcell" className="ex-cell ex-cell--size">
         {formatBytes(r.response_size)}

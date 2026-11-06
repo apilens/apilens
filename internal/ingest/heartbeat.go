@@ -65,7 +65,7 @@ type Heartbeat struct {
 	_ struct{} `json:"-" additionalProperties:"true"` // newer SDKs may send more
 
 	ProjectSlug string         `json:"project_slug,omitempty" doc:"Optional; must match the API key's project"`
-	AppID       string         `json:"app_id" doc:"App UUID or slug" example:"storefront"`
+	AppID       string         `json:"app_id,omitempty" doc:"The app: its name (an unknown name creates the app when the key may create apps), slug or UUID. Omitted or empty: the project's default app." example:"storefront"`
 	Environment string         `json:"environment,omitempty" doc:"Defaults to production" example:"production"`
 	InstanceID  string         `json:"instance_id" minLength:"1" maxLength:"128" doc:"Stable id of the SDK process, generated once per process start" example:"4b0c7a8e-2f0d-4c1e-9a55-0d6f3b1f1a9e"`
 	SDKName     string         `json:"sdk_name,omitempty" example:"apilenss"`
@@ -137,10 +137,6 @@ func (e *Edge) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		e.fail(w, signal, errValidation("invalid heartbeat: %v", err))
 		return
 	}
-	if strings.TrimSpace(body.AppID) == "" {
-		e.fail(w, signal, errValidation("app_id is required"))
-		return
-	}
 	instance := strings.TrimSpace(body.InstanceID)
 	if instance == "" || len(instance) > maxInstanceIDChars {
 		e.fail(w, signal, errValidation("instance_id is required, at most %d characters", maxInstanceIDChars))
@@ -162,12 +158,13 @@ func (e *Edge) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	apps, aerr := e.resolveApps(r.Context(), p, []string{body.ProjectSlug}, []string{body.AppID}, false)
+	// A heartbeat without app_id is the project's default app.
+	batch, aerr := e.resolveBatch(r.Context(), signal, p, []string{body.ProjectSlug}, []string{body.AppID}, false, tally{})
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}
-	appID := apps[strings.TrimSpace(body.AppID)]
+	appID := batch.id(body.AppID)
 	env := environment(body.Environment)
 
 	if aerr = e.allowHeartbeat(r.Context(), appID, env, instance); aerr != nil {
@@ -310,9 +307,10 @@ func addHeartbeatOperation(oapi *huma.OpenAPI, errBody *huma.Schema) {
 		Responses: map[string]*huma.Response{
 			"200": {Description: "Recorded; the body carries the capture policy", Content: jsonOf(accepted)},
 			"401": errResp("Missing or invalid API key"),
-			"403": errResp("API key lacks the ingest scope"),
+			"403": errResp("API key lacks the ingest scope, may not create the app it names, or is limited to other apps"),
+			"409": errResp("The app was deleted less than 30 days ago; restore it from Apps"),
 			"413": errResp("Body too large"),
-			"422": errResp("Invalid payload, unknown app, or an api_key field"),
+			"422": errResp("Invalid payload or an app limit reached"),
 			"429": errResp("Heartbeat of this instance less than 10 seconds after the previous one; retry after Retry-After"),
 			"503": errResp("Temporarily unavailable; retry after Retry-After"),
 		},

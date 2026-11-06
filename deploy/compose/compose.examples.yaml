@@ -21,6 +21,8 @@
 #   APILENS_EXAMPLES_SAMPLE_RATE    0.0-1.0 (default 1.0)
 #   APILENS_EXAMPLES_REDACT_BODY_FIELDS / _REDACT_HEADERS / _REDACT_QUERY_PARAMS
 #   APILENS_EXAMPLES_EXCLUDE_PATHS  comma-separated regexes, passed to every SDK
+#   APILENS_EXAMPLES_<APP>_RELEASE / _COMMIT  release and commit the SDK stamps on every
+#                                   record (APP is FASTAPI, EXPRESS or SPRING), for Changes
 # Outbound calls chain FastAPI -> Express -> Spring -> FastAPI (/orders/{id}).
 
 x-example: &example
@@ -64,6 +66,8 @@ services:
     environment:
       <<: *example-env
       APILENS_APP_ID: example-fastapi
+      APILENS_RELEASE: ${APILENS_EXAMPLES_FASTAPI_RELEASE:-}
+      APILENS_COMMIT: ${APILENS_EXAMPLES_FASTAPI_COMMIT:-}
       EXAMPLE_OUTBOUND_URL: http://example-express:3000/orders/7
     ports:
       - "127.0.0.1:${APILENS_EXAMPLES_FASTAPI_PORT:-18001}:8000"
@@ -77,6 +81,8 @@ services:
     environment:
       <<: *example-env
       APILENS_APP_ID: example-express
+      APILENS_RELEASE: ${APILENS_EXAMPLES_EXPRESS_RELEASE:-}
+      APILENS_COMMIT: ${APILENS_EXAMPLES_EXPRESS_COMMIT:-}
       EXAMPLE_OUTBOUND_URL: http://example-spring:8080/orders/7
     ports:
       - "127.0.0.1:${APILENS_EXAMPLES_EXPRESS_PORT:-18002}:3000"
@@ -90,6 +96,8 @@ services:
     environment:
       <<: *example-env
       APILENS_APP_ID: example-spring
+      APILENS_RELEASE: ${APILENS_EXAMPLES_SPRING_RELEASE:-}
+      APILENS_COMMIT: ${APILENS_EXAMPLES_SPRING_COMMIT:-}
       EXAMPLE_OUTBOUND_URL: http://example-fastapi:8000/orders/7
     ports:
       - "127.0.0.1:${APILENS_EXAMPLES_SPRING_PORT:-18003}:8080"

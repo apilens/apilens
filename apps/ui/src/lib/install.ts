@@ -132,6 +132,17 @@ function postureEnvSnippet(posture: Posture): Snippet {
 /** `"a", "b"` with `open` before each item (`r"` for Python raw strings). */
 const quoted = (list: readonly string[], open: string) => list.map((x) => `${open}${x}"`).join(", ");
 
+/** Next to the app name in every SDK snippet. */
+export const APP_NAME_COMMENT = "or set APILENS_APP_ID; the app appears in APILens on its first data";
+
+/**
+ * Under the snippets: what the app name does. Apps come from the SDK: the first data with a new
+ * name creates the app; data with no name goes to the project's default app.
+ */
+export function appNameNote(appId: string): string {
+  return `The app name (${appId} here) picks the app. It appears in Apps automatically when its first data arrives; name each service differently. Without a name, data goes to the project’s default app.`;
+}
+
 const MASK_COMMENT = "Masked on top of the built-ins (passwords, tokens, card numbers).";
 
 function sdkSnippets(language: string, key: string, appId: string, ingestUrl: string, posture: Posture): Snippet[] {
@@ -154,7 +165,7 @@ function sdkSnippets(language: string, key: string, appId: string, ingestUrl: st
             "app.add_middleware(",
             "    ApiLensMiddleware,",
             '    api_key=os.environ["APILENS_API_KEY"],',
-            `    app_id="${appId}",`,
+            `    app_id="${appId}",  # ${APP_NAME_COMMENT}`,
             `    base_url="${baseUrl}",`,
             `    capture_profile="${posture}",  # metadata | redacted | full`,
             `    # ${MASK_COMMENT}`,
@@ -181,7 +192,7 @@ function sdkSnippets(language: string, key: string, appId: string, ingestUrl: st
             "",
             "useApiLens(app, {",
             "  apiKey: process.env.APILENS_API_KEY,",
-            `  appId: "${appId}",`,
+            `  appId: "${appId}", // ${APP_NAME_COMMENT}`,
             `  baseUrl: "${baseUrl}",`,
             `  captureProfile: "${posture}", // metadata | redacted | full`,
             `  // ${MASK_COMMENT}`,
@@ -211,6 +222,7 @@ function sdkSnippets(language: string, key: string, appId: string, ingestUrl: st
           title: "application.properties",
           code: [
             "apilens.api-key=${APILENS_API_KEY}",
+            `# ${APP_NAME_COMMENT}`,
             `apilens.app-id=${appId}`,
             `apilens.base-url=${baseUrl}`,
             "# metadata | redacted | full",
@@ -241,6 +253,7 @@ function otlpSnippets(key: string, appId: string, ingestUrl: string): Snippet[] 
         `export OTEL_EXPORTER_OTLP_ENDPOINT=${otlpEndpoint(ingestUrl)}`,
         "export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf",
         `export OTEL_EXPORTER_OTLP_HEADERS=x-api-key=${key}`,
+        "# The app name: the app appears in APILens when its first data arrives.",
         `export OTEL_SERVICE_NAME=${appId}`,
         `export OTEL_RESOURCE_ATTRIBUTES=apilens.app=${appId}`,
         "export OTEL_TRACES_EXPORTER=otlp",

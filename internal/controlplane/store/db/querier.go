@@ -16,22 +16,23 @@ type Querier interface {
 	// otherwise. Of two concurrent accepts only one succeeds. The caller creates
 	// the membership in the same transaction.
 	AcceptInvitation(ctx context.Context, id uuid.UUID) (Invitation, error)
-	// Puts a consumer in a group of the same project, moving it out of the group
-	// it was in. No row when the group is not one of the project's.
-	AssignConsumerGroup(ctx context.Context, arg AssignConsumerGroupParams) (ConsumerGroupMember, error)
+	AcknowledgeApp(ctx context.Context, id uuid.UUID) error
+	ArchiveApp(ctx context.Context, id uuid.UUID) error
 	// Cancels a queued or running export. No row means it already finished.
 	CancelRequestExport(ctx context.Context, id uuid.UUID) (RequestExport, error)
 	// The relay's batch: the oldest unprocessed rows, locked until its
 	// transaction ends.
 	ClaimPendingOutbox(ctx context.Context, batchSize int32) ([]ClaimPendingOutboxRow, error)
 	CompleteRequestExport(ctx context.Context, arg CompleteRequestExportParams) (int64, error)
+	CountActiveApps(ctx context.Context, projectID uuid.UUID) (int64, error)
 	// Owners whose account is not deleted: a deleted owner cannot act for the
 	// organization, so it does not count towards the last-owner rule.
 	CountOrgOwners(ctx context.Context, orgID uuid.UUID) (int64, error)
+	// Apps the SDK created in the project since @since, deleted ones included.
+	CountSDKAppsSince(ctx context.Context, arg CountSDKAppsSinceParams) (int64, error)
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
 	// Alert rules.
 	CreateAlertRule(ctx context.Context, arg CreateAlertRuleParams) (AlertRule, error)
-	CreateConsumerGroup(ctx context.Context, arg CreateConsumerGroupParams) (ConsumerGroup, error)
 	// Adds the environment unless the project already has one of that name.
 	CreateEnvironment(ctx context.Context, arg CreateEnvironmentParams) (int64, error)
 	// Active HTTP health checks (internal/alerts: the alerts.health_checks job;
@@ -60,7 +61,9 @@ type Querier interface {
 	CreateSavedView(ctx context.Context, arg CreateSavedViewParams) (SavedView, error)
 	// Deletes a rule and, by cascade, its events.
 	DeleteAlertRule(ctx context.Context, arg DeleteAlertRuleParams) (int64, error)
-	DeleteConsumerGroup(ctx context.Context, arg DeleteConsumerGroupParams) (int64, error)
+	DeleteApp(ctx context.Context, id uuid.UUID) error
+	DeleteAppAlias(ctx context.Context, arg DeleteAppAliasParams) error
+	DeleteAppAliasesTo(ctx context.Context, appID uuid.UUID) error
 	DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentParams) (int64, error)
 	// Deletes a check and its events.
 	DeleteHealthCheck(ctx context.Context, arg DeleteHealthCheckParams) (int64, error)
@@ -80,6 +83,7 @@ type Querier interface {
 	// Resolves an ingest key to its project. Revoked, expired and keys of
 	// deleted projects never match.
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error)
+	GetActiveAppBySlug(ctx context.Context, arg GetActiveAppBySlugParams) (GetActiveAppBySlugRow, error)
 	// What a notification about an event says: the event, its rule, app and
 	// project, and the rule's latest evaluated value (NULL before the first or
 	// when the window had no data). Returns pgx.ErrNoRows when the event (or its
@@ -98,13 +102,13 @@ type Querier interface {
 	GetCaptureApp(ctx context.Context, id uuid.UUID) (GetCaptureAppRow, error)
 	// The capture policy row of an active app; no row means capture everything.
 	GetCapturePolicy(ctx context.Context, appID uuid.UUID) (GetCapturePolicyRow, error)
-	GetConsumerGroup(ctx context.Context, arg GetConsumerGroupParams) (GetConsumerGroupRow, error)
 	// Queries behind GET /api/v1/users/me/context: the signed-in user and every
 	// organization and project they can see, read in a fixed number of round
 	// trips whatever the number of organizations and projects.
 	// The active user. The control plane only reads the profile columns of
 	// users (ADR 0005); identity owns every write.
 	GetContextUser(ctx context.Context, id uuid.UUID) (User, error)
+	GetDefaultApp(ctx context.Context, projectID uuid.UUID) (GetDefaultAppRow, error)
 	// The settings row of one endpoint of an app; no row means the defaults.
 	GetEndpointSettings(ctx context.Context, arg GetEndpointSettingsParams) (EndpointSetting, error)
 	GetHealthCheck(ctx context.Context, arg GetHealthCheckParams) (HealthCheck, error)
@@ -153,6 +157,7 @@ type Querier interface {
 	// another project.
 	GetProjectApp(ctx context.Context, arg GetProjectAppParams) (GetProjectAppRow, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
+	GetRecentlyDeletedApp(ctx context.Context, arg GetRecentlyDeletedAppParams) (GetRecentlyDeletedAppRow, error)
 	GetRequestExport(ctx context.Context, id uuid.UUID) (RequestExport, error)
 	GetSavedView(ctx context.Context, arg GetSavedViewParams) (SavedView, error)
 	// An active app of an active project, with the project slug that authorizing
@@ -172,6 +177,9 @@ type Querier interface {
 	// login.succeeded audit event with method sso for the organization) at or
 	// after since.
 	HasSSOSignInSince(ctx context.Context, arg HasSSOSignInSinceParams) (bool, error)
+	// Creates an app; a concurrent create of the same slug wins and this
+	// returns no row.
+	InsertApp(ctx context.Context, arg InsertAppParams) (InsertAppRow, error)
 	// Transactional outbox (ADR 0006): called only through
 	// internal/controlplane/outbox.Emit, in the same transaction as the change
 	// the row describes. The relay (#291) reads rows in id order.
@@ -200,13 +208,8 @@ type Querier interface {
 	// The latest metadata report of an active app per environment, without the
 	// route list: what the app settings page shows next to the capture policy.
 	ListAppMetadata(ctx context.Context, appID uuid.UUID) ([]ListAppMetadataRow, error)
-	// The groups of the given consumers of a project (consumers without a group
-	// are left out).
-	ListConsumerGroupAssignments(ctx context.Context, arg ListConsumerGroupAssignmentsParams) ([]ListConsumerGroupAssignmentsRow, error)
-	// The consumer ids in one group of a project.
-	ListConsumerGroupMembers(ctx context.Context, arg ListConsumerGroupMembersParams) ([]string, error)
-	// The groups of a project with how many consumers each holds, by name.
-	ListConsumerGroups(ctx context.Context, projectID uuid.UUID) ([]ListConsumerGroupsRow, error)
+	// When any key last sent records for each app of the project.
+	ListAppsLastSeen(ctx context.Context, projectID uuid.UUID) ([]ListAppsLastSeenRow, error)
 	// Every enabled rule of an active app of an active project: what the
 	// evaluator runs.
 	ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error)
@@ -225,6 +228,9 @@ type Querier interface {
 	// (non-deleted) members of each, and the display names (name, or email when
 	// the name is blank) of up to three members, owners first then oldest.
 	ListJoinableOrganizationsWithCounts(ctx context.Context, arg ListJoinableOrganizationsWithCountsParams) ([]ListJoinableOrganizationsWithCountsRow, error)
+	// The Apps page: active, archived and recently deleted apps with their
+	// origin.
+	ListManagedApps(ctx context.Context, arg ListManagedAppsParams) ([]ListManagedAppsRow, error)
 	ListNotificationChannels(ctx context.Context, projectID uuid.UUID) ([]NotificationChannel, error)
 	// The channels a rule notifies (alert_rules.channel_ids), for sending.
 	// Channels of other projects are never returned.
@@ -237,6 +243,7 @@ type Querier interface {
 	ListPendingInvitationsWithInviter(ctx context.Context, orgID uuid.UUID) ([]ListPendingInvitationsWithInviterRow, error)
 	// Every key of the project, revoked ones included, newest first.
 	ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) ([]ListProjectAPIKeysRow, error)
+	ListProjectAppAliases(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppAliasesRow, error)
 	// The active apps of a project with an app-wide Apdex threshold.
 	ListProjectAppLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppLatencyThresholdsRow, error)
 	ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppsRow, error)
@@ -249,6 +256,8 @@ type Querier interface {
 	// The settings that change what the dashboard counts (an expected status
 	// code or exclusion) for the active apps of a project.
 	ListProjectEndpointSettings(ctx context.Context, projectID uuid.UUID) ([]ListProjectEndpointSettingsRow, error)
+	// The apps each key of the project sent records for, with when.
+	ListProjectKeyApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectKeyAppsRow, error)
 	// Every privacy policy row of a project: the project-wide one (app_id NULL)
 	// and the per-app ones. Rows of deleted apps are skipped.
 	ListProjectPrivacyPolicies(ctx context.Context, projectID uuid.UUID) ([]ListProjectPrivacyPoliciesRow, error)
@@ -262,6 +271,11 @@ type Querier interface {
 	// project#org per active project of an active organization.
 	ListReconcileMemberships(ctx context.Context) ([]ListReconcileMembershipsRow, error)
 	ListReconcileProjects(ctx context.Context) ([]ListReconcileProjectsRow, error)
+	// Apps of a project as the ingest resolver and the Apps page see them.
+	// Every app of the project the resolver must know about: active and
+	// archived apps, and apps deleted after @deleted_since (their slugs stay
+	// reserved).
+	ListResolverApps(ctx context.Context, arg ListResolverAppsParams) ([]ListResolverAppsRow, error)
 	// The views of a project that viewer may see: the shared ones, plus viewer's
 	// own private ones (a NULL viewer, a read key, sees the shared ones only).
 	// An empty surface lists every surface.
@@ -277,7 +291,8 @@ type Querier interface {
 	// number of active projects and (non-deleted) members of each.
 	ListUserOrganizationsWithCounts(ctx context.Context, userID uuid.UUID) ([]ListUserOrganizationsWithCountsRow, error)
 	// The active projects of every active organization the user belongs to
-	// (memberships_user, then projects_org), by organization then name.
+	// (memberships_user, then projects_org), by organization then name, with
+	// the number of active apps of each (apps_project_slug_active).
 	ListUserProjects(ctx context.Context, userID uuid.UUID) ([]ListUserProjectsRow, error)
 	// Locks a rule for the transaction that records its evaluation, so two runs
 	// cannot step its state at once. Returns pgx.ErrNoRows when the rule was
@@ -304,12 +319,18 @@ type Querier interface {
 	LockOutboxRelay(ctx context.Context, lockKey int64) error
 	// A key of the project, row-locked for the rest of the transaction.
 	LockProjectAPIKey(ctx context.Context, arg LockProjectAPIKeyParams) (LockProjectAPIKeyRow, error)
+	LockProjectApp(ctx context.Context, arg LockProjectAppParams) (LockProjectAppRow, error)
+	// Row-locks an active project; serialises app creation per project.
+	LockProjectByID(ctx context.Context, id uuid.UUID) (LockProjectByIDRow, error)
 	// Serializes the transactions that save an enforcing connection, so two
 	// organizations cannot both start enforcing one domain.
 	LockSSOEnforcement(ctx context.Context) error
 	// Records the first notification of an event; later calls change nothing.
 	MarkAlertEventNotified(ctx context.Context, arg MarkAlertEventNotifiedParams) (int64, error)
+	MarkAppFirstSeen(ctx context.Context, arg MarkAppFirstSeenParams) error
 	MarkOutboxProcessed(ctx context.Context, id int64) error
+	// Archives the source app and records which app it was merged into.
+	MergeApp(ctx context.Context, arg MergeAppParams) error
 	// Wakes the relay. A NOTIFY sent inside a transaction is delivered on commit
 	// only, and never on rollback.
 	NotifyOutbox(ctx context.Context) error
@@ -337,7 +358,10 @@ type Querier interface {
 	// Drops a deleted channel from every rule of its project that notifies it.
 	// Run in the same transaction as DeleteNotificationChannel.
 	RemoveChannelFromAlertRules(ctx context.Context, arg RemoveChannelFromAlertRulesParams) (int64, error)
-	RenameConsumerGroup(ctx context.Context, arg RenameConsumerGroupParams) (ConsumerGroup, error)
+	RenameApp(ctx context.Context, arg RenameAppParams) error
+	RepointAppAliases(ctx context.Context, arg RepointAppAliasesParams) error
+	// Apps merged into the source follow it to the target.
+	RepointMergedApps(ctx context.Context, arg RepointMergedAppsParams) error
 	// Rotates the token and extends the expiry of a pending invitation. With
 	// sent_before set, only an invitation last sent (created or resent) at or
 	// before it is resent, so concurrent resends respect a cooldown.
@@ -347,11 +371,14 @@ type Querier interface {
 	// Resolves an active project slug (globally unique) to its id and its
 	// active organization, for authorization of /…/{project} paths.
 	ResolveProjectSlug(ctx context.Context, slug string) (ResolveProjectSlugRow, error)
+	// Brings an archived, merged or deleted app back; acknowledges it.
+	RestoreApp(ctx context.Context, id uuid.UUID) error
 	RevokeAPIKey(ctx context.Context, id uuid.UUID) (string, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (Invitation, error)
 	// Revokes the address's pending invitation to the organization, if any, so
 	// a new one can replace it.
 	RevokePendingInvitationByEmail(ctx context.Context, arg RevokePendingInvitationByEmailParams) (int64, error)
+	SetAppDefault(ctx context.Context, id uuid.UUID) error
 	// No row means the export was cancelled meanwhile.
 	SetRequestExportProgress(ctx context.Context, arg SetRequestExportProgressParams) (int64, error)
 	SetRequestExportTotal(ctx context.Context, arg SetRequestExportTotalParams) (int64, error)
@@ -368,7 +395,12 @@ type Querier interface {
 	// Which of the given slugs active projects already use.
 	TakenProjectSlugs(ctx context.Context, slugs []string) ([]string, error)
 	TouchAPIKey(ctx context.Context, id uuid.UUID) error
-	UnassignConsumerGroup(ctx context.Context, arg UnassignConsumerGroupParams) (int64, error)
+	// Un-archives an archived app that was not merged into another.
+	UnarchiveApp(ctx context.Context, id uuid.UUID) (UnarchiveAppRow, error)
+	// Apps merged into a deleted app stay archived but no longer point at it.
+	UnmergeAppsFrom(ctx context.Context, appID *uuid.UUID) error
+	// Replaces a key's scopes and app scope (NULL = every app).
+	UpdateAPIKeyAccess(ctx context.Context, arg UpdateAPIKeyAccessParams) error
 	// Replaces every editable field of a rule. The app and project never change.
 	UpdateAlertRule(ctx context.Context, arg UpdateAlertRuleParams) (AlertRule, error)
 	UpdateAppLatencyThreshold(ctx context.Context, arg UpdateAppLatencyThresholdParams) (UpdateAppLatencyThresholdRow, error)
@@ -386,10 +418,14 @@ type Querier interface {
 	UpdateSavedView(ctx context.Context, arg UpdateSavedViewParams) (SavedView, error)
 	// Records a check of an environment and its uptime status.
 	UpdateUptimeMonitorStatus(ctx context.Context, arg UpdateUptimeMonitorStatusParams) error
+	// Records that key_id sent records for app_id at seen_at.
+	UpsertAPIKeyApp(ctx context.Context, arg UpsertAPIKeyAppParams) error
 	// Records the result of a rule's latest evaluation and its trigger/resolve
 	// state.
 	UpsertAlertRuleState(ctx context.Context, arg UpsertAlertRuleStateParams) error
+	// Registers an app (seed, tests); never changes an existing one.
 	UpsertApp(ctx context.Context, arg UpsertAppParams) (UpsertAppRow, error)
+	UpsertAppAlias(ctx context.Context, arg UpsertAppAliasParams) error
 	// Records a heartbeat of one SDK process: the latest report replaces the
 	// instance's previous one, first_seen_at is kept.
 	UpsertAppInstance(ctx context.Context, arg UpsertAppInstanceParams) error

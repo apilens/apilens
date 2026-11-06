@@ -14,6 +14,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	authzed "github.com/authzed/authzed-go/v1"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -23,6 +24,7 @@ import (
 	"github.com/apilens/apilens/internal/authz"
 	controlplaneapi "github.com/apilens/apilens/internal/controlplane/api"
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
+	appsvc "github.com/apilens/apilens/internal/controlplane/apps"
 	"github.com/apilens/apilens/internal/controlplane/capture"
 	"github.com/apilens/apilens/internal/controlplane/catalog"
 	"github.com/apilens/apilens/internal/controlplane/orgs"
@@ -269,7 +271,11 @@ func (a *App) initCatalog(context.Context) (modules.Service, error) {
 	a.verifier = apikeys.NewVerifier(a.queries, apikeys.Options{
 		Size: a.cfg.Ingest.KeyCacheSize, TTL: a.cfg.Ingest.KeyCacheTTL, NegativeTTL: a.cfg.Ingest.KeyNegativeTTL,
 	}, a.logger, a.registry)
-	a.apps = catalog.NewAppResolver(a.queries, a.cfg.Ingest.AppCacheTTL)
+	// Apps come from the SDK: the resolver creates the apps SDKs name,
+	// through the same code path as a project's default app.
+	a.apps = catalog.NewAppResolver(a.queries, a.cfg.Ingest.AppCacheTTL).WithProvisioner(appsvc.NewProvisioner(
+		a.pool, audit.New(a.pool), appsvc.Limits{MaxApps: a.cfg.Ingest.MaxAppsPerProject, MaxNewPerHour: a.cfg.Ingest.MaxNewAppsPerHour},
+	))
 	a.privacy = privacy.NewResolver(a.queries, a.cfg.Ingest.AppCacheTTL)
 	if a.valkey == nil {
 		return nil, nil
@@ -392,10 +398,12 @@ func (a *App) initEdge(context.Context) (modules.Service, error) {
 		heartbeats = ingest.NewValkeyHeartbeats(a.valkey)
 	}
 	edge.WithHeartbeat(a.queries, heartbeats)
+	edge.WithKeyApps(a.queries)
 	// Without Valkey the per-app health counters are not kept; Prometheus
 	// still has the totals.
 	if a.valkey != nil {
-		edge.WithStats(ingest.NewValkeyStats(a.valkey))
+		stats := ingest.NewValkeyStats(a.valkey)
+		edge.WithStats(stats).WithAppRejections(stats)
 	}
 	edge.Register(a.server.Mux())
 	ingest.RegisterOpenAPI(a.server.API())
@@ -462,18 +470,31 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 			return nil, err
 		}
 	}
+	appService := appsvc.NewService(a.pool, audit.New(a.pool)).OnChange(func(projectID uuid.UUID) {
+		// This process sees the change at once; other edges within the app
+		// cache TTL.
+		if a.apps != nil {
+			a.apps.Forget(projectID)
+		}
+	})
+	var appRejections controlplaneapi.AppRejectionReader
+	if a.valkey != nil {
+		appRejections = ingest.NewValkeyStats(a.valkey)
+	}
 	controlplaneapi.Register(a.server.API(), controlplaneapi.Deps{
-		Orgs:     orgService,
-		Members:  orgService,
-		Projects: projects.New(a.pool),
-		APIKeys:  apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger),
-		Privacy:  privacy.NewService(a.pool),
-		Capture:  capture.NewService(a.pool, audit.New(a.pool)),
-		Context:  usercontext.New(a.pool, a.checker()),
-		Guard:    a.guard(),
-		Limiter:  limiter,
-		Limits:   a.cfg.Identity.RateLimits,
-		Logger:   a.logger,
+		Orgs:          orgService,
+		Members:       orgService,
+		Apps:          appService,
+		AppRejections: appRejections,
+		Projects:      projects.New(a.pool).WithAudit(audit.New(a.pool)),
+		APIKeys:       apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger),
+		Privacy:       privacy.NewService(a.pool),
+		Capture:       capture.NewService(a.pool, audit.New(a.pool)),
+		Context:       usercontext.New(a.pool, a.checker()),
+		Guard:         a.guard(),
+		Limiter:       limiter,
+		Limits:        a.cfg.Identity.RateLimits,
+		Logger:        a.logger,
 
 		// Invitation emails are enqueued here and sent by the role that
 		// runs the email worker (identity).

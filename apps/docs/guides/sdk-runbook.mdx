@@ -204,12 +204,22 @@ API Lens ingest rejected a batch of <n> records with status <status> (not retrie
 
 | `detail` | Cause | Fix |
 |---|---|---|
-| `Invalid app identifiers: <ids>` | The `app_id` is not an app of the key's project. | Use an app slug that exists in the project, or create the app. |
-| `app_id is required for every record` | A record without an app. | Set `app_id` (or `APILENS_APP_ID`). |
+| `app "<name>" was not created: project <slug> already has <n> apps` (`app_limit`) | `ingest.max_apps_per_project` reached. | Merge or delete unused apps on the **Apps** page, or raise the limit. |
+| `app "<name>" was not created: <n> new apps were already created … in the last hour` (`app_rate_limit`) | `ingest.max_new_apps_per_hour` reached, usually an app name that changes per process. | Use a stable app name (`APILENS_APP_ID`); it clears after the hour. |
 | `project_slug must match the API key project '<slug>'` | `project_slug` names another project. | Drop `project_slug`; the key identifies the project. |
 | `at most 1000 records per request (got <n>)` | `batch_size` above what ingest accepts. | Set `batch_size` to 1,000 or less. |
 | `requests[<i>].timestamp is missing or out of range` | The host clock is far off. | Fix NTP on the host. |
 | `heartbeat must not contain an api_key field` | A custom heartbeat or metadata payload carries a key. | Remove it; the SDKs strip such fields themselves. |
+
+### 403 and 409 for an app
+
+Records naming an app that cannot be used are refused; when other records of the batch could be stored the answer is `200` with a `rejected` list instead. The `detail` names the app:
+
+| `error` | Cause | Fix |
+|---|---|---|
+| `app_create_forbidden` | The app does not exist and the key cannot create apps. | Turn on **Can create apps** for the key, or send an existing app name. |
+| `app_not_allowed` | The key is limited to other apps. | Add the app to the key's **Limit to apps** list, or use the right key. |
+| `app_deleted` (409) | The app was deleted less than 30 days ago. | Restore it on the **Apps** page, or pick another name. |
 
 ### 429 Too Many Requests
 

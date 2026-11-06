@@ -121,6 +121,7 @@ type UpsertAppRow struct {
 	CreatedAt time.Time
 }
 
+// Registers an app (seed, tests); never changes an existing one.
 func (q *Queries) UpsertApp(ctx context.Context, arg UpsertAppParams) (UpsertAppRow, error) {
 	row := q.db.QueryRow(ctx, upsertApp,
 		arg.ID,

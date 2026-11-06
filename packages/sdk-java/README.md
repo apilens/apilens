@@ -67,7 +67,7 @@ Spring WebFlux and Micrometer are picked up when your app already has them.
 | Value | What it is | Where to find it |
 |-------|-----------|------------------|
 | `apiKey` | **Project-level** key. One key works for every app in the project — the server derives the project from the key. | Project → API keys, in the [dashboard](https://app.apilens.ai). |
-| `appId` | The slug of the specific app (service) you're instrumenting, so traffic is attributed to the right app. | The app's page in the dashboard. |
+| `appId` | *Optional.* Name of the app (service) you're instrumenting, e.g. `"orders-api"` or `"Orders API"` — the server normalizes it to a slug and creates apps it hasn't seen. Falls back to env `APILENS_APP_ID`, then `OTEL_SERVICE_NAME`; with none set, data goes to the project's default app. The choice is logged once at INFO, e.g. `APILens: app "orders-api" (from APILENS_APP_ID)`. | Any name you choose, or the app's page in the dashboard. |
 
 `projectSlug` is **optional** — you only pass it if you want the SDK to assert
 the key belongs to a specific project. `baseUrl` defaults to
@@ -328,7 +328,7 @@ auto-configuration.
 | `sendMetadata` | `true` | Report framework, versions, route templates and the effective capture config once per process (`POST /v1/metadata`). Env `APILENS_SEND_METADATA=false` also turns it off. See [App metadata](#app-metadata). |
 | `sendHeartbeat` | `true` | Send `POST /v1/heartbeat` on start, every `heartbeatInterval` and on shutdown; its response carries the remote capture policy. Env `APILENS_SEND_HEARTBEAT=false` also turns it off. See [Heartbeat](#heartbeat). |
 | `heartbeatInterval` | `Duration.ofSeconds(60)` | Time between heartbeats. Minimum 10 s (ingest answers 429 to faster ones). |
-| `appId` | `""` | App the records and heartbeats belong to. |
+| `appId` | `APILENS_APP_ID` → `OTEL_SERVICE_NAME` → `""` | App the records and heartbeats belong to (free-form name). Empty: everything (records, heartbeats, metadata) goes to the project's default app with `app_id: ""`. |
 | `onStats` | **not available** | Python only. Read `client.stats()` yourself, or let the [Micrometer binder](#sdk-health--stats) export it. |
 | `release` / `commit` | detected | Release and commit sent with the heartbeat. Fall back to `APILENS_RELEASE` / `APILENS_COMMIT`, `GIT_COMMIT`, `SOURCE_VERSION`, `RENDER_GIT_COMMIT`. |
 | `retryBackoffBase` / `retryBackoffMax` | `250ms` / `5s` | Full-jitter backoff bounds. |
@@ -379,7 +379,7 @@ fails at startup.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `appId` | client's | **Required for ingestion.** Taken from `ApiLensConfig.appId`. |
+| `appId` | client's | Taken from `ApiLensConfig.appId` (optional; see above). |
 | `environment` | `"production"` | Environment label on records, spans and logs. |
 | `captureProfile` | `null` (= `full`) | `METADATA`, `REDACTED` or `FULL`; sets the defaults of the capture flags (see [capture profiles](#capture-profiles)). |
 | `capturePayloads` | `true` | Capture request/response bodies (size-limited). |
@@ -531,7 +531,7 @@ variable overrides `application.properties`.
 | Variable | Option | Type | Default |
 |---|---|---|---|
 | `APILENS_API_KEY` | `apiKey` | string | — (required) |
-| `APILENS_APP_ID` | `appId` | string | `""` |
+| `APILENS_APP_ID` | `appId` | string | `OTEL_SERVICE_NAME`, else `""` (default app) |
 | `APILENS_PROJECT_SLUG` | `projectSlug` | string | `""` |
 | `APILENS_ENVIRONMENT` | `environment` | string | `"production"` |
 | `APILENS_BASE_URL` | `baseUrl` | string | `https://ingest.apilens.ai/v1` |
@@ -587,7 +587,7 @@ description and default.
 | Property | Default | Description |
 |---|---|---|
 | `apilens.api-key` | required | Project API key; auto-configuration is enabled only when it is set. |
-| `apilens.app-id` | required | App slug. |
+| `apilens.app-id` | empty | App name (optional; falls back to `APILENS_APP_ID`, then `OTEL_SERVICE_NAME`, then the project's default app). |
 | `apilens.project-slug` | empty | Optional project assertion. |
 | `apilens.base-url` | `https://ingest.apilens.ai/v1` | Ingest endpoint. |
 | `apilens.ingest-path` / `apilens.spans-path` / `apilens.logs-path` | `requests` / `traces` / `logs` | Paths under the base URL. |
@@ -908,14 +908,14 @@ TLS-intercepting proxy) goes in `caBundlePath`.
 **Nothing appears in the dashboard.**
 1. Confirm `apilens.api-key` is set (the auto-configuration is skipped without
    it) and belongs to the expected project.
-2. Confirm `apilens.app-id` matches an app slug in that project.
+2. Check which app the data goes to: the startup log line `APILens: app ...`.
 3. Confirm `apilens.base-url` is correct (default `https://ingest.apilens.ai/v1`).
 4. Raise the `apilens` `java.util.logging` logger to `FINE` (with Spring Boot:
    `logging.level.apilens=DEBUG`).
 5. Allow a few seconds for the batching interval before data shows up.
 
-**`422 Unprocessable Entity` from ingest.** `app-id` is missing or doesn't match
-an app in the key's project. Set it to the app slug from the dashboard.
+**`422 Unprocessable Entity` from ingest.** Check the record fields; `app-id` itself
+is free-form (an unseen name creates the app).
 
 **`401 Unauthorized`.** The API key is missing, revoked, or not project-scoped.
 

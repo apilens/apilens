@@ -23,7 +23,7 @@ export function AccountSettings({ section, children }: { section: AccountSection
   };
 
   return (
-    <div className="app-page acct">
+    <div className="page acct">
       <nav className="crumbs" aria-label="Breadcrumb">
         <ol>
           <li>

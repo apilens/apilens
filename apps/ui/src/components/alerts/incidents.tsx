@@ -1,9 +1,23 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { INCIDENTS_LOAD_FAILED, INCIDENTS_RANGES, conditionText, eventDuration, formatMetric, incidentHref, incidentsHref, metricLabel, rulesHref } from "@/lib/alerts";
+import {
+  INCIDENTS_LOAD_FAILED,
+  INCIDENTS_RANGES,
+  OPEN_PAGING,
+  RESOLVED_PAGING,
+  conditionText,
+  eventDuration,
+  formatMetric,
+  incidentHref,
+  incidentsHref,
+  metricLabel,
+  rulesHref,
+} from "@/lib/alerts";
 import { formatAgo } from "@/lib/first-data";
 import type { Incident, IncidentsRange } from "@/lib/identity";
+import { type PageOptions, type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { formatExact } from "@/lib/passkey-settings";
+import { Pagination } from "../pagination/pagination";
 import { AlertsHeader, Empty, LoadFailed, StatusBadge } from "./common";
 
 /**
@@ -12,7 +26,8 @@ import { AlertsHeader, Empty, LoadFailed, StatusBadge } from "./common";
  * against the rule's threshold, when it started and how long it lasted or has lasted so far.
  * Each rule links to its timeline. `incidents` is null when the API could not answer; `apps`
  * names the app ids (empty when unknown). `now` is the load time, so relative times render the
- * same on the server and in the browser.
+ * same on the server and in the browser. Each list is paged on its own (`params` is the page's
+ * search params): open incidents under `?opage=`, resolved ones under `?page=`.
  */
 export function IncidentsView({
   project,
@@ -22,11 +37,13 @@ export function IncidentsView({
   apps,
   now,
   notice,
+  params = {},
 }: {
   project: string;
   projectName: string;
   range: IncidentsRange;
   incidents: Incident[] | null;
+  params?: SearchParams;
   apps: Record<string, string>;
   now: number;
   /** Shown above the title (the onboarding setup reminder). */
@@ -36,7 +53,7 @@ export function IncidentsView({
   const open = (incidents ?? []).filter((i) => i.open);
   const resolved = (incidents ?? []).filter((i) => !i.open);
   return (
-    <div className="al">
+    <div className="page al">
       {notice}
       <AlertsHeader project={project} projectName={projectName} tab="incidents" title="Incidents" lead="Alert rules that breached their threshold: open ones first, then everything resolved in the range." />
 
@@ -60,7 +77,7 @@ export function IncidentsView({
           {open.length === 0 ? (
             <Empty>No open incidents. Every alert rule is within its threshold.</Empty>
           ) : (
-            <IncidentTable label="Open incidents" project={project} rows={open} apps={apps} now={now} />
+            <IncidentTable label="Open incidents" project={project} rows={open} apps={apps} now={now} params={params} paging={OPEN_PAGING} />
           )}
 
           <div className="al-bar">
@@ -82,7 +99,7 @@ export function IncidentsView({
               ) : null}
             </Empty>
           ) : (
-            <IncidentTable label="Resolved incidents" project={project} rows={resolved} apps={apps} now={now} />
+            <IncidentTable label="Resolved incidents" project={project} rows={resolved} apps={apps} now={now} params={params} paging={RESOLVED_PAGING} />
           )}
         </>
       )}
@@ -90,7 +107,24 @@ export function IncidentsView({
   );
 }
 
-function IncidentTable({ label, project, rows, apps, now }: { label: string; project: string; rows: Incident[]; apps: Record<string, string>; now: number }) {
+function IncidentTable({
+  label,
+  project,
+  rows: all,
+  apps,
+  now,
+  params,
+  paging,
+}: {
+  label: string;
+  project: string;
+  rows: Incident[];
+  apps: Record<string, string>;
+  now: number;
+  params: SearchParams;
+  paging: PageOptions;
+}) {
+  const { rows, window } = slicePage(all, parsePage(params, paging));
   return (
     <div className="al-card">
       <table className="al-table" aria-label={label}>
@@ -113,6 +147,7 @@ function IncidentTable({ label, project, rows, apps, now }: { label: string; pro
           ))}
         </tbody>
       </table>
+      <Pagination pathname={incidentsHref(project)} params={params} total={window.total} label={`${label} pages`} {...paging} />
     </div>
   );
 }

@@ -14,6 +14,11 @@
 .pf-gauge { margin-top: var(--space-2); }
 .pf-gauge__track { position: relative; display: flex; gap: 2px; height: 8px; }
 .pf-band { flex-basis: 0; height: 100%; }
+/* The gauge reads on hover, tap or the arrow keys (shared chart hover): a taller hit area than the
+   8px track, and the band under the pointer outlined. */
+.pf-gauge__track.ct-box { cursor: crosshair; }
+.pf-gauge__track.ct-box::before { content: ""; position: absolute; inset: -8px 0; }
+.pf-band.is-on { box-shadow: inset 0 0 0 1px var(--border-strong); }
 .pf-band:first-child { border-radius: 4px 0 0 4px; }
 .pf-band:last-of-type { border-radius: 0 4px 4px 0; }
 .pf-band--unacceptable, .pf-band--poor { background: var(--error-soft); }

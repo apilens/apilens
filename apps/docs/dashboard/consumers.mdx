@@ -9,7 +9,7 @@ The Consumers page breaks your traffic down by *who* is calling: customers, tena
   <img src="/images/consumers.png" alt="Consumers page" />
 </Frame>
 
-For each consumer you get total requests, client 4xx and server 5xx rates (split, like everywhere else in APILens), average response time, and when they were last seen. Group tags (e.g. `premium`, `standard`, `admin`) come from the optional `group` you set in the SDK and make plan- or tier-level comparisons easy.
+For each consumer you get total requests, client 4xx and server 5xx rates (split, like everywhere else in APILens), average response time, and when they were last seen. Group tags (e.g. `premium`, `standard`, `admin`) come from the optional `group` you set in the SDK and make plan- or tier-level comparisons easy. Groups come only from the SDK: there is nothing to create or assign in the dashboard, and a consumer who moves to another group simply reports the new one on their next requests. Alert rules scoped to a consumer group match it by this same name.
 
 Clicking a consumer drills into their requests, and every request detail view links back the other way — from a single failing request to that consumer's whole history.
 

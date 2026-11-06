@@ -1,6 +1,5 @@
 /* Project settings → API keys (#350). Tokens from tokens.css only; the card and table reuse
    .os-card (org settings) and .pk-table (Security → Passkeys); inputs reuse .ob-in. */
-.ak { max-width: 1040px; }
 .ak-card { margin-top: 0; }
 .ak-name { font-weight: 500; overflow-wrap: anywhere; }
 .ak-table .pk-name { width: auto; min-width: 140px; }
@@ -13,6 +12,33 @@
 .ak-status--revoked { background: var(--surface-2); color: var(--ink-muted); }
 .ak-expires { display: block; margin-top: 2px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
 .ak .pk-confirm code { padding: 1px 6px; }
+.ak-sub { display: block; margin-top: 2px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.ak-apps { min-width: 160px; }
+.ak-scope-text { display: block; overflow-wrap: anywhere; }
+.ak-seen { margin: 4px 0 0; padding: 0; list-style: none; font: 400 12px/18px var(--font-sans); color: var(--ink); }
+.ak-seen time { color: var(--ink-muted); }
+.ak-actions { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1); }
+.ak-readonly { margin-bottom: var(--space-4); }
+.ak-hint { margin: 6px 0 0; font: 400 12.5px/18px var(--font-sans); color: var(--ink-muted); }
+.ak .pg { margin-top: var(--space-4); }
+
+/* App access (create and edit dialogs) */
+.ak-scope.is-off { cursor: not-allowed; background: var(--surface-2); }
+.ak-scope.is-off b { color: var(--ink-muted); }
+.ak-scopes:disabled .ak-scope { cursor: not-allowed; opacity: .7; }
+.ak-picks { display: grid; gap: 2px; max-height: 200px; overflow-y: auto; margin: var(--space-2) 0 0; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-md); list-style: none; }
+.ak-picks label { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 6px; border-radius: var(--radius-sm); font: 400 13px/18px var(--font-sans); color: var(--ink); cursor: pointer; }
+.ak-picks label:hover { background: var(--surface-2); }
+.ak-picks label:has(input:focus-visible) { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.ak-picks input { margin: 0; accent-color: var(--accent); }
+.ak-picks span { min-width: 0; overflow-wrap: anywhere; }
+.ak-picks code { margin-left: auto; font: 400 12px/18px var(--font-mono); color: var(--ink-muted); }
+
+/* The environment to copy after creating a key */
+.ak-snippet__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: 6px; }
+.ak-snippet__head .ob-l { margin: 0; }
+.ak-snippet { margin: 0; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); font: 400 12.5px/20px var(--font-mono); color: var(--ink); white-space: pre; }
+.ak-snippet:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
 
 /* Create dialog */
 .ak-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }

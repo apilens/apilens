@@ -74,6 +74,13 @@
 //                                                  on projects the user created in onboarding (#333);
 //   DELETE /api/v1/projects/shop/api-keys/{id}     revoke (204, or 410 api_key_gone). Creating and
 //                                                  revoking answer 403 without the capability
+//   PUT  /api/v1/projects/shop/api-keys/{id}/access an ingest key's app access: {can_create_apps, app_ids}
+//                                                  (null: every app; a limited key never creates apps)
+//   GET  /api/v1/projects/shop/apps                shop's apps with origin and lifecycle (the first is the
+//                                                  default unless seeded); PATCH/DELETE .../apps/{id} and
+//                                                  POST .../apps/{id}/{archive|restore|acknowledge|merge}
+//                                                  need capture.manage (403 otherwise)
+//   GET  /api/v1/projects/shop/app-rejections      records rejected for app names, as /__fake/apps seeded them
 //   GET  /api/v1/projects/{slug}/ingest-status     {received, first_at, last_at, count_1h} of shop or a
 //                                                  project the user created (#334); 403 otherwise
 //   POST /v1/requests                              the ingest edge's v1 endpoint (#334): an X-API-Key
@@ -115,18 +122,16 @@
 //                                                  saved; PUT answers 403 without capture.manage
 //   GET  /api/v1/deploys/changes?project=          deploys with before/after numbers (#597), as seeded
 //   POST /__fake/deploys {project, deploys}        test hook: what that answers for `project`
-//   GET  /api/v1/consumers?project=&group=         consumers of shop (#596) as seeded, each with the group the
-//   GET  /api/v1/consumers/{consumer_id}?project=  fake assigned it; `group` filters to its members; detail as seeded
-//   GET|POST /api/v1/projects/shop/consumer-groups shop's consumer groups (#596): list (by name) and create; a name
-//   PUT|DELETE /api/v1/projects/shop/consumer-groups/{id}  taken ignoring case answers 409 conflict
-//   PUT|DELETE /api/v1/projects/shop/consumers/{consumer_id}/group  assign (moves it out of its previous
-//                                                  group) and unassign; writes answer 403 without project.update
+//   GET  /api/v1/consumers?project=&group=&search=&sort=&limit=&offset=  consumers of shop (#596) as seeded,
+//                                                  each with its seeded SDK consumer_group; `group` filters by it
+//   GET  /api/v1/consumers/{consumer_id}?project=  detail as seeded, recent lists paged by limit/offset
+//   GET  /api/v1/consumer-groups?project=          the seeded consumers rolled up by consumer_group
 //   GET|POST /api/v1/projects/shop/views?surface=  shop's saved views (#578, #589): shared ones and the caller's
 //   GET|PUT|DELETE /api/v1/projects/shop/views/{id} own; the creator edits, capture.manage edits shared ones (else
 //                                                  403); a name the creator uses on the surface answers 409
 //   POST /__fake/views {views?, down?}             test hook: replaces shop's saved views; `down`: writes answer 503
-//   POST /__fake/consumers {project, summary, points, consumers, details, groups?, assignments?}
-//                                                  test hook: what those answer; resets shop's groups
+//   POST /__fake/consumers {project, summary, points, consumers, details}
+//                                                  test hook: what those answer
 //   POST /__fake/requests {project, rows}          test hook: `GET /api/v1/requests` answers `rows` for
 //                                                  `project` (narrowed by method, path and status,
 //                                                  #586) instead of what the edge stored (#585); rows null forgets it
@@ -147,7 +152,7 @@
 //   PUT|DELETE /api/v1/projects/shop/alerts/channels/{id}   taken ignoring case answers 409
 //   POST /api/v1/projects/shop/alerts/channels/{id}/test    a test send: 200 {sent}, or 502 for a channel
 //                                                  whose config URL contains "gone" (HTTP 410 in the detail)
-//   GET  /api/v1/projects/shop/alerts/events?rule_id=  events newest first
+//   GET  /api/v1/projects/shop/alerts/events?rule_id=&limit=&cursor=  events newest first, paged
 //   GET  /api/v1/projects/{slug}/incidents         events grouped by rule, open first (empty for created projects);
 //                                                  alert writes answer 403 without alerts.manage
 //   POST /__fake/alerts {trigger?: {rule, value}, resolve?: rule, reset?}
@@ -164,8 +169,9 @@
 //                                                  ({summary, points}), else none
 //   POST /__fake/apps {apps}                       test hook: replaces shop's apps [{id, slug, name,
 //                                                  policy?, environments?, ingest?, sdk_stats?, status?,
-//                                                  traffic?}], their policies, reports, health counters,
-//                                                  SDK status and traffic
+//                                                  traffic?, managed?}], their policies, reports, health
+//                                                  counters, SDK status, traffic and lifecycle (managed:
+//                                                  any ManagedApp field), plus {rejections?}
 //   GET|PUT /api/v1/projects/shop/privacy-policy   shop's server-side deny list (#599): only the defaults
 //                                                  until saved; PUT answers 403 without project.update and
 //                                                  invalid_request naming a pattern JavaScript cannot compile
@@ -175,7 +181,9 @@
 //                                                  unless seeded; POST answers 422 for a private address
 //   POST /__fake/health-checks {checks, events?}   test hook: replaces shop's health checks and, by
 //                                                  check id, their failures
-//   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?}
+//   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?, extra?}
+//                                                  `extra: {members?, invitations?, sessions?}` adds that many
+//                                                  numbered @example.com rows to each list (paging tests);
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  `role` is the user's role in acme (default owner);
 //                                                  with `totp_secret` (base32) it answers 2fa_required;
@@ -503,6 +511,9 @@ interface FakeApiKey {
   name: string;
   prefix: string;
   scopes: string[];
+  can_create_apps: boolean;
+  app_ids: string[] | null;
+  apps_seen: { app_id: string; slug: string; name: string; first_seen_at: string; last_seen_at: string }[];
   created_at: string;
   expires_at: string | null;
   last_used_at: string | null;
@@ -593,15 +604,6 @@ const consumersSeed = new Map<
   string,
   { summary: unknown; points: unknown[]; consumers: Record<string, unknown>[]; details: Record<string, Record<string, unknown>> }
 >();
-/** shop's consumer groups and which group each consumer is in (#596): a consumer is in at most one. */
-let consumerGroups: { id: string; name: string; created_at: string; updated_at: string }[] = [];
-const consumerAssignments = new Map<string, string>();
-const groupRef = (consumer: string) => {
-  const g = consumerGroups.find((x) => x.id === consumerAssignments.get(consumer));
-  return g ? { id: g.id, name: g.name } : undefined;
-};
-const groupOut = (g: (typeof consumerGroups)[number]) => ({ ...g, consumers: [...consumerAssignments.values()].filter((id) => id === g.id).length });
-
 /** shop's saved views (#578, #589): shared ones for everyone, private ones for their creator. */
 interface FakeView {
   id: string;
@@ -618,8 +620,44 @@ let savedViews: FakeView[] = [];
 let savedViewWritesDown = false;
 
 /** shop's apps (#598), their saved capture policies and what their SDKs reported, by app id. */
-const DEFAULT_APP = { id: "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d", slug: PROJECT, name: "Shop" };
-let shopApps: { id: string; slug: string; name: string }[] = [DEFAULT_APP];
+const DEFAULT_APP: FakeApp = { id: "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d", slug: PROJECT, name: "Shop" };
+/** An app of shop; the lifecycle fields (`GET /projects/shop/apps`) default to an active app a person added. */
+interface FakeApp {
+  id: string;
+  slug: string;
+  name: string;
+  managed?: Record<string, unknown>;
+}
+let shopApps: FakeApp[] = [DEFAULT_APP];
+/** Records the ingest edge rejected for app names (`GET /projects/shop/app-rejections`), seeded by `/__fake/apps`. */
+let appRejectionSeed: Record<string, unknown>[] = [];
+
+/** shop's app as `GET /projects/shop/apps` lists it. The first app is the default unless a seed says otherwise. */
+function managedApp(app: FakeApp, i: number): Record<string, unknown> {
+  const anyDefault = shopApps.some((a) => a.managed?.is_default === true);
+  return {
+    id: app.id,
+    slug: app.slug,
+    name: app.name,
+    state: "active",
+    created_by: "dashboard",
+    created_by_key_id: null,
+    created_by_key_name: null,
+    created_at: "2026-10-01T09:00:00Z",
+    first_seen_at: null,
+    last_seen_at: null,
+    archived_at: null,
+    deleted_at: null,
+    restorable_until: null,
+    acknowledged_at: null,
+    new: false,
+    is_default: !anyDefault && i === 0,
+    merged_into: null,
+    merged_into_slug: null,
+    ...app.managed,
+  };
+}
+const isActive = (app: FakeApp) => (app.managed?.state ?? "active") === "active";
 const capturePolicies = new Map<string, Record<string, unknown>>();
 const appReports = new Map<string, Record<string, unknown>[]>();
 /** Ingest health (#602): seeded edge counters per day, newest last ("off": 503), and SDK counters. */
@@ -675,6 +713,9 @@ function seedApiKey(input: Record<string, unknown>): FakeApiKey {
     name: String(input.name ?? "Key"),
     prefix: String(input.prefix ?? `apl_live_${token().slice(0, 7)}`),
     scopes: Array.isArray(input.scopes) ? input.scopes.map(String) : ["ingest"],
+    can_create_apps: Array.isArray(input.app_ids) ? false : input.can_create_apps !== false,
+    app_ids: Array.isArray(input.app_ids) ? input.app_ids.map(String) : null,
+    apps_seen: Array.isArray(input.apps_seen) ? (input.apps_seen as FakeApiKey["apps_seen"]) : [],
     created_at: String(input.created_at ?? new Date().toISOString()),
     expires_at: typeof input.expires_at === "string" ? input.expires_at : null,
     last_used_at: typeof input.last_used_at === "string" ? input.last_used_at : null,
@@ -683,6 +724,8 @@ function seedApiKey(input: Record<string, unknown>): FakeApiKey {
 }
 
 interface Seeds {
+  /** Extra rows for paging tests: that many more members, pending invitations and other sessions. */
+  extra?: { members?: number; invitations?: number; sessions?: number };
   passkeys?: Record<string, unknown>[];
   capabilities?: string[];
   apiKeys?: Record<string, unknown>[];
@@ -725,7 +768,7 @@ function joinedOrgs(id: string) {
       slug: o.slug,
       name: o.name,
       role: "member",
-      projects: o.projects.map((p) => ({ id: `prj_${p}`, slug: p, name: p, environments: ["production"] })),
+      projects: o.projects.map((p) => ({ id: `prj_${p}`, slug: p, name: p, environments: ["production"], app_count: 1 })),
     }));
 }
 
@@ -750,6 +793,28 @@ function ssoConnection(fields: Record<string, unknown>): Record<string, unknown>
   };
 }
 
+/** `extra` of the handoff: numbered @example.com members, invitations and older sessions (at most 500 each). */
+function seedExtra(id: string, extra: Seeds["extra"]) {
+  const n = (v: unknown) => (typeof v === "number" && Number.isInteger(v) && v > 0 ? Math.min(v, 500) : 0);
+  const pad = (i: number) => String(i).padStart(3, "0");
+  const members = membersByUser.get(id) ?? [];
+  for (let i = 1; i <= n(extra?.members); i++) {
+    members.push({ user: { id: randomUUID(), email: `teammate${pad(i)}@example.com`, name: `Teammate ${pad(i)}`, avatar_url: "" }, role: i % 5 === 0 ? "viewer" : "member", joined_at: ago(i), last_login_at: null });
+  }
+  membersByUser.set(id, members.sort((a, b) => a.joined_at.localeCompare(b.joined_at)));
+  const invitations = invitationsByUser.get(id) ?? [];
+  for (let i = 1; i <= n(extra?.invitations); i++) {
+    invitations.push({ id: randomUUID(), email: `invitee${pad(i)}@example.com`, role: "member", created_at: ago(60 + i), expires_at: new Date(Date.now() - (60 + i) * 60_000 + INVITE_TTL_MS).toISOString(), resent_at: null });
+  }
+  invitationsByUser.set(id, invitations);
+  const sessions = sessionsByUser.get(id) ?? [];
+  const expires = new Date(Date.now() + 30 * 24 * 3600_000).toISOString();
+  for (let i = 1; i <= n(extra?.sessions); i++) {
+    sessions.push({ id: randomUUID(), access: null, device_label: `Device ${pad(i)}`, user_agent: `Device ${pad(i)} (fake)`, ip: "192.0.2.1", amr: ["email"], created_at: ago(24 * 60 + i), last_seen_at: ago(60 + i), expires_at: expires });
+  }
+  sessionsByUser.set(id, sessions);
+}
+
 /** The user's actions on shop: seeded ones, else what their role allows. */
 const capabilitiesOf = (id: string): string[] => capabilities.get(id) ?? capabilitiesFor(roleOf(id));
 
@@ -759,6 +824,7 @@ function bundle(next: string, seeds: Seeds = {}, role: Role = "owner") {
   seedSessions(id, access);
   seedMembers(id, role);
   seedInvitations(id);
+  seedExtra(id, seeds.extra);
   passkeys.set(id, (seeds.passkeys ?? []).map(seedPasskey));
   if (seeds.capabilities) capabilities.set(id, seeds.capabilities);
   apiKeys.set(id, (seeds.apiKeys ?? []).map(seedApiKey));
@@ -811,7 +877,7 @@ const GLOBEX = {
   slug: "globex",
   name: "Globex",
   role: "member",
-  projects: [{ id: "prj_globex", slug: "storefront", name: "storefront", environments: ["production"] }],
+  projects: [{ id: "prj_globex", slug: "storefront", name: "storefront", environments: ["production"], app_count: 1 }],
 };
 /** Users who accepted an invitation. */
 const joinedGlobex = new Set<string>();
@@ -840,7 +906,7 @@ const ENV_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const createdProjectsOf = (id: string, org: string) =>
   [...createdProjects.values()]
     .filter((p) => p.owner === id && p.org === org)
-    .map(({ id: pid, slug, name, environments }) => ({ id: pid, slug, name, environments }));
+    .map(({ id: pid, slug, name, environments }) => ({ id: pid, slug, name, environments, app_count: 1 }));
 const createdOrgsOf = (id: string) =>
   [...createdOrgs.values()].filter((o) => o.owner === id).map(({ owner: _owner, ...o }) => ({ ...o, projects: createdProjectsOf(id, o.slug) }));
 
@@ -865,7 +931,7 @@ function context(id: string) {
         slug: "acme",
         name: "Acme",
         role,
-        projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"] }, ...createdProjectsOf(id, "acme")],
+        projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"], app_count: shopApps.length }, ...createdProjectsOf(id, "acme")],
       },
       ...(joinedGlobex.has(id) ? [GLOBEX] : []),
       ...createdOrgsOf(id),
@@ -1371,7 +1437,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     privacyPolicy = null;
     return send(res, 204);
   }
-  const keysPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/api-keys(?:\/([^/]+))?$/);
+  const keysPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/api-keys(?:\/([^/]+)(\/access)?)?$/);
   if (keysPath) {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
@@ -1385,18 +1451,23 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (req.method === "GET" && sub === undefined) return send(res, 200, list);
     if (req.method === "POST" && sub === undefined) {
       if (!allowed("api_keys.create")) return problem(res, 403, "forbidden");
-      const { name, scopes, expires_at: expires } = await readBody(req);
+      const { name, scopes, expires_at: expires, can_create_apps: canCreate, app_ids: appIds } = await readBody(req);
       const label = typeof name === "string" ? name.trim() : "";
       const picked = Array.isArray(scopes) ? scopes.map(String) : [];
       const valid = picked.length > 0 && picked.every((s) => s === "ingest" || s === "read") && new Set(picked).size === picked.length;
       const when = typeof expires === "string" ? Date.parse(expires) : undefined;
       if (!label || label.length > 100 || !valid || (when !== undefined && !(when > Date.now()))) return problem(res, 400, "invalid_request");
+      const limited = Array.isArray(appIds) ? appIds.map(String) : null;
+      if (limited && (limited.length === 0 || !limited.every((id) => shopApps.some((a) => a.id === id)))) return problem(res, 400, "invalid_request");
       const raw = `apl_live_${token()}`;
       const created: FakeApiKey = {
         id: randomUUID(),
         name: label,
         prefix: raw.slice(0, 16),
         scopes: ["ingest", "read"].filter((s) => picked.some((p) => p === s)),
+        can_create_apps: picked.includes("ingest") && !limited && canCreate !== false,
+        app_ids: picked.includes("ingest") ? limited : null,
+        apps_seen: [],
         created_at: new Date().toISOString(),
         expires_at: when === undefined ? null : new Date(when).toISOString(),
         last_used_at: null,
@@ -1406,7 +1477,18 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       rawKeys.set(raw, { project: keysProject, id: created.id, user });
       return send(res, 201, { ...created, key: raw });
     }
-    if (req.method === "DELETE" && sub !== undefined) {
+    if (req.method === "PUT" && sub !== undefined && keysPath[3]) {
+      if (!allowed("api_keys.create")) return problem(res, 403, "forbidden");
+      const found = list.find((k) => k.id === decodeURIComponent(sub));
+      if (!found || found.revoked_at) return problem(res, 410, "api_key_gone");
+      const { can_create_apps: canCreate, app_ids: appIds } = await readBody(req);
+      const limited = Array.isArray(appIds) ? appIds.map(String) : null;
+      if (typeof canCreate !== "boolean" || (limited && (limited.length === 0 || !limited.every((id) => shopApps.some((a) => a.id === id))))) return problem(res, 400, "invalid_request");
+      found.app_ids = limited;
+      found.can_create_apps = limited ? false : canCreate;
+      return send(res, 200, found);
+    }
+    if (req.method === "DELETE" && sub !== undefined && !keysPath[3]) {
       if (!allowed("api_keys.revoke")) return problem(res, 403, "forbidden");
       const found = list.find((k) => k.id === decodeURIComponent(sub));
       if (!found) return problem(res, 410, "api_key_gone");
@@ -1456,13 +1538,76 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     ingestedRows.set(holder.project, rows);
     return send(res, 200, { accepted: list.length });
   }
+  // shop's apps with their origin and lifecycle (apps come from the SDK). Reads need a view of the
+  // project; writes need `capture.manage`, like the API.
+  const managedPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/(apps|app-rejections)(?:\/([^/]+)(?:\/(archive|restore|acknowledge|merge))?)?$/);
+  if (managedPath) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    if (decodeURIComponent(managedPath[1]) !== PROJECT) return problem(res, 404, "not_found");
+    if (managedPath[2] === "app-rejections") {
+      if (req.method !== "GET") return problem(res, 404, "not_found");
+      return send(res, 200, { days: Number(url.searchParams.get("days") ?? 7), available: true, rejections: appRejectionSeed });
+    }
+    const [, , , rawId, verb] = managedPath;
+    if (rawId === undefined) {
+      if (req.method !== "GET") return problem(res, 404, "not_found");
+      return send(res, 200, { apps: shopApps.map(managedApp) });
+    }
+    if (!capabilitiesOf(user).includes("capture.manage")) return problem(res, 403, "forbidden");
+    const index = shopApps.findIndex((a) => a.id === decodeURIComponent(rawId));
+    if (index < 0) return problem(res, 404, "not_found");
+    const app = shopApps[index];
+    const now = managedApp(app, index);
+    const set = (patch: Record<string, unknown>) => {
+      app.managed = { ...app.managed, ...patch };
+    };
+    const refuse = (code: string, detail: string) => send(res, code === "slug_taken" ? 409 : 400, { status: 400, title: code, code, detail }, "application/problem+json");
+    const DEFAULT_REFUSED = "The default app receives records that name no app; it cannot be archived, merged or deleted.";
+    if (req.method === "PATCH" && !verb) {
+      const { name } = await readBody(req);
+      const label = typeof name === "string" ? name.trim() : "";
+      if (!label || label.length > 100) return problem(res, 400, "invalid_request");
+      app.name = label;
+      return send(res, 204);
+    }
+    if (req.method === "DELETE" && !verb) {
+      if (now.is_default) return refuse("invalid_request", DEFAULT_REFUSED);
+      const t = Date.now();
+      set({ state: "deleted", deleted_at: new Date(t).toISOString(), restorable_until: new Date(t + 30 * 86_400_000).toISOString() });
+      return send(res, 204);
+    }
+    if (req.method === "POST" && verb === "archive") {
+      if (now.is_default) return refuse("invalid_request", DEFAULT_REFUSED);
+      set({ state: "archived", archived_at: new Date().toISOString(), new: false });
+      return send(res, 204);
+    }
+    if (req.method === "POST" && verb === "restore") {
+      if (now.state === "active") return refuse("invalid_request", "The app is active; only archived, merged or deleted apps can be restored.");
+      set({ state: "active", archived_at: null, deleted_at: null, restorable_until: null, merged_into: null, merged_into_slug: null });
+      return send(res, 204);
+    }
+    if (req.method === "POST" && verb === "acknowledge") {
+      set({ new: false, acknowledged_at: new Date().toISOString() });
+      return send(res, 204);
+    }
+    if (req.method === "POST" && verb === "merge") {
+      if (now.is_default) return refuse("invalid_request", DEFAULT_REFUSED);
+      const { into } = await readBody(req);
+      const target = shopApps.find((a) => a.id === into);
+      if (!target || target.id === app.id || !isActive(target)) return refuse("invalid_request", "Pick an active app other than this one.");
+      set({ state: "merged", merged_into: target.id, merged_into_slug: target.slug, archived_at: new Date().toISOString(), new: false });
+      return send(res, 204);
+    }
+    return problem(res, 404, "not_found");
+  }
   // shop's apps and their capture policies (#598). Like the API, an app in a project the user
   // cannot view answers 404; saving needs `capture.manage`.
   if (req.method === "GET" && path === "/api/v1/project") {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
     if (url.searchParams.get("project") !== PROJECT) return problem(res, 404, "not_found");
-    return send(res, 200, { org: { id: "org_acme", slug: "acme", name: "Acme" }, project: { id: "prj_shop", slug: PROJECT, name: "Shop" }, apps: shopApps, environments: ["production"] });
+    return send(res, 200, { org: { id: "org_acme", slug: "acme", name: "Acme" }, project: { id: "prj_shop", slug: PROJECT, name: "Shop" }, apps: shopApps.filter(isActive).map(({ id, slug, name }) => ({ id, slug, name })), environments: ["production"] });
   }
   const appPath = path.match(/^\/api\/v1\/apps\/([^/]+)\/(capture-policy|metadata)$/);
   if (appPath) {
@@ -1536,15 +1681,18 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   }
   if (req.method === "POST" && path === "/__fake/apps") {
     // Test hook: replaces shop's apps, their saved policies, their SDK reports and health counters.
-    const { apps } = await readBody(req);
+    const { apps, rejections } = await readBody(req);
     const list = Array.isArray(apps) ? (apps as Record<string, unknown>[]) : [];
+    appRejectionSeed = Array.isArray(rejections) ? (rejections as Record<string, unknown>[]) : [];
     capturePolicies.clear();
     appReports.clear();
     appIngest.clear();
     appSdkStats.clear();
     appStatuses.clear();
     appTraffic.clear();
-    shopApps = list.length ? list.map((a) => ({ id: String(a.id ?? randomUUID()), slug: String(a.slug), name: String(a.name ?? a.slug) })) : [DEFAULT_APP];
+    shopApps = list.length
+      ? list.map((a) => ({ id: String(a.id ?? randomUUID()), slug: String(a.slug), name: String(a.name ?? a.slug), managed: typeof a.managed === "object" && a.managed !== null ? (a.managed as Record<string, unknown>) : undefined }))
+      : [DEFAULT_APP];
     list.forEach((a, i) => {
       const id = shopApps[i].id;
       if (typeof a.policy === "object" && a.policy !== null) capturePolicies.set(id, a.policy as Record<string, unknown>);
@@ -1979,7 +2127,12 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
           (!status.length || status.some((t) => (/^[1-5]xx$/.test(t) ? String(r.status_code)[0] === t[0] : String(r.status_code) === t)));
         // A row's `detail` seeds the request drawer (#588); the log does not carry it.
         const listed = seeded.filter(matches).map(({ detail: _detail, ...r }) => r);
-        return send(res, 200, { requests: listed.slice(0, limit), next_cursor: "" });
+        // Pages like the API: an opaque cursor (an offset here) and next_cursor while rows remain.
+        const cursor = url.searchParams.get("cursor") ?? "";
+        const offset = cursor ? Number(Buffer.from(cursor, "base64url").toString().replace(/^r/, "")) : 0;
+        if (cursor && !Number.isInteger(offset)) return problem(res, 422, "invalid_request");
+        const next = offset + limit < listed.length ? Buffer.from(`r${offset + limit}`).toString("base64url") : "";
+        return send(res, 200, { requests: listed.slice(offset, offset + limit), next_cursor: next });
       }
       return send(res, 200, { requests: rows.slice(0, limit) });
     }
@@ -2026,11 +2179,15 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const slug = url.searchParams.get("project") ?? "";
     if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
     if (queryDown.has(slug)) return problem(res, 503, "unavailable");
-    return send(res, 200, { window_minutes: 60, deploys: deployChanges.get(slug) ?? [] });
+    const all = (deployChanges.get(slug) ?? []).map((d, i) => ({ id: (i + 1).toString(16).padStart(16, "a"), ...(d as object) }));
+    const offset = Number(url.searchParams.get("offset") ?? 0) || 0;
+    const limit = Number(url.searchParams.get("limit") ?? 25) || 25;
+    return send(res, 200, { window_minutes: 60, total: all.length, deploys: all.slice(offset, offset + limit) });
   }
-  // Consumers (#596), as seeded, with the groups this fake keeps; same access rules as above.
-  const consumerPath = path.match(/^\/api\/v1\/consumers(?:\/([^/]+))?$/);
-  if (req.method === "GET" && consumerPath) {
+  // Consumers (#596), as seeded, each with the SDK group it was seeded with (consumer_group); same
+  // access rules as above. The list and the group roll-up search, sort and page like the API.
+  const consumerPath = path.match(/^\/api\/v1\/(consumers|consumer-groups)(?:\/([^/]+))?$/);
+  if (req.method === "GET" && consumerPath && !(consumerPath[1] === "consumer-groups" && consumerPath[2] !== undefined)) {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
     const slug = url.searchParams.get("project") ?? "";
@@ -2038,20 +2195,55 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (queryDown.has(slug)) return problem(res, 503, "unavailable");
     const seed = consumersSeed.get(slug) ?? { summary: { consumers: 0, new: 0, returning: 0 }, points: [], consumers: [], details: {} };
     const range = url.searchParams.get("range") ?? "24h";
-    if (consumerPath[1] !== undefined) {
-      const id = decodeURIComponent(consumerPath[1]);
+    const num = (k: string, d: number) => Number(url.searchParams.get(k) ?? d);
+    const limit = num("limit", consumerPath[1] === "consumers" && consumerPath[2] !== undefined ? 50 : 100);
+    const offset = num("offset", 0);
+    const search = (url.searchParams.get("search") ?? "").toLowerCase();
+    const sort = url.searchParams.get("sort") ?? "requests";
+    const n = (r: Record<string, unknown>, k: string) => Number(r[k] ?? 0);
+    const order = (rows: Record<string, unknown>[]) =>
+      [...rows].sort((x, y) =>
+        sort === "errors"
+          ? n(y, "client_errors") + n(y, "server_errors") - (n(x, "client_errors") + n(x, "server_errors")) || n(y, "requests") - n(x, "requests")
+          : sort === "last_seen"
+            ? String(y.last_seen).localeCompare(String(x.last_seen))
+            : sort === "consumers"
+              ? n(y, "consumers") - n(x, "consumers") || n(y, "requests") - n(x, "requests")
+              : n(y, "requests") - n(x, "requests"),
+      );
+    const page = <T,>(rows: T[]) => rows.slice(offset, offset + limit);
+    if (consumerPath[1] === "consumer-groups") {
+      const by = new Map<string, Record<string, unknown>>();
+      for (const c of seed.consumers) {
+        const g = String(c.consumer_group ?? "");
+        if (!g || (search && !g.toLowerCase().includes(search))) continue;
+        const cur = by.get(g) ?? { group: g, consumers: 0, requests: 0, successful: 0, client_errors: 0, server_errors: 0, last_seen: "", sparkline: [] as number[] };
+        for (const k of ["requests", "successful", "client_errors", "server_errors"]) cur[k] = n(cur, k) + n(c, k);
+        cur.consumers = n(cur, "consumers") + 1;
+        if (String(c.last_seen) > String(cur.last_seen)) cur.last_seen = c.last_seen;
+        cur.sparkline = ((c.sparkline as number[]) ?? []).map((v, i) => v + ((cur.sparkline as number[])[i] ?? 0));
+        by.set(g, cur);
+      }
+      const all = order([...by.values()]);
+      return send(res, 200, { range, from: "2026-11-05T10:00:00Z", to: "", bucket_seconds: 900, total: all.length, groups: page(all) });
+    }
+    if (consumerPath[2] !== undefined) {
+      const id = decodeURIComponent(consumerPath[2]);
       const detail = seed.details[id];
       if (!detail) return problem(res, 404, "not_found");
-      return send(res, 200, { ...detail, consumer_id: id, range, group: groupRef(id) });
+      const recent = (k: string) => page((detail[k] as unknown[]) ?? []);
+      return send(res, 200, { top_endpoints: [], ...detail, consumer_id: id, range, recent_requests: recent("recent_requests"), recent_errors: recent("recent_errors") });
     }
     const group = url.searchParams.get("group");
-    const rows = seed.consumers
-      .filter((c) => !group || consumerAssignments.get(String(c.consumer_id)) === group)
-      .map((c) => ({ ...c, group: groupRef(String(c.consumer_id)) }));
-    return send(res, 200, { range, from: "", to: "", bucket_seconds: 900, summary: seed.summary, points: seed.points, consumers: rows });
+    const inGroup = seed.consumers.filter((c) => !group || c.consumer_group === group);
+    const matched = order(inGroup.filter((c) => !search || String(c.consumer_id).toLowerCase().includes(search) || String(c.consumer_name).toLowerCase().includes(search)));
+    const totals = { requests: 0, successful: 0, client_errors: 0, server_errors: 0 };
+    for (const c of inGroup) for (const k of Object.keys(totals) as (keyof typeof totals)[]) totals[k] += n(c, k);
+    const summary = group ? { consumers: inGroup.length, new: inGroup.filter((c) => c.new).length, returning: inGroup.filter((c) => !c.new).length } : seed.summary;
+    return send(res, 200, { range, from: "2026-11-05T10:00:00Z", to: "", bucket_seconds: 900, summary, totals, points: seed.points, total: matched.length, consumers: page(matched) });
   }
   if (req.method === "POST" && path === "/__fake/consumers") {
-    // Test hook: replaces what the consumers reads answer for `project`, and shop's groups.
+    // Test hook: replaces what the consumers reads answer for `project`.
     const b = await readBody(req);
     consumersSeed.set(String(b.project), {
       summary: b.summary ?? { consumers: 0, new: 0, returning: 0 },
@@ -2059,10 +2251,6 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       consumers: Array.isArray(b.consumers) ? (b.consumers as Record<string, unknown>[]) : [],
       details: (b.details as Record<string, Record<string, unknown>>) ?? {},
     });
-    const at = new Date().toISOString();
-    consumerGroups = Array.isArray(b.groups) ? (b.groups as { id: string; name: string }[]).map((g) => ({ id: g.id, name: g.name, created_at: at, updated_at: at })) : [];
-    consumerAssignments.clear();
-    for (const [c, g] of Object.entries((b.assignments as Record<string, string>) ?? {})) consumerAssignments.set(c, g);
     return send(res, 204);
   }
   if (req.method === "POST" && path === "/__fake/views") {
@@ -2129,56 +2317,6 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (taken(v.created_by, v.surface, v.id)) return problem(res, 409, "conflict");
     Object.assign(v, { name, filter, shared: body.shared === true, updated_at: new Date().toISOString() });
     return send(res, 200, v);
-  }
-  const groupsPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/(?:consumer-groups(?:\/([^/]+))?|consumers\/([^/]+)\/group)$/);
-  if (groupsPath) {
-    const user = signedInUser(req);
-    if (!user) return problem(res, 401, "unauthenticated");
-    if (decodeURIComponent(groupsPath[1]) !== PROJECT) return problem(res, 404, "not_found");
-    const [, , groupId, consumerId] = groupsPath;
-    if (req.method === "GET" && groupId === undefined && consumerId === undefined) {
-      return send(res, 200, { groups: [...consumerGroups].sort((a, b) => a.name.localeCompare(b.name)).map(groupOut) });
-    }
-    if (!capabilitiesOf(user).includes("project.update")) return problem(res, 403, "forbidden");
-    const nameOf = async () => String((await readBody(req)).name ?? "").trim();
-    const taken = (name: string, except?: string) => consumerGroups.some((g) => g.id !== except && g.name.toLowerCase() === name.toLowerCase());
-    if (consumerId !== undefined) {
-      const consumer = decodeURIComponent(consumerId);
-      if (req.method === "DELETE") {
-        if (!consumerAssignments.delete(consumer)) return problem(res, 404, "not_found");
-        return send(res, 204);
-      }
-      if (req.method !== "PUT") return problem(res, 404, "not_found");
-      const target = String((await readBody(req)).group_id ?? "");
-      const g = consumerGroups.find((x) => x.id === target);
-      if (!g) return problem(res, 404, "not_found");
-      consumerAssignments.set(consumer, g.id);
-      return send(res, 200, { consumer_id: consumer, group: { id: g.id, name: g.name }, assigned_at: new Date().toISOString() });
-    }
-    if (groupId === undefined) {
-      if (req.method !== "POST") return problem(res, 404, "not_found");
-      const name = await nameOf();
-      if (name === "" || name.length > 128) return problem(res, 422, "validation_failed");
-      if (taken(name)) return problem(res, 409, "conflict");
-      const at = new Date().toISOString();
-      const g = { id: randomUUID(), name, created_at: at, updated_at: at };
-      consumerGroups.push(g);
-      return send(res, 201, groupOut(g));
-    }
-    const g = consumerGroups.find((x) => x.id === decodeURIComponent(groupId));
-    if (!g) return problem(res, 404, "not_found");
-    if (req.method === "DELETE") {
-      consumerGroups = consumerGroups.filter((x) => x !== g);
-      for (const [c, id] of consumerAssignments) if (id === g.id) consumerAssignments.delete(c);
-      return send(res, 204);
-    }
-    if (req.method !== "PUT") return problem(res, 404, "not_found");
-    const name = await nameOf();
-    if (name === "" || name.length > 128) return problem(res, 422, "validation_failed");
-    if (taken(name, g.id)) return problem(res, 409, "conflict");
-    g.name = name;
-    g.updated_at = new Date().toISOString();
-    return send(res, 200, groupOut(g));
   }
   if (req.method === "POST" && path === "/__fake/deploys") {
     // Test hook: replaces what `GET /deploys/changes` answers for `project`.
@@ -2343,6 +2481,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       sso,
       stale,
       joinable,
+      extra,
     } = await readBody(req);
     const codes = Array.isArray(backups) ? backups.map(String) : [];
     const seeded: Seeds = {
@@ -2351,6 +2490,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       apiKeys: Array.isArray(keys) ? (keys as Record<string, unknown>[]) : [],
       sso: typeof sso === "object" && sso !== null && !Array.isArray(sso) ? (sso as Record<string, unknown>) : undefined,
       joinable: Array.isArray(joinable) ? (joinable as Record<string, unknown>[]) : [],
+      extra: typeof extra === "object" && extra !== null && !Array.isArray(extra) ? (extra as Seeds["extra"]) : undefined,
     };
     const r = ROLES.has(role as Role) ? (role as Role) : "owner";
     const code = issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded, stale === true, r);
@@ -2742,8 +2882,15 @@ async function alerts(req: IncomingMessage, res: ServerResponse, path: string, u
 
   if (kind === "events") {
     const rule = url.searchParams.get("rule_id");
-    const events = alertEvents.filter((e) => !rule || e.rule_id === rule).map(eventOut);
-    return send(res, 200, { events, next_cursor: "" }), true;
+    const all = alertEvents.filter((e) => !rule || e.rule_id === rule).map(eventOut);
+    // Pages like the API: `limit` (default 50) from the `cursor` on; the cursor is opaque (an offset here).
+    const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50));
+    const cursor = url.searchParams.get("cursor") ?? "";
+    const from = cursor ? Number(Buffer.from(cursor, "base64url").toString().replace(/^o/, "")) : 0;
+    if (cursor && !Number.isInteger(from)) return problem(res, 422, "invalid_request"), true;
+    const events = all.slice(from, from + limit);
+    const next = from + limit < all.length ? Buffer.from(`o${from + limit}`).toString("base64url") : "";
+    return send(res, 200, { events, next_cursor: next }), true;
   }
 
   if (req.method !== "GET" && !capabilitiesOf(user).includes("alerts.manage")) return problem(res, 403, "forbidden"), true;

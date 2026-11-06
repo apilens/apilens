@@ -57,7 +57,7 @@ func TestGetUserContext(t *testing.T) {
 		},
 		Orgs: []usercontext.Org{{
 			ID: orgID, Slug: "acme", Name: "Acme", Role: "viewer",
-			Projects: []usercontext.Project{{ID: projID, Slug: "checkout", Name: "Checkout", Environments: []string{"production"}}},
+			Projects: []usercontext.Project{{ID: projID, Slug: "checkout", Name: "Checkout", Environments: []string{"production"}, AppCount: 2}},
 		}},
 		LastProjectSlug: "checkout",
 		Capabilities:    map[string][]string{"checkout": {"project.read"}},
@@ -75,7 +75,7 @@ func TestGetUserContext(t *testing.T) {
 	want := map[string]any{
 		"orgs": []any{map[string]any{
 			"id": orgID.String(), "slug": "acme", "name": "Acme", "role": "viewer",
-			"projects": []any{map[string]any{"id": projID.String(), "slug": "checkout", "name": "Checkout", "environments": []any{"production"}}},
+			"projects": []any{map[string]any{"id": projID.String(), "slug": "checkout", "name": "Checkout", "environments": []any{"production"}, "app_count": 2}},
 		}},
 		"last_project_slug": "checkout",
 		"onboarding":        map[string]any{"step": "install", "completed": false},

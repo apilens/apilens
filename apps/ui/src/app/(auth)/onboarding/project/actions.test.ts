@@ -22,7 +22,7 @@ const org = (slug: string, projects: string[]): ContextOrg => ({
   slug,
   name: slug,
   role: "owner",
-  projects: projects.map((p) => ({ id: `p_${p}`, slug: p, name: p, environments: ["production"] })),
+  projects: projects.map((p) => ({ id: `p_${p}`, slug: p, name: p, environments: ["production"], app_count: 1 })),
 });
 const taken = (suggestions?: unknown) =>
   new ApiError({ status: 409, code: "slug_taken", problem: { code: "slug_taken", suggestions: suggestions as string[] } });

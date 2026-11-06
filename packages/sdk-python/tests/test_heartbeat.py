@@ -344,3 +344,14 @@ def test_interval_below_the_ingest_rate_limit_is_refused(monkeypatch):
     monkeypatch.setattr(client_mod, "HEARTBEAT_MIN_INTERVAL_SECONDS", 10.0)
     with pytest.raises(ValueError, match="heartbeat_interval"):
         ApiLensClient(ApiLensConfig(api_key=API_KEY, heartbeat_interval=5), start_worker=False)
+
+
+def test_default_app_heartbeat_has_empty_app_id(ingest):
+    """A middleware without an app name enrols the project's default app:
+    heartbeats go out with ``app_id=""``."""
+    server = ingest()
+    client = _client(server, app_id="", send_metadata=False)
+    assert client.report_metadata(lambda: None, app_id="", environment="prod") is False
+    assert client.send_heartbeat() is True
+    body = server.heartbeats()[-1][2]
+    assert (body["app_id"], body["environment"]) == ("", "prod")

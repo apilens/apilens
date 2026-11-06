@@ -1021,3 +1021,119 @@ func TestPostgresDefaultAppsMigrationBackfills(t *testing.T) {
 		t.Fatalf("apps after re-apply = %v, want %v", got, want)
 	}
 }
+
+// TestPostgresAlertRuleSDKGroupsMigration checks 00028 and 00029: alert
+// rules filtering by a dashboard consumer group get the group's name (the
+// SDK consumer group they now match), then the dashboard group tables go.
+func TestPostgresAlertRuleSDKGroupsMigration(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.DownTo(ctx, 27); err != nil {
+		t.Fatalf("roll back to 00027: %v", err)
+	}
+	if !tableExists(t, pool, "consumer_groups") || !tableExists(t, pool, "consumer_group_members") {
+		t.Fatal("00029 down should recreate the consumer group tables")
+	}
+
+	// Two projects, each with an app and a dashboard group.
+	const (
+		shop, blog         = "00000000-0000-0000-0000-00000000000a", "00000000-0000-0000-0000-00000000000b"
+		shopApp, blogApp   = "00000000-0000-0000-0000-0000000000a1", "00000000-0000-0000-0000-0000000000b1"
+		partners, blogTeam = "00000000-0000-0000-0000-0000000000a2", "00000000-0000-0000-0000-0000000000b2"
+		deleted            = "00000000-0000-0000-0000-0000000000ff"
+	)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	exec(`INSERT INTO organizations (id, slug, name) VALUES (gen_random_uuid(), 'acme', 'Acme')`)
+	for _, p := range []struct{ id, slug, app, group, name string }{
+		{shop, "shop", shopApp, partners, "Partners"},
+		{blog, "blog", blogApp, blogTeam, "Blog team"},
+	} {
+		exec(`INSERT INTO projects (id, org_id, slug, name) SELECT $1::uuid, id, $2::text, $2::text FROM organizations WHERE slug = 'acme'`, p.id, p.slug)
+		exec(`INSERT INTO apps (id, project_id, slug, name) VALUES ($1, $2, 'api', 'API')`, p.app, p.id)
+		exec(`INSERT INTO consumer_groups (id, project_id, name) VALUES ($1, $2, $3)`, p.group, p.id, p.name)
+	}
+	exec(`INSERT INTO consumer_group_members (project_id, consumer_id, group_id) VALUES ($1, 'alice', $2)`, shop, partners)
+
+	// Rules of shop, by name, with their filters before 00028.
+	before := map[string]string{
+		"group":          `{"group": "` + partners + `"}`,
+		"group and more": `{"group": "` + partners + `", "consumer": "alice", "endpoint": "GET /a"}`,
+		"other project":  `{"group": "` + blogTeam + `"}`,
+		"deleted group":  `{"group": "` + deleted + `"}`,
+		"no group":       `{"endpoint": "POST /b"}`,
+		"no filters":     `{}`,
+	}
+	for name, f := range before {
+		exec(`INSERT INTO alert_rules (id, project_id, app_id, environment, name, metric, condition, threshold, window_s, every_s, filters, updated_at)
+			VALUES (gen_random_uuid(), $1, $2, 'production', $3, 'traffic', 'gt', 0, 300, 60, $4::jsonb, '2026-01-01T00:00:00Z')`, shop, shopApp, name, f)
+	}
+	check := func(stage string, want map[string]string) {
+		t.Helper()
+		rows, err := pool.Query(ctx, `SELECT name, filters::text, updated_at = '2026-01-01T00:00:00Z' FROM alert_rules`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		got := map[string]string{}
+		for rows.Next() {
+			var name, f string
+			var untouched bool
+			if err := rows.Scan(&name, &f, &untouched); err != nil {
+				t.Fatal(err)
+			}
+			if !untouched {
+				t.Errorf("%s: rule %q updated_at changed", stage, name)
+			}
+			got[name] = f
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		for name, w := range want {
+			if got[name] != w {
+				t.Errorf("%s: rule %q filters = %s, want %s", stage, name, got[name], w)
+			}
+		}
+	}
+	after := map[string]string{
+		"group":          `{"group": "Partners"}`,
+		"group and more": `{"group": "Partners", "consumer": "alice", "endpoint": "GET /a"}`,
+		// Another project's group, or one deleted since, is left as is: as a
+		// group name it matches no requests, as the rule counted nobody before.
+		"other project": before["other project"],
+		"deleted group": before["deleted group"],
+		"no group":      before["no group"],
+		"no filters":    before["no filters"],
+	}
+
+	if _, err := provider.UpTo(ctx, 28); err != nil {
+		t.Fatalf("apply 00028: %v", err)
+	}
+	check("after 00028", after)
+
+	// Down maps the names back to the project's groups.
+	if _, err := provider.DownTo(ctx, 27); err != nil {
+		t.Fatalf("roll back 00028: %v", err)
+	}
+	check("after 00028 down", before)
+
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("apply 00028 and 00029: %v", err)
+	}
+	check("after 00029", after)
+	if tableExists(t, pool, "consumer_groups") || tableExists(t, pool, "consumer_group_members") {
+		t.Fatal("00029 should drop the consumer group tables")
+	}
+}

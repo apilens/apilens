@@ -30,6 +30,7 @@ const testKey = "apl_live_TESTKEYTESTKEYTESTKEYTESTKEYTESTKEYTESTKEY"
 var (
 	testProject = uuid.MustParse("11111111-1111-4111-8111-111111111111")
 	testApp     = uuid.MustParse("22222222-2222-4222-8222-222222222222")
+	testKeyID   = uuid.MustParse("44444444-4444-4444-8444-444444444444")
 	fixedNow    = time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 )
 
@@ -42,25 +43,32 @@ func (f fakeVerifier) Verify(_ context.Context, raw string) (apikeys.Principal, 
 	if raw != testKey {
 		return apikeys.Principal{}, apikeys.ErrInvalidKey
 	}
-	return apikeys.Principal{ProjectID: testProject, ProjectSlug: "shop", Scopes: []string{"ingest"}}, nil
+	return apikeys.Principal{KeyID: testKeyID, ProjectID: testProject, ProjectSlug: "shop", Scopes: []string{"ingest"}}, nil
 }
 
 type fakeApps struct{}
 
-func (fakeApps) Resolve(_ context.Context, _ uuid.UUID, idents []string) (map[string]uuid.UUID, error) {
-	out := map[string]uuid.UUID{}
-	var unknown []string
+func (fakeApps) ResolveFor(_ context.Context, _ uuid.UUID, c catalog.Caller, idents []string) (catalog.Result, error) {
+	return staticResolve(c, idents, map[string]uuid.UUID{"": testApp, "storefront": testApp, testApp.String(): testApp})
+}
+
+// staticResolve resolves idents against known like the catalog does for a
+// key that cannot create apps: the rest is rejected (app_create_forbidden).
+func staticResolve(c catalog.Caller, idents []string, known map[string]uuid.UUID) (catalog.Result, error) {
+	res := catalog.Result{Apps: map[string]uuid.UUID{}, Rejected: map[string]catalog.Rejection{}}
 	for _, id := range idents {
-		if id == "storefront" || id == testApp.String() {
-			out[id] = testApp
-		} else {
-			unknown = append(unknown, id)
+		if app, ok := known[id]; ok {
+			res.Apps[id] = app
+			continue
 		}
+		if c.LookupOnly {
+			res.Rejected[id] = catalog.Rejection{Slug: id, Reason: catalog.ReasonUnknown, Message: "unknown app " + id}
+			continue
+		}
+		res.Rejected[id] = catalog.Rejection{Slug: id, Reason: catalog.ReasonCreateForbidden,
+			Message: "app \"" + id + "\" does not exist in project shop and this API key cannot create apps"}
 	}
-	if len(unknown) > 0 {
-		return nil, &catalog.UnknownAppsError{Identifiers: unknown}
-	}
-	return out, nil
+	return res, nil
 }
 
 type fakeSink struct {
@@ -212,8 +220,7 @@ func TestLegacyErrors(t *testing.T) {
 		"bearer ok":      {path: "/v1/requests", body: validRequest, headers: map[string]string{"X-API-Key": "", "Authorization": "Bearer " + testKey}, code: 200},
 		"auth backend":   {path: "/v1/requests", body: validRequest, verifier: fakeVerifier{err: errors.New("db down")}, code: 503},
 		"slug mismatch":  {path: "/v1/requests", body: strings.Replace(validRequest, `"shop"`, `"other"`, 1), code: 422, contains: "project_slug"},
-		"unknown app":    {path: "/v1/requests", body: strings.Replace(validRequest, `"storefront"`, `"ghost"`, 1), code: 422, contains: "ghost"},
-		"missing app":    {path: "/v1/requests", body: strings.Replace(validRequest, `"storefront"`, `""`, 1), code: 422, contains: "app_id"},
+		"unknown app":    {path: "/v1/requests", body: strings.Replace(validRequest, `"storefront"`, `"ghost"`, 1), code: 403, contains: "cannot create apps"},
 		"bad timestamp":  {path: "/v1/requests", body: strings.Replace(validRequest, "2026-10-22T11:59:00.123456+00:00", "yesterday", 1), code: 422},
 		"future ts":      {path: "/v1/requests", body: strings.Replace(validRequest, "2026-10-22T11:59", "2027-10-22T11:59", 1), code: 422},
 		"empty batch":    {path: "/v1/requests", body: `{"requests":[]}`, code: 422},

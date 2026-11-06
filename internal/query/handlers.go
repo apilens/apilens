@@ -75,10 +75,12 @@ var dashboardDescriptions = map[string]string{
 		"and fixed 10-bucket size histograms for request and response bodies.",
 	"get-endpoint-errors": "The errors tab of an endpoint: the 4xx/5xx split per bucket, error status codes by count, validation errors " +
 		"grouped by field and server exceptions grouped by type and message. Expected status codes of the endpoint are left out.",
-	"list-consumers": "Consumers with requests in the range, most requests first, each with an outcome split and a sparkline; " +
-		"plus unique consumers per bucket split into new (first seen in the bucket) and returning. group narrows to one consumer group.",
-	"get-consumer": "One consumer: when it was first and last seen, its group, requests by outcome per bucket and its latest " +
-		"requests and errors. A consumer the project never saw answers 404.",
+	"list-consumers": "The users of the API (consumers the SDK identified) with requests in the range, one page in sort order, each with " +
+		"an outcome split, a sparkline and the latest consumer group the SDK reported; plus the total, request totals and unique consumers " +
+		"per bucket split into new (first seen in the bucket) and returning. group keeps the requests the SDK tagged with that group; " +
+		"search matches consumer ids and names.",
+	"get-consumer": "One consumer: when it was first and last seen, the latest group the SDK reported for it, requests by outcome per " +
+		"bucket, its top endpoints and a page of its latest requests and errors. A consumer the project never saw answers 404.",
 	"list-requests": "The raw request log of the range, newest first, narrowed by any combination of filters (consumer, group, IP, " +
 		"method, route, URL and payload substrings, sizes, status, latency, sampling, trace). Pages with next_cursor; from and to " +
 		"narrow the window inside the range. An invalid status filter or cursor answers 422.",
@@ -122,13 +124,14 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	registerErrorStatus(api, s)
 	registerTrafficLatency(api, s)
 	registerDeployChanges(api, s)
+	registerDeployDetail(api, s)
 	registerIngestStatus(api, s, guard)
 	registerAppStatus(api, s)
 	registerEndpointSettings(api, s, guard)
 	registerAppSettings(api, s, guard)
 	registerAppIngestStats(api, s)
 	registerSavedViews(api, s, guard)
-	registerConsumerGroups(api, s, guard)
+	registerConsumerGroupTraffic(api, s)
 	registerExports(api, s, guard)
 	registerAlerts(api, s, guard)
 	registerHealthChecks(api, s, guard)

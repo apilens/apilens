@@ -216,7 +216,13 @@ func TestAlertsAPI(t *testing.T) {
 	}
 	for _, u := range []uuid.UUID{member, uuid.Nil} {
 		expect(http.StatusOK, do(http.MethodGet, base+"/alerts/channels", u, nil, &channels), "list channels")
-		if len(channels.Channels) != 2 || channels.Channels[0].Name != "#ops" || channels.Channels[1].Name != "On-call" {
+		// Listed ORDER BY name, whose order between "#ops" and "On-call" depends on the
+		// database collation (byte order vs locale-aware): check the set, not the order.
+		names := map[string]bool{}
+		for _, c := range channels.Channels {
+			names[c.Name] = true
+		}
+		if len(channels.Channels) != 2 || !names["#ops"] || !names["On-call"] {
 			t.Fatalf("channels = %+v", channels.Channels)
 		}
 	}
@@ -263,7 +269,11 @@ func TestAlertsAPI(t *testing.T) {
 		ChannelIDs []string `json:"channel_ids"`
 		Enabled    bool     `json:"enabled"`
 		CreatedBy  *string  `json:"created_by"`
-		State      *struct {
+		Filters    struct {
+			Group    string `json:"group"`
+			Endpoint string `json:"endpoint"`
+		} `json:"filters"`
+		State *struct {
 			Status string   `json:"status"`
 			Value  *float64 `json:"value"`
 		} `json:"state"`
@@ -285,7 +295,7 @@ func TestAlertsAPI(t *testing.T) {
 		"other project's app":     func(m map[string]any) { m["app_id"] = other.AppID },
 		"other project's channel": func(m map[string]any) { m["channel_ids"] = []string{uuid.NewString()} },
 		"both schedules":          func(m map[string]any) { m["cron"] = "*/5 * * * *" },
-		"unknown group":           func(m map[string]any) { m["filters"] = map[string]any{"group": uuid.NewString()} },
+		"group name too long":     func(m map[string]any) { m["filters"] = map[string]any{"group": strings.Repeat("g", 257)} },
 	} {
 		body := map[string]any{}
 		for k, v := range newRule {
@@ -310,11 +320,15 @@ func TestAlertsAPI(t *testing.T) {
 	update := map[string]any{
 		"environment": "production", "name": "Slow checkout (business hours)", "metric": "p95", "condition": "gte",
 		"threshold": 1000, "window_s": 600, "cron": "*/5 9-17 * * 1-5", "enabled": false, "channel_ids": []string{oncall.ID},
+		// An SDK consumer group by name, trimmed; one the SDK has not
+		// reported yet is accepted.
+		"filters": map[string]any{"group": "  Acme Corp ", "endpoint": "POST /checkout"},
 	}
 	expect(http.StatusForbidden, do(http.MethodPut, base+"/alerts/rules/"+slow.ID, member, update, nil), "member replaces rule")
 	var updated rule
 	expect(http.StatusOK, do(http.MethodPut, base+"/alerts/rules/"+slow.ID, admin, update, &updated), "admin replaces rule")
-	if updated.EveryS != nil || updated.Cron == nil || updated.Enabled || len(updated.ChannelIDs) != 1 || updated.ChannelIDs[0] != oncall.ID {
+	if updated.EveryS != nil || updated.Cron == nil || updated.Enabled || len(updated.ChannelIDs) != 1 || updated.ChannelIDs[0] != oncall.ID ||
+		updated.Filters.Group != "Acme Corp" || updated.Filters.Endpoint != "POST /checkout" {
 		t.Fatalf("updated rule = %+v", updated)
 	}
 

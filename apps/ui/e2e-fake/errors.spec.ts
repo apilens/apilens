@@ -43,6 +43,15 @@ const tiles = (page: Page) => page.locator(".er > dl.er-tiles");
 const statusTable = (page: Page) => page.getByRole("table", { name: "Error status codes" });
 const modal = (page: Page, name: string) => page.getByRole("dialog", { name });
 
+/** The hover tooltip of chart `name` at bucket `i` (0-based), reached with the keyboard. */
+async function tipAt(page: Page, name: RegExp, i: number) {
+  const box = page.getByRole("group", { name });
+  await box.focus();
+  await page.keyboard.press("Home");
+  for (let k = 0; k < i; k++) await page.keyboard.press("ArrowRight");
+  return box.locator(".ct-tip");
+}
+
 test.afterEach(async () => {
   await seed([], []);
 });
@@ -61,13 +70,19 @@ test("Status codes tab: tiles, 4xx/5xx over time and the status table", async ({
   await expect(page.getByRole("list", { name: "Errors by status class legend" }).getByRole("listitem")).toHaveText(["4xx", "5xx"]);
   const chart = page.getByRole("img", { name: /Errors by status class/ });
   await expect(chart).toHaveAttribute("aria-label", /330 4xx and 2 5xx responses in the last 24 hours/);
-  await expect(chart.locator(".tr-hit")).toHaveCount(4);
-  await expect(chart.locator(".tr-hit title").nth(1)).toHaveText(/4xx: 140\n5xx: 0/);
+  await expect(chart.locator("g")).toHaveCount(4);
+  // The shared chart hover: the keyboard steps through the buckets and reads each one's exact counts.
+  const plot = page.getByRole("group", { name: /^Errors by status class/ });
+  await plot.focus();
+  await plot.press("Home");
+  await plot.press("ArrowRight");
+  await expect(plot.locator(".ct-tip")).toContainText("140");
+  await expect(page.locator(".tr-chart").first().locator(".ct-sr")).toHaveText(/4xx: 140, 5xx: 0, Total: 140/);
 
-  await expect(statusTable(page).getByRole("columnheader")).toHaveText(["Status", "Responses", "Share of requests", "Endpoints", "Consumers", "Last seen"]);
+  await expect(statusTable(page).getByRole("columnheader")).toHaveText(["Status", "Responses", "Share of requests", "Endpoints", "Consumers", "Over time", "Last seen"]);
   await expect(statusTable(page).locator("tbody tr")).toHaveCount(3);
-  await expect(statusTable(page).locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["404 Not Found", "250", "3.0%", "2", "2", "Nov 5, 2026, 10:30 AM UTC"]);
-  await expect(statusTable(page).locator("tbody tr").nth(1).getByRole("cell")).toHaveText(["422 Unprocessable Content", "80", "1.0%", "1", "1", "Nov 5, 2026, 10:15 AM UTC"]);
+  await expect(statusTable(page).locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["404 Not Found", "250", "3.0%", "2", "2", "", "Nov 5, 2026, 10:30 AM UTC"]);
+  await expect(statusTable(page).locator("tbody tr").nth(1).getByRole("cell")).toHaveText(["422 Unprocessable Content", "80", "1.0%", "1", "1", "", "Nov 5, 2026, 10:15 AM UTC"]);
   await expect(statusTable(page).locator("tbody tr").nth(2).getByRole("cell").first()).toHaveText("500 Internal Server Error");
 
   const a11y = await new AxeBuilder({ page }).include(".er").analyze();
@@ -96,8 +111,12 @@ test("a status code opens its detail: summary and frequency, consumers and per-e
   await expect(dialog.locator(".tr-tiles .tr-tile__sub")).toHaveText(["3.0% of requests", "over 24 hours", "200 responses to identified consumers", "answered with 404"]);
   await expect(dialog.locator(".er-seen dd")).toHaveText(["Nov 5, 2026, 10:00 AM UTC", "Nov 5, 2026, 10:30 AM UTC"]);
   const freq = dialog.getByRole("img", { name: /404 responses over time/ });
-  await expect(freq.locator(".tr-hit")).toHaveCount(4);
-  await expect(freq.locator(".tr-hit title").nth(2)).toHaveText(/404 responses: 90/);
+  await expect(freq.locator("g")).toHaveCount(4);
+  const freqPlot = dialog.getByRole("group", { name: /^404 responses over time/ });
+  await freqPlot.focus();
+  await freqPlot.press("End");
+  await freqPlot.press("ArrowLeft");
+  await expect(dialog.locator(".er-freq .ct-sr")).toHaveText(/404 responses: 90/);
 
   const a11y = await new AxeBuilder({ page }).include(".er-modal").analyze();
   expect(a11y.violations).toEqual([]);
@@ -164,7 +183,7 @@ test("marking a status code as expected updates the error rate on every surface"
   await page.waitForURL((url) => !url.search.includes("code="));
   await expect(tiles(page).locator(".tr-tile__value")).toHaveText(["8,200", "1.5%", "120", "2"]);
   await expect(page.getByRole("img", { name: /Errors by status class/ })).toHaveAttribute("aria-label", /120 4xx and 2 5xx/);
-  await expect(statusTable(page).locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["422 Unprocessable Content", "80", "1.0%", "1", "1", "Nov 5, 2026, 10:15 AM UTC"]);
+  await expect(statusTable(page).locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["422 Unprocessable Content", "80", "1.0%", "1", "1", "", "Nov 5, 2026, 10:15 AM UTC"]);
   await expect(statusTable(page).getByRole("row").filter({ hasText: "404 Not Found" }).getByRole("cell").nth(1)).toHaveText("40");
 
   // Issues no longer list GET /invoices/{id} 404.

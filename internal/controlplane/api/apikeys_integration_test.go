@@ -107,7 +107,7 @@ func TestCreateAndListAPIKeys(t *testing.T) {
 	}
 	c := decode[CreatedAPIKey](t, resp)
 	if !strings.HasPrefix(c.Key, apikeys.Prefix) || c.Prefix != c.Key[:apikeys.DisplayPrefixLen] || c.Name != "CI ingest" ||
-		!slices.Equal(c.Scopes, []string{"ingest", "read"}) || c.ExpiresAt == nil || !c.ExpiresAt.Equal(expires) ||
+		!slices.Equal(c.Scopes, []string{"ingest", "apps:create", "read"}) || c.ExpiresAt == nil || !c.ExpiresAt.Equal(expires) ||
 		c.RevokedAt != nil || c.LastUsedAt != nil || c.CreatedAt.IsZero() {
 		t.Fatalf("created = %+v", c)
 	}
@@ -145,7 +145,7 @@ func TestCreateAndListAPIKeys(t *testing.T) {
 	for _, u := range []uuid.UUID{owner, viewer} {
 		list := f.listKeys(t, u, "shop")
 		if len(list) != 2 || list[0].ID != second.ID || list[1].ID != c.ID || list[1].Name != "CI ingest" ||
-			!slices.Equal(list[0].Scopes, []string{"ingest"}) || list[0].ExpiresAt != nil {
+			!slices.Equal(list[0].Scopes, []string{"ingest", "apps:create"}) || list[0].ExpiresAt != nil {
 			t.Fatalf("list = %+v", list)
 		}
 	}

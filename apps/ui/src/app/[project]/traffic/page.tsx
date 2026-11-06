@@ -28,7 +28,8 @@ async function read<T>(next: string, fn: (o: CallOptions & { accessToken: string
 // endpoints table, scoped by the range and environment in the URL.
 export default async function TrafficPage({ params, searchParams }: { params: Promise<{ project: string }>; searchParams: Promise<SearchParams> }) {
   const { project } = await params;
-  const q = parseTrafficQuery(await searchParams);
+  const sp = await searchParams;
+  const q = parseTrafficQuery(sp);
   const next = trafficHref(project, q);
   const context = await getContext(next);
   const found = findProject(context, project);
@@ -54,6 +55,7 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
         points={series === null ? null : (series.points ?? [])}
         endpoints={endpoints === null ? null : (endpoints.endpoints ?? [])}
         apps={apps?.apps ?? null}
+        params={sp}
       />
     </AppShell>
   );
