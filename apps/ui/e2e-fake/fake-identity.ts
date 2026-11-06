@@ -175,7 +175,9 @@
 //                                                  unless seeded; POST answers 422 for a private address
 //   POST /__fake/health-checks {checks, events?}   test hook: replaces shop's health checks and, by
 //                                                  check id, their failures
-//   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?}
+//   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?, extra?}
+//                                                  `extra: {members?, invitations?, sessions?}` adds that many
+//                                                  numbered @example.com rows to each list (paging tests);
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  `role` is the user's role in acme (default owner);
 //                                                  with `totp_secret` (base32) it answers 2fa_required;
@@ -683,6 +685,8 @@ function seedApiKey(input: Record<string, unknown>): FakeApiKey {
 }
 
 interface Seeds {
+  /** Extra rows for paging tests: that many more members, pending invitations and other sessions. */
+  extra?: { members?: number; invitations?: number; sessions?: number };
   passkeys?: Record<string, unknown>[];
   capabilities?: string[];
   apiKeys?: Record<string, unknown>[];
@@ -750,6 +754,28 @@ function ssoConnection(fields: Record<string, unknown>): Record<string, unknown>
   };
 }
 
+/** `extra` of the handoff: numbered @example.com members, invitations and older sessions (at most 500 each). */
+function seedExtra(id: string, extra: Seeds["extra"]) {
+  const n = (v: unknown) => (typeof v === "number" && Number.isInteger(v) && v > 0 ? Math.min(v, 500) : 0);
+  const pad = (i: number) => String(i).padStart(3, "0");
+  const members = membersByUser.get(id) ?? [];
+  for (let i = 1; i <= n(extra?.members); i++) {
+    members.push({ user: { id: randomUUID(), email: `teammate${pad(i)}@example.com`, name: `Teammate ${pad(i)}`, avatar_url: "" }, role: i % 5 === 0 ? "viewer" : "member", joined_at: ago(i), last_login_at: null });
+  }
+  membersByUser.set(id, members.sort((a, b) => a.joined_at.localeCompare(b.joined_at)));
+  const invitations = invitationsByUser.get(id) ?? [];
+  for (let i = 1; i <= n(extra?.invitations); i++) {
+    invitations.push({ id: randomUUID(), email: `invitee${pad(i)}@example.com`, role: "member", created_at: ago(60 + i), expires_at: new Date(Date.now() - (60 + i) * 60_000 + INVITE_TTL_MS).toISOString(), resent_at: null });
+  }
+  invitationsByUser.set(id, invitations);
+  const sessions = sessionsByUser.get(id) ?? [];
+  const expires = new Date(Date.now() + 30 * 24 * 3600_000).toISOString();
+  for (let i = 1; i <= n(extra?.sessions); i++) {
+    sessions.push({ id: randomUUID(), access: null, device_label: `Device ${pad(i)}`, user_agent: `Device ${pad(i)} (fake)`, ip: "192.0.2.1", amr: ["email"], created_at: ago(24 * 60 + i), last_seen_at: ago(60 + i), expires_at: expires });
+  }
+  sessionsByUser.set(id, sessions);
+}
+
 /** The user's actions on shop: seeded ones, else what their role allows. */
 const capabilitiesOf = (id: string): string[] => capabilities.get(id) ?? capabilitiesFor(roleOf(id));
 
@@ -759,6 +785,7 @@ function bundle(next: string, seeds: Seeds = {}, role: Role = "owner") {
   seedSessions(id, access);
   seedMembers(id, role);
   seedInvitations(id);
+  seedExtra(id, seeds.extra);
   passkeys.set(id, (seeds.passkeys ?? []).map(seedPasskey));
   if (seeds.capabilities) capabilities.set(id, seeds.capabilities);
   apiKeys.set(id, (seeds.apiKeys ?? []).map(seedApiKey));
@@ -2343,6 +2370,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       sso,
       stale,
       joinable,
+      extra,
     } = await readBody(req);
     const codes = Array.isArray(backups) ? backups.map(String) : [];
     const seeded: Seeds = {
@@ -2351,6 +2379,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       apiKeys: Array.isArray(keys) ? (keys as Record<string, unknown>[]) : [],
       sso: typeof sso === "object" && sso !== null && !Array.isArray(sso) ? (sso as Record<string, unknown>) : undefined,
       joinable: Array.isArray(joinable) ? (joinable as Record<string, unknown>[]) : [],
+      extra: typeof extra === "object" && extra !== null && !Array.isArray(extra) ? (extra as Seeds["extra"]) : undefined,
     };
     const r = ROLES.has(role as Role) ? (role as Role) : "owner";
     const code = issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded, stale === true, r);

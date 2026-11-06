@@ -42,3 +42,4 @@
   .hc-form { grid-template-columns: minmax(0, 1fr); }
   .hc-form .ob-f:nth-child(2) { margin-top: 0; }
 }
+.hc-pages { padding-inline: 0; margin-top: var(--space-3); }
