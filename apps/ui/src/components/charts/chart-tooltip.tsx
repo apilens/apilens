@@ -1,5 +1,22 @@
 "use client";
 
+// Shared chart tooltip. Import:
+//   import { ChartAnnounce, ChartTooltip, Crosshair, type TooltipRow } from "@/components/charts/chart-tooltip";
+//   import { useChartHover } from "@/components/charts/use-chart-hover";
+//   import { pointX, tooltipText } from "@/lib/chart-hover";
+// ChartTooltip props: x (px from the box's left), boxWidth (px), title, rows ({ label, value, swatch? }[]),
+// placement? ("above" | "inside"). ChartAnnounce props: text. Crosshair props: x, height (viewBox units).
+// Reference use: Sparkline in components/traffic/charts.tsx (Traffic Requests tile).
+//
+//   const hover = useChartHover<HTMLDivElement>(rows.length, "slot");   // "point" for lines
+//   const i = hover.index;
+//   <div className="ct-box" ref={hover.ref} {...hover.bind} role="group" aria-label="Requests by status">
+//     <svg>...bars...{i !== null ? <rect className="ct-bar-hover" ... /> : null}</svg>
+//     {i !== null ? <ChartTooltip x={pointX(i, hover.width, rows.length, "slot")} boxWidth={hover.width}
+//        title={formatBucket(rows[i].ts, range)} rows={[{ label: "5xx", value: formatCount(rows[i].server_errors), swatch: "tr-fill-5xx" }]} /> : null}
+//   </div>
+//   <ChartAnnounce text={i !== null ? tooltipText(title, tipRows) : ""} />
+
 import { useLayoutEffect, useRef, useState } from "react";
 import { type TooltipRow, tooltipLeft } from "@/lib/chart-hover";
 import "./charts.css";
@@ -33,7 +50,7 @@ export function ChartTooltip({
   const [left, setLeft] = useState<number | null>(null);
   const key = `${title}|${rows.map((r) => r.value).join("|")}`;
   useLayoutEffect(() => {
-    const tw = ref.current?.offsetWidth ?? 0;
+    const tw = ref.current?.getBoundingClientRect().width ?? 0;
     setLeft(tooltipLeft(x, tw, boxWidth));
   }, [x, boxWidth, key]);
   return (

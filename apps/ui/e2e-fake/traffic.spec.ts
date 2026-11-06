@@ -100,7 +100,7 @@ test("shows requests, errors, latency and Apdex tiles, the status-split chart an
   await expect(summary.locator("dt")).toHaveText(["Requests", "Error rate", "p95 response time", "Apdex"]);
   await expect(tiles(page)).toHaveText(["12,400", "3.0%", "413 ms", "0.91"]);
   await expect(summary.locator(".tr-tile__sub")).toHaveText(["8.6 per minute", "310 4xx, 62 5xx", "p50 38 ms, p99 1.24 s", "Good"]);
-  await expect(summary.locator("svg.tr-spark polyline")).toHaveCount(3);
+  await expect(summary.locator(".tr-spark polyline")).toHaveCount(3);
 
   const status = page.getByRole("img", { name: /Requests by status/ });
   await expect(status).toHaveAttribute("aria-label", /12,400 requests in the last 24 hours: 310 4xx and 62 5xx/);

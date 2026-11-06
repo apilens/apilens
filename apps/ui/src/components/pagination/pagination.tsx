@@ -1,5 +1,21 @@
 "use client";
 
+// Shared Pagination. Import: `import { Pagination } from "@/components/pagination/pagination";`
+// Helpers: `@/lib/pagination` (parsePage, slicePage, pageWindow, rangeText, pageHref,
+// hrefWithoutPage, withoutPage, cursorHref, clampPage, pageOffset, PAGE_SIZES, DEFAULT_PER).
+//
+// Props (numbered): pathname, params (the page's plain searchParams object, not URLSearchParams,
+// when rendered from a server component), total, sizes? (default [25, 50, 100]), defaultPer?
+// (default 25), label? ("Endpoints pages"), compact?, scroll? (default false), className?.
+// Props (cursor): mode="cursor", newerHref, olderHref (null disables), label?, scroll?, className?.
+//
+//   const state = parsePage(searchParams);                    // ?page=&per=
+//   const { rows, window } = slicePage(allRows, state);       // client-side slice, clamped
+//   <Table rows={rows} />                                      // total 0: the table's empty state
+//   <Pagination pathname={`/${project}/traffic`} params={searchParams} total={window.total} label="Endpoints pages" />
+//
+// Filter, range or sort links must drop `page`: hrefWithoutPage(pathname, searchParams, { sort: "p95" }).
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId } from "react";

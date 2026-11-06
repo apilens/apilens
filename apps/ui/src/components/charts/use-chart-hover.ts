@@ -1,5 +1,11 @@
 "use client";
 
+// useChartHover(count, layout = "point") -> { ref, index, width, bind, clear }.
+// Import: `import { useChartHover } from "@/components/charts/use-chart-hover";`
+// Spread `bind` and attach `ref` on the plot box (class `ct-box`, from charts.css via chart-tooltip).
+// `index` is the hovered point (null when none), clamped to `count` so live polling never breaks it.
+// Pair with ChartTooltip / ChartAnnounce (components/charts/chart-tooltip.tsx); see that file's example.
+
 import { type FocusEvent, type KeyboardEvent, type PointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { type HoverLayout, indexAt, keepIndex, moveIndex } from "@/lib/chart-hover";
 
