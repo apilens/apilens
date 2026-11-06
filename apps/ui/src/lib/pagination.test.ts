@@ -186,3 +186,15 @@ describe("hrefs", () => {
     expect(cursorHref("/x", { before: "b9" }, { after: "a1" }, { before: "newer", after: "older" })).toBe("/x?before=b9&older=a1");
   });
 });
+
+describe("custom keys", () => {
+  const keys = { page: "opage", per: "oper" };
+  it("reads and writes a second list's page under its own keys", () => {
+    expect(parsePage({ page: "4", opage: "2", oper: "50" }, { keys })).toEqual({ page: 2, per: 50 });
+    expect(pageHref("/x", { page: "4", opage: "2" }, { page: 3 }, { keys })).toBe("/x?page=4&opage=3");
+    expect(pageHref("/x", { page: "4", opage: "2" }, { page: 1, per: 25 }, { keys })).toBe("/x?page=4");
+  });
+  it("drops the extra page keys on a filter change", () => {
+    expect(withoutPage({ page: "2", opage: "3", range: "7d" }, ["opage"]).toString()).toBe("range=7d");
+  });
+});

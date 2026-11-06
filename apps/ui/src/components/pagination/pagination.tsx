@@ -6,7 +6,8 @@
 //
 // Props (numbered): pathname, params (the page's plain searchParams object, not URLSearchParams,
 // when rendered from a server component), total, sizes? (default [25, 50, 100]), defaultPer?
-// (default 25), label? ("Endpoints pages"), compact?, scroll? (default false), className?.
+// (default 25), keys? ({ page: "opage", per: "oper" } for a second paged list on one URL),
+// label? ("Endpoints pages"), compact?, scroll? (default false), className?.
 // Props (cursor): mode="cursor", newerHref, olderHref (null disables), label?, scroll?, className?.
 //
 //   const state = parsePage(searchParams);                    // ?page=&per=
@@ -20,15 +21,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useId } from "react";
 import {
-  PAGE_PARAM,
   PAGE_SIZES,
-  PER_PARAM,
   type PageOptions,
   type ParamsInput,
   needsPagination,
   pageForPer,
   pageHref,
   pageItems,
+  pageKeys,
   pageWindow,
   parsePage,
   rangeText,
@@ -80,10 +80,11 @@ export function Pagination(props: PaginationProps) {
   return props.mode === "cursor" ? <CursorPagination {...props} /> : <PagesPagination {...props} />;
 }
 
-function PagesPagination({ pathname, params, total, sizes = PAGE_SIZES, defaultPer, label = "Pagination", compact = false, scroll = false, className }: PagesProps) {
+function PagesPagination({ pathname, params, total, sizes = PAGE_SIZES, defaultPer, keys, label = "Pagination", compact = false, scroll = false, className }: PagesProps) {
   const router = useRouter();
   const id = useId();
-  const options = { sizes, defaultPer };
+  const options = { sizes, defaultPer, keys };
+  const { page: PAGE_PARAM, per: PER_PARAM } = pageKeys(options);
   const w = pageWindow(parsePage(params, options), total);
   if (!needsPagination(w)) return null;
   const href = (page: number) => pageHref(pathname, params, { page }, options);
