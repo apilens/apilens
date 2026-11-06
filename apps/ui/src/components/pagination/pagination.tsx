@@ -2,7 +2,8 @@
 
 // Shared Pagination. Import: `import { Pagination } from "@/components/pagination/pagination";`
 // Helpers: `@/lib/pagination` (parsePage, slicePage, pageWindow, rangeText, pageHref,
-// hrefWithoutPage, withoutPage, cursorHref, clampPage, pageOffset, PAGE_SIZES, DEFAULT_PER).
+// hrefWithoutPage, withoutPage, cursorHref, clampPage, pageOffset, PAGE_SIZES, DEFAULT_PER; for
+// forward-only cursor APIs, parseTrail, trailCursor and trailHrefs feed mode="cursor").
 //
 // Props (numbered): pathname, params (the page's plain searchParams object, not URLSearchParams,
 // when rendered from a server component), total, sizes? (default [25, 50, 100]), defaultPer?

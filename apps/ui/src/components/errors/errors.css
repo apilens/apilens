@@ -8,6 +8,21 @@
 .er-c-4xx { fill: var(--warn); background: var(--warn); }
 .er-c-5xx { fill: var(--error); background: var(--error); }
 
+/* Bar charts with the shared hover (components/charts): the plot box is the hover target. */
+.er-bars { cursor: crosshair; }
+
+/* The status table's per-code sparkline sits above the row link's overlay, so it can be hovered. */
+.er-trend-h { width: 128px; }
+.er-trend { position: relative; z-index: 1; width: 128px; }
+.er-trend .tr-spark { width: 112px; height: 24px; margin: 0; }
+/* The cell is narrower than the tooltip: let it grow past the sparkline (it stays left-aligned to it). */
+.er-trend .ct-tip { max-width: 240px; }
+.tr-table .tr-muted { color: var(--ink-muted); }
+
+/* Share of a status code's responses per consumer: a neutral meter beside the exact number. */
+.er-meter { display: inline-block; width: 64px; height: 6px; margin-right: var(--space-2); border-radius: 3px; background: var(--surface-2); vertical-align: middle; overflow: hidden; }
+.er-meter > span { display: block; height: 100%; border-radius: 3px; }
+
 .er-status { display: inline-block; padding: 1px 6px; border-radius: var(--radius-sm); font: 500 12px/18px var(--font-mono); color: var(--ink); }
 .er-status--4xx { background: var(--warn-soft); }
 .er-status--5xx { background: var(--error-soft); }
@@ -58,4 +73,6 @@
   .er-tabs, .er-dtabs { margin-left: calc(-1 * var(--page-pad-x)); margin-right: calc(-1 * var(--page-pad-x)); padding: 0 var(--page-pad-x); }
   .er-modal__in { padding: var(--space-4); }
   .er-modal .tr-table { border: 0; }
+  .er-trend { width: auto; }
+  .er-trend .tr-spark { width: 160px; }
 }
