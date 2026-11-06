@@ -427,7 +427,6 @@ describe("operations", () => {
     ["GET", "/deploys/{id}/comparison", (c) => c.deployComparison("web", "a/b?c", authed)],
     ["GET", "/consumers", (c) => c.listConsumers("web", { range: "7d" }, authed)],
     ["GET", "/consumers/{consumer_id}", (c) => c.getConsumer("web", "a/b?c", { range: "7d" }, authed)],
-    ["GET", "/projects/{slug}/consumer-groups", (c) => c.listConsumerGroups("a/b?c", authed)],
     ["GET", "/consumer-groups", (c) => c.listConsumerGroupTraffic("web", { range: "7d", sort: "consumers" }, authed)],
     ["GET", "/projects/{slug}/views", (c) => c.listSavedViews("a/b?c", "explore", authed)],
     ["POST", "/projects/{slug}/views", (c) => c.createSavedView("a/b?c", { name: "5xx", surface: "explore", filter: {}, shared: false }, authed)],

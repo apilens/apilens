@@ -232,3 +232,64 @@ test("stacks incidents at phone width without sideways scrolling", async ({ page
   const overflow = await page.locator(".app-main").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+/** Seeds shop's consumers so `GET /consumer-groups` answers these SDK groups, busiest last. */
+async function seedGroups(groups: string[]) {
+  const consumers = groups.map((g, i) => ({
+    consumer_id: `usr_${i}`,
+    consumer_name: "",
+    consumer_group: g,
+    requests: 10 * (i + 1),
+    successful: 10 * (i + 1),
+    client_errors: 0,
+    server_errors: 0,
+    last_seen: new Date().toISOString(),
+    sparkline: [],
+  }));
+  const res = await fetch(`${IDENTITY}/__fake/consumers`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project: "shop", summary: { consumers: consumers.length, new: 0, returning: consumers.length }, points: [], consumers, details: {} }),
+  });
+  expect(res.status).toBe(204);
+}
+
+test("a rule filters by an SDK consumer group, picked from those seen or typed", async ({ page }) => {
+  await seedGroups(["Initech", "Acme Corp"]);
+  try {
+    await signIn(page, "/shop/incidents/rules/new");
+    const form = page.getByRole("form", { name: "New alert rule" });
+    const group = form.getByLabel("Consumer group");
+    // The groups the SDK reported lately are suggested, by name.
+    const listId = await group.getAttribute("list");
+    expect(listId).toBeTruthy();
+    const options = page.locator(`datalist[id="${listId}"] option`);
+    await expect(options).toHaveCount(2);
+    await expect(options.first()).toHaveAttribute("value", "Acme Corp");
+    await expect(form.getByText("Optional. A group the SDK reports, or a name it has not reported yet.")).toBeVisible();
+
+    await form.getByLabel("Name").fill("Acme errors");
+    await group.fill("Acme Corp");
+    await form.getByRole("button", { name: "Create rule" }).click();
+    await page.waitForURL("**/shop/incidents/rules");
+    const row = page.getByRole("table", { name: "Alert rules" }).locator("tbody tr").filter({ hasText: "Acme errors" });
+    await expect(row).toContainText("Shop · production · group Acme Corp");
+
+    // A group the SDK has not reported yet is typed in.
+    await row.getByRole("link", { name: "Acme errors" }).click();
+    const edit = page.getByRole("form", { name: "Edit Acme errors" });
+    await expect(edit.getByLabel("Consumer group")).toHaveValue("Acme Corp");
+    await edit.getByLabel("Consumer group").fill("  Globex ");
+    await edit.getByRole("button", { name: "Save rule" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Saved Acme errors." })).toBeVisible();
+
+    // The incident's details name the group.
+    await fake({ trigger: { rule: "Acme errors", value: 0.2 } });
+    await page.goto("/shop/incidents");
+    await page.getByRole("table", { name: "Open incidents" }).getByRole("link", { name: "Acme errors" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Acme errors" })).toBeVisible();
+    await expect(page.locator(".al-summary")).toContainText("Shop · production · group Globex");
+  } finally {
+    await seedGroups([]);
+  }
+});

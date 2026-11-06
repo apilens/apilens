@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { READ_ONLY, RULES_LOAD_FAILED, channelsHref, formatMetric, newRuleHref, ruleHref, ruleSummary, rulesHref, scheduleText } from "@/lib/alerts";
+import { READ_ONLY, RULES_LOAD_FAILED, channelsHref, filterParts, formatMetric, newRuleHref, ruleHref, ruleSummary, rulesHref, scheduleText } from "@/lib/alerts";
 import type { AlertRule } from "@/lib/identity";
 import { parsePage, slicePage } from "@/lib/pagination";
 import { useCan } from "@/lib/permissions";
@@ -92,7 +92,7 @@ export function RulesView({
 }
 
 function RuleRow({ project, rule: r, app, channels }: { project: string; rule: AlertRule; app: string | undefined; channels: Record<string, string> }) {
-  const filters = [r.filters?.endpoint, r.filters?.consumer ? `consumer ${r.filters.consumer}` : "", r.filters?.group ? "one consumer group" : ""].filter(Boolean);
+  const filters = filterParts(r);
   const names = (r.channel_ids ?? []).map((id) => channels[id] ?? "Unknown channel");
   return (
     <tr>

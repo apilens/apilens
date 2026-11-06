@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { conditionText, eventDuration, formatMetric, formatSpan, incidentHref, incidentsHref, ruleHref, ruleSummary, scheduleText } from "@/lib/alerts";
+import { conditionText, eventDuration, filterParts, formatMetric, formatSpan, incidentHref, incidentsHref, ruleHref, ruleSummary, scheduleText } from "@/lib/alerts";
 import type { AlertEvent, AlertRule } from "@/lib/identity";
 import { type SearchParams, trailHrefs } from "@/lib/pagination";
 import { formatExact } from "@/lib/passkey-settings";
@@ -66,7 +66,7 @@ export function IncidentTimeline({
         <div>
           <dt>Scope</dt>
           <dd>
-            {app ?? "Unknown app"} · {rule.environment}
+            {[app ?? "Unknown app", rule.environment, ...filterParts(rule)].join(" · ")}
           </dd>
         </div>
         <div>

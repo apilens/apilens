@@ -1146,9 +1146,10 @@ export type AlertCondition = "gt" | "gte" | "lt" | "lte";
 /** Where a rule stands after its latest evaluation. */
 export type AlertStatus = "ok" | "pending" | "triggered" | "resolving";
 
-/** The optional filters of a rule: one consumer, one consumer group (its id), one endpoint. */
+/** The optional filters of a rule: one consumer, one consumer group, one endpoint. */
 export interface AlertFilters {
   consumer?: string;
+  /** A consumer group by name, as the SDK reports it (`consumer_group` on a request). */
   group?: string;
   /** "METHOD /route/{template}", or "/route/{template}" for every method. */
   endpoint?: string;
@@ -1364,16 +1365,6 @@ export interface ConsumerGroupsTraffic {
   bucket_seconds: number;
   total: number;
   groups: ConsumerGroupTraffic[] | null;
-}
-
-/** One dashboard-assigned group of `GET /projects/{slug}/consumer-groups` (deprecated; alert rules still filter by them). */
-export interface ConsumerGroup {
-  id: string;
-  name: string;
-  /** How many consumers are assigned to it. */
-  consumers: number;
-  created_at: string;
-  updated_at: string;
 }
 
 /** An app of a project, as `GET /project` lists it. */
@@ -2219,11 +2210,6 @@ export function createClient(config: ClientConfig) {
       q: { range?: QueryRange; search?: string; sort?: GroupSortKey; limit?: number; offset?: number },
       o: Authed,
     ) => request<ConsumerGroupsTraffic>("GET", "/consumer-groups", { ...o, query: { project: projectSlug, ...q } }),
-
-    // api: dashboard consumer groups (#580, deprecated: groups come from the SDK). Only the alert
-    // rule editor still lists them, for rules that filter by one.
-    listConsumerGroups: (projectSlug: string, o: Authed) =>
-      request<{ groups: ConsumerGroup[] | null }>("GET", `/projects/${seg(projectSlug)}/consumer-groups`, o),
 
     projectApps: (projectSlug: string, o: Authed) =>
       request<ProjectApps>("GET", "/project", { ...o, query: { project: projectSlug } }),

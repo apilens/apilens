@@ -126,17 +126,12 @@
 //                                                  each with its seeded SDK consumer_group; `group` filters by it
 //   GET  /api/v1/consumers/{consumer_id}?project=  detail as seeded, recent lists paged by limit/offset
 //   GET  /api/v1/consumer-groups?project=          the seeded consumers rolled up by consumer_group
-//   GET|POST /api/v1/projects/shop/consumer-groups shop's dashboard consumer groups (#596, deprecated; alert rules
-//                                                  still list them): list (by name) and create; a name
-//   PUT|DELETE /api/v1/projects/shop/consumer-groups/{id}  taken ignoring case answers 409 conflict
-//   PUT|DELETE /api/v1/projects/shop/consumers/{consumer_id}/group  assign (moves it out of its previous
-//                                                  group) and unassign; writes answer 403 without project.update
 //   GET|POST /api/v1/projects/shop/views?surface=  shop's saved views (#578, #589): shared ones and the caller's
 //   GET|PUT|DELETE /api/v1/projects/shop/views/{id} own; the creator edits, capture.manage edits shared ones (else
 //                                                  403); a name the creator uses on the surface answers 409
 //   POST /__fake/views {views?, down?}             test hook: replaces shop's saved views; `down`: writes answer 503
-//   POST /__fake/consumers {project, summary, points, consumers, details, groups?, assignments?}
-//                                                  test hook: what those answer; resets shop's groups
+//   POST /__fake/consumers {project, summary, points, consumers, details}
+//                                                  test hook: what those answer
 //   POST /__fake/requests {project, rows}          test hook: `GET /api/v1/requests` answers `rows` for
 //                                                  `project` (narrowed by method, path and status,
 //                                                  #586) instead of what the edge stored (#585); rows null forgets it
@@ -609,15 +604,6 @@ const consumersSeed = new Map<
   string,
   { summary: unknown; points: unknown[]; consumers: Record<string, unknown>[]; details: Record<string, Record<string, unknown>> }
 >();
-/** shop's consumer groups and which group each consumer is in (#596): a consumer is in at most one. */
-let consumerGroups: { id: string; name: string; created_at: string; updated_at: string }[] = [];
-const consumerAssignments = new Map<string, string>();
-const groupRef = (consumer: string) => {
-  const g = consumerGroups.find((x) => x.id === consumerAssignments.get(consumer));
-  return g ? { id: g.id, name: g.name } : undefined;
-};
-const groupOut = (g: (typeof consumerGroups)[number]) => ({ ...g, consumers: [...consumerAssignments.values()].filter((id) => id === g.id).length });
-
 /** shop's saved views (#578, #589): shared ones for everyone, private ones for their creator. */
 interface FakeView {
   id: string;
@@ -2257,8 +2243,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     return send(res, 200, { range, from: "2026-11-05T10:00:00Z", to: "", bucket_seconds: 900, summary, totals, points: seed.points, total: matched.length, consumers: page(matched) });
   }
   if (req.method === "POST" && path === "/__fake/consumers") {
-    // Test hook: replaces what the consumers reads answer for `project`, and shop's dashboard groups
-    // (deprecated; the alert rule editor still lists them).
+    // Test hook: replaces what the consumers reads answer for `project`.
     const b = await readBody(req);
     consumersSeed.set(String(b.project), {
       summary: b.summary ?? { consumers: 0, new: 0, returning: 0 },
@@ -2266,10 +2251,6 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       consumers: Array.isArray(b.consumers) ? (b.consumers as Record<string, unknown>[]) : [],
       details: (b.details as Record<string, Record<string, unknown>>) ?? {},
     });
-    const at = new Date().toISOString();
-    consumerGroups = Array.isArray(b.groups) ? (b.groups as { id: string; name: string }[]).map((g) => ({ id: g.id, name: g.name, created_at: at, updated_at: at })) : [];
-    consumerAssignments.clear();
-    for (const [c, g] of Object.entries((b.assignments as Record<string, string>) ?? {})) consumerAssignments.set(c, g);
     return send(res, 204);
   }
   if (req.method === "POST" && path === "/__fake/views") {
@@ -2336,56 +2317,6 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (taken(v.created_by, v.surface, v.id)) return problem(res, 409, "conflict");
     Object.assign(v, { name, filter, shared: body.shared === true, updated_at: new Date().toISOString() });
     return send(res, 200, v);
-  }
-  const groupsPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/(?:consumer-groups(?:\/([^/]+))?|consumers\/([^/]+)\/group)$/);
-  if (groupsPath) {
-    const user = signedInUser(req);
-    if (!user) return problem(res, 401, "unauthenticated");
-    if (decodeURIComponent(groupsPath[1]) !== PROJECT) return problem(res, 404, "not_found");
-    const [, , groupId, consumerId] = groupsPath;
-    if (req.method === "GET" && groupId === undefined && consumerId === undefined) {
-      return send(res, 200, { groups: [...consumerGroups].sort((a, b) => a.name.localeCompare(b.name)).map(groupOut) });
-    }
-    if (!capabilitiesOf(user).includes("project.update")) return problem(res, 403, "forbidden");
-    const nameOf = async () => String((await readBody(req)).name ?? "").trim();
-    const taken = (name: string, except?: string) => consumerGroups.some((g) => g.id !== except && g.name.toLowerCase() === name.toLowerCase());
-    if (consumerId !== undefined) {
-      const consumer = decodeURIComponent(consumerId);
-      if (req.method === "DELETE") {
-        if (!consumerAssignments.delete(consumer)) return problem(res, 404, "not_found");
-        return send(res, 204);
-      }
-      if (req.method !== "PUT") return problem(res, 404, "not_found");
-      const target = String((await readBody(req)).group_id ?? "");
-      const g = consumerGroups.find((x) => x.id === target);
-      if (!g) return problem(res, 404, "not_found");
-      consumerAssignments.set(consumer, g.id);
-      return send(res, 200, { consumer_id: consumer, group: { id: g.id, name: g.name }, assigned_at: new Date().toISOString() });
-    }
-    if (groupId === undefined) {
-      if (req.method !== "POST") return problem(res, 404, "not_found");
-      const name = await nameOf();
-      if (name === "" || name.length > 128) return problem(res, 422, "validation_failed");
-      if (taken(name)) return problem(res, 409, "conflict");
-      const at = new Date().toISOString();
-      const g = { id: randomUUID(), name, created_at: at, updated_at: at };
-      consumerGroups.push(g);
-      return send(res, 201, groupOut(g));
-    }
-    const g = consumerGroups.find((x) => x.id === decodeURIComponent(groupId));
-    if (!g) return problem(res, 404, "not_found");
-    if (req.method === "DELETE") {
-      consumerGroups = consumerGroups.filter((x) => x !== g);
-      for (const [c, id] of consumerAssignments) if (id === g.id) consumerAssignments.delete(c);
-      return send(res, 204);
-    }
-    if (req.method !== "PUT") return problem(res, 404, "not_found");
-    const name = await nameOf();
-    if (name === "" || name.length > 128) return problem(res, 422, "validation_failed");
-    if (taken(name, g.id)) return problem(res, 409, "conflict");
-    g.name = name;
-    g.updated_at = new Date().toISOString();
-    return send(res, 200, groupOut(g));
   }
   if (req.method === "POST" && path === "/__fake/deploys") {
     // Test hook: replaces what `GET /deploys/changes` answers for `project`.
