@@ -43,6 +43,15 @@ const tiles = (page: Page) => page.locator(".er > dl.er-tiles");
 const statusTable = (page: Page) => page.getByRole("table", { name: "Error status codes" });
 const modal = (page: Page, name: string) => page.getByRole("dialog", { name });
 
+/** The hover tooltip of chart `name` at bucket `i` (0-based), reached with the keyboard. */
+async function tipAt(page: Page, name: RegExp, i: number) {
+  const box = page.getByRole("group", { name });
+  await box.focus();
+  await page.keyboard.press("Home");
+  for (let k = 0; k < i; k++) await page.keyboard.press("ArrowRight");
+  return box.locator(".ct-tip");
+}
+
 test.afterEach(async () => {
   await seed([], []);
 });
@@ -62,7 +71,9 @@ test("Status codes tab: tiles, 4xx/5xx over time and the status table", async ({
   const chart = page.getByRole("img", { name: /Errors by status class/ });
   await expect(chart).toHaveAttribute("aria-label", /330 4xx and 2 5xx responses in the last 24 hours/);
   await expect(chart.locator(".tr-hit")).toHaveCount(4);
-  await expect(chart.locator(".tr-hit title").nth(1)).toHaveText(/4xx: 140\n5xx: 0/);
+  const bucket = await tipAt(page, /^Errors by status class\. Use the arrow keys/, 1);
+  await expect(bucket.locator("dt")).toHaveText(["4xx", "5xx", "Total"]);
+  await expect(bucket.locator("dd")).toHaveText(["140", "0", "140"]);
 
   await expect(statusTable(page).getByRole("columnheader")).toHaveText(["Status", "Responses", "Share of requests", "Endpoints", "Consumers", "Last seen"]);
   await expect(statusTable(page).locator("tbody tr")).toHaveCount(3);
@@ -97,7 +108,9 @@ test("a status code opens its detail: summary and frequency, consumers and per-e
   await expect(dialog.locator(".er-seen dd")).toHaveText(["Nov 5, 2026, 10:00 AM UTC", "Nov 5, 2026, 10:30 AM UTC"]);
   const freq = dialog.getByRole("img", { name: /404 responses over time/ });
   await expect(freq.locator(".tr-hit")).toHaveCount(4);
-  await expect(freq.locator(".tr-hit title").nth(2)).toHaveText(/404 responses: 90/);
+  const point = await tipAt(page, /^404 responses over time\. Use the arrow keys/, 2);
+  await expect(point.locator("dt")).toHaveText(["404 responses"]);
+  await expect(point.locator("dd")).toHaveText(["90"]);
 
   const a11y = await new AxeBuilder({ page }).include(".er-modal").analyze();
   expect(a11y.violations).toEqual([]);

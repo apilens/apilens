@@ -62,7 +62,16 @@
 .tr-grid { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .tr-base { stroke: var(--border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .tr-hit { fill: transparent; }
-.tr-bucket:hover .tr-hit, .tr-hit:hover { fill: var(--surface-2); }
+/* The hovered (or keyboard-picked) bucket: its slot is shaded, line charts add a crosshair and dots. */
+.tr-hit.is-on { fill: var(--surface-2); }
+.tr-plot--hover { cursor: crosshair; }
+.tr-dot { pointer-events: none; }
+.tr-dot.ep-c-p50 { stroke: var(--ink-muted); }
+.tr-dot.ep-c-p75 { stroke: var(--info); }
+.tr-dot.ep-c-p95, .tr-dot--accent { stroke: var(--accent); }
+.tr-dot.ep-c-4xx { stroke: var(--warn); fill: var(--surface-1); }
+.tr-dot.ep-c-5xx { stroke: var(--error); fill: var(--surface-1); }
+.ct-tip__swatch.tr-sw-line { background: var(--accent); }
 .tr-fill-ok { fill: var(--ink-muted); background: var(--ink-muted); }
 .tr-fill-4xx { fill: var(--warn); background: var(--warn); }
 .tr-fill-5xx { fill: var(--error); background: var(--error); }
@@ -83,6 +92,9 @@
 .tr-ep__link code { font: 400 13px/20px var(--font-mono); }
 .tr-row:hover .tr-ep__link code { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
 .tr-empty { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+/* A paged table card: the shared Pagination sits under the rows, on the card's hairline. */
+.tr-card--table > .pg, .tr-card--table > nav.pg { border-top: 1px solid var(--border); }
+.tr-cap { margin: 0; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 
 @media (prefers-reduced-motion: reduce) {
   .tr-live__dot, .tr-livenum.is-new { animation: none; }

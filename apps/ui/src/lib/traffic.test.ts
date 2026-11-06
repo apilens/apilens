@@ -5,6 +5,7 @@ import {
   formatApdex,
   formatLatency,
   latencyTop,
+  lineY,
   linePath,
   parseTrafficQuery,
   plotWidth,
@@ -87,6 +88,17 @@ describe("chart helpers", () => {
     // Values above the top are clamped to it; a zero top draws along the baseline.
     expect(linePath([20], 100, 100, 10)).toBe("M50,0");
     expect(linePath([0, 0], 100, 100, 0)).toBe("M25,100L75,100");
+  });
+
+  it("puts a hovered point's dot where the line is drawn", () => {
+    expect(lineY(0, 100, 10)).toBe(100);
+    expect(lineY(5, 100, 10)).toBe(50);
+    expect(lineY(10, 100, 10)).toBe(0);
+    // Clamped like the line: above the top, below zero, not a number, a zero top.
+    expect(lineY(20, 100, 10)).toBe(0);
+    expect(lineY(-3, 100, 10)).toBe(100);
+    expect(lineY(Number.NaN, 100, 10)).toBe(100);
+    expect(lineY(0, 100, 0)).toBe(100);
   });
 
   it("rounds the latency axis up", () => {

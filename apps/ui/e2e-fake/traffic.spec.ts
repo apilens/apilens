@@ -73,6 +73,15 @@ async function signIn(page: Page, next = PAGE) {
 const tiles = (page: Page) => page.locator("dl.tr-tiles .tr-tile__value");
 const endpointsTable = (page: Page) => page.getByRole("table", { name: "Endpoints" });
 
+/** The hover tooltip of chart `name` at bucket `i` (0-based), reached with the keyboard. */
+async function tipAt(page: Page, name: RegExp, i: number) {
+  const box = page.getByRole("group", { name });
+  await box.focus();
+  await page.keyboard.press("Home");
+  for (let k = 0; k < i; k++) await page.keyboard.press("ArrowRight");
+  return box.locator(".ct-tip");
+}
+
 /** Forgets every saved endpoint setting (#600) and puts back shop's one app. */
 async function resetSettings() {
   await fetch(`${IDENTITY}/__fake/endpoint`, {
@@ -107,7 +116,12 @@ test("shows requests, errors, latency and Apdex tiles, the status-split chart an
   await expect(page.getByRole("list", { name: "Requests by status legend" }).getByRole("listitem")).toHaveText(["Successful", "4xx", "5xx"]);
   // One hover target per bucket, its values in the tooltip; 4xx and 5xx differ in color too.
   await expect(status.locator(".tr-hit")).toHaveCount(4);
-  await expect(status.locator(".tr-hit title").nth(1)).toHaveText(/Successful: 3,288\n4xx: 100\n5xx: 12/);
+  const tip = await tipAt(page, /^Requests by status\. Use the arrow keys/, 1);
+  await expect(tip.locator("dt")).toHaveText(["Requests", "Successful", "4xx", "5xx"]);
+  await expect(tip.locator("dd")).toHaveText(["3,400", "3,288 (96.7%)", "100 (2.9%)", "12 (0.4%)"]);
+  await expect(status.locator(".tr-hit.is-on")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(tip).toHaveCount(0);
   const fill = (cls: string) => status.locator(cls).first().evaluate((el) => getComputedStyle(el).fill);
   expect(await fill(".tr-fill-4xx")).not.toBe(await fill(".tr-fill-5xx"));
   await expect(page.getByRole("img", { name: /Response time/ })).toHaveAttribute("aria-label", /p95 of 413 ms/);
@@ -201,6 +215,28 @@ test("filters by range and environment, kept in the URL", async ({ page }) => {
   await expect(endpointsTable(page).getByRole("link", { name: "GET /orders/{id}" })).toHaveAttribute("href", "/shop/endpoints/GET/%2Forders%2F%7Bid%7D?range=1h&env=production");
   // The range links keep the environment.
   await expect(ranges.getByRole("link", { name: "7d" })).toHaveAttribute("href", "/shop/traffic?range=7d&env=production");
+});
+
+test("pages the endpoints table in the URL, starting again at page 1 when the scope changes", async ({ page }) => {
+  const many = Array.from({ length: 30 }, (_, i) => ({ ...ENDPOINTS[0], path: `/items/${String(i).padStart(2, "0")}`, requests: 1000 - i }));
+  await seed({ "": { summary: SUMMARY, points: POINTS, endpoints: many }, production: { ...PRODUCTION, endpoints: many.slice(0, 3) } });
+  await signIn(page);
+  const pages = page.getByRole("navigation", { name: "Endpoints pages" });
+  await expect(pages).toContainText("Showing 1–25 of 30");
+  await expect(endpointsTable(page).locator("tbody tr")).toHaveCount(25);
+  await pages.getByRole("link", { name: /Next/ }).click();
+  await page.waitForURL(/page=2/);
+  await expect(pages).toContainText("Showing 26–30 of 30");
+  await expect(endpointsTable(page).locator("tbody tr")).toHaveCount(5);
+  await expect(endpointsTable(page).getByRole("link", { name: "GET /items/29" })).toBeVisible();
+  // A page past the end shows the last page.
+  await page.goto(`${PAGE}?page=9`);
+  await expect(pages).toContainText("Showing 26–30 of 30");
+  // A narrower scope drops the page; one page of rows has no controls.
+  await page.getByRole("combobox", { name: "Environment" }).selectOption("production");
+  await page.waitForURL((url) => url.searchParams.get("env") === "production" && !url.searchParams.has("page"));
+  await expect(endpointsTable(page).locator("tbody tr")).toHaveCount(3);
+  await expect(pages).toHaveCount(0);
 });
 
 test("stays live with a pause", async ({ page }) => {
