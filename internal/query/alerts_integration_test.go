@@ -216,7 +216,13 @@ func TestAlertsAPI(t *testing.T) {
 	}
 	for _, u := range []uuid.UUID{member, uuid.Nil} {
 		expect(http.StatusOK, do(http.MethodGet, base+"/alerts/channels", u, nil, &channels), "list channels")
-		if len(channels.Channels) != 2 || channels.Channels[0].Name != "#ops" || channels.Channels[1].Name != "On-call" {
+		// Listed ORDER BY name, whose order between "#ops" and "On-call" depends on the
+		// database collation (byte order vs locale-aware): check the set, not the order.
+		names := map[string]bool{}
+		for _, c := range channels.Channels {
+			names[c.Name] = true
+		}
+		if len(channels.Channels) != 2 || !names["#ops"] || !names["On-call"] {
 			t.Fatalf("channels = %+v", channels.Channels)
 		}
 	}
