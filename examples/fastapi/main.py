@@ -43,12 +43,36 @@ outbound_url = os.environ.get("EXAMPLE_OUTBOUND_URL", "").strip()
 
 app = FastAPI(title="APILens FastAPI example")
 
+# Consumer attribution, the way a real API does it: callers send an API key in
+# X-API-Key, the app looks the key up, and the SDK records who called (id, name,
+# group). The key value itself never reaches APILens: the SDKs redact x-api-key
+# by default. A missing or unknown key is an anonymous caller. The same registry
+# exists in examples/express and examples/spring.
+API_CLIENTS: dict[str, dict[str, str]] = {
+    "demo_key_acme": {"id": "acme-corp", "name": "Acme Corp", "group": "enterprise"},
+    "demo_key_globex": {"id": "globex", "name": "Globex Logistics", "group": "enterprise"},
+    "demo_key_umbrella": {"id": "umbrella-health", "name": "Umbrella Health", "group": "enterprise"},
+    "demo_key_initech": {"id": "initech", "name": "Initech", "group": "growth"},
+    "demo_key_stark": {"id": "stark-industries", "name": "Stark Industries", "group": "growth"},
+    "demo_key_piedpiper": {"id": "pied-piper", "name": "Pied Piper", "group": "startup"},
+    "demo_key_hooli": {"id": "hooli-mobile", "name": "Hooli Mobile App", "group": "internal"},
+}
+
+
+def consumer_from_api_key(_scope, headers: dict[str, str]) -> dict[str, str] | None:
+    return API_CLIENTS.get(headers.get("x-api-key", "").strip())
+
+
 if posture != "off":
     from apilens.fastapi import ApiLensGatewayMiddleware
 
     # api_key, app_id, base_url, environment and every capture option come
     # from APILENS_* env vars; the posture picks the capture profile.
-    app.add_middleware(ApiLensGatewayMiddleware, capture_profile=posture)
+    app.add_middleware(
+        ApiLensGatewayMiddleware,
+        capture_profile=posture,
+        get_consumer=consumer_from_api_key,
+    )
 
 
 class OrderIn(BaseModel):
