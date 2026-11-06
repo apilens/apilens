@@ -24,7 +24,7 @@ var documentedOperations = []string{
 	"list-consumers", "get-consumer", "list-consumer-groups", "create-consumer-group", "rename-consumer-group",
 	"delete-consumer-group", "assign-consumer-group", "unassign-consumer-group",
 	"list-errors", "get-error-statuses", "get-error-status",
-	"get-app-status", "get-app-ingest-stats", "get-ingest-status", "list-deploys", "list-deploy-changes",
+	"get-app-status", "get-app-ingest-stats", "get-ingest-status", "list-deploys", "list-deploy-changes", "get-deploy", "get-deploy-comparison",
 }
 
 // TestOpenAPIDocumentsQueryOperations checks every documented operation has

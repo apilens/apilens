@@ -122,6 +122,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	registerErrorStatus(api, s)
 	registerTrafficLatency(api, s)
 	registerDeployChanges(api, s)
+	registerDeployDetail(api, s)
 	registerIngestStatus(api, s, guard)
 	registerAppStatus(api, s)
 	registerEndpointSettings(api, s, guard)
