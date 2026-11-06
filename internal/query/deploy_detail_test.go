@@ -6,7 +6,9 @@ import (
 )
 
 func TestRegressionWeighsErrorRateAndP95InSteps(t *testing.T) {
-	side := func(req uint64, rate, p95 float64) sideStats { return sideStats{Requests: req, ErrorRate: rate, P95Ms: p95} }
+	side := func(req uint64, rate, p95 float64) sideStats {
+		return sideStats{Requests: req, ErrorRate: rate, P95Ms: p95}
+	}
 	cases := []struct {
 		name   string
 		b, a   sideStats

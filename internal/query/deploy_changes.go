@@ -56,7 +56,7 @@ type sideStats struct {
 
 type deployChange struct {
 	ID           string    `json:"id" doc:"The deploy's id: a stable hash of its report, for GET /api/v1/deploys/{id}."`
-	DeployedAt  time.Time `json:"deployed_at" doc:"When the deploy happened, as reported."`
+	DeployedAt   time.Time `json:"deployed_at" doc:"When the deploy happened, as reported."`
 	Release      string    `json:"release" doc:"Release name or version that was deployed."`
 	Commit       string    `json:"commit" doc:"Commit that was deployed; empty when not reported."`
 	Environment  string    `json:"environment" doc:"Environment deployed to."`
