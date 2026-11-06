@@ -1,5 +1,5 @@
 import { RANGE_LABEL, formatCount, formatPerMinute, formatRate } from "@/lib/consumers";
-import type { EndpointTraffic, NamedApp, TrafficPoint, TrafficSummary } from "@/lib/identity";
+import type { EndpointTraffic, NamedApp, QueryRange, TrafficPoint, TrafficSummary } from "@/lib/identity";
 import {
   ENDPOINTS_LOAD_FAILED,
   TIMESERIES_LOAD_FAILED,
@@ -79,7 +79,7 @@ export function TrafficView({
         </div>
       ) : (
         <>
-          <Tiles summary={summary} points={points ?? []} />
+          <Tiles summary={summary} points={points ?? []} range={q.range} />
           <section className="tr-card" aria-labelledby="tr-over-time">
             <h2 id="tr-over-time">Requests over time</h2>
             {points === null ? (
@@ -137,7 +137,7 @@ function LoadFailed({ text, href }: { text: string; href: string }) {
   );
 }
 
-function Tiles({ summary: s, points }: { summary: TrafficSummary; points: TrafficPoint[] }) {
+function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points: TrafficPoint[]; range: QueryRange }) {
   const errors = s.client_errors + s.server_errors;
   const rating = apdexRating(s.apdex);
   return (
@@ -149,7 +149,10 @@ function Tiles({ summary: s, points }: { summary: TrafficSummary; points: Traffi
             <LiveNumber text={formatCount(s.requests)} />
           </span>
           <span className="tr-tile__sub">{formatPerMinute(s.requests_per_minute)} per minute</span>
-          <Sparkline values={points.map((p) => p.requests)} />
+          <Sparkline
+            values={points.map((p) => p.requests)}
+            hover={{ label: "Requests", range, points: points.map((p) => ({ ts: p.ts, text: formatCount(p.requests) })) }}
+          />
         </dd>
       </div>
       <div>
