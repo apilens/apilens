@@ -2543,7 +2543,7 @@ export function createClient(config: ClientConfig) {
       request<Project[]>("GET", `/orgs/${seg(orgSlug)}/projects`, o),
     createProject: (orgSlug: string, body: CreateProjectRequest, o: Authed) =>
       request<Project>("POST", `/orgs/${seg(orgSlug)}/projects`, { ...o, body }),
-    getProject: (slug: string, o: Authed) => request<Project>("GET", `/projects/${seg(slug)}`, o),
+    getProject: (slug: string, o: Authed) => request<ProjectDetail>("GET", `/projects/${seg(slug)}`, o),
     updateProject: (slug: string, body: UpdateProjectRequest, o: Authed) =>
       request<ProjectDetail>("PATCH", `/projects/${seg(slug)}`, { ...o, body }),
     projectSlugAvailable: (slug: string, o: Authed) =>
