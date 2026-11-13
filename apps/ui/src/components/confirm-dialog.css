@@ -1,0 +1,18 @@
+/* The shared confirmation dialog (#802). Tokens from styles/tokens.css only. */
+.cd { width: min(480px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-1); color: var(--ink); box-shadow: var(--shadow-frame); }
+.cd::backdrop { background: color-mix(in srgb, #000 45%, transparent); }
+.cd__in { padding: var(--space-6); }
+.cd__title { margin: 0 0 var(--space-2); font: 600 16px/22px var(--font-sans); color: var(--ink); }
+.cd__body { font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.cd__body p { margin: 0 0 var(--space-2); }
+.cd__field { margin-top: var(--space-4); }
+.cd__label { display: block; margin-bottom: var(--space-2); font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.cd__label code { padding: 1px 6px; border-radius: var(--radius-sm); background: var(--surface-2); font: 500 12.5px/1 var(--font-mono); overflow-wrap: anywhere; }
+.cd__row { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-6); }
+.cd .ah-btn { min-height: 24px; }
+.cd .ah-btn:disabled { opacity: .45; cursor: not-allowed; }
+.cd__danger { background: var(--error); border-color: var(--error); color: #fff; }
+.cd__danger:hover:not(:disabled) { filter: brightness(1.08); }
+@media (max-width: 520px) {
+  .cd__row { flex-direction: column-reverse; align-items: stretch; }
+}

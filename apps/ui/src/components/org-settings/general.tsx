@@ -5,6 +5,7 @@ import { type OrgActionResult, deleteOrganization, saveOrgDomains, saveOrgName }
 import type { Org } from "@/lib/identity";
 import { addDomains, canDeleteOrg, canManageOrg, checkOrgName, deleteConfirmed, MAX_ORG_NAME } from "@/lib/org-settings";
 import { roleLabel } from "@/lib/scope";
+import { ConfirmDialog } from "../confirm-dialog";
 import { ObIcon } from "../onboarding/ob";
 import { OrgSettingsNav } from "./nav";
 import "./org-settings.css";
@@ -344,19 +345,12 @@ function DomainsCard({ org, manage }: { org: Org; manage: boolean }) {
 
 function DangerCard({ org }: { org: Org }) {
   const [open, setOpen] = useState(false);
-  const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  const confirmed = deleteConfirmed(org.slug, typed);
-  const field = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (open) field.current?.focus();
-  }, [open]);
-
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!confirmed || pending) return;
+  const confirm = (typed: string) => {
+    if (!deleteConfirmed(org.slug, typed) || pending) return;
+    setError(null);
     start(async () => {
       // Redirects away on success; answers only when the deletion failed.
       const result = await deleteOrganization(org.slug, typed);
@@ -366,7 +360,6 @@ function DangerCard({ org }: { org: Org }) {
 
   const close = () => {
     setOpen(false);
-    setTyped("");
     setError(null);
   };
 
@@ -381,53 +374,24 @@ function DangerCard({ org }: { org: Org }) {
             <b>Delete this organization</b>
             Its projects, API keys and data stop being available to every member, and the address {org.slug} becomes free.
           </p>
-          {open ? null : (
-            <button type="button" className="ah-btn ah-btn--sm os-btn-outline-danger" onClick={() => setOpen(true)}>
-              Delete organization
-            </button>
-          )}
+          <button type="button" className="ah-btn ah-btn--sm os-btn-outline-danger" onClick={() => setOpen(true)}>
+            Delete organization
+          </button>
         </div>
-        {open ? (
-          <form className="os-confirm" onSubmit={submit}>
-            <p>
-              <label htmlFor="os-delete-confirm">
-                To confirm, type <code>{org.slug}</code> below.
-              </label>
-            </p>
-            <div className={`ob-in${error ? " bad" : ""}`}>
-              <input
-                ref={field}
-                id="os-delete-confirm"
-                value={typed}
-                autoComplete="off"
-                autoCapitalize="none"
-                spellCheck={false}
-                onChange={(e) => {
-                  setTyped(e.target.value);
-                  setError(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") close();
-                }}
-                aria-invalid={error !== null}
-                aria-describedby={error ? "os-delete-err" : undefined}
-              />
-            </div>
-            {error ? (
-              <p id="os-delete-err" className="ob-err" role="alert">
-                {error}
-              </p>
-            ) : null}
-            <div className="row">
-              <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={close} disabled={pending}>
-                Cancel
-              </button>
-              <button type="submit" className={`ah-btn ah-btn--sm os-btn-danger${pending ? " is-loading" : ""}`} disabled={!confirmed || pending}>
-                Delete {org.name}
-              </button>
-            </div>
-          </form>
-        ) : null}
+        <ConfirmDialog
+          open={open}
+          title={`Delete ${org.name}?`}
+          phrase={org.slug}
+          actionLabel={`Delete ${org.name}`}
+          pending={pending}
+          error={error}
+          onConfirm={confirm}
+          onCancel={close}
+        >
+          <p>
+            Its projects, API keys and data stop being available to every member, and the address {org.slug} becomes free.
+          </p>
+        </ConfirmDialog>
       </div>
     </section>
   );
