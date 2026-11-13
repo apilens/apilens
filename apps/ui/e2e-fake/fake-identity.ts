@@ -174,6 +174,8 @@
 //                                                  traffic?, managed?}], their policies, reports, health
 //                                                  counters, SDK status, traffic and lifecycle (managed:
 //                                                  any ManagedApp field), plus {rejections?}
+//   POST /__fake/ingested {project?, last_at}      test hook (#817): when the edge last stored data for a
+//                                                  project (default shop); null forgets it
 //   GET|PUT /api/v1/projects/shop/privacy-policy   shop's server-side deny list (#599): only the defaults
 //                                                  until saved; PUT answers 403 without project.update and
 //                                                  invalid_request naming a pattern JavaScript cannot compile
@@ -1698,6 +1700,14 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       sdk_stats: { instances: 0, queued_records: 0, sent_records: 0, failed_batches: 0, dropped_records: 0, drop_counts: {}, ...stats },
       ...appStatuses.get(app.id),
     });
+  }
+  if (req.method === "POST" && path === "/__fake/ingested") {
+    // Test hook (#817): sets when the edge last stored data for a project, or forgets it (null).
+    const { project, last_at } = await readBody(req);
+    const slug = String(project ?? PROJECT);
+    if (typeof last_at === "string") ingested.set(slug, { first_at: last_at, last_at, count: 1 });
+    else ingested.delete(slug);
+    return send(res, 204);
   }
   if (req.method === "POST" && path === "/__fake/apps") {
     // Test hook: replaces shop's apps, their saved policies, their SDK reports and health counters.
