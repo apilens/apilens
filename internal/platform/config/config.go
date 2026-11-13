@@ -49,6 +49,8 @@ type Config struct {
 	Retention  RetentionConfig  `koanf:"retention"`
 	Access     AccessConfig     `koanf:"access"`
 	Audit      AuditConfig      `koanf:"audit"`
+	// Integrations configures links to outside tools.
+	Integrations IntegrationsConfig `koanf:"integrations"`
 }
 
 // AccessConfig configures project access management.
@@ -58,6 +60,15 @@ type AccessConfig struct {
 	// member_limit_reached. Org owners and admins and people with access
 	// through the default access do not count. 0 disables it.
 	MaxDirectMembersPerProject int `koanf:"max_direct_members_per_project"`
+}
+
+// IntegrationsConfig configures links to outside tools.
+type IntegrationsConfig struct {
+	// AllowAnyRepositoryHost lets a project's repository link name any
+	// https host (self-hosted GitLab, Gitea, ...), not only github.com,
+	// gitlab.com and bitbucket.org. Commit and release links are derived
+	// for those three hosts only.
+	AllowAnyRepositoryHost bool `koanf:"allow_any_repository_host"`
 }
 
 // ServerConfig configures the shared HTTP server.
@@ -515,6 +526,8 @@ func Defaults() map[string]any {
 		"identity.sensitive_action_max_age": "10m",
 
 		"access.max_direct_members_per_project": 500,
+
+		"integrations.allow_any_repository_host": false,
 
 		"identity.oauth.google.client_id":     "",
 		"identity.oauth.google.client_secret": "",

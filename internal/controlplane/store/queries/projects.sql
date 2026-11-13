@@ -5,7 +5,7 @@
 -- Fails on projects_slug_active when an active project uses the slug.
 INSERT INTO projects (id, org_id, slug, name, description, created_by)
 VALUES (@id, @org_id, @slug, @name, @description, @created_by)
-RETURNING id, org_id, slug, name, description, created_at, updated_at, created_by;
+RETURNING id, org_id, slug, name, description, created_at, updated_at, created_by, repository_url;
 
 -- name: ProjectSlugTaken :one
 SELECT EXISTS (
@@ -18,7 +18,7 @@ SELECT slug FROM projects
 WHERE slug = ANY(@slugs::text[]) AND deleted_at IS NULL;
 
 -- name: ListOrgProjects :many
-SELECT id, org_id, slug, name, description, created_at, updated_at, created_by
+SELECT id, org_id, slug, name, description, created_at, updated_at, created_by, repository_url
 FROM projects
 WHERE org_id = @org_id AND deleted_at IS NULL
 ORDER BY name, slug;
@@ -45,24 +45,24 @@ FOR UPDATE OF p;
 -- name: GetActiveProject :one
 -- An active project of an active organization by id; no row when either is
 -- missing. Callers have authorized the user on it (authz guard).
-SELECT p.id, p.slug, p.name, p.description, p.created_at, p.updated_at, p.created_by, o.id AS org_id, o.slug AS org_slug
+SELECT p.id, p.slug, p.name, p.description, p.created_at, p.updated_at, p.created_by, p.repository_url, o.id AS org_id, o.slug AS org_slug
 FROM projects p
 JOIN organizations o ON o.id = p.org_id AND o.deleted_at IS NULL
 WHERE p.id = @id AND p.deleted_at IS NULL;
 
 -- name: LockActiveProject :one
 -- GetActiveProject, row-locking the project for the rest of the transaction.
-SELECT p.id, p.slug, p.name, p.description, p.created_at, p.updated_at, p.created_by, o.id AS org_id, o.slug AS org_slug
+SELECT p.id, p.slug, p.name, p.description, p.created_at, p.updated_at, p.created_by, p.repository_url, o.id AS org_id, o.slug AS org_slug
 FROM projects p
 JOIN organizations o ON o.id = p.org_id AND o.deleted_at IS NULL
 WHERE p.id = @id AND p.deleted_at IS NULL
 FOR UPDATE OF p;
 
 -- name: UpdateProjectDetails :one
--- Sets the name and description and moves updated_at to now.
-UPDATE projects SET name = @name, description = @description, updated_at = now()
+-- Sets the name, description and repository link and moves updated_at to now.
+UPDATE projects SET name = @name, description = @description, repository_url = @repository_url, updated_at = now()
 WHERE id = @id AND deleted_at IS NULL
-RETURNING id, org_id, slug, name, description, created_at, updated_at, created_by;
+RETURNING id, org_id, slug, name, description, created_at, updated_at, created_by, repository_url;
 
 -- name: SoftDeleteProject :execrows
 UPDATE projects SET deleted_at = now()

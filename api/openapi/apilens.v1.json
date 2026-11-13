@@ -8470,6 +8470,13 @@
             "readOnly": true,
             "type": "string"
           },
+          "commit_url_template": {
+            "description": "URL of a commit in the repository with the placeholder {commit} for the URL-encoded commit id; null when no repository is set or its host's URL layout is not known (hosts other than github.com, gitlab.com and bitbucket.org).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -8512,6 +8519,21 @@
           "org_slug": {
             "type": "string"
           },
+          "release_url_template": {
+            "description": "URL of a release in the repository with the placeholder {release} for the URL-encoded release name; null under the same conditions as commit_url_template.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repository_url": {
+            "description": "The https URL of the project's source repository, e.g. https://github.com/acme/shop; null when none is set. A link only: no access to the repository.",
+            "format": "uri",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "role": {
             "description": "The signed-in user's effective project role: the highest of their organization role (owners and admins are admin), the project's default access and a direct grant.",
             "enum": [
@@ -8525,7 +8547,7 @@
             "type": "string"
           },
           "updated_at": {
-            "description": "When the name or description last changed; the creation time until then.",
+            "description": "When the name, description or repository link last changed; the creation time until then.",
             "format": "date-time",
             "type": "string"
           }
@@ -8541,7 +8563,10 @@
           "environments",
           "created_at",
           "updated_at",
-          "created_by"
+          "created_by",
+          "repository_url",
+          "commit_url_template",
+          "release_url_template"
         ],
         "type": "object"
       },
@@ -11776,6 +11801,11 @@
             "description": "Display name; surrounding spaces are trimmed.",
             "maxLength": 100,
             "minLength": 1,
+            "type": "string"
+          },
+          "repository_url": {
+            "description": "The https URL of the project's source repository on github.com, gitlab.com or bitbucket.org (any https host when the install sets integrations.allow_any_repository_host), at most 2048 characters. Surrounding spaces, a trailing slash and a trailing .git are dropped; an empty string removes the link.",
+            "maxLength": 2048,
             "type": "string"
           },
           "slug": {
@@ -23370,7 +23400,7 @@
         ]
       },
       "patch": {
-        "description": "Changes the project's name and description. An empty name or a description over 280 characters answers `invalid_request`; a slug other than the current one answers `slug_immutable`. A change moves `updated_at` and emits the `project.updated` audit event with the previous and next values. Needs `edit` on the project (project admins and editors; 403 `forbidden` for viewers). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
+        "description": "Changes the project's name, description and source repository link. An empty name, a description over 280 characters or a repository link that is not https, names a host that is not allowed, carries credentials, a query or a fragment, or does not name a repository answers `invalid_request`; a slug other than the current one answers `slug_immutable`. A change moves `updated_at` and emits the `project.updated` audit event with the previous and next values. Needs `edit` on the project (project admins and editors; 403 `forbidden` for viewers). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "update-project",
         "parameters": [
           {
