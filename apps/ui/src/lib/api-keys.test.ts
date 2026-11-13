@@ -48,7 +48,7 @@ const key = (over: Partial<ApiKey> = {}): ApiKey => ({
 
 describe("keysPath", () => {
   it("is the keys section of the project's settings", () => {
-    expect(keysPath("shop")).toBe("/shop/settings/keys");
+    expect(keysPath("shop")).toBe("/shop/access/keys");
   });
 });
 

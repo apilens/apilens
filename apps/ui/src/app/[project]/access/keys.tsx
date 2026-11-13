@@ -1,5 +1,6 @@
-// API keys still answer at `/settings/keys` but are not in the section nav: they move to
-// Access › API keys, which redirects this path (#801).
+// Access › API keys (`/<project>/access/keys`, #801): moved here unchanged from project settings,
+// whose `/settings/keys` now redirects to this tab.
+import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { ApiKeysSettings } from "@/components/project-settings/api-keys";
 import { getSession } from "@/lib/auth/server";
@@ -7,7 +8,7 @@ import { KEYS_PAGE } from "@/lib/api-keys";
 import { type ApiKey, type ManagedApp, identity, isApiError } from "@/lib/identity";
 import { pageRedirect } from "@/lib/pagination";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
-import type { SectionContext } from "./types";
+import type { SectionContext } from "../settings/sections/types";
 
 type KeysLoad = { keys: ApiKey[] | null; apps: ManagedApp[] | null };
 
@@ -36,6 +37,6 @@ export async function load({ project, search, next }: SectionContext): Promise<K
   return { keys, apps };
 }
 
-export function render({ keys, apps }: KeysLoad, { project, projectName, search }: SectionContext) {
-  return <ApiKeysSettings project={project} projectName={projectName} initial={keys} apps={apps} params={search} now={Date.now()} />;
+export function render({ keys, apps }: KeysLoad, { project, projectName, search }: SectionContext, nav: ReactNode) {
+  return <ApiKeysSettings project={project} projectName={projectName} initial={keys} apps={apps} params={search} now={Date.now()} nav={nav} />;
 }

@@ -8,8 +8,8 @@ import "./setup-reminder.css";
 
 /**
  * The reminder a project opens with after "I'll do this later" on the install step (#333): no
- * events arrive until the SDK or an exporter sends them with an ingest key, which Project settings
- * → API keys creates. Dismissing it hides it for this page view.
+ * events arrive until the SDK or an exporter sends them with an ingest key, which Access → API keys
+ * creates. Dismissing it hides it for this page view.
  */
 export function SetupReminder({ project }: { project: string }) {
   const [open, setOpen] = useState(true);

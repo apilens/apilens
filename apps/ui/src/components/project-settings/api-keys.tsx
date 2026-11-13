@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
+import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { createApiKey, revokeApiKey, updateApiKeyAccess } from "@/app/[project]/settings/actions";
 import { useReauth } from "@/components/reauth-dialog";
 import {
@@ -55,7 +55,7 @@ interface AppsInfo {
 const SEEN_SHOWN = 3;
 
 /**
- * `/<project>/settings/keys` (#350): the project's API keys (revoked ones included, newest first)
+ * Access › API keys, `/<project>/access/keys` (#350, moved in #801): the project's API keys (revoked ones included, newest first)
  * with their prefix, permissions (scopes, and for ingest keys whether their data creates apps or
  * which apps they are limited to), the apps they have sent data for, last use and status, paged in
  * the URL. "Create API key" opens a dialog (name, scopes, app access, optional expiry) that then
@@ -63,7 +63,7 @@ const SEEN_SHOWN = 3;
  * first. Owners, admins and members (`api_keys.create` / `api_keys.revoke`) see the controls;
  * everyone else reads the list with a line saying why. The API checks again. `initial` is null when
  * the list could not be loaded, `apps` when the project's apps could not; `now` is the server's
- * clock so the first render matches.
+ * clock so the first render matches; `nav` is the Access page's tabs, shown under the title.
  */
 export function ApiKeysSettings({
   project,
@@ -72,6 +72,7 @@ export function ApiKeysSettings({
   apps,
   params,
   now,
+  nav,
 }: {
   project: string;
   projectName: string;
@@ -79,6 +80,7 @@ export function ApiKeysSettings({
   apps: ManagedApp[] | null;
   params: SearchParams;
   now: number;
+  nav?: ReactNode;
 }) {
   const [keys, setKeys] = useState<ApiKey[]>(initial ?? []);
   const [status, setStatus] = useState<Status>(null);
@@ -138,8 +140,9 @@ export function ApiKeysSettings({
   return (
     <div className="page os ak">
       <header className="os-head">
-        <p className="cp-h">{projectName} · Settings</p>
+        <p className="cp-h">{projectName} · Access</p>
         <h1 className="cp-lede">API keys</h1>
+        {nav}
       </header>
 
       <section className="os-card pk ak-card" aria-labelledby="ak-title">
