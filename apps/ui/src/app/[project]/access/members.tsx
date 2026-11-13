@@ -1,10 +1,12 @@
 // Access › Members (`/<project>/access`, #806): everyone who can reach the project, their effective
 // role and where it comes from (#753 D3). The header and tabs render at once; the list streams in
 // behind a skeleton while `GET /projects/{slug}/access` answers.
-import { type ReactNode, Suspense } from "react";
+import { type ReactNode, Suspense, cache } from "react";
+import { DefaultAccessCard, RestrictedLabel } from "@/components/access/default-access";
 import { AccessMembers, AccessMembersLoading, MembersFrame } from "@/components/access/members";
 import { getSession } from "@/lib/auth/server";
 import { type AccessMember, type DefaultAccess, identity, isApiError } from "@/lib/identity";
+import { findProject } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 import type { SectionContext } from "../settings/sections/types";
 
@@ -37,14 +39,37 @@ export async function load({ project, next }: Pick<SectionContext, "project" | "
   }
 }
 
+/** One load per request: the list, the default access card and the header's label share it (#808). */
+const loadOnce = cache(load);
+
 async function MembersList({ ctx }: { ctx: SectionContext }) {
-  const data = await load(ctx);
-  return <AccessMembers project={ctx.project} projectName={ctx.projectName} data={data} params={ctx.search} now={Date.now()} />;
+  const data = await loadOnce(ctx);
+  const orgName = findProject(ctx.context, ctx.project)?.org.name ?? "the organization";
+  return (
+    <>
+      {data ? <DefaultAccessCard project={ctx.project} projectName={ctx.projectName} orgName={orgName} defaultAccess={data.defaultAccess} members={data.members} /> : null}
+      <AccessMembers project={ctx.project} projectName={ctx.projectName} data={data} params={ctx.search} now={Date.now()} />
+    </>
+  );
+}
+
+/** "Restricted" next to the project's name once the list has loaded (#808). */
+async function Restricted({ ctx }: { ctx: SectionContext }) {
+  const data = await loadOnce(ctx);
+  return <RestrictedLabel defaultAccess={data?.defaultAccess ?? null} />;
 }
 
 export function render(ctx: SectionContext, nav: ReactNode) {
   return (
-    <MembersFrame projectName={ctx.projectName} nav={nav}>
+    <MembersFrame
+      projectName={ctx.projectName}
+      nav={nav}
+      badge={
+        <Suspense fallback={null}>
+          <Restricted ctx={ctx} />
+        </Suspense>
+      }
+    >
       <Suspense fallback={<AccessMembersLoading />}>
         <MembersList ctx={ctx} />
       </Suspense>

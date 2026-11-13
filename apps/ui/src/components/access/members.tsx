@@ -29,11 +29,13 @@ import "../org-settings/members.css";
 import "./members.css";
 
 /** The Members tab's title and tabs, around the list (or its skeleton while it loads). */
-export function MembersFrame({ projectName, nav, children }: { projectName: string; nav: ReactNode; children: ReactNode }) {
+export function MembersFrame({ projectName, nav, badge, children }: { projectName: string; nav: ReactNode; badge?: ReactNode; children: ReactNode }) {
   return (
     <div className="page os om am">
       <header className="os-head">
-        <p className="cp-h">{projectName} · Access</p>
+        <p className="cp-h">
+          {projectName} · Access{badge}
+        </p>
         <h1 className="cp-lede">Members</h1>
         {nav}
       </header>
