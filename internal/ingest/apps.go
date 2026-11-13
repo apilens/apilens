@@ -129,9 +129,7 @@ func (e *Edge) resolveBatch(ctx context.Context, signal string, p apikeys.Princi
 		b.report = append(b.report, rejectedApp{AppID: ident, App: rej.Slug, Records: n, Error: rej.Reason, Detail: rej.Message})
 		e.records.WithLabelValues(signal, "rejected").Add(float64(n))
 		e.appRejected.WithLabelValues(rej.Reason).Add(float64(n))
-		if rej.AppID != uuid.Nil {
-			t.app(rej.AppID).Rejected += int64(n)
-		}
+		t.reject(rej.AppID, rej.Reason, int64(n))
 		day[appRejectionKey{Reason: rej.Reason, App: rej.Slug}] += int64(n)
 	}
 	sort.Slice(b.report, func(i, j int) bool { return b.report[i].AppID < b.report[j].AppID })

@@ -138,21 +138,26 @@ func (q *ValkeyQuota) Admit(ctx context.Context, projectID uuid.UUID, records, b
 // quotaLogEvery bounds how often an unavailable quota backend is logged.
 const quotaLogEvery = time.Minute
 
-// admit checks the project's quota for a batch. It fails open: when the
+// admit checks the project's quota for a batch and records the outcome in t
+// (the admitted bytes, or the refusing limit). It fails open: when the
 // quota backend does not answer the batch is accepted, so a Valkey outage
 // never drops telemetry, and the outage is logged at most once a minute.
-func (e *Edge) admit(ctx context.Context, projectID uuid.UUID, records, bytes int) *apiError {
+func (e *Edge) admit(ctx context.Context, projectID uuid.UUID, records, bytes int, t tally) *apiError {
 	if e.quota == nil {
+		t.charge(projectID, bytes)
 		return nil
 	}
 	d, err := e.quota.Admit(ctx, projectID, int64(records), int64(bytes))
 	if err != nil {
 		e.logQuotaUnavailable(err)
+		t.charge(projectID, bytes)
 		return nil
 	}
 	if d.Allowed {
+		t.charge(projectID, bytes)
 		return nil
 	}
+	t.refuse(projectID, d.Reason)
 	e.rejected.WithLabelValues(d.Reason).Inc()
 	return &apiError{
 		status:     http.StatusTooManyRequests,

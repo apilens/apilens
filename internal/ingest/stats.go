@@ -88,8 +88,9 @@ func (e *Edge) WithStats(store StatsStore) *Edge {
 	return e
 }
 
-// tally collects the per-app counter deltas of one ingest call.
-type tally map[uuid.UUID]*Counts
+// tally collects the per-app counter deltas of one ingest call (see
+// usage.go for the call-level entry).
+type tally map[uuid.UUID]*appTally
 
 // app returns the counters of appID; records without an app go to a
 // throwaway value.
@@ -97,9 +98,13 @@ func (t tally) app(appID uuid.UUID) *Counts {
 	if appID == uuid.Nil {
 		return &Counts{}
 	}
+	return &t.entry(appID).Counts
+}
+
+func (t tally) entry(appID uuid.UUID) *appTally {
 	c, ok := t[appID]
 	if !ok {
-		c = &Counts{}
+		c = &appTally{}
 		t[appID] = c
 	}
 	return c
@@ -113,17 +118,39 @@ func (e *Edge) flushStats(ctx context.Context, t tally) {
 		return
 	}
 	deltas := make(map[uuid.UUID]Counts, len(t))
+	breakdowns := map[uuid.UUID]Breakdown{}
 	for id, c := range t {
-		if *c != (Counts{}) {
-			deltas[id] = *c
+		if id == uuid.Nil {
+			continue
+		}
+		if c.Counts != (Counts{}) {
+			deltas[id] = c.Counts
+		}
+		if !c.Breakdown.empty() {
+			breakdowns[id] = c.Breakdown
 		}
 	}
-	if len(deltas) == 0 {
+	call := t[uuid.Nil]
+	usage, _ := e.stats.(UsageStore)
+	writeUsage := usage != nil && (len(breakdowns) > 0 || (call != nil && call.bytes > 0))
+	if len(deltas) == 0 && !writeUsage {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statsWriteTimeout)
 	defer cancel()
-	if err := e.stats.Add(ctx, e.now(), deltas); err != nil {
+	var err error
+	if len(deltas) > 0 {
+		err = e.stats.Add(ctx, e.now(), deltas)
+	}
+	if err == nil && writeUsage {
+		var project uuid.UUID
+		var bytes int64
+		if call != nil {
+			project, bytes = call.project, call.bytes
+		}
+		err = usage.AddUsage(ctx, e.now(), project, bytes, breakdowns)
+	}
+	if err != nil {
 		now := e.now().UnixNano()
 		last := e.statsLog.Load()
 		if (last == 0 || now-last >= int64(statsLogEvery)) && e.statsLog.CompareAndSwap(last, now) {
@@ -154,9 +181,10 @@ func (e *Edge) rejectRecords(ctx context.Context, projectID uuid.UUID, signal st
 	if err != nil {
 		return
 	}
+	reason := t.call().reason
 	for _, id := range idents {
 		if appID, ok := res.Apps[id]; ok {
-			t.app(appID).Rejected++
+			t.reject(appID, reason, 1)
 		}
 	}
 }
