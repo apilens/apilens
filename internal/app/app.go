@@ -501,6 +501,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Capture:       capture.NewService(a.pool, audit.New(a.pool)),
 		Context:       usercontext.New(a.pool, a.checker()),
 		Guard:         a.guard(),
+		Roles:         a.checker(),
 		Limiter:       limiter,
 		Limits:        a.cfg.Identity.RateLimits,
 		Logger:        a.logger,

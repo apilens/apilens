@@ -11,20 +11,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/apilens/apilens/internal/controlplane/projects"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/identity/audit"
 )
 
 // Errors returned by Service.
 var (
-	// ErrNotFound: no active project has the slug, or the user is not a
-	// member of its organization. The cases are deliberately
-	// indistinguishable.
+	// ErrNotFound: no active project has the id (it was deleted after the
+	// caller authorized the request).
 	ErrNotFound = errors.New("privacy: project not found")
-	// ErrForbidden: the user is a member but their role does not allow the
-	// change.
-	ErrForbidden = errors.New("privacy: forbidden")
 	// ErrUnknownApp: the project has no active app with the identifier.
 	ErrUnknownApp = errors.New("privacy: unknown app")
 )
@@ -45,8 +40,9 @@ type Scoped struct {
 }
 
 // Service reads and replaces privacy policies on behalf of signed-in users.
-// Any member of the project's organization may read them; owners, admins and
-// members may change them (the project edit permission).
+// It does not authorize: callers check the SpiceDB permission first with the
+// authz guard (view to read a policy, edit to change it) and pass the project
+// id it resolved.
 type Service struct {
 	pool  *pgxpool.Pool
 	audit Auditor // nil: policy changes are not audited
@@ -67,11 +63,11 @@ func (s *Service) WithAudit(a Auditor) *Service {
 	return s
 }
 
-// Get returns the policy of the project slug, or of its app when app (a
+// Get returns the policy of the project projectID, or of its app when app (a
 // slug or id) is not empty.
-func (s *Service) Get(ctx context.Context, user uuid.UUID, slug, app string) (Scoped, error) {
+func (s *Service) Get(ctx context.Context, projectID uuid.UUID, app string) (Scoped, error) {
 	q := db.New(s.pool)
-	p, err := q.GetMemberProject(ctx, db.GetMemberProjectParams{UserID: user, Slug: slug})
+	p, err := q.GetActiveProject(ctx, projectID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Scoped{}, ErrNotFound
 	}
@@ -95,10 +91,10 @@ func (s *Service) Get(ctx context.Context, user uuid.UUID, slug, app string) (Sc
 	return out, nil
 }
 
-// Put replaces the policy of the project slug (or of its app) with pol,
-// after Normalize. user must be an owner, admin or member of the project's
-// organization. Edges pick the change up within one app cache TTL.
-func (s *Service) Put(ctx context.Context, user uuid.UUID, slug, app string, pol Policy) (Scoped, error) {
+// Put replaces the policy of the project projectID (or of its app) with pol
+// on behalf of user, after Normalize. Edges pick the change up within one app
+// cache TTL.
+func (s *Service) Put(ctx context.Context, user, projectID uuid.UUID, app string, pol Policy) (Scoped, error) {
 	pol, err := pol.Normalize()
 	if err != nil {
 		return Scoped{}, err
@@ -109,15 +105,12 @@ func (s *Service) Put(ctx context.Context, user uuid.UUID, slug, app string, pol
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.New(tx)
-	p, err := q.LockMemberProject(ctx, db.LockMemberProjectParams{UserID: user, Slug: slug})
+	p, err := q.LockActiveProject(ctx, projectID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Scoped{}, ErrNotFound
 	}
 	if err != nil {
 		return Scoped{}, fmt.Errorf("privacy: lock project: %w", err)
-	}
-	if !projects.CanWrite(p.Role) {
-		return Scoped{}, ErrForbidden
 	}
 	scope, err := resolveApp(ctx, q, p.ID, app)
 	if err != nil {

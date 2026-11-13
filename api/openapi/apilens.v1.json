@@ -8513,11 +8513,10 @@
             "type": "string"
           },
           "role": {
-            "description": "The signed-in user's role in the project's organization.",
+            "description": "The signed-in user's effective project role: the highest of their organization role (owners and admins are admin), the project's default access and a direct grant.",
             "enum": [
-              "owner",
               "admin",
-              "member",
+              "editor",
               "viewer"
             ],
             "type": "string"
@@ -19276,7 +19275,7 @@
     },
     "/api/v1/orgs/{slug}/projects": {
       "get": {
-        "description": "Lists the organization's active projects with their environments, ordered by name. Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart.",
+        "description": "Lists the organization's active projects the user can view, with their environments and the user's effective project role, ordered by name. A restricted project (default access `none`) is listed only to organization owners and admins and to people added to it. An organization that does not exist or the user is not a member of answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "list-projects",
         "parameters": [
           {
@@ -19321,7 +19320,7 @@
               "unauthenticated"
             ]
           },
-          "403": {
+          "404": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -19329,9 +19328,9 @@
                 }
               }
             },
-            "description": "Forbidden. Codes: `forbidden`.",
+            "description": "Not Found. Codes: `not_found`.",
             "x-apilens-codes": [
-              "forbidden"
+              "not_found"
             ]
           },
           "500": {
@@ -19346,6 +19345,19 @@
             "x-apilens-codes": [
               "internal_error"
             ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
           }
         },
         "security": [
@@ -19359,7 +19371,7 @@
         ]
       },
       "post": {
-        "description": "Creates a project with its environments in the organization. Owners, admins and members only. Project slugs are globally unique: a reserved or used slug answers `slug_taken` (409) with up to three free `suggestions`. Emits `project.created`. Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart.",
+        "description": "Creates a project with its environments in the organization. Needs `create_project` on the organization (owners, admins and members; 403 `forbidden` for viewers). Project slugs are globally unique: a reserved or used slug answers `slug_taken` (409) with up to three free `suggestions`. Emits `project.created`. An organization that does not exist or the user is not a member of answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "create-project",
         "parameters": [
           {
@@ -19434,6 +19446,19 @@
               "forbidden"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "409": {
             "content": {
               "application/problem+json": {
@@ -19458,6 +19483,19 @@
             "description": "Internal Server Error. Codes: `internal_error`.",
             "x-apilens-codes": [
               "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
             ]
           }
         },
@@ -22930,7 +22968,7 @@
     },
     "/api/v1/projects/{slug}": {
       "delete": {
-        "description": "Soft-deletes the project; its slug becomes free. Owners and admins only. Emits `project.deleted`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart.",
+        "description": "Soft-deletes the project; its slug becomes free. Needs `delete` on the project (project admins, organization owners and admins; 403 `forbidden` for editors and viewers). Emits `project.deleted`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "delete-project",
         "parameters": [
           {
@@ -22976,6 +23014,19 @@
               "reauth_required"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -22987,6 +23038,19 @@
             "description": "Internal Server Error. Codes: `internal_error`.",
             "x-apilens-codes": [
               "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
             ]
           }
         },
@@ -23001,7 +23065,7 @@
         ]
       },
       "get": {
-        "description": "Returns the project, its environments and the signed-in user's role in its organization. Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart.",
+        "description": "Returns the project, its environments and the signed-in user's effective project role. Needs `view` on the project (any project role). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "get-project-by-slug",
         "parameters": [
           {
@@ -23040,7 +23104,7 @@
               "unauthenticated"
             ]
           },
-          "403": {
+          "404": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -23048,9 +23112,9 @@
                 }
               }
             },
-            "description": "Forbidden. Codes: `forbidden`.",
+            "description": "Not Found. Codes: `not_found`.",
             "x-apilens-codes": [
-              "forbidden"
+              "not_found"
             ]
           },
           "500": {
@@ -23065,6 +23129,19 @@
             "x-apilens-codes": [
               "internal_error"
             ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
           }
         },
         "security": [
@@ -23078,7 +23155,7 @@
         ]
       },
       "patch": {
-        "description": "Changes the project's name and description. Owners, admins and members only. An empty name or a description over 280 characters answers `invalid_request`; a slug other than the current one answers `slug_immutable`. A change moves `updated_at` and emits the `project.updated` audit event with the previous and next values. Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart.",
+        "description": "Changes the project's name and description. An empty name or a description over 280 characters answers `invalid_request`; a slug other than the current one answers `slug_immutable`. A change moves `updated_at` and emits the `project.updated` audit event with the previous and next values. Needs `edit` on the project (project admins and editors; 403 `forbidden` for viewers). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "update-project",
         "parameters": [
           {
@@ -23153,6 +23230,19 @@
               "forbidden"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "409": {
             "content": {
               "application/problem+json": {
@@ -23177,6 +23267,19 @@
             "description": "Internal Server Error. Codes: `internal_error`.",
             "x-apilens-codes": [
               "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
             ]
           }
         },
@@ -23499,7 +23602,7 @@
     },
     "/api/v1/projects/{slug}/api-keys": {
       "get": {
-        "description": "Lists the project's API keys, revoked ones included, newest first. Keys are shown by prefix; the full key is never returned again. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
+        "description": "Lists the project's API keys, revoked ones included, newest first. Keys are shown by prefix; the full key is never returned again. Needs `view` on the project (any project role). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "list-api-keys",
         "parameters": [
           {
@@ -23544,7 +23647,7 @@
               "unauthenticated"
             ]
           },
-          "403": {
+          "404": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -23552,9 +23655,9 @@
                 }
               }
             },
-            "description": "Forbidden. Codes: `forbidden`.",
+            "description": "Not Found. Codes: `not_found`.",
             "x-apilens-codes": [
-              "forbidden"
+              "not_found"
             ]
           },
           "500": {
@@ -23569,6 +23672,19 @@
             "x-apilens-codes": [
               "internal_error"
             ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
           }
         },
         "security": [
@@ -23582,7 +23698,7 @@
         ]
       },
       "post": {
-        "description": "Issues an API key for the project and returns it in full, once: only its hash is stored. Owners, admins and members only. A project has at most `ingest.max_keys_per_project` (default 50) active keys: past that it answers `key_limit_reached` (409) until one is revoked or expires. Audited as `api_key.created`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
+        "description": "Issues an API key for the project and returns it in full, once: only its hash is stored. Needs `manage_keys` on the project (project admins and editors; 403 `forbidden` for viewers). A project has at most `ingest.max_keys_per_project` (default 50) active keys: past that it answers `key_limit_reached` (409) until one is revoked or expires. Audited as `api_key.created`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "create-api-key",
         "parameters": [
           {
@@ -23658,6 +23774,19 @@
               "reauth_required"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "409": {
             "content": {
               "application/problem+json": {
@@ -23683,6 +23812,19 @@
             "x-apilens-codes": [
               "internal_error"
             ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
           }
         },
         "security": [
@@ -23698,7 +23840,7 @@
     },
     "/api/v1/projects/{slug}/api-keys/{id}": {
       "delete": {
-        "description": "Revokes the key: the ingest edge and query API reject it from then on (every process drops it from its cache through Valkey). Revoking a revoked key changes nothing; an id the project does not have answers `api_key_gone` (410). Owners, admins and members only. Audited as `api_key.revoked`. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
+        "description": "Revokes the key: the ingest edge and query API reject it from then on (every process drops it from its cache through Valkey). Revoking a revoked key changes nothing; an id the project does not have answers `api_key_gone` (410). Needs `manage_keys` on the project (project admins and editors; 403 `forbidden` for viewers). Audited as `api_key.revoked`. A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "revoke-api-key",
         "parameters": [
           {
@@ -23767,6 +23909,19 @@
               "forbidden"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "410": {
             "content": {
               "application/problem+json": {
@@ -23792,6 +23947,19 @@
             "x-apilens-codes": [
               "internal_error"
             ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
           }
         },
         "security": [
@@ -23807,7 +23975,7 @@
     },
     "/api/v1/projects/{slug}/api-keys/{id}/access": {
       "put": {
-        "description": "Replaces whether the key may create apps (the apps:create scope) and which apps it may send data for (null: every app), sets its ingest rate limit when `rate_limit_per_minute` is sent (0 removes it) and, when `environments` is present, which environments it may send data for (null: every environment; an environment the project does not have answers `invalid_request`). Every process forgets the cached key, so the change applies to the next request. A revoked key or an id the project does not have answers `api_key_gone` (410); an app id the project does not have answers `invalid_request`. Owners, admins and members only. Audited as `api_key.updated`. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
+        "description": "Replaces whether the key may create apps (the apps:create scope) and which apps it may send data for (null: every app), sets its ingest rate limit when `rate_limit_per_minute` is sent (0 removes it) and, when `environments` is present, which environments it may send data for (null: every environment; an environment the project does not have answers `invalid_request`). Every process forgets the cached key, so the change applies to the next request. A revoked key or an id the project does not have answers `api_key_gone` (410); an app id the project does not have answers `invalid_request`. Needs `manage_keys` on the project (project admins and editors; 403 `forbidden` for viewers). Audited as `api_key.updated`. A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "update-api-key-access",
         "parameters": [
           {
@@ -23900,6 +24068,19 @@
               "forbidden"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "410": {
             "content": {
               "application/problem+json": {
@@ -23925,6 +24106,19 @@
             "x-apilens-codes": [
               "internal_error"
             ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
           }
         },
         "security": [
@@ -23940,7 +24134,7 @@
     },
     "/api/v1/projects/{slug}/api-keys/{id}/rotate": {
       "post": {
-        "description": "Replaces the key with a new one that has the same name, scopes, app scope, environments and rate limit, and returns the new key in full, once. The old key keeps working for the `overlap` window (`none`, `24h` or `7d`, never later than the expiry it already had) so deploys can switch over, then stops: its `expires_at` is the end of the window and `rotated_to` names the new key (`rotated_from` on the new key names the old one). With `none` every process drops the old key from its cache at once; at worst it is rejected within `ingest.key_cache_ttl` (60 s). A revoked, expired or already rotated key answers `key_not_active` (409); an id the project does not have answers `api_key_gone` (410). With an overlap the project briefly holds one more active key, so `key_limit_reached` (409) applies as for create. Owners, admins and members only. Audited as `api_key.rotated` with both key ids. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
+        "description": "Replaces the key with a new one that has the same name, scopes, app scope, environments and rate limit, and returns the new key in full, once. The old key keeps working for the `overlap` window (`none`, `24h` or `7d`, never later than the expiry it already had) so deploys can switch over, then stops: its `expires_at` is the end of the window and `rotated_to` names the new key (`rotated_from` on the new key names the old one). With `none` every process drops the old key from its cache at once; at worst it is rejected within `ingest.key_cache_ttl` (60 s). A revoked, expired or already rotated key answers `key_not_active` (409); an id the project does not have answers `api_key_gone` (410). With an overlap the project briefly holds one more active key, so `key_limit_reached` (409) applies as for create. Needs `manage_keys` on the project (project admins and editors; 403 `forbidden` for viewers). Audited as `api_key.rotated` with both key ids. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "rotate-api-key",
         "parameters": [
           {
@@ -24027,6 +24221,19 @@
               "reauth_required"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "409": {
             "content": {
               "application/problem+json": {
@@ -24065,6 +24272,19 @@
             "description": "Internal Server Error. Codes: `internal_error`.",
             "x-apilens-codes": [
               "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
             ]
           }
         },
@@ -25354,7 +25574,7 @@
     },
     "/api/v1/projects/{slug}/environments": {
       "post": {
-        "description": "Adds an environment to the project and returns the project; adding one it already has changes nothing. At most 20 environments per project (`invalid_request`). Owners, admins and members only. Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart.",
+        "description": "Adds an environment to the project and returns the project; adding one it already has changes nothing. At most 20 environments per project (`invalid_request`). Needs `edit` on the project (project admins and editors; 403 `forbidden` for viewers). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "add-project-environment",
         "parameters": [
           {
@@ -25429,6 +25649,19 @@
               "forbidden"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -25440,6 +25673,19 @@
             "description": "Internal Server Error. Codes: `internal_error`.",
             "x-apilens-codes": [
               "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
             ]
           }
         },
@@ -25456,7 +25702,7 @@
     },
     "/api/v1/projects/{slug}/environments/{name}": {
       "delete": {
-        "description": "Removes an environment from the project and returns the project; removing one it does not have changes nothing. Telemetry already recorded for it is kept. Owners, admins and members only. Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart.",
+        "description": "Removes an environment from the project and returns the project; removing one it does not have changes nothing. Telemetry already recorded for it is kept. Needs `edit` on the project (project admins and editors; 403 `forbidden` for viewers). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "remove-project-environment",
         "parameters": [
           {
@@ -25519,6 +25765,19 @@
               "forbidden"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -25530,6 +25789,19 @@
             "description": "Internal Server Error. Codes: `internal_error`.",
             "x-apilens-codes": [
               "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
             ]
           }
         },
@@ -25834,7 +26106,7 @@
     },
     "/api/v1/projects/{slug}/privacy-policy": {
       "get": {
-        "description": "Returns the server-side privacy policy of the project, or of one of its apps with `?app=`, and the built-in defaults. The ingest edge masks, before storing a record, the values of matching query parameters in `raw_path`, captured headers, JSON body fields (string and number values) and `key=value` pairs in log messages, using the built-in defaults plus the project's policy plus the record's app's policy. Patterns only add to the defaults. Edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). An unknown app answers `invalid_request`. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
+        "description": "Returns the server-side privacy policy of the project, or of one of its apps with `?app=`, and the built-in defaults. The ingest edge masks, before storing a record, the values of matching query parameters in `raw_path`, captured headers, JSON body fields (string and number values) and `key=value` pairs in log messages, using the built-in defaults plus the project's policy plus the record's app's policy. Patterns only add to the defaults. Edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). An unknown app answers `invalid_request`. Needs `view` on the project (any project role). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "get-privacy-policy",
         "parameters": [
           {
@@ -25897,7 +26169,7 @@
               "unauthenticated"
             ]
           },
-          "403": {
+          "404": {
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -25905,9 +26177,9 @@
                 }
               }
             },
-            "description": "Forbidden. Codes: `forbidden`.",
+            "description": "Not Found. Codes: `not_found`.",
             "x-apilens-codes": [
-              "forbidden"
+              "not_found"
             ]
           },
           "500": {
@@ -25922,6 +26194,19 @@
             "x-apilens-codes": [
               "internal_error"
             ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
           }
         },
         "security": [
@@ -25935,7 +26220,7 @@
         ]
       },
       "put": {
-        "description": "Replaces the server-side privacy policy of the project, or of one of its apps with `?app=`. The ingest edge masks, before storing a record, the values of matching query parameters in `raw_path`, captured headers, JSON body fields (string and number values) and `key=value` pairs in log messages, using the built-in defaults plus the project's policy plus the record's app's policy. Patterns only add to the defaults. Edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). Patterns are trimmed and deduplicated; one that is not valid RE2 answers `invalid_request` naming it, as does an unknown app. Owners, admins and members only. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
+        "description": "Replaces the server-side privacy policy of the project, or of one of its apps with `?app=`. The ingest edge masks, before storing a record, the values of matching query parameters in `raw_path`, captured headers, JSON body fields (string and number values) and `key=value` pairs in log messages, using the built-in defaults plus the project's policy plus the record's app's policy. Patterns only add to the defaults. Edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). Patterns are trimmed and deduplicated; one that is not valid RE2 answers `invalid_request` naming it, as does an unknown app. Needs `edit` on the project (project admins and editors; 403 `forbidden` for viewers). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "put-privacy-policy",
         "parameters": [
           {
@@ -26021,6 +26306,19 @@
               "forbidden"
             ]
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -26032,6 +26330,19 @@
             "description": "Internal Server Error. Codes: `internal_error`.",
             "x-apilens-codes": [
               "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
             ]
           }
         },

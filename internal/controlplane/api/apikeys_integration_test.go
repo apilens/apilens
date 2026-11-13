@@ -54,7 +54,7 @@ func setupKeysWith(t *testing.T, maxKeys int) *keysFixture {
 	publish := func(ctx context.Context, hash string) error {
 		return cache.Publish(ctx, vk, apikeys.InvalidateChannel, hash)
 	}
-	NewAPIKeys(apikeys.NewService(f.pool, audit.New(f.pool), publish, logger).WithMaxKeys(maxKeys), logger).Register(f.api)
+	NewAPIKeys(apikeys.NewService(f.pool, audit.New(f.pool), publish, logger).WithMaxKeys(maxKeys), f.projectGuard(t), logger).Register(f.api)
 
 	// The edge: its own verifier and its own subscription.
 	v := apikeys.NewVerifier(db.New(f.pool), apikeys.Options{Size: 100, TTL: keyCacheTTL, NegativeTTL: keyCacheTTL}, logger, nil)
@@ -199,8 +199,8 @@ func TestCreateAndListAPIKeys(t *testing.T) {
 		code   string
 	}{
 		{"viewer", viewer, "shop", map[string]any{"name": "x", "scopes": []string{"ingest"}}, http.StatusForbidden, "forbidden"},
-		{"stranger", stranger, "shop", map[string]any{"name": "x", "scopes": []string{"ingest"}}, http.StatusForbidden, "forbidden"},
-		{"missing project", owner, "missing", map[string]any{"name": "x", "scopes": []string{"ingest"}}, http.StatusForbidden, "forbidden"},
+		{"stranger", stranger, "shop", map[string]any{"name": "x", "scopes": []string{"ingest"}}, http.StatusNotFound, "not_found"},
+		{"missing project", owner, "missing", map[string]any{"name": "x", "scopes": []string{"ingest"}}, http.StatusNotFound, "not_found"},
 		{"blank name", owner, "shop", map[string]any{"name": "   ", "scopes": []string{"ingest"}}, http.StatusBadRequest, "invalid_request"},
 		{"past expiry", owner, "shop", map[string]any{"name": "x", "scopes": []string{"ingest"}, "expires_at": time.Now().Add(-time.Hour)}, http.StatusBadRequest, "invalid_request"},
 	} {
@@ -218,7 +218,7 @@ func TestCreateAndListAPIKeys(t *testing.T) {
 			t.Errorf("create %v: %d %s", body, resp.Code, resp.Body)
 		}
 	}
-	if resp := f.api.Get(ProjectsPath+"/shop/api-keys", as(stranger)); resp.Code != http.StatusForbidden {
+	if resp := f.api.Get(ProjectsPath+"/shop/api-keys", as(stranger)); resp.Code != http.StatusNotFound {
 		t.Errorf("stranger list: %d %s", resp.Code, resp.Body)
 	}
 	if n := f.count(t, `SELECT count(*) FROM api_keys`); n != 2 {
@@ -260,7 +260,7 @@ func TestRevokeAPIKeyInvalidatesEdgeCache(t *testing.T) {
 		code   string
 	}{
 		{"viewer", viewer, "shop", k.ID, http.StatusForbidden, "forbidden"},
-		{"stranger", other, "shop", k.ID, http.StatusForbidden, "forbidden"},
+		{"stranger", other, "shop", k.ID, http.StatusNotFound, "not_found"},
 		{"key of another project", owner, "shop", foreign.ID, http.StatusGone, "api_key_gone"},
 		{"unknown key", owner, "shop", uuid.NewString(), http.StatusGone, "api_key_gone"},
 	} {

@@ -34,11 +34,11 @@ type ProjectService interface {
 	Create(ctx context.Context, user uuid.UUID, orgSlug, name, slug string, envs []string) (projects.Project, error)
 	Available(ctx context.Context, slug string) (bool, []string, error)
 	List(ctx context.Context, user uuid.UUID, orgSlug string) ([]projects.Project, error)
-	Get(ctx context.Context, user uuid.UUID, slug string) (projects.Project, error)
-	Update(ctx context.Context, user uuid.UUID, slug string, u projects.Update) (projects.Project, error)
-	Delete(ctx context.Context, user uuid.UUID, slug string) error
-	AddEnvironment(ctx context.Context, user uuid.UUID, slug, name string) (projects.Project, error)
-	RemoveEnvironment(ctx context.Context, user uuid.UUID, slug, name string) (projects.Project, error)
+	Get(ctx context.Context, id uuid.UUID) (projects.Project, error)
+	Update(ctx context.Context, user, id uuid.UUID, u projects.Update) (projects.Project, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	AddEnvironment(ctx context.Context, user, id uuid.UUID, name string) (projects.Project, error)
+	RemoveEnvironment(ctx context.Context, user, id uuid.UUID, name string) (projects.Project, error)
 }
 
 // Project is a project as seen by a member of its organization.
@@ -49,7 +49,7 @@ type Project struct {
 	Description  string    `json:"description" maxLength:"280" doc:"Short description; empty when the project has none."`
 	OrgID        string    `json:"org_id" format:"uuid"`
 	OrgSlug      string    `json:"org_slug"`
-	Role         string    `json:"role" enum:"owner,admin,member,viewer" doc:"The signed-in user's role in the project's organization."`
+	Role         string    `json:"role" enum:"admin,editor,viewer" doc:"The signed-in user's effective project role: the highest of their organization role (owners and admins are admin), the project's default access and a direct grant."`
 	Environments []string  `json:"environments" doc:"The project's environment names, sorted."`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at" doc:"When the name or description last changed; the creation time until then."`
@@ -124,7 +124,11 @@ type ProjectSlugAvailableOutput struct {
 
 // Projects serves the project endpoints.
 type Projects struct {
-	svc       ProjectService
+	svc ProjectService
+	// guard authorizes every operation (nil refuses them with
+	// authz_unavailable); roles answers the effective project role.
+	guard     *authz.Guard
+	roles     RoleChecker
 	limiter   *ratelimit.Limiter
 	slugCheck ratelimit.Rate
 	logger    *slog.Logger
@@ -140,10 +144,11 @@ func (p *Projects) WithRecentAuth(maxAge time.Duration) *Projects {
 	return p
 }
 
-// NewProjects returns the project endpoints over svc. limiter enforces
-// slugCheck per user on the slug availability check.
-func NewProjects(svc ProjectService, limiter *ratelimit.Limiter, slugCheck ratelimit.Rate, logger *slog.Logger) *Projects {
-	return &Projects{svc: svc, limiter: limiter, slugCheck: slugCheck, logger: logger}
+// NewProjects returns the project endpoints over svc, authorized by guard,
+// with the effective project role from roles. limiter enforces slugCheck per
+// user on the slug availability check.
+func NewProjects(svc ProjectService, guard *authz.Guard, roles RoleChecker, limiter *ratelimit.Limiter, slugCheck ratelimit.Rate, logger *slog.Logger) *Projects {
+	return &Projects{svc: svc, guard: guard, roles: roles, limiter: limiter, slugCheck: slugCheck, logger: logger}
 }
 
 // Register mounts the project operations. They declare the session scheme,
@@ -151,7 +156,10 @@ func NewProjects(svc ProjectService, limiter *ratelimit.Limiter, slugCheck ratel
 func (p *Projects) Register(api huma.API) {
 	security := []map[string][]string{{authn.SchemeSession: {}}}
 	tags := []string{server.TagProjects}
-	notMember := "Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart."
+	hiddenOrg := "An organization that does not exist or the user is not a member of answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked."
+	hidden := "A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked."
+	view := "Needs `view` on the project (any project role). "
+	edit := "Needs `edit` on the project (project admins and editors; 403 `forbidden` for viewers). "
 	recentAuth := "Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. "
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
@@ -160,21 +168,24 @@ func (p *Projects) Register(api huma.API) {
 		Path:          OrgProjectsPath,
 		DefaultStatus: http.StatusCreated,
 		Summary:       "Create a project",
-		Description: "Creates a project with its environments in the organization. Owners, admins and members only. Project slugs are globally unique: a reserved or used slug answers `slug_taken` (409) with up to three free `suggestions`. " +
-			"Emits `project.created`. " + notMember,
-		Tags:     tags,
-		Security: security,
-	}, identity.CodeInvalidRequest, identity.CodeSlugTaken, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), p.create)
+		Description: "Creates a project with its environments in the organization. Needs `create_project` on the organization (owners, admins and members; 403 `forbidden` for viewers). Project slugs are globally unique: a reserved or used slug answers `slug_taken` (409) with up to three free `suggestions`. " +
+			"Emits `project.created`. " + hiddenOrg,
+		Tags:        tags,
+		Security:    security,
+		Middlewares: huma.Middlewares{p.guard.RequireOrg(api, authz.OrgCreateProject)},
+	}, identity.CodeInvalidRequest, identity.CodeSlugTaken, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.create)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "list-projects",
 		Method:      http.MethodGet,
 		Path:        OrgProjectsPath,
 		Summary:     "List an organization's projects",
-		Description: "Lists the organization's active projects with their environments, ordered by name. " + notMember,
+		Description: "Lists the organization's active projects the user can view, with their environments and the user's effective project role, ordered by name. " +
+			"A restricted project (default access `none`) is listed only to organization owners and admins and to people added to it. " + hiddenOrg,
 		Tags:        tags,
 		Security:    security,
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), p.list)
+		Middlewares: huma.Middlewares{p.guard.RequireOrg(api, authz.OrgView)},
+	}, identity.CodeUnauthenticated, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.list)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "check-project-slug",
@@ -192,20 +203,20 @@ func (p *Projects) Register(api huma.API) {
 		Method:      http.MethodGet,
 		Path:        ProjectPath,
 		Summary:     "Get a project",
-		Description: "Returns the project, its environments and the signed-in user's role in its organization. " + notMember,
+		Description: "Returns the project, its environments and the signed-in user's effective project role. " + view + hidden,
 		Tags:        tags,
 		Security:    security,
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), p.get)
+	}, identity.CodeUnauthenticated, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.get)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "update-project",
 		Method:      http.MethodPatch,
 		Path:        ProjectPath,
 		Summary:     "Update a project",
-		Description: "Changes the project's name and description. Owners, admins and members only. An empty name or a description over 280 characters answers `invalid_request`; a slug other than the current one answers `slug_immutable`. A change moves `updated_at` and emits the `project.updated` audit event with the previous and next values. " + notMember,
+		Description: "Changes the project's name and description. An empty name or a description over 280 characters answers `invalid_request`; a slug other than the current one answers `slug_immutable`. A change moves `updated_at` and emits the `project.updated` audit event with the previous and next values. " + edit + hidden,
 		Tags:        tags,
 		Security:    security,
-	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeSlugImmutable, identity.CodeInternal), p.update)
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeSlugImmutable, identity.CodeAuthzUnavailable, identity.CodeInternal), p.update)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID:   "delete-project",
@@ -213,31 +224,31 @@ func (p *Projects) Register(api huma.API) {
 		Path:          ProjectPath,
 		DefaultStatus: http.StatusNoContent,
 		Summary:       "Delete a project",
-		Description:   "Soft-deletes the project; its slug becomes free. Owners and admins only. Emits `project.deleted`. " + recentAuth + notMember,
+		Description:   "Soft-deletes the project; its slug becomes free. Needs `delete` on the project (project admins, organization owners and admins; 403 `forbidden` for editors and viewers). Emits `project.deleted`. " + recentAuth + hidden,
 		Tags:          tags,
 		Security:      security,
 		Middlewares:   huma.Middlewares{authz.RequireRecentAuth(api, p.recentAuth)},
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeReauthRequired, identity.CodeInternal), p.delete)
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeReauthRequired, identity.CodeAuthzUnavailable, identity.CodeInternal), p.delete)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "add-project-environment",
 		Method:      http.MethodPost,
 		Path:        EnvironmentsPath,
 		Summary:     "Add an environment",
-		Description: "Adds an environment to the project and returns the project; adding one it already has changes nothing. At most 20 environments per project (`invalid_request`). Owners, admins and members only. " + notMember,
+		Description: "Adds an environment to the project and returns the project; adding one it already has changes nothing. At most 20 environments per project (`invalid_request`). " + edit + hidden,
 		Tags:        tags,
 		Security:    security,
-	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), p.addEnvironment)
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.addEnvironment)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "remove-project-environment",
 		Method:      http.MethodDelete,
 		Path:        EnvironmentPath,
 		Summary:     "Remove an environment",
-		Description: "Removes an environment from the project and returns the project; removing one it does not have changes nothing. Telemetry already recorded for it is kept. Owners, admins and members only. " + notMember,
+		Description: "Removes an environment from the project and returns the project; removing one it does not have changes nothing. Telemetry already recorded for it is kept. " + edit + hidden,
 		Tags:        tags,
 		Security:    security,
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), p.removeEnvironment)
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.removeEnvironment)
 }
 
 func toProject(pr projects.Project) Project {
@@ -271,8 +282,8 @@ func (p *Projects) problem(ctx context.Context, op string, err error) error {
 	switch {
 	case errors.As(err, &taken):
 		return identity.ErrSlugTaken(taken.Suggestions)
-	case errors.Is(err, projects.ErrNotFound), errors.Is(err, projects.ErrForbidden):
-		return identity.Err(identity.CodeForbidden)
+	case errors.Is(err, projects.ErrNotFound):
+		return identity.Err(identity.CodeNotFound)
 	case errors.Is(err, projects.ErrSlugImmutable):
 		return identity.Err(identity.CodeSlugImmutable)
 	case errors.Is(err, projects.ErrInvalid), errors.Is(err, projects.ErrTooManyEnvironments):
@@ -288,6 +299,8 @@ func (p *Projects) create(ctx context.Context, in *CreateProjectInput) (*Project
 	if err != nil {
 		return nil, err
 	}
+	// The creator's role comes from their organization role: SpiceDB learns
+	// about the project through the outbox, after this request.
 	pr, err := p.svc.Create(ctx, uid, in.Slug, in.Body.Name, in.Body.Slug, in.Body.Environments)
 	if err != nil {
 		return nil, p.problem(ctx, "create project", err)
@@ -304,70 +317,80 @@ func (p *Projects) list(ctx context.Context, in *OrgSlugInput) (*ListProjectsOut
 	if err != nil {
 		return nil, p.problem(ctx, "list projects", err)
 	}
+	roles, err := projectRoles(ctx, p.roles, uid, list)
+	if err != nil {
+		return nil, rolesProblem(ctx, p.logger, err)
+	}
 	out := &ListProjectsOutput{Body: make([]Project, 0, len(list))}
-	for _, pr := range list {
+	for i, pr := range list {
+		if roles[i] == "" {
+			continue // a restricted project the user is not on
+		}
+		pr.Role = roles[i]
 		out.Body = append(out.Body, toProject(pr))
 	}
 	return out, nil
 }
 
-func (p *Projects) get(ctx context.Context, in *ProjectSlugInput) (*ProjectOutput, error) {
-	uid, err := signedInUser(ctx)
+// project authorizes permission on the project slug, runs fn on its id and
+// the signed-in user's id and returns the project fn returns with the user's
+// effective role.
+func (p *Projects) project(ctx context.Context, op, slug string, permission authz.Permission,
+	fn func(id, user uuid.UUID) (projects.Project, error),
+) (*ProjectOutput, error) {
+	t, uid, err := authorizeProject(ctx, p.guard, p.logger, slug, permission)
 	if err != nil {
 		return nil, err
 	}
-	pr, err := p.svc.Get(ctx, uid, in.Slug)
+	pr, err := fn(t.ProjectID, uid)
 	if err != nil {
-		return nil, p.problem(ctx, "get project", err)
+		return nil, p.problem(ctx, op, err)
 	}
+	roles, err := projectRoles(ctx, p.roles, uid, []projects.Project{pr})
+	if err != nil {
+		return nil, rolesProblem(ctx, p.logger, err)
+	}
+	if roles[0] == "" {
+		// Access was removed since the check.
+		return nil, identity.Err(identity.CodeNotFound)
+	}
+	pr.Role = roles[0]
 	return &ProjectOutput{Body: toProject(pr)}, nil
+}
+
+func (p *Projects) get(ctx context.Context, in *ProjectSlugInput) (*ProjectOutput, error) {
+	return p.project(ctx, "get project", in.Slug, authz.ProjectView, func(id, _ uuid.UUID) (projects.Project, error) {
+		return p.svc.Get(ctx, id)
+	})
 }
 
 func (p *Projects) update(ctx context.Context, in *UpdateProjectInput) (*ProjectOutput, error) {
-	uid, err := signedInUser(ctx)
-	if err != nil {
-		return nil, err
-	}
-	pr, err := p.svc.Update(ctx, uid, in.Slug, projects.Update{Name: in.Body.Name, Description: in.Body.Description, Slug: in.Body.Slug})
-	if err != nil {
-		return nil, p.problem(ctx, "update project", err)
-	}
-	return &ProjectOutput{Body: toProject(pr)}, nil
+	return p.project(ctx, "update project", in.Slug, authz.ProjectEdit, func(id, user uuid.UUID) (projects.Project, error) {
+		return p.svc.Update(ctx, user, id, projects.Update{Name: in.Body.Name, Description: in.Body.Description, Slug: in.Body.Slug})
+	})
 }
 
 func (p *Projects) delete(ctx context.Context, in *ProjectSlugInput) (*struct{}, error) {
-	uid, err := signedInUser(ctx)
+	t, _, err := authorizeProject(ctx, p.guard, p.logger, in.Slug, authz.ProjectDelete)
 	if err != nil {
 		return nil, err
 	}
-	if err := p.svc.Delete(ctx, uid, in.Slug); err != nil {
+	if err := p.svc.Delete(ctx, t.ProjectID); err != nil {
 		return nil, p.problem(ctx, "delete project", err)
 	}
 	return nil, nil
 }
 
 func (p *Projects) addEnvironment(ctx context.Context, in *AddEnvironmentInput) (*ProjectOutput, error) {
-	uid, err := signedInUser(ctx)
-	if err != nil {
-		return nil, err
-	}
-	pr, err := p.svc.AddEnvironment(ctx, uid, in.Slug, in.Body.Name)
-	if err != nil {
-		return nil, p.problem(ctx, "add environment", err)
-	}
-	return &ProjectOutput{Body: toProject(pr)}, nil
+	return p.project(ctx, "add environment", in.Slug, authz.ProjectEdit, func(id, user uuid.UUID) (projects.Project, error) {
+		return p.svc.AddEnvironment(ctx, user, id, in.Body.Name)
+	})
 }
 
 func (p *Projects) removeEnvironment(ctx context.Context, in *EnvironmentInput) (*ProjectOutput, error) {
-	uid, err := signedInUser(ctx)
-	if err != nil {
-		return nil, err
-	}
-	pr, err := p.svc.RemoveEnvironment(ctx, uid, in.Slug, in.Name)
-	if err != nil {
-		return nil, p.problem(ctx, "remove environment", err)
-	}
-	return &ProjectOutput{Body: toProject(pr)}, nil
+	return p.project(ctx, "remove environment", in.Slug, authz.ProjectEdit, func(id, user uuid.UUID) (projects.Project, error) {
+		return p.svc.RemoveEnvironment(ctx, user, id, in.Name)
+	})
 }
 
 func (p *Projects) slugAvailable(ctx context.Context, in *ProjectSlugAvailableInput) (*ProjectSlugAvailableOutput, error) {

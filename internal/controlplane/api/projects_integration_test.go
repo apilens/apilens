@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/controlplane/projects"
 	"github.com/apilens/apilens/internal/platform/ratelimit"
@@ -22,8 +23,13 @@ import (
 func setupProjects(t *testing.T) *orgsFixture {
 	t.Helper()
 	f := setupOrgs(t, ratelimit.Rate{})
-	NewProjects(projects.New(f.pool), nil, ratelimit.Rate{}, testutil.Logger(t)).Register(f.api)
+	NewProjects(projects.New(f.pool), f.projectGuard(t), f.authz, nil, ratelimit.Rate{}, testutil.Logger(t)).Register(f.api)
 	return f
+}
+
+// projectGuard is the guard the project-scoped endpoints run behind.
+func (f *orgsFixture) projectGuard(t *testing.T) *authz.Guard {
+	return authz.NewGuard(f.authz, authz.NewPGResolver(f.pool), authz.GuardOptions{}, testutil.Logger(t))
 }
 
 func (f *orgsFixture) createProject(user uuid.UUID, org, name, slug string, envs ...string) *httptest.ResponseRecorder {
@@ -58,7 +64,7 @@ func TestCreateProject(t *testing.T) {
 		t.Fatalf("status = %d: %s", resp.Code, resp.Body)
 	}
 	p := decode[Project](t, resp)
-	if p.Slug != "checkout" || p.Name != "Checkout API" || p.OrgID != org.ID || p.OrgSlug != "acme" || p.Role != "member" ||
+	if p.Slug != "checkout" || p.Name != "Checkout API" || p.OrgID != org.ID || p.OrgSlug != "acme" || p.Role != "editor" ||
 		!slices.Equal(p.Environments, []string{"production", "staging"}) || p.CreatedAt.IsZero() {
 		t.Fatalf("project = %+v", p)
 	}
@@ -83,7 +89,7 @@ func TestCreateProject(t *testing.T) {
 	}
 
 	// Environments default to production.
-	if d := f.mustCreateProject(t, owner, "acme", "Web", "web"); !slices.Equal(d.Environments, []string{"production"}) || d.Role != "owner" {
+	if d := f.mustCreateProject(t, owner, "acme", "Web", "web"); !slices.Equal(d.Environments, []string{"production"}) || d.Role != "admin" {
 		t.Fatalf("default environments = %+v", d)
 	}
 
@@ -97,8 +103,8 @@ func TestCreateProject(t *testing.T) {
 		code   string
 	}{
 		{"viewer", viewer, "acme", "viewer-proj", nil, http.StatusForbidden, "forbidden"},
-		{"stranger", stranger, "acme", "stranger-proj", nil, http.StatusForbidden, "forbidden"},
-		{"missing org", owner, "missing", "nowhere", nil, http.StatusForbidden, "forbidden"},
+		{"stranger", stranger, "acme", "stranger-proj", nil, http.StatusNotFound, "not_found"},
+		{"missing org", owner, "missing", "nowhere", nil, http.StatusNotFound, "not_found"},
 		{"reserved slug", owner, "acme", "slug-available", nil, http.StatusConflict, "slug_taken"},
 		{"bad environment", owner, "acme", "bad-env", []string{"prod env"}, http.StatusBadRequest, "invalid_request"},
 	} {
@@ -221,11 +227,11 @@ func TestListAndGetProjects(t *testing.T) {
 
 	// Strangers cannot tell an existing project or org from a missing one.
 	a, b := f.api.Get(ProjectsPath+"/alpha", as(stranger)), f.api.Get(ProjectsPath+"/missing", as(stranger))
-	if a.Code != http.StatusForbidden || decode[problem](t, a).Code != "forbidden" || a.Body.String() != b.Body.String() {
+	if a.Code != http.StatusNotFound || decode[problem](t, a).Code != "not_found" || a.Body.String() != b.Body.String() {
 		t.Fatalf("stranger get: %d %s / %d %s", a.Code, a.Body, b.Code, b.Body)
 	}
 	a, b = f.api.Get(OrgsPath+"/acme/projects", as(stranger)), f.api.Get(OrgsPath+"/missing/projects", as(stranger))
-	if a.Code != http.StatusForbidden || a.Body.String() != b.Body.String() {
+	if a.Code != http.StatusNotFound || a.Body.String() != b.Body.String() {
 		t.Fatalf("stranger list: %d %s / %d %s", a.Code, a.Body, b.Code, b.Body)
 	}
 
@@ -250,7 +256,7 @@ func TestUpdateProject(t *testing.T) {
 	}
 
 	resp := patch(member, map[string]any{"name": "  Web App ", "slug": "web"})
-	if p := decode[Project](t, resp); resp.Code != http.StatusOK || p.Name != "Web App" || p.Slug != "web" || p.Role != "member" || len(p.Environments) != 1 {
+	if p := decode[Project](t, resp); resp.Code != http.StatusOK || p.Name != "Web App" || p.Slug != "web" || p.Role != "editor" || len(p.Environments) != 1 {
 		t.Fatalf("member patch: %d %s", resp.Code, resp.Body)
 	}
 	for _, tc := range []struct {
@@ -347,13 +353,13 @@ func TestDeleteProject(t *testing.T) {
 	if aggregate != p.ID || payload["project_id"] != p.ID {
 		t.Fatalf("outbox = %s %v", aggregate, payload)
 	}
-	if resp := f.api.Get(ProjectsPath+"/doomed", as(owner)); resp.Code != http.StatusForbidden {
+	if resp := f.api.Get(ProjectsPath+"/doomed", as(owner)); resp.Code != http.StatusNotFound {
 		t.Fatalf("get deleted: %d", resp.Code)
 	}
 	if list := decode[[]Project](t, f.api.Get(OrgsPath+"/acme/projects", as(owner))); len(list) != 0 {
 		t.Fatalf("list after delete = %+v", list)
 	}
-	if resp := f.api.Delete(ProjectsPath+"/doomed", as(owner)); resp.Code != http.StatusForbidden {
+	if resp := f.api.Delete(ProjectsPath+"/doomed", as(owner)); resp.Code != http.StatusNotFound {
 		t.Fatalf("second delete: %d", resp.Code)
 	}
 	// The slug is free again.

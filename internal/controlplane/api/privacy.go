@@ -11,6 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 
+	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/privacy"
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/platform/authn"
@@ -23,8 +24,8 @@ const PrivacyPolicyPath = ProjectPath + "/privacy-policy"
 // PrivacyService reads and replaces privacy policies; *privacy.Service
 // satisfies it.
 type PrivacyService interface {
-	Get(ctx context.Context, user uuid.UUID, slug, app string) (privacy.Scoped, error)
-	Put(ctx context.Context, user uuid.UUID, slug, app string, pol privacy.Policy) (privacy.Scoped, error)
+	Get(ctx context.Context, projectID uuid.UUID, app string) (privacy.Scoped, error)
+	Put(ctx context.Context, user, projectID uuid.UUID, app string, pol privacy.Policy) (privacy.Scoped, error)
 }
 
 // PrivacyDefaults are the built-in patterns the edge always applies.
@@ -70,12 +71,14 @@ type PutPrivacyPolicyInput struct {
 // Privacy serves the privacy policy endpoints.
 type Privacy struct {
 	svc    PrivacyService
+	authz  ProjectAuthorizer
 	logger *slog.Logger
 }
 
-// NewPrivacy returns the privacy policy endpoints over svc.
-func NewPrivacy(svc PrivacyService, logger *slog.Logger) *Privacy {
-	return &Privacy{svc: svc, logger: logger}
+// NewPrivacy returns the privacy policy endpoints over svc, authorized by
+// guard (nil refuses every request with authz_unavailable).
+func NewPrivacy(svc PrivacyService, guard ProjectAuthorizer, logger *slog.Logger) *Privacy {
+	return &Privacy{svc: svc, authz: guard, logger: logger}
 }
 
 // Register mounts the privacy policy operations. They declare the session
@@ -83,7 +86,7 @@ func NewPrivacy(svc PrivacyService, logger *slog.Logger) *Privacy {
 func (p *Privacy) Register(api huma.API) {
 	security := []map[string][]string{{authn.SchemeSession: {}}}
 	tags := []string{server.TagProjects}
-	notMember := "Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart."
+	notMember := "A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked."
 	how := "The ingest edge masks, before storing a record, the values of matching query parameters in `raw_path`, captured headers, JSON body fields (string and number values) and `key=value` pairs in log messages, " +
 		"using the built-in defaults plus the project's policy plus the record's app's policy. Patterns only add to the defaults. Edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default)."
 
@@ -93,10 +96,10 @@ func (p *Privacy) Register(api huma.API) {
 		Path:        PrivacyPolicyPath,
 		Summary:     "Get a privacy policy",
 		Description: "Returns the server-side privacy policy of the project, or of one of its apps with `?app=`, and the built-in defaults. " + how +
-			" An unknown app answers `invalid_request`. " + notMember,
+			" An unknown app answers `invalid_request`. Needs `view` on the project (any project role). " + notMember,
 		Tags:     tags,
 		Security: security,
-	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), p.get)
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.get)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "put-privacy-policy",
@@ -104,10 +107,10 @@ func (p *Privacy) Register(api huma.API) {
 		Path:        PrivacyPolicyPath,
 		Summary:     "Replace a privacy policy",
 		Description: "Replaces the server-side privacy policy of the project, or of one of its apps with `?app=`. " + how +
-			" Patterns are trimmed and deduplicated; one that is not valid RE2 answers `invalid_request` naming it, as does an unknown app. Owners, admins and members only. " + notMember,
+			" Patterns are trimmed and deduplicated; one that is not valid RE2 answers `invalid_request` naming it, as does an unknown app. Needs `edit` on the project (project admins and editors; 403 `forbidden` for viewers). " + notMember,
 		Tags:     tags,
 		Security: security,
-	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), p.put)
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.put)
 }
 
 func privacyDefaults() PrivacyDefaults {
@@ -156,8 +159,8 @@ func (p *Privacy) problem(ctx context.Context, op string, err error) error {
 		pr := identity.Err(identity.CodeInvalidRequest)
 		pr.Detail = "The project has no app with that slug or id."
 		return pr
-	case errors.Is(err, privacy.ErrNotFound), errors.Is(err, privacy.ErrForbidden):
-		return identity.Err(identity.CodeForbidden)
+	case errors.Is(err, privacy.ErrNotFound):
+		return identity.Err(identity.CodeNotFound)
 	default:
 		p.logger.ErrorContext(ctx, op, "error", err)
 		return identity.Err(identity.CodeInternal)
@@ -165,11 +168,11 @@ func (p *Privacy) problem(ctx context.Context, op string, err error) error {
 }
 
 func (p *Privacy) get(ctx context.Context, in *PrivacyScopeInput) (*PrivacyPolicyOutput, error) {
-	uid, err := signedInUser(ctx)
+	t, _, err := authorizeProject(ctx, p.authz, p.logger, in.Slug, authz.ProjectView)
 	if err != nil {
 		return nil, err
 	}
-	s, err := p.svc.Get(ctx, uid, in.Slug, in.App)
+	s, err := p.svc.Get(ctx, t.ProjectID, in.App)
 	if err != nil {
 		return nil, p.problem(ctx, "get privacy policy", err)
 	}
@@ -177,11 +180,11 @@ func (p *Privacy) get(ctx context.Context, in *PrivacyScopeInput) (*PrivacyPolic
 }
 
 func (p *Privacy) put(ctx context.Context, in *PutPrivacyPolicyInput) (*PrivacyPolicyOutput, error) {
-	uid, err := signedInUser(ctx)
+	t, uid, err := authorizeProject(ctx, p.authz, p.logger, in.Slug, authz.ProjectEdit)
 	if err != nil {
 		return nil, err
 	}
-	s, err := p.svc.Put(ctx, uid, in.Slug, in.App, privacy.Policy{
+	s, err := p.svc.Put(ctx, uid, t.ProjectID, in.App, privacy.Policy{
 		QueryParams: in.Body.MaskQueryParams,
 		Headers:     in.Body.MaskHeaders,
 		BodyFields:  in.Body.MaskBodyFields,

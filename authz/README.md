@@ -83,6 +83,8 @@ Typed API operations on one organization or project declare their permission wit
 
 API keys only ever satisfy `project#view` on their own project; OAuth clients hold no grants. Handlers read the resolved ids with `authz.TargetFromContext`.
 
+Operations under `/api/v1/projects/{slug}` (no `{org}` in the path) check in the handler with `guard.AuthorizeProject`, which gives the same answers, and pass the resolved project id to the service; services never check roles themselves (#770). Projects, environments and the privacy policy: `view` to read, `edit` to change, `delete` to delete. API keys: `view` to list, `manage_keys` to create, change and revoke. `GET /api/v1/orgs/{slug}/projects` needs `organization#view` and lists only the projects the caller can `view`; the `role` of a project in the API is the caller's effective project role (`admin` ⇔ `manage_access`, `editor` ⇔ `edit`, `viewer` ⇔ `view`, answered by one `CheckBulk`).
+
 ## Changing the schema
 
 1. Edit `schema.zed`.
