@@ -107,6 +107,9 @@ type Project struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	CreatedBy    *uuid.UUID // nil when unknown (older or seeded projects, purged user)
+	// RepositoryURL is the project's source repository link (see
+	// NormalizeRepositoryURL); nil when none is set.
+	RepositoryURL *string
 }
 
 // Update is a partial update of a project; nil fields are left unchanged.
@@ -114,6 +117,8 @@ type Update struct {
 	Name        *string
 	Description *string
 	Slug        *string
+	// RepositoryURL sets the repository link; "" removes it.
+	RepositoryURL *string
 }
 
 // creatorRole is the effective project role of a new project's creator:
@@ -131,6 +136,9 @@ func creatorRole(orgRole string) string {
 type Service struct {
 	pool  *pgxpool.Pool
 	audit apps.Auditor // nil: nothing is audited
+	// anyRepositoryHost lets a repository link name any https host
+	// (integrations.allow_any_repository_host), not only RepositoryHosts.
+	anyRepositoryHost bool
 }
 
 // New returns a Service over pool.
@@ -140,6 +148,13 @@ func New(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
 // new project's default app.
 func (s *Service) WithAudit(a apps.Auditor) *Service {
 	s.audit = a
+	return s
+}
+
+// WithAnyRepositoryHost lets repository links name any https host, not only
+// RepositoryHosts, and returns s.
+func (s *Service) WithAnyRepositoryHost(allow bool) *Service {
+	s.anyRepositoryHost = allow
 	return s
 }
 
@@ -215,7 +230,7 @@ func (s *Service) create(ctx context.Context, user uuid.UUID, orgSlug, name, slu
 	}
 	return Project{
 		ID: p.ID, Slug: p.Slug, Name: p.Name, Description: p.Description, OrgID: org.ID, OrgSlug: org.Slug, Role: creatorRole(org.Role),
-		Environments: envs, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, CreatedBy: p.CreatedBy,
+		Environments: envs, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, CreatedBy: p.CreatedBy, RepositoryURL: p.RepositoryUrl,
 	}, nil
 }
 
@@ -279,7 +294,7 @@ func (s *Service) List(ctx context.Context, user uuid.UUID, orgSlug string) ([]P
 	for _, r := range rows {
 		out = append(out, Project{
 			ID: r.ID, Slug: r.Slug, Name: r.Name, Description: r.Description, OrgID: org.ID, OrgSlug: org.Slug,
-			Environments: []string{}, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, CreatedBy: r.CreatedBy,
+			Environments: []string{}, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, CreatedBy: r.CreatedBy, RepositoryURL: r.RepositoryUrl,
 		})
 		ids = append(ids, r.ID)
 	}
@@ -309,12 +324,13 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (Project, error) {
 }
 
 // Update applies u to the project id on behalf of user. The name and
-// description are trimmed; an empty name or a description over
-// MaxDescription characters is ErrInvalid, and a slug different from the
-// current one is ErrSlugImmutable. A change moves updated_at and, in the
-// same transaction, records project.updated with the previous and next
-// values of the changed fields; an update that changes nothing writes
-// nothing.
+// description are trimmed; an empty name, a description over MaxDescription
+// characters or a repository link NormalizeRepositoryURL rejects is
+// ErrInvalid, and a slug different from the current one is
+// ErrSlugImmutable. An empty repository link removes it. A change moves
+// updated_at and, in the same transaction, records project.updated with the
+// previous and next values of the changed fields; an update that changes
+// nothing writes nothing.
 func (s *Service) Update(ctx context.Context, user, id uuid.UUID, u Update) (Project, error) {
 	var name, desc string
 	if u.Name != nil {
@@ -327,6 +343,16 @@ func (s *Service) Update(ctx context.Context, user, id uuid.UUID, u Update) (Pro
 		desc = strings.TrimSpace(*u.Description)
 		if utf8.RuneCountInString(desc) > MaxDescription {
 			return Project{}, ErrInvalid
+		}
+	}
+	var repo *string
+	if u.RepositoryURL != nil {
+		r, err := NormalizeRepositoryURL(*u.RepositoryURL, s.anyRepositoryHost)
+		if err != nil {
+			return Project{}, err
+		}
+		if r != "" {
+			repo = &r
 		}
 	}
 	if u.Slug != nil && !orgs.ValidSlug(*u.Slug) {
@@ -347,14 +373,19 @@ func (s *Service) Update(ctx context.Context, user, id uuid.UUID, u Update) (Pro
 		} else {
 			desc = cur.Description
 		}
+		if u.RepositoryURL != nil && !equalPtr(repo, cur.RepositoryUrl) {
+			prev["repository_url"], next["repository_url"] = ptrValue(cur.RepositoryUrl), ptrValue(repo)
+		} else {
+			repo = cur.RepositoryUrl
+		}
 		if len(next) == 0 {
 			return nil, nil
 		}
-		p, err := q.UpdateProjectDetails(ctx, db.UpdateProjectDetailsParams{ID: cur.ID, Name: name, Description: desc})
+		p, err := q.UpdateProjectDetails(ctx, db.UpdateProjectDetailsParams{ID: cur.ID, Name: name, Description: desc, RepositoryUrl: repo})
 		if err != nil {
 			return nil, fmt.Errorf("projects: update: %w", err)
 		}
-		cur.Name, cur.Description, cur.UpdatedAt = p.Name, p.Description, p.UpdatedAt
+		cur.Name, cur.Description, cur.RepositoryUrl, cur.UpdatedAt = p.Name, p.Description, p.RepositoryUrl, p.UpdatedAt
 		changes := audit.Diff(prev, next)
 		if changes == nil {
 			return nil, nil
@@ -514,7 +545,7 @@ func withEnvironments(ctx context.Context, q *db.Queries, r db.LockActiveProject
 	}
 	return Project{
 		ID: r.ID, Slug: r.Slug, Name: r.Name, Description: r.Description, OrgID: r.OrgID, OrgSlug: r.OrgSlug,
-		Environments: e, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, CreatedBy: r.CreatedBy,
+		Environments: e, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, CreatedBy: r.CreatedBy, RepositoryURL: r.RepositoryUrl,
 	}, nil
 }
 
@@ -553,6 +584,19 @@ func environments(in []string) ([]string, error) {
 		return nil, ErrTooManyEnvironments
 	}
 	return out, nil
+}
+
+// equalPtr reports whether a and b are both nil or point to equal strings.
+func equalPtr(a, b *string) bool {
+	return (a == nil) == (b == nil) && (a == nil || *a == *b)
+}
+
+// ptrValue is *p, or nil (JSON null in an audit diff) when p is nil.
+func ptrValue(p *string) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 // isViolation reports whether err is the Postgres error code, on constraint

@@ -52,8 +52,12 @@ type Project struct {
 	Role         string    `json:"role" enum:"admin,editor,viewer" doc:"The signed-in user's effective project role: the highest of their organization role (owners and admins are admin), the project's default access and a direct grant."`
 	Environments []string  `json:"environments" doc:"The project's environment names, sorted."`
 	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" doc:"When the name or description last changed; the creation time until then."`
+	UpdatedAt    time.Time `json:"updated_at" doc:"When the name, description or repository link last changed; the creation time until then."`
 	CreatedBy    *string   `json:"created_by" format:"uuid" nullable:"true" doc:"The id of the user who created the project; null when unknown (projects created before this was recorded, or a deleted user)."`
+	// The source repository link and the URLs derived from it.
+	RepositoryURL      *string `json:"repository_url" format:"uri" nullable:"true" doc:"The https URL of the project's source repository, e.g. https://github.com/acme/shop; null when none is set. A link only: no access to the repository."`
+	CommitURLTemplate  *string `json:"commit_url_template" nullable:"true" doc:"URL of a commit in the repository with the placeholder {commit} for the URL-encoded commit id; null when no repository is set or its host's URL layout is not known (hosts other than github.com, gitlab.com and bitbucket.org)."`
+	ReleaseURLTemplate *string `json:"release_url_template" nullable:"true" doc:"URL of a release in the repository with the placeholder {release} for the URL-encoded release name; null under the same conditions as commit_url_template."`
 }
 
 // ProjectOutput is the response of the single-project operations.
@@ -89,6 +93,8 @@ type UpdateProjectInput struct {
 		Name        *string `json:"name,omitempty" minLength:"1" maxLength:"100" doc:"Display name; surrounding spaces are trimmed."`
 		Description *string `json:"description,omitempty" maxLength:"280" doc:"Short description, at most 280 characters; surrounding spaces are trimmed and an empty string clears it."`
 		Slug        *string `json:"slug,omitempty" pattern:"^[a-z0-9][a-z0-9-]{0,62}$" doc:"Must equal the current slug: slugs cannot be changed yet (slug_immutable)."`
+		// RepositoryURL is checked by projects.NormalizeRepositoryURL.
+		RepositoryURL *string `json:"repository_url,omitempty" maxLength:"2048" doc:"The https URL of the project's source repository on github.com, gitlab.com or bitbucket.org (any https host when the install sets integrations.allow_any_repository_host), at most 2048 characters. Surrounding spaces, a trailing slash and a trailing .git are dropped; an empty string removes the link."`
 	}
 }
 
@@ -213,7 +219,7 @@ func (p *Projects) Register(api huma.API) {
 		Method:      http.MethodPatch,
 		Path:        ProjectPath,
 		Summary:     "Update a project",
-		Description: "Changes the project's name and description. An empty name or a description over 280 characters answers `invalid_request`; a slug other than the current one answers `slug_immutable`. A change moves `updated_at` and emits the `project.updated` audit event with the previous and next values. " + edit + hidden,
+		Description: "Changes the project's name, description and source repository link. An empty name, a description over 280 characters or a repository link that is not https, names a host that is not allowed, carries credentials, a query or a fragment, or does not name a repository answers `invalid_request`; a slug other than the current one answers `slug_immutable`. A change moves `updated_at` and emits the `project.updated` audit event with the previous and next values. " + edit + hidden,
 		Tags:        tags,
 		Security:    security,
 	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeSlugImmutable, identity.CodeAuthzUnavailable, identity.CodeInternal), p.update)
@@ -261,6 +267,7 @@ func toProject(pr projects.Project) Project {
 		id := pr.CreatedBy.String()
 		createdBy = &id
 	}
+	commit, release := projects.RepositoryTemplates(pr.RepositoryURL)
 	return Project{
 		ID:           pr.ID.String(),
 		Slug:         pr.Slug,
@@ -273,6 +280,10 @@ func toProject(pr projects.Project) Project {
 		CreatedAt:    pr.CreatedAt.UTC(),
 		UpdatedAt:    pr.UpdatedAt.UTC(),
 		CreatedBy:    createdBy,
+
+		RepositoryURL:      pr.RepositoryURL,
+		CommitURLTemplate:  commit,
+		ReleaseURLTemplate: release,
 	}
 }
 
@@ -366,7 +377,9 @@ func (p *Projects) get(ctx context.Context, in *ProjectSlugInput) (*ProjectOutpu
 
 func (p *Projects) update(ctx context.Context, in *UpdateProjectInput) (*ProjectOutput, error) {
 	return p.project(ctx, "update project", in.Slug, authz.ProjectEdit, func(id, user uuid.UUID) (projects.Project, error) {
-		return p.svc.Update(ctx, user, id, projects.Update{Name: in.Body.Name, Description: in.Body.Description, Slug: in.Body.Slug})
+		return p.svc.Update(ctx, user, id, projects.Update{
+			Name: in.Body.Name, Description: in.Body.Description, Slug: in.Body.Slug, RepositoryURL: in.Body.RepositoryURL,
+		})
 	})
 }
 

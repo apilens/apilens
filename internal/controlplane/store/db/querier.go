@@ -486,7 +486,7 @@ type Querier interface {
 	// NULL arguments leave the column unchanged. allowed_domains must be
 	// lower-case (checked by the table).
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)
-	// Sets the name and description and moves updated_at to now.
+	// Sets the name, description and repository link and moves updated_at to now.
 	UpdateProjectDetails(ctx context.Context, arg UpdateProjectDetailsParams) (UpdateProjectDetailsRow, error)
 	UpdateSavedView(ctx context.Context, arg UpdateSavedViewParams) (SavedView, error)
 	// Records a check of an environment and its uptime status.

@@ -400,6 +400,7 @@ type Project struct {
 	Description   string
 	UpdatedAt     time.Time
 	CreatedBy     *uuid.UUID
+	RepositoryUrl *string
 }
 
 type ProjectMember struct {
