@@ -66,6 +66,21 @@ func TestTranslateEveryTopic(t *testing.T) {
 			"TOUCH project:" + p + "#default_editor@organization:" + o2 + "#member",
 			"TOUCH project:" + p + "#default_viewer@organization:" + o2 + "#viewer",
 		}, "", []string{o, o2}},
+		{ProjectMemberUpsertedPayload{ProjectID: proj, OrgID: org, UserID: user, Role: "editor"}, []string{
+			"DELETE project:" + p + "#admin@user:" + u,
+			"DELETE project:" + p + "#viewer@user:" + u,
+			"TOUCH project:" + p + "#editor@user:" + u,
+		}, "", []string{o}},
+		{ProjectMemberDeletedPayload{ProjectID: proj, OrgID: org, UserID: user}, []string{
+			"DELETE project:" + p + "#admin@user:" + u,
+			"DELETE project:" + p + "#editor@user:" + u,
+			"DELETE project:" + p + "#viewer@user:" + u,
+		}, "", []string{o}},
+		{ProjectAccessChangedPayload{ProjectID: proj, OrgID: org, DefaultAccess: "viewer"}, []string{
+			"DELETE project:" + p + "#default_editor@organization:" + o + "#member",
+			"TOUCH project:" + p + "#default_viewer@organization:" + o + "#member",
+			"TOUCH project:" + p + "#default_viewer@organization:" + o + "#viewer",
+		}, "", []string{o}},
 	}
 	if len(cases) != len(Topics) {
 		t.Fatalf("%d cases for %d topics", len(cases), len(Topics))
@@ -121,6 +136,8 @@ func TestTranslateEveryRoleTouchesOnlyThatRole(t *testing.T) {
 func TestTranslateRejects(t *testing.T) {
 	org, user := uuid.New(), uuid.New()
 	badRole, _ := json.Marshal(MembershipUpsertedPayload{OrgID: org, UserID: user, Role: "superuser"})
+	badProjectRole, _ := json.Marshal(ProjectMemberUpsertedPayload{ProjectID: uuid.New(), OrgID: org, UserID: user, Role: "owner"})
+	badAccess, _ := json.Marshal(ProjectAccessChangedPayload{ProjectID: uuid.New(), OrgID: org, DefaultAccess: "everyone"})
 	for _, c := range []struct {
 		name    string
 		topic   Topic
@@ -130,9 +147,88 @@ func TestTranslateRejects(t *testing.T) {
 		{"unknown topic", Topic("team.created"), []byte(`{}`), ErrUnknownTopic},
 		{"bad json", OrgCreated, []byte(`{`), ErrInvalid},
 		{"unknown role", MembershipUpserted, badRole, ErrInvalid},
+		{"unknown project role", ProjectMemberUpserted, badProjectRole, ErrInvalid},
+		{"unknown default access", ProjectAccessChanged, badAccess, ErrInvalid},
 	} {
 		if _, err := Translate(c.topic, c.payload); !errors.Is(err, c.want) {
 			t.Errorf("%s: err = %v, want %v", c.name, err, c.want)
+		}
+	}
+}
+
+func TestTranslateProjectRoleChangeDeletesThePreviousRole(t *testing.T) {
+	org, proj, user := uuid.New(), uuid.New(), uuid.New()
+	for _, role := range projectRoles {
+		raw, _ := json.Marshal(ProjectMemberUpsertedPayload{ProjectID: proj, OrgID: org, UserID: user, Role: role})
+		c, err := Translate(ProjectMemberUpserted, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var touched, deleted []string
+		for _, u := range c.Updates {
+			if u.GetOperation() == v1.RelationshipUpdate_OPERATION_TOUCH {
+				touched = append(touched, u.GetRelationship().GetRelation())
+			} else {
+				deleted = append(deleted, u.GetRelationship().GetRelation())
+			}
+		}
+		// Every other role is deleted in the same write as the touch, so a
+		// change from any previous role leaves exactly the new one.
+		others := slices.DeleteFunc(slices.Clone(projectRoles), func(r string) bool { return r == role })
+		if !slices.Equal(touched, []string{role}) || !slices.Equal(deleted, others) {
+			t.Errorf("role %s: %q", role, describe(c.Updates))
+		}
+	}
+}
+
+func TestTranslateDefaultAccess(t *testing.T) {
+	org, proj := uuid.New(), uuid.New()
+	o, p := org.String(), proj.String()
+	editor := "project:" + p + "#default_editor@organization:" + o + "#member"
+	viewerM := "project:" + p + "#default_viewer@organization:" + o + "#member"
+	viewerV := "project:" + p + "#default_viewer@organization:" + o + "#viewer"
+	for access, want := range map[string][]string{
+		"org_role": {"TOUCH " + editor, "DELETE " + viewerM, "TOUCH " + viewerV},
+		"viewer":   {"DELETE " + editor, "TOUCH " + viewerM, "TOUCH " + viewerV},
+		"none":     {"DELETE " + editor, "DELETE " + viewerM, "DELETE " + viewerV},
+	} {
+		raw, _ := json.Marshal(ProjectAccessChangedPayload{ProjectID: proj, OrgID: org, DefaultAccess: access})
+		c, err := Translate(ProjectAccessChanged, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d := describe(c.Updates); !slices.Equal(d, want) {
+			t.Errorf("%s:\n got %q\nwant %q", access, d, want)
+		}
+	}
+	// project.created writes exactly what org_role touches.
+	raw, _ := json.Marshal(ProjectCreatedPayload{ProjectID: proj, OrgID: org})
+	c, _ := Translate(ProjectCreated, raw)
+	if d := describe(c.Updates[1:]); !slices.Equal(d, []string{"TOUCH " + editor, "TOUCH " + viewerV}) {
+		t.Errorf("project.created defaults = %q", d)
+	}
+}
+
+func TestTranslateIsDeterministicForReplay(t *testing.T) {
+	// Replaying a row yields the same TOUCH/DELETE set, which SpiceDB
+	// applies idempotently.
+	org, proj, user := uuid.New(), uuid.New(), uuid.New()
+	for _, c := range []struct {
+		topic   Topic
+		payload Payload
+	}{
+		{ProjectMemberUpserted, ProjectMemberUpsertedPayload{ProjectID: proj, OrgID: org, UserID: user, Role: "admin"}},
+		{ProjectMemberDeleted, ProjectMemberDeletedPayload{ProjectID: proj, OrgID: org, UserID: user}},
+		{ProjectAccessChanged, ProjectAccessChangedPayload{ProjectID: proj, OrgID: org, DefaultAccess: "none"}},
+	} {
+		raw, _ := json.Marshal(c.payload)
+		a, err := Translate(c.topic, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := Translate(c.topic, raw)
+		if !slices.Equal(describe(a.Updates), describe(b.Updates)) || a.Delete != nil {
+			t.Errorf("%s: not a deterministic TOUCH/DELETE set: %q vs %q", c.topic, describe(a.Updates), describe(b.Updates))
 		}
 	}
 }

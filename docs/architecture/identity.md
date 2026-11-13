@@ -630,6 +630,9 @@ SpiceDB holds the derived relationships that permission checks read
 | `project.created` | project id | `{project_id, org_id}` | `TOUCH project:{project}#org@organization:{org}`, and the `org_role` default access: `TOUCH …#default_editor@organization:{org}#member`, `TOUCH …#default_viewer@organization:{org}#viewer` |
 | `project.deleted` | project id | `{project_id}` | `DELETE` every relationship of `project:{project}` |
 | `project.moved` | project id | `{project_id, from_org_id, to_org_id}` | `DELETE …#org@organization:{from}`, `TOUCH …#org@organization:{to}`; across orgs the `org_role` default relations move the same way |
+| `project_member.upserted` | project id | `{project_id, org_id, user_id, role}` (`admin`, `editor`, `viewer`) | `DELETE` the user's other project roles and `TOUCH project:{project}#{role}@user:{user}` in one write, so a role change never leaves two roles |
+| `project_member.deleted` | project id | `{project_id, org_id, user_id}` | `DELETE project:{project}#{admin,editor,viewer}@user:{user}`. Leaving an organization (`membership.deleted`) deletes the person's `project_members` rows on its projects in the same transaction and emits one of these per removed grant |
+| `project.access_changed` | project id | `{project_id, org_id, default_access}` (`org_role`, `viewer`, `none`) | `TOUCH` the relations of the new default and `DELETE` the rest of `…#default_editor@organization:{org}#member`, `…#default_viewer@organization:{org}#member`, `…#default_viewer@organization:{org}#viewer`. `org_role`: editor from member, viewer from viewer; `viewer`: both viewer relations; `none`: none of them |
 
 The topics and payloads above are the contract the outbox helper (#277) and
 the relay (#291) implement. The helper is

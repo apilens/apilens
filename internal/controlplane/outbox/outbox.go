@@ -31,10 +31,17 @@ const (
 	ProjectCreated     Topic = "project.created"
 	ProjectDeleted     Topic = "project.deleted"
 	ProjectMoved       Topic = "project.moved"
+
+	ProjectMemberUpserted Topic = "project_member.upserted"
+	ProjectMemberDeleted  Topic = "project_member.deleted"
+	ProjectAccessChanged  Topic = "project.access_changed"
 )
 
 // Topics lists every topic, in documentation order.
-var Topics = []Topic{OrgCreated, OrgDeleted, MembershipUpserted, MembershipDeleted, ProjectCreated, ProjectDeleted, ProjectMoved}
+var Topics = []Topic{
+	OrgCreated, OrgDeleted, MembershipUpserted, MembershipDeleted, ProjectCreated, ProjectDeleted, ProjectMoved,
+	ProjectMemberUpserted, ProjectMemberDeleted, ProjectAccessChanged,
+}
 
 // Payload is one of the payload types below. The set is closed: each payload
 // type belongs to exactly one topic and knows its aggregate id.
@@ -90,6 +97,41 @@ type ProjectMovedPayload struct {
 	ToOrgID   uuid.UUID `json:"to_org_id"`
 }
 
+// ProjectMemberUpsertedPayload is the payload of ProjectMemberUpserted (a
+// direct project role granted or changed); aggregate_id is the project id.
+// Role is admin, editor or viewer.
+type ProjectMemberUpsertedPayload struct {
+	ProjectID uuid.UUID `json:"project_id"`
+	OrgID     uuid.UUID `json:"org_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Role      string    `json:"role"`
+}
+
+// ProjectMemberDeletedPayload is the payload of ProjectMemberDeleted (a
+// direct project role removed, also once per grant when the person leaves
+// the organization); aggregate_id is the project id.
+type ProjectMemberDeletedPayload struct {
+	ProjectID uuid.UUID `json:"project_id"`
+	OrgID     uuid.UUID `json:"org_id"`
+	UserID    uuid.UUID `json:"user_id"`
+}
+
+// ProjectAccessChangedPayload is the payload of ProjectAccessChanged (the
+// project's default access for org members changed); aggregate_id is the
+// project id. DefaultAccess is org_role, viewer or none.
+type ProjectAccessChangedPayload struct {
+	ProjectID     uuid.UUID `json:"project_id"`
+	OrgID         uuid.UUID `json:"org_id"`
+	DefaultAccess string    `json:"default_access"`
+}
+
+func (ProjectMemberUpsertedPayload) topic() Topic             { return ProjectMemberUpserted }
+func (ProjectMemberDeletedPayload) topic() Topic              { return ProjectMemberDeleted }
+func (ProjectAccessChangedPayload) topic() Topic              { return ProjectAccessChanged }
+func (p ProjectMemberUpsertedPayload) aggregateID() uuid.UUID { return p.ProjectID }
+func (p ProjectMemberDeletedPayload) aggregateID() uuid.UUID  { return p.ProjectID }
+func (p ProjectAccessChangedPayload) aggregateID() uuid.UUID  { return p.ProjectID }
+
 func (OrgCreatedPayload) topic() Topic                     { return OrgCreated }
 func (OrgDeletedPayload) topic() Topic                     { return OrgDeleted }
 func (MembershipUpsertedPayload) topic() Topic             { return MembershipUpserted }
@@ -111,7 +153,8 @@ var ErrInvalid = errors.New("outbox: invalid event")
 
 // Emit writes one outbox row inside tx and wakes the relay when tx commits.
 // topic must be the payload's topic and aggregateID its aggregate id (the org
-// id for org and membership topics, the project id for project topics). If
+// id for org and membership topics, the project id for project and
+// project_member topics). If
 // tx rolls back, neither the row nor the wake-up survives.
 func Emit(ctx context.Context, tx pgx.Tx, topic Topic, aggregateID uuid.UUID, payload Payload) error {
 	if err := validate(topic, aggregateID, payload); err != nil {
