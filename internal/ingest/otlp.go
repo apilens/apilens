@@ -139,6 +139,19 @@ type resourceInfo struct {
 	records                                    int // spans or log records under the resource
 }
 
+// resourceEnvs lists the normalised environment of every record of an
+// export, in the order of resourceIdents.
+func resourceEnvs(resources []resourceInfo) []string {
+	var envs []string
+	for _, ri := range resources {
+		env := environment(ri.environment)
+		for range ri.records {
+			envs = append(envs, env)
+		}
+	}
+	return envs
+}
+
 // resourceIdents lists the app identifier of every record of an export.
 func resourceIdents(resources []resourceInfo) []string {
 	var idents []string
@@ -178,11 +191,12 @@ func readResource(attrs []*commonpb.KeyValue) resourceInfo {
 }
 
 // resolveResourceApps resolves the app of every resource (apilens.app, else
-// service.name; neither is the default app). Resources whose app is refused
-// are reported in rejected; their records count as rejected in a partial
-// success, so one bad service does not fail the whole export.
+// service.name; neither is the default app). Resources whose app is refused,
+// or whose environment the key may not send for, are reported in rejected;
+// their records count as rejected in a partial success, so one bad service
+// does not fail the whole export.
 func (e *Edge) resolveResourceApps(r *http.Request, signal string, p apikeys.Principal, resources []resourceInfo, t tally) (map[string]uuid.UUID, []string, int64, *apiError) {
-	b, aerr := e.resolveBatch(r.Context(), signal, p, nil, resourceIdents(resources), false, t)
+	b, aerr := e.resolveBatch(r.Context(), signal, p, nil, resourceIdents(resources), resourceEnvs(resources), false, t)
 	if b == nil {
 		return nil, nil, 0, aerr
 	}
@@ -232,6 +246,7 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 	for i, rs := range req.GetResourceSpans() {
 		ri := resources[i]
 		appID, known := apps[ri.app]
+		known = known && p.AllowsEnvironment(environment(ri.environment))
 		for _, ss := range rs.GetScopeSpans() {
 			for _, sp := range ss.GetSpans() {
 				row, valid := spanRow(sp, ri, now)
@@ -363,6 +378,7 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 	for i, rl := range req.GetResourceLogs() {
 		ri := resources[i]
 		appID, known := apps[ri.app]
+		known = known && p.AllowsEnvironment(environment(ri.environment))
 		for _, sl := range rl.GetScopeLogs() {
 			scope := sl.GetScope().GetName()
 			for _, lr := range sl.GetLogRecords() {

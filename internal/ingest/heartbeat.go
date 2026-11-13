@@ -159,7 +159,7 @@ func (e *Edge) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// A heartbeat without app_id is the project's default app.
-	batch, aerr := e.resolveBatch(r.Context(), signal, p, []string{body.ProjectSlug}, []string{body.AppID}, false, tally{})
+	batch, aerr := e.resolveBatch(r.Context(), signal, p, []string{body.ProjectSlug}, []string{body.AppID}, []string{environment(body.Environment)}, false, tally{})
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
@@ -307,7 +307,7 @@ func addHeartbeatOperation(oapi *huma.OpenAPI, errBody *huma.Schema) {
 		Responses: map[string]*huma.Response{
 			"200": {Description: "Recorded; the body carries the capture policy", Content: jsonOf(accepted)},
 			"401": errResp("Missing or invalid API key"),
-			"403": errResp("API key lacks the ingest scope, may not create the app it names, or is limited to other apps"),
+			"403": errResp("API key lacks the ingest scope, may not create the app it names, is limited to other apps, or is pinned to other environments (environment_not_allowed)"),
 			"409": errResp("The app was deleted less than 30 days ago; restore it from Apps"),
 			"413": errResp("Body too large"),
 			"422": errResp("Invalid payload or an app limit reached"),

@@ -113,7 +113,7 @@ func RegisterOpenAPI(api huma.API) {
 			"200": {Description: "Stored", Content: jsonOf(accepted)},
 			"401": errResp("Missing or invalid API key"),
 			"413": errResp("Body too large"),
-			"403": errResp("API key lacks the ingest scope, may not create the app it names, or is limited to other apps"),
+			"403": errResp("API key lacks the ingest scope, may not create the app it names, is limited to other apps, or is pinned to other environments (environment_not_allowed)"),
 			"409": errResp("The app was deleted less than 30 days ago; restore it from Apps"),
 			"422": errResp("Invalid payload, an app limit reached, or an api_key field"),
 			"503": errResp("Temporarily unavailable; retry after Retry-After"),
@@ -155,7 +155,7 @@ func (e *Edge) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A report without app_id is the project's default app.
-	batch, aerr := e.resolveBatch(r.Context(), signal, p, []string{body.ProjectSlug}, []string{body.AppID}, false, tally{})
+	batch, aerr := e.resolveBatch(r.Context(), signal, p, []string{body.ProjectSlug}, []string{body.AppID}, []string{environment(body.Environment)}, false, tally{})
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return

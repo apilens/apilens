@@ -84,6 +84,10 @@ A new key **can create apps** by default (the `apps:create` permission): data wi
 
 A key can be limited to a list of apps (**Limit to apps**). Data for any other app is rejected with `app_not_allowed`, and a limited key never creates apps. Use it when one team's key must not write into another team's services. It limits what a key can **send**; everyone in the project still **sees** every app (see [separate projects](#recommended-setup) when that matters).
 
+### Pin a key to environments
+
+A key can also be pinned to some of the project's environments (`environments` when you create the key, or `PUT .../api-keys/{id}/access`). Records for any other environment are rejected per record with `environment_not_allowed`, and the rest of the batch is stored; heartbeats and metadata reports follow the same rule. A record without an environment counts as `production`. Use it so a leaked staging key cannot write production data. Unpinned keys (`environments: null`) send for every environment.
+
 Permission and scope changes apply to the next request: every ingest process drops the cached key.
 
 ### Key limits

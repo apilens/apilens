@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +60,15 @@ type Principal struct {
 	// RateLimitPerMinute caps the records ingest accepts with this key per
 	// minute; 0: no per-key limit.
 	RateLimitPerMinute int
+	// Environments limits the key to these environment names; nil allows
+	// every environment.
+	Environments []string
+}
+
+// AllowsEnvironment reports whether the key may send data for env, the
+// normalised environment name of a record.
+func (p Principal) AllowsEnvironment(env string) bool {
+	return p.Environments == nil || slices.Contains(p.Environments, env)
 }
 
 // CanCreateApps reports whether ingest may create apps from the app names
@@ -217,7 +227,7 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 		}
 		e := entry{valid: true, principal: Principal{
 			KeyID: row.ID, ProjectID: row.ProjectID, ProjectSlug: row.ProjectSlug,
-			OrgID: row.OrgID, Scopes: row.Scopes, AppIDs: row.AppIds,
+			OrgID: row.OrgID, Scopes: row.Scopes, AppIDs: row.AppIds, Environments: row.Environments,
 		}}
 		if row.RateLimitPerMinute != nil {
 			e.principal.RateLimitPerMinute = int(*row.RateLimitPerMinute)

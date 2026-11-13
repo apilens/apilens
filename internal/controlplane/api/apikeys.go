@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -44,6 +45,7 @@ type APIKey struct {
 	// CanCreateApps is apps:create on a key not limited to some apps.
 	CanCreateApps bool        `json:"can_create_apps" doc:"Whether data sent with the key creates an app the first time it names one the project does not have. False for keys without apps:create and for keys limited to some apps."`
 	AppIDs        []string    `json:"app_ids" required:"true" nullable:"true" doc:"The apps the key may send data for; null means every app of the project."`
+	Environments  []string    `json:"environments" required:"true" nullable:"true" doc:"The environments the key may send data for; null means every environment. The ingest edge rejects records for any other environment (environment_not_allowed) and stores the rest of the batch."`
 	AppsSeen      []KeyApp    `json:"apps_seen" doc:"The apps the key sent data for, most recent first (recorded at most once a minute)."`
 	CreatedAt     time.Time   `json:"created_at"`
 	CreatedBy     *KeyCreator `json:"created_by,omitempty" doc:"Who created the key; absent when unknown (keys older than this field with no audit record) or once their account is deleted."`
@@ -88,6 +90,8 @@ type CreateAPIKeyInput struct {
 		AppIDs        []string   `json:"app_ids,omitempty" maxItems:"100" doc:"Limit the key to these apps of the project; omit for every app. A limited key never creates apps."`
 		// RateLimitPerMinute is the per-key ingest rate limit; omitted: none.
 		RateLimitPerMinute *int `json:"rate_limit_per_minute,omitempty" minimum:"1" maximum:"100000000" doc:"The most records the ingest edge accepts with this key per minute, on top of the project quota (429 quota_exceeded with Retry-After over it). Omit for no per-key limit."`
+		// Environments pins the key to some environments; omitted: every one.
+		Environments []string `json:"environments,omitempty" minItems:"1" maxItems:"50" doc:"Pin the key to these environments of the project (names it already has); omit for every environment. Ingest rejects records for other environments."`
 	}
 }
 
@@ -100,7 +104,11 @@ type UpdateAPIKeyAccessInput struct {
 		// RateLimitPerMinute replaces the per-key ingest rate limit; 0
 		// removes it, omitted keeps it.
 		RateLimitPerMinute *int `json:"rate_limit_per_minute,omitempty" minimum:"0" maximum:"100000000" doc:"The most records the ingest edge accepts with this key per minute; 0 removes the per-key limit. Omit to keep the current limit."`
+		// Environments replaces the pin when present; null: every environment.
+		Environments []string `json:"environments,omitempty" nullable:"true" maxItems:"50" doc:"The environments the key may send data for (names the project has); null for every environment. Omit to keep the key's current environments."`
 	}
+	// RawBody tells an omitted environments field from null.
+	RawBody []byte
 }
 
 // APIKeyOutput is a single key.
@@ -181,9 +189,10 @@ func (k *APIKeys) Register(api huma.API) {
 		OperationID: "update-api-key-access",
 		Method:      http.MethodPut,
 		Path:        APIKeyAccessPath,
-		Summary:     "Change what an API key may do with apps, and its rate limit",
+		Summary:     "Change what an API key may do with apps and environments, and its rate limit",
 		Description: "Replaces whether the key may create apps (the apps:create scope) and which apps it may send data for (null: every app), " +
-			"and sets its ingest rate limit when `rate_limit_per_minute` is sent (0 removes it). " +
+			"sets its ingest rate limit when `rate_limit_per_minute` is sent (0 removes it) and, when `environments` is present, " +
+			"which environments it may send data for (null: every environment; an environment the project does not have answers `invalid_request`). " +
 			"Every process forgets the cached key, so the change applies to the next request. A revoked key or an id the project does not have answers `api_key_gone` (410); " +
 			"an app id the project does not have answers `invalid_request`. Owners, admins and members only. Audited as `api_key.updated`. " + notMember,
 		Tags:     tags,
@@ -236,6 +245,7 @@ func toAPIKey(key apikeys.Key) APIKey {
 		Scopes:        scopes,
 		CanCreateApps: key.CanCreateApps(),
 		AppIDs:        appIDs,
+		Environments:  key.Environments,
 		AppsSeen:      seen,
 		CreatedAt:     key.CreatedAt.UTC(),
 		CreatedBy:     createdBy,
@@ -285,7 +295,7 @@ func (k *APIKeys) create(ctx context.Context, in *CreateAPIKeyInput) (*CreateAPI
 	}
 	c, err := k.svc.CreateKey(ctx, uid, in.Slug, apikeys.NewKey{
 		Name: in.Body.Name, Scopes: in.Body.Scopes, ExpiresAt: in.Body.ExpiresAt, CanCreateApps: in.Body.CanCreateApps, AppIDs: appIDs,
-		RateLimitPerMinute: in.Body.RateLimitPerMinute,
+		RateLimitPerMinute: in.Body.RateLimitPerMinute, Environments: in.Body.Environments,
 	})
 	if err != nil {
 		return nil, k.problem(ctx, "create api key", err)
@@ -338,8 +348,14 @@ func (k *APIKeys) updateAccess(ctx context.Context, in *UpdateAPIKeyAccessInput)
 	if err != nil {
 		return nil, err
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(in.RawBody, &fields); err != nil {
+		return nil, identity.Err(identity.CodeInvalidRequest)
+	}
+	_, setEnvs := fields["environments"]
 	key, err := k.svc.UpdateAccess(ctx, uid, in.Slug, id, apikeys.Access{
 		CanCreateApps: in.Body.CanCreateApps, AppIDs: appIDs, RateLimitPerMinute: in.Body.RateLimitPerMinute,
+		Environments: in.Body.Environments, SetEnvironments: setEnvs,
 	})
 	if err != nil {
 		return nil, k.problem(ctx, "update api key access", err)

@@ -78,6 +78,7 @@ type ApiKey struct {
 	LastUsedSdk        *string
 	LastUsedIp         *netip.Addr
 	RateLimitPerMinute *int32
+	Environments       []string
 }
 
 type ApiKeyApp struct {

@@ -140,7 +140,8 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 		e.fail(w, signal, aerr)
 		return
 	}
-	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, false, t)
+	envs := recordEnvs(body.Requests, func(rec requestRecord) string { return rec.Environment })
+	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, envs, false, t)
 	if aerr == nil {
 		body.Requests = filterRecords(body.Requests, func(rec requestRecord) string { return rec.AppID }, batch)
 		aerr = e.redactRequests(r.Context(), p.ProjectID, batch.apps, body.Requests, t)
@@ -236,7 +237,8 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 		e.fail(w, signal, aerr)
 		return
 	}
-	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, false, t)
+	envs := recordEnvs(body.Logs, func(rec logRecord) string { return rec.Environment })
+	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, envs, false, t)
 	if aerr == nil {
 		body.Logs = filterRecords(body.Logs, func(rec logRecord) string { return rec.AppID }, batch)
 		aerr = e.redactLogs(r.Context(), p.ProjectID, batch.apps, body.Logs, t)
@@ -316,7 +318,8 @@ func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
 		e.fail(w, signal, aerr)
 		return
 	}
-	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, false, t)
+	envs := recordEnvs(body.Spans, func(rec spanRecord) string { return rec.Environment })
+	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, envs, false, t)
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
@@ -403,7 +406,8 @@ func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
 		e.fail(w, signal, aerr)
 		return
 	}
-	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, true, t)
+	envs := recordEnvs(body.Deploys, func(rec deployRecord) string { return rec.Environment })
+	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, envs, true, t)
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return

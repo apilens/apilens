@@ -23,26 +23,39 @@ import (
 // to the project's default app, and the records of an app that cannot be
 // used (the key may not create it or is limited to other apps, a limit, a
 // recently deleted app) are rejected while the rest of the batch is stored.
+// So are the records of an environment a key pinned to some environments
+// may not send for (environment_not_allowed).
+
+// ReasonEnvironmentNotAllowed rejects the records of an environment the
+// API key is not pinned to.
+const ReasonEnvironmentNotAllowed = "environment_not_allowed"
 
 // rejectedApp reports the records of one app identifier a call refused.
 type rejectedApp struct {
-	AppID   string `json:"app_id" doc:"The app identifier the records carried."`
-	App     string `json:"app,omitempty" doc:"The normalised app slug."`
-	Records int    `json:"records" doc:"How many records of the call named it."`
-	Error   string `json:"error" doc:"Why: app_create_forbidden, app_not_allowed, app_deleted, app_limit, app_rate_limit, invalid_app_name or unknown_app."`
-	Detail  string `json:"detail" doc:"What happened and what to do, naming the app."`
+	AppID       string `json:"app_id" doc:"The app identifier the records carried."`
+	App         string `json:"app,omitempty" doc:"The normalised app slug."`
+	Environment string `json:"environment,omitempty" doc:"The environment the records carried, for environment_not_allowed."`
+	Records     int    `json:"records" doc:"How many records of the call named it."`
+	Error       string `json:"error" doc:"Why: app_create_forbidden, app_not_allowed, app_deleted, app_limit, app_rate_limit, invalid_app_name, unknown_app or environment_not_allowed."`
+	Detail      string `json:"detail" doc:"What happened and what to do, naming the app or environment."`
 }
 
 // appBatch is the outcome of resolving the app of every record of a call.
 type appBatch struct {
 	apps     map[string]uuid.UUID
 	rejected map[string]catalog.Rejection
-	report   []rejectedApp
-	dropped  int
+	// envRejected are the indexes of the records whose environment the key
+	// may not send for.
+	envRejected map[int]bool
+	report      []rejectedApp
+	dropped     int
 }
 
-// keep reports whether the records naming ident are stored.
-func (b *appBatch) keep(ident string) bool {
+// keep reports whether record i, naming ident, is stored.
+func (b *appBatch) keep(i int, ident string) bool {
+	if b.envRejected[i] {
+		return false
+	}
 	_, rejected := b.rejected[strings.TrimSpace(ident)]
 	return !rejected
 }
@@ -50,16 +63,26 @@ func (b *appBatch) keep(ident string) bool {
 // id returns the app of ident (uuid.Nil for a project-wide deploy).
 func (b *appBatch) id(ident string) uuid.UUID { return b.apps[strings.TrimSpace(ident)] }
 
-// filterRecords drops the records whose app was rejected.
+// filterRecords drops the records whose app or environment was rejected.
+// recs must be in the order resolveBatch saw them.
 func filterRecords[T any](recs []T, ident func(T) string, b *appBatch) []T {
-	if len(b.rejected) == 0 {
+	if len(b.rejected) == 0 && len(b.envRejected) == 0 {
 		return recs
 	}
 	out := recs[:0:0]
-	for _, r := range recs {
-		if b.keep(ident(r)) {
+	for i, r := range recs {
+		if b.keep(i, ident(r)) {
 			out = append(out, r)
 		}
+	}
+	return out
+}
+
+// recordEnvs returns the normalised environment of every record.
+func recordEnvs[T any](recs []T, env func(T) string) []string {
+	out := make([]string, len(recs))
+	for i, r := range recs {
+		out[i] = environment(env(r))
 	}
 	return out
 }
@@ -68,7 +91,7 @@ func filterRecords[T any](recs []T, ident func(T) string, b *appBatch) []T {
 // app that was rejected for reason.
 func rejectionStatus(reason string) int {
 	switch reason {
-	case catalog.ReasonCreateForbidden, catalog.ReasonNotAllowed:
+	case catalog.ReasonCreateForbidden, catalog.ReasonNotAllowed, ReasonEnvironmentNotAllowed:
 		return http.StatusForbidden
 	case catalog.ReasonDeleted:
 		return http.StatusConflict
@@ -85,18 +108,31 @@ func caller(p apikeys.Principal) catalog.Caller {
 // resolveBatch resolves the app identifier of every record (idents has one
 // entry per record), counts and reports rejected records, records which apps
 // the key sent for, and answers an error when nothing is left to store.
-// allowEmpty keeps records naming no app project-wide (deploys) instead of
-// sending them to the default app.
-func (e *Edge) resolveBatch(ctx context.Context, signal string, p apikeys.Principal, slugs, idents []string, allowEmpty bool, t tally) (*appBatch, *apiError) {
+// envs has the normalised environment of every record: records of an
+// environment the key may not send for are rejected before their app is
+// resolved. allowEmpty keeps records naming no app project-wide (deploys)
+// instead of sending them to the default app.
+func (e *Edge) resolveBatch(ctx context.Context, signal string, p apikeys.Principal, slugs, idents, envs []string, allowEmpty bool, t tally) (*appBatch, *apiError) {
 	for _, s := range slugs {
 		if s = strings.TrimSpace(s); s != "" && s != p.ProjectSlug {
 			return nil, errValidation("project_slug must match the API key project '%s'", p.ProjectSlug)
 		}
 	}
+	b := &appBatch{apps: map[string]uuid.UUID{}, rejected: map[string]catalog.Rejection{}}
+	type envIdent struct{ ident, env string }
+	envCounts := map[envIdent]int{}
 	counts := map[string]int{}
 	var lookup []string
-	for _, id := range idents {
+	for i, id := range idents {
 		id = strings.TrimSpace(id)
+		if !p.AllowsEnvironment(envs[i]) {
+			if b.envRejected == nil {
+				b.envRejected = map[int]bool{}
+			}
+			b.envRejected[i] = true
+			envCounts[envIdent{id, envs[i]}]++
+			continue
+		}
 		if id == "" && allowEmpty {
 			continue
 		}
@@ -105,22 +141,29 @@ func (e *Edge) resolveBatch(ctx context.Context, signal string, p apikeys.Princi
 		}
 		counts[id]++
 	}
-	b := &appBatch{apps: map[string]uuid.UUID{}, rejected: map[string]catalog.Rejection{}}
-	if len(lookup) == 0 {
-		return b, nil
+	if len(lookup) > 0 {
+		res, err := e.apps.ResolveFor(ctx, p.ProjectID, caller(p), lookup)
+		if err != nil {
+			e.logger.Error("app resolution unavailable", "error", err)
+			return nil, errUnavailable("Catalog unavailable, retry later")
+		}
+		b.apps, b.rejected = res.Apps, res.Rejected
+		if b.rejected == nil {
+			b.rejected = map[string]catalog.Rejection{}
+		}
+		for _, id := range res.Created {
+			e.appsCreated.Inc()
+			e.logger.Info("app created from ingest", "project_id", p.ProjectID, "app_id", id, "key_id", p.KeyID)
+		}
 	}
-	res, err := e.apps.ResolveFor(ctx, p.ProjectID, caller(p), lookup)
-	if err != nil {
-		e.logger.Error("app resolution unavailable", "error", err)
-		return nil, errUnavailable("Catalog unavailable, retry later")
-	}
-	b.apps, b.rejected = res.Apps, res.Rejected
-	if b.rejected == nil {
-		b.rejected = map[string]catalog.Rejection{}
-	}
-	for _, id := range res.Created {
-		e.appsCreated.Inc()
-		e.logger.Info("app created from ingest", "project_id", p.ProjectID, "app_id", id, "key_id", p.KeyID)
+	for k, n := range envCounts {
+		b.dropped += n
+		b.report = append(b.report, rejectedApp{
+			AppID: k.ident, Environment: k.env, Records: n, Error: ReasonEnvironmentNotAllowed,
+			Detail: fmt.Sprintf("The API key may not send data for environment '%s'; use a key for that environment or add it to the key's environments", k.env),
+		})
+		e.records.WithLabelValues(signal, "rejected").Add(float64(n))
+		e.appRejected.WithLabelValues(ReasonEnvironmentNotAllowed).Add(float64(n))
 	}
 	day := map[appRejectionKey]int64{}
 	for ident, rej := range b.rejected {
@@ -132,7 +175,12 @@ func (e *Edge) resolveBatch(ctx context.Context, signal string, p apikeys.Princi
 		t.reject(rej.AppID, rej.Reason, int64(n))
 		day[appRejectionKey{Reason: rej.Reason, App: rej.Slug}] += int64(n)
 	}
-	sort.Slice(b.report, func(i, j int) bool { return b.report[i].AppID < b.report[j].AppID })
+	sort.Slice(b.report, func(i, j int) bool {
+		if b.report[i].AppID != b.report[j].AppID {
+			return b.report[i].AppID < b.report[j].AppID
+		}
+		return b.report[i].Environment < b.report[j].Environment
+	})
 	e.flushAppRejections(ctx, p.ProjectID, day)
 	for _, id := range b.apps {
 		e.sawKeyApp(p.KeyID, id)
