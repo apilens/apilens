@@ -426,8 +426,8 @@ type Querier interface {
 	UnarchiveApp(ctx context.Context, id uuid.UUID) (UnarchiveAppRow, error)
 	// Apps merged into a deleted app stay archived but no longer point at it.
 	UnmergeAppsFrom(ctx context.Context, appID *uuid.UUID) error
-	// Replaces a key's scopes, app scope (NULL = every app) and per-key ingest
-	// rate limit (NULL = none).
+	// Replaces a key's scopes, app scope (NULL = every app), per-key ingest
+	// rate limit (NULL = none) and environments (NULL = every environment).
 	UpdateAPIKeyAccess(ctx context.Context, arg UpdateAPIKeyAccessParams) error
 	// Replaces every editable field of a rule. The app and project never change.
 	UpdateAlertRule(ctx context.Context, arg UpdateAlertRuleParams) (AlertRule, error)

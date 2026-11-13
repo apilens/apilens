@@ -45,6 +45,16 @@
             "$ref": "#/components/schemas/KeyCreator",
             "description": "Who created the key; absent when unknown (keys older than this field with no audit record) or once their account is deleted."
           },
+          "environments": {
+            "description": "The environments the key may send data for; null means every environment. The ingest edge rejects records for any other environment (environment_not_allowed) and stores the rest of the batch.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "expires_at": {
             "description": "When the key stops working; null if never.",
             "format": "date-time",
@@ -120,6 +130,7 @@
           "scopes",
           "can_create_apps",
           "app_ids",
+          "environments",
           "apps_seen",
           "created_at",
           "expires_at",
@@ -2478,6 +2489,18 @@
             "description": "For an ingest key: whether data sent with it creates an app the first time it names one the project does not have (adds the apps:create scope). Defaults to true.",
             "type": "boolean"
           },
+          "environments": {
+            "description": "Pin the key to these environments of the project (names it already has); omit for every environment. Ingest rejects records for other environments.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "expires_at": {
             "description": "When the key stops working; must be in the future. Omit for a key that does not expire.",
             "format": "date-time",
@@ -2929,6 +2952,16 @@
             "$ref": "#/components/schemas/KeyCreator",
             "description": "Who created the key; absent when unknown (keys older than this field with no audit record) or once their account is deleted."
           },
+          "environments": {
+            "description": "The environments the key may send data for; null means every environment. The ingest edge rejects records for any other environment (environment_not_allowed) and stores the rest of the batch.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "expires_at": {
             "description": "When the key stops working; null if never.",
             "format": "date-time",
@@ -3009,6 +3042,7 @@
           "scopes",
           "can_create_apps",
           "app_ids",
+          "environments",
           "apps_seen",
           "created_at",
           "expires_at",
@@ -11035,6 +11069,17 @@
           "can_create_apps": {
             "description": "Whether data sent with the key creates apps it names that the project does not have (ingest keys only).",
             "type": "boolean"
+          },
+          "environments": {
+            "description": "The environments the key may send data for (names the project has); null for every environment. Omit to keep the key's current environments.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "rate_limit_per_minute": {
             "description": "The most records the ingest edge accepts with this key per minute; 0 removes the per-key limit. Omit to keep the current limit.",
@@ -22714,7 +22759,7 @@
     },
     "/api/v1/projects/{slug}/api-keys/{id}/access": {
       "put": {
-        "description": "Replaces whether the key may create apps (the apps:create scope) and which apps it may send data for (null: every app), and sets its ingest rate limit when `rate_limit_per_minute` is sent (0 removes it). Every process forgets the cached key, so the change applies to the next request. A revoked key or an id the project does not have answers `api_key_gone` (410); an app id the project does not have answers `invalid_request`. Owners, admins and members only. Audited as `api_key.updated`. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
+        "description": "Replaces whether the key may create apps (the apps:create scope) and which apps it may send data for (null: every app), sets its ingest rate limit when `rate_limit_per_minute` is sent (0 removes it) and, when `environments` is present, which environments it may send data for (null: every environment; an environment the project does not have answers `invalid_request`). Every process forgets the cached key, so the change applies to the next request. A revoked key or an id the project does not have answers `api_key_gone` (410); an app id the project does not have answers `invalid_request`. Owners, admins and members only. Audited as `api_key.updated`. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
         "operationId": "update-api-key-access",
         "parameters": [
           {
@@ -22745,6 +22790,13 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/UpdateAPIKeyAccessInputBody"
+              }
+            },
+            "application/octet-stream": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
               }
             }
           },
@@ -22832,7 +22884,7 @@
             "session": []
           }
         ],
-        "summary": "Change what an API key may do with apps, and its rate limit",
+        "summary": "Change what an API key may do with apps and environments, and its rate limit",
         "tags": [
           "Projects"
         ]
@@ -26572,7 +26624,7 @@
                 }
               }
             },
-            "description": "API key lacks the ingest scope, may not create the app it names, or is limited to other apps"
+            "description": "API key lacks the ingest scope, may not create the app it names, is limited to other apps, or is pinned to other environments (environment_not_allowed)"
           },
           "409": {
             "content": {
@@ -26679,7 +26731,7 @@
                 }
               }
             },
-            "description": "API key lacks the ingest scope, may not create the app it names, or is limited to other apps"
+            "description": "API key lacks the ingest scope, may not create the app it names, is limited to other apps, or is pinned to other environments (environment_not_allowed)"
           },
           "409": {
             "content": {

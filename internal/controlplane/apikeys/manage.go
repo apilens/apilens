@@ -37,6 +37,9 @@ var Scopes = []string{ScopeIngest, ScopeAppsCreate, ScopeRead}
 // MaxKeyApps bounds the apps a key can be limited to.
 const MaxKeyApps = 100
 
+// MaxKeyEnvironments bounds the environments a key can be pinned to.
+const MaxKeyEnvironments = 50
+
 // MaxNameLen bounds a key's display name.
 const MaxNameLen = 100
 
@@ -74,6 +77,9 @@ type Key struct {
 	ExpiresAt  *time.Time
 	RevokedAt  *time.Time
 	LastUsedAt *time.Time
+	// Environments are the environment names the key may send data for;
+	// nil: every environment.
+	Environments []string
 	// LastUsedSDK is the SDK name and version of the last ingest request.
 	LastUsedSDK *string
 	// LastUsedIP is the client IP of the last ingest request (only while
@@ -138,9 +144,13 @@ type NewKey struct {
 	// RateLimitPerMinute caps the records ingest accepts with the key per
 	// minute (1..MaxRateLimitPerMinute); nil: no per-key limit.
 	RateLimitPerMinute *int
+	// Environments pins the key to these environments of the project; nil
+	// allows every environment.
+	Environments []string
 }
 
-// Access is what an existing key may do with apps, and how fast.
+// Access is what an existing key may do with apps and environments, and
+// how fast.
 type Access struct {
 	CanCreateApps bool
 	AppIDs        []uuid.UUID // nil: every app
@@ -148,6 +158,10 @@ type Access struct {
 	// positive value is the new limit, 0 removes it. nil keeps the current
 	// one.
 	RateLimitPerMinute *int
+	// Environments replaces the key's environments (nil: every
+	// environment) when SetEnvironments is true; otherwise they are kept.
+	Environments    []string
+	SetEnvironments bool
 }
 
 // Created is a newly created key with its raw value, which is shown once.
@@ -312,6 +326,37 @@ func checkApps(ctx context.Context, q *db.Queries, projectID uuid.UUID, ids []uu
 	return out, nil
 }
 
+// checkEnvironments validates an environment pin against the project's
+// environments: every name must be an environment of the project. nil is
+// every environment. Names are trimmed and deduplicated, in request order.
+func checkEnvironments(ctx context.Context, q *db.Queries, projectID uuid.UUID, names []string) ([]string, error) {
+	if names == nil {
+		return nil, nil
+	}
+	if len(names) == 0 || len(names) > MaxKeyEnvironments {
+		return nil, ErrInvalid
+	}
+	rows, err := q.ListProjectsEnvironments(ctx, []uuid.UUID{projectID})
+	if err != nil {
+		return nil, fmt.Errorf("apikeys: list environments: %w", err)
+	}
+	known := map[string]bool{}
+	for _, r := range rows {
+		known[r.Name] = true
+	}
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if !known[n] {
+			return nil, ErrInvalid
+		}
+		if !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
 // Create issues a key named name with scopes for the project slug on behalf
 // of user, who must be an owner, admin or member of its organization. name
 // is trimmed; expiresAt, when set, must be in the future. The raw key is
@@ -365,9 +410,13 @@ func (s *Service) CreateKey(ctx context.Context, user uuid.UUID, slug string, k 
 	if err != nil {
 		return Created{}, err
 	}
+	envs, err := checkEnvironments(ctx, q, p.ID, k.Environments)
+	if err != nil {
+		return Created{}, err
+	}
 	row, err := q.CreateAPIKey(ctx, db.CreateAPIKeyParams{
 		ID: uuid.New(), ProjectID: p.ID, Name: name, Prefix: prefix, KeyHash: hash, Scopes: scopes, ExpiresAt: expiresAt, AppIds: appIDs,
-		CreatedBy: &user, RateLimitPerMinute: limit,
+		CreatedBy: &user, RateLimitPerMinute: limit, Environments: envs,
 	})
 	if err != nil {
 		return Created{}, fmt.Errorf("apikeys: create: %w", err)
@@ -375,6 +424,7 @@ func (s *Service) CreateKey(ctx context.Context, user uuid.UUID, slug string, k 
 	meta := keyMeta(p, row.ID, row.Name, row.Prefix, row.Scopes)
 	meta["app_ids"] = idStrings(row.AppIds)
 	meta["rate_limit_per_minute"] = intPtr(row.RateLimitPerMinute)
+	meta["environments"] = row.Environments
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
 		User:  &user,
 		Actor: &user,
@@ -389,7 +439,7 @@ func (s *Service) CreateKey(ctx context.Context, user uuid.UUID, slug string, k 
 	return Created{
 		Key: Key{
 			ID: row.ID, ProjectID: row.ProjectID, Name: row.Name, Prefix: row.Prefix, Scopes: row.Scopes, AppIDs: row.AppIds,
-			RateLimitPerMinute: intPtr(row.RateLimitPerMinute), CreatedAt: row.CreatedAt, ExpiresAt: row.ExpiresAt,
+			RateLimitPerMinute: intPtr(row.RateLimitPerMinute), Environments: row.Environments, CreatedAt: row.CreatedAt, ExpiresAt: row.ExpiresAt,
 			CreatedBy: creator(row.CreatorID, row.CreatorName, row.CreatorEmail),
 		},
 		Raw: raw,
@@ -397,7 +447,7 @@ func (s *Service) CreateKey(ctx context.Context, user uuid.UUID, slug string, k 
 }
 
 // UpdateAccess replaces what the key id of the project slug may do with
-// apps, on behalf of user (who must be allowed to manage keys), audits
+// apps and, when a.SetEnvironments, which environments it may send for, on behalf of user (who must be allowed to manage keys), audits
 // api_key.updated and, after the transaction, tells every verifier to forget
 // the key so the change applies at once. A revoked or unknown key is
 // ErrKeyNotFound; apps:create only applies to ingest keys.
@@ -423,6 +473,12 @@ func (s *Service) UpdateAccess(ctx context.Context, user uuid.UUID, slug string,
 	if err != nil {
 		return Key{}, err
 	}
+	envs := k.Environments
+	if a.SetEnvironments {
+		if envs, err = checkEnvironments(ctx, q, p.ID, a.Environments); err != nil {
+			return Key{}, err
+		}
+	}
 	scopes := withAppsCreate(k.Scopes, a.CanCreateApps)
 	limit := k.RateLimitPerMinute
 	if a.RateLimitPerMinute != nil {
@@ -433,13 +489,14 @@ func (s *Service) UpdateAccess(ctx context.Context, user uuid.UUID, slug string,
 			}
 		}
 	}
-	if err := q.UpdateAPIKeyAccess(ctx, db.UpdateAPIKeyAccessParams{ID: k.ID, Scopes: scopes, AppIds: appIDs, RateLimitPerMinute: limit}); err != nil {
+	if err := q.UpdateAPIKeyAccess(ctx, db.UpdateAPIKeyAccessParams{ID: k.ID, Scopes: scopes, AppIds: appIDs, RateLimitPerMinute: limit, Environments: envs}); err != nil {
 		return Key{}, fmt.Errorf("apikeys: update: %w", err)
 	}
 	meta := keyMeta(p, k.ID, k.Name, k.Prefix, scopes)
 	meta["can_create_apps"] = a.CanCreateApps
 	meta["app_ids"] = idStrings(appIDs)
 	meta["rate_limit_per_minute"] = intPtr(limit)
+	meta["environments"] = envs
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{User: &user, Actor: &user, Kind: audit.APIKeyUpdated, Meta: meta}); err != nil {
 		return Key{}, err
 	}
@@ -453,7 +510,7 @@ func (s *Service) UpdateAccess(ctx context.Context, user uuid.UUID, slug string,
 		}
 	}
 	return Key{
-		ID: k.ID, ProjectID: p.ID, Name: k.Name, Prefix: k.Prefix, Scopes: scopes, AppIDs: appIDs,
+		ID: k.ID, ProjectID: p.ID, Name: k.Name, Prefix: k.Prefix, Scopes: scopes, AppIDs: appIDs, Environments: envs,
 		RateLimitPerMinute: intPtr(limit), CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, LastUsedAt: k.LastUsedAt,
 		LastUsedSDK: k.LastUsedSdk, LastUsedIP: k.LastUsedIp, CreatedBy: creator(k.CreatorID, k.CreatorName, k.CreatorEmail),
 	}, nil
@@ -497,7 +554,7 @@ func (s *Service) List(ctx context.Context, user uuid.UUID, slug string) ([]Key,
 	out := make([]Key, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, Key{
-			ID: r.ID, ProjectID: p.ID, Name: r.Name, Prefix: r.Prefix, Scopes: r.Scopes, AppIDs: r.AppIds,
+			ID: r.ID, ProjectID: p.ID, Name: r.Name, Prefix: r.Prefix, Scopes: r.Scopes, AppIDs: r.AppIds, Environments: r.Environments,
 			RateLimitPerMinute: intPtr(r.RateLimitPerMinute), CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, RevokedAt: r.RevokedAt, LastUsedAt: r.LastUsedAt,
 			LastUsedSDK: r.LastUsedSdk, LastUsedIP: r.LastUsedIp, CreatedBy: creator(r.CreatorID, r.CreatorName, r.CreatorEmail),
 			AppsSeen: byKey[r.ID],

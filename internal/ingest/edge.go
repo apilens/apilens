@@ -99,7 +99,7 @@ func New(verifier Verifier, apps AppResolver, sink pipeline.Sink, cfg config.Ing
 			Name: "apilens_ingest_masked_total", Help: "Records in which the server-side privacy policy masked at least one value, by signal.",
 		}, []string{"signal"}),
 		appRejected: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "apilens_ingest_app_rejected_records_total", Help: "Records refused because of the app they name (key may not create it, app scope, app limits, deleted app), by reason.",
+			Name: "apilens_ingest_app_rejected_records_total", Help: "Records refused because of the app they name (key may not create it, app scope, app limits, deleted app) or an environment the key is not pinned to, by reason.",
 		}, []string{"reason"}),
 		appsCreated: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "apilens_ingest_apps_created_total", Help: "Apps created by ingest from an app name it had not seen.",
@@ -108,6 +108,7 @@ func New(verifier Verifier, apps AppResolver, sink pipeline.Sink, cfg config.Ing
 	for _, r := range catalog.Reasons {
 		e.appRejected.WithLabelValues(r)
 	}
+	e.appRejected.WithLabelValues(ReasonEnvironmentNotAllowed)
 	for _, f := range truncatedFields {
 		e.truncated.WithLabelValues(f)
 	}

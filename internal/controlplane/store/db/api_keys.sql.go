@@ -31,12 +31,12 @@ func (q *Queries) CountActiveProjectAPIKeys(ctx context.Context, projectID uuid.
 
 const createAPIKey = `-- name: CreateAPIKey :one
 WITH k AS (
-    INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at, app_ids, created_by, rate_limit_per_minute)
+    INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at, app_ids, created_by, rate_limit_per_minute, environments)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::uuid[], $9::uuid,
-            $10::integer)
-    RETURNING id, project_id, name, prefix, scopes, created_at, expires_at, app_ids, created_by, rate_limit_per_minute
+            $10::integer, $11::text[])
+    RETURNING id, project_id, name, prefix, scopes, created_at, expires_at, app_ids, created_by, rate_limit_per_minute, environments
 )
-SELECT k.id, k.project_id, k.name, k.prefix, k.scopes, k.created_at, k.expires_at, k.app_ids, k.rate_limit_per_minute,
+SELECT k.id, k.project_id, k.name, k.prefix, k.scopes, k.created_at, k.expires_at, k.app_ids, k.rate_limit_per_minute, k.environments,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
@@ -53,6 +53,7 @@ type CreateAPIKeyParams struct {
 	AppIds             []uuid.UUID
 	CreatedBy          *uuid.UUID
 	RateLimitPerMinute *int32
+	Environments       []string
 }
 
 type CreateAPIKeyRow struct {
@@ -65,6 +66,7 @@ type CreateAPIKeyRow struct {
 	ExpiresAt          *time.Time
 	AppIds             []uuid.UUID
 	RateLimitPerMinute *int32
+	Environments       []string
 	CreatorID          *uuid.UUID
 	CreatorName        *string
 	CreatorEmail       *string
@@ -83,6 +85,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 		arg.AppIds,
 		arg.CreatedBy,
 		arg.RateLimitPerMinute,
+		arg.Environments,
 	)
 	var i CreateAPIKeyRow
 	err := row.Scan(
@@ -95,6 +98,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 		&i.ExpiresAt,
 		&i.AppIds,
 		&i.RateLimitPerMinute,
+		&i.Environments,
 		&i.CreatorID,
 		&i.CreatorName,
 		&i.CreatorEmail,
@@ -103,7 +107,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 }
 
 const getActiveAPIKeyByHash = `-- name: GetActiveAPIKeyByHash :one
-SELECT k.id, k.project_id, k.scopes, k.expires_at, k.app_ids, k.rate_limit_per_minute, p.slug AS project_slug, p.org_id
+SELECT k.id, k.project_id, k.scopes, k.expires_at, k.app_ids, k.rate_limit_per_minute, k.environments, p.slug AS project_slug, p.org_id
 FROM api_keys k
 JOIN projects p ON p.id = k.project_id
 WHERE k.key_hash = $1
@@ -119,6 +123,7 @@ type GetActiveAPIKeyByHashRow struct {
 	ExpiresAt          *time.Time
 	AppIds             []uuid.UUID
 	RateLimitPerMinute *int32
+	Environments       []string
 	ProjectSlug        string
 	OrgID              uuid.UUID
 }
@@ -135,6 +140,7 @@ func (q *Queries) GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (Ge
 		&i.ExpiresAt,
 		&i.AppIds,
 		&i.RateLimitPerMinute,
+		&i.Environments,
 		&i.ProjectSlug,
 		&i.OrgID,
 	)
@@ -142,7 +148,7 @@ func (q *Queries) GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (Ge
 }
 
 const listProjectAPIKeys = `-- name: ListProjectAPIKeys :many
-SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.created_at, k.expires_at, k.revoked_at, k.last_used_at,
+SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.environments, k.created_at, k.expires_at, k.revoked_at, k.last_used_at,
        k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM api_keys k
@@ -157,6 +163,7 @@ type ListProjectAPIKeysRow struct {
 	Prefix             string
 	Scopes             []string
 	AppIds             []uuid.UUID
+	Environments       []string
 	CreatedAt          time.Time
 	ExpiresAt          *time.Time
 	RevokedAt          *time.Time
@@ -186,6 +193,7 @@ func (q *Queries) ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) (
 			&i.Prefix,
 			&i.Scopes,
 			&i.AppIds,
+			&i.Environments,
 			&i.CreatedAt,
 			&i.ExpiresAt,
 			&i.RevokedAt,
@@ -254,7 +262,7 @@ func (q *Queries) ListProjectKeyApps(ctx context.Context, projectID uuid.UUID) (
 }
 
 const lockProjectAPIKey = `-- name: LockProjectAPIKey :one
-SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.key_hash, k.revoked_at, k.created_at, k.expires_at, k.last_used_at,
+SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.environments, k.key_hash, k.revoked_at, k.created_at, k.expires_at, k.last_used_at,
        k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM api_keys k
@@ -274,6 +282,7 @@ type LockProjectAPIKeyRow struct {
 	Prefix             string
 	Scopes             []string
 	AppIds             []uuid.UUID
+	Environments       []string
 	KeyHash            string
 	RevokedAt          *time.Time
 	CreatedAt          time.Time
@@ -298,6 +307,7 @@ func (q *Queries) LockProjectAPIKey(ctx context.Context, arg LockProjectAPIKeyPa
 		&i.Prefix,
 		&i.Scopes,
 		&i.AppIds,
+		&i.Environments,
 		&i.KeyHash,
 		&i.RevokedAt,
 		&i.CreatedAt,
@@ -369,24 +379,27 @@ func (q *Queries) TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error 
 
 const updateAPIKeyAccess = `-- name: UpdateAPIKeyAccess :exec
 UPDATE api_keys SET scopes = $1, app_ids = $2::uuid[],
-    rate_limit_per_minute = $3::integer
-WHERE id = $4
+    rate_limit_per_minute = $3::integer,
+    environments = $4::text[]
+WHERE id = $5
 `
 
 type UpdateAPIKeyAccessParams struct {
 	Scopes             []string
 	AppIds             []uuid.UUID
 	RateLimitPerMinute *int32
+	Environments       []string
 	ID                 uuid.UUID
 }
 
-// Replaces a key's scopes, app scope (NULL = every app) and per-key ingest
-// rate limit (NULL = none).
+// Replaces a key's scopes, app scope (NULL = every app), per-key ingest
+// rate limit (NULL = none) and environments (NULL = every environment).
 func (q *Queries) UpdateAPIKeyAccess(ctx context.Context, arg UpdateAPIKeyAccessParams) error {
 	_, err := q.db.Exec(ctx, updateAPIKeyAccess,
 		arg.Scopes,
 		arg.AppIds,
 		arg.RateLimitPerMinute,
+		arg.Environments,
 		arg.ID,
 	)
 	return err

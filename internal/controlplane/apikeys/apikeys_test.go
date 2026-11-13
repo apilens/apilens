@@ -107,6 +107,31 @@ func newVerifier(f *fakeLookup) *Verifier {
 		slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 }
 
+// The key cache carries the environment pin: a cached principal allows only
+// its environments, and an unpinned key allows every one.
+func TestVerifyCarriesEnvironments(t *testing.T) {
+	pinned, _, pinnedHash, _ := Generate()
+	anyEnv, _, anyHash, _ := Generate()
+	f := &fakeLookup{keys: map[string]db.GetActiveAPIKeyByHashRow{
+		pinnedHash: {ID: uuid.New(), ProjectID: uuid.New(), Scopes: []string{"ingest"}, Environments: []string{"staging"}},
+		anyHash:    {ID: uuid.New(), ProjectID: uuid.New(), Scopes: []string{"ingest"}},
+	}}
+	v := newVerifier(f)
+	for range 2 { // the second round is served from the cache
+		p, err := v.Verify(context.Background(), pinned)
+		if err != nil || !p.AllowsEnvironment("staging") || p.AllowsEnvironment("production") {
+			t.Fatalf("pinned principal = %+v, %v", p, err)
+		}
+		p, err = v.Verify(context.Background(), anyEnv)
+		if err != nil || p.Environments != nil || !p.AllowsEnvironment("production") {
+			t.Fatalf("unpinned principal = %+v, %v", p, err)
+		}
+	}
+	if n := f.calls.Load(); n != 2 {
+		t.Fatalf("lookups = %d, want 2", n)
+	}
+}
+
 func TestGenerateAndHash(t *testing.T) {
 	raw, prefix, hash, err := Generate()
 	if err != nil {
