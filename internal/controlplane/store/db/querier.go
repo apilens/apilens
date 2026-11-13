@@ -288,9 +288,12 @@ type Querier interface {
 	ListRecentAppInstances(ctx context.Context, arg ListRecentAppInstancesParams) ([]ListRecentAppInstancesRow, error)
 	// The authz reconciler (ADR 0006) compares these with SpiceDB. They describe
 	// the relationships the outbox relay leaves behind once it has applied every
-	// row: one org role per membership of an active organization, and one
-	// project#org per active project of an active organization.
+	// row: one org role per membership of an active organization; per active
+	// project of an active organization one project#org, the default relations
+	// its default_access implies (ADR 0009) and one direct role per
+	// project_members row.
 	ListReconcileMemberships(ctx context.Context) ([]ListReconcileMembershipsRow, error)
+	ListReconcileProjectMembers(ctx context.Context) ([]ListReconcileProjectMembersRow, error)
 	ListReconcileProjects(ctx context.Context) ([]ListReconcileProjectsRow, error)
 	// Apps of a project as the ingest resolver and the Apps page see them.
 	// Every app of the project the resolver must know about: active and

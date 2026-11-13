@@ -7,7 +7,7 @@ SpiceDB schema for APILens ([ADR 0006](../docs/adr/0006-authorization-spicedb.md
 
 Run `task lint:authz` to validate both files with `zed validate`. It is also part of `task lint`.
 
-`schema.go` embeds `schema.zed` into the binary. `apilens migrate` writes it to SpiceDB through the API (idempotent) whenever `authz.endpoint` is set; `apilens migrate -only=authz` applies just the schema. SpiceDB runs in `deploy/compose` (dev and self-host) and optionally in the Helm chart (`spicedb.enabled`).
+`schema.go` embeds `schema.zed` into the binary. `apilens migrate` writes it to SpiceDB through the API (idempotent) whenever `authz.endpoint` is set, then runs the reconciler once so every relationship the schema expects exists; `apilens migrate -only=authz` does just that (run the `postgres` step first on an upgrade, the reconciler reads `project_members` and `projects.default_access`). SpiceDB runs in `deploy/compose` (dev and self-host) and optionally in the Helm chart (`spicedb.enabled`).
 
 ## Go client
 
@@ -87,6 +87,19 @@ API keys only ever satisfy `project#view` on their own project; OAuth clients ho
 2. Update the table above and the assertions in `schema.validation.yaml` in the same change.
 3. Run `task lint:authz`.
 
-Projects created before the default relations existed have only `project#org`; until the reconciler backfills their `org_role` relations (#768), org members and org viewers have no access to them.
+## Upgrade order (default access, #768)
+
+Projects created before the default relations existed have only `project#org`, and under the old schema org members and org viewers reached them through the organization (`org->create_project`, `org->view`). Writing the new schema before their `org_role` relations exist would lock those people out, so `apilens migrate` upgrades in this order and keeps the old terms until the backfill has run:
+
+1. **Postgres.** Migration 00032 adds `project_members` and `projects.default_access` (`org_role` for every existing project, which is today's access).
+2. **Bridge schema.** When the schema SpiceDB holds still lets org access flow down to projects (`authz.InheritsOrgAccess`), migrate writes `authz.BridgeSchema()`: `schema.zed` with the new relations and the old `+ org->create_project` (on `manage_keys`, `edit`) and `+ org->view` (on `view`) terms kept. It grants exactly what the old schema did, because no project is restricted yet.
+3. **Backfill.** The reconciler writes the default relations from `projects.default_access` and the direct roles from `project_members` (and repairs any other drift).
+4. **Final schema.** Migrate writes `schema.zed`; from now on org members and org viewers reach a project only through its default relations.
+
+A failure between steps leaves the bridge in place, which is safe; running `apilens migrate` again resumes at step 2. A fresh install or a SpiceDB already on the final schema skips the bridge (schema, then reconcile). `TestMigrateUpgradeKeepsAccess` (`internal/app`) checks every permission of every org member before, during and after the upgrade. Delete `BridgeSchema` once no supported release predates the default relations.
+
+## Reconciler
+
+The hourly reconciler (and `apilens authz reconcile`) owns every relationship the relay writes: org roles, `project#org`, the direct project roles `project#{admin,editor,viewer}` (from `project_members`) and the default relations (from `projects.default_access`). It restores what is missing and deletes any of these that Postgres has no row for, for example a project role granted by hand in SpiceDB.
 
 The schema is append-friendly: SpiceDB rejects a schema write that removes a relation still in use, so rename or remove a relation in two steps (stop writing it, then delete it).
