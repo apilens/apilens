@@ -40,7 +40,7 @@ test("lists everyone with their effective role and where it comes from", async (
   await expect(page.getByText("9 people have access: 4 Admins, 3 Editors, 2 Viewers.")).toBeVisible();
   await expect(page.getByText("Default access: organization members can edit and organization viewers can view.")).toBeVisible();
   await expect(rows(page)).toHaveCount(9);
-  await expect(table(page).locator("thead th")).toHaveText(["Person", "Role", "Source", "Last active", "Added by"]);
+  await expect(table(page).locator("thead th")).toHaveText(["Person", "Role", "Source", "Last active", "Added by", "Actions"]);
 
   const olive = row(page, "Olive Owner");
   await expect(olive.locator('td[data-label="Role"]')).toHaveText("Admin");
@@ -144,7 +144,9 @@ test("a viewer sees the same list, read-only", async ({ page }) => {
   await signIn(page, "/shop/access", VIEWER);
   await expect(page.getByText("9 people have access: 4 Admins, 3 Editors, 2 Viewers.")).toBeVisible();
   await expect(rows(page)).toHaveCount(9);
-  await expect(table(page).getByRole("button")).toHaveCount(0);
+  // Changing access (#807) is there, disabled with the reason.
+  for (const b of await table(page).getByRole("button").all()) await expect(b).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Add people" })).toBeDisabled();
   await expect(table(page).getByRole("combobox")).toHaveCount(0);
 });
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { ListSearch, useCanonicalPage, useListSearch } from "@/components/list-search/list-search";
 import { Pagination } from "@/components/pagination/pagination";
 import {
@@ -20,12 +20,14 @@ import {
   parseMemberFilters,
   sourceLines,
 } from "@/lib/access-members";
+import type { Candidate } from "@/lib/access-changes";
 import type { AccessMember, DefaultAccess } from "@/lib/identity";
 import { formatJoined } from "@/lib/org-members";
 import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/pagination";
 import { PROJECT_ROLES, ROLE_LABELS } from "@/lib/project-access";
 import "../org-settings/org-settings.css";
 import "../org-settings/members.css";
+import { type Announce, AddPeople, MemberRowMenu } from "./manage";
 import "./members.css";
 
 /** The Members tab's title and tabs, around the list (or its skeleton while it loads). */
@@ -68,8 +70,10 @@ export function AccessMembersLoading() {
  * `/<project>/access` (#806): everyone who can reach the project, their effective role, where it
  * comes from (one line per source), when they were last active and who added them. Searched by name
  * or email, filtered by role and source, and paged, with `?q=&role=&source=&page=&per=` in the URL.
- * Read-only: everyone who sees the project sees the same list. `data` is null when the API could
- * not answer; `now` is the server's clock so the first render matches.
+ * Everyone who sees the project sees the same list; holders of `access.manage` add people and
+ * change or remove direct roles (#807), everyone else sees those controls disabled with the reason.
+ * `data` is null when the API could not answer; `candidates` (the org members "Add people" offers)
+ * is null when they could not be loaded; `now` is the server's clock so the first render matches.
  */
 export function AccessMembers({
   project,
@@ -77,14 +81,18 @@ export function AccessMembers({
   data,
   params,
   now,
+  candidates = null,
 }: {
   project: string;
   projectName: string;
   data: { defaultAccess: DefaultAccess; members: AccessMember[] } | null;
   params: SearchParams;
   now: number;
+  candidates?: Candidate[] | null;
 }) {
   const router = useRouter();
+  const [status, setStatus] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+  const announce: Announce = setStatus;
   const pathname = `/${project}/access`;
   const list = useListSearch(pathname, params);
   const filters = parseMemberFilters(list.params);
@@ -154,7 +162,11 @@ export function AccessMembers({
         <p className="om-count am-match" role="status" aria-live="polite">
           {match}
         </p>
+        <AddPeople project={project} projectName={projectName} candidates={candidates} announce={announce} />
       </div>
+      <p className={`om-status am-status${status ? ` ${status.tone}` : ""}`} role="status" aria-live="polite">
+        {status?.text ?? ""}
+      </p>
 
       {matched.length === 0 ? (
         <div className="om-wrap ls-none" id="am-list">
@@ -177,6 +189,9 @@ export function AccessMembers({
                 <th scope="col">Source</th>
                 <th scope="col">Last active</th>
                 <th scope="col">Added by</th>
+                <th scope="col">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -218,6 +233,9 @@ export function AccessMembers({
                         </time>
                       </span>
                     )}
+                  </td>
+                  <td className="om-act">
+                    <MemberRowMenu project={project} projectName={projectName} member={m} announce={announce} />
                   </td>
                 </tr>
               ))}

@@ -519,11 +519,12 @@ function seedMembers(id: string, role: Role) {
     joined_at: ago(days * 24 * 60),
     last_login_at: null,
   });
+  // The same ids as shop's access list (PEOPLE_IDS), so "Add people" (#807) grants the person listed there.
   const others = [
-    m(randomUUID(), "Olive Owner", "olive@example.com", "owner", 60),
-    m(randomUUID(), "Ada Admin", "ada@example.com", "admin", 20),
-    m(randomUUID(), "Max Member", "max@example.com", "member", 10),
-    m(randomUUID(), "Vera Viewer", "vera@example.com", "viewer", 2),
+    m(PEOPLE_IDS.olive, "Olive Owner", "olive@example.com", "owner", 60),
+    m(PEOPLE_IDS.ada, "Ada Admin", "ada@example.com", "admin", 20),
+    m(PEOPLE_IDS.max, "Max Member", "max@example.com", "member", 10),
+    m(PEOPLE_IDS.vera, "Vera Viewer", "vera@example.com", "viewer", 2),
   ].filter((o) => !(role === "owner" && o.role === "owner"));
   const all = [m(id, "Fake User", "you@example.com", role, 30), ...others];
   membersByUser.set(id, all.sort((a, b) => a.joined_at.localeCompare(b.joined_at)));
@@ -3680,11 +3681,17 @@ async function accessAndAudit(req: IncomingMessage, res: ServerResponse, path: s
   }
   if (rawTarget !== undefined && (req.method === "PUT" || req.method === "DELETE")) {
     const target = decodeURIComponent(rawTarget);
-    const person = accessState.people.find((p) => (p.user_id === PEOPLE_IDS.you ? user : p.user_id) === target);
+    let person = accessState.people.find((p) => (p.user_id === PEOPLE_IDS.you ? user : p.user_id) === target);
     let role: unknown;
     if (req.method === "PUT") {
       role = (await readBody(req)).role;
       if (role !== "admin" && role !== "editor" && role !== "viewer") return problem(res, 400, "invalid_request"), true;
+    }
+    // A member of acme the measured list leaves out (a numbered teammate): a grant adds them to it.
+    const joining = person || req.method !== "PUT" ? undefined : membersByUser.get(user)?.find((m) => m.user.id === target);
+    if (joining) {
+      person = { user_id: target, name: joining.user.name, email: joining.user.email, org_role: joining.role, direct_role: null, added_at: joining.joined_at, last_active_at: joining.last_login_at };
+      accessState.people.push(person);
     }
     if (!person) return problem(res, 409, "not_org_member"), true;
     if (req.method === "DELETE") {
