@@ -36,6 +36,19 @@ import {
   parseKeyFilter,
   relativeTime,
   sdkText,
+  DEFAULT_OVERLAP,
+  EXPIRY_CHOICES,
+  ROTATE_OVERLAPS,
+  canRotate,
+  checkEnvironments,
+  formatDayTime,
+  isRotateOverlap,
+  overlapEnd,
+  overlapText,
+  pickableEnvironments,
+  rotateError,
+  rotatedText,
+  withRotated,
 } from "./api-keys";
 import type { ApiKey } from "./identity";
 import { pageRedirect, parsePage, slicePage } from "./pagination";
@@ -367,5 +380,84 @@ describe("last used (#810)", () => {
   it("shows the SDK and version", () => {
     expect(sdkText("apilenss/0.5.0")).toBe("apilenss 0.5.0");
     expect(sdkText(null)).toBe("");
+  });
+});
+
+describe("rotation overlap (#811)", () => {
+  const now = Date.parse("2026-11-13T10:30:00Z");
+  const at = (hours: number) => new Date(now + hours * 3_600_000).toISOString();
+
+  it("offers Stop now, 24 hours and 7 days, 24 hours first chosen", () => {
+    expect(ROTATE_OVERLAPS.map((o) => [o.value, o.label])).toEqual([
+      ["none", "Stop now"],
+      ["24h", "24 hours"],
+      ["7d", "7 days"],
+    ]);
+    expect(DEFAULT_OVERLAP).toBe("24h");
+    expect(isRotateOverlap("7d")).toBe(true);
+    expect(isRotateOverlap("30d")).toBe(false);
+    expect(isRotateOverlap("toString")).toBe(false);
+    expect(isRotateOverlap(undefined)).toBe(false);
+  });
+
+  it("ends the overlap after the window, never past the key's own expiry", () => {
+    expect(overlapEnd("none", null, now)).toBe(now);
+    expect(overlapEnd("24h", null, now)).toBe(now + 86_400_000);
+    expect(overlapEnd("7d", null, now)).toBe(now + 7 * 86_400_000);
+    expect(overlapEnd("7d", at(48), now)).toBe(now + 48 * 3_600_000);
+    expect(overlapEnd("24h", at(48), now)).toBe(now + 86_400_000);
+  });
+
+  it("says what happens to the old key", () => {
+    expect(overlapText("none", null, now)).toBe("The old key stops working as soon as you rotate.");
+    expect(overlapText("24h", null, now)).toBe("The old key keeps working until 14 Nov, 10:30 UTC.");
+    expect(overlapText("7d", null, now)).toBe("The old key keeps working until 20 Nov, 10:30 UTC.");
+    expect(overlapText("7d", "2026-11-15T00:00:00Z", now)).toBe("The old key keeps working until 15 Nov, 00:00 UTC, when it expires anyway.");
+    expect(formatDayTime(Number.NaN)).toBe("");
+  });
+
+  it("rotates only working keys that were not rotated yet", () => {
+    expect(canRotate(key(), now)).toBe(true);
+    expect(canRotate(key({ expires_at: at(24) }), now)).toBe(true);
+    expect(canRotate(key({ expires_at: at(24), rotated_to: "x" }), now)).toBe(false);
+    expect(canRotate(key({ expires_at: at(-1) }), now)).toBe(false);
+    expect(canRotate(key({ revoked_at: at(-1) }), now)).toBe(false);
+  });
+
+  it("reports the rotation and updates the list", () => {
+    expect(rotatedText({ name: "Prod", expires_at: at(24) }, now)).toBe("Rotated Prod. The old key works until 14 Nov, 10:30 UTC.");
+    expect(rotatedText({ name: "Prod", expires_at: at(0) }, now)).toBe("Rotated Prod. The old key no longer works.");
+    const old = key({ id: "old" });
+    const other = key({ id: "other" });
+    const previous = { ...old, expires_at: at(24), rotated_to: "new" };
+    const next = key({ id: "new", rotated_from: "old" });
+    expect(withRotated([other, old], next, previous)).toEqual([next, other, previous]);
+    expect(rotateError("key_not_active")).toMatch(/revoked, expired or rotated already/);
+    expect(rotateError("forbidden")).toBe(apiKeysError("forbidden"));
+  });
+});
+
+describe("environment limits (#811)", () => {
+  it("offers the visible environments in the project's order", () => {
+    const env = (name: string, position: number, hidden = false) => ({ name, position, hidden });
+    expect(pickableEnvironments([env("staging", 1), env("qa", 2, true), env("production", 0)])).toEqual(["production", "staging"]);
+    expect(pickableEnvironments([])).toEqual([]);
+    expect(pickableEnvironments(null)).toBeNull();
+  });
+
+  it("checks the environments a Server Action received", () => {
+    expect(checkEnvironments(undefined)).toEqual({ ok: true, environments: null });
+    expect(checkEnvironments(null)).toEqual({ ok: true, environments: null });
+    expect(checkEnvironments(["production", " production ", "staging"])).toEqual({ ok: true, environments: ["production", "staging"] });
+    expect(checkEnvironments([])).toEqual({ ok: false, error: "Choose at least one environment, or allow every environment." });
+    expect(checkEnvironments(["", "x"]).ok).toBe(false);
+    expect(checkEnvironments("production").ok).toBe(false);
+  });
+});
+
+describe("expiry choices (#811)", () => {
+  it("offers never, 30, 90 and 365 days and a custom date", () => {
+    expect(EXPIRY_CHOICES.map((c) => c.value)).toEqual(["never", "30", "90", "365", "custom"]);
+    expect(expiryFor("90", "", NOW)).toEqual({ ok: true, expiresAt: "2027-02-02T12:00:00.000Z" });
   });
 });

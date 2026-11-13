@@ -73,7 +73,7 @@ test("lists keys with what they can do, creator, last use, expiry and state; ina
     "6 minutes agoapilenss 0.5.0",
     "Never",
     "Active",
-    "Edit accessRevoke",
+    "Edit accessRotateRevoke",
   ]);
   // Last use: relative time, the SDK and version, the exact time on hover.
   await expect(rows(page).nth(0).locator("td[data-label='Last used'] time")).toHaveAttribute("title", /UTC$/);
@@ -247,6 +247,112 @@ test("limits a key to apps, which turns off creating apps, and back", async ({ p
   await expect(rows(page).first().getByRole("cell").nth(2)).toHaveText("Ingest and create appsAll apps · All environments");
 });
 
+// Rotation (#811): each overlap, then the new key is revealed once and never again.
+for (const overlap of [
+  { label: "Stop now", hint: "The old key stops working as soon as you rotate." },
+  { label: "24 hours", hint: /^The old key keeps working until .+ UTC\.$/ },
+  { label: "7 days", hint: /^The old key keeps working until .+ UTC\.$/ },
+]) {
+  test(`rotates a key with "${overlap.label}"; the new key is shown once and gone after reload`, async ({ page }) => {
+    await signIn(page, { apiKeys: SEEDED.slice(0, 1) });
+    const opener = rows(page).first().getByRole("button", { name: "Rotate Production backend" });
+    await opener.click();
+    const rotate = page.getByRole("dialog", { name: "Rotate Production backend?" });
+    await expect(rotate).toContainText("A new key with the same access replaces apl_live_Q2x9aZ1…");
+    await expect(rotate.getByRole("button", { name: "Cancel" })).toBeFocused();
+    // 24 hours is the default; Escape cancels and focus goes back to Rotate.
+    await expect(rotate.getByRole("radio", { name: /24 hours/ })).toBeChecked();
+    await page.keyboard.press("Escape");
+    await expect(rotate).toHaveCount(0);
+    await expect(opener).toBeFocused();
+    await expect(rows(page)).toHaveCount(1);
+
+    await opener.click();
+    await rotate.getByRole("radio", { name: new RegExp(overlap.label) }).check();
+    await expect(rotate.getByRole("group", { name: "How long the old key keeps working" })).toHaveAccessibleDescription(overlap.hint);
+    await rotate.getByRole("button", { name: "Rotate key" }).click();
+
+    // The reveal: Escape does not dismiss it and Done waits for "I have stored this key".
+    await expect(dialog(page).getByRole("heading", { name: "Copy your new key" })).toBeVisible();
+    const raw = await dialog(page).getByRole("textbox", { name: "API key" }).inputValue();
+    expect(raw).toMatch(/^apl_live_[A-Za-z0-9_-]{20,}$/);
+    await page.keyboard.press("Escape");
+    await expect(dialog(page)).toBeVisible();
+    const done = dialog(page).getByRole("button", { name: "Done" });
+    await expect(done).toBeDisabled();
+    await dialog(page).getByRole("checkbox", { name: /I have stored this key/ }).check();
+    await done.click();
+    await expect(dialog(page)).toHaveCount(0);
+
+    const fresh = rows(page).first();
+    await expect(fresh.getByRole("cell").nth(1)).toHaveText(`${raw.slice(0, 16)}…`);
+    await expect(fresh.getByRole("cell").nth(6)).toHaveText("Active");
+    if (overlap.label === "Stop now") {
+      await expect(card(page).getByRole("status")).toHaveText("Rotated Production backend. The old key no longer works.");
+      // The old key expired at once: it is inactive, behind the toggle.
+      await expect(rows(page)).toHaveCount(1);
+      await expect(inactive(page)).toHaveAccessibleName("Show inactive (1)");
+    } else {
+      await expect(card(page).getByRole("status")).toHaveText(/^Rotated Production backend\. The old key works until .+ UTC\.$/);
+      await expect(rows(page)).toHaveCount(2);
+      const days = overlap.label === "7 days" ? 7 : 1;
+      await expect(rows(page).nth(1).getByRole("cell").nth(6)).toHaveText(`Rotating until ${dayMonth(iso(days * 24))}`);
+      // A key in its overlap is not rotated again.
+      await expect(rows(page).nth(1).getByRole("button", { name: "Rotate Production backend" })).toHaveCount(0);
+    }
+
+    // Never shown again: not on the page, in the DOM or after a reload.
+    expect(await page.content()).not.toContain(raw);
+    await page.reload();
+    await expect(rows(page)).toHaveCount(overlap.label === "Stop now" ? 1 : 2);
+    await expect(rows(page).first().getByRole("cell").nth(1)).toHaveText(`${raw.slice(0, 16)}…`);
+    expect(await page.content()).not.toContain(raw);
+  });
+}
+
+test("creates a key with an expiry date and limited to environments", async ({ page }) => {
+  // Shop's measured environments: production, staging, canary, preview and a hidden qa-legacy.
+  await fetch(`${IDENTITY}/__fake/environments`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  await signIn(page);
+  await card(page).getByRole("button", { name: "Create API key" }).click();
+  await dialog(page).getByRole("textbox", { name: /Name/ }).fill("Staging worker");
+  await dialog(page).getByRole("combobox", { name: /Expires/ }).selectOption("custom");
+  await dialog(page).getByLabel("Expiry date").fill("2099-01-15");
+
+  const envs = dialog(page).getByRole("group", { name: "Environments it may send data for" });
+  await expect(envs.getByRole("radio", { name: /All environments/ })).toBeChecked();
+  await envs.getByRole("radio", { name: /Limit to environments/ }).check();
+  const picks = envs.getByRole("list", { name: "Environments this key may send data for" });
+  // Hidden environments are not offered.
+  await expect(picks.getByRole("checkbox")).toHaveCount(4);
+  await expect(picks.getByRole("checkbox", { name: "qa-legacy" })).toHaveCount(0);
+  await dialog(page).getByRole("button", { name: "Create key" }).click();
+  await expect(dialog(page).getByRole("alert")).toHaveText("Choose at least one environment, or allow all environments.");
+  await picks.getByRole("checkbox", { name: "staging" }).check();
+  await picks.getByRole("checkbox", { name: "production" }).check();
+  await dialog(page).getByRole("button", { name: "Create key" }).click();
+
+  await expect(dialog(page).getByRole("heading", { name: "Copy your new key" })).toBeVisible();
+  await expect(dialog(page)).toContainText("expires Jan 15, 2099");
+  // Creating needs no acknowledgement; Done closes it.
+  await dialog(page).getByRole("button", { name: "Done" }).click();
+  await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page).first().getByRole("cell").nth(2)).toHaveText("Ingest and create appsAll apps · Only production and staging");
+  await expect(rows(page).first().getByRole("cell").nth(5)).toHaveText("Jan 15, 2099");
+  await page.reload();
+  await expect(rows(page).first().getByRole("cell").nth(2)).toHaveText("Ingest and create appsAll apps · Only production and staging");
+});
+
+test("a read-only key never shows the environment field", async ({ page }) => {
+  await fetch(`${IDENTITY}/__fake/environments`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  await signIn(page);
+  await card(page).getByRole("button", { name: "Create API key" }).click();
+  await expect(dialog(page).getByRole("group", { name: "Environments it may send data for" })).toBeVisible();
+  await dialog(page).getByRole("checkbox", { name: /Ingest/ }).uncheck();
+  await dialog(page).getByRole("checkbox", { name: /Read/ }).check();
+  await expect(dialog(page).getByRole("group", { name: "Environments it may send data for" })).toHaveCount(0);
+});
+
 test("pages a long list in the URL", async ({ page }) => {
   const many = Array.from({ length: 30 }, (_, i) => ({ name: `Key ${i + 1}`, scopes: ["read"], created_at: `2026-10-${String(30 - i).padStart(2, "0")}T10:00:00Z` }));
   await signIn(page, { apiKeys: many });
@@ -264,7 +370,7 @@ test("pages a long list in the URL", async ({ page }) => {
 test("screenshots", async ({ page }) => {
   const dir = process.env.API_KEY_SHOTS;
   test.skip(!dir, "set API_KEY_SHOTS to a directory to capture screenshots");
-  for (const label of ["empty", "list", "revoke", "reveal"] as const) {
+  for (const label of ["empty", "list", "revoke", "reveal", "rotate"] as const) {
     await signIn(page, { apiKeys: label === "empty" || label === "reveal" ? [] : stateKeys() });
     for (const theme of ["light", "dark"]) {
       await page.evaluate((t) => localStorage.setItem("theme", t), theme);
@@ -275,6 +381,10 @@ test("screenshots", async ({ page }) => {
         if (label === "revoke") {
           await rows(page).nth(2).getByRole("button", { name: /^Revoke/ }).click();
           await page.getByRole("dialog").getByRole("textbox").fill("Staging worker");
+        }
+        if (label === "rotate") {
+          await rows(page).nth(0).getByRole("button", { name: /^Rotate/ }).click();
+          await expect(page.getByRole("dialog", { name: /^Rotate/ })).toBeVisible();
         }
         if (label === "reveal") {
           await card(page).getByRole("button", { name: "Create API key" }).click();

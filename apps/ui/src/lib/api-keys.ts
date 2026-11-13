@@ -2,7 +2,7 @@
 // `POST /projects/{slug}/api-keys`, how each key's status is described, and the sentences shown
 // for the server's error codes. The server stays the authority; these checks only spare a round
 // trip. Pure; safe in Client Components and Server Actions alike.
-import type { ApiKey, ApiKeyScope, KeyApp } from "./identity";
+import type { ApiKey, ApiKeyScope, Environment, KeyApp, RotateOverlap } from "./identity";
 import type { PageOptions } from "./pagination";
 
 /** The Access tab that lists the keys; `/<project>/settings/keys` redirects to it (#801). */
@@ -438,3 +438,97 @@ export function revealAppHint(access: KeyAccess): string {
 
 /** The keys list's page sizes. */
 export const KEYS_PAGE: PageOptions = { sizes: [25, 50, 100], defaultPer: 25 };
+
+// ---------------------------------------------------------------------------------------------
+// Rotation with an overlap window (#811, D6): a new key replaces the old one, which keeps working
+// for the overlap (never past its own expiry) so services can switch over without downtime.
+
+/** The overlap choices of the rotate dialog, in order. */
+export const ROTATE_OVERLAPS: readonly { value: RotateOverlap; label: string; help: string }[] = [
+  { value: "none", label: "Stop now", help: "The old key is rejected as soon as the new one exists." },
+  { value: "24h", label: "24 hours", help: "Enough to redeploy your services with the new key." },
+  { value: "7d", label: "7 days", help: "For keys used in many places or by other teams." },
+];
+
+/** The overlap the rotate dialog starts with. */
+export const DEFAULT_OVERLAP: RotateOverlap = "24h";
+
+const OVERLAP_MS: Record<RotateOverlap, number> = { none: 0, "24h": DAY_MS, "7d": 7 * DAY_MS };
+
+/** Whether a Server Action received a known overlap. */
+export function isRotateOverlap(value: unknown): value is RotateOverlap {
+  return typeof value === "string" && Object.hasOwn(OVERLAP_MS, value);
+}
+
+/** A key can be rotated while it works and has not been rotated already (active or expiring). */
+export function canRotate(key: Pick<ApiKey, "revoked_at" | "expires_at" | "rotated_to">, now = Date.now()): boolean {
+  const state = keyState(key, now);
+  return state === "active" || state === "expiring";
+}
+
+/**
+ * When the old key stops working if rotated now with `overlap`, as the API computes it: now plus
+ * the overlap, but never later than the key's own `expires_at`.
+ */
+export function overlapEnd(overlap: RotateOverlap, expiresAt: string | null, now = Date.now()): number {
+  const end = now + OVERLAP_MS[overlap];
+  const own = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+  return Number.isNaN(own) ? end : Math.min(end, own);
+}
+
+const DAY_TIME = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" });
+
+/** `14 Nov, 10:30 UTC`. */
+export function formatDayTime(t: number): string {
+  return Number.isNaN(t) ? "" : `${DAY_TIME.format(t)} UTC`;
+}
+
+/** The sentence under the overlap choices: what happens to the old key. */
+export function overlapText(overlap: RotateOverlap, expiresAt: string | null, now = Date.now()): string {
+  if (overlap === "none") return "The old key stops working as soon as you rotate.";
+  const end = overlapEnd(overlap, expiresAt, now);
+  const capped = end < now + OVERLAP_MS[overlap];
+  return `The old key keeps working until ${formatDayTime(end)}${capped ? ", when it expires anyway" : ""}.`;
+}
+
+/** The status line after a rotation, from the rotated key as the API answered it. */
+export function rotatedText(previous: Pick<ApiKey, "name" | "expires_at">, now = Date.now()): string {
+  const end = previous.expires_at ? Date.parse(previous.expires_at) : Number.NaN;
+  if (Number.isNaN(end) || end <= now) return `Rotated ${previous.name}. The old key no longer works.`;
+  return `Rotated ${previous.name}. The old key works until ${formatDayTime(end)}.`;
+}
+
+/** The list after a rotation: the new key first, the old one replaced by its rotated row. */
+export function withRotated(list: readonly ApiKey[], next: ApiKey, previous: ApiKey): ApiKey[] {
+  return withCreated(
+    list.map((k) => (k.id === previous.id ? previous : k)),
+    next,
+  );
+}
+
+/** The sentence for a failed rotation: `key_not_active` means it was revoked, expired or rotated meanwhile. */
+export function rotateError(code: string): string {
+  if (code === "key_not_active") return "This key was revoked, expired or rotated already. Reload the page to see the current keys.";
+  return apiKeysError(code);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Environment limits of a new key (#811, after #774): every environment, or only the ones picked.
+
+/** The environments a key can be pinned to: the project's visible ones, in the project's order. */
+export function pickableEnvironments(list: readonly Pick<Environment, "name" | "hidden" | "position">[] | null): string[] | null {
+  if (list === null) return null;
+  return [...list]
+    .filter((e) => !e.hidden)
+    .sort((a, b) => a.position - b.position)
+    .map((e) => e.name);
+}
+
+/** The environments as the API wants them (deduplicated names; null for every environment), or why not. */
+export function checkEnvironments(list: unknown): { ok: true; environments: string[] | null } | { ok: false; error: string } {
+  if (list === null || list === undefined) return { ok: true, environments: null };
+  if (!Array.isArray(list) || !list.every((n) => typeof n === "string" && n.trim() !== "")) return { ok: false, error: "Choose the environments the key may send data for." };
+  const names = [...new Set(list.map((n: string) => n.trim()))];
+  if (names.length === 0) return { ok: false, error: "Choose at least one environment, or allow every environment." };
+  return { ok: true, environments: names };
+}
