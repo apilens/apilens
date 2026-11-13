@@ -508,6 +508,15 @@ jobs:
         run: |
           timeout 120 sh -c 'until curl -fsS -o /dev/null "$APILENS_E2E_UI_URL/sign-in"; do sleep 2; done'
           pnpm --filter ui exec playwright test onboarding.spec.ts
+      # Project access and settings (apps/ui/e2e/access-settings.spec.ts): restrict a project and
+      # grant it back as Viewer, rotate a key with an overlap, change an environment, delete and
+      # restore the project, and the Activity tab. Codes and the invitation come from Mailpit.
+      - name: Run browser e2e (access and project settings)
+        env:
+          APILENS_E2E_UI_URL: http://localhost:3000
+          APILENS_E2E_EDGE_URL: http://127.0.0.1:8080
+          APILENS_E2E_MAILPIT_URL: http://127.0.0.1:8025
+        run: pnpm --filter ui exec playwright test access-settings.spec.ts
       # The FastAPI example app (examples/fastapi) sends the data the observability surfaces are
       # tested on, to a project of its own (apart from the Go suite's data and quota). Seed also
       # prints a one-time magic link for the dev owner (dev@example.com), so the browser signs in
