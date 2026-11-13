@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/valkey-io/valkey-go"
 
 	"github.com/apilens/apilens/authz"
 	authzclient "github.com/apilens/apilens/internal/authz"
@@ -34,6 +35,7 @@ import (
 	"github.com/apilens/apilens/internal/migrations"
 	"github.com/apilens/apilens/internal/platform/buildinfo"
 	"github.com/apilens/apilens/internal/platform/cache"
+	"github.com/apilens/apilens/internal/platform/ch"
 	"github.com/apilens/apilens/internal/platform/config"
 	applog "github.com/apilens/apilens/internal/platform/log"
 	"github.com/apilens/apilens/internal/platform/pg"
@@ -66,6 +68,9 @@ Usage:
                                               one stays published until its tokens expire
   apilens authz reconcile [-dry-run]          repair drift between Postgres and SpiceDB now
                                               (the identity role also runs it hourly)
+  apilens project purge <project id>          remove a deleted project's data now (ClickHouse,
+                                              Postgres, SpiceDB, Valkey, export files), even
+                                              inside its grace period; resumes a stopped purge
   apilens identity create-client [flags]      register a client of the built-in OIDC provider
                                               and print its id and secret
   apilens pii-audit -project=... [-since=1h] | -csv=file
@@ -105,6 +110,8 @@ func Main(args []string, stdout, stderr io.Writer, environ []string) int {
 		err = runIdentity(ctx, args, stdout, stderr, environ)
 	case "authz":
 		err = runAuthz(ctx, args, stdout, stderr, environ)
+	case "project":
+		err = runProject(ctx, args, stdout, stderr, environ)
 	case "pii-audit":
 		err = runPIIAudit(ctx, args, stdout, stderr, environ)
 	case "healthcheck":
@@ -509,6 +516,63 @@ func runAuthz(ctx context.Context, args []string, stdout, stderr io.Writer, envi
 	default:
 		return fmt.Errorf("authz: unknown command %q (want reconcile)", sub)
 	}
+}
+
+// runProject runs the `apilens project <command>` operator commands.
+func runProject(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) error {
+	sub := ""
+	if len(args) > 0 {
+		sub, args = args[0], args[1:]
+	}
+	switch sub {
+	case "purge":
+		return runProjectPurge(ctx, args, stdout, stderr, environ)
+	default:
+		return fmt.Errorf("project: unknown command %q (want purge)", sub)
+	}
+}
+
+// runProjectPurge purges one deleted project now, the work the hourly purge
+// job does once the grace period has passed (#796).
+func runProjectPurge(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) error {
+	fs := flag.NewFlagSet("apilens project purge", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfg, logger, err := loadConfig(fs, args, environ, stderr)
+	if err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("project purge: want exactly one project id")
+	}
+	id, err := uuid.Parse(fs.Arg(0))
+	if err != nil {
+		return fmt.Errorf("project purge: %q is not a project id", fs.Arg(0))
+	}
+	pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-purge")
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	conn, err := ch.Connect(ctx, cfg.ClickHouse)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	var vk valkey.Client
+	if cfg.Valkey.Enabled() {
+		if vk, err = cache.Connect(ctx, cfg.Valkey); err != nil {
+			return err
+		}
+		defer vk.Close()
+	}
+	store, err := query.NewLocalExportStore(cfg.Exports.Dir)
+	if err != nil {
+		return err
+	}
+	if err := newPurger(pool, conn, vk, store, cfg, logger).Purge(ctx, id); err != nil {
+		return err
+	}
+	return json.NewEncoder(stdout).Encode(map[string]any{"project_id": id, "purged": true})
 }
 
 // runReconcile runs the authz reconciler once (the job the identity role

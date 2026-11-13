@@ -428,6 +428,16 @@ type ProjectMember struct {
 	UpdatedAt time.Time
 }
 
+type ProjectPurge struct {
+	ProjectID  uuid.UUID
+	Step       string
+	Attempts   int32
+	LastError  *string
+	StartedAt  time.Time
+	UpdatedAt  time.Time
+	FinishedAt *time.Time
+}
+
 type ProjectSlugHistory struct {
 	Slug      string
 	ProjectID uuid.UUID

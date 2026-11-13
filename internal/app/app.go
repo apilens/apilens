@@ -35,6 +35,7 @@ import (
 	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/controlplane/privacy"
 	"github.com/apilens/apilens/internal/controlplane/projects"
+	"github.com/apilens/apilens/internal/controlplane/purge"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/controlplane/usercontext"
 	"github.com/apilens/apilens/internal/email"
@@ -88,6 +89,7 @@ const (
 	modRelay      = "outbox-relay"
 	modAlerts     = "alerts"
 	modExports    = "exports"
+	modPurge      = "purge"
 )
 
 // PlannedTargets are roles of the target architecture that later milestones
@@ -178,8 +180,13 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	// like alerts they are worked by the all-in-one process until the M4
 	// worker role exists. query only enqueues them and serves the files.
 	m.Register(modExports, a.initExports, modules.Invisible(), modules.DependsOn(modPostgres, modClickHouse, modJobs))
+	// The project purge job removes deleted projects' data from Postgres,
+	// ClickHouse, Valkey, the export store and (through the outbox)
+	// SpiceDB; like exports it runs in the all-in-one process until the M4
+	// worker role exists.
+	m.Register(modPurge, a.initPurge, modules.Invisible(), modules.DependsOn(modPostgres, modClickHouse, modValkey, modJobs))
 	m.Register(TargetAll, func(context.Context) (modules.Service, error) { return nil, nil },
-		modules.DependsOn(TargetEdge, TargetQuery, TargetAPI, TargetIdentity, modAlerts, modExports))
+		modules.DependsOn(TargetEdge, TargetQuery, TargetAPI, TargetIdentity, modAlerts, modExports, modPurge))
 	return a
 }
 
@@ -386,6 +393,27 @@ func (a *App) initExports(context.Context) (modules.Service, error) {
 	jobs.Register(a.workers, query.NewExportCleanupWorker(a.pool, store, a.logger))
 	a.workers.Periodic(query.ExportCleanupInterval, query.ExportCleanupArgs{})
 	return nil, nil
+}
+
+// initPurge registers the hourly job that purges deleted projects once their
+// grace period has passed (#796).
+func (a *App) initPurge(context.Context) (modules.Service, error) {
+	store, err := query.NewLocalExportStore(a.cfg.Exports.Dir)
+	if err != nil {
+		return nil, err
+	}
+	purger := newPurger(a.pool, a.chConn, a.valkey, store, a.cfg, a.logger)
+	jobs.Register(a.workers, purge.NewWorker(purger, a.logger))
+	a.workers.Periodic(purge.Interval, purge.Args{})
+	return nil, nil
+}
+
+// newPurger builds the project purger over the given stores (valkey may be
+// nil).
+func newPurger(pool *pgxpool.Pool, conn driver.Conn, vk valkey.Client, files purge.FileRemover, cfg *config.Config, logger *slog.Logger) *purge.Purger {
+	return purge.New(pool, conn, purge.Options{
+		Valkey: vk, Files: files, Audit: audit.New(pool), OrgGrace: cfg.Project.DeletionGrace,
+	}, logger)
 }
 
 func (a *App) initEdge(context.Context) (modules.Service, error) {

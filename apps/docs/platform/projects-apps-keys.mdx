@@ -197,3 +197,11 @@ From the moment of deletion the project disappears from the dashboard and the AP
 | `POST /api/v1/orgs/{slug}/projects/{id}/restore` | Restores a deleted project before its purge. Needs an organization owner or admin. |
 
 Deleting and restoring need a sign-in less than 10 minutes old, and the project admins get an email about each. Self-hosted installs change the grace period with `project.deletion_grace` (`APILENS_PROJECT__DELETION_GRACE`, default `168h`; `0s` schedules the purge at once).
+
+### Purge
+
+An hourly job purges every deleted project whose grace period has passed. It removes the project's telemetry from ClickHouse (requests, logs, spans, rollups, deploys, consumers), its counters from Valkey, its request export files, and its Postgres rows (apps, environments, API keys, privacy and capture policies, alert rules and channels, health checks, uptime monitors, saved views, exports, direct grants and pending invitation grants), drops its relationships from SpiceDB, and records `project.purged` in the organization's activity log. The project's own activity log entries are kept. The slug then stays reserved for **30 days**, as after a rename, before another project can take it.
+
+A purge that stops half-way (a restart, an unavailable store) resumes where it stopped on the next run. Deleting an organization cannot be undone, so its projects are purged by the same job once `project.deletion_grace` has passed since the organization was deleted.
+
+Operators can purge a deleted project at once, inside its grace period, with `apilens project purge <project id>` (it uses the same configuration as the server). A purged project cannot be restored.

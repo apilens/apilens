@@ -101,6 +101,9 @@ type Querier interface {
 	// (when they leave it); returns the project ids so the caller can emit one
 	// outbox event per removed grant.
 	DeleteUserProjectMembersInOrg(ctx context.Context, arg DeleteUserProjectMembersInOrgParams) ([]uuid.UUID, error)
+	// Ends the grace period of a project being purged early (the operator
+	// command), so it can no longer be restored half-purged.
+	EndProjectGrace(ctx context.Context, id uuid.UUID) error
 	// The domains among @domains that another active organization enforces SSO
 	// for. A domain is enforced by at most one organization.
 	EnforcedSSODomainsOfOtherOrgs(ctx context.Context, arg EnforcedSSODomainsOfOtherOrgsParams) ([]string, error)
@@ -109,7 +112,10 @@ type Querier interface {
 	// step it at once.
 	EnsureUptimeMonitor(ctx context.Context, arg EnsureUptimeMonitorParams) (UptimeMonitor, error)
 	ExpireRequestExport(ctx context.Context, id uuid.UUID) (int64, error)
+	// Records why a run stopped; the next run resumes at the same step.
+	FailProjectPurge(ctx context.Context, arg FailProjectPurgeParams) error
 	FailRequestExport(ctx context.Context, arg FailRequestExportParams) (int64, error)
+	FinishProjectPurge(ctx context.Context, projectID uuid.UUID) error
 	// Resolves an ingest key to its project. Revoked and expired keys never
 	// match; a key of a deleted project matches with project_deleted set, and
 	// the verifier refuses it (ingest answers project_deleted). project_paused:
@@ -198,6 +204,10 @@ type Querier interface {
 	GetProjectDefaultAccess(ctx context.Context, id uuid.UUID) (string, error)
 	GetProjectMember(ctx context.Context, arg GetProjectMemberParams) (ProjectMember, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
+	// A project with what the purge needs to decide whether it may run: its
+	// deletion state, that of its organization, and the next step of its
+	// purge (empty when no purge has started).
+	GetPurgeCandidate(ctx context.Context, id uuid.UUID) (GetPurgeCandidateRow, error)
 	GetRecentlyDeletedApp(ctx context.Context, arg GetRecentlyDeletedAppParams) (GetRecentlyDeletedAppRow, error)
 	GetRequestExport(ctx context.Context, id uuid.UUID) (RequestExport, error)
 	GetSavedView(ctx context.Context, arg GetSavedViewParams) (SavedView, error)
@@ -347,6 +357,21 @@ type Querier interface {
 	ListProjectPrivacyPolicies(ctx context.Context, projectID uuid.UUID) ([]ListProjectPrivacyPoliciesRow, error)
 	// The environments of the given projects, by project then name.
 	ListProjectsEnvironments(ctx context.Context, projectIds []uuid.UUID) ([]ListProjectsEnvironmentsRow, error)
+	// Every app of the project, merged and archived ones included.
+	ListPurgeAppIDs(ctx context.Context, projectID uuid.UUID) ([]uuid.UUID, error)
+	// The purge job (#796): removes the data of a deleted project once its grace
+	// period has passed. project_purges tracks the progress of each project so a
+	// killed run resumes; every query here is idempotent.
+	// Projects whose data is due for removal and not purged yet, oldest first:
+	// deleted projects past purge_after (or deleted before purge_after existed),
+	// and the projects of organizations deleted more than org_grace_seconds ago
+	// (an organization delete cannot be undone, so its projects follow it after
+	// the same grace as a project delete).
+	ListPurgeDueProjects(ctx context.Context, arg ListPurgeDueProjectsParams) ([]uuid.UUID, error)
+	// The stored files of the request exports of the project.
+	ListPurgeExportFiles(ctx context.Context, projectID uuid.UUID) ([]string, error)
+	// Every API key of the project, revoked ones included.
+	ListPurgeKeyIDs(ctx context.Context, projectID uuid.UUID) ([]uuid.UUID, error)
 	// The most recently seen instances of an app.
 	ListRecentAppInstances(ctx context.Context, arg ListRecentAppInstancesParams) ([]ListRecentAppInstancesRow, error)
 	// The authz reconciler (ADR 0006) compares these with SpiceDB. They describe
@@ -438,6 +463,8 @@ type Querier interface {
 	// transaction ends, so a reservation check and the write that relies on it
 	// cannot interleave with another one.
 	LockProjectSlug(ctx context.Context, slug string) error
+	// The project being purged, row-locked with its purge for the final step.
+	LockPurgingProject(ctx context.Context, id uuid.UUID) (LockPurgingProjectRow, error)
 	// Serializes the transactions that save an enforcing connection, so two
 	// organizations cannot both start enforcing one domain.
 	LockSSOEnforcement(ctx context.Context) error
@@ -489,6 +516,32 @@ type Querier interface {
 	// rename retired it after reserved_after (project_slug_history keeps it for
 	// its project).
 	ProjectSlugTaken(ctx context.Context, arg ProjectSlugTakenParams) (bool, error)
+	// After the apps (apps.created_by_key_id); rotated_from/rotated_to point
+	// within the project.
+	PurgeProjectAPIKeys(ctx context.Context, projectID uuid.UUID) (int64, error)
+	// The Purge* deletes below run in this order in one transaction, children
+	// before the rows they reference.
+	PurgeProjectAlertEvents(ctx context.Context, projectID uuid.UUID) (int64, error)
+	// alert_rule_state goes with its rule (ON DELETE CASCADE).
+	PurgeProjectAlertRules(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectAppAliases(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectAppInstances(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectAppMetadata(ctx context.Context, projectID uuid.UUID) (int64, error)
+	// After every row that references an app; api_key_apps goes with it (ON
+	// DELETE CASCADE). apps.merged_into points within the project, so one
+	// statement removes both sides.
+	PurgeProjectApps(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectCapturePolicies(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectEndpointSettings(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectEnvironments(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectHealthChecks(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectInvitationGrants(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectMembers(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectNotificationChannels(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectPrivacyPolicies(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectRequestExports(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectSavedViews(ctx context.Context, projectID uuid.UUID) (int64, error)
+	PurgeProjectUptimeMonitors(ctx context.Context, projectID uuid.UUID) (int64, error)
 	// Records a probe of a check and its status.
 	RecordHealthCheckResult(ctx context.Context, arg RecordHealthCheckResultParams) error
 	// Adds an environment the SDK reported unless the project already has one
@@ -506,6 +559,10 @@ type Querier interface {
 	// sent_before set, only an invitation last sent (created or resent) at or
 	// before it is resent, so concurrent resends respect a cooldown.
 	ResendInvitation(ctx context.Context, arg ResendInvitationParams) (Invitation, error)
+	// Moves the slug of the purged project to the 30-day reservation of renamed
+	// slugs (project_slug_history), unless another project already uses it (a
+	// project deleted before purge_after existed freed its slug at once).
+	ReservePurgedProjectSlug(ctx context.Context, arg ReservePurgedProjectSlugParams) error
 	// Resolves an open event. Returns pgx.ErrNoRows when it is not open.
 	ResolveAlertEvent(ctx context.Context, arg ResolveAlertEventParams) (AlertEvent, error)
 	// Resolves a project slug (globally unique among active projects) to its
@@ -534,6 +591,8 @@ type Querier interface {
 	// Gives each named environment its index in names as its position.
 	SetEnvironmentPositions(ctx context.Context, arg SetEnvironmentPositionsParams) error
 	SetProjectDefaultAccess(ctx context.Context, arg SetProjectDefaultAccessParams) (string, error)
+	// Records that every step before step is done.
+	SetProjectPurgeStep(ctx context.Context, arg SetProjectPurgeStepParams) error
 	// Renames the project and moves updated_at to now. Fails on
 	// projects_slug_active or projects_slug_reserved when an active project or
 	// one awaiting purge holds the slug.
@@ -545,6 +604,8 @@ type Querier interface {
 	// monitor if the job has not checked it yet.
 	SetUptimeMonitorMuted(ctx context.Context, arg SetUptimeMonitorMutedParams) (UptimeMonitor, error)
 	SoftDeleteOrganization(ctx context.Context, id uuid.UUID) (int64, error)
+	// Starts the purge of a project, or resumes it, and returns the next step.
+	StartProjectPurge(ctx context.Context, projectID uuid.UUID) (string, error)
 	// Moves a queued (or retried, still running) export to running. No row
 	// means it was cancelled or is already done.
 	StartRequestExport(ctx context.Context, id uuid.UUID) (RequestExport, error)
@@ -553,6 +614,9 @@ type Querier interface {
 	// Which of the given slugs active projects or projects awaiting purge hold,
 	// or a rename retired after reserved_after.
 	TakenProjectSlugs(ctx context.Context, arg TakenProjectSlugsParams) ([]string, error)
+	// Leaves the purged project as a tombstone: deleted, nothing awaiting
+	// purge, so projects_slug_reserved no longer holds its slug.
+	TombstonePurgedProject(ctx context.Context, id uuid.UUID) error
 	// Records a use of the key. With record_use (an ingest request) the SDK and
 	// client IP of that request replace the previous ones; NULL clears them.
 	TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error

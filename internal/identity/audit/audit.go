@@ -130,6 +130,10 @@ const (
 	// ProjectSlugChanged: a project's slug is renamed; the old slug keeps
 	// leading to the project and is reserved for it for 30 days.
 	ProjectSlugChanged Kind = "project.slug_changed"
+	// ProjectPurged: the purge job removed a deleted project's data after
+	// its grace period (org-scoped: the project is gone; its own events keep
+	// project_id and the target label).
+	ProjectPurged Kind = "project.purged"
 )
 
 var kinds = []Kind{
@@ -149,6 +153,7 @@ var kinds = []Kind{
 	ProjectPaused, ProjectResumed,
 	ProjectDeleted, ProjectRestored,
 	ProjectSlugChanged,
+	ProjectPurged,
 }
 
 // Kinds returns every known event kind, in catalogue order.
