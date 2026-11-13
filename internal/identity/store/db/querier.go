@@ -11,10 +11,12 @@ import (
 )
 
 type Querier interface {
-	// Keeps the audit trail of purged users but strips what identifies them:
-	// events about them lose user_id and metadata, events they acted in lose
-	// actor_user_id, and both lose the client IP and user agent. Run before
-	// PurgeUsers, whose cascade would otherwise delete the events.
+	// Keeps the rest of the audit trail of purged users (org and project events,
+	// and events they acted in on other accounts) but strips what identifies
+	// them: events about them lose user_id and metadata, events they acted in
+	// lose actor_user_id, and both lose the client IP and user agent. actor_label
+	// (the name at the time) stays so org and project history stays readable.
+	// Run after DeletePersonalAuditEventsForUsers and before PurgeUsers.
 	AnonymizeAuditEventsForUsers(ctx context.Context, ids []uuid.UUID) (int64, error)
 	// Cancels every pending request of a user, e.g. before a new request or
 	// once 2FA has been turned off another way.
@@ -100,6 +102,10 @@ type Querier interface {
 	// Removes one passkey of a user; scoped by user_id so a caller cannot remove
 	// another user's passkey. Returns 0 when nothing matched.
 	DeletePasskeyCredential(ctx context.Context, arg DeletePasskeyCredentialParams) (int64, error)
+	// Deletes the personal account events (no org_id) about purged users. Run
+	// before PurgeUsers: user_id is ON DELETE SET NULL so that org and project
+	// events outlive the person.
+	DeletePersonalAuditEventsForUsers(ctx context.Context, ids []uuid.UUID) (int64, error)
 	// Turns 2FA off for a user (disable, recovery). Delete the user's backup
 	// codes in the same transaction. Returns 0 when the user had no secret.
 	DeleteTOTP(ctx context.Context, userID uuid.UUID) (int64, error)
@@ -193,6 +199,14 @@ type Querier interface {
 	// The settings "Sessions" list: live rows only (one per family), most
 	// recently used first.
 	ListActiveSessionsForUser(ctx context.Context, userID uuid.UUID) ([]Session, error)
+	// An organization's events (its projects' included), newest first,
+	// keyset-paginated like ListAuditEventsForUser. Optional filters: actor,
+	// event prefix ('member.' or 'api_key.created'), and a [from, to) time range.
+	// Served by audit_events_org_created.
+	ListAuditEventsForOrg(ctx context.Context, arg ListAuditEventsForOrgParams) ([]AuditEvent, error)
+	// A project's events, newest first, keyset-paginated and filtered like
+	// ListAuditEventsForOrg. Served by audit_events_project_created.
+	ListAuditEventsForProject(ctx context.Context, arg ListAuditEventsForProjectParams) ([]AuditEvent, error)
 	// Newest first, keyset-paginated: pass the last row's (created_at, id) as the
 	// cursor for the next page, or NULLs for the first page.
 	ListAuditEventsForUser(ctx context.Context, arg ListAuditEventsForUserParams) ([]AuditEvent, error)

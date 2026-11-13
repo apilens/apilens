@@ -16,7 +16,7 @@ import (
 const insertAuditEvent = `-- name: InsertAuditEvent :one
 INSERT INTO audit_events (user_id, actor_user_id, event, ip, user_agent, metadata)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at
+RETURNING id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at, org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label
 `
 
 type InsertAuditEventParams struct {
@@ -48,12 +48,166 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventPara
 		&i.UserAgent,
 		&i.Metadata,
 		&i.CreatedAt,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.TargetType,
+		&i.TargetID,
+		&i.TargetLabel,
+		&i.RequestID,
+		&i.Changes,
+		&i.ActorLabel,
 	)
 	return i, err
 }
 
+const listAuditEventsForOrg = `-- name: ListAuditEventsForOrg :many
+SELECT id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at, org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label FROM audit_events
+WHERE org_id = $1::uuid
+  AND ($2::uuid IS NULL OR actor_user_id = $2::uuid)
+  AND ($3::text IS NULL OR starts_with(event, $3::text))
+  AND ($4::timestamptz IS NULL OR created_at >= $4::timestamptz)
+  AND ($5::timestamptz IS NULL OR created_at < $5::timestamptz)
+  AND ($6::timestamptz IS NULL
+       OR (created_at, id) < ($6::timestamptz, $7::bigint))
+ORDER BY created_at DESC, id DESC
+LIMIT $8
+`
+
+type ListAuditEventsForOrgParams struct {
+	OrgID           uuid.UUID
+	ActorUserID     *uuid.UUID
+	EventPrefix     *string
+	FromTime        *time.Time
+	ToTime          *time.Time
+	BeforeCreatedAt *time.Time
+	BeforeID        *int64
+	PageSize        int32
+}
+
+// An organization's events (its projects' included), newest first,
+// keyset-paginated like ListAuditEventsForUser. Optional filters: actor,
+// event prefix ('member.' or 'api_key.created'), and a [from, to) time range.
+// Served by audit_events_org_created.
+func (q *Queries) ListAuditEventsForOrg(ctx context.Context, arg ListAuditEventsForOrgParams) ([]AuditEvent, error) {
+	rows, err := q.db.Query(ctx, listAuditEventsForOrg,
+		arg.OrgID,
+		arg.ActorUserID,
+		arg.EventPrefix,
+		arg.FromTime,
+		arg.ToTime,
+		arg.BeforeCreatedAt,
+		arg.BeforeID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditEvent{}
+	for rows.Next() {
+		var i AuditEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.ActorUserID,
+			&i.Event,
+			&i.Ip,
+			&i.UserAgent,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.TargetLabel,
+			&i.RequestID,
+			&i.Changes,
+			&i.ActorLabel,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAuditEventsForProject = `-- name: ListAuditEventsForProject :many
+SELECT id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at, org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label FROM audit_events
+WHERE project_id = $1::uuid
+  AND ($2::uuid IS NULL OR actor_user_id = $2::uuid)
+  AND ($3::text IS NULL OR starts_with(event, $3::text))
+  AND ($4::timestamptz IS NULL OR created_at >= $4::timestamptz)
+  AND ($5::timestamptz IS NULL OR created_at < $5::timestamptz)
+  AND ($6::timestamptz IS NULL
+       OR (created_at, id) < ($6::timestamptz, $7::bigint))
+ORDER BY created_at DESC, id DESC
+LIMIT $8
+`
+
+type ListAuditEventsForProjectParams struct {
+	ProjectID       uuid.UUID
+	ActorUserID     *uuid.UUID
+	EventPrefix     *string
+	FromTime        *time.Time
+	ToTime          *time.Time
+	BeforeCreatedAt *time.Time
+	BeforeID        *int64
+	PageSize        int32
+}
+
+// A project's events, newest first, keyset-paginated and filtered like
+// ListAuditEventsForOrg. Served by audit_events_project_created.
+func (q *Queries) ListAuditEventsForProject(ctx context.Context, arg ListAuditEventsForProjectParams) ([]AuditEvent, error) {
+	rows, err := q.db.Query(ctx, listAuditEventsForProject,
+		arg.ProjectID,
+		arg.ActorUserID,
+		arg.EventPrefix,
+		arg.FromTime,
+		arg.ToTime,
+		arg.BeforeCreatedAt,
+		arg.BeforeID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditEvent{}
+	for rows.Next() {
+		var i AuditEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.ActorUserID,
+			&i.Event,
+			&i.Ip,
+			&i.UserAgent,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.TargetLabel,
+			&i.RequestID,
+			&i.Changes,
+			&i.ActorLabel,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAuditEventsForUser = `-- name: ListAuditEventsForUser :many
-SELECT id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at FROM audit_events
+SELECT id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at, org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label FROM audit_events
 WHERE user_id = $1::uuid
   AND ($2::timestamptz IS NULL
        OR (created_at, id) < ($2::timestamptz, $3::bigint))
@@ -93,6 +247,14 @@ func (q *Queries) ListAuditEventsForUser(ctx context.Context, arg ListAuditEvent
 			&i.UserAgent,
 			&i.Metadata,
 			&i.CreatedAt,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.TargetLabel,
+			&i.RequestID,
+			&i.Changes,
+			&i.ActorLabel,
 		); err != nil {
 			return nil, err
 		}

@@ -149,6 +149,14 @@ type AuditEvent struct {
 	UserAgent   string
 	Metadata    []byte
 	CreatedAt   time.Time
+	OrgID       *uuid.UUID
+	ProjectID   *uuid.UUID
+	TargetType  *string
+	TargetID    *string
+	TargetLabel *string
+	RequestID   *string
+	Changes     []byte
+	ActorLabel  *string
 }
 
 type AuthEmailToken struct {
