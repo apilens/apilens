@@ -65,7 +65,9 @@ packages never import feature modules, and only `cmd/` imports `internal/app`.
 1. **Auth**: `X-API-Key` or `Authorization: Bearer`. Keys are project-scoped,
    stored as SHA-256, and verified from an in-process LRU (positive and
    negative). Revocations reach every process through Valkey pub/sub. Nothing
-   on this path calls another service per request.
+   on this path calls another service per request. Keys of a paused project
+   get 403 `project_paused` and keys of a deleted one 403 `project_deleted`
+   ([`project-lifecycle.md`](project-lifecycle.md)).
 2. **Decode**: gzip or zstd; size is limited both on the wire and after
    decompression (zip-bomb guard).
 3. **Validate and normalise**: the same limits as v1 (payload 64 KiB, log
@@ -95,8 +97,10 @@ read another organization's project.
 ## Data model
 
 - **Postgres** (control plane): organizations → projects → apps and
-  environments, API keys, and a transactional outbox (relayed to SpiceDB in
-  M2).
+  environments, API keys, project roles (`project_members`,
+  `projects.default_access`), the audit log, and a transactional outbox
+  (relayed to SpiceDB). Projects are soft-deleted and purged after a grace
+  period ([`project-lifecycle.md`](project-lifecycle.md)).
 - **ClickHouse** (telemetry): `api_requests`, `api_logs`, `api_spans`,
   `api_deploys`, plus `api_requests_1m` / `_1h` rollups maintained by
   materialized views. The tenant comes first in every `ORDER BY`, tables use
@@ -166,9 +170,10 @@ vocabulary and the error catalogue are documented in
 
 ## Audit events (M2)
 
-Security-relevant account actions are written to the Postgres `audit_events`
-table by `audit.Recorder.Record` (`internal/identity/audit`), for users (and
-later admins) to inspect. Each row holds whose account it is about
+Security-relevant account, organization and project actions are written to
+the Postgres `audit_events` table by `audit.Recorder.Record`
+(`internal/identity/audit`): one append-only store (D7 in #753), read as a
+project's Access › Activity tab and as the organization's audit log. Each row holds whose account it is about
 (`user_id`), who did it (`actor_user_id`, NULL for the system or an anonymous
 caller), the event kind, event-specific metadata (never secrets), and the
 client IP and user agent. The IP and user agent come from the request
@@ -189,6 +194,31 @@ time. `changes` never holds secrets: `Record` refuses a change whose secret
 fields (`client_secret`, `key_hash`, `*_token`, ...) carry a value or that
 contains API key material, and `audit.Redact` masks secret fields as
 `[redacted]` so a change can still say that a secret changed.
+
+**Scope and access (M4).** An event's scope decides who can read it:
+
+| Scope | Columns | Read through | Who |
+|---|---|---|---|
+| personal | `org_id` and `project_id` NULL (sign-in, sessions, passkeys, 2FA, profile) | not listed by the API; deleted with the account by the user purge | |
+| organization | `org_id` set, `project_id` NULL (org settings, members, invitations, SSO, `project.purged`) | `GET /api/v1/orgs/{slug}/audit-events` | org owners and admins (`organization#manage`) |
+| project | `org_id` and `project_id` set (projects, access, keys, apps, environments, privacy, alerts, health checks, lifecycle) | `GET /api/v1/projects/{slug}/audit-events`, and the org log for the projects the caller can view | project admins (`project#view_audit`: project Admin, org owners and admins) |
+
+Both listings filter by `actor`, `action` (exact, or a prefix such as
+`api_key.`), `target_type`, `from`/`to` and `q` (target label), newest first
+with cursor pagination; `…/audit-events/actions` lists the actions with
+display labels for the filter, and `…/audit-events/export` streams the same
+filters as CSV (at most 100 000 rows, `X-Truncated: true` beyond; audited as
+`audit_log.exported`). The org log never shows another project's events: it
+asks SpiceDB which of the organization's projects the caller can `view`
+(`internal/controlplane/api/audit_events.go`,
+`internal/controlplane/auditlog`).
+
+Events are kept `audit.retention` days (400 by default, at least 30, `0`
+keeps them forever) and every listing reports it; the daily River job
+`identity.audit_retention` deletes older events in batches of 1 000. When a
+user is purged, their personal events go and the org and project events they
+appear in are anonymised (see [`identity.md`](identity.md)); a purged
+project's events stay ([`project-lifecycle.md`](project-lifecycle.md)).
 
 | Kind | Recorded when |
 |---|---|
