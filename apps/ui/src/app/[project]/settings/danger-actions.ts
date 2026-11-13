@@ -33,6 +33,8 @@ export async function pauseProjectIngest(project: string, typed: unknown): Promi
         return { ok: false, error: "Type the project’s name exactly to confirm.", code: "confirmation_mismatch" };
       }
       const paused = await session.call((o) => identity().pauseProject(project, o));
+      // Every project page shows a banner while ingest is paused (#823).
+      revalidatePath("/", "layout");
       return { ok: true, project: paused };
     } catch (err) {
       if (!isApiError(err)) throw err;

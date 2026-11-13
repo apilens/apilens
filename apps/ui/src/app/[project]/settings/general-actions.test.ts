@@ -79,6 +79,8 @@ describe("resumeProjectIngest", () => {
     resumeProject.mockResolvedValue({ ...SAVED, paused_at: null });
     await expect(resumeProjectIngest("shop")).resolves.toMatchObject({ ok: true, project: { paused_at: null } });
     expect(resumeProject).toHaveBeenCalledWith("shop", { accessToken: "a" });
+    // Clears the paused banner on every project page (#823).
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
   });
 
   it("refuses a bad slug and explains API errors", async () => {
@@ -87,5 +89,6 @@ describe("resumeProjectIngest", () => {
       throw new ApiError({ status: 403, code: "forbidden" });
     });
     await expect(resumeProjectIngest("shop")).resolves.toEqual({ ok: false, error: "Only project admins can do this. Ask a project admin.", code: "forbidden" });
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 });
