@@ -4,7 +4,9 @@
 import { type ReactNode, Suspense, cache } from "react";
 import { DefaultAccessCard, RestrictedLabel } from "@/components/access/default-access";
 import { AccessMembers, AccessMembersLoading, MembersFrame } from "@/components/access/members";
+import { type Candidate, addCandidates } from "@/lib/access-changes";
 import { getSession } from "@/lib/auth/server";
+import { can } from "@/lib/capabilities";
 import { type AccessMember, type DefaultAccess, identity, isApiError } from "@/lib/identity";
 import { findProject } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
@@ -42,13 +44,32 @@ export async function load({ project, next }: Pick<SectionContext, "project" | "
 /** One load per request: the list, the default access card and the header's label share it (#808). */
 const loadOnce = cache(load);
 
+/**
+ * The organization members "Add people" offers (#807): loaded only for holders of `access.manage`;
+ * null when the organization's members could not be loaded (the dialog says so).
+ */
+export async function loadCandidates({ project, context, next }: Pick<SectionContext, "project" | "context" | "next">, access: AccessMember[]): Promise<Candidate[] | null> {
+  const org = findProject(context, project)?.org;
+  if (!org || !can(context.capabilities, project, "access.manage")) return null;
+  const session = await getSession();
+  try {
+    const members = await session.call((o) => identity().listMembers(org.slug, o));
+    return addCandidates(members ?? [], access);
+  } catch (err) {
+    if (isSessionExpired(err)) redirectToRefresh(next);
+    if (isApiError(err)) return null;
+    throw err;
+  }
+}
+
 async function MembersList({ ctx }: { ctx: SectionContext }) {
   const data = await loadOnce(ctx);
+  const candidates = data ? await loadCandidates(ctx, data.members) : null;
   const orgName = findProject(ctx.context, ctx.project)?.org.name ?? "the organization";
   return (
     <>
       {data ? <DefaultAccessCard project={ctx.project} projectName={ctx.projectName} orgName={orgName} defaultAccess={data.defaultAccess} members={data.members} /> : null}
-      <AccessMembers project={ctx.project} projectName={ctx.projectName} data={data} params={ctx.search} now={Date.now()} />
+      <AccessMembers project={ctx.project} projectName={ctx.projectName} data={data} params={ctx.search} now={Date.now()} candidates={candidates} />
     </>
   );
 }
