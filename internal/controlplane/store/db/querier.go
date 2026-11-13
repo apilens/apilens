@@ -340,6 +340,16 @@ type Querier interface {
 	// (memberships_user, then projects_org), by organization then name, with
 	// the number of active apps of each (apps_project_slug_active).
 	ListUserProjects(ctx context.Context, userID uuid.UUID) ([]ListUserProjectsRow, error)
+	// Keys whose expires_at has passed and whose api_key.expired event is not
+	// written yet, row-locked (keys another run holds are skipped). Revoked
+	// keys, rotated keys and keys of deleted projects get no expired event.
+	LockAPIKeysExpiredUnrecorded(ctx context.Context, arg LockAPIKeysExpiredUnrecordedParams) ([]LockAPIKeysExpiredUnrecordedRow, error)
+	// The hourly API key expiry job (internal/controlplane/apikeys/expiry.go).
+	// Keys that stop working after now and no later than until, whose admins
+	// were not reminded yet, row-locked (keys another run holds are skipped).
+	// Revoked keys, keys in a rotation overlap and keys of deleted projects are
+	// never reminded.
+	LockAPIKeysExpiringSoon(ctx context.Context, arg LockAPIKeysExpiringSoonParams) ([]LockAPIKeysExpiringSoonRow, error)
 	// GetActiveProject, row-locking the project for the rest of the transaction.
 	LockActiveProject(ctx context.Context, id uuid.UUID) (LockActiveProjectRow, error)
 	// Locks a rule for the transaction that records its evaluation, so two runs
@@ -378,6 +388,8 @@ type Querier interface {
 	// Serializes the transactions that save an enforcing connection, so two
 	// organizations cannot both start enforcing one domain.
 	LockSSOEnforcement(ctx context.Context) error
+	MarkAPIKeyExpiredRecorded(ctx context.Context, arg MarkAPIKeyExpiredRecordedParams) error
+	MarkAPIKeyExpiryNotified(ctx context.Context, arg MarkAPIKeyExpiryNotifiedParams) error
 	// Links a rotated key to its successor and sets when it stops working (the
 	// end of the overlap window).
 	MarkAPIKeyRotated(ctx context.Context, arg MarkAPIKeyRotatedParams) error

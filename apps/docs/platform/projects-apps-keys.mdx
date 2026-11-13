@@ -99,6 +99,10 @@ Permission and scope changes apply to the next request: every ingest process dro
 
 A key that is revoked, expired or already rotated answers `409 key_not_active`. Rotation needs a recent sign-in, like creating a key, and is recorded in the audit log as `api_key.rotated`.
 
+### Expiring keys
+
+An hourly job emails the project admins once when a key will expire within 7 days, so there is time to rotate it (admins who turned off security emails in their account settings are skipped). When a key passes its expiry, the audit log records `api_key.expired` once. Keys in a rotation overlap get no reminder, and revoked or rotated keys get no `api_key.expired`: their revocation or rotation is already recorded.
+
 ### Key limits
 
 A project has at most **50 active keys** (not revoked, not expired). Creating one more answers `409 key_limit_reached`; revoke a key you no longer use first. Self-hosted installs change the cap with `ingest.max_keys_per_project` (`APILENS_INGEST__MAX_KEYS_PER_PROJECT`, default `50`, `0` for no cap).

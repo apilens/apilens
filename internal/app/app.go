@@ -703,6 +703,10 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	// Audit events older than audit.retention are deleted daily.
 	jobs.Register(a.workers, audit.NewRetentionWorker(audit.NewPruner(a.pool, audit.RetentionOptions{Days: a.cfg.Audit.Retention}), a.logger))
 	a.workers.Periodic(audit.RetentionInterval, audit.RetentionArgs{})
+	// API keys about to expire are reminded to project admins and expired
+	// ones audited (api_key.expired), hourly, once per key (#799).
+	jobs.Register(a.workers, apikeys.NewExpiryWorker(apikeys.NewExpiry(a.pool, audit.New(a.pool), a.jobs, a.logger)))
+	a.workers.Periodic(apikeys.ExpiryInterval, apikeys.ExpiryArgs{})
 	return modules.ServiceFunc(signingKeys.Run), nil
 }
 

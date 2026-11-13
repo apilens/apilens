@@ -1,0 +1,18 @@
+{{- /* Data: project, slug, key (name), prefix, expires_at. */ -}}
+{{define "subject"}}An API key in {{.project}} expires on {{date .expires_at}}{{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+The API key "{{.key}}" in the project {{.project}} stops working on {{datetime .expires_at}}. SDKs that still use it can no longer send data after that.
+
+Project: {{.project}}
+Key: {{.key}} ({{.prefix}})
+Expires: {{datetime .expires_at}}
+
+To keep data flowing, rotate the key and deploy the new secret before then. If nothing uses the key any more, there is nothing to do.
+
+Review API keys:
+{{link (print "/" (seg .slug) "/access")}}
+
+You get this email because you are an admin of {{.project}}. You can turn off these emails in your account settings:
+{{link "/settings"}}
+{{- end}}
