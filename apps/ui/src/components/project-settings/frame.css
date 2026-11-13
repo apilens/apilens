@@ -1,0 +1,19 @@
+/* Project settings frame (#800): grouped section nav on the left, a select below 860px. The
+   section inside keeps its own `.page` wrapper; the frame's `.page` already sets the width and
+   gutters, so the inner one drops them and its content looks exactly as it did on its own. */
+.psf-body { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--space-8); align-items: start; }
+.psf-nav { display: grid; gap: var(--space-4); }
+.psf-gh { margin: 0; padding: 0 8px 4px; font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
+.psf-nav ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.psf-nav .cp-sitem.psf-nav__danger:not(.on) { color: var(--error); }
+.psf-pick { display: none; }
+.psf-pick label { display: block; margin-bottom: 4px; font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
+.psf-select { width: 100%; height: 36px; padding: 0 28px 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 10px center; color: var(--ink); font: 400 14px/1 var(--font-sans); appearance: none; cursor: pointer; }
+.psf-select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.psf-main { min-width: 0; }
+.psf-main > .page { max-width: none; margin: 0; padding: 0; }
+@media (max-width: 860px) {
+  .psf-body { grid-template-columns: 1fr; gap: var(--space-6); }
+  .psf-nav { display: none; }
+  .psf-pick { display: block; }
+}
