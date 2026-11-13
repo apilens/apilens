@@ -5,6 +5,7 @@ package migrations_test
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -1199,5 +1200,125 @@ func TestPostgresAPIKeyCreatorMigrationBackfills(t *testing.T) {
 	}
 	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
 		t.Fatalf("re-apply: %v", err)
+	}
+}
+
+// TestPostgresAuditScopeMigration checks 00031 on a database with existing
+// events: org and project ids are backfilled from metadata, org events get
+// the actor's name, user_id becomes ON DELETE SET NULL, and down restores
+// the cascade and drops the new columns.
+func TestPostgresAuditScopeMigration(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.DownTo(ctx, 30); err != nil {
+		t.Fatalf("roll back to 00030: %v", err)
+	}
+
+	const (
+		ada  = "00000000-0000-0000-0000-0000000000ad"
+		org  = "00000000-0000-0000-0000-0000000000a1"
+		proj = "00000000-0000-0000-0000-0000000000b1"
+	)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	exec(`INSERT INTO users (id, email, name) VALUES ($1, 'ada@example.com', 'Ada')`, ada)
+	for _, e := range []struct{ event, meta string }{
+		{"user.updated", `{"fields": ["name"]}`},
+		{"org.created", `{"org_id": "` + org + `", "slug": "acme"}`},
+		{"capture_policy.updated", `{"org_id": "` + org + `", "project_id": "` + proj + `"}`},
+		{"login.failed", `{"org_id": "not-a-uuid"}`},
+	} {
+		exec(`INSERT INTO audit_events (user_id, actor_user_id, event, metadata) VALUES ($1, $1, $2, $3::jsonb)`, ada, e.event, e.meta)
+	}
+
+	if _, err := provider.UpTo(ctx, 31); err != nil {
+		t.Fatalf("apply 00031: %v", err)
+	}
+	type row struct{ org, project, actorLabel string }
+	scoped := func() map[string]row {
+		t.Helper()
+		rows, err := pool.Query(ctx, `SELECT event, coalesce(org_id::text, ''), coalesce(project_id::text, ''), coalesce(actor_label, '') FROM audit_events`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		got := map[string]row{}
+		for rows.Next() {
+			var ev string
+			var r row
+			if err := rows.Scan(&ev, &r.org, &r.project, &r.actorLabel); err != nil {
+				t.Fatal(err)
+			}
+			got[ev] = r
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	want := map[string]row{
+		"user.updated":           {},
+		"org.created":            {org, "", "Ada"},
+		"capture_policy.updated": {org, proj, "Ada"},
+		"login.failed":           {},
+	}
+	if got := scoped(); !maps.Equal(got, want) {
+		t.Fatalf("after 00031 = %v, want %v", got, want)
+	}
+	for _, idx := range []string{"audit_events_org_created", "audit_events_project_created"} {
+		if !tableExists(t, pool, idx) {
+			t.Errorf("index %s missing", idx)
+		}
+	}
+	fkAction := func() string {
+		t.Helper()
+		var action string
+		if err := pool.QueryRow(ctx, `SELECT confdeltype::text FROM pg_constraint WHERE conname = 'audit_events_user_id_fkey'`).Scan(&action); err != nil {
+			t.Fatal(err)
+		}
+		return action
+	}
+	if a := fkAction(); a != "n" {
+		t.Errorf("user_id on delete = %q, want n (SET NULL)", a)
+	}
+
+	if _, err := provider.DownTo(ctx, 30); err != nil {
+		t.Fatalf("roll back 00031: %v", err)
+	}
+	if a := fkAction(); a != "c" {
+		t.Errorf("user_id on delete after down = %q, want c (CASCADE)", a)
+	}
+	var cols int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns
+		WHERE table_name = 'audit_events' AND column_name IN ('org_id', 'project_id', 'target_type', 'target_id', 'target_label', 'request_id', 'changes', 'actor_label')`).Scan(&cols); err != nil {
+		t.Fatal(err)
+	}
+	if cols != 0 {
+		t.Errorf("%d new columns left after down", cols)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_events`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 4 {
+		t.Errorf("events after down = %d, want 4", n)
+	}
+
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply 00031: %v", err)
+	}
+	if got := scoped(); !maps.Equal(got, want) {
+		t.Fatalf("after re-apply = %v, want %v", got, want)
 	}
 }

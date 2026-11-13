@@ -47,7 +47,8 @@ func (w *PurgeWorker) Work(ctx context.Context, _ *river.Job[PurgeArgs]) error {
 
 // Purge hard-deletes every soft-deleted user whose delete_after has passed,
 // in batches of purgeBatch, and returns how many it removed. Each batch is
-// one transaction: the users' audit events are anonymised (kept, but no
+// one transaction: the users' personal audit events (no org) are deleted,
+// their org and project events are anonymised (kept with actor_label, but no
 // longer pointing at them, and without IP, user agent or metadata), then the
 // users are deleted, which cascades to their sessions, email tokens, OAuth
 // identities, passkeys and TOTP rows.
@@ -78,6 +79,9 @@ func purgeBatchTx(ctx context.Context, pool TxBeginner) (int64, error) {
 	}
 	if len(ids) == 0 {
 		return 0, nil
+	}
+	if _, err := q.DeletePersonalAuditEventsForUsers(ctx, ids); err != nil {
+		return 0, fmt.Errorf("account: purge: delete personal audit events: %w", err)
 	}
 	if _, err := q.AnonymizeAuditEventsForUsers(ctx, ids); err != nil {
 		return 0, fmt.Errorf("account: purge: anonymise audit events: %w", err)

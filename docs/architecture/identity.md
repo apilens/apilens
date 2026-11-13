@@ -540,10 +540,12 @@ Served by the identity role and authenticated with the session scheme
 - The purge job (`identity.purge_deleted_users`, a River periodic job, hourly
   and on start, run by the identity role) hard-deletes users whose
   `delete_after` has passed, 500 per transaction. Their sessions, email
-  tokens, OAuth identities, passkeys and TOTP rows cascade. Audit events are
-  kept but anonymised first: events about the user lose `user_id` and
-  `metadata`, events they acted in lose `actor_user_id`, and both lose the IP
-  and user agent.
+  tokens, OAuth identities, passkeys and TOTP rows cascade. Their personal
+  audit events (no `org_id`) are deleted. Org and project events outlive
+  them (`audit_events.user_id` is `ON DELETE SET NULL`) but are anonymised
+  first: events about the user lose `user_id` and `metadata`, events they
+  acted in lose `actor_user_id`, and both lose the IP and user agent;
+  `actor_label` (the name at the time) keeps the history readable.
 
 ### Changing the email (`/api/v1/users/me/email`)
 
