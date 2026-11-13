@@ -1,0 +1,24 @@
+/* Organization settings → Deleted projects (#822). Tokens from tokens.css only; the card and its
+   status line reuse .os-card (org-settings.css). */
+
+.dp-list { margin: var(--space-4) 0 0; padding: 0; list-style: none; }
+.dp-row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-3) 0; }
+.dp-row + .dp-row { border-top: 1px solid var(--border); }
+.dp-main { flex: 1; min-width: 0; }
+.dp-main p { margin: 0; }
+.dp-name { font: 400 13px/20px var(--font-sans); color: var(--ink); overflow-wrap: anywhere; }
+.dp-name b { font-weight: 500; }
+.dp-slug { color: var(--ink-muted); font-family: var(--font-mono); font-size: 12px; }
+.dp-meta { font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.dp-meta time { color: var(--ink); }
+.dp-exact { color: var(--ink-muted); }
+.dp-err { margin-top: 4px !important; font: 400 13px/20px var(--font-sans); color: var(--error); }
+.dp-restore { flex: none; min-height: 24px; min-width: 24px; }
+.dp-empty { margin: var(--space-4) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.dp-load-err { margin: var(--space-4) 0 0; font: 400 13px/20px var(--font-sans); color: var(--error); }
+.dp-link { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+.dp-link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 2px; }
+
+@media (max-width: 560px) {
+  .dp-row { flex-direction: column; align-items: stretch; }
+}
