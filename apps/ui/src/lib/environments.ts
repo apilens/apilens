@@ -2,6 +2,7 @@
 // limit, the fixed colour palette, the order, and why an environment can only be hidden. The
 // server re-checks every rule; these only shape what the UI offers. No React and no server imports.
 
+import { relativeTime } from "./api-keys";
 import type { Environment, EnvironmentColor } from "./identity";
 import { ENV_NAME, MAX_ENVIRONMENTS } from "./project-create";
 
@@ -80,7 +81,38 @@ export function removeBlocker(env: Pick<Environment, "deletable" | "has_data" | 
 
 /** Where an environment came from, in words. */
 export function sourceLabel(source: Environment["source"]): string {
-  return source === "sdk" ? "Reported by an SDK" : "Added in the dashboard";
+  return source === "sdk" ? "Reported by the SDK" : "Added here";
+}
+
+/**
+ * The names in their new order after moving `name` one place up (-1) or down (+1) among the
+ * visible environments (#816): it swaps places with its visible neighbour, so hidden ones keep
+ * their positions. Null when it is already first or last, or unknown.
+ */
+export function stepEnvironment<T extends Pick<Environment, "name" | "position" | "hidden">>(envs: readonly T[], name: string, step: -1 | 1): string[] | null {
+  const names = inOrder(envs).map((e) => e.name);
+  const visible = visibleEnvironments(envs).map((e) => e.name);
+  const at = visible.indexOf(name);
+  const neighbour = visible[at + step];
+  if (at < 0 || neighbour === undefined) return null;
+  return moveEnvironment(names, name, names.indexOf(neighbour));
+}
+
+/** The API keys limited to an environment, in words. */
+export function keysText(n: number): string {
+  return n === 0 ? "No keys limited to it" : `${plural(n, "key", "keys")} limited to it`;
+}
+
+/** When data last arrived for an environment: `Last seen 3 hours ago`, or `No data yet`. */
+export function lastSeenText(iso: string | null, now = Date.now()): string {
+  if (!iso) return "No data yet";
+  const rel = relativeTime(iso, now);
+  return `Last seen ${/^(Just|Yesterday)/.test(rel) ? rel[0].toLowerCase() + rel.slice(1) : rel}`;
+}
+
+/** How many of the allowed environments are used: `5 of 20 environments used`. */
+export function usedText(used: number, max: number): string {
+  return `${used} of ${max} environments used`;
 }
 
 /** A sentence for a failed environment change, by API error code. */
