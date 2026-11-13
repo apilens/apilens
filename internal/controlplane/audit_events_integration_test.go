@@ -88,21 +88,21 @@ func TestProjectAuditEvents(t *testing.T) {
 		t.Fatalf("project.created = %v -> %v", prev, next)
 	}
 	name := "Billing API"
-	if _, err := ps.Update(ctx, owner, "billing", projects.Update{Name: &name}); err != nil {
+	if _, err := ps.Update(ctx, owner, p.ID, projects.Update{Name: &name}); err != nil {
 		t.Fatal(err)
 	}
 	prev, next = last(audit.ProjectUpdated, p.ID, "project", p.ID.String())
 	if prev["name"] != "Billing" || next["name"] != "Billing API" {
 		t.Fatalf("project.updated = %v -> %v", prev, next)
 	}
-	if _, err := ps.AddEnvironment(ctx, owner, "billing", "staging"); err != nil {
+	if _, err := ps.AddEnvironment(ctx, owner, p.ID, "staging"); err != nil {
 		t.Fatal(err)
 	}
 	prev, next = last(audit.EnvironmentAdded, p.ID, "environment", "staging")
 	if prev != nil || next["name"] != "staging" {
 		t.Fatalf("environment.added = %v -> %v", prev, next)
 	}
-	if _, err := ps.RemoveEnvironment(ctx, owner, "billing", "staging"); err != nil {
+	if _, err := ps.RemoveEnvironment(ctx, owner, p.ID, "staging"); err != nil {
 		t.Fatal(err)
 	}
 	prev, next = last(audit.EnvironmentRemoved, p.ID, "environment", "staging")
@@ -112,10 +112,10 @@ func TestProjectAuditEvents(t *testing.T) {
 	// No-op writes record nothing.
 	var before, after int
 	_ = pool.QueryRow(ctx, `SELECT count(*) FROM audit_events`).Scan(&before)
-	if _, err := ps.Update(ctx, owner, "billing", projects.Update{Name: &name}); err != nil {
+	if _, err := ps.Update(ctx, owner, p.ID, projects.Update{Name: &name}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ps.RemoveEnvironment(ctx, owner, "billing", "staging"); err != nil {
+	if _, err := ps.RemoveEnvironment(ctx, owner, p.ID, "staging"); err != nil {
 		t.Fatal(err)
 	}
 	_ = pool.QueryRow(ctx, `SELECT count(*) FROM audit_events`).Scan(&after)
@@ -124,7 +124,7 @@ func TestProjectAuditEvents(t *testing.T) {
 	}
 
 	// Privacy policy, project-wide.
-	if _, err := privacy.NewService(pool).WithAudit(rec).Put(ctx, owner, "billing", "", privacy.Policy{Headers: []string{"x-session"}}); err != nil {
+	if _, err := privacy.NewService(pool).WithAudit(rec).Put(ctx, owner, p.ID, "", privacy.Policy{Headers: []string{"x-session"}}); err != nil {
 		t.Fatal(err)
 	}
 	prev, next = last(audit.PrivacyPolicyUpdated, p.ID, "project", p.ID.String())

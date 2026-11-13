@@ -99,6 +99,9 @@ type Querier interface {
 	// deleted projects never match.
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error)
 	GetActiveAppBySlug(ctx context.Context, arg GetActiveAppBySlugParams) (GetActiveAppBySlugRow, error)
+	// An active project of an active organization by id; no row when either is
+	// missing. Callers have authorized the user on it (authz guard).
+	GetActiveProject(ctx context.Context, id uuid.UUID) (GetActiveProjectRow, error)
 	// What a notification about an event says: the event, its rule, app and
 	// project, and the rule's latest evaluated value (NULL before the first or
 	// when the window had no data). Returns pgx.ErrNoRows when the event (or its
@@ -337,6 +340,8 @@ type Querier interface {
 	// (memberships_user, then projects_org), by organization then name, with
 	// the number of active apps of each (apps_project_slug_active).
 	ListUserProjects(ctx context.Context, userID uuid.UUID) ([]ListUserProjectsRow, error)
+	// GetActiveProject, row-locking the project for the rest of the transaction.
+	LockActiveProject(ctx context.Context, id uuid.UUID) (LockActiveProjectRow, error)
 	// Locks a rule for the transaction that records its evaluation, so two runs
 	// cannot step its state at once. Returns pgx.ErrNoRows when the rule was
 	// deleted.

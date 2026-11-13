@@ -181,7 +181,7 @@ func TestRotateAPIKeyNoOverlapAndErrors(t *testing.T) {
 		{"already rotated", owner, k.ID, "24h", http.StatusConflict, "key_not_active"},
 		{"revoked", owner, revoked.ID, "24h", http.StatusConflict, "key_not_active"},
 		{"viewer", viewer, r.ID, "24h", http.StatusForbidden, "forbidden"},
-		{"stranger", other, r.ID, "24h", http.StatusForbidden, "forbidden"},
+		{"stranger", other, r.ID, "24h", http.StatusNotFound, "not_found"},
 		{"key of another project", owner, foreign.ID, "24h", http.StatusGone, "api_key_gone"},
 		{"unknown key", owner, uuid.NewString(), "24h", http.StatusGone, "api_key_gone"},
 	} {

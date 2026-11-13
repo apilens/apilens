@@ -31,11 +31,11 @@ const (
 // APIKeyService creates, lists and revokes project API keys;
 // *apikeys.Service satisfies it.
 type APIKeyService interface {
-	CreateKey(ctx context.Context, user uuid.UUID, slug string, k apikeys.NewKey) (apikeys.Created, error)
-	List(ctx context.Context, user uuid.UUID, slug string) ([]apikeys.Key, error)
-	UpdateAccess(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID, a apikeys.Access) (apikeys.Key, error)
-	Revoke(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID) error
-	Rotate(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID, overlap string) (apikeys.Rotated, error)
+	CreateKey(ctx context.Context, user, projectID uuid.UUID, k apikeys.NewKey) (apikeys.Created, error)
+	List(ctx context.Context, projectID uuid.UUID) ([]apikeys.Key, error)
+	UpdateAccess(ctx context.Context, user, projectID, id uuid.UUID, a apikeys.Access) (apikeys.Key, error)
+	Revoke(ctx context.Context, user, projectID, id uuid.UUID) error
+	Rotate(ctx context.Context, user, projectID, id uuid.UUID, overlap string) (apikeys.Rotated, error)
 }
 
 // APIKey is a project API key as listed to members. The raw key is never
@@ -161,6 +161,7 @@ type APIKeyInput struct {
 // APIKeys serves the project API key endpoints.
 type APIKeys struct {
 	svc    APIKeyService
+	authz  ProjectAuthorizer
 	logger *slog.Logger
 	// recentAuth is the sign-in age sensitive operations allow
 	// (identity.sensitive_action_max_age); 0 means authz.DefaultRecentAuth.
@@ -174,9 +175,10 @@ func (k *APIKeys) WithRecentAuth(maxAge time.Duration) *APIKeys {
 	return k
 }
 
-// NewAPIKeys returns the API key endpoints over svc.
-func NewAPIKeys(svc APIKeyService, logger *slog.Logger) *APIKeys {
-	return &APIKeys{svc: svc, logger: logger}
+// NewAPIKeys returns the API key endpoints over svc, authorized by guard
+// (nil refuses every request with authz_unavailable).
+func NewAPIKeys(svc APIKeyService, guard ProjectAuthorizer, logger *slog.Logger) *APIKeys {
+	return &APIKeys{svc: svc, authz: guard, logger: logger}
 }
 
 // Register mounts the API key operations. They declare the session scheme,
@@ -184,7 +186,8 @@ func NewAPIKeys(svc APIKeyService, logger *slog.Logger) *APIKeys {
 func (k *APIKeys) Register(api huma.API) {
 	security := []map[string][]string{{authn.SchemeSession: {}}}
 	tags := []string{server.TagProjects}
-	notMember := "Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart."
+	notMember := "A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked."
+	manage := "Needs `manage_keys` on the project (project admins and editors; 403 `forbidden` for viewers). "
 	recentAuth := "Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. "
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
@@ -193,23 +196,23 @@ func (k *APIKeys) Register(api huma.API) {
 		Path:          APIKeysPath,
 		DefaultStatus: http.StatusCreated,
 		Summary:       "Create an API key",
-		Description: "Issues an API key for the project and returns it in full, once: only its hash is stored. Owners, admins and members only. " +
+		Description: "Issues an API key for the project and returns it in full, once: only its hash is stored. " + manage +
 			"A project has at most `ingest.max_keys_per_project` (default 50) active keys: past that it answers `key_limit_reached` (409) until one is revoked or expires. " +
 			"Audited as `api_key.created`. " + recentAuth + notMember,
 		Tags:        tags,
 		Security:    security,
 		Middlewares: huma.Middlewares{authz.RequireRecentAuth(api, k.recentAuth)},
-	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeReauthRequired, identity.CodeKeyLimitReached, identity.CodeInternal), k.create)
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeReauthRequired, identity.CodeKeyLimitReached, identity.CodeAuthzUnavailable, identity.CodeInternal), k.create)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "list-api-keys",
 		Method:      http.MethodGet,
 		Path:        APIKeysPath,
 		Summary:     "List a project's API keys",
-		Description: "Lists the project's API keys, revoked ones included, newest first. Keys are shown by prefix; the full key is never returned again. " + notMember,
+		Description: "Lists the project's API keys, revoked ones included, newest first. Keys are shown by prefix; the full key is never returned again. Needs `view` on the project (any project role). " + notMember,
 		Tags:        tags,
 		Security:    security,
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), k.list)
+	}, identity.CodeUnauthenticated, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), k.list)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "update-api-key-access",
@@ -220,10 +223,10 @@ func (k *APIKeys) Register(api huma.API) {
 			"sets its ingest rate limit when `rate_limit_per_minute` is sent (0 removes it) and, when `environments` is present, " +
 			"which environments it may send data for (null: every environment; an environment the project does not have answers `invalid_request`). " +
 			"Every process forgets the cached key, so the change applies to the next request. A revoked key or an id the project does not have answers `api_key_gone` (410); " +
-			"an app id the project does not have answers `invalid_request`. Owners, admins and members only. Audited as `api_key.updated`. " + notMember,
+			"an app id the project does not have answers `invalid_request`. " + manage + "Audited as `api_key.updated`. " + notMember,
 		Tags:     tags,
 		Security: security,
-	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeAPIKeyGone, identity.CodeInternal), k.updateAccess)
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAPIKeyGone, identity.CodeAuthzUnavailable, identity.CodeInternal), k.updateAccess)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID:   "rotate-api-key",
@@ -236,13 +239,13 @@ func (k *APIKeys) Register(api huma.API) {
 			"its `expires_at` is the end of the window and `rotated_to` names the new key (`rotated_from` on the new key names the old one). " +
 			"With `none` every process drops the old key from its cache at once; at worst it is rejected within `ingest.key_cache_ttl` (60 s). " +
 			"A revoked, expired or already rotated key answers `key_not_active` (409); an id the project does not have answers `api_key_gone` (410). " +
-			"With an overlap the project briefly holds one more active key, so `key_limit_reached` (409) applies as for create. Owners, admins and members only. " +
+			"With an overlap the project briefly holds one more active key, so `key_limit_reached` (409) applies as for create. " + manage +
 			"Audited as `api_key.rotated` with both key ids. " + recentAuth + notMember,
 		Tags:        tags,
 		Security:    security,
 		Middlewares: huma.Middlewares{authz.RequireRecentAuth(api, k.recentAuth)},
-	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeReauthRequired, identity.CodeAPIKeyGone,
-		identity.CodeKeyNotActive, identity.CodeKeyLimitReached, identity.CodeInternal), k.rotate)
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeReauthRequired, identity.CodeAPIKeyGone,
+		identity.CodeKeyNotActive, identity.CodeKeyLimitReached, identity.CodeAuthzUnavailable, identity.CodeInternal), k.rotate)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID:   "revoke-api-key",
@@ -251,11 +254,11 @@ func (k *APIKeys) Register(api huma.API) {
 		DefaultStatus: http.StatusNoContent,
 		Summary:       "Revoke an API key",
 		Description: "Revokes the key: the ingest edge and query API reject it from then on (every process drops it from its cache through Valkey). " +
-			"Revoking a revoked key changes nothing; an id the project does not have answers `api_key_gone` (410). Owners, admins and members only. " +
+			"Revoking a revoked key changes nothing; an id the project does not have answers `api_key_gone` (410). " + manage +
 			"Audited as `api_key.revoked`. " + notMember,
 		Tags:     tags,
 		Security: security,
-	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeAPIKeyGone, identity.CodeInternal), k.revoke)
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAPIKeyGone, identity.CodeAuthzUnavailable, identity.CodeInternal), k.revoke)
 }
 
 func toAPIKey(key apikeys.Key) APIKey {
@@ -326,8 +329,8 @@ func utc(t *time.Time) *time.Time {
 // problem maps an error of apikeys.Service to a problem.
 func (k *APIKeys) problem(ctx context.Context, op string, err error) error {
 	switch {
-	case errors.Is(err, apikeys.ErrNotFound), errors.Is(err, apikeys.ErrForbidden):
-		return identity.Err(identity.CodeForbidden)
+	case errors.Is(err, apikeys.ErrNotFound):
+		return identity.Err(identity.CodeNotFound)
 	case errors.Is(err, apikeys.ErrKeyNotFound):
 		return identity.Err(identity.CodeAPIKeyGone)
 	case errors.Is(err, apikeys.ErrKeyNotActive):
@@ -343,7 +346,7 @@ func (k *APIKeys) problem(ctx context.Context, op string, err error) error {
 }
 
 func (k *APIKeys) create(ctx context.Context, in *CreateAPIKeyInput) (*CreateAPIKeyOutput, error) {
-	uid, err := signedInUser(ctx)
+	t, uid, err := authorizeProject(ctx, k.authz, k.logger, in.Slug, authz.ProjectManageKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -351,7 +354,7 @@ func (k *APIKeys) create(ctx context.Context, in *CreateAPIKeyInput) (*CreateAPI
 	if err != nil {
 		return nil, err
 	}
-	c, err := k.svc.CreateKey(ctx, uid, in.Slug, apikeys.NewKey{
+	c, err := k.svc.CreateKey(ctx, uid, t.ProjectID, apikeys.NewKey{
 		Name: in.Body.Name, Scopes: in.Body.Scopes, ExpiresAt: in.Body.ExpiresAt, CanCreateApps: in.Body.CanCreateApps, AppIDs: appIDs,
 		RateLimitPerMinute: in.Body.RateLimitPerMinute, Environments: in.Body.Environments,
 	})
@@ -362,11 +365,11 @@ func (k *APIKeys) create(ctx context.Context, in *CreateAPIKeyInput) (*CreateAPI
 }
 
 func (k *APIKeys) list(ctx context.Context, in *ProjectSlugInput) (*ListAPIKeysOutput, error) {
-	uid, err := signedInUser(ctx)
+	t, _, err := authorizeProject(ctx, k.authz, k.logger, in.Slug, authz.ProjectView)
 	if err != nil {
 		return nil, err
 	}
-	list, err := k.svc.List(ctx, uid, in.Slug)
+	list, err := k.svc.List(ctx, t.ProjectID)
 	if err != nil {
 		return nil, k.problem(ctx, "list api keys", err)
 	}
@@ -394,7 +397,7 @@ func parseIDs(in []string) ([]uuid.UUID, error) {
 }
 
 func (k *APIKeys) updateAccess(ctx context.Context, in *UpdateAPIKeyAccessInput) (*APIKeyOutput, error) {
-	uid, err := signedInUser(ctx)
+	t, uid, err := authorizeProject(ctx, k.authz, k.logger, in.Slug, authz.ProjectManageKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +414,7 @@ func (k *APIKeys) updateAccess(ctx context.Context, in *UpdateAPIKeyAccessInput)
 		return nil, identity.Err(identity.CodeInvalidRequest)
 	}
 	_, setEnvs := fields["environments"]
-	key, err := k.svc.UpdateAccess(ctx, uid, in.Slug, id, apikeys.Access{
+	key, err := k.svc.UpdateAccess(ctx, uid, t.ProjectID, id, apikeys.Access{
 		CanCreateApps: in.Body.CanCreateApps, AppIDs: appIDs, RateLimitPerMinute: in.Body.RateLimitPerMinute,
 		Environments: in.Body.Environments, SetEnvironments: setEnvs,
 	})
@@ -422,7 +425,7 @@ func (k *APIKeys) updateAccess(ctx context.Context, in *UpdateAPIKeyAccessInput)
 }
 
 func (k *APIKeys) revoke(ctx context.Context, in *APIKeyInput) (*struct{}, error) {
-	uid, err := signedInUser(ctx)
+	t, uid, err := authorizeProject(ctx, k.authz, k.logger, in.Slug, authz.ProjectManageKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -430,14 +433,14 @@ func (k *APIKeys) revoke(ctx context.Context, in *APIKeyInput) (*struct{}, error
 	if err != nil {
 		return nil, identity.Err(identity.CodeInvalidRequest)
 	}
-	if err := k.svc.Revoke(ctx, uid, in.Slug, id); err != nil {
+	if err := k.svc.Revoke(ctx, uid, t.ProjectID, id); err != nil {
 		return nil, k.problem(ctx, "revoke api key", err)
 	}
 	return nil, nil
 }
 
 func (k *APIKeys) rotate(ctx context.Context, in *RotateAPIKeyInput) (*RotateAPIKeyOutput, error) {
-	uid, err := signedInUser(ctx)
+	t, uid, err := authorizeProject(ctx, k.authz, k.logger, in.Slug, authz.ProjectManageKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -445,7 +448,7 @@ func (k *APIKeys) rotate(ctx context.Context, in *RotateAPIKeyInput) (*RotateAPI
 	if err != nil {
 		return nil, identity.Err(identity.CodeInvalidRequest)
 	}
-	r, err := k.svc.Rotate(ctx, uid, in.Slug, id, in.Body.Overlap)
+	r, err := k.svc.Rotate(ctx, uid, t.ProjectID, id, in.Body.Overlap)
 	if err != nil {
 		return nil, k.problem(ctx, "rotate api key", err)
 	}

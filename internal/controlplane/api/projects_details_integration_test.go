@@ -18,7 +18,7 @@ import (
 
 func TestUpdateProjectDetails(t *testing.T) {
 	f := setupOrgs(t, ratelimit.Rate{})
-	NewProjects(projects.New(f.pool).WithAudit(audit.New(f.pool)), nil, ratelimit.Rate{}, testutil.Logger(t)).Register(f.api)
+	NewProjects(projects.New(f.pool).WithAudit(audit.New(f.pool)), f.projectGuard(t), f.authz, nil, ratelimit.Rate{}, testutil.Logger(t)).Register(f.api)
 	owner := f.user(t, "pd-owner@example.com")
 	member := f.user(t, "pd-member@example.com")
 	viewer := f.user(t, "pd-viewer@example.com")

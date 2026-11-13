@@ -104,6 +104,44 @@ func (q *Queries) DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentPa
 	return result.RowsAffected(), nil
 }
 
+const getActiveProject = `-- name: GetActiveProject :one
+SELECT p.id, p.slug, p.name, p.description, p.created_at, p.updated_at, p.created_by, o.id AS org_id, o.slug AS org_slug
+FROM projects p
+JOIN organizations o ON o.id = p.org_id AND o.deleted_at IS NULL
+WHERE p.id = $1 AND p.deleted_at IS NULL
+`
+
+type GetActiveProjectRow struct {
+	ID          uuid.UUID
+	Slug        string
+	Name        string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CreatedBy   *uuid.UUID
+	OrgID       uuid.UUID
+	OrgSlug     string
+}
+
+// An active project of an active organization by id; no row when either is
+// missing. Callers have authorized the user on it (authz guard).
+func (q *Queries) GetActiveProject(ctx context.Context, id uuid.UUID) (GetActiveProjectRow, error) {
+	row := q.db.QueryRow(ctx, getActiveProject, id)
+	var i GetActiveProjectRow
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
+		&i.OrgID,
+		&i.OrgSlug,
+	)
+	return i, err
+}
+
 const getMemberProject = `-- name: GetMemberProject :one
 SELECT p.id, p.slug, p.name, p.description, p.created_at, p.updated_at, p.created_by, o.id AS org_id, o.slug AS org_slug, m.role
 FROM projects p
@@ -229,6 +267,44 @@ func (q *Queries) ListProjectsEnvironments(ctx context.Context, projectIds []uui
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockActiveProject = `-- name: LockActiveProject :one
+SELECT p.id, p.slug, p.name, p.description, p.created_at, p.updated_at, p.created_by, o.id AS org_id, o.slug AS org_slug
+FROM projects p
+JOIN organizations o ON o.id = p.org_id AND o.deleted_at IS NULL
+WHERE p.id = $1 AND p.deleted_at IS NULL
+FOR UPDATE OF p
+`
+
+type LockActiveProjectRow struct {
+	ID          uuid.UUID
+	Slug        string
+	Name        string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CreatedBy   *uuid.UUID
+	OrgID       uuid.UUID
+	OrgSlug     string
+}
+
+// GetActiveProject, row-locking the project for the rest of the transaction.
+func (q *Queries) LockActiveProject(ctx context.Context, id uuid.UUID) (LockActiveProjectRow, error) {
+	row := q.db.QueryRow(ctx, lockActiveProject, id)
+	var i LockActiveProjectRow
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
+		&i.OrgID,
+		&i.OrgSlug,
+	)
+	return i, err
 }
 
 const lockMemberProject = `-- name: LockMemberProject :one

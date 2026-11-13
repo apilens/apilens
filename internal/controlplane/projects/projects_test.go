@@ -44,16 +44,10 @@ func TestEnvironments(t *testing.T) {
 	}
 }
 
-func TestRoles(t *testing.T) {
-	for role, want := range map[string][2]bool{
-		"owner":  {true, true},
-		"admin":  {true, true},
-		"member": {true, false},
-		"viewer": {false, false},
-		"":       {false, false},
-	} {
-		if CanWrite(role) != want[0] || CanDelete(role) != want[1] {
-			t.Errorf("%q: write=%v delete=%v", role, CanWrite(role), CanDelete(role))
+func TestCreatorRole(t *testing.T) {
+	for orgRole, want := range map[string]string{"owner": RoleAdmin, "admin": RoleAdmin, "member": RoleEditor} {
+		if got := creatorRole(orgRole); got != want {
+			t.Errorf("creatorRole(%q) = %q, want %q", orgRole, got, want)
 		}
 	}
 }

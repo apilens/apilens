@@ -56,7 +56,7 @@ func TestSensitiveOperationsNeedRecentSignIn(t *testing.T) {
 // replaces the 10-minute default.
 func TestSensitiveActionMaxAgeIsConfigurable(t *testing.T) {
 	f := setupOrgs(t, ratelimit.Rate{})
-	NewProjects(projects.New(f.pool), nil, ratelimit.Rate{}, testutil.Logger(t)).WithRecentAuth(time.Hour).Register(f.api)
+	NewProjects(projects.New(f.pool), f.projectGuard(t), f.authz, nil, ratelimit.Rate{}, testutil.Logger(t)).WithRecentAuth(time.Hour).Register(f.api)
 	owner := f.user(t, "ra-cfg@example.com")
 	f.mustCreate(t, owner, "Acme", "acme")
 	f.mustCreateProject(t, owner, "acme", "Shop", "shop")

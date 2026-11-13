@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/apilens/apilens/internal/controlplane/projects"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/identity/audit"
 )
@@ -50,13 +49,9 @@ const MaxRateLimitPerMinute = 100_000_000
 var (
 	// ErrInvalid: the name, scopes or expiry are unusable.
 	ErrInvalid = errors.New("apikeys: invalid name, scopes or expiry")
-	// ErrNotFound: no active project has the slug, or the user is not a
-	// member of its organization. The cases are deliberately
-	// indistinguishable.
+	// ErrNotFound: no active project has the id (it was deleted after the
+	// caller authorized the request).
 	ErrNotFound = errors.New("apikeys: project not found")
-	// ErrForbidden: the user is a member but their role does not allow the
-	// change.
-	ErrForbidden = errors.New("apikeys: forbidden")
 	// ErrKeyNotFound: the project has no key with the id.
 	ErrKeyNotFound = errors.New("apikeys: key not found")
 	// ErrKeyLimit: the project already has ingest.max_keys_per_project
@@ -188,17 +183,12 @@ type Auditor interface {
 // publishing it on InvalidateChannel.
 type Invalidator func(ctx context.Context, hash string) error
 
-// CanManage reports whether an organization role may create and revoke a
-// project's keys (authz/schema.zed project.manage_keys: everyone who can
-// create projects in the organization).
-func CanManage(role string) bool { return projects.CanWrite(role) }
-
 // Service creates, lists and revokes the API keys of projects on behalf of
 // signed-in users.
 //
-// Role checks read memberships until the authz middleware lands; they follow
-// authz/schema.zed: any member may list keys, owners, admins and members may
-// create and revoke them (manage_keys).
+// The service does not authorize: callers check the SpiceDB permission first
+// with the authz guard (view to list keys, manage_keys to create, change and
+// revoke them) and pass the project id it resolved.
 type Service struct {
 	pool       *pgxpool.Pool
 	audit      Auditor
@@ -365,17 +355,17 @@ func checkEnvironments(ctx context.Context, q *db.Queries, projectID uuid.UUID, 
 	return out, nil
 }
 
-// Create issues a key named name with scopes for the project slug on behalf
-// of user, who must be an owner, admin or member of its organization. name
-// is trimmed; expiresAt, when set, must be in the future. The raw key is
-// returned once and only its hash is stored. Audited as api_key.created.
-func (s *Service) Create(ctx context.Context, user uuid.UUID, slug, name string, scopes []string, expiresAt *time.Time) (Created, error) {
-	return s.CreateKey(ctx, user, slug, NewKey{Name: name, Scopes: scopes, ExpiresAt: expiresAt})
+// Create issues a key named name with scopes for the project projectID on
+// behalf of user. name is trimmed; expiresAt, when set, must be in the
+// future. The raw key is returned once and only its hash is stored. Audited
+// as api_key.created.
+func (s *Service) Create(ctx context.Context, user, projectID uuid.UUID, name string, scopes []string, expiresAt *time.Time) (Created, error) {
+	return s.CreateKey(ctx, user, projectID, NewKey{Name: name, Scopes: scopes, ExpiresAt: expiresAt})
 }
 
 // CreateKey is Create with app permissions: an ingest key may create apps
 // unless k.CanCreateApps is false, and k.AppIDs limits it to some apps.
-func (s *Service) CreateKey(ctx context.Context, user uuid.UUID, slug string, k NewKey) (Created, error) {
+func (s *Service) CreateKey(ctx context.Context, user, projectID uuid.UUID, k NewKey) (Created, error) {
 	name, expiresAt := strings.TrimSpace(k.Name), k.ExpiresAt
 	if name == "" || len([]rune(name)) > MaxNameLen {
 		return Created{}, ErrInvalid
@@ -407,7 +397,7 @@ func (s *Service) CreateKey(ctx context.Context, user uuid.UUID, slug string, k 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.New(tx)
-	p, err := lockProject(ctx, q, user, slug, CanManage)
+	p, err := lockProject(ctx, q, projectID)
 	if err != nil {
 		return Created{}, err
 	}
@@ -460,19 +450,19 @@ func (s *Service) CreateKey(ctx context.Context, user uuid.UUID, slug string, k 
 	}, nil
 }
 
-// UpdateAccess replaces what the key id of the project slug may do with
-// apps and, when a.SetEnvironments, which environments it may send for, on behalf of user (who must be allowed to manage keys), audits
+// UpdateAccess replaces what the key id of the project projectID may do with
+// apps and, when a.SetEnvironments, which environments it may send for, on behalf of user, audits
 // api_key.updated and, after the transaction, tells every verifier to forget
 // the key so the change applies at once. A revoked or unknown key is
 // ErrKeyNotFound; apps:create only applies to ingest keys.
-func (s *Service) UpdateAccess(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID, a Access) (Key, error) {
+func (s *Service) UpdateAccess(ctx context.Context, user, projectID, id uuid.UUID, a Access) (Key, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Key{}, fmt.Errorf("apikeys: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.New(tx)
-	p, err := lockProject(ctx, q, user, slug, CanManage)
+	p, err := lockProject(ctx, q, projectID)
 	if err != nil {
 		return Key{}, err
 	}
@@ -557,11 +547,11 @@ func idStrings(ids []uuid.UUID) []string {
 	return out
 }
 
-// List returns every key of the project slug, revoked ones included, newest
-// first. user must be a member of the project's organization.
-func (s *Service) List(ctx context.Context, user uuid.UUID, slug string) ([]Key, error) {
+// List returns every key of the project projectID, revoked ones included,
+// newest first.
+func (s *Service) List(ctx context.Context, projectID uuid.UUID) ([]Key, error) {
 	q := db.New(s.pool)
-	p, err := q.GetMemberProject(ctx, db.GetMemberProjectParams{UserID: user, Slug: slug})
+	p, err := q.GetActiveProject(ctx, projectID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -592,19 +582,19 @@ func (s *Service) List(ctx context.Context, user uuid.UUID, slug string) ([]Key,
 	return out, nil
 }
 
-// Revoke revokes the key id of the project slug on behalf of user, who must
-// be an owner, admin or member of its organization, audits api_key.revoked
+// Revoke revokes the key id of the project projectID on behalf of user,
+// audits api_key.revoked
 // and, after commit, tells every verifier to drop the key from its cache.
 // Revoking a key that is already revoked changes nothing; an id the project
 // does not have is ErrKeyNotFound.
-func (s *Service) Revoke(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID) error {
+func (s *Service) Revoke(ctx context.Context, user, projectID, id uuid.UUID) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("apikeys: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.New(tx)
-	p, err := lockProject(ctx, q, user, slug, CanManage)
+	p, err := lockProject(ctx, q, projectID)
 	if err != nil {
 		return err
 	}
@@ -679,8 +669,8 @@ type Rotated struct {
 	Old Key
 }
 
-// Rotate replaces the key id of the project slug on behalf of user (who
-// must be allowed to manage keys): it creates a successor with the same
+// Rotate replaces the key id of the active project projectID on behalf of
+// user (the caller checks project#manage_keys): it creates a successor with the same
 // name, scopes, app scope, environments and rate limit, and sets the old
 // key's expires_at to the end of the overlap window (now, +24 h or +7 d,
 // never later than the expiry it already had). The two are linked through
@@ -691,7 +681,7 @@ type Rotated struct {
 // commit, so it is rejected at once (at worst within ingest.key_cache_ttl
 // when the invalidation is lost). With an overlap the cached key carries its
 // expiry and the verifier rejects it from then on.
-func (s *Service) Rotate(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID, overlap string) (Rotated, error) {
+func (s *Service) Rotate(ctx context.Context, user, projectID, id uuid.UUID, overlap string) (Rotated, error) {
 	window, err := overlapDuration(overlap)
 	if err != nil {
 		return Rotated{}, err
@@ -707,7 +697,7 @@ func (s *Service) Rotate(ctx context.Context, user uuid.UUID, slug string, id uu
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.New(tx)
-	p, err := lockProject(ctx, q, user, slug, CanManage)
+	p, err := lockProject(ctx, q, projectID)
 	if err != nil {
 		return Rotated{}, err
 	}
@@ -788,18 +778,14 @@ func (s *Service) Rotate(ctx context.Context, user uuid.UUID, slug string, id uu
 	}, nil
 }
 
-// lockProject row-locks the project slug for user's membership in its
-// organization and checks the role with allowed.
-func lockProject(ctx context.Context, q *db.Queries, user uuid.UUID, slug string, allowed func(string) bool) (db.LockMemberProjectRow, error) {
-	p, err := q.LockMemberProject(ctx, db.LockMemberProjectParams{UserID: user, Slug: slug})
+// lockProject row-locks the active project id.
+func lockProject(ctx context.Context, q *db.Queries, projectID uuid.UUID) (db.LockActiveProjectRow, error) {
+	p, err := q.LockActiveProject(ctx, projectID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, ErrNotFound
 	}
 	if err != nil {
 		return p, fmt.Errorf("apikeys: lock project: %w", err)
-	}
-	if !allowed(p.Role) {
-		return p, ErrForbidden
 	}
 	return p, nil
 }
@@ -811,7 +797,7 @@ func keyTarget(id uuid.UUID, name string) audit.Target {
 
 // keyMeta is the audit metadata of a key event. It never holds the raw key
 // or its hash.
-func keyMeta(p db.LockMemberProjectRow, id uuid.UUID, name, prefix string, scopes []string) map[string]any {
+func keyMeta(p db.LockActiveProjectRow, id uuid.UUID, name, prefix string, scopes []string) map[string]any {
 	return map[string]any{
 		"org_id":       p.OrgID.String(),
 		"project_id":   p.ID.String(),
