@@ -31,12 +31,14 @@ export interface InviteInputProps {
   disabled?: boolean;
   autoFocus?: boolean;
   placeholder?: string;
+  /** The roles a chip can take (default: every invitation role). */
+  roles?: readonly InviteRole[];
 }
 
-export function InviteInput({ id, chips, onChange, draft, onDraftChange, role, invalid = false, describedBy, disabled = false, autoFocus, placeholder = "ada@example.com" }: InviteInputProps) {
+export function InviteInput({ id, chips, onChange, draft, onDraftChange, role, invalid = false, describedBy, disabled = false, autoFocus, placeholder = "ada@example.com", roles = INVITE_ROLES }: InviteInputProps) {
   const input = useRef<HTMLInputElement>(null);
   const reasonId = useId();
-  const bad = invalid || chips.some((c) => !c.valid);
+  const bad = invalid || chips.some((c) => !c.valid || c.problem);
 
   const commit = (text: string) => {
     if (!text.trim()) return;
@@ -76,12 +78,14 @@ export function InviteInput({ id, chips, onChange, draft, onDraftChange, role, i
     <div className={`ii${bad ? " bad" : ""}${disabled ? " off" : ""}`} onClick={() => input.current?.focus()}>
       {chips.length > 0 ? (
         <ul className="ii-chips" aria-label="Addresses to invite">
-          {chips.map((c, i) => (
-            <li key={c.email} className={`ii-chip${c.valid ? "" : " bad"}`}>
-              <span className="ii-email" aria-describedby={c.valid ? undefined : `${reasonId}-${i}`}>
+          {chips.map((c, i) => {
+            const why = c.valid ? c.problem : "not an email";
+            return (
+            <li key={c.email} className={`ii-chip${why ? " bad" : ""}`}>
+              <span className="ii-email" aria-describedby={why ? `${reasonId}-${i}` : undefined}>
                 {c.email}
               </span>
-              {c.valid ? (
+              {!why ? (
                 <select
                   className="ii-role"
                   value={c.role}
@@ -90,7 +94,7 @@ export function InviteInput({ id, chips, onChange, draft, onDraftChange, role, i
                   onClick={(e) => e.stopPropagation()}
                   onChange={(e) => setRole(i, e.target.value as InviteRole)}
                 >
-                  {INVITE_ROLES.map((r) => (
+                  {roles.map((r) => (
                     <option key={r} value={r}>
                       {roleLabel(r)}
                     </option>
@@ -98,7 +102,7 @@ export function InviteInput({ id, chips, onChange, draft, onDraftChange, role, i
                 </select>
               ) : (
                 <span id={`${reasonId}-${i}`} className="ii-why">
-                  not an email
+                  {why}
                 </span>
               )}
               <button
@@ -114,7 +118,8 @@ export function InviteInput({ id, chips, onChange, draft, onDraftChange, role, i
                 ×
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       ) : null}
       <input

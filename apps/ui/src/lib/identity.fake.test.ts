@@ -104,10 +104,13 @@ describe("project access", () => {
     expect((await client.projectAccess("shop", {}, me)).members).toHaveLength(6);
   });
 
-  it("refuses writes without access.manage, and reads the project's invitations", async () => {
+  it("refuses writes and the invitations without access.manage, and reads the project's invitations with it", async () => {
     const viewer = await signIn({ capabilities: ["project.read"] });
     await expect(client.setDefaultAccess("shop", "viewer", {}, viewer)).rejects.toMatchObject({ status: 403, code: "forbidden" });
-    const invitations = (await client.projectInvitations("shop", viewer)) ?? [];
+    // The API's rule (#779): the project's pending invitations need manage_access.
+    await expect(client.projectInvitations("shop", viewer)).rejects.toMatchObject({ status: 403, code: "forbidden" });
+    const admin = await signIn({ capabilities: ["project.read", "access.manage"] });
+    const invitations = (await client.projectInvitations("shop", admin)) ?? [];
     expect(invitations.map((i) => [i.email, i.project_grants?.[0]?.role])).toEqual([
       ["new.dev@example.com", "editor"],
       ["contractor@example.com", "viewer"],

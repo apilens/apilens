@@ -7,7 +7,7 @@ import { AccessMembers, AccessMembersLoading, MembersFrame } from "@/components/
 import { type Candidate, addCandidates } from "@/lib/access-changes";
 import { getSession } from "@/lib/auth/server";
 import { can } from "@/lib/capabilities";
-import { type AccessMember, type DefaultAccess, identity, isApiError } from "@/lib/identity";
+import { type AccessMember, type DefaultAccess, type Invitation, identity, isApiError } from "@/lib/identity";
 import { findProject } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 import type { SectionContext } from "../settings/sections/types";
@@ -62,14 +62,32 @@ export async function loadCandidates({ project, context, next }: Pick<SectionCon
   }
 }
 
+/**
+ * The project's pending invitations (#809), for holders of `access.manage` (the API's rule):
+ * undefined without it (the section is left out), null when the API could not answer.
+ */
+export async function loadInvitations({ project, context, next }: Pick<SectionContext, "project" | "context" | "next">): Promise<Invitation[] | null | undefined> {
+  if (!can(context.capabilities, project, "access.manage")) return undefined;
+  const session = await getSession();
+  try {
+    return (await session.call((o) => identity().projectInvitations(project, o))) ?? [];
+  } catch (err) {
+    if (isSessionExpired(err)) redirectToRefresh(next);
+    if (isApiError(err)) return null;
+    throw err;
+  }
+}
+
 async function MembersList({ ctx }: { ctx: SectionContext }) {
   const data = await loadOnce(ctx);
-  const candidates = data ? await loadCandidates(ctx, data.members) : null;
-  const orgName = findProject(ctx.context, ctx.project)?.org.name ?? "the organization";
+  const [candidates, invitations] = data ? await Promise.all([loadCandidates(ctx, data.members), loadInvitations(ctx)]) : [null, undefined];
+  const found = findProject(ctx.context, ctx.project)?.org;
+  const orgName = found?.name ?? "the organization";
+  const org = { slug: found?.slug ?? "", name: orgName };
   return (
     <>
       {data ? <DefaultAccessCard project={ctx.project} projectName={ctx.projectName} orgName={orgName} defaultAccess={data.defaultAccess} members={data.members} /> : null}
-      <AccessMembers project={ctx.project} projectName={ctx.projectName} data={data} params={ctx.search} now={Date.now()} candidates={candidates} />
+      <AccessMembers project={ctx.project} projectName={ctx.projectName} data={data} params={ctx.search} now={Date.now()} candidates={candidates} org={org} invitations={invitations} />
     </>
   );
 }
