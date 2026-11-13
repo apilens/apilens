@@ -8475,6 +8475,169 @@
         ],
         "type": "object"
       },
+      "ReauthOptionsBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ReauthOptionsBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "next": {
+            "description": "Relative path (starting with a single /) to return to after an SSO re-authentication; put into sso_url.",
+            "maxLength": 512,
+            "type": "string"
+          },
+          "send_email_code": {
+            "description": "Email a 6-digit code to the user's address now (only when email is among the methods). Within 30 seconds of the previous code no new email is sent; retry_after is the remaining wait.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "ReauthOptionsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ReauthOptionsResponse.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "email_code_sent": {
+            "description": "True when send_email_code emailed a new code.",
+            "type": "boolean"
+          },
+          "methods": {
+            "description": "How the user can confirm who they are, strongest first: passkey, totp (authenticator app), email (emailed code), or only sso when their organization enforces single sign-on. email is not offered when two-factor authentication is on.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "passkey": {
+            "$ref": "#/components/schemas/ReauthPasskeyOptions",
+            "description": "Present when passkey is a method."
+          },
+          "retry_after": {
+            "description": "With send_email_code: seconds before another code can be requested.",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "sso_url": {
+            "description": "Present when sso is the method: open it in the browser to authenticate again at the identity provider (prompt=login, max_age=0). It ends in a new session.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "methods",
+          "email_code_sent"
+        ],
+        "type": "object"
+      },
+      "ReauthPasskeyOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "challenge_id": {
+            "description": "Send back with the verify request. Valid for 5 minutes, once.",
+            "type": "string"
+          },
+          "options": {
+            "description": "CredentialRequestOptions ({publicKey: ...}) for navigator.credentials.get(), limited to the user's passkeys."
+          }
+        },
+        "required": [
+          "challenge_id",
+          "options"
+        ],
+        "type": "object"
+      },
+      "ReauthVerifyBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ReauthVerifyBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "challenge_id": {
+            "description": "passkey: the challenge_id of the options response.",
+            "maxLength": 128,
+            "type": "string"
+          },
+          "code": {
+            "description": "totp: the current 6-digit code from the authenticator app. email: the emailed code (spaces and hyphens are ignored).",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "method": {
+            "description": "The method used; one of the options' methods.",
+            "enum": [
+              "passkey",
+              "totp",
+              "email"
+            ],
+            "type": "string"
+          },
+          "response": {
+            "description": "passkey: the PublicKeyCredential from navigator.credentials.get(), JSON-encoded."
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "type": "object"
+      },
+      "ReauthVerifyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ReauthVerifyResponse.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "access_token": {
+            "description": "New RS256 access token whose auth_time is now. The refresh token does not change; refreshes keep the new authentication time.",
+            "type": "string"
+          },
+          "auth_time": {
+            "description": "The session's new authentication time.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_in": {
+            "description": "Seconds until the access token expires.",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "access_token",
+          "expires_in",
+          "auth_time"
+        ],
+        "type": "object"
+      },
       "RecoveryRequestInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -13705,6 +13868,221 @@
         ]
       }
     },
+    "/api/v1/auth/reauth/options": {
+      "post": {
+        "description": "For a signed-in user whose sensitive action answered `reauth_required`: lists how they can confirm who they are without signing out. `passkey` (with WebAuthn `options` limited to their passkeys) when they have one, `totp` when two-factor authentication is on, and `email` (a 6-digit code to their address) when it is off. A user whose organization enforces single sign-on gets only `sso` and an `sso_url` that sends them through the identity provider with `prompt=login` and `max_age=0`. `send_email_code: true` emails the code (15 minutes, 5 attempts); within 30 seconds of the previous one no new email is sent. Email codes are rate-limited per address (429 `rate_limited` with Retry-After).",
+        "operationId": "reauth-options",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReauthOptionsBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReauthOptionsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Start confirming who you are again",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/reauth/verify": {
+      "post": {
+        "description": "Checks a passkey assertion (`challenge_id` and `response`), a code from the authenticator app or the emailed code, for one of the methods `/reauth/options` listed. On success the session's authentication time becomes now (refreshes keep it) and the answer carries a new access token whose `auth_time` is now, so sensitive actions pass for `identity.sensitive_action_max_age`. Audited as `session.reauthenticated`; failures as `session.reauth_failed`. A wrong code answers `invalid_code`; an emailed code locks after 5 wrong guesses (`too_many_attempts`, request a new one), and every method is rate-limited per user (429 `rate_limited` with Retry-After), so repeated failures lock re-authentication out for a while. A method the user does not have answers `invalid_request`; a user whose organization enforces single sign-on gets 403 `sso_required` with the `start_url` to re-authenticate at.",
+        "operationId": "reauth-verify",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReauthVerifyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReauthVerifyResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `code_expired`, `invalid_code`, `invalid_request`.",
+            "x-apilens-codes": [
+              "code_expired",
+              "invalid_code",
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `passkey_failed`, `passkey_unknown`, `session_expired`, `unauthenticated`.",
+            "x-apilens-codes": [
+              "passkey_failed",
+              "passkey_unknown",
+              "session_expired",
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `sso_required`.",
+            "x-apilens-codes": [
+              "sso_required"
+            ]
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too Many Requests. Codes: `rate_limited`, `too_many_attempts`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying; mirrors `retry_after`.",
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            },
+            "x-apilens-codes": [
+              "rate_limited",
+              "too_many_attempts"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Confirm who you are again",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/api/v1/auth/recovery/cancel": {
       "post": {
         "description": "Public; authenticated by the token from the recovery email. Cancels a pending request; cancelling one already cancelled also answers 204. Audited as `recovery.cancelled`. An unknown or already confirmed token answers `invalid_token`. Rate-limited per client IP.",
@@ -14293,7 +14671,7 @@
     },
     "/api/v1/auth/sso/{org}/start": {
       "get": {
-        "description": "Public browser navigation; `start_url` of the SSO lookup points here. Starts an authorization-code flow with PKCE and an OIDC nonce against the identity provider of the organization's connection (endpoints from its OIDC discovery), keeps the attempt server-side for 10 minutes keyed by a random state, and redirects (302) to the provider. Rate-limited per client IP. An organization that does not exist or has no SSO connection answers 404.",
+        "description": "Public browser navigation; `start_url` of the SSO lookup points here. Starts an authorization-code flow with PKCE and an OIDC nonce against the identity provider of the organization's connection (endpoints from its OIDC discovery), keeps the attempt server-side for 10 minutes keyed by a random state, and redirects (302) to the provider. With `reauth=true` (re-authentication before a sensitive action) the provider is asked for a fresh login (`prompt=login`, `max_age=0`), the callback requires an `auth_time` in the id_token no older than the attempt, and the new session is audited as `session.reauthenticated`. Rate-limited per client IP. An organization that does not exist or has no SSO connection answers 404.",
         "operationId": "start-sso",
         "parameters": [
           {
@@ -14337,6 +14715,16 @@
               "description": "Email typed on the sign-in page, passed to the identity provider as login_hint.",
               "maxLength": 254,
               "type": "string"
+            }
+          },
+          {
+            "description": "Re-authentication of a signed-in user (the sso_url of POST /api/v1/auth/reauth/options): the identity provider is asked to authenticate the user again (prompt=login, max_age=0), and the id_token's auth_time must be recent.",
+            "explode": false,
+            "in": "query",
+            "name": "reauth",
+            "schema": {
+              "description": "Re-authentication of a signed-in user (the sso_url of POST /api/v1/auth/reauth/options): the identity provider is asked to authenticate the user again (prompt=login, max_age=0), and the id_token's auth_time must be recent.",
+              "type": "boolean"
             }
           }
         ],

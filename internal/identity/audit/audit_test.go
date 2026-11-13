@@ -160,6 +160,7 @@ func TestCatalogue(t *testing.T) {
 		"org.created", "org.updated", "org.deleted", "member.added", "member.role_changed", "member.removed", "member.joined", "invitation.sent", "invitation.accepted",
 		"api_key.created", "api_key.revoked", "sso.updated", "sso.deleted", "capture_policy.updated",
 		"api_key.updated", "app.created", "app.archived", "app.restored", "app.renamed", "app.merged", "app.deleted", "app.acknowledged",
+		"session.reauthenticated", "session.reauth_failed",
 	}
 	got := Kinds()
 	if len(got) != len(want) {

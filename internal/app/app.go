@@ -671,6 +671,16 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		Sessions: sessions,
 		Audit:    audit.New(a.pool),
 	}, limiter, a.logger).Register(a.server.API())
+	identity.NewReauth(a.cfg.Identity, identity.ReauthDeps{
+		Users:     identitydb.New(a.pool),
+		Sessions:  sessions,
+		Passkeys:  passkey.NewLogin(rp, passkey.NewValkeyChallengeStore(a.valkey), a.pool),
+		TwoFactor: twoFactor,
+		Codes:     codes,
+		Jobs:      a.jobs,
+		Audit:     audit.New(a.pool),
+		SSO:       ssoEnforcement,
+	}, limiter, a.logger).Register(a.server.API())
 	identity.NewRestore(a.cfg.Identity, accounts, codes, limiter, a.logger).Register(a.server.API())
 	recoverySvc := recovery.New(a.pool, a.jobs, recovery.Options{Delay: a.cfg.Identity.RecoveryDelay})
 	identity.NewRecovery(a.cfg.Identity, recoverySvc, sessions, limiter, a.logger).Register(a.server.API())

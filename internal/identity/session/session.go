@@ -423,6 +423,52 @@ func (s *Service) LogoutAll(ctx context.Context, user uuid.UUID) (int64, error) 
 	})
 }
 
+// Reauthenticated is the outcome of Reauthenticate: a fresh access token
+// whose `auth_time` is the new authentication time. The refresh token does
+// not change.
+type Reauthenticated struct {
+	AccessToken     string
+	AccessExpiresAt time.Time
+	// AuthTime is the session's new authentication time.
+	AuthTime time.Time
+	Session  db.Session
+	User     db.User
+}
+
+// Reauthenticate records that user, signed in with session sid (an access
+// token's `sid`), proved who they are again: the live row of sid's family
+// gets now as its authentication time (sessions.created_at, kept across
+// refreshes), and a new access token carries it as `auth_time`. Nothing is
+// audited here; the caller records session.reauthenticated. It answers
+// ErrExpired when the session was ended, has expired or is not user's.
+func (s *Service) Reauthenticate(ctx context.Context, user, sid uuid.UUID) (Reauthenticated, error) {
+	u, err := s.q.GetUserByID(ctx, user)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Reauthenticated{}, ErrExpired
+	}
+	if err != nil {
+		return Reauthenticated{}, fmt.Errorf("session: load user: %w", err)
+	}
+	sess, err := s.q.ReauthenticateSession(ctx, db.ReauthenticateSessionParams{ID: sid, UserID: user})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Reauthenticated{}, ErrExpired
+	}
+	if err != nil {
+		return Reauthenticated{}, fmt.Errorf("session: reauthenticate: %w", err)
+	}
+	access, exp, err := s.issuer.Issue(u, sess, sess.Amr)
+	if err != nil {
+		return Reauthenticated{}, fmt.Errorf("session: issue access token: %w", err)
+	}
+	return Reauthenticated{
+		AccessToken:     access,
+		AccessExpiresAt: exp,
+		AuthTime:        sess.CreatedAt.Truncate(time.Second),
+		Session:         sess,
+		User:            u,
+	}, nil
+}
+
 // revokeFamily ends the family of sess with reason, audits session.revoked
 // and denylists the family's access tokens. A family already ended is left
 // alone.

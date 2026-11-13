@@ -537,6 +537,7 @@ func runOpenAPI(stdout io.Writer) error {
 	identity.NewPasskeys(identity.PasskeysDeps{}, nil).Register(srv.API())
 	identity.NewConnectedAccounts(identity.ConnectedAccountsDeps{}, nil).Register(srv.API())
 	identity.NewPasskeyLogin(config.IdentityConfig{}, identity.PasskeyLoginDeps{}, nil, nil).Register(srv.API())
+	identity.NewReauth(config.IdentityConfig{}, identity.ReauthDeps{}, nil, nil).Register(srv.API())
 	identity.NewRestore(config.IdentityConfig{}, nil, nil, nil, nil).Register(srv.API())
 	controlplaneapi.Register(srv.API(), controlplaneapi.Deps{})
 	identity.NewRecovery(config.IdentityConfig{}, nil, nil, nil, nil).Register(srv.API())

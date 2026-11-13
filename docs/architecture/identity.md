@@ -444,7 +444,7 @@ recently retired, so rotation never breaks live tokens).
 | `iat`, `exp` | issue time, issue time + `access_token_ttl` |
 | `sid` | session id (the `sessions` row) |
 | `amr` | how the session was authenticated: `email`, `google`, `github`, `passkey`, `totp`, `backup_code`, `sso` |
-| `auth_time` | when the user signed in to the session (OIDC Core `auth_time`, seconds): the session's `created_at`, unchanged by refreshes |
+| `auth_time` | when the user signed in to the session (OIDC Core `auth_time`, seconds): the session's `created_at`, unchanged by refreshes and moved to now by re-authentication |
 
 Verifiers (`api`, `query`, later `mcp`) accept only RS256 and only keys from
 JWKS, check `iss`, `aud` and `exp`, and consult the `sid` denylist.
@@ -459,11 +459,39 @@ operations land. `authz.RequireRecentAuth(api, maxAge)` (beside
 `RequireProject` in `internal/authz/require.go`) compares the access token's
 `auth_time` with the clock and answers `reauth_required` (403) when the
 sign-in is older, or when the token has no `auth_time` (issued before the
-claim existed; the next refresh adds it). The user signs in again (a new
-session) and retries. API keys and OAuth clients are refused with
+claim existed; the next refresh adds it). The user confirms who they are
+again without signing out (re-authentication, below) and retries. API keys and OAuth clients are refused with
 `forbidden`: these operations need a user session. Each such operation lists
 `reauth_required` in the OpenAPI document. 2FA setup applies the same
 10-minute rule inside identity, from the session row.
+
+### Re-authentication (`/api/v1/auth/reauth`)
+
+A signed-in user who hits `reauth_required` confirms who they are again
+without signing out:
+
+1. `POST /api/v1/auth/reauth/options` lists the methods the user has, strongest
+   first: `passkey` (the answer carries WebAuthn options limited to their
+   passkeys), `totp` when two-factor authentication is on, and `email` (a
+   6-digit code to the account address) when it is off, since an emailed code
+   alone would be weaker than signing in. `send_email_code: true` emails the
+   code (`reauth_code` template, 15 minutes, 5 wrong guesses, 30 s resend
+   cooldown, `email_start_per_email` limit). A user whose organization
+   enforces SSO gets only `sso` and an `sso_url`: the SSO start with
+   `reauth=true`, which asks the identity provider for `prompt=login` and
+   `max_age=0`, requires a recent `auth_time` in the id_token and ends in a
+   new session.
+2. `POST /api/v1/auth/reauth/verify` checks the passkey assertion (it must be
+   one of the user's own passkeys), the authenticator code or the emailed
+   code. On success the live row of the session's family gets `created_at =
+   now()` (refreshes inherit it) and the answer carries a new access token
+   whose `auth_time` is now; the refresh token does not change. Verify is
+   limited per user by `second_factor_per_user` (10 per 15 minutes, 429
+   `rate_limited`), so repeated failures lock re-authentication out for a
+   while. A method the user does not have answers `invalid_request`.
+
+Success is audited as `session.reauthenticated` (`method`, `session_id`),
+failures as `session.reauth_failed` (`method`, `reason`).
 
 ### Refresh token and session
 
