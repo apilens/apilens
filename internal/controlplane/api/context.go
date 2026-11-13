@@ -30,12 +30,13 @@ type ContextService interface {
 
 // ContextProject is a project in the user context.
 type ContextProject struct {
-	ID           string   `json:"id" format:"uuid"`
-	Slug         string   `json:"slug"`
-	Name         string   `json:"name"`
-	Environments []string `json:"environments" doc:"The project's environment names, sorted."`
-	AppCount     int      `json:"app_count" minimum:"0" doc:"The number of the project's active (not deleted) apps."`
-	Role         string   `json:"role" enum:"admin,editor,viewer" doc:"The signed-in user's effective project role: the highest one any source grants (organization role, project default access, direct grant)."`
+	ID           string     `json:"id" format:"uuid"`
+	Slug         string     `json:"slug"`
+	Name         string     `json:"name"`
+	Environments []string   `json:"environments" doc:"The project's environment names, sorted."`
+	AppCount     int        `json:"app_count" minimum:"0" doc:"The number of the project's active (not deleted) apps."`
+	Role         string     `json:"role" enum:"admin,editor,viewer" doc:"The signed-in user's effective project role: the highest one any source grants (organization role, project default access, direct grant)."`
+	PausedAt     *time.Time `json:"paused_at" nullable:"true" doc:"When ingest was paused for the project (the ingest edge answers 403 project_paused to its keys); null while ingest is accepted."`
 }
 
 // ContextOrg is an organization in the user context.
@@ -138,7 +139,7 @@ func toUserContext(uc usercontext.Context, amr []string) UserContext {
 			if envs == nil {
 				envs = []string{}
 			}
-			org.Projects = append(org.Projects, ContextProject{ID: pr.ID.String(), Slug: pr.Slug, Name: pr.Name, Environments: envs, AppCount: pr.AppCount, Role: pr.Role})
+			org.Projects = append(org.Projects, ContextProject{ID: pr.ID.String(), Slug: pr.Slug, Name: pr.Name, Environments: envs, AppCount: pr.AppCount, Role: pr.Role, PausedAt: utcPtr(pr.PausedAt)})
 		}
 		out.Orgs = append(out.Orgs, org)
 	}

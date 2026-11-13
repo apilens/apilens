@@ -45,6 +45,10 @@ const (
 //   - ingest down: connections refused,
 //   - ingest 5xx: every request answered 503,
 //   - ingest 429: every request answered 429 with Retry-After: 2,
+//   - project paused: every request answered 403 project_paused, as the
+//     edge answers while ingest is paused for the project (POST
+//     /api/v1/projects/{slug}/pause; the edge side is covered by
+//     TestPauseAndResumeIngest in internal/controlplane/api),
 //
 // drives steady traffic through every app before, during and after a 25 s
 // fault, then checks that
@@ -54,7 +58,10 @@ const (
 //     baseline p99 (default slack 100ms);
 //   - drops are counted: the SDK stats the heartbeats report (GET
 //     /api/v1/apps/{id}/status) grew by at least the requests that never
-//     arrived, with retries_exhausted among the reasons;
+//     arrived, with retries_exhausted among the reasons (non_retryable
+//     when the project is paused);
+//   - a paused project's batches are dropped, not retried: no batch the
+//     proxy answered 403 is sent again;
 //   - recovery flushes without duplicates: everything sent before and after
 //     the fault arrives, no request is stored twice and no batch is
 //     accepted twice; in the 429 drill the batches queued during the fault
@@ -125,6 +132,7 @@ func TestIngestFailureDrills(t *testing.T) {
 		{"ingest down", faultDown, 0},
 		{"ingest 5xx", faultServerError, 0},
 		{"ingest 429 with Retry-After", faultRateLimited, drillRetryAfter},
+		{"project paused", faultPaused, 0},
 	} {
 		t.Run(dr.name, func(t *testing.T) {
 			sub := d
@@ -247,12 +255,16 @@ func (d *drillRun) drill(mode faultMode, retryAfter int) {
 		if lost > dropped {
 			t.Errorf("%s: %d requests never arrived but the SDK stats count only %d drops", app, lost, dropped)
 		}
-		if reasons["retries_exhausted"] == 0 {
-			t.Errorf("%s: no retries_exhausted drops counted for a %v fault (drops by reason: %v)", app, drillFault, reasons)
+		wantReason := "retries_exhausted"
+		if mode == faultPaused {
+			wantReason = "non_retryable"
+		}
+		if reasons[wantReason] == 0 {
+			t.Errorf("%s: no %s drops counted for a %v %s fault (drops by reason: %v)", app, wantReason, drillFault, mode, reasons)
 		}
 
 		switch mode {
-		case faultServerError, faultRateLimited:
+		case faultServerError, faultRateLimited, faultPaused:
 			tried := 0
 			for _, at := range attempts {
 				if at.isBatch() && at.App == app && at.Mode == mode {
@@ -261,6 +273,12 @@ func (d *drillRun) drill(mode faultMode, retryAfter int) {
 			}
 			if tried == 0 {
 				t.Errorf("%s: the SDK sent no batch during the %s fault", app, mode)
+			}
+		}
+		if mode == faultPaused {
+			// A 403 drops the batch at once: no retry loop.
+			if again := retriedAfter(attempts, app, http.StatusForbidden); len(again) > 0 {
+				t.Errorf("%s: %d batches were sent again after a 403 project_paused: %v", app, len(again), again)
 			}
 		}
 		if mode == faultRateLimited {

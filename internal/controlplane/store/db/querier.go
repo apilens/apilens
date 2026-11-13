@@ -105,7 +105,8 @@ type Querier interface {
 	ExpireRequestExport(ctx context.Context, id uuid.UUID) (int64, error)
 	FailRequestExport(ctx context.Context, arg FailRequestExportParams) (int64, error)
 	// Resolves an ingest key to its project. Revoked, expired and keys of
-	// deleted projects never match.
+	// deleted projects never match. project_paused: ingest is paused for the
+	// project (the edge refuses the key, the query role does not).
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error)
 	GetActiveAppBySlug(ctx context.Context, arg GetActiveAppBySlugParams) (GetActiveAppBySlugRow, error)
 	// An active project of an active organization by id; no row when either is
@@ -274,6 +275,8 @@ type Querier interface {
 	ListOrgActiveProjectsByID(ctx context.Context, arg ListOrgActiveProjectsByIDParams) ([]ListOrgActiveProjectsByIDRow, error)
 	ListOrgMembers(ctx context.Context, orgID uuid.UUID) ([]ListOrgMembersRow, error)
 	ListOrgProjects(ctx context.Context, orgID uuid.UUID) ([]ListOrgProjectsRow, error)
+	// Which of the given projects are paused, since when and by whom.
+	ListPausedProjects(ctx context.Context, ids []uuid.UUID) ([]ListPausedProjectsRow, error)
 	ListPendingInvitations(ctx context.Context, orgID uuid.UUID) ([]Invitation, error)
 	// ListPendingInvitations with the inviting user's email and name (NULL when
 	// the inviter's account is gone).
@@ -317,6 +320,9 @@ type Querier interface {
 	ListProjectEnvironmentDetails(ctx context.Context, projectID uuid.UUID) ([]ListProjectEnvironmentDetailsRow, error)
 	// The apps each key of the project sent records for, with when.
 	ListProjectKeyApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectKeyAppsRow, error)
+	// The hashes of the project's keys that are not revoked, so a pause or
+	// resume can drop them from every verifier cache.
+	ListProjectKeyHashes(ctx context.Context, projectID uuid.UUID) ([]string, error)
 	// Direct grants of a project with their users; deleted accounts are hidden.
 	ListProjectMembers(ctx context.Context, projectID uuid.UUID) ([]ListProjectMembersRow, error)
 	// The pending invitations that carry a grant on the project, newest first,
@@ -361,7 +367,8 @@ type Querier interface {
 	ListUserProjectMembers(ctx context.Context, userID uuid.UUID) ([]ListUserProjectMembersRow, error)
 	// The active projects of every active organization the user belongs to
 	// (memberships_user, then projects_org), by organization then name, with
-	// the number of active apps of each (apps_project_slug_active).
+	// the number of active apps of each (apps_project_slug_active) and when
+	// ingest was paused for it (NULL while ingest is accepted).
 	ListUserProjects(ctx context.Context, userID uuid.UUID) ([]ListUserProjectsRow, error)
 	// Keys whose expires_at has passed and whose api_key.expired event is not
 	// written yet, row-locked (keys another run holds are skipped). Revoked
@@ -443,6 +450,11 @@ type Querier interface {
 	OrganizationSlugTaken(ctx context.Context, slug string) (bool, error)
 	// Age of the oldest unprocessed row, 0 when the outbox is drained.
 	OutboxLagSeconds(ctx context.Context) (float64, error)
+	// Pausing and resuming ingest for a project (#792). The ingest edge reads
+	// projects.paused_at with the API key (GetActiveAPIKeyByHash).
+	// Pauses ingest for the active project; no row changes when it is already
+	// paused.
+	PauseProject(ctx context.Context, arg PauseProjectParams) (int64, error)
 	ProjectSlugTaken(ctx context.Context, slug string) (bool, error)
 	// Records a probe of a check and its status.
 	RecordHealthCheckResult(ctx context.Context, arg RecordHealthCheckResultParams) error
@@ -464,6 +476,9 @@ type Querier interface {
 	ResolveProjectSlug(ctx context.Context, slug string) (ResolveProjectSlugRow, error)
 	// Brings an archived, merged or deleted app back; acknowledges it.
 	RestoreApp(ctx context.Context, id uuid.UUID) error
+	// Resumes ingest for the active project; no row changes when it is not
+	// paused.
+	ResumeProject(ctx context.Context, id uuid.UUID) (int64, error)
 	RevokeAPIKey(ctx context.Context, id uuid.UUID) (string, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (Invitation, error)
 	// Revokes the address's pending invitation to the organization, if any, so

@@ -144,6 +144,28 @@ def test_422_is_dropped_and_body_logged_once_per_window(fake_ingest, caplog, mon
     assert len(caplog.records) == 2
 
 
+def test_403_project_paused_drops_each_batch_without_retrying(fake_ingest, caplog):
+    """A paused project (issue #792): ingest answers 403 project_paused to
+    every batch. Each batch is sent once, dropped as non_retryable, never
+    retried, and the reason is logged once per window."""
+    body = b'{"error":"project_paused","detail":"Ingest is paused for this project"}'
+    server = fake_ingest((403, {}, body))
+    client, sleeps = _client(server)
+    caplog.set_level(logging.WARNING, logger="apilens")
+
+    for _ in range(3):
+        _capture(client, 2)
+        client.flush_once()
+
+    assert server.hits == 3
+    assert sleeps == []
+    assert client.drop_counts()["non_retryable"] == 6
+    assert client.drop_counts()["retries_exhausted"] == 0
+    assert len(caplog.records) == 1
+    assert "403" in caplog.records[0].getMessage()
+    assert "project_paused" in caplog.records[0].getMessage()
+
+
 def test_different_statuses_are_rate_limited_independently(fake_ingest, caplog):
     server = fake_ingest((400, {}, b"bad"), (413, {}, b"too big"), (400, {}, b"bad"))
     client, _ = _client(server)

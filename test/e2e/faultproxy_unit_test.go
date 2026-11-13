@@ -107,6 +107,14 @@ func TestFaultProxyModes(t *testing.T) {
 		t.Fatalf("429: %v %+v", err, resp)
 	}
 
+	// Paused: 403 project_paused, as the edge answers a paused project.
+	if err := p.set(faultPaused, 0); err != nil {
+		t.Fatal(err)
+	}
+	if resp, err = proxyPost(t, client, addr, "/v1/requests", gzipped(t, batch), true); err != nil || resp.status != http.StatusForbidden {
+		t.Fatalf("paused: %v %+v", err, resp)
+	}
+
 	// Down: the connection is refused, then the same address serves again.
 	if err := p.set(faultDown, 0); err != nil {
 		t.Fatal(err)
@@ -131,10 +139,10 @@ func TestFaultProxyModes(t *testing.T) {
 		t.Fatalf("edge got %d requests, want 3 (two batches and the heartbeat)", n)
 	}
 	got := p.attemptsBetween(start, time.Now().Add(time.Second))
-	if len(got) != 5 {
-		t.Fatalf("recorded %d attempts, want 5: %+v", len(got), got)
+	if len(got) != 6 {
+		t.Fatalf("recorded %d attempts, want 6: %+v", len(got), got)
 	}
-	wantStatus := []int{http.StatusAccepted, http.StatusServiceUnavailable, http.StatusTooManyRequests, http.StatusAccepted, http.StatusOK}
+	wantStatus := []int{http.StatusAccepted, http.StatusServiceUnavailable, http.StatusTooManyRequests, http.StatusForbidden, http.StatusAccepted, http.StatusOK}
 	for i, a := range got {
 		if a.Status != wantStatus[i] {
 			t.Errorf("attempt %d status %d, want %d", i, a.Status, wantStatus[i])
@@ -144,15 +152,15 @@ func TestFaultProxyModes(t *testing.T) {
 	if first.App != "example-fastapi" || first.Records != 2 || !first.isBatch() || !first.Forwarded || first.Mode != faultNone {
 		t.Errorf("first attempt = %+v", first)
 	}
-	for _, a := range got[1:4] {
+	for _, a := range got[1:5] {
 		if a.Body != first.Body {
 			t.Errorf("re-gzipped retry of one batch hashed %s, want %s", a.Body, first.Body)
 		}
 	}
-	if got[1].Forwarded || got[2].Forwarded || got[1].Mode != faultServerError || got[2].Mode != faultRateLimited {
-		t.Errorf("fault attempts = %+v", got[1:3])
+	if got[1].Forwarded || got[2].Forwarded || got[3].Forwarded || got[1].Mode != faultServerError || got[2].Mode != faultRateLimited || got[3].Mode != faultPaused {
+		t.Errorf("fault attempts = %+v", got[1:4])
 	}
-	if hb := got[4]; hb.isBatch() || hb.App != "" {
+	if hb := got[5]; hb.isBatch() || hb.App != "" {
 		t.Errorf("heartbeat recorded as a batch: %+v", hb)
 	}
 
@@ -184,6 +192,29 @@ func TestRetryGapsAfter429(t *testing.T) {
 		if d := gaps[i] - want[i]; d < -time.Millisecond || d > time.Millisecond {
 			t.Errorf("gap %d = %v, want %v", i, gaps[i], want[i])
 		}
+	}
+}
+
+func TestRetriedAfter(t *testing.T) {
+	attempts := []proxyAttempt{
+		{Path: "/v1/requests", App: "a", Body: "b1", Status: http.StatusForbidden},
+		{Path: "/v1/requests", App: "a", Body: "b2", Status: http.StatusServiceUnavailable},
+		{Path: "/v1/requests", App: "a", Body: "b2", Status: http.StatusForbidden},
+		{Path: "/v1/requests", App: "other", Body: "b3", Status: http.StatusForbidden},
+		{Path: "/v1/requests", App: "other", Body: "b3", Status: http.StatusForbidden},
+		{Path: "/v1/heartbeat", Status: http.StatusForbidden},
+		{Path: "/v1/heartbeat", Status: http.StatusForbidden},
+		{Path: "/v1/requests", App: "a", Body: "b4", Status: http.StatusAccepted, Forwarded: true},
+	}
+	if got := retriedAfter(attempts, "a", http.StatusForbidden); len(got) != 0 {
+		t.Errorf("app a: %v, want no batch retried after a 403", got)
+	}
+	attempts = append(attempts, proxyAttempt{Path: "/v1/requests", App: "a", Body: "b1", Status: http.StatusForbidden})
+	if got := retriedAfter(attempts, "a", http.StatusForbidden); len(got) != 1 || got["b1"] != 1 {
+		t.Errorf("app a: %v, want b1 once", got)
+	}
+	if got := retriedAfter(attempts, "other", http.StatusForbidden); got["b3"] != 1 {
+		t.Errorf("app other: %v, want b3 once", got)
 	}
 }
 

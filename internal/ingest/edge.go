@@ -34,6 +34,12 @@ import (
 // Scope required on API keys used for ingestion.
 const Scope = "ingest"
 
+// CodeProjectPaused is the error code (403) of every ingest call made with a
+// key of a project whose ingest is paused; it is also the reason label those
+// calls count under in apilens_ingest_rejected_total. SDKs drop the batch
+// without retrying, as for any other 403.
+const CodeProjectPaused = "project_paused"
+
 // Verifier resolves API keys.
 type Verifier interface {
 	Verify(ctx context.Context, raw string) (apikeys.Principal, error)
@@ -90,7 +96,7 @@ func New(verifier Verifier, apps AppResolver, sink pipeline.Sink, cfg config.Ing
 			Name: "apilens_ingest_batches_total", Help: "Ingest calls by signal and HTTP status.",
 		}, []string{"signal", "code"}),
 		rejected: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "apilens_ingest_rejected_total", Help: "Ingest calls refused by a per-project quota, by limit.",
+			Name: "apilens_ingest_rejected_total", Help: "Ingest calls refused by a per-project quota (by limit) or because ingest is paused for the project (project_paused).",
 		}, []string{"reason"}),
 		truncated: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "apilens_ingest_truncated_total", Help: "Request record fields cut to the server-side cap, by field.",
@@ -109,6 +115,7 @@ func New(verifier Verifier, apps AppResolver, sink pipeline.Sink, cfg config.Ing
 		e.appRejected.WithLabelValues(r)
 	}
 	e.appRejected.WithLabelValues(ReasonEnvironmentNotAllowed)
+	e.rejected.WithLabelValues(CodeProjectPaused)
 	for _, f := range truncatedFields {
 		e.truncated.WithLabelValues(f)
 	}
@@ -193,6 +200,9 @@ func (e *Edge) authenticate(r *http.Request) (apikeys.Principal, *apiError) {
 		return apikeys.Principal{}, errUnavailable("Authentication backend unavailable, retry later")
 	case !p.HasScope(Scope):
 		return apikeys.Principal{}, &apiError{status: http.StatusForbidden, Code: "permission_denied", Detail: "API key is not allowed to ingest"}
+	case p.ProjectPaused:
+		e.rejected.WithLabelValues(CodeProjectPaused).Inc()
+		return apikeys.Principal{}, &apiError{status: http.StatusForbidden, Code: CodeProjectPaused, Detail: "Ingest is paused for this project; resume it in the project settings"}
 	}
 	return p, nil
 }

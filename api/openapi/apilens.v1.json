@@ -2616,6 +2616,14 @@
           "name": {
             "type": "string"
           },
+          "paused_at": {
+            "description": "When ingest was paused for the project (the ingest edge answers 403 project_paused to its keys); null while ingest is accepted.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "role": {
             "description": "The signed-in user's effective project role: the highest one any source grants (organization role, project default access, direct grant).",
             "enum": [
@@ -2635,7 +2643,8 @@
           "name",
           "environments",
           "app_count",
-          "role"
+          "role",
+          "paused_at"
         ],
         "type": "object"
       },
@@ -8749,6 +8758,22 @@
           "org_slug": {
             "type": "string"
           },
+          "paused_at": {
+            "description": "When ingest was paused for the project: while set, the ingest edge answers 403 project_paused to every call made with the project's keys. Null while ingest is accepted.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paused_by": {
+            "description": "The id of the user who paused ingest; null when ingest is not paused or the user is deleted.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "release_url_template": {
             "description": "URL of a release in the repository with the placeholder {release} for the URL-encoded release name; null under the same conditions as commit_url_template.",
             "type": [
@@ -8796,7 +8821,9 @@
           "created_by",
           "repository_url",
           "commit_url_template",
-          "release_url_template"
+          "release_url_template",
+          "paused_at",
+          "paused_by"
         ],
         "type": "object"
       },
@@ -27394,6 +27421,111 @@
         ]
       }
     },
+    "/api/v1/projects/{slug}/pause": {
+      "post": {
+        "description": "Pauses ingest and returns the project with `paused_at` set. From then on the ingest edge answers 403 `project_paused` to every ingest call made with one of the project's keys (at once with Valkey, otherwise within the key cache TTL); the SDKs drop those batches without retrying. Stored data, the dashboard and the query API are unaffected. Pausing a paused project changes nothing. Emits the `project.paused` audit event. Needs `delete` on the project (project admins, organization owners and admins; 403 `forbidden` for editors and viewers). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
+        "operationId": "pause-project-ingest",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Pause ingest for a project",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
     "/api/v1/projects/{slug}/privacy-policy": {
       "get": {
         "description": "Returns the server-side privacy policy of the project, or of one of its apps with `?app=`, and the built-in defaults. The ingest edge masks, before storing a record, the values of matching query parameters in `raw_path`, captured headers, JSON body fields (string and number values) and `key=value` pairs in log messages, using the built-in defaults plus the project's policy plus the record's app's policy. Patterns only add to the defaults. Edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). An unknown app answers `invalid_request`. Needs `view` on the project (any project role). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
@@ -27642,6 +27774,111 @@
           }
         ],
         "summary": "Replace a privacy policy",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{slug}/resume": {
+      "post": {
+        "description": "Resumes ingest for a paused project and returns it with `paused_at` null; the ingest edge accepts its keys again (at once with Valkey, otherwise within the key cache TTL). Resuming a project that is not paused changes nothing. Emits the `project.resumed` audit event. Needs `delete` on the project (project admins, organization owners and admins; 403 `forbidden` for editors and viewers). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
+        "operationId": "resume-project-ingest",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Resume ingest for a project",
         "tags": [
           "Projects"
         ]
