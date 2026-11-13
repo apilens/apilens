@@ -144,6 +144,9 @@ type Querier interface {
 	// One channel of a project. Returns pgx.ErrNoRows when the project has no
 	// such channel.
 	GetNotificationChannel(ctx context.Context, arg GetNotificationChannelParams) (NotificationChannel, error)
+	// The display name of the user who made a change: their name, or their
+	// email when they have not set one.
+	GetNotifyActor(ctx context.Context, id uuid.UUID) (string, error)
 	// A rule's open (triggered) event. Returns pgx.ErrNoRows when none is open.
 	GetOpenAlertEvent(ctx context.Context, ruleID uuid.UUID) (AlertEvent, error)
 	// A check's open event. Returns pgx.ErrNoRows when none is open.
@@ -262,6 +265,13 @@ type Querier interface {
 	// name or email; the caller escapes LIKE wildcards), effective_rank, source
 	// (org_role, default, direct). Keyset pagination on (email, user_id).
 	ListProjectAccess(ctx context.Context, arg ListProjectAccessParams) ([]ListProjectAccessRow, error)
+	// Recipients of the project change emails (internal/controlplane/notify).
+	// The effective admins of a project (ADR 0009, D1 in #753): org owners and
+	// admins, and members with a direct admin grant (default access never grants
+	// admin). A project deleted but not yet purged still has admins, so the
+	// deletion email reaches them. security_emails is the user's preference, on
+	// unless set to false.
+	ListProjectAdminRecipients(ctx context.Context, projectID uuid.UUID) ([]ListProjectAdminRecipientsRow, error)
 	ListProjectAppAliases(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppAliasesRow, error)
 	// The active apps of a project with an app-wide Apdex threshold.
 	ListProjectAppLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppLatencyThresholdsRow, error)

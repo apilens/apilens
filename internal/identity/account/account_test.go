@@ -29,4 +29,14 @@ func TestValidatePreferences(t *testing.T) {
 			t.Errorf("last_project_slug %v: err = %v", bad, err)
 		}
 	}
+	for _, ok := range []bool{true, false} {
+		if err := ValidatePreferences(map[string]any{"security_emails": ok}); err != nil {
+			t.Errorf("security_emails %v: %v", ok, err)
+		}
+	}
+	for _, bad := range []any{"false", 0, nil} {
+		if err := ValidatePreferences(map[string]any{"security_emails": bad}); !errors.Is(err, ErrInvalidPreference) {
+			t.Errorf("security_emails %v: err = %v", bad, err)
+		}
+	}
 }

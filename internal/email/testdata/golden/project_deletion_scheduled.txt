@@ -1,0 +1,18 @@
+Subject: The project Shop <EU> is scheduled for deletion
+
+APILens
+
+Ada Lovelace deleted the project Shop <EU>. Ingest for it is rejected from now on, and its data is removed for good on Wed, 11 Nov 2026 09:30 UTC.
+
+Project: Shop <EU>
+Deleted by: Ada Lovelace
+Time: Wed, 4 Nov 2026 09:30 UTC
+Removed for good: Wed, 11 Nov 2026 09:30 UTC
+
+Until then, any admin of the project can restore it from Project settings, Danger zone:
+https://app.example.com/shop-eu/settings/danger
+
+You get this email because you are an admin of Shop <EU>. Deletion emails are always sent.
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.

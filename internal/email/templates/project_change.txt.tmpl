@@ -1,0 +1,19 @@
+{{- /* Data: change (see ProjectChange* in catalog.go), project, slug, actor, detail, time. */ -}}
+{{define "subject"}}{{(project .change .project .actor .detail).Subject}}{{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+{{- $c := project .change .project .actor .detail -}}
+{{$c.Summary}}
+
+Project: {{.project}}
+Changed by: {{.actor}}
+Time: {{datetime .time}}
+
+If this change was expected, there is nothing to do.
+
+{{$c.Button}}:
+{{link (print "/" (seg .slug) $c.Path)}}
+
+You get this email because you are an admin of {{.project}}. You can turn off these emails in your account settings:
+{{link "/settings"}}
+{{- end}}

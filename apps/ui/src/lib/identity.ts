@@ -346,7 +346,7 @@ export interface User {
   email_verified: boolean;
   name: string | null;
   avatar_url: string | null;
-  preferences: { home?: HomeScreen; last_project_slug?: string } & Record<string, unknown>;
+  preferences: { home?: HomeScreen; last_project_slug?: string; security_emails?: boolean } & Record<string, unknown>;
   onboarding: OnboardingState;
   created_at: string;
   /** Authentication methods of the current session. */
