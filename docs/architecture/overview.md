@@ -222,6 +222,8 @@ shipped; a test checks that this table lists every one.
 | `app.merged` | an app is merged into another (metadata has both apps); its slug becomes an alias |
 | `app.deleted` | an app is deleted; its slug stays reserved for 30 days |
 | `app.acknowledged` | a new app the SDK created is kept from the "New app detected" notice |
+| `session.reauthenticated` | the user confirms who they are again without signing out (passkey, authenticator code, email code or SSO with `prompt=login`); metadata has `method` and `session_id`. The session's authentication time moves to now |
+| `session.reauth_failed` | a re-authentication attempt fails (metadata has `method` and `reason`) |
 
 ## Delivery
 

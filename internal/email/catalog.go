@@ -58,6 +58,10 @@ const (
 	// TemplateHealthCheckPassing: app, environment, check, expected_status,
 	// started_at (when the check started failing), ended_at and project.
 	TemplateHealthCheckPassing = "health_check_passing"
+	// TemplateReauthCode: code (6 digits), expires_in. Sent to the signed-in
+	// user's address when they confirm who they are again before a
+	// sensitive action (re-authentication); no sign-in link.
+	TemplateReauthCode = "reauth_code"
 )
 
 // Values of the security_change template's change field. An unknown value

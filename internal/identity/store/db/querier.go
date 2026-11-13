@@ -250,6 +250,13 @@ type Querier interface {
 	// Hard-deletes soft-deleted users whose grace period has passed. Sessions,
 	// email tokens, OAuth identities, passkeys and TOTP rows cascade.
 	PurgeUsers(ctx context.Context, ids []uuid.UUID) (int64, error)
+	// Moves the authentication time of a live session forward after the user
+	// proved who they are again (re-authentication, no new sign-in). created_at
+	// is the session's sign-in time, the access token's auth_time, and every
+	// refresh inherits it. The row updated is the live row of the family of @id,
+	// which may be an access token's sid that a refresh has since rotated.
+	// Scoped by user_id. Returns pgx.ErrNoRows when the family has no live row.
+	ReauthenticateSession(ctx context.Context, arg ReauthenticateSessionParams) (Session, error)
 	// Renames one passkey of a user; scoped by user_id so a caller cannot rename
 	// another user's passkey. Returns 0 when nothing matched.
 	RenamePasskeyCredential(ctx context.Context, arg RenamePasskeyCredentialParams) (int64, error)

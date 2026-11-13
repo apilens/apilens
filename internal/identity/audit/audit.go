@@ -72,6 +72,11 @@ const (
 	AppMerged            Kind = "app.merged"
 	AppDeleted           Kind = "app.deleted"
 	AppAcknowledged      Kind = "app.acknowledged"
+	// SessionReauthenticated: the user confirmed who they are again
+	// without signing out (POST /api/v1/auth/reauth/verify).
+	SessionReauthenticated Kind = "session.reauthenticated"
+	// SessionReauthFailed: a re-authentication attempt failed.
+	SessionReauthFailed Kind = "session.reauth_failed"
 )
 
 var kinds = []Kind{
@@ -81,6 +86,7 @@ var kinds = []Kind{
 	OrgCreated, OrgUpdated, OrgDeleted, MemberAdded, MemberRoleChanged, MemberRemoved, MemberJoined, InvitationSent, InvitationAccepted,
 	APIKeyCreated, APIKeyRevoked, SSOUpdated, SSODeleted, CapturePolicyUpdated,
 	APIKeyUpdated, AppCreated, AppArchived, AppRestored, AppRenamed, AppMerged, AppDeleted, AppAcknowledged,
+	SessionReauthenticated, SessionReauthFailed,
 }
 
 // Kinds returns every known event kind, in catalogue order.

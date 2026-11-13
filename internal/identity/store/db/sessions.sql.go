@@ -227,6 +227,53 @@ func (q *Queries) ListTokenSessionIDs(ctx context.Context, arg ListTokenSessionI
 	return items, nil
 }
 
+const reauthenticateSession = `-- name: ReauthenticateSession :one
+UPDATE sessions AS live
+SET created_at   = now(),
+    last_seen_at = now()
+FROM sessions AS cur
+WHERE cur.id = $1
+  AND cur.user_id = $2
+  AND live.family_id = cur.family_id
+  AND live.revoked_at IS NULL
+  AND live.expires_at > now()
+RETURNING live.id, live.user_id, live.family_id, live.token_hash, live.parent_id, live.remember, live.amr, live.ip, live.user_agent, live.device_label, live.created_at, live.last_seen_at, live.expires_at, live.revoked_at, live.revoked_reason
+`
+
+type ReauthenticateSessionParams struct {
+	ID     uuid.UUID
+	UserID uuid.UUID
+}
+
+// Moves the authentication time of a live session forward after the user
+// proved who they are again (re-authentication, no new sign-in). created_at
+// is the session's sign-in time, the access token's auth_time, and every
+// refresh inherits it. The row updated is the live row of the family of @id,
+// which may be an access token's sid that a refresh has since rotated.
+// Scoped by user_id. Returns pgx.ErrNoRows when the family has no live row.
+func (q *Queries) ReauthenticateSession(ctx context.Context, arg ReauthenticateSessionParams) (Session, error) {
+	row := q.db.QueryRow(ctx, reauthenticateSession, arg.ID, arg.UserID)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.FamilyID,
+		&i.TokenHash,
+		&i.ParentID,
+		&i.Remember,
+		&i.Amr,
+		&i.Ip,
+		&i.UserAgent,
+		&i.DeviceLabel,
+		&i.CreatedAt,
+		&i.LastSeenAt,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.RevokedReason,
+	)
+	return i, err
+}
+
 const revokeAllForUser = `-- name: RevokeAllForUser :execrows
 UPDATE sessions
 SET revoked_at     = now(),
