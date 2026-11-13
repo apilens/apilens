@@ -11,8 +11,9 @@ WHERE id = @id AND deleted_at IS NULL;
 -- name: ListUserProjects :many
 -- The active projects of every active organization the user belongs to
 -- (memberships_user, then projects_org), by organization then name, with
--- the number of active apps of each (apps_project_slug_active).
-SELECT p.id, p.org_id, p.slug, p.name,
+-- the number of active apps of each (apps_project_slug_active) and when
+-- ingest was paused for it (NULL while ingest is accepted).
+SELECT p.id, p.org_id, p.slug, p.name, p.paused_at,
        (SELECT count(*) FROM apps a
         WHERE a.project_id = p.id AND a.deleted_at IS NULL)::int AS app_count
 FROM memberships m

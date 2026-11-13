@@ -27,6 +27,8 @@ const (
 	EnvironmentsPath         = ProjectPath + "/environments"
 	EnvironmentPath          = EnvironmentsPath + "/{name}"
 	EnvironmentOrderPath     = EnvironmentsPath + "/order"
+	ProjectPausePath         = ProjectPath + "/pause"
+	ProjectResumePath        = ProjectPath + "/resume"
 )
 
 // ProjectService creates, reads, updates and deletes projects and their
@@ -43,6 +45,8 @@ type ProjectService interface {
 	ListEnvironments(ctx context.Context, id uuid.UUID) ([]projects.Environment, error)
 	UpdateEnvironment(ctx context.Context, user, id uuid.UUID, name string, u projects.EnvironmentUpdate) (projects.Environment, error)
 	ReorderEnvironments(ctx context.Context, user, id uuid.UUID, names []string) ([]projects.Environment, error)
+	Pause(ctx context.Context, user, id uuid.UUID) (projects.Project, error)
+	Resume(ctx context.Context, user, id uuid.UUID) (projects.Project, error)
 }
 
 // Project is a project as seen by a member of its organization.
@@ -62,6 +66,9 @@ type Project struct {
 	RepositoryURL      *string `json:"repository_url" format:"uri" nullable:"true" doc:"The https URL of the project's source repository, e.g. https://github.com/acme/shop; null when none is set. A link only: no access to the repository."`
 	CommitURLTemplate  *string `json:"commit_url_template" nullable:"true" doc:"URL of a commit in the repository with the placeholder {commit} for the URL-encoded commit id; null when no repository is set or its host's URL layout is not known (hosts other than github.com, gitlab.com and bitbucket.org)."`
 	ReleaseURLTemplate *string `json:"release_url_template" nullable:"true" doc:"URL of a release in the repository with the placeholder {release} for the URL-encoded release name; null under the same conditions as commit_url_template."`
+	// Ingest pause (POST .../pause and .../resume).
+	PausedAt *time.Time `json:"paused_at" nullable:"true" doc:"When ingest was paused for the project: while set, the ingest edge answers 403 project_paused to every call made with the project's keys. Null while ingest is accepted."`
+	PausedBy *string    `json:"paused_by" format:"uuid" nullable:"true" doc:"The id of the user who paused ingest; null when ingest is not paused or the user is deleted."`
 }
 
 // ProjectOutput is the response of the single-project operations.
@@ -344,6 +351,27 @@ func (p *Projects) Register(api huma.API) {
 		Tags:        tags,
 		Security:    security,
 	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.reorderEnvironments)
+
+	danger := "Needs `delete` on the project (project admins, organization owners and admins; 403 `forbidden` for editors and viewers). "
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "pause-project-ingest",
+		Method:      http.MethodPost,
+		Path:        ProjectPausePath,
+		Summary:     "Pause ingest for a project",
+		Description: "Pauses ingest and returns the project with `paused_at` set. From then on the ingest edge answers 403 `project_paused` to every ingest call made with one of the project's keys (at once with Valkey, otherwise within the key cache TTL); the SDKs drop those batches without retrying. Stored data, the dashboard and the query API are unaffected. Pausing a paused project changes nothing. Emits the `project.paused` audit event. " + danger + hidden,
+		Tags:        tags,
+		Security:    security,
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.pause)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "resume-project-ingest",
+		Method:      http.MethodPost,
+		Path:        ProjectResumePath,
+		Summary:     "Resume ingest for a project",
+		Description: "Resumes ingest for a paused project and returns it with `paused_at` null; the ingest edge accepts its keys again (at once with Valkey, otherwise within the key cache TTL). Resuming a project that is not paused changes nothing. Emits the `project.resumed` audit event. " + danger + hidden,
+		Tags:        tags,
+		Security:    security,
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.resume)
 }
 
 func toEnvironment(e projects.Environment) Environment {
@@ -399,7 +427,28 @@ func toProject(pr projects.Project) Project {
 		RepositoryURL:      pr.RepositoryURL,
 		CommitURLTemplate:  commit,
 		ReleaseURLTemplate: release,
+
+		PausedAt: utcPtr(pr.PausedAt),
+		PausedBy: uuidPtr(pr.PausedBy),
 	}
+}
+
+// utcPtr is t in UTC, or nil.
+func utcPtr(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC()
+	return &u
+}
+
+// uuidPtr is id as a string, or nil.
+func uuidPtr(id *uuid.UUID) *string {
+	if id == nil {
+		return nil
+	}
+	s := id.String()
+	return &s
 }
 
 // problem maps an error of projects.Service to a problem.
@@ -559,6 +608,18 @@ func (p *Projects) reorderEnvironments(ctx context.Context, in *ReorderEnvironme
 		return nil, p.problem(ctx, "order environments", err)
 	}
 	return toEnvironments(envs), nil
+}
+
+func (p *Projects) pause(ctx context.Context, in *ProjectSlugInput) (*ProjectOutput, error) {
+	return p.project(ctx, "pause project", in.Slug, authz.ProjectDelete, func(id, user uuid.UUID) (projects.Project, error) {
+		return p.svc.Pause(ctx, user, id)
+	})
+}
+
+func (p *Projects) resume(ctx context.Context, in *ProjectSlugInput) (*ProjectOutput, error) {
+	return p.project(ctx, "resume project", in.Slug, authz.ProjectDelete, func(id, user uuid.UUID) (projects.Project, error) {
+		return p.svc.Resume(ctx, user, id)
+	})
 }
 
 func (p *Projects) slugAvailable(ctx context.Context, in *ProjectSlugAvailableInput) (*ProjectSlugAvailableOutput, error) {

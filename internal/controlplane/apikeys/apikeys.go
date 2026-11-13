@@ -68,6 +68,9 @@ type Principal struct {
 	// an overlap window) is rejected from that moment, not a cache cycle
 	// later.
 	ExpiresAt *time.Time
+	// ProjectPaused: ingest is paused for the key's project; the edge
+	// refuses the key with 403 project_paused (the query role does not).
+	ProjectPaused bool
 }
 
 // AllowsEnvironment reports whether the key may send data for env, the
@@ -237,6 +240,7 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 		e := entry{valid: true, principal: Principal{
 			KeyID: row.ID, ProjectID: row.ProjectID, ProjectSlug: row.ProjectSlug,
 			OrgID: row.OrgID, Scopes: row.Scopes, AppIDs: row.AppIds, Environments: row.Environments, ExpiresAt: row.ExpiresAt,
+			ProjectPaused: row.ProjectPaused,
 		}}
 		if row.RateLimitPerMinute != nil {
 			e.principal.RateLimitPerMinute = int(*row.RateLimitPerMinute)

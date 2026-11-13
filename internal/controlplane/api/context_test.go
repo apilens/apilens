@@ -49,6 +49,7 @@ func TestGetUserContext(t *testing.T) {
 	p := &authn.Principal{Kind: authn.KindUser, UserID: uuid.New(), AMR: []string{"email"}}
 	orgID, projID := uuid.New(), uuid.New()
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	pausedAt := time.Date(2026, 11, 13, 10, 0, 0, 0, time.FixedZone("CET", 3600)).Add(time.Hour)
 	svc := &fakeContext{uc: usercontext.Context{
 		User: db.User{
 			ID: p.UserID, Email: "ada@example.com", EmailVerifiedAt: &now, Name: "Ada", CreatedAt: now,
@@ -57,7 +58,7 @@ func TestGetUserContext(t *testing.T) {
 		},
 		Orgs: []usercontext.Org{{
 			ID: orgID, Slug: "acme", Name: "Acme", Role: "viewer",
-			Projects: []usercontext.Project{{ID: projID, Slug: "checkout", Name: "Checkout", Environments: []string{"production"}, AppCount: 2, Role: "viewer"}},
+			Projects: []usercontext.Project{{ID: projID, Slug: "checkout", Name: "Checkout", Environments: []string{"production"}, AppCount: 2, Role: "viewer", PausedAt: &pausedAt}},
 		}},
 		LastProjectSlug: "checkout",
 		Capabilities:    map[string][]string{"checkout": {"project.read"}},
@@ -75,7 +76,7 @@ func TestGetUserContext(t *testing.T) {
 	want := map[string]any{
 		"orgs": []any{map[string]any{
 			"id": orgID.String(), "slug": "acme", "name": "Acme", "role": "viewer",
-			"projects": []any{map[string]any{"id": projID.String(), "slug": "checkout", "name": "Checkout", "environments": []any{"production"}, "app_count": 2, "role": "viewer"}},
+			"projects": []any{map[string]any{"id": projID.String(), "slug": "checkout", "name": "Checkout", "environments": []any{"production"}, "app_count": 2, "role": "viewer", "paused_at": "2026-11-13T10:00:00Z"}},
 		}},
 		"last_project_slug": "checkout",
 		"onboarding":        map[string]any{"step": "install", "completed": false},

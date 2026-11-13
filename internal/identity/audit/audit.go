@@ -118,6 +118,10 @@ const (
 	// APIKeyExpired: a project API key passed its expires_at; written once,
 	// with no actor, by the hourly API key expiry job.
 	APIKeyExpired Kind = "api_key.expired"
+	// ProjectPaused, ProjectResumed: ingest for a project is paused (the
+	// edge answers 403 project_paused) or resumed.
+	ProjectPaused  Kind = "project.paused"
+	ProjectResumed Kind = "project.resumed"
 )
 
 var kinds = []Kind{
@@ -134,6 +138,7 @@ var kinds = []Kind{
 	AlertChannelDeleted, HealthCheckCreated, HealthCheckDeleted, AppSettingsUpdated, EndpointSettingsUpdated,
 	ProjectMemberAdded, ProjectMemberRoleChanged, ProjectMemberRemoved, ProjectAccessChanged,
 	AuditLogExported, APIKeyExpired,
+	ProjectPaused, ProjectResumed,
 }
 
 // Kinds returns every known event kind, in catalogue order.

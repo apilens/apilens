@@ -110,6 +110,11 @@ type Project struct {
 	// RepositoryURL is the project's source repository link (see
 	// NormalizeRepositoryURL); nil when none is set.
 	RepositoryURL *string
+	// PausedAt is when ingest was paused for the project (see Pause); nil
+	// while ingest is accepted. PausedBy is who paused it; nil when not
+	// paused or the user is gone.
+	PausedAt *time.Time
+	PausedBy *uuid.UUID
 }
 
 // Update is a partial update of a project; nil fields are left unchanged.
@@ -142,6 +147,9 @@ type Service struct {
 	// retention is how long data seen for an environment keeps it in use
 	// (WithDataRetention); zero means DefaultDataRetention.
 	retention time.Duration
+	// invalidate drops a key hash from every verifier cache (pause and
+	// resume); nil: they take effect within the key cache TTL.
+	invalidate func(ctx context.Context, hash string) error
 }
 
 // New returns a Service over pool.
@@ -309,6 +317,9 @@ func (s *Service) List(ctx context.Context, user uuid.UUID, orgSlug string) ([]P
 		if e, ok := envs[out[i].ID]; ok {
 			out[i].Environments = e
 		}
+	}
+	if err := withPauses(ctx, q, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -554,10 +565,14 @@ func withEnvironments(ctx context.Context, q *db.Queries, r db.LockActiveProject
 	if e == nil {
 		e = []string{}
 	}
-	return Project{
+	out := []Project{{
 		ID: r.ID, Slug: r.Slug, Name: r.Name, Description: r.Description, OrgID: r.OrgID, OrgSlug: r.OrgSlug,
 		Environments: e, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, CreatedBy: r.CreatedBy, RepositoryURL: r.RepositoryUrl,
-	}, nil
+	}}
+	if err := withPauses(ctx, q, out); err != nil {
+		return Project{}, err
+	}
+	return out[0], nil
 }
 
 // listEnvironments returns the environment names of each project, sorted.

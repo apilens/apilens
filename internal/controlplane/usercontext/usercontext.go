@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -101,6 +102,9 @@ type Project struct {
 	Environments []string // sorted, never nil
 	// AppCount is the number of the project's active (not deleted) apps.
 	AppCount int
+	// PausedAt is when ingest was paused for the project; nil while ingest
+	// is accepted.
+	PausedAt *time.Time
 	// Role is the user's effective project role (admin, editor or viewer),
 	// read from the same CheckBulk answers as the capabilities.
 	Role string
@@ -199,7 +203,7 @@ func (s *Service) Get(ctx context.Context, user uuid.UUID) (Context, error) {
 			e = []string{}
 		}
 		org := &out.Orgs[i]
-		org.Projects = append(org.Projects, Project{ID: p.ID, Slug: p.Slug, Name: p.Name, Environments: e, AppCount: int(p.AppCount)})
+		org.Projects = append(org.Projects, Project{ID: p.ID, Slug: p.Slug, Name: p.Name, Environments: e, AppCount: int(p.AppCount), PausedAt: p.PausedAt})
 	}
 	caps, err := s.capabilities(ctx, user, out.Orgs)
 	if err != nil {
