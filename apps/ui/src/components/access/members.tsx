@@ -21,12 +21,13 @@ import {
   sourceLines,
 } from "@/lib/access-members";
 import type { Candidate } from "@/lib/access-changes";
-import type { AccessMember, DefaultAccess } from "@/lib/identity";
+import type { AccessMember, DefaultAccess, Invitation } from "@/lib/identity";
 import { formatJoined } from "@/lib/org-members";
 import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/pagination";
 import { PROJECT_ROLES, ROLE_LABELS } from "@/lib/project-access";
 import "../org-settings/org-settings.css";
 import "../org-settings/members.css";
+import { type OrgRef, PendingInvitations } from "./invite";
 import { type Announce, AddPeople, MemberRowMenu } from "./manage";
 import "./members.css";
 
@@ -74,6 +75,8 @@ export function AccessMembersLoading() {
  * change or remove direct roles (#807), everyone else sees those controls disabled with the reason.
  * `data` is null when the API could not answer; `candidates` (the org members "Add people" offers)
  * is null when they could not be loaded; `now` is the server's clock so the first render matches.
+ * `invitations` are the project's pending invitations (#809), listed under the table: undefined
+ * for people without `access.manage` (the section is left out), null when they could not be loaded.
  */
 export function AccessMembers({
   project,
@@ -82,6 +85,8 @@ export function AccessMembers({
   params,
   now,
   candidates = null,
+  org,
+  invitations,
 }: {
   project: string;
   projectName: string;
@@ -89,6 +94,8 @@ export function AccessMembers({
   params: SearchParams;
   now: number;
   candidates?: Candidate[] | null;
+  org: OrgRef;
+  invitations?: Invitation[] | null;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
@@ -162,7 +169,7 @@ export function AccessMembers({
         <p className="om-count am-match" role="status" aria-live="polite">
           {match}
         </p>
-        <AddPeople project={project} projectName={projectName} candidates={candidates} announce={announce} />
+        <AddPeople project={project} projectName={projectName} org={org} candidates={candidates} announce={announce} />
       </div>
       <p className={`om-status am-status${status ? ` ${status.tone}` : ""}`} role="status" aria-live="polite">
         {status?.text ?? ""}
@@ -244,6 +251,8 @@ export function AccessMembers({
           <Pagination pathname={pathname} params={list.params} total={window.total} label="Members pages" className="ls-pages" />
         </div>
       )}
+
+      {invitations !== undefined ? <PendingInvitations project={project} projectName={projectName} org={org} invitations={invitations} now={now} announce={announce} /> : null}
     </>
   );
 }

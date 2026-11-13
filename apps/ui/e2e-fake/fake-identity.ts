@@ -70,8 +70,12 @@
 //   POST /api/v1/orgs/acme/invitations             records each new address, answers one result per address;
 //                                                  also on orgs the user created in onboarding (#336), where
 //                                                  they are the only member; down@example.com answers 503
+//                                                  `project_grants` [{project: "shop", role}] (#809) need
+//                                                  access.manage on shop (403 forbidden, nothing created) and
+//                                                  land in shop's pending invitations instead
 //   POST /api/v1/orgs/acme/invitations/{id}/resend 5-minute cooldown (429 rate_limited + retry_after)
-//   DELETE /api/v1/orgs/acme/invitations/{id}      revoke; 410 invite_expired when already gone
+//   DELETE /api/v1/orgs/acme/invitations/{id}      revoke; 410 invite_expired when already gone (both
+//                                                  also act on shop's pending invitations)
 //   GET|PUT|DELETE /api/v1/orgs/acme/sso           the signed-in user's own SSO connection (#348),
 //                                                  owners only; enforce needs `last_login_at` (sso_untested)
 //   POST /api/v1/orgs/acme/sso/test                discovery: an issuer containing "broken" is
@@ -91,7 +95,7 @@
 //                                                  changes nothing) counts who loses access; needs access.manage
 //   PUT|DELETE /api/v1/projects/shop/members/{id}  grant/change a direct role (not_org_member 409 for anyone
 //                                                  else) or remove it (204); need access.manage
-//   GET  /api/v1/projects/shop/invitations         pending org invitations carrying a shop role
+//   GET  /api/v1/projects/shop/invitations         pending org invitations carrying a shop role; needs access.manage
 //   POST /__fake/access {members?, default_access?, invitations?, down?}
 //                                                  test hook: replaces shop's people, default access and
 //                                                  invitations; an omitted field goes back to the measured
@@ -242,8 +246,10 @@
 //   POST /__fake/identities {identities}          test hook: replaces the connected accounts
 //   GET  /api/v1/auth/invitations/{token}          invitation landing (#337): inv_globex (for
 //                                                  you@example.com), inv_other (another address),
-//                                                  inv_expired (invite_expired); else invalid_token
-//   POST /api/v1/auth/invitations/{token}/accept   joins globex (project storefront) as a member;
+//                                                  inv_expired (invite_expired), inv_checkout (you@example.com,
+//                                                  carrying a Viewer role on Globex's Checkout, #809); else invalid_token
+//   POST /api/v1/auth/invitations/{token}/accept   joins globex (project storefront) as a member, plus
+//                                                  checkout as a viewer for inv_checkout;
 //                                                  invite_email_mismatch for inv_other
 //   GET  /api/v1/users/me/joinable-orgs            the organizations seeded as `joinable` for the user (#329),
 //                                                  minus those joined; none unless seeded
@@ -1005,10 +1011,11 @@ const ONBOARDING_ANSWERS: Record<string, RegExp | "count"> = {
 };
 
 /** Invitations by token (#337); every address is @example.com. */
-const INVITES: Record<string, { email: string; masked: string; expired?: boolean }> = {
+const INVITES: Record<string, { email: string; masked: string; expired?: boolean; project?: boolean }> = {
   inv_globex: { email: "you@example.com", masked: "y***@example.com" },
   inv_other: { email: "someone@example.com", masked: "s***@example.com" },
   inv_expired: { email: "you@example.com", masked: "y***@example.com", expired: true },
+  inv_checkout: { email: "you@example.com", masked: "y***@example.com", project: true },
 };
 /** The organization every fake invitation is to. */
 const GLOBEX = {
@@ -1020,6 +1027,12 @@ const GLOBEX = {
 };
 /** Users who accepted an invitation. */
 const joinedGlobex = new Set<string>();
+/** Globex's restricted project an `inv_checkout` invitation gives a Viewer role on (#809). */
+const CHECKOUT = { id: "prj_checkout", slug: "checkout", name: "Checkout", environments: ["production"], app_count: 0, role: "viewer" };
+/** Users who accepted `inv_checkout`. */
+const joinedCheckout = new Set<string>();
+/** Globex as `users/me/context` lists it for `id`. */
+const globexOf = (id: string) => (joinedCheckout.has(id) ? { ...GLOBEX, projects: [...GLOBEX.projects, CHECKOUT] } : GLOBEX);
 
 /** Each fake user's preferences (#328): the home screen picked in onboarding. */
 const preferencesByUser = new Map<string, Record<string, unknown>>();
@@ -1084,7 +1097,7 @@ function context(id: string) {
         role,
         projects: [...shopInContext(id), ...createdProjectsOf(id, "acme")],
       },
-      ...(joinedGlobex.has(id) ? [GLOBEX] : []),
+      ...(joinedGlobex.has(id) ? [globexOf(id)] : []),
       ...createdOrgsOf(id),
       ...joinedOrgs(id),
     ],
@@ -1094,6 +1107,7 @@ function context(id: string) {
     capabilities: {
       ...(projectState.project.deleted_at === null ? { [projectState.project.slug]: capabilitiesOf(id) } : {}),
       ...(joinedGlobex.has(id) ? { storefront: capabilitiesFor("member") } : {}),
+      ...(joinedCheckout.has(id) ? { checkout: capabilitiesFor("viewer") } : {}),
       ...Object.fromEntries(joinedOrgs(id).flatMap((o) => o.projects.map((p) => [p.slug, capabilitiesFor("member")]))),
     },
   };
@@ -1325,6 +1339,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (inv.email !== profile.email) return problem(res, 403, "invite_email_mismatch");
       const joined = !joinedGlobex.has(user);
       joinedGlobex.add(user);
+      if (inv.project) joinedCheckout.add(user);
       return send(res, 200, { org: { id: GLOBEX.id, slug: GLOBEX.slug, name: GLOBEX.name, role: GLOBEX.role }, joined });
     }
     if (!invite[2] && req.method === "GET") {
@@ -1336,6 +1351,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         email_masked: inv.masked,
         role: "member",
         expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+        ...(inv.project ? { projects: [{ name: CHECKOUT.name, role: CHECKOUT.role }] } : {}),
       });
     }
   }
@@ -2982,10 +2998,11 @@ async function orgs(req: IncomingMessage, res: ServerResponse, slug: string, wha
     return send(res, 200, [...invitations].sort((a, b) => b.created_at.localeCompare(a.created_at)));
   }
   if (what === "invitations" && sub === undefined && req.method === "POST") {
-    const { invites } = await readBody(req);
+    const { invites, project_grants: grants } = await readBody(req);
     if (!manage) return problem(res, 403, "forbidden");
     if (!Array.isArray(invites) || invites.length === 0 || invites.length > 50) return problem(res, 400, "invalid_request");
     const self = members.find((m) => m.user.id === user);
+    if (Array.isArray(grants) && grants.length > 0) return inviteWithGrants(res, user, invites, grants, members, self);
     const seen = new Set<string>();
     const results = invites.map((i: { email?: unknown; role?: unknown }) => {
       const email = String(i.email ?? "").toLowerCase();
@@ -3012,10 +3029,11 @@ async function orgs(req: IncomingMessage, res: ServerResponse, slug: string, wha
   }
   if (what === "invitations" && sub !== undefined && ((resend && req.method === "POST") || (!resend && req.method === "DELETE"))) {
     if (!manage) return problem(res, 403, "forbidden");
-    const inv = invitations.find((v) => v.id === sub);
+    const inv = (invitations.find((v) => v.id === sub) ?? (accessState.invitations.find((v) => v.id === sub) as FakeInvitation | undefined));
     if (!inv) return problem(res, 410, "invite_expired");
     if (!resend) {
       invitationsByUser.set(user, invitations.filter((v) => v !== inv));
+      accessState.invitations = accessState.invitations.filter((v) => v !== (inv as unknown));
       return send(res, 204);
     }
     const wait = Date.parse(inv.resent_at ?? inv.created_at) + RESEND_COOLDOWN_MS - Date.now();
@@ -3030,6 +3048,39 @@ async function orgs(req: IncomingMessage, res: ServerResponse, slug: string, wha
     return send(res, 200, inv);
   }
   return problem(res, 404, "not_found");
+}
+
+/**
+ * `POST /orgs/acme/invitations` with `project_grants` (#809): every grant must name shop and the
+ * caller needs access.manage on it (403 forbidden, nothing created). The invitations land in
+ * shop's pending invitations (`GET /projects/shop/invitations`), carrying the role.
+ */
+function inviteWithGrants(res: ServerResponse, user: string, invites: { email?: unknown; role?: unknown }[], grants: { project?: unknown; role?: unknown }[], members: { user: { email: string } }[], self: { user: { id: string; email: string; name: string } } | undefined) {
+  if (grants.length > 20 || !grants.every((g) => g.project === PROJECT && typeof g.role === "string" && g.role in PROJECT_RANK)) return problem(res, 400, "invalid_request");
+  if (!capabilitiesOf(user).includes("access.manage")) return problem(res, 403, "forbidden");
+  const project_grants = grants.map((g) => ({ project_id: "c3d4e5f6-a7b8-4c9d-8e0f-1a2b3c4d5e6f", project: PROJECT, project_name: shopContextName(), role: g.role }));
+  const seen = new Set<string>();
+  const results = invites.map((i) => {
+    const email = String(i.email ?? "").toLowerCase();
+    if (seen.has(email)) return { email, status: "duplicate" };
+    seen.add(email);
+    if (members.some((m) => m.user.email === email)) return { email, status: "already_member" };
+    const replaced = accessState.invitations.some((v) => v.email === email);
+    const now = Date.now();
+    const invitation = {
+      id: randomUUID(),
+      email,
+      role: String(i.role ?? "member"),
+      project_grants,
+      created_at: new Date(now).toISOString(),
+      expires_at: new Date(now + INVITE_TTL_MS).toISOString(),
+      resent_at: null,
+      ...(self ? { invited_by: { id: self.user.id, email: self.user.email, name: self.user.name } } : {}),
+    };
+    accessState.invitations = [...accessState.invitations.filter((v) => v.email !== email), invitation];
+    return { email, status: replaced ? "replaced" : "invited", invitation };
+  });
+  return send(res, 200, { results });
 }
 
 /** Invitations to the organizations users created in onboarding (#336), by org slug. */
@@ -3654,7 +3705,8 @@ async function accessAndAudit(req: IncomingMessage, res: ServerResponse, path: s
 
   if (what === "invitations") {
     if (req.method !== "GET") return problem(res, 405, "method_not_allowed"), true;
-    return send(res, 200, accessState.invitations), true;
+    if (!allowed("access.manage")) return problem(res, 403, "forbidden"), true;
+    return send(res, 200, [...accessState.invitations].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))), true;
   }
   if (what === "access" && req.method === "GET") {
     if (accessState.down) return problem(res, 503, "unavailable"), true;

@@ -582,6 +582,8 @@ export interface InvitationPreview {
   email_masked: string;
   role: OrgRole;
   expires_at: string;
+  /** The project roles the invitee gets on accepting, by project name (#809); empty when none. */
+  projects?: { name: string; role: ProjectRole }[] | null;
 }
 
 /** `POST /auth/invitations/{token}/accept` (#282). */
@@ -751,6 +753,13 @@ export interface InvitationProjectGrant {
   /** The project's slug. */
   project: string;
   project_name: string;
+  role: ProjectRole;
+}
+
+/** A project role every invitation of one `POST /orgs/{slug}/invitations` carries (`ProjectGrantEntry`, #809). */
+export interface ProjectGrantEntry {
+  /** The project's slug. */
+  project: string;
   role: ProjectRole;
 }
 
@@ -2529,8 +2538,9 @@ export function createClient(config: ClientConfig) {
       request<void>("DELETE", `/orgs/${seg(slug)}/members/${seg(userId)}`, o),
     transferOwnership: (slug: string, userId: string, o: Authed) =>
       request<void>("POST", `/orgs/${seg(slug)}/transfer-ownership`, { ...o, body: { user_id: userId } }),
-    createInvitations: (slug: string, invites: InviteEntry[], o: Authed) =>
-      request<{ results: InviteResult[] | null }>("POST", `/orgs/${seg(slug)}/invitations`, { ...o, body: { invites } }),
+    /** `projectGrants` (#809): project roles every invitation carries and applies on accept. */
+    createInvitations: (slug: string, invites: InviteEntry[], o: Authed, projectGrants?: ProjectGrantEntry[]) =>
+      request<{ results: InviteResult[] | null }>("POST", `/orgs/${seg(slug)}/invitations`, { ...o, body: projectGrants?.length ? { invites, project_grants: projectGrants } : { invites } }),
     listInvitations: (slug: string, o: Authed) =>
       request<Invitation[] | null>("GET", `/orgs/${seg(slug)}/invitations`, o),
     resendInvitation: (slug: string, id: string, o: Authed) =>

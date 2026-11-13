@@ -10,6 +10,7 @@ import {
   inviteAuthPath,
   invitedLanding,
   invitedOrg,
+  invitedProjectName,
   invitePath,
   inviteProblem,
   inviterName,
@@ -155,6 +156,44 @@ describe("invitedLanding", () => {
     const c = ctx({ step: "about", completed: false }, [GLOBEX]);
     expect(invitedLanding(c, GLOBEX)).toBe("/storefront/incidents");
     expect(invitedLanding(c, { ...GLOBEX, projects: [] })).toBe("/orgs/globex/settings");
+  });
+});
+
+describe("invited project (#809)", () => {
+  const CHECKOUT = { id: "p3", slug: "checkout", name: "Checkout", environments: ["production"], app_count: 0, role: "viewer" as const };
+  const WITH_CHECKOUT: ContextOrg = { ...GLOBEX, projects: [...GLOBEX.projects, CHECKOUT] };
+  const accepted = { org: { id: "o2", slug: "globex", name: "Globex", role: "member" as const }, joined: true };
+
+  it("names the project only when the invitation carries exactly one", () => {
+    expect(invitedProjectName({ projects: [{ name: "Checkout", role: "viewer" }] })).toBe("Checkout");
+    expect(invitedProjectName({ projects: [{ name: "A", role: "viewer" }, { name: "B", role: "editor" }] })).toBeUndefined();
+    expect(invitedProjectName({ projects: null })).toBeUndefined();
+    expect(invitedProjectName(null)).toBeUndefined();
+  });
+
+  it("after onboarding: opens the invited project, not the organization's first", async () => {
+    const next = await acceptInvitation({
+      accept: async () => accepted,
+      context: async () => ctx({ step: null, completed: true }, [WITH_CHECKOUT]),
+      updateOnboarding: vi.fn(),
+      projectName: "Checkout",
+    });
+    expect(next).toBe("/checkout/incidents");
+  });
+
+  it("while onboarding: saves the project so the about step opens it", async () => {
+    const updateOnboarding = vi.fn().mockResolvedValue({});
+    await acceptInvitation({ accept: async () => accepted, context: async () => ctx({ step: null, completed: false }, [WITH_CHECKOUT]), updateOnboarding, projectName: "Checkout" });
+    expect(updateOnboarding).toHaveBeenCalledWith({ step: "about", answers: { org_slug: "globex", project_slug: "checkout" } });
+    const c = ctx({ step: "about", completed: false, answers: { org_slug: "globex", project_slug: "checkout" } }, [WITH_CHECKOUT]);
+    expect(invitedLanding(c, WITH_CHECKOUT)).toBe("/checkout/incidents");
+  });
+
+  it("falls back to the organization's first project when the named one is not in it", async () => {
+    const next = await acceptInvitation({ accept: async () => accepted, context: async () => ctx({ step: null, completed: true }, [GLOBEX]), updateOnboarding: vi.fn(), projectName: "Checkout" });
+    expect(next).toBe("/storefront/incidents");
+    const c = ctx({ step: "about", completed: false, answers: { org_slug: "globex", project_slug: "shop" } }, [ACME, GLOBEX]);
+    expect(invitedLanding(c, GLOBEX)).toBe("/storefront/incidents");
   });
 });
 

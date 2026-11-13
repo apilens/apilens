@@ -18,9 +18,11 @@ import { type Candidate, MAX_ADD, changeConsequence, personName, removeConsequen
 import type { AccessMember, ProjectRole } from "@/lib/identity";
 import { matchesQuery } from "@/lib/list-search";
 import type { Gate } from "@/lib/org-members";
+import { inviteSuggestions } from "@/lib/project-invite";
 import { useCan } from "@/lib/permissions";
 import { PROJECT_ROLES, ROLE_DESCRIPTIONS, ROLE_LABELS, memberChange } from "@/lib/project-access";
 import { REAUTH_CANCELLED } from "@/lib/reauth";
+import { INVITE_DENIED, InviteToProject, type OrgRef } from "./invite";
 import "./manage.css";
 
 export type Announce = (status: { tone: "ok" | "err"; text: string }) => void;
@@ -78,10 +80,10 @@ function AccessDialog({
 }
 
 /** The role picker: one radio per role with its one-line description (ROLE_DESCRIPTIONS). */
-function RolePicker({ value, onChange, name, disabled }: { value: ProjectRole; onChange: (r: ProjectRole) => void; name: string; disabled: boolean }) {
+export function RolePicker({ value, onChange, name, disabled, legend = "Role" }: { value: ProjectRole; onChange: (r: ProjectRole) => void; name: string; disabled: boolean; legend?: string }) {
   return (
     <fieldset className="am-roles" disabled={disabled}>
-      <legend className="ob-l">Role</legend>
+      <legend className="ob-l">{legend}</legend>
       {PROJECT_ROLES.map((r) => (
         <label key={r} className={`am-roleopt${value === r ? " on" : ""}`}>
           <input type="radio" name={name} value={r} checked={value === r} onChange={() => onChange(r)} />
@@ -97,10 +99,14 @@ function RolePicker({ value, onChange, name, disabled }: { value: ProjectRole; o
 
 /**
  * "Add people": the button above the list and its dialog. `candidates` is null when the
- * organization's members could not be loaded.
+ * organization's members could not be loaded. An address typed in the search that matches none of
+ * them offers "Invite to <org> and this project" (#809), which needs `members.invite` too.
  */
-export function AddPeople({ project, projectName, candidates, announce }: { project: string; projectName: string; candidates: Candidate[] | null; announce: Announce }) {
+export function AddPeople({ project, projectName, org, candidates, announce }: { project: string; projectName: string; org: OrgRef; candidates: Candidate[] | null; announce: Announce }) {
   const can = useCan("access.manage");
+  const canInvite = useCan("members.invite");
+  const [inviting, setInviting] = useState<string[] | null>(null);
+  const [invitePending, setInvitePending] = useState(false);
   const router = useRouter();
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -108,18 +114,24 @@ export function AddPeople({ project, projectName, candidates, announce }: { proj
   const [picked, setPicked] = useState<string[]>([]);
   const [role, setRole] = useState<ProjectRole>("viewer");
   const [error, setError] = useState<string | null>(null);
-  const [pending, start] = useTransition();
+  // Only while the save runs, not while the page refreshes after it: reopening the dialog then
+  // must work (and Escape close it) at once.
+  const [pending, setPending] = useState(false);
+  const [, start] = useTransition();
   const { withReauth, dialog: reauthDialog } = useReauth();
-  const ids = { search: useId(), err: useId(), list: useId() };
+  const ids = { search: useId(), err: useId(), list: useId(), help: useId() };
 
   const close = () => {
     setOpen(false);
+    setInviting(null);
     setQuery("");
     setPicked([]);
     setRole("viewer");
     setError(null);
   };
   const shown = (candidates ?? []).filter((c) => matchesQuery(query, [c.name, c.email]));
+  const suggested = inviteSuggestions(query, candidates ?? []);
+  const inviteGate = gateOf(can.allowed && canInvite.allowed, INVITE_DENIED(org.name));
   const toggle = (id: string) => {
     setError(null);
     setPicked((list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]));
@@ -137,8 +149,10 @@ export function AddPeople({ project, projectName, candidates, announce }: { proj
       setError(`Add at most ${MAX_ADD} people at a time.`);
       return;
     }
+    setPending(true);
     start(async () => {
       const result = await withReauth(() => addProjectMembers(project, people, role, projectName));
+      setPending(false);
       if (result.ok) {
         announce({ tone: "ok", text: result.message });
         close();
@@ -157,21 +171,14 @@ export function AddPeople({ project, projectName, candidates, announce }: { proj
           </button>
         )}
       </Gated>
-      <AccessDialog open={open} title={`Add people to ${projectName}`} onClose={close} pending={pending} returnTo={button}>
-        {candidates === null ? (
+      <AccessDialog open={open} title={inviting ? `Invite to ${org.name} and ${projectName}` : `Add people to ${projectName}`} onClose={close} pending={pending || invitePending} returnTo={button}>
+        {inviting ? (
+          <InviteToProject project={project} projectName={projectName} org={org} emails={inviting} announce={announce} onBack={() => setInviting(null)} onDone={close} onPending={setInvitePending} />
+        ) : candidates === null ? (
           <>
             <p className="om-dialog__p" role="alert">
               Couldn’t load the organization’s members. Reload the page to try again.
             </p>
-            <div className="om-dialog__row">
-              <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={close} autoFocus>
-                Close
-              </button>
-            </div>
-          </>
-        ) : candidates.length === 0 ? (
-          <>
-            <p className="om-dialog__p">Everyone in the organization already has a role on {projectName} of their own, or is an organization owner or admin.</p>
             <div className="om-dialog__row">
               <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={close} autoFocus>
                 Close
@@ -194,10 +201,14 @@ export function AddPeople({ project, projectName, candidates, announce }: { proj
                   autoComplete="off"
                   spellCheck={false}
                   aria-controls={ids.list}
+                  aria-describedby={ids.help}
                   onChange={(e) => setQuery(e.target.value)}
                   autoFocus
                 />
               </div>
+              <p className="os-help" id={ids.help}>
+                Someone new? Type their email address to invite them to {org.name} and this project.
+              </p>
             </div>
             <fieldset className="am-pick" disabled={pending} aria-describedby={error ? ids.err : undefined}>
               <legend className="ob-l">
@@ -218,9 +229,24 @@ export function AddPeople({ project, projectName, candidates, announce }: { proj
                     </label>
                   </li>
                 ))}
-                {shown.length === 0 ? <li className="am-pick__none">Nobody matches “{query.trim()}”.</li> : null}
+                {candidates.length === 0 && !query.trim() ? (
+                  <li className="am-pick__none">Everyone in the organization already has a role on {projectName} of their own, or is an organization owner or admin.</li>
+                ) : shown.length === 0 ? (
+                  <li className="am-pick__none">Nobody in {org.name} matches “{query.trim()}”.</li>
+                ) : null}
               </ul>
             </fieldset>
+            {suggested.length > 0 ? (
+              <div className="am-invite-opt">
+                <Gated gate={inviteGate}>
+                  {(describedBy, disabled) => (
+                    <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm" onClick={() => setInviting(suggested)} disabled={disabled || pending} aria-describedby={describedBy}>
+                      Invite {suggested.length === 1 ? suggested[0] : `${suggested.length} people`} to {org.name} and this project
+                    </button>
+                  )}
+                </Gated>
+              </div>
+            ) : null}
             <RolePicker value={role} onChange={setRole} name="am-add-role" disabled={pending} />
             {error ? (
               <p id={ids.err} className="ob-err" role="alert">
