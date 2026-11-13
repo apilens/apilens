@@ -112,6 +112,22 @@
               "null"
             ]
           },
+          "rotated_from": {
+            "description": "The key this one replaced when it was created by a rotation; null otherwise.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rotated_to": {
+            "description": "The key that replaced this one in a rotation; null while it has not been rotated. A rotated key works until expires_at (the end of the overlap window).",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "scopes": {
             "description": "What the key may do: ingest (send telemetry), apps:create (ingest may create an app from an app name it has not seen), read (query the project's data).",
             "items": {
@@ -138,7 +154,9 @@
           "last_used_sdk",
           "last_used_ip",
           "revoked_at",
-          "rate_limit_per_minute"
+          "rate_limit_per_minute",
+          "rotated_from",
+          "rotated_to"
         ],
         "type": "object"
       },
@@ -3173,6 +3191,22 @@
               "null"
             ]
           },
+          "rotated_from": {
+            "description": "The key this one replaced when it was created by a rotation; null otherwise.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rotated_to": {
+            "description": "The key that replaced this one in a rotation; null while it has not been rotated. A rotated key works until expires_at (the end of the overlap window).",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "scopes": {
             "description": "What the key may do: ingest (send telemetry), apps:create (ingest may create an app from an app name it has not seen), read (query the project's data).",
             "items": {
@@ -3200,7 +3234,9 @@
           "last_used_sdk",
           "last_used_ip",
           "revoked_at",
-          "rate_limit_per_minute"
+          "rate_limit_per_minute",
+          "rotated_from",
+          "rotated_to"
         ],
         "type": "object"
       },
@@ -9950,6 +9986,202 @@
         },
         "required": [
           "revoked"
+        ],
+        "type": "object"
+      },
+      "RotateAPIKeyInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RotateAPIKeyInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "overlap": {
+            "description": "How long the old key keeps working: none (stops at once), 24h or 7d. Never later than the expiry it already has.",
+            "enum": [
+              "none",
+              "24h",
+              "7d"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "overlap"
+        ],
+        "type": "object"
+      },
+      "RotatedAPIKey": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RotatedAPIKey.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "app_ids": {
+            "description": "The apps the key may send data for; null means every app of the project.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "apps_seen": {
+            "description": "The apps the key sent data for, most recent first (recorded at most once a minute).",
+            "items": {
+              "$ref": "#/components/schemas/KeyApp"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "can_create_apps": {
+            "description": "Whether data sent with the key creates an app the first time it names one the project does not have. False for keys without apps:create and for keys limited to some apps.",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/KeyCreator",
+            "description": "Who created the key; absent when unknown (keys older than this field with no audit record) or once their account is deleted."
+          },
+          "environments": {
+            "description": "The environments the key may send data for; null means every environment. The ingest edge rejects records for any other environment (environment_not_allowed) and stores the rest of the batch.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "description": "When the key stops working; null if never.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "key": {
+            "description": "The full API key. It is shown only in this response: store it now, it cannot be retrieved again.",
+            "type": "string"
+          },
+          "last_used_at": {
+            "description": "When the key was last used (recorded at most every few minutes); null if never.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_used_ip": {
+            "description": "The client IP of the last ingest request, recorded with last_used_at; null if never used for ingest or when the install does not record it (ingest.record_key_ip false).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_used_sdk": {
+            "description": "The SDK name and version (User-Agent product) of the last ingest request, recorded with last_used_at; null if never used for ingest or the client sent none. Example: apilenss/0.5.0.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "description": "The first characters of the key, for recognising it.",
+            "type": "string"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/APIKey",
+            "description": "The rotated key: rotated_to names the new key and expires_at is the end of the overlap window."
+          },
+          "rate_limit_per_minute": {
+            "description": "The most records (requests, logs, spans, deploys) the ingest edge accepts with this key per minute, on top of the project quota; over it ingest answers 429 quota_exceeded with Retry-After. Null: no per-key limit.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "revoked_at": {
+            "description": "When the key was revoked; null while it is active.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rotated_from": {
+            "description": "The key this one replaced when it was created by a rotation; null otherwise.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rotated_to": {
+            "description": "The key that replaced this one in a rotation; null while it has not been rotated. A rotated key works until expires_at (the end of the overlap window).",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scopes": {
+            "description": "What the key may do: ingest (send telemetry), apps:create (ingest may create an app from an app name it has not seen), read (query the project's data).",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "previous",
+          "key",
+          "id",
+          "name",
+          "prefix",
+          "scopes",
+          "can_create_apps",
+          "app_ids",
+          "environments",
+          "apps_seen",
+          "created_at",
+          "expires_at",
+          "last_used_at",
+          "last_used_sdk",
+          "last_used_ip",
+          "revoked_at",
+          "rate_limit_per_minute",
+          "rotated_from",
+          "rotated_to"
         ],
         "type": "object"
       },
@@ -23419,6 +23651,147 @@
           }
         ],
         "summary": "Change what an API key may do with apps and environments, and its rate limit",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{slug}/api-keys/{id}/rotate": {
+      "post": {
+        "description": "Replaces the key with a new one that has the same name, scopes, app scope, environments and rate limit, and returns the new key in full, once. The old key keeps working for the `overlap` window (`none`, `24h` or `7d`, never later than the expiry it already had) so deploys can switch over, then stops: its `expires_at` is the end of the window and `rotated_to` names the new key (`rotated_from` on the new key names the old one). With `none` every process drops the old key from its cache at once; at worst it is rejected within `ingest.key_cache_ttl` (60 s). A revoked, expired or already rotated key answers `key_not_active` (409); an id the project does not have answers `api_key_gone` (410). With an overlap the project briefly holds one more active key, so `key_limit_reached` (409) applies as for create. Owners, admins and members only. Audited as `api_key.rotated` with both key ids. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
+        "operationId": "rotate-api-key",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The key's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The key's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateAPIKeyInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotatedAPIKey"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`, `reauth_required`.",
+            "x-apilens-codes": [
+              "forbidden",
+              "reauth_required"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `key_limit_reached`, `key_not_active`.",
+            "x-apilens-codes": [
+              "key_limit_reached",
+              "key_not_active"
+            ]
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Gone. Codes: `api_key_gone`.",
+            "x-apilens-codes": [
+              "api_key_gone"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Rotate an API key",
         "tags": [
           "Projects"
         ]

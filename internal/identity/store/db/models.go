@@ -79,6 +79,8 @@ type ApiKey struct {
 	LastUsedIp         *netip.Addr
 	RateLimitPerMinute *int32
 	Environments       []string
+	RotatedFrom        *uuid.UUID
+	RotatedTo          *uuid.UUID
 }
 
 type ApiKeyApp struct {

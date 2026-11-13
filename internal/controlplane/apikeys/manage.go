@@ -62,6 +62,9 @@ var (
 	// ErrKeyLimit: the project already has ingest.max_keys_per_project
 	// active keys.
 	ErrKeyLimit = errors.New("apikeys: key limit reached")
+	// ErrKeyNotActive: the key is revoked, expired or already rotated, so it
+	// cannot be rotated.
+	ErrKeyNotActive = errors.New("apikeys: key not active")
 )
 
 // Key is an API key as listed to project members. The raw key is never
@@ -94,6 +97,11 @@ type Key struct {
 	// AppsSeen are the apps the key sent records for, most recent first
 	// (List only).
 	AppsSeen []KeyApp
+	// RotatedFrom is the key this one replaced in a rotation; nil if none.
+	RotatedFrom *uuid.UUID
+	// RotatedTo is the key that replaced this one in a rotation; nil if
+	// none.
+	RotatedTo *uuid.UUID
 }
 
 // Creator is the user who created a key.
@@ -533,6 +541,7 @@ func (s *Service) UpdateAccess(ctx context.Context, user uuid.UUID, slug string,
 		ID: k.ID, ProjectID: p.ID, Name: k.Name, Prefix: k.Prefix, Scopes: scopes, AppIDs: appIDs, Environments: envs,
 		RateLimitPerMinute: intPtr(limit), CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, LastUsedAt: k.LastUsedAt,
 		LastUsedSDK: k.LastUsedSdk, LastUsedIP: k.LastUsedIp, CreatedBy: creator(k.CreatorID, k.CreatorName, k.CreatorEmail),
+		RotatedFrom: k.RotatedFrom, RotatedTo: k.RotatedTo,
 	}, nil
 }
 
@@ -577,7 +586,7 @@ func (s *Service) List(ctx context.Context, user uuid.UUID, slug string) ([]Key,
 			ID: r.ID, ProjectID: p.ID, Name: r.Name, Prefix: r.Prefix, Scopes: r.Scopes, AppIDs: r.AppIds, Environments: r.Environments,
 			RateLimitPerMinute: intPtr(r.RateLimitPerMinute), CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, RevokedAt: r.RevokedAt, LastUsedAt: r.LastUsedAt,
 			LastUsedSDK: r.LastUsedSdk, LastUsedIP: r.LastUsedIp, CreatedBy: creator(r.CreatorID, r.CreatorName, r.CreatorEmail),
-			AppsSeen: byKey[r.ID],
+			AppsSeen: byKey[r.ID], RotatedFrom: r.RotatedFrom, RotatedTo: r.RotatedTo,
 		})
 	}
 	return out, nil
@@ -635,6 +644,148 @@ func (s *Service) Revoke(ctx context.Context, user uuid.UUID, slug string, id uu
 		}
 	}
 	return nil
+}
+
+// Overlap windows a rotated key keeps working for.
+const (
+	// OverlapNone: the old key stops working at once.
+	OverlapNone = "none"
+	// Overlap24h: the old key keeps working for 24 hours.
+	Overlap24h = "24h"
+	// Overlap7d: the old key keeps working for 7 days (Stripe's maximum).
+	Overlap7d = "7d"
+)
+
+// Overlaps are the overlap windows Rotate accepts, shortest first.
+var Overlaps = []string{OverlapNone, Overlap24h, Overlap7d}
+
+// overlapDuration is how long a rotated key keeps working.
+func overlapDuration(overlap string) (time.Duration, error) {
+	switch overlap {
+	case OverlapNone:
+		return 0, nil
+	case Overlap24h:
+		return 24 * time.Hour, nil
+	case Overlap7d:
+		return 7 * 24 * time.Hour, nil
+	}
+	return 0, ErrInvalid
+}
+
+// Rotated is the result of a rotation: the successor with its raw value
+// (shown once) and the old key with its new expiry.
+type Rotated struct {
+	Created
+	Old Key
+}
+
+// Rotate replaces the key id of the project slug on behalf of user (who
+// must be allowed to manage keys): it creates a successor with the same
+// name, scopes, app scope, environments and rate limit, and sets the old
+// key's expires_at to the end of the overlap window (now, +24 h or +7 d,
+// never later than the expiry it already had). The two are linked through
+// rotated_from and rotated_to. A revoked, expired or already rotated key is
+// ErrKeyNotActive. Audited as api_key.rotated with both ids.
+//
+// With OverlapNone the old key is dropped from every verifier cache after
+// commit, so it is rejected at once (at worst within ingest.key_cache_ttl
+// when the invalidation is lost). With an overlap the cached key carries its
+// expiry and the verifier rejects it from then on.
+func (s *Service) Rotate(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID, overlap string) (Rotated, error) {
+	window, err := overlapDuration(overlap)
+	if err != nil {
+		return Rotated{}, err
+	}
+	raw, prefix, hash, err := Generate()
+	if err != nil {
+		return Rotated{}, err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Rotated{}, fmt.Errorf("apikeys: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := db.New(tx)
+	p, err := lockProject(ctx, q, user, slug, CanManage)
+	if err != nil {
+		return Rotated{}, err
+	}
+	k, err := q.LockProjectAPIKey(ctx, db.LockProjectAPIKeyParams{ID: id, ProjectID: p.ID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Rotated{}, ErrKeyNotFound
+	}
+	if err != nil {
+		return Rotated{}, fmt.Errorf("apikeys: lock key: %w", err)
+	}
+	now := s.now().UTC()
+	if k.RevokedAt != nil || k.RotatedTo != nil || (k.ExpiresAt != nil && !k.ExpiresAt.After(now)) {
+		return Rotated{}, ErrKeyNotActive
+	}
+	// With an overlap the project briefly holds one more active key, so the
+	// cap applies; without one the successor replaces the key one for one.
+	if window > 0 {
+		if err := s.checkKeyLimit(ctx, q, p.ID); err != nil {
+			return Rotated{}, err
+		}
+	}
+	oldExpires := now.Add(window)
+	if k.ExpiresAt != nil && k.ExpiresAt.Before(oldExpires) {
+		oldExpires = k.ExpiresAt.UTC()
+	}
+	row, err := q.CreateAPIKey(ctx, db.CreateAPIKeyParams{
+		ID: uuid.New(), ProjectID: p.ID, Name: k.Name, Prefix: prefix, KeyHash: hash, Scopes: k.Scopes, AppIds: k.AppIds,
+		CreatedBy: &user, RateLimitPerMinute: k.RateLimitPerMinute, Environments: k.Environments, RotatedFrom: &k.ID,
+	})
+	if err != nil {
+		return Rotated{}, fmt.Errorf("apikeys: create successor: %w", err)
+	}
+	if err := q.MarkAPIKeyRotated(ctx, db.MarkAPIKeyRotatedParams{ID: k.ID, RotatedTo: &row.ID, ExpiresAt: &oldExpires}); err != nil {
+		return Rotated{}, fmt.Errorf("apikeys: mark rotated: %w", err)
+	}
+	meta := keyMeta(p, k.ID, k.Name, k.Prefix, k.Scopes)
+	meta["new_key_id"] = row.ID.String()
+	meta["new_prefix"] = row.Prefix
+	meta["overlap"] = overlap
+	meta["old_expires_at"] = oldExpires
+	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
+		User: &user, Actor: &user, Kind: audit.APIKeyRotated,
+		Org: &p.OrgID, Project: &p.ID, Target: keyTarget(k.ID, k.Name),
+		Changes: &audit.Changes{
+			Previous: map[string]any{"expires_at": k.ExpiresAt, "rotated_to": nil},
+			Next:     map[string]any{"expires_at": oldExpires, "rotated_to": row.ID.String()},
+		},
+		Meta: meta,
+	}); err != nil {
+		return Rotated{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Rotated{}, fmt.Errorf("apikeys: commit: %w", err)
+	}
+	if s.invalidate != nil {
+		// Every verifier forgets the old key, so the next request loads its
+		// new expiry (and, with no overlap, is rejected).
+		if err := s.invalidate(ctx, k.KeyHash); err != nil {
+			s.logger.WarnContext(ctx, "api key rotated but cache invalidation failed; the old key's new expiry applies with the cache TTL",
+				"key_id", k.ID, "error", err)
+		}
+	}
+	creatorOf := creator(k.CreatorID, k.CreatorName, k.CreatorEmail)
+	return Rotated{
+		Created: Created{
+			Key: Key{
+				ID: row.ID, ProjectID: row.ProjectID, Name: row.Name, Prefix: row.Prefix, Scopes: row.Scopes, AppIDs: row.AppIds,
+				RateLimitPerMinute: intPtr(row.RateLimitPerMinute), Environments: row.Environments, CreatedAt: row.CreatedAt, ExpiresAt: row.ExpiresAt,
+				CreatedBy: creator(row.CreatorID, row.CreatorName, row.CreatorEmail), RotatedFrom: row.RotatedFrom,
+			},
+			Raw: raw,
+		},
+		Old: Key{
+			ID: k.ID, ProjectID: p.ID, Name: k.Name, Prefix: k.Prefix, Scopes: k.Scopes, AppIDs: k.AppIds, Environments: k.Environments,
+			RateLimitPerMinute: intPtr(k.RateLimitPerMinute), CreatedAt: k.CreatedAt, ExpiresAt: &oldExpires, LastUsedAt: k.LastUsedAt,
+			LastUsedSDK: k.LastUsedSdk, LastUsedIP: k.LastUsedIp, CreatedBy: creatorOf, RotatedFrom: k.RotatedFrom, RotatedTo: &row.ID,
+		},
+	}, nil
 }
 
 // lockProject row-locks the project slug for user's membership in its

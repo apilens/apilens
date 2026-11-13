@@ -1,12 +1,12 @@
 -- name: CreateAPIKey :one
 -- Inserts a key and returns it with its creator.
 WITH k AS (
-    INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at, app_ids, created_by, rate_limit_per_minute, environments)
+    INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at, app_ids, created_by, rate_limit_per_minute, environments, rotated_from)
     VALUES (@id, @project_id, @name, @prefix, @key_hash, @scopes, sqlc.narg(expires_at), sqlc.narg(app_ids)::uuid[], sqlc.narg(created_by)::uuid,
-            sqlc.narg(rate_limit_per_minute)::integer, sqlc.narg(environments)::text[])
-    RETURNING id, project_id, name, prefix, scopes, created_at, expires_at, app_ids, created_by, rate_limit_per_minute, environments
+            sqlc.narg(rate_limit_per_minute)::integer, sqlc.narg(environments)::text[], sqlc.narg(rotated_from)::uuid)
+    RETURNING id, project_id, name, prefix, scopes, created_at, expires_at, app_ids, created_by, rate_limit_per_minute, environments, rotated_from
 )
-SELECT k.id, k.project_id, k.name, k.prefix, k.scopes, k.created_at, k.expires_at, k.app_ids, k.rate_limit_per_minute, k.environments,
+SELECT k.id, k.project_id, k.name, k.prefix, k.scopes, k.created_at, k.expires_at, k.app_ids, k.rate_limit_per_minute, k.environments, k.rotated_from,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL;
@@ -40,7 +40,7 @@ RETURNING key_hash;
 -- Every key of the project, revoked ones included, newest first, with its
 -- creator (NULL when unknown or the account is deleted).
 SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.environments, k.created_at, k.expires_at, k.revoked_at, k.last_used_at,
-       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute,
+       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute, k.rotated_from, k.rotated_to,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM api_keys k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
@@ -51,7 +51,7 @@ ORDER BY k.created_at DESC, k.id;
 -- A key of the project, row-locked for the rest of the transaction, with
 -- its creator (NULL when unknown or the account is deleted).
 SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.environments, k.key_hash, k.revoked_at, k.created_at, k.expires_at, k.last_used_at,
-       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute,
+       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute, k.rotated_from, k.rotated_to,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM api_keys k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
@@ -65,6 +65,12 @@ UPDATE api_keys SET scopes = @scopes, app_ids = sqlc.narg(app_ids)::uuid[],
     rate_limit_per_minute = sqlc.narg(rate_limit_per_minute)::integer,
     environments = sqlc.narg(environments)::text[]
 WHERE id = @id;
+
+-- name: MarkAPIKeyRotated :exec
+-- Links a rotated key to its successor and sets when it stops working (the
+-- end of the overlap window).
+UPDATE api_keys SET rotated_to = @rotated_to, expires_at = @expires_at
+WHERE id = @id AND rotated_to IS NULL;
 
 -- name: CountActiveProjectAPIKeys :one
 -- The project's keys that still work: not revoked and not expired
