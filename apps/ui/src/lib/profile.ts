@@ -2,6 +2,7 @@
 // before they call `PATCH /users/me`, `POST /users/me/email/change|confirm` or `DELETE /users/me`,
 // and the sentences they show for the server's error codes. The server stays the authority;
 // these checks only spare a round trip. Pure; safe in Client Components and Server Actions alike.
+import { confirmMatches } from "./confirm";
 
 /** Longest display name the API accepts (`maxLength` of `MePatchBody.name`). */
 export const MAX_NAME = 120;
@@ -46,7 +47,7 @@ export function isCode(raw: string): boolean {
 
 /** Whether the delete confirmation matches the account's email (case and surrounding spaces ignored). */
 export function deleteConfirmed(email: string, typed: string): boolean {
-  return typed.trim().toLowerCase() === email.trim().toLowerCase() && email.trim() !== "";
+  return confirmMatches(email, typed, { ignoreCase: true });
 }
 
 /** An organization the user owns, linked to where ownership is transferred or the org deleted. */

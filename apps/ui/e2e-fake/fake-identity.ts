@@ -41,6 +41,8 @@
 //                                                  taken (with free suggestions); `race-lost` is available
 //   POST /api/v1/orgs                              creates an org the user owns (in their context);
 //                                                  slug_taken + suggestions for taken slugs and `race-lost` (#330)
+//   GET|DELETE /api/v1/orgs/{slug}                 an org in the user's context (#802); only an org the user
+//                                                  owns and created (or seeded as `orgs`) can be deleted, else 403
 //   GET  /api/v1/projects/slug-available?slug=     shop, storefront, admin and created project slugs are
 //                                                  taken (with free suggestions); `race-lost` is available
 //   POST /api/v1/orgs/{slug}/projects              creates a project in an org the user belongs to (in their
@@ -193,7 +195,8 @@
 //                                                  `sso` seeds acme's SSO connection (fields of the read),
 //                                                  `stale` makes /2fa/enable answer reauth_required;
 //                                                  `joinable` [{slug, name, member_initials?, member_count?,
-//                                                  projects?: [slug]}] seeds the orgs they may join (#329)
+//                                                  projects?: [slug]}] seeds the orgs they may join (#329);
+//                                                  `orgs` [{slug, name}] seeds orgs they own (#802)
 //   POST /__fake/identities {identities}          test hook: replaces the connected accounts
 //   GET  /api/v1/auth/invitations/{token}          invitation landing (#337): inv_globex (for
 //                                                  you@example.com), inv_other (another address),
@@ -731,6 +734,8 @@ interface Seeds {
   apiKeys?: Record<string, unknown>[];
   sso?: Record<string, unknown>;
   joinable?: Record<string, unknown>[];
+  /** Organizations the user owns, as if created through `POST /orgs` (#802). */
+  orgs?: { slug: string; name: string }[];
 }
 
 /** An organization a fake user may join by verified email domain (#329). */
@@ -830,6 +835,7 @@ function bundle(next: string, seeds: Seeds = {}, role: Role = "owner") {
   apiKeys.set(id, (seeds.apiKeys ?? []).map(seedApiKey));
   if (seeds.sso) ssoByUser.set(id, ssoConnection(seeds.sso));
   joinableByUser.set(id, (seeds.joinable ?? []).map(seedJoinable));
+  for (const o of seeds.orgs ?? []) createdOrgs.set(o.slug, { id: `org_${randomUUID()}`, slug: o.slug, name: o.name, role: "owner", owner: id });
   return {
     access_token: access,
     refresh_token: `rt_${token()}`,
@@ -1355,6 +1361,20 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       environments: project.environments,
       created_at: new Date().toISOString(),
     });
+  }
+  const orgOne = req.method === "GET" || req.method === "DELETE" ? path.match(/^\/api\/v1\/orgs\/([^/]+)$/) : null;
+  if (orgOne) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const org = context(user).orgs.find((o) => o.slug === orgOne[1]);
+    if (!org) return problem(res, 404, "not_found");
+    if (req.method === "GET") {
+      return send(res, 200, { id: org.id, slug: org.slug, name: org.name, role: org.role, allowed_domains: [], domain_join: false });
+    }
+    const created = createdOrgs.get(org.slug);
+    if (!created || created.owner !== user) return problem(res, 403, "forbidden");
+    createdOrgs.delete(org.slug);
+    return send(res, 204);
   }
   const ssoPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/sso(\/test)?$/);
   if (ssoPath) return orgSSO(req, res, ssoPath[1], ssoPath[2] !== undefined);
@@ -2482,6 +2502,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       stale,
       joinable,
       extra,
+      orgs: seedOrgs,
     } = await readBody(req);
     const codes = Array.isArray(backups) ? backups.map(String) : [];
     const seeded: Seeds = {
@@ -2491,6 +2512,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       sso: typeof sso === "object" && sso !== null && !Array.isArray(sso) ? (sso as Record<string, unknown>) : undefined,
       joinable: Array.isArray(joinable) ? (joinable as Record<string, unknown>[]) : [],
       extra: typeof extra === "object" && extra !== null && !Array.isArray(extra) ? (extra as Seeds["extra"]) : undefined,
+      orgs: Array.isArray(seedOrgs) ? (seedOrgs as { slug: string; name: string }[]) : [],
     };
     const r = ROLES.has(role as Role) ? (role as Role) : "owner";
     const code = issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded, stale === true, r);

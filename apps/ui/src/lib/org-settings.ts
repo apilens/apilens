@@ -3,6 +3,7 @@
 // error codes. The server stays the authority (public email domains answer `domain_not_allowed`
 // and only it knows that list); these checks only spare a round trip. Pure; safe in Client
 // Components and Server Actions alike.
+import { confirmMatches } from "./confirm";
 import type { OrgRole } from "./identity";
 
 /** Longest organization name the API accepts (`maxLength` of `name`). */
@@ -89,7 +90,7 @@ export function checkDomains(list: unknown): { ok: true; domains: string[] } | {
 
 /** Whether the delete confirmation matches: the slug exactly, ignoring surrounding spaces. */
 export function deleteConfirmed(slug: string, typed: string): boolean {
-  return typed.trim() === slug;
+  return confirmMatches(slug, typed);
 }
 
 /** The sentence the settings page shows for an API error `code`. */
