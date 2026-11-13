@@ -54,7 +54,9 @@ Usage:
                                               ClickHouse TTLs from retention.* (shortening
                                               needs the confirm flag)
   apilens seed [flags]                        create a dev org/project/app and print an ingest key,
-                                              plus a dev owner (dev@example.com) and its magic link
+                                              plus a dev owner (dev@example.com) and its magic link;
+                                              -with-team adds demo members, a restricted project,
+                                              environments and keys in every state (idempotent)
   apilens user create -email=... -org=... [-role=member]
                                               create a user (if needed) and add it to an organization
   apilens user promote -email=... -org=... [-role=owner]
@@ -290,9 +292,13 @@ func runSeed(ctx context.Context, args []string, stdout, stderr io.Writer, envir
 	fs.StringVar(&o.Environment, "environment", "production", "environment name")
 	fs.StringVar(&o.KeyName, "key-name", "seed", "name of the issued API key")
 	userEmail := fs.String("user-email", bootstrap.DevUserEmail, "email of the dev user made owner of the organization (empty: none)")
-	cfg, _, err := loadConfig(fs, args, environ, stderr)
+	withTeam := fs.Bool("with-team", false, "also seed demo members, a restricted project, environments and API keys in every state (needs -user-email)")
+	cfg, logger, err := loadConfig(fs, args, environ, stderr)
 	if err != nil {
 		return err
+	}
+	if *withTeam && *userEmail == "" {
+		return errors.New("seed: -with-team needs -user-email (the owner who makes the changes)")
 	}
 	pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-seed")
 	if err != nil {
@@ -317,17 +323,28 @@ func runSeed(ctx context.Context, args []string, stdout, stderr io.Writer, envir
 		}
 		out.UserID, out.UserEmail, out.MagicLink = &m.UserID, m.Email, link.MagicLink
 	}
+	if *withTeam {
+		team, err := bootstrap.SeedTeam(ctx, pool, bootstrap.TeamOptions{
+			OrgSlug: o.OrgSlug, ProjectID: res.ProjectID, OwnerEmail: *userEmail, Logger: logger,
+		})
+		if err != nil {
+			return fmt.Errorf("seed: team: %w", err)
+		}
+		out.Team = &team
+	}
 	return json.NewEncoder(stdout).Encode(out) //nolint:gosec // G117: printing the new key once is the point of seed
 }
 
 // seedOutput is the line `apilens seed` prints: the seeded resources and
 // keys and, unless -user-email is empty, the dev owner and a one-time link
-// to sign in as them.
+// to sign in as them; with -with-team, the demo data.
 type seedOutput struct {
 	bootstrap.Result
 	UserID    *uuid.UUID `json:"user_id,omitempty"`
 	UserEmail string     `json:"user_email,omitempty"`
 	MagicLink string     `json:"magic_link,omitempty"`
+	// Team is the demo data of -with-team.
+	Team *bootstrap.TeamResult `json:"team,omitempty"`
 }
 
 // runUser runs the `apilens user <command>` operator commands, for

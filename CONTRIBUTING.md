@@ -35,11 +35,24 @@ Useful tasks (run `task --list` for everything):
 | `task up` / `task down` | Start / stop the dev datastores (Postgres, ClickHouse, Valkey, SpiceDB, Mailpit) |
 | `task migrate` | Apply Postgres and ClickHouse migrations and the SpiceDB schema |
 | `task seed` | Create a dev org, project, app and API key |
+| `task seed -- -with-team` | Also seed demo data for the Access and Project settings screens (see below) |
 | `task gen` | Regenerate protobuf, sqlc and OpenAPI output |
 | `task lint` | Run all linters |
 | `task test` | Unit tests |
 | `task test:integration` | Integration tests against real databases (testcontainers; needs Docker) |
 | `task test:e2e` | End-to-end tests against the compose all-in-one stack |
+
+### Demo data for Access and Project settings
+
+`task seed -- -with-team` (`apilens seed -with-team`) fills the org `dev` so the Access and Project settings screens are not empty in demos and manual checks. On top of the dev owner `dev@example.com` it adds:
+
+- four members, all `@example.com`: `ada.admin` (org admin), `eli.editor` and `mia.member` (org members), `val.viewer` (org viewer); sign in as any of them with `apilens user magic-link -email=...`
+- the restricted project `payments` (default access `none`): Eli is a direct Editor and Val a direct Viewer, Mia has no grant and does not see it
+- environments of the project `dev`: `production` (production flag, red), `staging` (yellow), `development` (blue) and `preview` (purple, hidden), in that order
+- API keys of the project `dev` in every state: `Checkout service` (active, pinned to production), `CI smoke tests` (expires in 5 days), `Edge gateway` (rotated with a 7-day overlap: the old key is rotating, its successor active) and `Old laptop export` (revoked), each created by a different person
+- the audit events of all of the above (`member.added`, `project.created`, `project.access_changed`, `project_member.added`, `environment.added|updated`, `api_key.created|rotated|revoked`) for Access › Activity
+
+It runs through the same services as the dashboard, so outbox rows and audit events are real. Running it again changes none of this data; like plain `seed`, every run still issues a fresh `seed`/`seed-read` key pair and magic link. `-with-team` needs `-user-email` (the default `dev@example.com` is fine).
 
 ## Repository layout
 
