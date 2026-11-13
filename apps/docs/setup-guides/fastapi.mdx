@@ -29,7 +29,7 @@ app.add_middleware(
 )
 ```
 
-That's it for metrics, request logs, and traces. `api_key` is your **project-level** key (Settings → API keys); `app_id` attributes this service's traffic to the right app in the project.
+That's it for metrics, request logs, and traces. `api_key` is your **project-level** key (Access → API keys); `app_id` attributes this service's traffic to the right app in the project.
 
 <Tip>
 When stacking multiple middlewares, add `ApiLensMiddleware` **last** so it wraps the full request lifecycle and its timings include your other middleware.

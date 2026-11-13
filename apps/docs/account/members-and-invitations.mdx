@@ -7,32 +7,33 @@ description: "Organization roles, inviting teammates, changing roles and sharing
 Organizations, members and invitations ship with APILens v2 (milestone M2).
 </Info>
 
-An **organization** owns projects and the people who work on them. Each member has exactly one role in the organization, and that role applies to every project in it.
+An **organization** owns projects and the people who work on them. Each member has exactly one role in the organization. That role decides what they can do in the organization and, through each project's [default access](/platform/project-access#default-access), what they get on its projects.
 
 ## Roles
 
 | Role | Can do |
 |---|---|
-| **Owner** | Everything, including SSO and billing. Only an owner can transfer ownership. |
-| **Admin** | Manage organization settings, invite and remove members, change roles, delete projects. |
-| **Member** | Create projects, change project settings, create and revoke API keys, see all data. |
-| **Viewer** | See every project and its data. Cannot change anything. |
+| **Owner** | Everything, including SSO and billing. Only an owner can transfer ownership. Admin on every project. |
+| **Admin** | Manage organization settings, invite and remove members, change roles, restore deleted projects. Admin on every project. |
+| **Member** | Create projects. On existing projects, Editor by default, or what the project's default access and direct roles give. |
+| **Viewer** | Read-only. Viewer on projects by default, or what the project's default access and direct roles give. |
 
 | Action | Owner | Admin | Member | Viewer |
 |---|:-:|:-:|:-:|:-:|
-| See projects and telemetry | ✓ | ✓ | ✓ | ✓ |
-| Create projects, change project settings | ✓ | ✓ | ✓ | |
-| Create and revoke API keys | ✓ | ✓ | ✓ | |
-| Delete projects | ✓ | ✓ | | |
+| Create projects | ✓ | ✓ | ✓ | |
+| Admin on every project (access, activity log, danger zone) | ✓ | ✓ | | |
+| Restore deleted projects | ✓ | ✓ | | |
 | Invite members, change roles, remove members | ✓ | ✓ | | |
-| Organization settings | ✓ | ✓ | | |
+| Organization settings and audit log | ✓ | ✓ | | |
 | SSO connection, billing | ✓ | | | |
+
+What a member or viewer can do **on a project** depends on their project role (Admin, Editor or Viewer). With a project's default access left at **Follow organization role**, members are Editors and viewers are Viewers; a project admin can restrict the project or give someone a higher role directly. See [Project access](/platform/project-access) for the role matrix.
 
 Buttons you are not allowed to use are hidden or disabled. The server checks every action as well, so a hidden button is never the only safeguard.
 
-### Sharing a single project
+### Access to a single project
 
-A project can also be shared with someone who is not an organization member, as project **admin**, **editor** or **viewer**. That access covers only that project, never the organization or its other projects.
+Project admins can give an **organization member** a role on one project (Admin, Editor or Viewer) from the project's **Access** page. Someone who is not in the organization yet is invited to the organization from there, with an organization role (Member or Viewer) and a role on that project that applies when they accept. See [Add people to a project](/platform/project-access#add-people-to-a-project).
 
 ## Invite your team
 

@@ -22,7 +22,7 @@ Project  (your product, e.g. "Store")
 |---|---|---|
 | **Project** | One product or system. Its dashboards, consumers and traces span all its apps. | You, in the dashboard. |
 | **App** | One deployable service of the project (`orders-api`, `payments`). | The SDK, the first time it sends data with an app name the project does not have. Each project also has a **default app**. |
-| **API key** | A secret that lets a service send data to one project. A project can have many named keys. | You, in **Project settings → API keys**. |
+| **API key** | A secret that lets a service send data to one project. A project can have many named keys. | You, on **Access → API keys**. |
 
 ## Apps come from the SDK
 
@@ -72,7 +72,7 @@ A project holds at most 20 environments, and ingest adds at most 5 new ones per 
 
 ## API keys
 
-Keys belong to the **project**. Create them in **Project settings → API keys**; the full key is shown once, then only its prefix. Name keys after who uses them (`prod-backend`, `team-payments`, `deploy-pipeline`) so the Apps page can tell you which key brought an app in, and so you can revoke one without touching the others.
+Keys belong to the **project**. Create them on the project's **Access → API keys** tab; the full key is shown once, then only its prefix. Creating, rotating, expiry and what to do when a key leaks are in [API keys](/platform/api-keys). Name keys after who uses them (`prod-backend`, `team-payments`, `deploy-pipeline`) so the Apps page can tell you which key brought an app in, and so you can revoke one without touching the others.
 
 Each key shows its permissions, which apps it may send for, the apps it has actually sent data for, who created it, and when it was last used: with the SDK name and version (`apilenss/0.5.0`, from the `User-Agent` of the ingest request) and the client IP of that request. Last use is recorded at most once every few minutes per key.
 
@@ -96,18 +96,9 @@ A key can also be pinned to some of the project's environments (`environments` w
 
 Permission and scope changes apply to the next request: every ingest process drops the cached key.
 
-### Rotate a key
+### Rotate a key and expiry
 
-`POST /api/v1/projects/{slug}/api-keys/{id}/rotate` with `{"overlap": "none" | "24h" | "7d"}` replaces a key with a new one that keeps its name, scopes, app limit, environments and rate limit. The new key is returned in full, once. The old key keeps working for the overlap window so you can roll the new one out without dropping data, then stops: its `expires_at` is the end of the window (never later than the expiry it already had) and `rotated_to` names the new key; the new key's `rotated_from` names the old one.
-
-- `24h` or `7d`: both keys ingest until the window ends; the old key is rejected from that moment on.
-- `none`: the old key stops at once. Every ingest replica drops it from its key cache straight away; if that message is lost it is rejected at the latest after `ingest.key_cache_ttl` (default 60 s).
-
-A key that is revoked, expired or already rotated answers `409 key_not_active`. Rotation needs a recent sign-in, like creating a key, and is recorded in the audit log as `api_key.rotated`.
-
-### Expiring keys
-
-An hourly job emails the project admins once when a key will expire within 7 days, so there is time to rotate it (admins who turned off security emails in their account settings are skipped). When a key passes its expiry, the audit log records `api_key.expired` once. Keys in a rotation overlap get no reminder, and revoked or rotated keys get no `api_key.expired`: their revocation or rotation is already recorded.
+Rotation with an overlap window and expiry reminders are described in [API keys](/platform/api-keys#rotate-a-key).
 
 ### Key limits
 
@@ -174,34 +165,8 @@ The dashboard (your human account, not the telemetry) authenticates via the APIL
 
 ## Project access
 
-Everyone in the organization gets a project role from the project's **default access**: `org_role` (the default: members edit, viewers view), `viewer` (everyone views) or `none` (only organization owners and admins and people added directly). Project admins can also give an organization member a role on one project directly (`admin`, `editor` or `viewer`); the person's role on the project is the highest of their organization role, the default access and the direct role. Through the API:
-
-| Request | What it does |
-|---|---|
-| `PUT /api/v1/projects/{slug}/members/{user_id}` with `{"role": "editor"}` | Grants or changes a direct role. The person must already be a member of the organization (`409 not_org_member`). |
-| `DELETE /api/v1/projects/{slug}/members/{user_id}` | Removes a direct role; you can remove your own. |
-| `PATCH /api/v1/projects/{slug}/access` with `{"default_access": "none"}` | Changes the default access. Add `?dry_run=true` to see how many people would lose access (`lose_access`) without changing anything. |
-
-These need a project admin who signed in less than 10 minutes ago. A project has at most **500 people added directly**; one more answers `409 member_limit_reached`. Self-hosted installs change the cap with `access.max_direct_members_per_project` (`APILENS_ACCESS__MAX_DIRECT_MEMBERS_PER_PROJECT`, default `500`, `0` for no cap).
+Who can open a project and what they may do there: [Project access](/platform/project-access).
 
 ## Deleting and restoring a project
 
-Deleting a project does not remove its data straight away. It is scheduled for purge after a **7-day grace period**, and until then an organization owner or admin can restore it exactly as it was: its access (default access and people added directly), API keys, apps, environments and slug.
-
-From the moment of deletion the project disappears from the dashboard and the API, its API keys are refused by ingest with `403 project_deleted`, and its slug stays reserved, so no other project can take it.
-
-| Request | What it does |
-|---|---|
-| `DELETE /api/v1/projects/{slug}` with `{"confirm": "<slug>"}` | Deletes the project and answers when it will be purged (`purge_after`). A confirmation other than the slug answers `422 confirmation_mismatch` and changes nothing. Needs a project admin. |
-| `GET /api/v1/orgs/{slug}/projects/deleted` | Lists the organization's deleted projects that can still be restored. Needs an organization owner or admin. |
-| `POST /api/v1/orgs/{slug}/projects/{id}/restore` | Restores a deleted project before its purge. Needs an organization owner or admin. |
-
-Deleting and restoring need a sign-in less than 10 minutes old, and the project admins get an email about each. Self-hosted installs change the grace period with `project.deletion_grace` (`APILENS_PROJECT__DELETION_GRACE`, default `168h`; `0s` schedules the purge at once).
-
-### Purge
-
-An hourly job purges every deleted project whose grace period has passed. It removes the project's telemetry from ClickHouse (requests, logs, spans, rollups, deploys, consumers), its counters from Valkey, its request export files, and its Postgres rows (apps, environments, API keys, privacy and capture policies, alert rules and channels, health checks, uptime monitors, saved views, exports, direct grants and pending invitation grants), drops its relationships from SpiceDB, and records `project.purged` in the organization's activity log. The project's own activity log entries are kept. The slug then stays reserved for **30 days**, as after a rename, before another project can take it.
-
-A purge that stops half-way (a restart, an unavailable store) resumes where it stopped on the next run. Deleting an organization cannot be undone, so its projects are purged by the same job once `project.deletion_grace` has passed since the organization was deleted.
-
-Operators can purge a deleted project at once, inside its grace period, with `apilens project purge <project id>` (it uses the same configuration as the server). A purged project cannot be restored.
+A deleted project can be restored for 7 days, then its data is purged: [Deleting and restoring a project](/platform/deleting-a-project).
