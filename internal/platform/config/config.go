@@ -48,6 +48,7 @@ type Config struct {
 	Alerts     AlertsConfig     `koanf:"alerts"`
 	Retention  RetentionConfig  `koanf:"retention"`
 	Access     AccessConfig     `koanf:"access"`
+	Audit      AuditConfig      `koanf:"audit"`
 }
 
 // AccessConfig configures project access management.
@@ -562,6 +563,7 @@ func Defaults() map[string]any {
 		"email.timeout":       "10s",
 	}
 	retentionDefaults(m)
+	auditDefaults(m)
 	return m
 }
 
@@ -708,6 +710,7 @@ func (c *Config) Validate() error {
 	errs = append(errs, c.validateAuthz()...)
 	errs = append(errs, c.validateEmail()...)
 	errs = append(errs, c.validateRetention()...)
+	errs = append(errs, c.validateAudit()...)
 	if len(errs) > 0 {
 		return fmt.Errorf("config: %w", errors.Join(errs...))
 	}

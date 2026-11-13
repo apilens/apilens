@@ -13,6 +13,33 @@ import (
 	"github.com/google/uuid"
 )
 
+const deleteAuditEventsBefore = `-- name: DeleteAuditEventsBefore :execrows
+DELETE FROM audit_events
+WHERE id IN (
+    SELECT id FROM audit_events
+    WHERE created_at < $1::timestamptz
+    ORDER BY id
+    LIMIT $2
+)
+`
+
+type DeleteAuditEventsBeforeParams struct {
+	Cutoff    time.Time
+	BatchSize int32
+}
+
+// Deletes up to batch_size events recorded before cutoff, oldest first (the
+// audit retention job, audit.retention). It walks the primary key: ids grow
+// with created_at, so the old rows are found at the start of the index and a
+// batch stops as soon as it has batch_size of them.
+func (q *Queries) DeleteAuditEventsBefore(ctx context.Context, arg DeleteAuditEventsBeforeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAuditEventsBefore, arg.Cutoff, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertAuditEvent = `-- name: InsertAuditEvent :one
 INSERT INTO audit_events (
     user_id, actor_user_id, event, ip, user_agent, metadata,

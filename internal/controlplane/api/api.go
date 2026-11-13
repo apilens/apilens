@@ -41,6 +41,9 @@ type Deps struct {
 	// sign-in may be for sensitive operations (authz.RequireRecentAuth).
 	// Zero means authz.DefaultRecentAuth.
 	SensitiveActionMaxAge time.Duration
+	// AuditRetentionDays is audit.retention: how many days audit events are
+	// kept (0 forever), reported with every audit event listing.
+	AuditRetentionDays int
 
 	// Invitations may be nil when only the OpenAPI document is read.
 	Invitations InvitationService
@@ -66,7 +69,7 @@ func Register(api huma.API, d Deps) {
 	}
 	NewApps(d.Apps, d.AppRejections, guard, d.Logger).Register(api)
 	NewAccess(d.Access, guard, d.Logger).WithRecentAuth(d.SensitiveActionMaxAge).Register(api)
-	NewAuditEvents(d.Audit, guard, d.Guard, d.Logger).Register(api)
+	NewAuditEvents(d.Audit, guard, d.Guard, d.Logger).WithRetention(d.AuditRetentionDays).Register(api)
 	NewContext(d.Context, d.Logger).Register(api)
 	NewInvitations(d.Invitations, d.Logger).Register(api)
 	NewSSOConnections(d.SSO, d.Guard, d.Issuer, d.Logger).Register(api)

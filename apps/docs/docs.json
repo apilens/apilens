@@ -99,7 +99,8 @@
               "self-host/first-admin",
               "self-host/email",
               "self-host/google-and-github",
-              "self-host/sso-oidc"
+              "self-host/sso-oidc",
+              "self-host/audit-log"
             ]
           },
           {

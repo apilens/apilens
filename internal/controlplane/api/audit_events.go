@@ -99,6 +99,9 @@ type ListAuditEventsOutput struct {
 	Body struct {
 		Events     []AuditEvent `json:"events" doc:"Newest first."`
 		NextCursor string       `json:"next_cursor" doc:"Pass as cursor for the next page; empty on the last page."`
+		// RetentionDays is audit.retention, so the UI can say how far back
+		// the log goes.
+		RetentionDays int `json:"retention_days" minimum:"0" doc:"How many days audit events are kept (the install's audit.retention); older ones are deleted daily. 0 means they are kept forever."`
 	}
 }
 
@@ -121,6 +124,8 @@ type AuditEvents struct {
 	authz  ProjectAuthorizer
 	guard  *authz.Guard
 	logger *slog.Logger
+	// retentionDays is reported with every listing (WithRetention).
+	retentionDays int
 }
 
 // NewAuditEvents returns the audit event endpoints over svc. guard (nil
@@ -128,6 +133,13 @@ type AuditEvents struct {
 // organization operations, projects the project ones.
 func NewAuditEvents(svc AuditService, projects ProjectAuthorizer, guard *authz.Guard, logger *slog.Logger) *AuditEvents {
 	return &AuditEvents{svc: svc, authz: projects, guard: guard, logger: logger}
+}
+
+// WithRetention sets the audit.retention days the listings report (0 means
+// kept forever).
+func (a *AuditEvents) WithRetention(days int) *AuditEvents {
+	a.retentionDays = days
+	return a
 }
 
 const auditFilters = "Filters: `actor`, `action` (exact, or a prefix ending with a dot such as `api_key.`), `target_type`, `from`/`to` and `q` (target label). " +
@@ -312,6 +324,7 @@ func (a *AuditEvents) problem(ctx context.Context, op string, err error) error {
 func (a *AuditEvents) output(page auditlog.Page) *ListAuditEventsOutput {
 	out := &ListAuditEventsOutput{}
 	out.Body.NextCursor = page.NextCursor
+	out.Body.RetentionDays = a.retentionDays
 	out.Body.Events = make([]AuditEvent, 0, len(page.Entries))
 	for _, e := range page.Entries {
 		ev := AuditEvent{

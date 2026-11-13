@@ -62,3 +62,16 @@ WHERE project_id = @project_id::uuid
        OR (created_at, id) < (sqlc.narg('before_created_at')::timestamptz, sqlc.narg('before_id')::bigint))
 ORDER BY created_at DESC, id DESC
 LIMIT @page_size;
+
+-- name: DeleteAuditEventsBefore :execrows
+-- Deletes up to batch_size events recorded before cutoff, oldest first (the
+-- audit retention job, audit.retention). It walks the primary key: ids grow
+-- with created_at, so the old rows are found at the start of the index and a
+-- batch stops as soon as it has batch_size of them.
+DELETE FROM audit_events
+WHERE id IN (
+    SELECT id FROM audit_events
+    WHERE created_at < @cutoff::timestamptz
+    ORDER BY id
+    LIMIT @batch_size
+);

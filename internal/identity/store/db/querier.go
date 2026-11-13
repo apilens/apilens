@@ -92,6 +92,11 @@ type Querier interface {
 	// Only the identity module reads or writes users (ADR 0005); every lookup
 	// and update below ignores soft-deleted rows.
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	// Deletes up to batch_size events recorded before cutoff, oldest first (the
+	// audit retention job, audit.retention). It walks the primary key: ids grow
+	// with created_at, so the old rows are found at the start of the index and a
+	// batch stops as soon as it has batch_size of them.
+	DeleteAuditEventsBefore(ctx context.Context, arg DeleteAuditEventsBeforeParams) (int64, error)
 	// Removes all of a user's backup codes, used or not (regenerate, disable).
 	DeleteBackupCodesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	DeleteOAuthAuthRequest(ctx context.Context, id uuid.UUID) error
