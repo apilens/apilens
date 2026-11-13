@@ -10,6 +10,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 
+	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/projects"
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/platform/authn"
@@ -123,6 +124,16 @@ type Projects struct {
 	limiter   *ratelimit.Limiter
 	slugCheck ratelimit.Rate
 	logger    *slog.Logger
+	// recentAuth is the sign-in age sensitive operations allow
+	// (identity.sensitive_action_max_age); 0 means authz.DefaultRecentAuth.
+	recentAuth time.Duration
+}
+
+// WithRecentAuth sets the sign-in age sensitive operations (delete) allow
+// and returns p.
+func (p *Projects) WithRecentAuth(maxAge time.Duration) *Projects {
+	p.recentAuth = maxAge
+	return p
 }
 
 // NewProjects returns the project endpoints over svc. limiter enforces
@@ -137,6 +148,7 @@ func (p *Projects) Register(api huma.API) {
 	security := []map[string][]string{{authn.SchemeSession: {}}}
 	tags := []string{server.TagProjects}
 	notMember := "Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart."
+	recentAuth := "Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. "
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID:   "create-project",
@@ -197,10 +209,11 @@ func (p *Projects) Register(api huma.API) {
 		Path:          ProjectPath,
 		DefaultStatus: http.StatusNoContent,
 		Summary:       "Delete a project",
-		Description:   "Soft-deletes the project; its slug becomes free. Owners and admins only. Emits `project.deleted`. " + notMember,
+		Description:   "Soft-deletes the project; its slug becomes free. Owners and admins only. Emits `project.deleted`. " + recentAuth + notMember,
 		Tags:          tags,
 		Security:      security,
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), p.delete)
+		Middlewares:   huma.Middlewares{authz.RequireRecentAuth(api, p.recentAuth)},
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeReauthRequired, identity.CodeInternal), p.delete)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "add-project-environment",

@@ -106,6 +106,8 @@ type tokenOpts struct {
 	amr    []string
 	iat    time.Time
 	ttl    time.Duration
+	// authTime is the `auth_time`; zero leaves the claim out.
+	authTime time.Time
 	// clientID is the `client_id` of a token from the OIDC provider.
 	clientID string
 }
@@ -127,6 +129,9 @@ func sign(t *testing.T, k signingKey, now time.Time, mod func(*tokenOpts)) strin
 			IssuedAt:  jwt.NewNumericDate(o.iat),
 			ExpiresAt: jwt.NewNumericDate(o.iat.Add(o.ttl)),
 		},
+	}
+	if !o.authTime.IsZero() {
+		c.AuthTime = jwt.NewNumericDate(o.authTime)
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, c)
 	tok.Header["kid"] = k.kid
@@ -151,6 +156,7 @@ func TestVerifyValid(t *testing.T) {
 	user, session := uuid.New(), uuid.New()
 	raw := sign(t, k, clk.Now(), func(o *tokenOpts) {
 		o.sub, o.sid, o.amr = user.String(), session.String(), []string{"google", "totp"}
+		o.authTime = clk.Now().Add(-5 * time.Minute)
 	})
 	p, err := v.Verify(context.Background(), raw)
 	if err != nil {
@@ -158,6 +164,15 @@ func TestVerifyValid(t *testing.T) {
 	}
 	if p.Kind != KindUser || p.UserID != user || p.SessionID != session || len(p.AMR) != 2 || p.AMR[0] != "google" {
 		t.Errorf("principal = %+v", p)
+	}
+	if !p.AuthTime.Equal(clk.Now().Add(-5 * time.Minute)) {
+		t.Errorf("auth_time = %v", p.AuthTime)
+	}
+	// A token without auth_time (issued before the claim existed) verifies
+	// with a zero AuthTime, which RequireRecentAuth treats as stale.
+	legacy, err := v.Verify(context.Background(), sign(t, k, clk.Now(), nil))
+	if err != nil || !legacy.AuthTime.IsZero() {
+		t.Errorf("legacy token: %+v %v", legacy, err)
 	}
 	// A second token with the same kid is served from cache.
 	if _, err := v.Verify(context.Background(), sign(t, k, clk.Now(), nil)); err != nil {

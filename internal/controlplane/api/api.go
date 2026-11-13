@@ -4,6 +4,7 @@ package api
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -32,6 +33,10 @@ type Deps struct {
 	Limiter *ratelimit.Limiter
 	Limits  config.RateLimitsConfig
 	Logger  *slog.Logger
+	// SensitiveActionMaxAge is identity.sensitive_action_max_age: how old a
+	// sign-in may be for sensitive operations (authz.RequireRecentAuth).
+	// Zero means authz.DefaultRecentAuth.
+	SensitiveActionMaxAge time.Duration
 
 	// Invitations may be nil when only the OpenAPI document is read.
 	Invitations InvitationService
@@ -47,8 +52,8 @@ type Deps struct {
 func Register(api huma.API, d Deps) {
 	NewOrgs(d.Orgs, d.Guard, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
 	NewMembers(d.Members, d.Guard, d.Logger).Register(api)
-	NewProjects(d.Projects, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
-	NewAPIKeys(d.APIKeys, d.Logger).Register(api)
+	NewProjects(d.Projects, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).WithRecentAuth(d.SensitiveActionMaxAge).Register(api)
+	NewAPIKeys(d.APIKeys, d.Logger).WithRecentAuth(d.SensitiveActionMaxAge).Register(api)
 	NewPrivacy(d.Privacy, d.Logger).Register(api)
 	NewCapturePolicies(d.Capture, d.Guard, d.Logger).Register(api)
 	var guard ProjectAuthorizer

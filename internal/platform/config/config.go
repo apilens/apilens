@@ -207,6 +207,10 @@ type IdentityConfig struct {
 	// RecoveryDelay is the cooling-off period between requesting account
 	// recovery (2FA device lost) and being allowed to confirm it.
 	RecoveryDelay time.Duration `koanf:"recovery_delay"`
+	// SensitiveActionMaxAge is how old a sign-in may be for sensitive API
+	// operations (project delete, API key create, ...); older sessions are
+	// answered reauth_required.
+	SensitiveActionMaxAge time.Duration `koanf:"sensitive_action_max_age"`
 	// KeyEncryptionKey is 32 bytes, base64-encoded. It encrypts signing keys
 	// and TOTP secrets at rest. Required when the identity role runs.
 	KeyEncryptionKey string           `koanf:"key_encryption_key"`
@@ -491,6 +495,8 @@ func Defaults() map[string]any {
 
 		"alerts.health_checks_allow_private": false,
 
+		"identity.sensitive_action_max_age": "10m",
+
 		"identity.oauth.google.client_id":     "",
 		"identity.oauth.google.client_secret": "",
 		"identity.oauth.github.client_id":     "",
@@ -719,8 +725,8 @@ func (c *Config) validateIdentity() []error {
 		errs = append(errs, id.WebAuthn.Validate()...)
 	}
 	if id.AccessTokenTTL <= 0 || id.RefreshTokenTTL <= 0 || id.RefreshTokenTTLShort <= 0 ||
-		id.EmailCodeTTL <= 0 || id.PreAuthTTL <= 0 || id.RecoveryDelay <= 0 {
-		errs = append(errs, errors.New("identity.access_token_ttl, refresh_token_ttl, refresh_token_ttl_short, email_code_ttl, pre_auth_ttl and recovery_delay must be > 0"))
+		id.EmailCodeTTL <= 0 || id.PreAuthTTL <= 0 || id.RecoveryDelay <= 0 || id.SensitiveActionMaxAge <= 0 {
+		errs = append(errs, errors.New("identity.access_token_ttl, refresh_token_ttl, refresh_token_ttl_short, email_code_ttl, pre_auth_ttl, recovery_delay and sensitive_action_max_age must be > 0"))
 	}
 	if id.RefreshTokenTTLShort > id.RefreshTokenTTL {
 		errs = append(errs, errors.New("identity.refresh_token_ttl_short must not exceed identity.refresh_token_ttl"))

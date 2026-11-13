@@ -34,6 +34,8 @@ type claims struct {
 	SessionID string   `json:"sid"`
 	AMR       []string `json:"amr"`
 	ClientID  string   `json:"client_id"`
+	// AuthTime is when the user signed in to the session (`auth_time`).
+	AuthTime *jwt.NumericDate `json:"auth_time"`
 	jwt.RegisteredClaims
 }
 
@@ -116,7 +118,11 @@ func (v *SessionVerifier) Verify(ctx context.Context, raw string) (Principal, er
 	if v.denylist.Denied(ctx, session) {
 		return Principal{}, ErrRevoked
 	}
-	return Principal{Kind: KindUser, UserID: user, SessionID: session, AMR: slices.Clone(c.AMR)}, nil
+	var authTime time.Time
+	if c.AuthTime != nil {
+		authTime = c.AuthTime.Time
+	}
+	return Principal{Kind: KindUser, UserID: user, SessionID: session, AMR: slices.Clone(c.AMR), AuthTime: authTime}, nil
 }
 
 // bearer returns the token of an `Authorization: Bearer` header, or "".
