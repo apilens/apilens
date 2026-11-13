@@ -11,11 +11,13 @@
 .ak-status--expired { background: var(--warn-soft); color: var(--warn); }
 .ak-status--revoked { background: var(--surface-2); color: var(--ink-muted); }
 .ak-status--expiring { background: var(--warn-soft); color: var(--warn); }
-.ak-status--rotating { background: color-mix(in srgb, var(--info) 14%, transparent); color: var(--info); }
+.ak-status--rotating { background: color-mix(in srgb, var(--info) 14%, transparent); color: color-mix(in srgb, var(--info) 80%, var(--ink)); }
 .ak .pk-confirm code { padding: 1px 6px; }
 .ak-sub { display: block; margin-top: 2px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
 .ak-can { min-width: 160px; overflow-wrap: anywhere; }
 .ak-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); margin-bottom: var(--space-3); font: 400 13px/20px var(--font-sans); color: var(--ink); }
+/* A stronger edge than --border-strong, which is under 3:1 on the card in dark (#814, WCAG 1.4.11). Goes away with #893. */
+.ak .ob-in:not(:focus-within, :hover, .bad, .focus) { border-color: color-mix(in srgb, var(--ink-muted) 40%, var(--border-strong)); }
 .ak-tools__state { color: var(--ink-muted); }
 .ak-tools__select.ob-in { height: 32px; margin-left: calc(var(--space-2) * -1); padding: 0 8px; }
 .ak-tools__select select { height: 100%; min-width: 140px; border: 0; outline: 0; background: none; color: inherit; font: inherit; }
