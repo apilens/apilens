@@ -12,6 +12,9 @@
 
 .am-filter { display: inline-flex; align-items: center; gap: var(--space-2); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
 .am-filter .om-select { min-width: 132px; }
+/* --border-strong alone is under 3:1 against the page in light and the card in dark (#814): the
+   search field and filters take a stronger edge so they read as controls (WCAG 1.4.11). Goes away with #893. */
+.am .om-select:not(:focus-visible, :disabled), .am .ob-in:not(:focus-within, :hover, .bad, .focus) { border-color: color-mix(in srgb, var(--ink-muted) 40%, var(--border-strong)); }
 .am-match { margin-left: auto; color: var(--ink-muted); font-weight: 400; }
 
 .am-role { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface-2); color: var(--ink); font: 500 12px/1 var(--font-sans); }

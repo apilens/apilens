@@ -7,7 +7,8 @@
 .acl-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); margin: var(--space-4) 0; }
 .acl-field { display: grid; gap: 4px; }
 .acl-field label { font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
-.acl-select { height: 32px; min-width: 160px; max-width: 100%; padding: 0 28px 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 10px center; color: var(--ink); font: 400 13px/1 var(--font-sans); appearance: none; cursor: pointer; }
+/* The edge mixes in --ink-muted: --border-strong alone is under 3:1 on the card in dark (#814, #893). */
+.acl-select { height: 32px; min-width: 160px; max-width: 100%; padding: 0 28px 0 10px; border: 1px solid color-mix(in srgb, var(--ink-muted) 40%, var(--border-strong)); border-radius: var(--radius-sm); background: var(--surface-1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 10px center; color: var(--ink); font: 400 13px/1 var(--font-sans); appearance: none; cursor: pointer; }
 .acl-date { min-width: 140px; padding-right: 10px; background-image: none; color-scheme: light dark; }
 .acl-select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
 .acl-clear { align-self: center; margin-top: 20px; font-size: 13px; }
