@@ -52,7 +52,7 @@ export function CaptureSettings({ project, projectName, userId, load }: { projec
     <div className="page page--measure os cps">
       <header className="os-head">
         <p className="cp-h">{projectName} · Settings</p>
-        <h1 className="cp-lede">Capture policy</h1>
+        <h1 className="cp-lede">Capture</h1>
       </header>
 
       {apps === null ? (
@@ -79,7 +79,7 @@ export function CaptureSettings({ project, projectName, userId, load }: { projec
           {load.policy === null || saved === null ? (
             <section className="os-card" aria-labelledby="cps-title">
               <div className="os-card__head">
-                <h2 id="cps-title">Capture</h2>
+                <h2 id="cps-title">Capture policy</h2>
               </div>
               <div className="os-card__body">
                 <p className="pk-load-err" role="alert">
@@ -186,7 +186,7 @@ function PolicyCard({ project, app, saved, manage, userId, onSaved }: PolicyCard
   return (
     <form className="os-card" onSubmit={submit} aria-labelledby="cps-title" noValidate>
       <div className="os-card__head">
-        <h2 id="cps-title">Capture</h2>
+        <h2 id="cps-title">Capture policy</h2>
         <p>
           What <b className="cps-app-name">{app.name}</b>’s SDKs send. Saved changes apply within {APPLIES_WITHIN}, on the SDKs’ next heartbeat.
         </p>

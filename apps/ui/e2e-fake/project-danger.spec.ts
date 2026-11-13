@@ -24,7 +24,7 @@ async function signIn(page: Page, capabilities: string[] = ADMIN, stale = false)
   await page.waitForURL((url) => url.pathname === DANGER);
 }
 
-const card = (page: Page) => page.getByRole("region", { name: "Danger zone actions" });
+const card = (page: Page) => page.getByRole("region", { name: "Pause, rename or delete" });
 const dialog = (page: Page, name: string | RegExp) => page.getByRole("dialog", { name });
 const reauth = (page: Page) => page.getByRole("dialog", { name: "Confirm it’s you" });
 
