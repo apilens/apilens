@@ -112,6 +112,10 @@ type IngestConfig struct {
 	// disables it.
 	MaxNewAppsPerHour int         `koanf:"max_new_apps_per_hour"`
 	Quota             QuotaConfig `koanf:"quota"`
+	// RecordKeyIP stores the client IP of an API key's last ingest request
+	// (api_keys.last_used_ip, personal data) for access reviews. When false
+	// the IP is not recorded and a recorded one is cleared on next use.
+	RecordKeyIP bool `koanf:"record_key_ip"`
 }
 
 // QuotaConfig caps how much one project may ingest. Each limit is a token
@@ -450,6 +454,7 @@ func Defaults() map[string]any {
 		"ingest.app_cache_ttl":             "60s",
 		"ingest.max_apps_per_project":      50,
 		"ingest.max_new_apps_per_hour":     10,
+		"ingest.record_key_ip":             true,
 		"ingest.quota.records_per_minute":  0,
 		"ingest.quota.bytes_per_day":       0,
 		"sink.mode":                        "direct",

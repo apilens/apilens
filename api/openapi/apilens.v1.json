@@ -41,6 +41,10 @@
             "format": "date-time",
             "type": "string"
           },
+          "created_by": {
+            "$ref": "#/components/schemas/KeyCreator",
+            "description": "Who created the key; absent when unknown (keys older than this field with no audit record) or once their account is deleted."
+          },
           "expires_at": {
             "description": "When the key stops working; null if never.",
             "format": "date-time",
@@ -56,6 +60,20 @@
           "last_used_at": {
             "description": "When the key was last used (recorded at most every few minutes); null if never.",
             "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_used_ip": {
+            "description": "The client IP of the last ingest request, recorded with last_used_at; null if never used for ingest or when the install does not record it (ingest.record_key_ip false).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_used_sdk": {
+            "description": "The SDK name and version (User-Agent product) of the last ingest request, recorded with last_used_at; null if never used for ingest or the client sent none. Example: apilenss/0.5.0.",
             "type": [
               "string",
               "null"
@@ -98,6 +116,8 @@
           "created_at",
           "expires_at",
           "last_used_at",
+          "last_used_sdk",
+          "last_used_ip",
           "revoked_at"
         ],
         "type": "object"
@@ -2699,6 +2719,10 @@
             "format": "date-time",
             "type": "string"
           },
+          "created_by": {
+            "$ref": "#/components/schemas/KeyCreator",
+            "description": "Who created the key; absent when unknown (keys older than this field with no audit record) or once their account is deleted."
+          },
           "expires_at": {
             "description": "When the key stops working; null if never.",
             "format": "date-time",
@@ -2718,6 +2742,20 @@
           "last_used_at": {
             "description": "When the key was last used (recorded at most every few minutes); null if never.",
             "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_used_ip": {
+            "description": "The client IP of the last ingest request, recorded with last_used_at; null if never used for ingest or when the install does not record it (ingest.record_key_ip false).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_used_sdk": {
+            "description": "The SDK name and version (User-Agent product) of the last ingest request, recorded with last_used_at; null if never used for ingest or the client sent none. Example: apilenss/0.5.0.",
             "type": [
               "string",
               "null"
@@ -2761,6 +2799,8 @@
           "created_at",
           "expires_at",
           "last_used_at",
+          "last_used_sdk",
+          "last_used_ip",
           "revoked_at"
         ],
         "type": "object"
@@ -6157,6 +6197,24 @@
           "name",
           "first_seen_at",
           "last_seen_at"
+        ],
+        "type": "object"
+      },
+      "KeyCreator": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "The user's name, or their email when they have not set one.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
         ],
         "type": "object"
       },

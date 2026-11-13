@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,7 @@ type fakeLookup struct {
 	keys    map[string]db.GetActiveAPIKeyByHashRow
 	calls   atomic.Int32
 	touched atomic.Int32
+	touches []db.TouchAPIKeyParams
 	err     error
 }
 
@@ -40,9 +42,64 @@ func (f *fakeLookup) GetActiveAPIKeyByHash(_ context.Context, h string) (db.GetA
 	return row, nil
 }
 
-func (f *fakeLookup) TouchAPIKey(context.Context, uuid.UUID) error {
+func (f *fakeLookup) TouchAPIKey(_ context.Context, arg db.TouchAPIKeyParams) error {
+	f.mu.Lock()
+	f.touches = append(f.touches, arg)
+	f.mu.Unlock()
 	f.touched.Add(1)
 	return nil
+}
+
+func (f *fakeLookup) lastTouches() []db.TouchAPIKeyParams {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]db.TouchAPIKeyParams(nil), f.touches...)
+}
+
+// The ingest request's SDK and IP are recorded with the first use in a
+// throttle window; later uses in the window write nothing.
+func TestVerifyRecordsUseOncePerWindow(t *testing.T) {
+	raw, _, hash, _ := Generate()
+	id := uuid.New()
+	f := &fakeLookup{keys: map[string]db.GetActiveAPIKeyByHashRow{hash: {ID: id, Scopes: []string{"ingest"}}}}
+	v := newVerifier(f)
+
+	ip := netip.MustParseAddr("203.0.113.7")
+	if _, err := v.Verify(WithUse(context.Background(), Use{SDK: " apilenss/0.5.0 ", IP: ip}), raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.Verify(WithUse(context.Background(), Use{SDK: "other/9.9", IP: netip.MustParseAddr("198.51.100.1")}), raw); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	got := f.lastTouches()
+	if len(got) != 1 {
+		t.Fatalf("touches = %d, want 1 (throttled)", len(got))
+	}
+	if a := got[0]; a.ID != id || !a.RecordUse || a.Sdk == nil || *a.Sdk != "apilenss/0.5.0" || a.Ip == nil || *a.Ip != ip {
+		t.Fatalf("touch = %+v", a)
+	}
+
+	// Without a Use (the query role) only last_used_at is written; without
+	// an IP (ingest.record_key_ip false) the IP is cleared.
+	for _, tc := range []struct {
+		ctx    context.Context
+		record bool
+	}{
+		{context.Background(), false},
+		{WithUse(context.Background(), Use{SDK: strings.Repeat("x", 300)}), true},
+	} {
+		raw, _, hash, _ := Generate()
+		f := &fakeLookup{keys: map[string]db.GetActiveAPIKeyByHashRow{hash: {ID: uuid.New()}}}
+		if _, err := newVerifier(f).Verify(tc.ctx, raw); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond)
+		a := f.lastTouches()[0]
+		if a.RecordUse != tc.record || a.Ip != nil || (tc.record && (a.Sdk == nil || len(*a.Sdk) != MaxSDKLen)) || (!tc.record && a.Sdk != nil) {
+			t.Fatalf("touch = %+v", a)
+		}
+	}
 }
 
 func newVerifier(f *fakeLookup) *Verifier {

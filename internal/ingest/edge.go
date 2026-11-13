@@ -13,7 +13,9 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -181,7 +183,7 @@ func (e *Edge) authenticate(r *http.Request) (apikeys.Principal, *apiError) {
 	if raw == "" {
 		return apikeys.Principal{}, errAuth()
 	}
-	p, err := e.verifier.Verify(r.Context(), raw)
+	p, err := e.verifier.Verify(apikeys.WithUse(r.Context(), e.keyUse(r)), raw)
 	switch {
 	case errors.Is(err, apikeys.ErrInvalidKey):
 		return apikeys.Principal{}, errAuth()
@@ -192,6 +194,34 @@ func (e *Edge) authenticate(r *http.Request) (apikeys.Principal, *apiError) {
 		return apikeys.Principal{}, &apiError{status: http.StatusForbidden, Code: "permission_denied", Detail: "API key is not allowed to ingest"}
 	}
 	return p, nil
+}
+
+// keyUse is what the key's last use records about r: the SDK (the first
+// User-Agent product, e.g. "apilenss/0.5.0") and, when ingest.record_key_ip
+// is on, the peer address of the connection. Forwarding headers are not
+// believed: they are client-controlled.
+func (e *Edge) keyUse(r *http.Request) apikeys.Use {
+	u := apikeys.Use{}
+	if f := strings.Fields(r.UserAgent()); len(f) > 0 {
+		u.SDK = f[0]
+	}
+	if e.cfg.RecordKeyIP {
+		u.IP = peerIP(r.RemoteAddr)
+	}
+	return u
+}
+
+// peerIP parses "ip:port", "[ipv6]:port" or a bare IP; the zero Addr when
+// it cannot.
+func peerIP(addr string) netip.Addr {
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		addr = host
+	}
+	ip, err := netip.ParseAddr(addr)
+	if err != nil {
+		return netip.Addr{}
+	}
+	return ip.Unmap().WithZone("")
 }
 
 // readBody returns the decompressed request body, enforcing the size limit

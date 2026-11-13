@@ -7,15 +7,22 @@ package db
 
 import (
 	"context"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 const createAPIKey = `-- name: CreateAPIKey :one
-INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at, app_ids)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8::uuid[])
-RETURNING id, project_id, name, prefix, scopes, created_at, expires_at, app_ids
+WITH k AS (
+    INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at, app_ids, created_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::uuid[], $9::uuid)
+    RETURNING id, project_id, name, prefix, scopes, created_at, expires_at, app_ids, created_by
+)
+SELECT k.id, k.project_id, k.name, k.prefix, k.scopes, k.created_at, k.expires_at, k.app_ids,
+       u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
+FROM k
+LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
 `
 
 type CreateAPIKeyParams struct {
@@ -27,19 +34,24 @@ type CreateAPIKeyParams struct {
 	Scopes    []string
 	ExpiresAt *time.Time
 	AppIds    []uuid.UUID
+	CreatedBy *uuid.UUID
 }
 
 type CreateAPIKeyRow struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
-	Name      string
-	Prefix    string
-	Scopes    []string
-	CreatedAt time.Time
-	ExpiresAt *time.Time
-	AppIds    []uuid.UUID
+	ID           uuid.UUID
+	ProjectID    uuid.UUID
+	Name         string
+	Prefix       string
+	Scopes       []string
+	CreatedAt    time.Time
+	ExpiresAt    *time.Time
+	AppIds       []uuid.UUID
+	CreatorID    *uuid.UUID
+	CreatorName  *string
+	CreatorEmail *string
 }
 
+// Inserts a key and returns it with its creator.
 func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error) {
 	row := q.db.QueryRow(ctx, createAPIKey,
 		arg.ID,
@@ -50,6 +62,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 		arg.Scopes,
 		arg.ExpiresAt,
 		arg.AppIds,
+		arg.CreatedBy,
 	)
 	var i CreateAPIKeyRow
 	err := row.Scan(
@@ -61,6 +74,9 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.AppIds,
+		&i.CreatorID,
+		&i.CreatorName,
+		&i.CreatorEmail,
 	)
 	return i, err
 }
@@ -103,25 +119,34 @@ func (q *Queries) GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (Ge
 }
 
 const listProjectAPIKeys = `-- name: ListProjectAPIKeys :many
-SELECT id, name, prefix, scopes, app_ids, created_at, expires_at, revoked_at, last_used_at
-FROM api_keys
-WHERE project_id = $1
-ORDER BY created_at DESC, id
+SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.created_at, k.expires_at, k.revoked_at, k.last_used_at,
+       k.last_used_sdk, k.last_used_ip,
+       u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
+FROM api_keys k
+LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
+WHERE k.project_id = $1
+ORDER BY k.created_at DESC, k.id
 `
 
 type ListProjectAPIKeysRow struct {
-	ID         uuid.UUID
-	Name       string
-	Prefix     string
-	Scopes     []string
-	AppIds     []uuid.UUID
-	CreatedAt  time.Time
-	ExpiresAt  *time.Time
-	RevokedAt  *time.Time
-	LastUsedAt *time.Time
+	ID           uuid.UUID
+	Name         string
+	Prefix       string
+	Scopes       []string
+	AppIds       []uuid.UUID
+	CreatedAt    time.Time
+	ExpiresAt    *time.Time
+	RevokedAt    *time.Time
+	LastUsedAt   *time.Time
+	LastUsedSdk  *string
+	LastUsedIp   *netip.Addr
+	CreatorID    *uuid.UUID
+	CreatorName  *string
+	CreatorEmail *string
 }
 
-// Every key of the project, revoked ones included, newest first.
+// Every key of the project, revoked ones included, newest first, with its
+// creator (NULL when unknown or the account is deleted).
 func (q *Queries) ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) ([]ListProjectAPIKeysRow, error) {
 	rows, err := q.db.Query(ctx, listProjectAPIKeys, projectID)
 	if err != nil {
@@ -141,6 +166,11 @@ func (q *Queries) ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) (
 			&i.ExpiresAt,
 			&i.RevokedAt,
 			&i.LastUsedAt,
+			&i.LastUsedSdk,
+			&i.LastUsedIp,
+			&i.CreatorID,
+			&i.CreatorName,
+			&i.CreatorEmail,
 		); err != nil {
 			return nil, err
 		}
@@ -199,10 +229,13 @@ func (q *Queries) ListProjectKeyApps(ctx context.Context, projectID uuid.UUID) (
 }
 
 const lockProjectAPIKey = `-- name: LockProjectAPIKey :one
-SELECT id, name, prefix, scopes, app_ids, key_hash, revoked_at, created_at, expires_at, last_used_at
-FROM api_keys
-WHERE id = $1 AND project_id = $2
-FOR UPDATE
+SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.key_hash, k.revoked_at, k.created_at, k.expires_at, k.last_used_at,
+       k.last_used_sdk, k.last_used_ip,
+       u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
+FROM api_keys k
+LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
+WHERE k.id = $1 AND k.project_id = $2
+FOR UPDATE OF k
 `
 
 type LockProjectAPIKeyParams struct {
@@ -211,19 +244,25 @@ type LockProjectAPIKeyParams struct {
 }
 
 type LockProjectAPIKeyRow struct {
-	ID         uuid.UUID
-	Name       string
-	Prefix     string
-	Scopes     []string
-	AppIds     []uuid.UUID
-	KeyHash    string
-	RevokedAt  *time.Time
-	CreatedAt  time.Time
-	ExpiresAt  *time.Time
-	LastUsedAt *time.Time
+	ID           uuid.UUID
+	Name         string
+	Prefix       string
+	Scopes       []string
+	AppIds       []uuid.UUID
+	KeyHash      string
+	RevokedAt    *time.Time
+	CreatedAt    time.Time
+	ExpiresAt    *time.Time
+	LastUsedAt   *time.Time
+	LastUsedSdk  *string
+	LastUsedIp   *netip.Addr
+	CreatorID    *uuid.UUID
+	CreatorName  *string
+	CreatorEmail *string
 }
 
-// A key of the project, row-locked for the rest of the transaction.
+// A key of the project, row-locked for the rest of the transaction, with
+// its creator (NULL when unknown or the account is deleted).
 func (q *Queries) LockProjectAPIKey(ctx context.Context, arg LockProjectAPIKeyParams) (LockProjectAPIKeyRow, error) {
 	row := q.db.QueryRow(ctx, lockProjectAPIKey, arg.ID, arg.ProjectID)
 	var i LockProjectAPIKeyRow
@@ -238,6 +277,11 @@ func (q *Queries) LockProjectAPIKey(ctx context.Context, arg LockProjectAPIKeyPa
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.LastUsedAt,
+		&i.LastUsedSdk,
+		&i.LastUsedIp,
+		&i.CreatorID,
+		&i.CreatorName,
+		&i.CreatorEmail,
 	)
 	return i, err
 }
@@ -270,11 +314,29 @@ func (q *Queries) RevokeAPIKey(ctx context.Context, id uuid.UUID) (string, error
 }
 
 const touchAPIKey = `-- name: TouchAPIKey :exec
-UPDATE api_keys SET last_used_at = now() WHERE id = $1
+UPDATE api_keys
+SET last_used_at  = now(),
+    last_used_sdk = CASE WHEN $1::bool THEN $2::text ELSE last_used_sdk END,
+    last_used_ip  = CASE WHEN $1::bool THEN $3::inet ELSE last_used_ip END
+WHERE id = $4
 `
 
-func (q *Queries) TouchAPIKey(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.Exec(ctx, touchAPIKey, id)
+type TouchAPIKeyParams struct {
+	RecordUse bool
+	Sdk       *string
+	Ip        *netip.Addr
+	ID        uuid.UUID
+}
+
+// Records a use of the key. With record_use (an ingest request) the SDK and
+// client IP of that request replace the previous ones; NULL clears them.
+func (q *Queries) TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error {
+	_, err := q.db.Exec(ctx, touchAPIKey,
+		arg.RecordUse,
+		arg.Sdk,
+		arg.Ip,
+		arg.ID,
+	)
 	return err
 }
 

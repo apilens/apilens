@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -111,7 +112,28 @@ func WellFormed(raw string) bool {
 // Lookup is the subset of the store the verifier needs.
 type Lookup interface {
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (db.GetActiveAPIKeyByHashRow, error)
-	TouchAPIKey(ctx context.Context, id uuid.UUID) error
+	TouchAPIKey(ctx context.Context, arg db.TouchAPIKeyParams) error
+}
+
+// MaxSDKLen bounds the SDK name and version recorded as a key's last use.
+const MaxSDKLen = 128
+
+// Use describes the ingest request a key is verified for. It is recorded
+// with last_used_at, under the same throttle.
+type Use struct {
+	// SDK is the SDK name and version, e.g. "apilenss/0.5.0"; "" if unknown.
+	SDK string
+	// IP is the client address; the zero Addr when it is not recorded
+	// (ingest.record_key_ip false).
+	IP netip.Addr
+}
+
+type useKey struct{}
+
+// WithUse returns a context that makes Verify record u as the key's last
+// use. Without it (the query role) only last_used_at is recorded.
+func WithUse(ctx context.Context, u Use) context.Context {
+	return context.WithValue(ctx, useKey{}, u)
 }
 
 // Options configures the verifier cache.
@@ -172,7 +194,7 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 	hash := Hash(raw)
 	if e, ok := v.positive.Get(hash); ok {
 		v.hits.Inc()
-		v.touch(e.principal.KeyID)
+		v.touch(ctx, e.principal.KeyID)
 		return e.principal, nil
 	}
 	if _, ok := v.negative.Get(hash); ok {
@@ -206,7 +228,7 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 	if !e.valid {
 		return Principal{}, ErrInvalidKey
 	}
-	v.touch(e.principal.KeyID)
+	v.touch(ctx, e.principal.KeyID)
 	return e.principal, nil
 }
 
@@ -217,9 +239,9 @@ func (v *Verifier) Invalidate(hash string) {
 	v.negative.Remove(hash)
 }
 
-// touch records last use at most once per TouchInterval per key, off the
-// request path.
-func (v *Verifier) touch(id uuid.UUID) {
+// touch records last use, with the Use in ctx if any, at most once per
+// TouchInterval per key, off the request path.
+func (v *Verifier) touch(ctx context.Context, id uuid.UUID) {
 	now := time.Now()
 	v.touchMu.Lock()
 	last, seen := v.lastTouch[id]
@@ -229,10 +251,24 @@ func (v *Verifier) touch(id uuid.UUID) {
 	}
 	v.lastTouch[id] = now
 	v.touchMu.Unlock()
+	arg := db.TouchAPIKeyParams{ID: id}
+	if u, ok := ctx.Value(useKey{}).(Use); ok {
+		arg.RecordUse = true
+		if sdk := strings.TrimSpace(u.SDK); sdk != "" {
+			if len(sdk) > MaxSDKLen {
+				sdk = strings.ToValidUTF8(sdk[:MaxSDKLen], "")
+			}
+			arg.Sdk = &sdk
+		}
+		if u.IP.IsValid() {
+			ip := u.IP
+			arg.Ip = &ip
+		}
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := v.lookup.TouchAPIKey(ctx, id); err != nil {
+		if err := v.lookup.TouchAPIKey(ctx, arg); err != nil {
 			v.logger.Warn("failed to record api key use", "key_id", id, "error", err)
 		}
 	}()

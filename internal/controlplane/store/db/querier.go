@@ -30,6 +30,7 @@ type Querier interface {
 	CountOrgOwners(ctx context.Context, orgID uuid.UUID) (int64, error)
 	// Apps the SDK created in the project since @since, deleted ones included.
 	CountSDKAppsSince(ctx context.Context, arg CountSDKAppsSinceParams) (int64, error)
+	// Inserts a key and returns it with its creator.
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
 	// Alert rules.
 	CreateAlertRule(ctx context.Context, arg CreateAlertRuleParams) (AlertRule, error)
@@ -241,7 +242,8 @@ type Querier interface {
 	// ListPendingInvitations with the inviting user's email and name (NULL when
 	// the inviter's account is gone).
 	ListPendingInvitationsWithInviter(ctx context.Context, orgID uuid.UUID) ([]ListPendingInvitationsWithInviterRow, error)
-	// Every key of the project, revoked ones included, newest first.
+	// Every key of the project, revoked ones included, newest first, with its
+	// creator (NULL when unknown or the account is deleted).
 	ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) ([]ListProjectAPIKeysRow, error)
 	ListProjectAppAliases(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppAliasesRow, error)
 	// The active apps of a project with an app-wide Apdex threshold.
@@ -317,7 +319,8 @@ type Querier interface {
 	// Serialises relay passes across processes for the rest of the transaction,
 	// so rows are applied to SpiceDB strictly in id order.
 	LockOutboxRelay(ctx context.Context, lockKey int64) error
-	// A key of the project, row-locked for the rest of the transaction.
+	// A key of the project, row-locked for the rest of the transaction, with
+	// its creator (NULL when unknown or the account is deleted).
 	LockProjectAPIKey(ctx context.Context, arg LockProjectAPIKeyParams) (LockProjectAPIKeyRow, error)
 	LockProjectApp(ctx context.Context, arg LockProjectAppParams) (LockProjectAppRow, error)
 	// Row-locks an active project; serialises app creation per project.
@@ -394,7 +397,9 @@ type Querier interface {
 	TakenOrganizationSlugs(ctx context.Context, slugs []string) ([]string, error)
 	// Which of the given slugs active projects already use.
 	TakenProjectSlugs(ctx context.Context, slugs []string) ([]string, error)
-	TouchAPIKey(ctx context.Context, id uuid.UUID) error
+	// Records a use of the key. With record_use (an ingest request) the SDK and
+	// client IP of that request replace the previous ones; NULL clears them.
+	TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error
 	// Un-archives an archived app that was not merged into another.
 	UnarchiveApp(ctx context.Context, id uuid.UUID) (UnarchiveAppRow, error)
 	// Apps merged into a deleted app stay archived but no longer point at it.

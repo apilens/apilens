@@ -63,17 +63,20 @@ type AlertRuleState struct {
 }
 
 type ApiKey struct {
-	ID         uuid.UUID
-	ProjectID  uuid.UUID
-	Name       string
-	Prefix     string
-	KeyHash    string
-	Scopes     []string
-	CreatedAt  time.Time
-	ExpiresAt  *time.Time
-	RevokedAt  *time.Time
-	LastUsedAt *time.Time
-	AppIds     []uuid.UUID
+	ID          uuid.UUID
+	ProjectID   uuid.UUID
+	Name        string
+	Prefix      string
+	KeyHash     string
+	Scopes      []string
+	CreatedAt   time.Time
+	ExpiresAt   *time.Time
+	RevokedAt   *time.Time
+	LastUsedAt  *time.Time
+	AppIds      []uuid.UUID
+	CreatedBy   *uuid.UUID
+	LastUsedSdk *string
+	LastUsedIp  *netip.Addr
 }
 
 type ApiKeyApp struct {

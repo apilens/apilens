@@ -1137,3 +1137,67 @@ func TestPostgresAlertRuleSDKGroupsMigration(t *testing.T) {
 		t.Fatal("00029 should drop the consumer group tables")
 	}
 }
+
+// TestPostgresAPIKeyCreatorMigrationBackfills checks 00030: api_keys gains
+// created_by, backfilled from the api_key.created audit events (keys without
+// one stay NULL), and the last-use columns; Down drops them.
+func TestPostgresAPIKeyCreatorMigrationBackfills(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.DownTo(ctx, 29); err != nil {
+		t.Fatalf("roll back to 00029: %v", err)
+	}
+	const user, audited, unknown = "00000000-0000-4000-8000-0000000000a1", "00000000-0000-4000-8000-0000000000b1", "00000000-0000-4000-8000-0000000000b2"
+	for _, q := range []string{
+		`INSERT INTO users (id, email) VALUES ('` + user + `', 'creator@example.com')`,
+		`INSERT INTO organizations (id, slug, name) VALUES (gen_random_uuid(), 'acme', 'Acme')`,
+		`INSERT INTO projects (id, org_id, slug, name) SELECT gen_random_uuid(), id, 'shop', 'Shop' FROM organizations`,
+		`INSERT INTO api_keys (id, project_id, name, prefix, key_hash)
+		 SELECT '` + audited + `', id, 'audited', 'apl_live_aaaaaaa', repeat('a', 64) FROM projects`,
+		`INSERT INTO api_keys (id, project_id, name, prefix, key_hash)
+		 SELECT '` + unknown + `', id, 'unknown', 'apl_live_bbbbbbb', repeat('b', 64) FROM projects`,
+		`INSERT INTO audit_events (user_id, actor_user_id, event, metadata)
+		 VALUES ('` + user + `', '` + user + `', 'api_key.created', '{"key_id": "` + audited + `"}')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := provider.UpTo(ctx, 30); err != nil {
+		t.Fatalf("apply 00030: %v", err)
+	}
+	var auditedBy, unknownBy string
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT coalesce(created_by::text, '') FROM api_keys WHERE id = $1),
+		(SELECT coalesce(created_by::text, '') FROM api_keys WHERE id = $2)`, audited, unknown).Scan(&auditedBy, &unknownBy); err != nil {
+		t.Fatal(err)
+	}
+	if auditedBy != user || unknownBy != "" {
+		t.Fatalf("created_by after 00030: audited %q, unknown %q", auditedBy, unknownBy)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE api_keys SET last_used_sdk = 'apilenss/0.5.0', last_used_ip = '203.0.113.7'`); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := provider.DownTo(ctx, 29); err != nil {
+		t.Fatalf("roll back 00030: %v", err)
+	}
+	var cols int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_name = 'api_keys'
+		AND column_name IN ('created_by', 'last_used_sdk', 'last_used_ip')`).Scan(&cols); err != nil {
+		t.Fatal(err)
+	}
+	if cols != 0 {
+		t.Fatalf("00030 down left %d columns", cols)
+	}
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply: %v", err)
+	}
+}

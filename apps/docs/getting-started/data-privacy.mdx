@@ -283,6 +283,10 @@ In Python both are client options (`ApiLensConfig(anonymize_ip=True)`), so they 
 **Limitation:** an anonymised IP is a network, not a client. All callers in the same /24 (IPv4) or /48 (IPv6) show up as **one** IP in the consumer and IP filters and are counted together. Requests recorded before you turned anonymisation on keep their full IP until they age out.
 </Note>
 
+### API key last-use IP
+
+Separately from the requests your SDK captures, APILens keeps, per API key, the IP address and SDK version of the **last ingest request** made with that key (`last_used_ip`, `last_used_sdk`), so project members can review where a key is used. This IP is personal data about whoever runs the SDK: it is the address of the connection to the ingest service, overwritten at most every few minutes, and kept with the key. Self-hosted installs turn it off with `ingest.record_key_ip: false` (`APILENS_INGEST__RECORD_KEY_IP=false`); a stored IP is then cleared on the key's next use.
+
 ## Excluding requests
 
 Some endpoints should never be recorded: load-balancer health checks, readiness probes, metrics scrapes. Matching requests bypass the SDK entirely: no record, no span, no error log, and no body buffering.
