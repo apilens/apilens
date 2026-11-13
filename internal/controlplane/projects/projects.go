@@ -7,7 +7,10 @@
 // projects_slug_active is the final arbiter, so two concurrent creates of one
 // slug end with exactly one winner. Creating and deleting a project write the
 // project.created / project.deleted outbox rows (ADR 0006) in the same
-// transaction as the change. Creating a project also registers its default
+// transaction as the change. With an auditor (WithAudit), creating and
+// renaming a project and adding or removing an environment record
+// project.created, project.updated, environment.added and
+// environment.removed in the same transaction. Creating a project also registers its default
 // app (slug = project slug), which receives records that name no app; other
 // apps are created by ingest from the app names SDKs send.
 //
@@ -35,6 +38,7 @@ import (
 	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
+	"github.com/apilens/apilens/internal/identity/audit"
 )
 
 // EnvironmentPattern is the rule for environment names: letters, digits,
@@ -109,13 +113,14 @@ func CanDelete(role string) bool { return orgs.CanManage(role) }
 // Service manages projects and environments.
 type Service struct {
 	pool  *pgxpool.Pool
-	audit apps.Auditor // nil: the default app's app.created is not audited
+	audit apps.Auditor // nil: nothing is audited
 }
 
 // New returns a Service over pool.
 func New(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
 
-// WithAudit audits the creation of each new project's default app.
+// WithAudit audits project and environment changes and the creation of each
+// new project's default app.
 func (s *Service) WithAudit(a apps.Auditor) *Service {
 	s.audit = a
 	return s
@@ -182,10 +187,17 @@ func (s *Service) create(ctx context.Context, user uuid.UUID, orgSlug, name, slu
 	if err := outbox.Emit(ctx, tx, outbox.ProjectCreated, p.ID, outbox.ProjectCreatedPayload{ProjectID: p.ID, OrgID: org.ID}); err != nil {
 		return Project{}, err
 	}
+	slices.Sort(envs)
+	if err := s.record(ctx, tx, user, org.ID, p.ID, audit.Event{
+		Kind:    audit.ProjectCreated,
+		Target:  projectTarget(p.ID, p.Name),
+		Changes: audit.Diff(nil, map[string]any{"name": p.Name, "slug": p.Slug, "environments": envs}),
+	}); err != nil {
+		return Project{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Project{}, fmt.Errorf("projects: commit: %w", err)
 	}
-	slices.Sort(envs)
 	return Project{
 		ID: p.ID, Slug: p.Slug, Name: p.Name, OrgID: org.ID, OrgSlug: org.Slug, Role: org.Role,
 		Environments: envs, CreatedAt: p.CreatedAt,
@@ -295,19 +307,24 @@ func (s *Service) Update(ctx context.Context, user uuid.UUID, slug string, u Upd
 	if u.Slug != nil && !orgs.ValidSlug(*u.Slug) {
 		return Project{}, ErrInvalid
 	}
-	return s.write(ctx, user, slug, CanWrite, func(q *db.Queries, cur *db.LockMemberProjectRow) error {
+	return s.write(ctx, user, slug, CanWrite, func(q *db.Queries, cur *db.LockMemberProjectRow) (*audit.Event, error) {
 		if u.Slug != nil && *u.Slug != cur.Slug {
-			return ErrSlugImmutable
+			return nil, ErrSlugImmutable
 		}
 		if u.Name == nil {
-			return nil
+			return nil, nil
 		}
+		previous := cur.Name
 		p, err := q.UpdateProjectName(ctx, db.UpdateProjectNameParams{ID: cur.ID, Name: name})
 		if err != nil {
-			return fmt.Errorf("projects: update: %w", err)
+			return nil, fmt.Errorf("projects: update: %w", err)
 		}
 		cur.Name = p.Name
-		return nil
+		changes := audit.Diff(map[string]any{"name": previous}, map[string]any{"name": p.Name})
+		if changes == nil {
+			return nil, nil
+		}
+		return &audit.Event{Kind: audit.ProjectUpdated, Target: projectTarget(cur.ID, cur.Name), Changes: changes}, nil
 	})
 }
 
@@ -318,21 +335,24 @@ func (s *Service) AddEnvironment(ctx context.Context, user uuid.UUID, slug, name
 	if !ValidEnvironment(name) {
 		return Project{}, ErrInvalid
 	}
-	return s.write(ctx, user, slug, CanWrite, func(q *db.Queries, cur *db.LockMemberProjectRow) error {
+	return s.write(ctx, user, slug, CanWrite, func(q *db.Queries, cur *db.LockMemberProjectRow) (*audit.Event, error) {
 		envs, err := listEnvironments(ctx, q, []uuid.UUID{cur.ID})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if slices.Contains(envs[cur.ID], name) {
-			return nil
+			return nil, nil
 		}
 		if len(envs[cur.ID]) >= MaxEnvironments {
-			return ErrTooManyEnvironments
+			return nil, ErrTooManyEnvironments
 		}
 		if _, err := q.CreateEnvironment(ctx, db.CreateEnvironmentParams{ID: uuid.New(), ProjectID: cur.ID, Name: name}); err != nil {
-			return fmt.Errorf("projects: create environment: %w", err)
+			return nil, fmt.Errorf("projects: create environment: %w", err)
 		}
-		return nil
+		return &audit.Event{
+			Kind: audit.EnvironmentAdded, Target: environmentTarget(name),
+			Changes: audit.Diff(nil, map[string]any{"name": name}),
+		}, nil
 	})
 }
 
@@ -341,11 +361,18 @@ func (s *Service) AddEnvironment(ctx context.Context, user uuid.UUID, slug, name
 // Removing an environment the project does not have changes nothing.
 // Telemetry already recorded for the environment is kept.
 func (s *Service) RemoveEnvironment(ctx context.Context, user uuid.UUID, slug, name string) (Project, error) {
-	return s.write(ctx, user, slug, CanWrite, func(q *db.Queries, cur *db.LockMemberProjectRow) error {
-		if _, err := q.DeleteEnvironment(ctx, db.DeleteEnvironmentParams{ProjectID: cur.ID, Name: name}); err != nil {
-			return fmt.Errorf("projects: delete environment: %w", err)
+	return s.write(ctx, user, slug, CanWrite, func(q *db.Queries, cur *db.LockMemberProjectRow) (*audit.Event, error) {
+		n, err := q.DeleteEnvironment(ctx, db.DeleteEnvironmentParams{ProjectID: cur.ID, Name: name})
+		if err != nil {
+			return nil, fmt.Errorf("projects: delete environment: %w", err)
 		}
-		return nil
+		if n == 0 {
+			return nil, nil
+		}
+		return &audit.Event{
+			Kind: audit.EnvironmentRemoved, Target: environmentTarget(name),
+			Changes: audit.Diff(map[string]any{"name": name}, nil),
+		}, nil
 	})
 }
 
@@ -377,9 +404,10 @@ func (s *Service) Delete(ctx context.Context, user uuid.UUID, slug string) error
 }
 
 // write runs fn in a transaction on the row-locked project slug after
-// checking user's role with allowed, then returns the project as fn left it.
+// checking user's role with allowed, records the event fn returns (nil: no
+// change) in the same transaction, then returns the project as fn left it.
 func (s *Service) write(ctx context.Context, user uuid.UUID, slug string, allowed func(string) bool,
-	fn func(q *db.Queries, cur *db.LockMemberProjectRow) error,
+	fn func(q *db.Queries, cur *db.LockMemberProjectRow) (*audit.Event, error),
 ) (Project, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -391,8 +419,14 @@ func (s *Service) write(ctx context.Context, user uuid.UUID, slug string, allowe
 	if err != nil {
 		return Project{}, err
 	}
-	if err := fn(q, &cur); err != nil {
+	ev, err := fn(q, &cur)
+	if err != nil {
 		return Project{}, err
+	}
+	if ev != nil {
+		if err := s.record(ctx, tx, user, cur.OrgID, cur.ID, *ev); err != nil {
+			return Project{}, err
+		}
 	}
 	out, err := withEnvironments(ctx, q, cur)
 	if err != nil {
@@ -402,6 +436,26 @@ func (s *Service) write(ctx context.Context, user uuid.UUID, slug string, allowe
 		return Project{}, fmt.Errorf("projects: commit: %w", err)
 	}
 	return out, nil
+}
+
+// record writes e, done by user to the project projectID of the
+// organization orgID, in tx; a Service without an auditor records nothing.
+func (s *Service) record(ctx context.Context, tx pgx.Tx, user, orgID, projectID uuid.UUID, e audit.Event) error {
+	if s.audit == nil {
+		return nil
+	}
+	e.User, e.Actor, e.Org, e.Project = &user, &user, &orgID, &projectID
+	return s.audit.Record(audit.WithTx(ctx, tx), e)
+}
+
+func projectTarget(id uuid.UUID, name string) audit.Target {
+	return audit.Target{Type: "project", ID: id.String(), Label: name}
+}
+
+// environmentTarget names an environment by its name, the key the API and
+// the SDK use for it.
+func environmentTarget(name string) audit.Target {
+	return audit.Target{Type: "environment", ID: name, Label: name}
 }
 
 // lock row-locks the project slug for user's membership in its organization
