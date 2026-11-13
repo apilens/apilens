@@ -9,6 +9,7 @@ import type { SearchParams } from "@/lib/pagination";
 import { findProject } from "@/lib/scope";
 import type { SectionContext } from "../../settings/sections/types";
 import * as keys from "../keys";
+import * as members from "../members";
 
 type Params = { project: string; tab?: string[] };
 
@@ -39,7 +40,13 @@ export default async function AccessPage({ params, searchParams }: { params: Pro
 
   return (
     <AppShell context={context} project={project} view={VIEW}>
-      {found.slug === "keys" ? keys.render(await keys.load(ctx), ctx, nav) : <NotBuiltAccessTab projectName={ctx.projectName} tab={found} nav={nav} />}
+      {found.slug === "keys" ? (
+        keys.render(await keys.load(ctx), ctx, nav)
+      ) : found.slug === "" ? (
+        members.render(ctx, nav)
+      ) : (
+        <NotBuiltAccessTab projectName={ctx.projectName} tab={found} nav={nav} />
+      )}
     </AppShell>
   );
 }
