@@ -58,6 +58,8 @@ const (
 	ProjectManageKeys    Permission = "manage_keys"
 	ProjectManageCapture Permission = "manage_capture"
 	ProjectManageAlerts  Permission = "manage_alerts"
+	ProjectManageAccess  Permission = "manage_access"
+	ProjectViewAudit     Permission = "view_audit"
 	ProjectEdit          Permission = "edit"
 	ProjectView          Permission = "view"
 )

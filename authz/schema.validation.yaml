@@ -1,22 +1,44 @@
 # zed validate authz/schema.validation.yaml  (run via `task lint:authz`)
 #
-# Fixture: org "acme" with one user per org role, two projects, and
-# project-scoped roles on "web" only. A second org "globex" proves isolation.
-# Every row of the role → action table in authz/README.md is asserted here.
+# Fixture: org "acme" with one user per org role and one project per default
+# access (ADR 0009): "web" and "api" use `org_role`, "docs" uses `viewer`,
+# "vault" uses `none` (restricted). Project-scoped roles (paula, ed, val) are
+# on "web", "docs" and "vault", never on "api". max is an org member who is
+# also a direct admin on "vault" (highest grant wins). A second org "globex"
+# proves isolation. Every row of the role → action table in authz/README.md
+# is asserted here for every default.
 schemaFile: ./schema.zed
 
 relationships: |-
   organization:acme#owner@user:olivia
   organization:acme#admin@user:adam
   organization:acme#member@user:mia
+  organization:acme#member@user:max
   organization:acme#viewer@user:vic
   project:web#org@organization:acme
+  project:web#default_editor@organization:acme#member
+  project:web#default_viewer@organization:acme#viewer
   project:api#org@organization:acme
+  project:api#default_editor@organization:acme#member
+  project:api#default_viewer@organization:acme#viewer
+  project:docs#org@organization:acme
+  project:docs#default_viewer@organization:acme#member
+  project:docs#default_viewer@organization:acme#viewer
+  project:vault#org@organization:acme
   project:web#admin@user:paula
   project:web#editor@user:ed
   project:web#viewer@user:val
+  project:docs#admin@user:paula
+  project:docs#editor@user:ed
+  project:docs#viewer@user:val
+  project:vault#admin@user:paula
+  project:vault#editor@user:ed
+  project:vault#viewer@user:val
+  project:vault#admin@user:max
   organization:globex#owner@user:gus
   project:shop#org@organization:globex
+  project:shop#default_editor@organization:globex#member
+  project:shop#default_viewer@organization:globex#viewer
 
 assertions:
   assertTrue:
@@ -77,6 +99,91 @@ assertions:
     # project viewer (web only)
     - project:web#view@user:val
 
+    # manage_access and view_audit on web (default org_role): Admins only
+    - project:web#manage_access@user:olivia
+    - project:web#view_audit@user:olivia
+    - project:web#manage_access@user:adam
+    - project:web#view_audit@user:adam
+    - project:web#manage_access@user:paula
+    - project:web#view_audit@user:paula
+    - project:api#manage_access@user:olivia
+    - project:api#view_audit@user:adam
+
+    # docs (default viewer): org owner and admin are Admin
+    - project:docs#view@user:olivia
+    - project:docs#edit@user:olivia
+    - project:docs#manage_keys@user:olivia
+    - project:docs#delete@user:olivia
+    - project:docs#manage_capture@user:olivia
+    - project:docs#manage_alerts@user:olivia
+    - project:docs#manage_access@user:olivia
+    - project:docs#view_audit@user:olivia
+    - project:docs#view@user:adam
+    - project:docs#edit@user:adam
+    - project:docs#manage_keys@user:adam
+    - project:docs#delete@user:adam
+    - project:docs#manage_capture@user:adam
+    - project:docs#manage_alerts@user:adam
+    - project:docs#manage_access@user:adam
+    - project:docs#view_audit@user:adam
+    # docs (default viewer): org member and org viewer are Viewer
+    - project:docs#view@user:mia
+    - project:docs#view@user:vic
+    # docs (default viewer): project admin, editor, viewer
+    - project:docs#view@user:paula
+    - project:docs#edit@user:paula
+    - project:docs#manage_keys@user:paula
+    - project:docs#delete@user:paula
+    - project:docs#manage_capture@user:paula
+    - project:docs#manage_alerts@user:paula
+    - project:docs#manage_access@user:paula
+    - project:docs#view_audit@user:paula
+    - project:docs#view@user:ed
+    - project:docs#edit@user:ed
+    - project:docs#manage_keys@user:ed
+    - project:docs#view@user:val
+
+    # vault (default none, restricted): org owner and admin are Admin
+    - project:vault#view@user:olivia
+    - project:vault#edit@user:olivia
+    - project:vault#manage_keys@user:olivia
+    - project:vault#delete@user:olivia
+    - project:vault#manage_capture@user:olivia
+    - project:vault#manage_alerts@user:olivia
+    - project:vault#manage_access@user:olivia
+    - project:vault#view_audit@user:olivia
+    - project:vault#view@user:adam
+    - project:vault#edit@user:adam
+    - project:vault#manage_keys@user:adam
+    - project:vault#delete@user:adam
+    - project:vault#manage_capture@user:adam
+    - project:vault#manage_alerts@user:adam
+    - project:vault#manage_access@user:adam
+    - project:vault#view_audit@user:adam
+    # vault (default none): direct grants still work
+    - project:vault#view@user:paula
+    - project:vault#edit@user:paula
+    - project:vault#manage_keys@user:paula
+    - project:vault#delete@user:paula
+    - project:vault#manage_capture@user:paula
+    - project:vault#manage_alerts@user:paula
+    - project:vault#manage_access@user:paula
+    - project:vault#view_audit@user:paula
+    - project:vault#view@user:ed
+    - project:vault#edit@user:ed
+    - project:vault#manage_keys@user:ed
+    - project:vault#view@user:val
+
+    # highest grant wins: org member max is Admin on vault (direct), Editor on web (default)
+    - project:vault#manage_access@user:max
+    - project:vault#view_audit@user:max
+    - project:vault#delete@user:max
+    - project:web#edit@user:max
+
+    # globex project with default org_role
+    - project:shop#manage_access@user:gus
+    - project:shop#view_audit@user:gus
+
   assertFalse:
     # org admin cannot touch billing
     - organization:acme#manage_billing@user:adam
@@ -120,7 +227,85 @@ assertions:
     - project:api#manage_capture@user:paula
     - project:api#manage_alerts@user:paula
 
+    # manage_access and view_audit on web (default org_role): not for editors and viewers
+    - project:web#manage_access@user:mia
+    - project:web#view_audit@user:mia
+    - project:web#manage_access@user:vic
+    - project:web#view_audit@user:vic
+    - project:web#manage_access@user:ed
+    - project:web#view_audit@user:ed
+    - project:web#manage_access@user:val
+    - project:web#view_audit@user:val
+    - project:api#manage_access@user:paula
+    - project:api#view_audit@user:paula
+
+    # docs (default viewer): org member and org viewer are read only
+    - project:docs#edit@user:mia
+    - project:docs#manage_keys@user:mia
+    - project:docs#delete@user:mia
+    - project:docs#manage_capture@user:mia
+    - project:docs#manage_alerts@user:mia
+    - project:docs#manage_access@user:mia
+    - project:docs#view_audit@user:mia
+    - project:docs#edit@user:vic
+    - project:docs#manage_keys@user:vic
+    - project:docs#delete@user:vic
+    - project:docs#manage_capture@user:vic
+    - project:docs#manage_alerts@user:vic
+    - project:docs#manage_access@user:vic
+    - project:docs#view_audit@user:vic
+    # docs (default viewer): project editor and viewer
+    - project:docs#delete@user:ed
+    - project:docs#manage_capture@user:ed
+    - project:docs#manage_alerts@user:ed
+    - project:docs#manage_access@user:ed
+    - project:docs#view_audit@user:ed
+    - project:docs#edit@user:val
+    - project:docs#manage_keys@user:val
+    - project:docs#delete@user:val
+    - project:docs#manage_capture@user:val
+    - project:docs#manage_alerts@user:val
+    - project:docs#manage_access@user:val
+    - project:docs#view_audit@user:val
+
+    # vault (default none): invisible to org member and org viewer without a direct grant
+    - project:vault#view@user:mia
+    - project:vault#edit@user:mia
+    - project:vault#manage_keys@user:mia
+    - project:vault#delete@user:mia
+    - project:vault#manage_capture@user:mia
+    - project:vault#manage_alerts@user:mia
+    - project:vault#manage_access@user:mia
+    - project:vault#view_audit@user:mia
+    - project:vault#view@user:vic
+    - project:vault#edit@user:vic
+    - project:vault#manage_keys@user:vic
+    - project:vault#delete@user:vic
+    - project:vault#manage_capture@user:vic
+    - project:vault#manage_alerts@user:vic
+    - project:vault#manage_access@user:vic
+    - project:vault#view_audit@user:vic
+    # vault (default none): project editor and viewer
+    - project:vault#delete@user:ed
+    - project:vault#manage_capture@user:ed
+    - project:vault#manage_alerts@user:ed
+    - project:vault#manage_access@user:ed
+    - project:vault#view_audit@user:ed
+    - project:vault#edit@user:val
+    - project:vault#manage_keys@user:val
+    - project:vault#delete@user:val
+    - project:vault#manage_capture@user:val
+    - project:vault#manage_alerts@user:val
+    - project:vault#manage_access@user:val
+    - project:vault#view_audit@user:val
+
+    # a direct grant on one project does not lift another project's default
+    - project:web#manage_access@user:max
+    - project:docs#edit@user:max
+
     # orgs are isolated from each other
     - project:shop#view@user:olivia
     - project:web#view@user:gus
     - organization:acme#view@user:gus
+    - project:vault#view@user:gus
+    - project:docs#view@user:gus

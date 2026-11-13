@@ -74,6 +74,8 @@ func TestEndpointSettings(t *testing.T) {
 	client := authz.New(sdb, nil, authz.Options{}, logger, nil)
 	if _, err := client.WriteRelationships(ctx, seed.OrgID.String(), []*v1.RelationshipUpdate{
 		touch("project", seed.ProjectID.String(), "org", "organization", seed.OrgID.String()),
+		orgRoleDefault(seed.ProjectID.String(), "default_editor", seed.OrgID.String(), "member"),
+		orgRoleDefault(seed.ProjectID.String(), "default_viewer", seed.OrgID.String(), "viewer"),
 		touch("organization", seed.OrgID.String(), "admin", "user", admin.String()),
 		touch("organization", seed.OrgID.String(), "member", "user", member.String()),
 	}); err != nil {

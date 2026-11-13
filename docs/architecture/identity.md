@@ -627,9 +627,9 @@ SpiceDB holds the derived relationships that permission checks read
 | `org.deleted` | org id | `{org_id}` | `DELETE` every relationship of `organization:{org}` |
 | `membership.upserted` | org id | `{org_id, user_id, role}` | `DELETE` the user's other org roles, `TOUCH organization:{org}#{role}@user:{user}` |
 | `membership.deleted` | org id | `{org_id, user_id}` | `DELETE organization:{org}#{owner,admin,member,viewer}@user:{user}` |
-| `project.created` | project id | `{project_id, org_id}` | `TOUCH project:{project}#org@organization:{org}` |
+| `project.created` | project id | `{project_id, org_id}` | `TOUCH project:{project}#org@organization:{org}`, and the `org_role` default access: `TOUCH …#default_editor@organization:{org}#member`, `TOUCH …#default_viewer@organization:{org}#viewer` |
 | `project.deleted` | project id | `{project_id}` | `DELETE` every relationship of `project:{project}` |
-| `project.moved` | project id | `{project_id, from_org_id, to_org_id}` | `DELETE …#org@organization:{from}`, `TOUCH …#org@organization:{to}` |
+| `project.moved` | project id | `{project_id, from_org_id, to_org_id}` | `DELETE …#org@organization:{from}`, `TOUCH …#org@organization:{to}`; across orgs the `org_role` default relations move the same way |
 
 The topics and payloads above are the contract the outbox helper (#277) and
 the relay (#291) implement. The helper is

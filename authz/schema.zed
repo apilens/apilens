@@ -35,8 +35,18 @@ definition organization {
 }
 
 /**
- * project belongs to exactly one organization. Org roles flow down; the
- * optional direct roles grant access to a single project (sharing).
+ * project belongs to exactly one organization. Org owners and admins are
+ * always Admin (org->manage). What the rest of the org gets comes from the
+ * project's default access (ADR 0009), written as the default_* relations:
+ *
+ *   org_role  default_editor@organization:<org>#member
+ *             default_viewer@organization:<org>#viewer
+ *   viewer    default_viewer@organization:<org>#member
+ *             default_viewer@organization:<org>#viewer
+ *   none      no default relations (restricted project)
+ *
+ * The optional direct roles grant access to a single project (sharing).
+ * Highest grant wins.
  */
 definition project {
 	relation org: organization
@@ -44,11 +54,17 @@ definition project {
 	relation editor: user
 	relation viewer: user
 
+	/** default_editor: org members who edit this project through its default access. */
+	relation default_editor: organization#member
+
+	/** default_viewer: org members and viewers who view this project through its default access. */
+	relation default_viewer: organization#member | organization#viewer
+
 	/** delete: project.delete. */
 	permission delete = admin + org->manage
 
 	/** manage_keys: api_keys.create, api_keys.revoke. */
-	permission manage_keys = admin + editor + org->create_project
+	permission manage_keys = admin + editor + default_editor + org->manage
 
 	/** manage_capture: change an app's remote capture policy (project admins, org owners and admins). */
 	permission manage_capture = admin + org->manage
@@ -56,9 +72,15 @@ definition project {
 	/** manage_alerts: create, change and delete alert rules and notification channels, send test notifications (project admins, org owners and admins). */
 	permission manage_alerts = admin + org->manage
 
+	/** manage_access: grant, change and remove project roles and change the default access (project admins, org owners and admins). */
+	permission manage_access = admin + org->manage
+
+	/** view_audit: read the project's activity log (project admins, org owners and admins). */
+	permission view_audit = admin + org->manage
+
 	/** edit: project.update. */
-	permission edit = admin + editor + org->create_project
+	permission edit = admin + editor + default_editor + org->manage
 
 	/** view: project.read. */
-	permission view = viewer + edit + org->view
+	permission view = viewer + default_viewer + edit
 }
