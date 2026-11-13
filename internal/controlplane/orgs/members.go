@@ -166,6 +166,16 @@ func (s *Service) remove(ctx context.Context, user uuid.UUID, slug string, targe
 	if err := outbox.Emit(ctx, tx, outbox.MembershipDeleted, org.ID, outbox.MembershipDeletedPayload{OrgID: org.ID, UserID: target}); err != nil {
 		return err
 	}
+	// Leaving the organization ends every direct grant on its projects.
+	projects, err := q.DeleteUserProjectMembersInOrg(ctx, db.DeleteUserProjectMembersInOrgParams{OrgID: org.ID, UserID: target})
+	if err != nil {
+		return fmt.Errorf("orgs: delete project grants: %w", err)
+	}
+	for _, project := range projects {
+		if err := outbox.Emit(ctx, tx, outbox.ProjectMemberDeleted, project, outbox.ProjectMemberDeletedPayload{ProjectID: project, OrgID: org.ID, UserID: target}); err != nil {
+			return err
+		}
+	}
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
 		User:  &target,
 		Actor: &user,

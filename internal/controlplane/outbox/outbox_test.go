@@ -24,6 +24,9 @@ func TestPayloadJSONMatchesDocumentedContract(t *testing.T) {
 		{ProjectCreatedPayload{ProjectID: proj, OrgID: org}, ProjectCreated, proj, []string{"project_id", "org_id"}},
 		{ProjectDeletedPayload{ProjectID: proj}, ProjectDeleted, proj, []string{"project_id"}},
 		{ProjectMovedPayload{ProjectID: proj, FromOrgID: org, ToOrgID: other}, ProjectMoved, proj, []string{"project_id", "from_org_id", "to_org_id"}},
+		{ProjectMemberUpsertedPayload{ProjectID: proj, OrgID: org, UserID: user, Role: "editor"}, ProjectMemberUpserted, proj, []string{"project_id", "org_id", "user_id", "role"}},
+		{ProjectMemberDeletedPayload{ProjectID: proj, OrgID: org, UserID: user}, ProjectMemberDeleted, proj, []string{"project_id", "org_id", "user_id"}},
+		{ProjectAccessChangedPayload{ProjectID: proj, OrgID: org, DefaultAccess: "none"}, ProjectAccessChanged, proj, []string{"project_id", "org_id", "default_access"}},
 	}
 	if len(cases) != len(Topics) {
 		t.Fatalf("%d cases for %d topics", len(cases), len(Topics))
