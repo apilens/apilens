@@ -1,0 +1,51 @@
+/* Project settings → Environments (#816). Cards reuse .os-* (org settings), form fields .ob-*
+   (onboarding), the empty line .cps-empty (Capture). The eight dot colours are the API's fixed
+   palette (`projects.Colors`), mid tones that read on light and dark surfaces; each dot sits next
+   to its colour's name, so colour is never the only signal. */
+.env {
+  --env-gray: #8b93a7; --env-red: #e5484d; --env-orange: #f2803a; --env-yellow: #e3b341;
+  --env-green: #3fae6a; --env-teal: #2fa8a0; --env-blue: #3e8ae6; --env-purple: #8e6cf0;
+}
+.env .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.env-lede { margin: var(--space-2) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+
+.env-rows { margin: var(--space-2) 0 0; padding: 0; list-style: none; }
+.env-row { padding: var(--space-4) 0; border-bottom: 1px solid var(--border); }
+.env-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.env-row__head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.env-name { margin: 0; min-width: 0; font: 500 13px/20px var(--font-sans); color: var(--ink); }
+.env-name code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 13px/20px var(--font-mono); }
+.env-colour { margin-left: auto; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.env-prod { display: inline-flex; align-items: center; flex: none; height: 20px; padding: 0 var(--space-2); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface-2); color: var(--ink); font: 600 11px/1 var(--font-sans); white-space: nowrap; }
+.env-meta { margin: var(--space-1) 0 0 18px; font: 400 13px/20px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink-muted); }
+
+.env-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--env-c, transparent); }
+.env-dot--none { border: 1px dashed var(--ink-muted); }
+.env-dot--gray { --env-c: var(--env-gray); }
+.env-dot--red { --env-c: var(--env-red); }
+.env-dot--orange { --env-c: var(--env-orange); }
+.env-dot--yellow { --env-c: var(--env-yellow); }
+.env-dot--green { --env-c: var(--env-green); }
+.env-dot--teal { --env-c: var(--env-teal); }
+.env-dot--blue { --env-c: var(--env-blue); }
+.env-dot--purple { --env-c: var(--env-purple); }
+
+.env-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: var(--space-3) 0 0 18px; }
+.env-step { min-width: 30px; justify-content: center; padding: 0; }
+.env-pick select { height: 30px; padding: 0 var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); color: var(--ink); font: 400 12.5px/1 var(--font-sans); }
+.env-pick select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.env-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: var(--space-3) 0 0 18px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.env-confirm > span { flex: 1 1 240px; }
+.env-refused { border-color: var(--warn); background: var(--warn-soft); }
+
+.env-hidden { margin-top: var(--space-4); border-top: 1px solid var(--border); padding-top: var(--space-3); }
+.env-hidden summary { display: flex; align-items: center; gap: var(--space-2); min-height: 24px; cursor: pointer; font: 500 13px/20px var(--font-sans); color: var(--ink); }
+.env-count { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: var(--radius-pill); background: var(--surface-2); color: var(--ink-muted); font: 500 11px/1 var(--font-sans); }
+.env-hidden__note { margin: var(--space-1) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+
+.env-add { max-width: 360px; margin-top: var(--space-2); }
+.env-hint { margin: 8px 0 0; font: 400 13px/18px var(--font-sans); color: var(--ink-muted); }
+
+@media (max-width: 860px) {
+  .env-meta, .env-actions, .env-confirm { margin-left: 0; }
+}

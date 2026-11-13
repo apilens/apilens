@@ -9,7 +9,11 @@ import {
   moveEnvironment,
   newEnvironmentError,
   removeBlocker,
+  keysText,
+  lastSeenText,
   sourceLabel,
+  stepEnvironment,
+  usedText,
   visibleEnvironments,
 } from "./environments";
 
@@ -79,8 +83,8 @@ describe("removeBlocker", () => {
 
 describe("copy", () => {
   it("labels the source", () => {
-    expect(sourceLabel("sdk")).toBe("Reported by an SDK");
-    expect(sourceLabel("dashboard")).toBe("Added in the dashboard");
+    expect(sourceLabel("sdk")).toBe("Reported by the SDK");
+    expect(sourceLabel("dashboard")).toBe("Added here");
   });
 
   it("has a sentence for each code the operations answer", () => {
@@ -88,5 +92,40 @@ describe("copy", () => {
       expect(environmentError(code)).not.toBe(environmentError("other"));
     }
     expect(environmentError("environment_in_use")).toMatch(/Hide it instead/);
+  });
+});
+
+describe("stepEnvironment", () => {
+  // a, (b hidden), c, d
+  const envs = [env("a", 0), env("b", 1, true), env("c", 2), env("d", 3)];
+
+  it("swaps with the visible neighbour, leaving hidden ones in place", () => {
+    expect(stepEnvironment(envs, "c", -1)).toEqual(["c", "a", "b", "d"]);
+    expect(stepEnvironment(envs, "a", 1)).toEqual(["b", "c", "a", "d"]);
+    expect(stepEnvironment(envs, "c", 1)).toEqual(["a", "b", "d", "c"]);
+  });
+
+  it("is null at the ends and for unknown or hidden names", () => {
+    expect(stepEnvironment(envs, "a", -1)).toBeNull();
+    expect(stepEnvironment(envs, "d", 1)).toBeNull();
+    expect(stepEnvironment(envs, "b", 1)).toBeNull();
+    expect(stepEnvironment(envs, "zzz", 1)).toBeNull();
+  });
+});
+
+describe("keysText and usedText", () => {
+  it("count in words", () => {
+    expect(keysText(0)).toBe("No keys limited to it");
+    expect(keysText(1)).toBe("1 key limited to it");
+    expect(keysText(3)).toBe("3 keys limited to it");
+    expect(usedText(5, 20)).toBe("5 of 20 environments used");
+  });
+
+  it("says when data last arrived", () => {
+    const now = Date.parse("2026-11-13T12:00:00Z");
+    expect(lastSeenText(null, now)).toBe("No data yet");
+    expect(lastSeenText("2026-11-13T11:59:30Z", now)).toBe("Last seen just now");
+    expect(lastSeenText("2026-11-13T09:00:00Z", now)).toBe("Last seen 3 hours ago");
+    expect(lastSeenText("2026-11-12T10:00:00Z", now)).toBe("Last seen yesterday");
   });
 });
