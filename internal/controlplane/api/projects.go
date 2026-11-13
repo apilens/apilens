@@ -527,9 +527,14 @@ func uuidPtr(id *uuid.UUID) *string {
 // problem maps an error of projects.Service to a problem.
 func (p *Projects) problem(ctx context.Context, op string, err error) error {
 	var taken *projects.SlugTakenError
+	var repo *projects.RepositoryURLError
 	switch {
 	case errors.As(err, &taken):
 		return identity.ErrSlugTaken(taken.Suggestions)
+	case errors.As(err, &repo):
+		pr := identity.Err(identity.CodeInvalidRequest)
+		pr.Detail = repo.Reason
+		return pr
 	case errors.Is(err, projects.ErrNotFound), errors.Is(err, projects.ErrEnvironmentNotFound):
 		return identity.Err(identity.CodeNotFound)
 	case errors.Is(err, projects.ErrEnvironmentInUse):

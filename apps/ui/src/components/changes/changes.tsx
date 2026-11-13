@@ -17,6 +17,7 @@ import {
 import { formatAgo } from "@/lib/first-data";
 import type { DeployChange, DeploySide, NamedApp } from "@/lib/identity";
 import { hrefWithoutPage, type SearchParams } from "@/lib/pagination";
+import { commitHref } from "@/lib/repository";
 import { ObIcon } from "../onboarding/ob";
 import { ChangesFilters } from "./filters";
 import "./changes.css";
@@ -45,6 +46,7 @@ export function ChangesView({
   params,
   apps,
   environments,
+  commitUrlTemplate = null,
 }: {
   project: string;
   projectName: string;
@@ -55,6 +57,8 @@ export function ChangesView({
   /** The project's apps, null when they could not be read. */
   apps: NamedApp[] | null;
   environments: readonly string[];
+  /** The project's commit URL template (Settings › Integrations); null keeps commit ids as text. */
+  commitUrlTemplate?: string | null;
 }) {
   const pathname = `/${encodeURIComponent(project)}/changes`;
   const appName = (id: string) => (id === "" ? "All apps" : (apps?.find((a) => a.id === id)?.name ?? "Unknown app"));
@@ -118,7 +122,7 @@ export function ChangesView({
               </thead>
               <tbody>
                 {load.deploys.map((d) => (
-                  <DeployRow key={d.id} project={project} deploy={d} now={now} app={apps ? appName(d.app_id) : ""} />
+                  <DeployRow key={d.id} project={project} deploy={d} now={now} app={apps ? appName(d.app_id) : ""} commitUrlTemplate={commitUrlTemplate} />
                 ))}
               </tbody>
             </table>
@@ -133,10 +137,24 @@ export function ChangesView({
 /**
  * One deploy. The release is the row's link and stretches over the whole row (`.ch-open::after`),
  * so a click anywhere, a middle-click or ⌘-click opens the deploy and Enter on the focused row
- * follows it; Explore sits above the stretched link as its own target.
+ * follows it; Explore and the commit's repository link sit above the stretched link as their own
+ * targets.
  */
-function DeployRow({ project, deploy: d, now, app }: { project: string; deploy: DeployChange; now: number; app: string }) {
+function DeployRow({
+  project,
+  deploy: d,
+  now,
+  app,
+  commitUrlTemplate,
+}: {
+  project: string;
+  deploy: DeployChange;
+  now: number;
+  app: string;
+  commitUrlTemplate: string | null;
+}) {
   const commit = shortCommit(d.commit);
+  const commitUrl = commitHref(commitUrlTemplate, d.commit);
   return (
     <tr className="ch-row">
       <td className="ch-release" data-label="Release">
@@ -144,7 +162,13 @@ function DeployRow({ project, deploy: d, now, app }: { project: string; deploy: 
           {d.release}
         </Link>
         <span className="ch-meta">
-          {commit ? <code title={d.commit}>{commit}</code> : null}
+          {commit && commitUrl ? (
+            <a className="cp-link ch-above" href={commitUrl} target="_blank" rel="noreferrer" title={d.commit} aria-label={`Commit ${commit} in the repository`}>
+              <code>{commit}</code>
+            </a>
+          ) : commit ? (
+            <code title={d.commit}>{commit}</code>
+          ) : null}
           {app ? <span className="ch-env">{app}</span> : null}
           {d.environment ? <span className="ch-env">{d.environment}</span> : null}
         </span>

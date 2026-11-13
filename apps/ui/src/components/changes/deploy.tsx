@@ -19,8 +19,9 @@ import {
 import { consumersHref } from "@/lib/consumers";
 import { errorsHref, reasonPhrase } from "@/lib/errors";
 import { formatAgo, formatCount } from "@/lib/first-data";
-import type { DeployComparison, DeployDetail, DeployEndpoint, DeployRef, NamedApp, QueryRange } from "@/lib/identity";
+import type { DeployComparison, DeployDetail, DeployEndpoint, DeployRef, NamedApp, Project, QueryRange } from "@/lib/identity";
 import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
+import { commitHref, releaseHref } from "@/lib/repository";
 import { endpointHref } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
 import { MetricPair } from "./changes";
@@ -46,6 +47,7 @@ export function DeployView({
   params,
   now,
   id,
+  repository = null,
 }: {
   project: string;
   projectName: string;
@@ -56,6 +58,8 @@ export function DeployView({
   apps: NamedApp[] | null;
   params: SearchParams;
   now: number;
+  /** The project's commit and release URL templates (Settings › Integrations); null when unset or unread. */
+  repository?: Pick<Project, "commit_url_template" | "release_url_template"> | null;
 }) {
   const changes = `/${encodeURIComponent(project)}/changes`;
   const crumb = (
@@ -104,6 +108,9 @@ export function DeployView({
   const lag = reportLag(d.deployed_at, d.received_at);
   const nextInWindow = detail.next && Date.parse(detail.next.deployed_at) < Date.parse(detail.after_to) ? detail.next : null;
   const series = detail.series ?? [];
+  // The repository link wins for the commit; the deploy's own URL stays the release link, else the repository's.
+  const commitUrl = commitHref(repository?.commit_url_template, d.commit) ?? (d.url || null);
+  const releaseUrl = d.url || releaseHref(repository?.release_url_template, d.release);
 
   return (
     <div className="page ch chd">
@@ -118,15 +125,15 @@ export function DeployView({
             <dt>Commit</dt>
             <dd>
               {d.commit ? (
-                d.url ? (
-                  <a className="cp-link" href={d.url} target="_blank" rel="noreferrer noopener" title={d.commit}>
+                commitUrl ? (
+                  <a className="cp-link" href={commitUrl} target="_blank" rel="noreferrer noopener" title={d.commit}>
                     <code>{shortCommit(d.commit)}</code>
                   </a>
                 ) : (
                   <code title={d.commit}>{shortCommit(d.commit)}</code>
                 )
-              ) : d.url ? (
-                <a className="cp-link" href={d.url} target="_blank" rel="noreferrer noopener">
+              ) : releaseUrl ? (
+                <a className="cp-link" href={releaseUrl} target="_blank" rel="noreferrer noopener">
                   Release link
                 </a>
               ) : (
@@ -152,10 +159,10 @@ export function DeployView({
             <dt>Reported</dt>
             <dd>
               Deploy API{lag ? `, ${lag}` : ""}
-              {d.url && d.commit ? (
+              {releaseUrl && d.commit ? (
                 <>
                   {" · "}
-                  <a className="cp-link" href={d.url} target="_blank" rel="noreferrer noopener">
+                  <a className="cp-link" href={releaseUrl} target="_blank" rel="noreferrer noopener">
                     Release link
                   </a>
                 </>

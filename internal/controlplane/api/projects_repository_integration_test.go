@@ -53,6 +53,10 @@ func TestUpdateProjectRepository(t *testing.T) {
 			t.Errorf("%s: %d %s", tc.name, resp.Code, resp.Body)
 		}
 	}
+	// The reason is the problem's detail, for the UI to show next to the field.
+	if p := decode[struct{ Detail string }](t, patch(owner, map[string]any{"repository_url": "https://git.example.com/acme/shop"})); p.Detail != "The repository must be on github.com, gitlab.com or bitbucket.org." {
+		t.Errorf("host not allowed detail = %q", p.Detail)
+	}
 	if got := decode[Project](t, f.api.Get(ProjectsPath+"/shop", as(owner))); got.RepositoryURL != nil || !got.UpdatedAt.Equal(created.UpdatedAt) {
 		t.Fatalf("after rejected patches = %+v", got)
 	}
