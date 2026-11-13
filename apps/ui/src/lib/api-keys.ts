@@ -117,6 +117,164 @@ export function keyStatus(key: Pick<ApiKey, "revoked_at" | "expires_at">, now = 
 
 export const STATUS_LABEL: Record<KeyStatus, string> = { active: "Active", expired: "Expired", revoked: "Revoked" };
 
+// ---------------------------------------------------------------------------------------------
+// The State column and its filter (#810): Active, Expires in 5 days, Rotating until 14 Nov,
+// Expired, Revoked. Expired and revoked keys are "inactive" and stay behind "Show inactive".
+
+/** A working key that expires within this many days reads "Expires in N days". */
+export const EXPIRING_SOON_DAYS = 7;
+
+export type KeyState = "active" | "expiring" | "rotating" | "expired" | "revoked";
+
+const HOUR_MS = 3_600_000;
+const DAY_MONTH = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+
+/** `14 Nov` (UTC), as the State column names the end of a rotation. */
+export function formatDayMonth(iso: string): string {
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? "" : DAY_MONTH.format(t);
+}
+
+/**
+ * A key's state: revoked wins, then expired; a key replaced in a rotation (`rotated_to`) works
+ * until its `expires_at` (the overlap) and is "rotating"; a working key that expires within
+ * `EXPIRING_SOON_DAYS` is "expiring"; anything else is active.
+ */
+export function keyState(key: Pick<ApiKey, "revoked_at" | "expires_at" | "rotated_to">, now = Date.now()): KeyState {
+  const status = keyStatus(key, now);
+  if (status !== "active") return status;
+  const t = key.expires_at ? Date.parse(key.expires_at) : Number.NaN;
+  if (key.rotated_to && !Number.isNaN(t)) return "rotating";
+  if (!Number.isNaN(t) && t - now <= EXPIRING_SOON_DAYS * DAY_MS) return "expiring";
+  return "active";
+}
+
+/** `Expires in 5 days`, `Expires in 1 day`, `Expires in 3 hours`, `Expires in under an hour`. */
+export function expiresInText(expiresAt: string, now = Date.now()): string {
+  const left = Date.parse(expiresAt) - now;
+  if (Number.isNaN(left) || left < HOUR_MS) return "Expires in under an hour";
+  if (left < DAY_MS) {
+    const h = Math.floor(left / HOUR_MS);
+    return `Expires in ${h} ${h === 1 ? "hour" : "hours"}`;
+  }
+  const d = Math.floor(left / DAY_MS);
+  return `Expires in ${d} ${d === 1 ? "day" : "days"}`;
+}
+
+/** The State column's words for a key. */
+export function keyStateLabel(key: Pick<ApiKey, "revoked_at" | "expires_at" | "rotated_to">, now = Date.now()): string {
+  const state = keyState(key, now);
+  if (state === "rotating") return `Rotating until ${formatDayMonth(key.expires_at as string)}`;
+  if (state === "expiring") return expiresInText(key.expires_at as string, now);
+  return STATE_LABEL[state];
+}
+
+/** The filter's names for each state. */
+export const STATE_LABEL: Record<KeyState, string> = { active: "Active", expiring: "Expiring soon", rotating: "Rotating", expired: "Expired", revoked: "Revoked" };
+
+/** Expired and revoked keys no longer work: they are listed only with "Show inactive". */
+export function isInactive(state: KeyState): boolean {
+  return state === "expired" || state === "revoked";
+}
+
+/** The URL parameters of the filter: `?state=` and `?inactive=1`. */
+export const STATE_PARAM = "state";
+export const INACTIVE_PARAM = "inactive";
+
+/** The state filter, in the order the menu offers it; `all` is every state the toggle shows. */
+export type StateFilter = "all" | KeyState;
+export const STATE_FILTERS: readonly StateFilter[] = ["all", "active", "expiring", "rotating", "expired", "revoked"];
+
+export interface KeyFilter {
+  state: StateFilter;
+  /** Show expired and revoked keys. A state filter of `expired` or `revoked` implies it. */
+  inactive: boolean;
+}
+
+/** The filter the URL names; anything unknown reads as every working key. */
+export function parseKeyFilter(params: Record<string, string | string[] | undefined> | URLSearchParams): KeyFilter {
+  const read = (k: string) => {
+    const v = params instanceof URLSearchParams ? params.get(k) : params[k];
+    return Array.isArray(v) ? v[0] : (v ?? undefined);
+  };
+  const raw = read(STATE_PARAM);
+  const state = STATE_FILTERS.find((s) => s === raw) ?? "all";
+  return { state, inactive: read(INACTIVE_PARAM) === "1" || isInactive(state as KeyState) };
+}
+
+/** The keys the filter shows, in the list's order. */
+export function filterKeys<K extends Pick<ApiKey, "revoked_at" | "expires_at" | "rotated_to">>(keys: readonly K[], filter: KeyFilter, now = Date.now()): K[] {
+  return keys.filter((k) => {
+    const s = keyState(k, now);
+    if (isInactive(s) && !filter.inactive) return false;
+    return filter.state === "all" || filter.state === s;
+  });
+}
+
+/** How many keys "Show inactive" would add. */
+export function inactiveCount(keys: readonly Pick<ApiKey, "revoked_at" | "expires_at" | "rotated_to">[], now = Date.now()): number {
+  return keys.filter((k) => isInactive(keyState(k, now))).length;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The "Can" column (#810): what a key can do and its app and environment limits, in words.
+
+/** `Ingest, create apps and read`, `Ingest`, `Read`. Creating apps applies only to ingest keys not limited to apps. */
+export function abilitiesText(key: Pick<ApiKey, "scopes" | "can_create_apps" | "app_ids">): string {
+  const scopes = key.scopes ?? [];
+  const parts: string[] = [];
+  if (scopes.includes("ingest")) parts.push("ingest");
+  if (isIngestKey(key) && accessOf(key).canCreateApps) parts.push("create apps");
+  if (scopes.includes("read")) parts.push("read");
+  if (parts.length === 0) return "No access";
+  const text = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  return text[0].toUpperCase() + text.slice(1);
+}
+
+/**
+ * The limits under it: `All apps · All environments`, `Only Checkout API · Only production and
+ * staging`. Empty for a key that sends no data (limits apply to ingest only).
+ */
+export function limitsText(key: Pick<ApiKey, "scopes" | "app_ids" | "environments">, names: AppNames): string {
+  if (!isIngestKey(key)) return "";
+  const ids = key.app_ids ?? null;
+  const apps = ids === null ? "All apps" : ids.length === 0 ? "No apps" : `Only ${appScopeText(key, names)}`;
+  const envs = key.environments ?? null;
+  const env = envs === null || envs.length === 0 ? "All environments" : `Only ${nameList(envs)}`;
+  return `${apps} · ${env}`;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Created and Last used columns (#810).
+
+/** `Just now`, `5 minutes ago`, `3 hours ago`, `Yesterday`, `12 days ago`, then the day. */
+export function relativeTime(iso: string, now = Date.now()): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const ago = Math.max(0, now - t);
+  if (ago < 60_000) return "Just now";
+  if (ago < HOUR_MS) {
+    const m = Math.floor(ago / 60_000);
+    return `${m} ${m === 1 ? "minute" : "minutes"} ago`;
+  }
+  if (ago < DAY_MS) {
+    const h = Math.floor(ago / HOUR_MS);
+    return `${h} ${h === 1 ? "hour" : "hours"} ago`;
+  }
+  const d = Math.floor(ago / DAY_MS);
+  if (d === 1) return "Yesterday";
+  if (d < 30) return `${d} days ago`;
+  return DAY_FULL.format(t);
+}
+
+const DAY_FULL = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+
+/** `apilenss/0.5.0` → `apilenss 0.5.0`; the SDK the key last sent data with. */
+export function sdkText(sdk: string | null | undefined): string {
+  if (!sdk) return "";
+  return sdk.replace("/", " ");
+}
+
 /** `Ingest, Read`. */
 export function scopesLabel(scopes: readonly string[] | null | undefined): string {
   const list = scopes ?? [];

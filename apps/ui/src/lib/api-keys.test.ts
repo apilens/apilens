@@ -25,6 +25,17 @@ import {
   scopesLabel,
   todayUTC,
   withCreated,
+  STATE_LABEL,
+  abilitiesText,
+  filterKeys,
+  formatDayMonth,
+  inactiveCount,
+  keyState,
+  keyStateLabel,
+  limitsText,
+  parseKeyFilter,
+  relativeTime,
+  sdkText,
 } from "./api-keys";
 import type { ApiKey } from "./identity";
 import { pageRedirect, parsePage, slicePage } from "./pagination";
@@ -272,5 +283,89 @@ describe("keys pagination", () => {
     expect(pageRedirect("/shop/settings/keys", { page: "7" }, 60, KEYS_PAGE)).toBe("/shop/settings/keys?page=3");
     expect(pageRedirect("/shop/settings/keys", { page: "2" }, 0, KEYS_PAGE)).toBe("/shop/settings/keys");
     expect(pageRedirect("/shop/settings/keys", {}, 25, KEYS_PAGE)).toBeNull();
+  });
+});
+
+describe("key state (#810)", () => {
+  const now = Date.parse("2026-11-09T12:00:00Z");
+  const at = (hours: number) => new Date(now + hours * 3_600_000).toISOString();
+
+  it("names each state", () => {
+    expect(keyState(key(), now)).toBe("active");
+    expect(keyStateLabel(key(), now)).toBe("Active");
+    expect(keyStateLabel(key({ expires_at: at(24 * 30) }), now)).toBe("Active");
+    expect(keyState(key({ expires_at: at(24 * 5 + 2) }), now)).toBe("expiring");
+    expect(keyStateLabel(key({ expires_at: at(24 * 5 + 2) }), now)).toBe("Expires in 5 days");
+    expect(keyStateLabel(key({ expires_at: at(25) }), now)).toBe("Expires in 1 day");
+    expect(keyStateLabel(key({ expires_at: at(3.5) }), now)).toBe("Expires in 3 hours");
+    expect(keyStateLabel(key({ expires_at: at(0.2) }), now)).toBe("Expires in under an hour");
+    expect(keyState(key({ expires_at: at(24 * 4 + 12), rotated_to: "x" }), now)).toBe("rotating");
+    expect(keyStateLabel(key({ expires_at: "2026-11-14T00:00:00Z", rotated_to: "x" }), now)).toBe("Rotating until 14 Nov");
+    expect(keyStateLabel(key({ expires_at: at(-1) }), now)).toBe("Expired");
+    expect(keyStateLabel(key({ expires_at: at(-1), rotated_to: "x" }), now)).toBe("Expired");
+    expect(keyStateLabel(key({ expires_at: at(-1), revoked_at: at(-2) }), now)).toBe("Revoked");
+    expect(formatDayMonth("nope")).toBe("");
+  });
+
+  it("filters by state and hides inactive keys unless asked", () => {
+    const list = [
+      key({ id: "a" }),
+      key({ id: "e", expires_at: at(48) }),
+      key({ id: "r", expires_at: at(20), rotated_to: "a" }),
+      key({ id: "x", expires_at: at(-5) }),
+      key({ id: "v", revoked_at: at(-5) }),
+    ];
+    const ids = (f: Parameters<typeof filterKeys>[1]) => filterKeys(list, f, now).map((k) => k.id);
+    expect(ids(parseKeyFilter({}))).toEqual(["a", "e", "r"]);
+    expect(ids(parseKeyFilter({ inactive: "1" }))).toEqual(["a", "e", "r", "x", "v"]);
+    expect(ids(parseKeyFilter({ state: "expiring" }))).toEqual(["e"]);
+    expect(ids(parseKeyFilter({ state: "rotating" }))).toEqual(["r"]);
+    expect(ids(parseKeyFilter({ state: "revoked" }))).toEqual(["v"]);
+    expect(parseKeyFilter({ state: "expired" })).toEqual({ state: "expired", inactive: true });
+    expect(parseKeyFilter(new URLSearchParams("state=bogus&inactive=yes"))).toEqual({ state: "all", inactive: false });
+    expect(inactiveCount(list, now)).toBe(2);
+    expect(STATE_LABEL.expiring).toBe("Expiring soon");
+  });
+});
+
+describe("Can column (#810)", () => {
+  const A1 = "11111111-1111-4111-8111-111111111111";
+  const names = new Map([[A1, "Checkout API"]]);
+
+  it("says what a key can do", () => {
+    expect(abilitiesText(key())).toBe("Ingest and create apps");
+    expect(abilitiesText(key({ scopes: ["ingest", "read"] }))).toBe("Ingest, create apps and read");
+    expect(abilitiesText(key({ scopes: ["ingest"], can_create_apps: false }))).toBe("Ingest");
+    expect(abilitiesText(key({ scopes: ["ingest"], app_ids: [A1] }))).toBe("Ingest");
+    expect(abilitiesText(key({ scopes: ["read"] }))).toBe("Read");
+    expect(abilitiesText(key({ scopes: [] }))).toBe("No access");
+  });
+
+  it("puts app and environment limits in words", () => {
+    expect(limitsText(key(), names)).toBe("All apps · All environments");
+    expect(limitsText(key({ app_ids: [A1], environments: ["production", "staging"] }), names)).toBe("Only Checkout API · Only production and staging");
+    expect(limitsText(key({ app_ids: [] }), names)).toBe("No apps · All environments");
+    expect(limitsText(key({ scopes: ["read"] }), names)).toBe("");
+  });
+});
+
+describe("last used (#810)", () => {
+  const now = Date.parse("2026-11-09T12:00:00Z");
+  const ago = (ms: number) => new Date(now - ms).toISOString();
+
+  it("reads relative time", () => {
+    expect(relativeTime(ago(10_000), now)).toBe("Just now");
+    expect(relativeTime(ago(60_000), now)).toBe("1 minute ago");
+    expect(relativeTime(ago(5 * 60_000), now)).toBe("5 minutes ago");
+    expect(relativeTime(ago(3 * 3_600_000), now)).toBe("3 hours ago");
+    expect(relativeTime(ago(30 * 3_600_000), now)).toBe("Yesterday");
+    expect(relativeTime(ago(12 * 86_400_000), now)).toBe("12 days ago");
+    expect(relativeTime("2026-08-01T10:00:00Z", now)).toBe("Aug 1, 2026");
+    expect(relativeTime("bad", now)).toBe("");
+  });
+
+  it("shows the SDK and version", () => {
+    expect(sdkText("apilenss/0.5.0")).toBe("apilenss 0.5.0");
+    expect(sdkText(null)).toBe("");
   });
 });

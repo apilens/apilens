@@ -1,39 +1,55 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { createApiKey, revokeApiKey, updateApiKeyAccess } from "@/app/[project]/settings/actions";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useReauth } from "@/components/reauth-dialog";
 import {
   EXPIRY_CHOICES,
   type ExpiryChoice,
+  INACTIVE_PARAM,
   KEYS_PAGE,
   KEYS_READ_ONLY,
   type KeyAccess,
+  type KeyFilter,
   MAX_KEY_NAME,
   SCOPES,
-  STATUS_LABEL,
+  STATE_FILTERS,
+  STATE_LABEL,
+  STATE_PARAM,
+  type StateFilter,
+  abilitiesText,
   accessOf,
-  appScopeText,
-  appsSeen,
   checkKeyName,
   expiryFor,
+  filterKeys,
+  inactiveCount,
+  isInactive,
   isIngestKey,
-  keyStatus,
+  keyState,
+  keyStateLabel,
   keysPath,
+  limitsText,
   maskedKey,
+  parseKeyFilter,
   permissionSummary,
+  relativeTime,
   revealAppHint,
   revealSnippet,
   scopesLabel,
+  sdkText,
   todayUTC,
   withCreated,
 } from "@/lib/api-keys";
 import { activeApps } from "@/lib/app-manage";
 import { REAUTH_CANCELLED } from "@/lib/reauth";
 import type { ApiKey, ApiKeyScope, CreatedApiKey, ManagedApp } from "@/lib/identity";
-import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
-import { formatDay, formatExact, formatLastUsed } from "@/lib/passkey-settings";
+import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/pagination";
+import { formatDay, formatExact } from "@/lib/passkey-settings";
 import { useCan } from "@/lib/permissions";
+import { projectSectionHref } from "@/lib/project-settings";
 import { ObIcon } from "../onboarding/ob";
 import { AccessFields } from "./access-fields";
 import { Pagination } from "../pagination/pagination";
@@ -51,19 +67,20 @@ interface AppsInfo {
   slugs: ReadonlyMap<string, string>;
 }
 
-/** How many apps a key has sent data for are listed in its row. */
-const SEEN_SHOWN = 3;
-
 /**
- * Access › API keys, `/<project>/access/keys` (#350, moved in #801): the project's API keys (revoked ones included, newest first)
- * with their prefix, permissions (scopes, and for ingest keys whether their data creates apps or
- * which apps they are limited to), the apps they have sent data for, last use and status, paged in
- * the URL. "Create API key" opens a dialog (name, scopes, app access, optional expiry) that then
- * shows the new key once, to copy. "Edit access" changes an ingest key's app access; revoking asks
- * first. Owners, admins and members (`api_keys.create` / `api_keys.revoke`) see the controls;
- * everyone else reads the list with a line saying why. The API checks again. `initial` is null when
- * the list could not be loaded, `apps` when the project's apps could not; `now` is the server's
- * clock so the first render matches; `nav` is the Access page's tabs, shown under the title.
+ * Access › API keys, `/<project>/access/keys` (#350, moved in #801, columns in #810): the project's
+ * API keys, newest first, with their name, prefix, what they can do (ingest, create apps, read,
+ * and their app and environment limits in words), who created them and when, last use (relative,
+ * with the SDK and version, the exact time on hover), expiry and state (Active, Expires in 5 days,
+ * Rotating until 14 Nov, Expired, Revoked). The list filters by state in the URL (`?state=`);
+ * expired and revoked keys are behind "Show inactive" (`?inactive=1`); it pages in the URL.
+ * "Create API key" opens a dialog (name, scopes, app access, optional expiry) that then shows the
+ * new key once, to copy; afterwards only the prefix is ever shown. "Edit access" changes an ingest
+ * key's app access; "Revoke" opens the shared confirmation dialog, which asks for the key's name.
+ * Holders of `api_keys.create` / `api_keys.revoke` see the controls; everyone else reads the list
+ * with a line saying why. The API checks again. `initial` is null when the list could not be
+ * loaded, `apps` when the project's apps could not; `now` is the server's clock so the first render
+ * matches; `nav` is the Access page's tabs, shown under the title.
  */
 export function ApiKeysSettings({
   project,
@@ -82,14 +99,16 @@ export function ApiKeysSettings({
   now: number;
   nav?: ReactNode;
 }) {
+  const router = useRouter();
   const [keys, setKeys] = useState<ApiKey[]>(initial ?? []);
   const [status, setStatus] = useState<Status>(null);
   const [creating, setCreating] = useState(false);
-  const [revoking, setRevoking] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<ApiKey | null>(null);
   const [editing, setEditing] = useState<ApiKey | null>(null);
   const canCreate = useCan("api_keys.create").allowed;
   const canRevoke = useCan("api_keys.revoke").allowed;
   const readOnly = !canCreate && !canRevoke;
+  const filterId = useId();
 
   const info = useMemo<AppsInfo>(
     () => ({
@@ -100,7 +119,24 @@ export function ApiKeysSettings({
     [apps],
   );
 
-  const { rows, window: w } = slicePage(keys, parsePage(params, KEYS_PAGE));
+  // The filter follows the URL; a change shows at once and the URL catches up.
+  const urlFilter = parseKeyFilter(params);
+  const [filter, setFilterState] = useState<KeyFilter>(urlFilter);
+  useEffect(() => {
+    setFilterState({ state: urlFilter.state, inactive: urlFilter.inactive });
+  }, [urlFilter.state, urlFilter.inactive]);
+  const shown = filterKeys(keys, filter, now);
+  const hidden = inactiveCount(keys, now);
+  const settled = filter.state === urlFilter.state && filter.inactive === urlFilter.inactive;
+  const { rows, window: w } = slicePage(shown, parsePage(settled ? params : {}, KEYS_PAGE));
+
+  // A filter change starts again at page 1; hiding inactive keys drops an Expired or Revoked filter.
+  const setFilter = (next: KeyFilter) => {
+    const state = next.state !== "all" && !next.inactive && isInactive(next.state) ? "all" : next.state;
+    setFilterState({ state, inactive: next.inactive });
+    const href = hrefWithoutPage(keysPath(project), params, { [STATE_PARAM]: state === "all" ? null : state, [INACTIVE_PARAM]: next.inactive ? "1" : null });
+    router.replace(href, { scroll: false });
+  };
 
   const created = (key: CreatedApiKey) => {
     const { key: _raw, ...listed } = key;
@@ -110,8 +146,8 @@ export function ApiKeysSettings({
 
   const revoked = (id: string, key: ApiKey | null) => {
     setKeys((list) => list.map((k) => (k.id === id ? (key ?? { ...k, revoked_at: k.revoked_at ?? new Date().toISOString() }) : k)));
-    setRevoking(null);
     const name = keys.find((k) => k.id === id)?.name ?? "the key";
+    setRevoking(null);
     setStatus({ tone: "ok", text: `Revoked ${name}. Requests using it are rejected from now on.` });
   };
 
@@ -128,7 +164,6 @@ export function ApiKeysSettings({
         className={`ah-btn ah-btn--sm ${primary ? "ah-btn--primary" : "ah-btn--ghost pk-add"}`}
         onClick={() => {
           setStatus(null);
-          setRevoking(null);
           setCreating(true);
         }}
       >
@@ -136,6 +171,8 @@ export function ApiKeysSettings({
         Create API key
       </button>
     ) : null;
+
+  const stateChoices = STATE_FILTERS.filter((s) => s === "all" || filter.inactive || !isInactive(s));
 
   return (
     <div className="page os ak">
@@ -173,51 +210,77 @@ export function ApiKeysSettings({
                 <ObIcon name="lock" />
               </span>
               <h3>No API keys yet</h3>
-              <p>Create an ingest key and give it to your SDK with an app name. The app appears on its own when the first data arrives. The full key is shown once, when you create it.</p>
+              <p>
+                Create an ingest key and give it to your SDK with an app name. The app appears on its own when the first data arrives. The full key is shown once, when you
+                create it.
+              </p>
+              <p className="ak-empty-link">
+                <Link href={projectSectionHref(project, { slug: "sdk" })}>Set up the SDK</Link>
+              </p>
               {createButton(true)}
             </div>
           ) : (
             <>
-              <table className="pk-table ak-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Name</th>
-                    <th scope="col">Key</th>
-                    <th scope="col">Permissions</th>
-                    <th scope="col">Apps</th>
-                    <th scope="col">Last used</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">
-                      <span className="pk-sr">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((k) => (
-                    <KeyRow
-                      key={k.id}
-                      apiKey={k}
-                      info={info}
-                      now={now}
-                      canEdit={canCreate}
-                      canRevoke={canRevoke}
-                      confirming={revoking === k.id}
-                      onEdit={() => {
-                        setStatus(null);
-                        setRevoking(null);
-                        setEditing(k);
-                      }}
-                      onConfirm={() => {
-                        setRevoking(k.id);
-                        setStatus(null);
-                      }}
-                      onCancel={() => setRevoking(null)}
-                      onRevoked={(key) => revoked(k.id, key)}
-                      project={project}
-                    />
-                  ))}
-                </tbody>
-              </table>
+              <div className="ak-tools" role="group" aria-label="Filter keys">
+                <label className="ak-tools__state" htmlFor={filterId}>
+                  State
+                </label>
+                <span className="ob-in ak-tools__select">
+                  <select id={filterId} value={filter.state} onChange={(e) => setFilter({ ...filter, state: e.target.value as StateFilter })}>
+                    {stateChoices.map((s) => (
+                      <option key={s} value={s}>
+                        {s === "all" ? "All states" : STATE_LABEL[s]}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+                <label className="ak-tools__inactive">
+                  <input type="checkbox" checked={filter.inactive} onChange={(e) => setFilter({ ...filter, inactive: e.target.checked })} />
+                  <span>Show inactive ({hidden})</span>
+                </label>
+              </div>
+              {shown.length === 0 ? (
+                <p className="ak-none">
+                  {filter.state === "all" ? "Every key is expired or revoked. Turn on “Show inactive” to see them." : `No ${STATE_LABEL[filter.state].toLowerCase()} keys.`}
+                </p>
+              ) : (
+                <table className="pk-table ak-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Name</th>
+                      <th scope="col">Key</th>
+                      <th scope="col">Can</th>
+                      <th scope="col">Created</th>
+                      <th scope="col">Last used</th>
+                      <th scope="col">Expires</th>
+                      <th scope="col">State</th>
+                      <th scope="col">
+                        <span className="pk-sr">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((k) => (
+                      <KeyRow
+                        key={k.id}
+                        apiKey={k}
+                        info={info}
+                        now={now}
+                        canEdit={canCreate}
+                        canRevoke={canRevoke}
+                        onEdit={() => {
+                          setStatus(null);
+                          setEditing(k);
+                        }}
+                        onRevoke={() => {
+                          setStatus(null);
+                          setRevoking(k);
+                        }}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              )}
               <Pagination pathname={keysPath(project)} params={params} total={w.total} {...KEYS_PAGE} label="API key pages" />
             </>
           )}
@@ -229,167 +292,134 @@ export function ApiKeysSettings({
 
       {canCreate ? <CreateKeyDialog project={project} info={info} open={creating} onClose={() => setCreating(false)} onCreated={created} /> : null}
       {editing ? <AccessDialog project={project} apiKey={editing} info={info} onClose={() => setEditing(null)} onSaved={saved} /> : null}
+      {canRevoke ? <RevokeDialog project={project} apiKey={revoking} onCancel={() => setRevoking(null)} onRevoked={revoked} /> : null}
     </div>
   );
 }
 
 interface RowProps {
-  project: string;
   apiKey: ApiKey;
   info: AppsInfo;
   now: number;
   canEdit: boolean;
   canRevoke: boolean;
-  confirming: boolean;
   onEdit: () => void;
-  onConfirm: () => void;
-  onCancel: () => void;
-  onRevoked: (key: ApiKey | null) => void;
+  onRevoke: () => void;
 }
 
-function KeyRow({ project, apiKey: k, info, now, canEdit, canRevoke, confirming, onEdit, onConfirm, onCancel, onRevoked }: RowProps) {
-  const state = keyStatus(k, now);
-  const expires = k.expires_at && state === "active" ? `Expires ${formatDay(k.expires_at)}` : null;
+function KeyRow({ apiKey: k, info, now, canEdit, canRevoke, onEdit, onRevoke }: RowProps) {
+  const state = keyState(k, now);
   const ingest = isIngestKey(k);
-  const seen = appsSeen(k);
-  const scope = appScopeText(k, info.names);
+  const limits = limitsText(k, info.names);
+  const sdk = sdkText(k.last_used_sdk);
+  const stateTitle =
+    state === "revoked" && k.revoked_at
+      ? `Revoked ${formatExact(k.revoked_at)}`
+      : k.expires_at && state !== "active"
+        ? `${state === "expired" ? "Expired" : "Stops working"} ${formatExact(k.expires_at)}`
+        : undefined;
   return (
-    <>
-      <tr className={`pk-row${confirming ? " is-confirming" : ""}${state === "active" ? "" : ` is-inactive is-${state}`}`}>
-        <td className="pk-name" data-label="Name">
-          <b className="ak-name">{k.name}</b>
-          <span className="ak-sub">
-            Created{" "}
-            <time dateTime={k.created_at} title={formatExact(k.created_at)}>
-              {formatDay(k.created_at)}
-            </time>
-          </span>
-        </td>
-        <td data-label="Key">
-          <code className="ak-prefix">{maskedKey(k.prefix)}</code>
-        </td>
-        <td data-label="Permissions">{permissionSummary(k)}</td>
-        <td data-label="Apps" className="ak-apps">
-          {ingest ? (
-            <div>
-              <span className="ak-scope-text">{scope}</span>
-              {seen.length === 0 ? (
-                <span className="ak-sub">No data sent yet</span>
-              ) : (
-                <ul className="ak-seen" aria-label={`Apps ${k.name} has sent data for`}>
-                  {seen.slice(0, SEEN_SHOWN).map((a) => (
-                    <li key={a.app_id}>
-                      {a.name}{" "}
-                      <time dateTime={a.last_seen_at} title={`Last data ${formatExact(a.last_seen_at)}`}>
-                        · {formatLastUsed(a.last_seen_at, now).toLowerCase()}
-                      </time>
-                    </li>
-                  ))}
-                  {seen.length > SEEN_SHOWN ? <li className="ak-sub">and {seen.length - SEEN_SHOWN} more</li> : null}
-                </ul>
-              )}
-            </div>
-          ) : (
-            <span className="pk-muted">Doesn’t send data</span>
-          )}
-        </td>
-        <td data-label="Last used">
-          {k.last_used_at ? (
+    <tr className={`pk-row${isInactive(state) ? ` is-inactive is-${state}` : ""}`}>
+      <td className="pk-name" data-label="Name">
+        <b className="ak-name">{k.name}</b>
+      </td>
+      <td data-label="Key">
+        <code className="ak-prefix">{maskedKey(k.prefix)}</code>
+      </td>
+      <td data-label="Can" className="ak-can">
+        <div>
+          <span>{abilitiesText(k)}</span>
+          {limits ? <span className="ak-sub">{limits}</span> : null}
+        </div>
+      </td>
+      <td data-label="Created">
+        <div>
+          <time dateTime={k.created_at} title={formatExact(k.created_at)}>
+            {formatDay(k.created_at)}
+          </time>
+          {k.created_by ? <span className="ak-sub">by {k.created_by.name}</span> : null}
+        </div>
+      </td>
+      <td data-label="Last used">
+        {k.last_used_at ? (
+          <div>
             <time dateTime={k.last_used_at} title={formatExact(k.last_used_at)}>
-              {formatLastUsed(k.last_used_at, now)}
+              {relativeTime(k.last_used_at, now)}
             </time>
-          ) : (
-            <span className="pk-muted">Never</span>
-          )}
-        </td>
-        <td data-label="Status">
-          <span
-            className={`ak-status ak-status--${state}`}
-            title={state === "revoked" && k.revoked_at ? `Revoked ${formatExact(k.revoked_at)}` : state === "expired" && k.expires_at ? `Expired ${formatExact(k.expires_at)}` : (expires ?? undefined)}
-          >
-            {STATUS_LABEL[state]}
+            {sdk ? <span className="ak-sub">{sdk}</span> : null}
+          </div>
+        ) : (
+          <span className="pk-muted">Never</span>
+        )}
+      </td>
+      <td data-label="Expires">
+        {k.expires_at ? (
+          <time dateTime={k.expires_at} title={formatExact(k.expires_at)}>
+            {formatDay(k.expires_at)}
+          </time>
+        ) : (
+          <span className="pk-muted">Never</span>
+        )}
+      </td>
+      <td data-label="State">
+        <span className={`ak-status ak-status--${state}`} title={stateTitle}>
+          {keyStateLabel(k, now)}
+        </span>
+      </td>
+      <td className="pk-actions">
+        {state === "revoked" ? null : (
+          <span className="ak-actions">
+            {canEdit && ingest && state !== "expired" ? (
+              <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onEdit} aria-label={`Edit access of ${k.name}`} aria-haspopup="dialog">
+                Edit access
+              </button>
+            ) : null}
+            {canRevoke ? (
+              <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm pk-remove" onClick={onRevoke} aria-label={`Revoke ${k.name}`} aria-haspopup="dialog">
+                Revoke
+              </button>
+            ) : null}
           </span>
-          {expires ? <span className="ak-expires">{expires}</span> : null}
-        </td>
-        <td className="pk-actions">
-          {state === "revoked" ? null : (
-            <span className="ak-actions">
-              {canEdit && ingest ? (
-                <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onEdit} aria-label={`Edit access of ${k.name}`} aria-haspopup="dialog">
-                  Edit access
-                </button>
-              ) : null}
-              {canRevoke ? (
-                <button
-                  type="button"
-                  className="ah-btn ah-btn--ghost ah-btn--sm pk-remove"
-                  onClick={onConfirm}
-                  aria-label={`Revoke ${k.name}`}
-                  aria-expanded={confirming}
-                  disabled={confirming}
-                >
-                  Revoke
-                </button>
-              ) : null}
-            </span>
-          )}
-        </td>
-      </tr>
-      {confirming ? <RevokeConfirm project={project} apiKey={k} onCancel={onCancel} onRevoked={onRevoked} /> : null}
-    </>
+        )}
+      </td>
+    </tr>
   );
 }
 
-function RevokeConfirm({ project, apiKey, onCancel, onRevoked }: { project: string; apiKey: ApiKey; onCancel: () => void; onRevoked: (key: ApiKey | null) => void }) {
+/** Revoking asks for the key's name in the shared confirmation dialog (#802); focus starts on Cancel. */
+function RevokeDialog({ project, apiKey, onCancel, onRevoked }: { project: string; apiKey: ApiKey | null; onCancel: () => void; onRevoked: (id: string, key: ApiKey | null) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  const cancel = useRef<HTMLButtonElement>(null);
-  const titleId = `ak-revoke-${apiKey.id}`;
-
-  useEffect(() => {
-    cancel.current?.focus();
-  }, []);
 
   const confirm = () => {
-    if (pending) return;
+    if (!apiKey || pending) return;
     start(async () => {
       const result = await revokeApiKey(project, apiKey.id);
-      if (result.ok) onRevoked(result.key);
-      else setError(result.error);
+      if (result.ok) {
+        setError(null);
+        onRevoked(apiKey.id, result.key);
+      } else setError(result.error);
     });
   };
 
   return (
-    <tr className="pk-confirm-row">
-      <td colSpan={7}>
-        <div
-          className="os-confirm pk-confirm"
-          role="group"
-          aria-labelledby={titleId}
-          onKeyDown={(e) => {
-            if (e.key === "Escape" && !pending) onCancel();
-          }}
-        >
-          <p id={titleId}>
-            <b>Revoke {apiKey.name}?</b> Anything still using <code>{maskedKey(apiKey.prefix)}</code> is rejected within a minute. This can’t be
-            undone; create a new key to replace it.
-          </p>
-          {error ? (
-            <p className="ob-err" role="alert">
-              {error}
-            </p>
-          ) : null}
-          <div className="row">
-            <button ref={cancel} type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onCancel} disabled={pending}>
-              Cancel
-            </button>
-            <button type="button" className={`ah-btn ah-btn--sm os-btn-danger${pending ? " is-loading" : ""}`} onClick={confirm} disabled={pending}>
-              Revoke key
-            </button>
-          </div>
-        </div>
-      </td>
-    </tr>
+    <ConfirmDialog
+      open={apiKey !== null}
+      title={`Revoke ${apiKey?.name ?? "this key"}?`}
+      phrase={apiKey?.name ?? ""}
+      actionLabel="Revoke key"
+      pending={pending}
+      error={error}
+      onConfirm={confirm}
+      onCancel={() => {
+        setError(null);
+        onCancel();
+      }}
+    >
+      <p>
+        Anything still using <code>{apiKey ? maskedKey(apiKey.prefix) : ""}</code> is rejected within a minute. This can’t be undone; create a new key to replace it.
+      </p>
+    </ConfirmDialog>
   );
 }
 
