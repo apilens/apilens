@@ -215,7 +215,7 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 	}
 	t := tally{}
 	defer e.flushStats(r.Context(), t)
-	if aerr := e.admit(r.Context(), p.ProjectID, total, size); aerr != nil {
+	if aerr := e.admit(r.Context(), p.ProjectID, total, size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, resourceIdents(resources), t)
 		e.otlpFail(w, c, signal, aerr)
 		return
@@ -238,7 +238,7 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 				if !known || !valid {
 					rejected++
 					if known {
-						t.app(appID).Rejected++
+						t.reject(appID, ReasonInvalid, 1)
 					}
 					continue
 				}
@@ -254,7 +254,7 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, row := range rows {
-		t.app(row.AppID).Accepted++
+		t.accept(row.AppID, row.Environment)
 	}
 	e.records.WithLabelValues(signal, "accepted").Add(float64(len(rows)))
 	e.records.WithLabelValues(signal, "rejected").Add(float64(rejected - counted)) // app rejections are counted by resolveBatch
@@ -346,7 +346,7 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	t := tally{}
 	defer e.flushStats(r.Context(), t)
-	if aerr := e.admit(r.Context(), p.ProjectID, total, size); aerr != nil {
+	if aerr := e.admit(r.Context(), p.ProjectID, total, size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, resourceIdents(resources), t)
 		e.otlpFail(w, c, signal, aerr)
 		return
@@ -370,7 +370,7 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 				if !known || !valid {
 					rejected++
 					if known {
-						t.app(appID).Rejected++
+						t.reject(appID, ReasonInvalid, 1)
 					}
 					continue
 				}
@@ -386,7 +386,7 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, row := range rows {
-		t.app(row.AppID).Accepted++
+		t.accept(row.AppID, row.Environment)
 	}
 	e.records.WithLabelValues(signal, "accepted").Add(float64(len(rows)))
 	e.records.WithLabelValues(signal, "rejected").Add(float64(rejected - counted)) // app rejections are counted by resolveBatch

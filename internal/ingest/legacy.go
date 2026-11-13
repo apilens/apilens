@@ -135,7 +135,7 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 	for i, rec := range body.Requests {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
-	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Requests), size); aerr != nil {
+	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Requests), size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
 		e.fail(w, signal, aerr)
 		return
@@ -202,7 +202,7 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, row := range rows {
-		t.app(row.AppID).Accepted++
+		t.accept(row.AppID, row.Environment)
 	}
 	e.ok(w, signal, len(rows), batch)
 }
@@ -231,7 +231,7 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 	for i, rec := range body.Logs {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
-	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Logs), size); aerr != nil {
+	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Logs), size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
 		e.fail(w, signal, aerr)
 		return
@@ -282,7 +282,7 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, row := range rows {
-		t.app(row.AppID).Accepted++
+		t.accept(row.AppID, row.Environment)
 	}
 	e.ok(w, signal, len(rows), batch)
 }
@@ -311,7 +311,7 @@ func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
 	for i, rec := range body.Spans {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
-	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Spans), size); aerr != nil {
+	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Spans), size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
 		e.fail(w, signal, aerr)
 		return
@@ -369,7 +369,7 @@ func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, row := range rows {
-		t.app(row.AppID).Accepted++
+		t.accept(row.AppID, row.Environment)
 	}
 	e.ok(w, signal, len(rows), batch)
 }
@@ -398,7 +398,7 @@ func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
 	for i, rec := range body.Deploys {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
-	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Deploys), size); aerr != nil {
+	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Deploys), size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
 		e.fail(w, signal, aerr)
 		return
@@ -446,7 +446,7 @@ func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, row := range rows {
-		t.app(row.AppID).Accepted++
+		t.accept(row.AppID, row.Environment)
 	}
 	e.ok(w, signal, len(rows), batch)
 }
