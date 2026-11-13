@@ -24,6 +24,7 @@ var documentedOperations = []string{
 	"list-consumers", "get-consumer", "list-consumer-group-traffic",
 	"list-errors", "get-error-statuses", "get-error-status",
 	"get-app-status", "get-app-ingest-stats", "get-ingest-status", "list-deploys", "list-deploy-changes", "get-deploy", "get-deploy-comparison",
+	"get-project-retention",
 }
 
 // TestOpenAPIDocumentsQueryOperations checks every documented operation has

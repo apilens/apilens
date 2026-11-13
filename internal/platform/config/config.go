@@ -46,6 +46,7 @@ type Config struct {
 	Email      EmailConfig      `koanf:"email"`
 	Exports    ExportsConfig    `koanf:"exports"`
 	Alerts     AlertsConfig     `koanf:"alerts"`
+	Retention  RetentionConfig  `koanf:"retention"`
 }
 
 // ServerConfig configures the shared HTTP server.
@@ -428,7 +429,7 @@ func (e EmailConfig) LogOnly() bool { return e.Provider == EmailProviderLog }
 // Defaults returns the built-in configuration. These are suitable for the
 // docker-compose all-in-one deployment.
 func Defaults() map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"target":                           []string{"all"},
 		"server.addr":                      ":8080",
 		"server.admin_addr":                "",
@@ -543,6 +544,8 @@ func Defaults() map[string]any {
 		"email.tls":           EmailTLSStartTLS,
 		"email.timeout":       "10s",
 	}
+	retentionDefaults(m)
+	return m
 }
 
 // Load builds the configuration from defaults, an optional YAML file, the
@@ -681,6 +684,7 @@ func (c *Config) Validate() error {
 	errs = append(errs, c.validateIdentity()...)
 	errs = append(errs, c.validateAuthz()...)
 	errs = append(errs, c.validateEmail()...)
+	errs = append(errs, c.validateRetention()...)
 	if len(errs) > 0 {
 		return fmt.Errorf("config: %w", errors.Join(errs...))
 	}
