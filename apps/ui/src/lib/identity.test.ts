@@ -334,6 +334,8 @@ describe("operations", () => {
       "/auth/passkeys/register/verify",
       (c) => c.passkeyRegisterVerify({ challenge_id: "c", response: {}, name: "Laptop" }, authed),
     ],
+    ["POST", "/auth/reauth/options", (c) => c.reauthOptions({ send_email_code: true }, authed)],
+    ["POST", "/auth/reauth/verify", (c) => c.reauthVerify({ method: "email", code: "123456" }, authed)],
     ["GET", "/auth/oidc/requests/{id}", (c) => c.oidcRequest("a/b?c")],
     ["POST", "/auth/oidc/requests/{id}/complete", (c) => c.oidcComplete("a/b?c", authed)],
     ["POST", "/auth/refresh", (c) => c.refresh({ refresh_token: "r" })],

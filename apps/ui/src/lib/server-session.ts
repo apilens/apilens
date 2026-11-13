@@ -238,6 +238,23 @@ export class ServerSession {
   }
 
   /**
+   * Adopts a new access token for the same session (re-authentication, #803): the refresh token
+   * does not change, so this is not a refresh and nothing is coalesced. Rewrites the cookie.
+   */
+  async replaceAccess(accessToken: string, expiresIn: number): Promise<SessionPayload> {
+    const current = this.session;
+    if (!current) return this.expire();
+    const next: SessionPayload = {
+      ...current,
+      access: accessToken,
+      exp: this.nowSeconds() + Math.max(0, Math.floor(expiresIn)),
+    };
+    this.session = next;
+    await this.record({ kind: "set", value: await seal(next), remember: next.remember });
+    return next;
+  }
+
+  /**
    * A usable access token: refreshes first when the proxy flagged the session or the token is
    * near expiry. A transient refresh failure falls back to the current token while it is valid.
    */

@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { createApiKey, revokeApiKey, updateApiKeyAccess } from "@/app/[project]/settings/actions";
+import { useReauth } from "@/components/reauth-dialog";
 import {
   EXPIRY_CHOICES,
   type ExpiryChoice,
@@ -28,6 +29,7 @@ import {
   withCreated,
 } from "@/lib/api-keys";
 import { activeApps } from "@/lib/app-manage";
+import { REAUTH_CANCELLED } from "@/lib/reauth";
 import type { ApiKey, ApiKeyScope, CreatedApiKey, ManagedApp } from "@/lib/identity";
 import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { formatDay, formatExact, formatLastUsed } from "@/lib/passkey-settings";
@@ -453,6 +455,8 @@ function CreateForm({ project, pickable, onCancel, onCreated }: { project: strin
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const input = useRef<HTMLInputElement>(null);
+  // Creating a key needs a recent sign-in (D12): reauth_required opens the dialog, then retries once.
+  const { withReauth, dialog: reauthDialog } = useReauth();
 
   useEffect(() => {
     input.current?.focus();
@@ -489,130 +493,135 @@ function CreateForm({ project, pickable, onCancel, onCreated }: { project: strin
       return;
     }
     start(async () => {
-      const result = await createApiKey(project, {
-        name: checked.name,
-        scopes,
-        expiresAt: when.expiresAt,
-        ...(ingest ? { canCreateApps: access.appIds === null ? access.canCreateApps : false, appIds: access.appIds } : {}),
-      });
+      const result = await withReauth(() =>
+        createApiKey(project, {
+          name: checked.name,
+          scopes,
+          expiresAt: when.expiresAt,
+          ...(ingest ? { canCreateApps: access.appIds === null ? access.canCreateApps : false, appIds: access.appIds } : {}),
+        }),
+      );
       if (result.ok) onCreated(result.key);
-      else setError(result.error);
+      else if (result.code !== REAUTH_CANCELLED) setError(result.error);
     });
   };
 
   return (
-    <form className="ak-form" onSubmit={submit} noValidate>
-      <div className="ak-dialog__head">
-        <h2 id="ak-dialog-title">Create API key</h2>
-        <p>The full key is shown once, right after you create it.</p>
-      </div>
-      <div className="ak-dialog__body">
-        <div className="ob-f">
-          <label className="ob-l" htmlFor="ak-name">
-            Name<small>so you can tell keys apart</small>
-          </label>
-          <div className={`ob-in${nameError ? " bad" : ""}`}>
-            <input
-              ref={input}
-              id="ak-name"
-              value={name}
-              placeholder="Production backend"
-              maxLength={MAX_KEY_NAME + 20}
-              autoComplete="off"
-              spellCheck={false}
-              aria-invalid={nameError !== null}
-              aria-describedby={nameError ? "ak-name-err" : undefined}
-              onChange={(e) => {
-                setName(e.target.value);
-                setNameError(null);
+    <>
+      <form className="ak-form" onSubmit={submit} noValidate>
+        <div className="ak-dialog__head">
+          <h2 id="ak-dialog-title">Create API key</h2>
+          <p>The full key is shown once, right after you create it.</p>
+        </div>
+        <div className="ak-dialog__body">
+          <div className="ob-f">
+            <label className="ob-l" htmlFor="ak-name">
+              Name<small>so you can tell keys apart</small>
+            </label>
+            <div className={`ob-in${nameError ? " bad" : ""}`}>
+              <input
+                ref={input}
+                id="ak-name"
+                value={name}
+                placeholder="Production backend"
+                maxLength={MAX_KEY_NAME + 20}
+                autoComplete="off"
+                spellCheck={false}
+                aria-invalid={nameError !== null}
+                aria-describedby={nameError ? "ak-name-err" : undefined}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setNameError(null);
+                  setError(null);
+                }}
+              />
+            </div>
+            {nameError ? (
+              <p id="ak-name-err" className="ob-err">
+                {nameError}
+              </p>
+            ) : null}
+          </div>
+
+          <fieldset className="ob-f ak-scopes">
+            <legend className="ob-l">Scopes</legend>
+            {SCOPES.map((s) => (
+              <label key={s.value} className={`ak-scope${scopes.includes(s.value) ? " on" : ""}`}>
+                <input type="checkbox" checked={scopes.includes(s.value)} onChange={() => toggleScope(s.value)} />
+                <span>
+                  <b>{s.label}</b>
+                  <span>{s.help}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+
+          {ingest ? (
+            <AccessFields
+              value={access}
+              pickable={pickable}
+              onChange={(next) => {
+                setAccess(next);
                 setError(null);
               }}
             />
+          ) : null}
+
+          <div className="ob-f">
+            <label className="ob-l" htmlFor="ak-expiry">
+              Expires<small>optional</small>
+            </label>
+            <div className="ak-expiry">
+              <div className="ob-in">
+                <select
+                  id="ak-expiry"
+                  value={expiry}
+                  onChange={(e) => {
+                    setExpiry(e.target.value as ExpiryChoice);
+                    setError(null);
+                  }}
+                >
+                  {EXPIRY_CHOICES.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {expiry === "custom" ? (
+                <div className="ob-in">
+                  <input
+                    type="date"
+                    aria-label="Expiry date"
+                    value={date}
+                    min={todayUTC(Date.now() + 86_400_000)}
+                    onChange={(e) => {
+                      setDate(e.target.value);
+                      setError(null);
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
           </div>
-          {nameError ? (
-            <p id="ak-name-err" className="ob-err">
-              {nameError}
+
+          {error ? (
+            <p className="ob-err" role="alert">
+              {error}
             </p>
           ) : null}
         </div>
-
-        <fieldset className="ob-f ak-scopes">
-          <legend className="ob-l">Scopes</legend>
-          {SCOPES.map((s) => (
-            <label key={s.value} className={`ak-scope${scopes.includes(s.value) ? " on" : ""}`}>
-              <input type="checkbox" checked={scopes.includes(s.value)} onChange={() => toggleScope(s.value)} />
-              <span>
-                <b>{s.label}</b>
-                <span>{s.help}</span>
-              </span>
-            </label>
-          ))}
-        </fieldset>
-
-        {ingest ? (
-          <AccessFields
-            value={access}
-            pickable={pickable}
-            onChange={(next) => {
-              setAccess(next);
-              setError(null);
-            }}
-          />
-        ) : null}
-
-        <div className="ob-f">
-          <label className="ob-l" htmlFor="ak-expiry">
-            Expires<small>optional</small>
-          </label>
-          <div className="ak-expiry">
-            <div className="ob-in">
-              <select
-                id="ak-expiry"
-                value={expiry}
-                onChange={(e) => {
-                  setExpiry(e.target.value as ExpiryChoice);
-                  setError(null);
-                }}
-              >
-                {EXPIRY_CHOICES.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {expiry === "custom" ? (
-              <div className="ob-in">
-                <input
-                  type="date"
-                  aria-label="Expiry date"
-                  value={date}
-                  min={todayUTC(Date.now() + 86_400_000)}
-                  onChange={(e) => {
-                    setDate(e.target.value);
-                    setError(null);
-                  }}
-                />
-              </div>
-            ) : null}
-          </div>
+        <div className="ak-dialog__foot">
+          <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onCancel} disabled={pending}>
+            Cancel
+          </button>
+          <button type="submit" className={`ah-btn ah-btn--primary ah-btn--sm${pending ? " is-loading" : ""}`} disabled={pending}>
+            Create key
+          </button>
         </div>
-
-        {error ? (
-          <p className="ob-err" role="alert">
-            {error}
-          </p>
-        ) : null}
-      </div>
-      <div className="ak-dialog__foot">
-        <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onCancel} disabled={pending}>
-          Cancel
-        </button>
-        <button type="submit" className={`ah-btn ah-btn--primary ah-btn--sm${pending ? " is-loading" : ""}`} disabled={pending}>
-          Create key
-        </button>
-      </div>
-    </form>
+      </form>
+      {reauthDialog}
+    </>
   );
 }
 
