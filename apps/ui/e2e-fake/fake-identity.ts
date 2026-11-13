@@ -259,7 +259,8 @@
 //                                                  answers 404 until restored
 //   POST /api/v1/projects/shop/{rename|pause|resume}  need project.delete; rename {slug} needs a recent
 //                                                  sign-in, answers slug_taken 409 for a taken slug, and
-//                                                  the old slug keeps resolving
+//                                                  the old slug keeps resolving. The context lists shop
+//                                                  under its current slug and leaves it out once deleted
 //   GET  /api/v1/orgs/acme/projects/deleted        acme's deleted projects (one seeded, plus shop once
 //   POST /api/v1/orgs/acme/projects/{id}/restore   deleted); org owners and admins; restore needs a
 //                                                  recent sign-in
@@ -1053,6 +1054,13 @@ function shopContextName(): string {
   return projectState.project.name === measuredProject().name ? "shop" : projectState.project.name;
 }
 
+/** shop as the context lists it: under its current slug after a rename, gone once deleted (#821). */
+function shopInContext(id: string) {
+  const p = projectState.project;
+  if (p.deleted_at !== null) return [];
+  return [{ id: "prj_fake", slug: p.slug, name: shopContextName(), environments: ["production"], app_count: shopApps.length, role: projectRoleOf(capabilitiesOf(id)) }];
+}
+
 /** `GET /users/me/context` for a signed-in fake user: one org with one project (plus globex once invited). */
 function context(id: string) {
   const role = roleOf(id);
@@ -1074,7 +1082,7 @@ function context(id: string) {
         slug: "acme",
         name: "Acme",
         role,
-        projects: [{ id: "prj_fake", slug: "shop", name: shopContextName(), environments: ["production"], app_count: shopApps.length, role: projectRoleOf(capabilitiesOf(id)) }, ...createdProjectsOf(id, "acme")],
+        projects: [...shopInContext(id), ...createdProjectsOf(id, "acme")],
       },
       ...(joinedGlobex.has(id) ? [GLOBEX] : []),
       ...createdOrgsOf(id),
@@ -1084,7 +1092,7 @@ function context(id: string) {
     // Every fake sign-in is a new user, so onboarding is still open: `/onboarding/*` shows (#326).
     onboarding: { step: progress.step, completed: progress.completed },
     capabilities: {
-      [PROJECT]: capabilitiesOf(id),
+      ...(projectState.project.deleted_at === null ? { [projectState.project.slug]: capabilitiesOf(id) } : {}),
       ...(joinedGlobex.has(id) ? { storefront: capabilitiesFor("member") } : {}),
       ...Object.fromEntries(joinedOrgs(id).flatMap((o) => o.projects.map((p) => [p.slug, capabilitiesFor("member")]))),
     },

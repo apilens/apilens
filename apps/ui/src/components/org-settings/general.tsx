@@ -29,7 +29,7 @@ function StatusLine({ status, id }: { status: Status; id: string }) {
  * email domains whose people may join automatically, and deleting it. Owners and admins edit;
  * members and viewers see the same values read-only. Only owners see the delete button.
  */
-export function OrgGeneralSettings({ org }: { org: Org }) {
+export function OrgGeneralSettings({ org, deletedProject = null }: { org: Org; deletedProject?: string | null }) {
   const manage = canManageOrg(org.role);
   return (
     <div className="page page--measure os">
@@ -38,6 +38,13 @@ export function OrgGeneralSettings({ org }: { org: Org }) {
         <h1 className="cp-lede">Settings</h1>
         <OrgSettingsNav org={org.slug} current="" role={org.role} />
       </header>
+
+      {deletedProject ? (
+        <p className="os-note" role="status">
+          <ObIcon name="done" />
+          <span>Project {deletedProject} was deleted. Its data is removed after 7 days; until then an organization admin can restore it.</span>
+        </p>
+      ) : null}
 
       {manage ? null : (
         <p className="os-note">

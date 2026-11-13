@@ -5,6 +5,8 @@ import { OrgGeneralSettings } from "@/components/org-settings/general";
 import { getContext, getSession } from "@/lib/auth/server";
 import { ORG_SETTINGS } from "@/lib/data";
 import { type Org, identity, isApiError } from "@/lib/identity";
+import type { SearchParams } from "@/lib/pagination";
+import { PROJECT_SLUG } from "@/lib/project-general";
 import { findOrg } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 
@@ -23,15 +25,17 @@ async function loadOrg(slug: string, next: string): Promise<Org> {
 }
 
 // Organization scope: no project in the breadcrumb. General settings and the danger zone (#347).
-export default async function OrgSettingsPage({ params }: { params: Promise<{ org: string }> }) {
+export default async function OrgSettingsPage({ params, searchParams }: { params: Promise<{ org: string }>; searchParams: Promise<SearchParams> }) {
   const { org } = await params;
+  // `?deleted=<slug>`: a project's danger zone (#821) landed here after deleting it.
+  const { deleted } = await searchParams;
   const next = `/orgs/${org}/settings`;
   const context = await getContext(next);
   if (!findOrg(context, org)) notFound();
   const detail = await loadOrg(org, next);
   return (
     <AppShell context={context} org={org} view="settings">
-      <OrgGeneralSettings org={detail} />
+      <OrgGeneralSettings org={detail} deletedProject={typeof deleted === "string" && PROJECT_SLUG.test(deleted) ? deleted : null} />
     </AppShell>
   );
 }
