@@ -37,7 +37,13 @@ const (
 	maxEmailLen = 320
 	// invitationTokenBytes is the entropy of an invitation token.
 	invitationTokenBytes = 32
+	// MaxProjectGrants bounds the project roles one invitation carries.
+	MaxProjectGrants = 20
 )
+
+// ProjectRoles are the project roles an invitation may carry (D1 in #753),
+// lowest first.
+var ProjectRoles = []string{"viewer", "editor", "admin"}
 
 // InviteRoles are the roles an invitation may grant: owner is only ever
 // transferred, never invited.
@@ -84,6 +90,23 @@ type Invite struct {
 	Role  string
 }
 
+// ProjectGrant is a project role an invitation carries; the invitee gets it
+// when they accept. The caller has checked the inviter's manage_access on
+// the project.
+type ProjectGrant struct {
+	ProjectID uuid.UUID
+	Role      string
+}
+
+// InvitationProject is a project role an invitation carries, with the
+// project's slug and name.
+type InvitationProject struct {
+	ID   uuid.UUID
+	Slug string
+	Name string
+	Role string
+}
+
 // Invitation is a pending invitation to an organization.
 type Invitation struct {
 	ID           uuid.UUID
@@ -95,6 +118,9 @@ type Invitation struct {
 	CreatedAt    time.Time
 	ExpiresAt    time.Time
 	ResentAt     *time.Time
+	// Projects are the project roles the invitation carries, by project
+	// name; grants on deleted projects are left out.
+	Projects []InvitationProject
 }
 
 // InviteResult is the outcome of one address of an Invite call; Invitation
@@ -137,13 +163,23 @@ func NormalizeInviteEmail(addr string) (string, bool) {
 // Invite invites each address to the organization slug on behalf of user,
 // who must be an owner or admin. Addresses of members are skipped
 // (InviteAlreadyMember); an address with a pending invitation gets a new one
-// in its place (InviteReplaced). Each sent invitation is emailed and audited
-// as invitation.sent. One result is returned per address, in order. More
-// than MaxInvites addresses, an invalid address or a role outside
-// InviteRoles is ErrInvalid and invites nobody.
-func (s *InvitationService) Invite(ctx context.Context, user uuid.UUID, slug string, invites []Invite) ([]InviteResult, error) {
-	if len(invites) == 0 || len(invites) > MaxInvites {
+// in its place (InviteReplaced). Each sent invitation carries grants (the
+// caller has checked user's manage_access on each project), is emailed and
+// audited as invitation.sent. One result is returned per address, in order.
+// More than MaxInvites addresses, more than MaxProjectGrants grants, a
+// project named twice, an invalid address or a role outside InviteRoles or
+// ProjectRoles is ErrInvalid; a project that is not an active project of
+// the organization is ErrForbidden. Either invites nobody.
+func (s *InvitationService) Invite(ctx context.Context, user uuid.UUID, slug string, invites []Invite, grants []ProjectGrant) ([]InviteResult, error) {
+	if len(invites) == 0 || len(invites) > MaxInvites || len(grants) > MaxProjectGrants {
 		return nil, ErrInvalid
+	}
+	projectIDs := make([]uuid.UUID, 0, len(grants))
+	for _, g := range grants {
+		if !slices.Contains(ProjectRoles, g.Role) || slices.Contains(projectIDs, g.ProjectID) {
+			return nil, ErrInvalid
+		}
+		projectIDs = append(projectIDs, g.ProjectID)
 	}
 	clean := make([]Invite, len(invites))
 	for i, in := range invites {
@@ -170,6 +206,10 @@ func (s *InvitationService) Invite(ctx context.Context, user uuid.UUID, slug str
 	if err != nil {
 		return nil, err
 	}
+	projects, err := grantProjects(ctx, q, org.ID, grants)
+	if err != nil {
+		return nil, err
+	}
 	seen := make(map[string]bool, len(clean))
 	out := make([]InviteResult, 0, len(clean))
 	for _, in := range clean {
@@ -186,6 +226,9 @@ func (s *InvitationService) Invite(ctx context.Context, user uuid.UUID, slug str
 		if member {
 			out = append(out, InviteResult{Email: in.Email, Status: InviteAlreadyMember})
 			continue
+		}
+		if err := q.DeletePendingInvitationProjectGrantsByEmail(ctx, db.DeletePendingInvitationProjectGrantsByEmailParams{OrgID: org.ID, Email: in.Email}); err != nil {
+			return nil, fmt.Errorf("orgs: drop replaced invitation grants: %w", err)
 		}
 		replaced, err := q.RevokePendingInvitationByEmail(ctx, db.RevokePendingInvitationByEmailParams{OrgID: org.ID, Email: in.Email})
 		if err != nil {
@@ -207,7 +250,12 @@ func (s *InvitationService) Invite(ctx context.Context, user uuid.UUID, slug str
 		if err != nil {
 			return nil, fmt.Errorf("orgs: create invitation: %w", err)
 		}
-		if err := s.send(ctx, tx, user, org, inviter, row.ID, row.Email, row.Role, raw, row.ExpiresAt, false); err != nil {
+		for _, p := range projects {
+			if err := q.CreateInvitationProjectGrant(ctx, db.CreateInvitationProjectGrantParams{InvitationID: row.ID, ProjectID: p.ID, Role: p.Role}); err != nil {
+				return nil, fmt.Errorf("orgs: create invitation grant: %w", err)
+			}
+		}
+		if err := s.send(ctx, tx, user, org, inviter, row.ID, row.Email, row.Role, raw, row.ExpiresAt, projects, false); err != nil {
 			return nil, err
 		}
 		status := InviteSent
@@ -215,6 +263,7 @@ func (s *InvitationService) Invite(ctx context.Context, user uuid.UUID, slug str
 			status = InviteReplaced
 		}
 		inv := invitation(row, inviter)
+		inv.Projects = projects
 		out = append(out, InviteResult{Email: in.Email, Status: status, Invitation: &inv})
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -255,6 +304,93 @@ func (s *InvitationService) Pending(ctx context.Context, user uuid.UUID, slug st
 			ExpiresAt:    r.ExpiresAt,
 			ResentAt:     r.ResentAt,
 		})
+	}
+	return out, withProjects(ctx, q, out)
+}
+
+// ProjectPending lists the pending invitations that carry a role on
+// project, newest first, including expired ones that can still be resent.
+// The caller has checked manage_access on the project.
+func (s *InvitationService) ProjectPending(ctx context.Context, project uuid.UUID) ([]Invitation, error) {
+	q := db.New(s.pool)
+	rows, err := q.ListProjectPendingInvitations(ctx, project)
+	if err != nil {
+		return nil, fmt.Errorf("orgs: list project invitations: %w", err)
+	}
+	out := make([]Invitation, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, Invitation{
+			ID:           r.ID,
+			Email:        r.Email,
+			Role:         r.Role,
+			InvitedBy:    r.InvitedBy,
+			InviterEmail: deref(r.InviterEmail),
+			InviterName:  deref(r.InviterName),
+			CreatedAt:    r.CreatedAt,
+			ExpiresAt:    r.ExpiresAt,
+			ResentAt:     r.ResentAt,
+		})
+	}
+	return out, withProjects(ctx, q, out)
+}
+
+// withProjects fills the Projects of each invitation.
+func withProjects(ctx context.Context, q *db.Queries, list []Invitation) error {
+	if len(list) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, len(list))
+	for i, inv := range list {
+		ids[i] = inv.ID
+	}
+	byInvitation, err := invitationProjects(ctx, q, ids...)
+	if err != nil {
+		return err
+	}
+	for i := range list {
+		list[i].Projects = byInvitation[list[i].ID]
+	}
+	return nil
+}
+
+// invitationProjects returns the project roles of the invitations ids, by
+// invitation; an invitation without one maps to an empty slice.
+func invitationProjects(ctx context.Context, q *db.Queries, ids ...uuid.UUID) (map[uuid.UUID][]InvitationProject, error) {
+	rows, err := q.ListInvitationProjectGrants(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("orgs: list invitation grants: %w", err)
+	}
+	out := make(map[uuid.UUID][]InvitationProject, len(ids))
+	for _, id := range ids {
+		out[id] = []InvitationProject{}
+	}
+	for _, r := range rows {
+		out[r.InvitationID] = append(out[r.InvitationID], InvitationProject{ID: r.ProjectID, Slug: r.ProjectSlug, Name: r.ProjectName, Role: r.Role})
+	}
+	return out, nil
+}
+
+// grantProjects resolves grants to active projects of org, in grant order.
+// A project that is not one is ErrForbidden.
+func grantProjects(ctx context.Context, q *db.Queries, org uuid.UUID, grants []ProjectGrant) ([]InvitationProject, error) {
+	out := make([]InvitationProject, 0, len(grants))
+	if len(grants) == 0 {
+		return out, nil
+	}
+	ids := make([]uuid.UUID, len(grants))
+	for i, g := range grants {
+		ids[i] = g.ProjectID
+	}
+	rows, err := q.ListOrgActiveProjectsByID(ctx, db.ListOrgActiveProjectsByIDParams{OrgID: org, Ids: ids})
+	if err != nil {
+		return nil, fmt.Errorf("orgs: get granted projects: %w", err)
+	}
+	for _, g := range grants {
+		i := slices.IndexFunc(rows, func(r db.ListOrgActiveProjectsByIDRow) bool { return r.ID == g.ProjectID })
+		if i < 0 {
+			return nil, ErrForbidden
+		}
+		out = append(out, InvitationProject{ID: g.ProjectID, Slug: rows[i].Slug, Name: rows[i].Name, Role: g.Role})
 	}
 	return out, nil
 }
@@ -300,10 +436,15 @@ func (s *InvitationService) Resend(ctx context.Context, user uuid.UUID, slug str
 	if err != nil {
 		return Invitation{}, fmt.Errorf("orgs: resend invitation: %w", err)
 	}
-	if err := s.send(ctx, tx, user, org, inviter, row.ID, row.Email, row.Role, raw, row.ExpiresAt, true); err != nil {
+	projects, err := invitationProjects(ctx, q, row.ID)
+	if err != nil {
+		return Invitation{}, err
+	}
+	if err := s.send(ctx, tx, user, org, inviter, row.ID, row.Email, row.Role, raw, row.ExpiresAt, projects[row.ID], true); err != nil {
 		return Invitation{}, err
 	}
 	inv := invitation(row, inviter)
+	inv.Projects = projects[row.ID]
 	if row.InvitedBy != nil && *row.InvitedBy != user {
 		// Resent by someone other than the original inviter, who stays the
 		// invitation's inviter.
@@ -340,8 +481,9 @@ func (s *InvitationService) notResent(ctx context.Context, q *db.Queries, org, i
 }
 
 // Revoke revokes the pending invitation id of the organization slug on
-// behalf of user, who must be an owner or admin; its link stops working.
-// invitation.revoked is recorded in the same transaction.
+// behalf of user, who must be an owner or admin; its link stops working and
+// the project roles it carried are dropped. invitation.revoked is recorded
+// in the same transaction.
 func (s *InvitationService) Revoke(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -366,6 +508,9 @@ func (s *InvitationService) Revoke(ctx context.Context, user uuid.UUID, slug str
 	if err != nil {
 		return fmt.Errorf("orgs: revoke invitation: %w", err)
 	}
+	if err := q.DeleteInvitationProjectGrants(ctx, inv.ID); err != nil {
+		return fmt.Errorf("orgs: drop invitation grants: %w", err)
+	}
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
 		Actor:   &user,
 		Kind:    audit.InvitationRevoked,
@@ -382,11 +527,21 @@ func (s *InvitationService) Revoke(ctx context.Context, user uuid.UUID, slug str
 	return nil
 }
 
-// send enqueues the invitation email in tx and audits invitation.sent.
-func (s *InvitationService) send(ctx context.Context, tx pgx.Tx, actor uuid.UUID, org db.LockMemberOrganizationRow, inviter db.GetOrgMemberRow, id uuid.UUID, to, role, token string, expires time.Time, resent bool) error {
+// send enqueues the invitation email in tx and audits invitation.sent. The
+// email names the project when the invitation carries exactly one project
+// role.
+func (s *InvitationService) send(ctx context.Context, tx pgx.Tx, actor uuid.UUID, org db.LockMemberOrganizationRow, inviter db.GetOrgMemberRow, id uuid.UUID, to, role, token string, expires time.Time, projects []InvitationProject, resent bool) error {
 	name := inviter.Name
 	if strings.TrimSpace(name) == "" {
 		name = inviter.Email
+	}
+	var project, projectRole string
+	if len(projects) == 1 {
+		project, projectRole = projects[0].Name, projects[0].Role
+	}
+	grants := make([]map[string]any, len(projects))
+	for i, p := range projects {
+		grants[i] = map[string]any{"project_id": p.ID.String(), "slug": p.Slug, "role": p.Role}
 	}
 	if _, err := s.jobs.InsertTx(ctx, tx, email.SendArgs{
 		To:       to,
@@ -397,6 +552,9 @@ func (s *InvitationService) send(ctx context.Context, tx pgx.Tx, actor uuid.UUID
 			"role":       role,
 			"token":      token,
 			"expires_at": expires.UTC().Format(time.RFC3339),
+			// Empty unless the invitation carries exactly one project role.
+			"project":      project,
+			"project_role": projectRole,
 		},
 	}, nil); err != nil {
 		return fmt.Errorf("orgs: enqueue invitation email: %w", err)
@@ -408,7 +566,7 @@ func (s *InvitationService) send(ctx context.Context, tx pgx.Tx, actor uuid.UUID
 		Target: audit.Target{Type: "invitation", ID: id.String(), Label: to},
 		Meta: map[string]any{
 			"org_id": org.ID.String(), "slug": org.Slug, "invitation_id": id.String(),
-			"email": to, "role": role, "resent": resent,
+			"email": to, "role": role, "resent": resent, "project_grants": grants,
 		},
 	})
 }

@@ -1,8 +1,9 @@
-{{- /* Data: org, inviter, role, token, expires_at. */ -}}
-{{define "subject"}}{{.inviter}} invited you to join {{.org}} on APILens{{end -}}
+{{- /* Data: org, inviter, role, token, expires_at, project and project_role (both empty unless the invitation carries exactly one project role). */ -}}
+{{define "subject"}}{{if .project}}{{.inviter}} invited you to {{.project}} in {{.org}} on APILens{{else}}{{.inviter}} invited you to join {{.org}} on APILens{{end}}{{end -}}
 {{template "layout" .}}
 {{- define "content" -}}
-{{.inviter}} invited you to join the {{.org}} organization on APILens with the {{.role}} role.
+{{.inviter}} invited you to join the {{.org}} organization on APILens with the {{.role}} role
+{{- if .project}}, and the {{.project}} project with the {{.project_role}} role{{end}}.
 
 Accept the invitation:
 {{link (print "/invite/" (seg .token))}}

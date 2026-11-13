@@ -74,6 +74,6 @@ func Register(api huma.API, d Deps) {
 	NewAccess(d.Access, guard, d.Logger).WithRecentAuth(d.SensitiveActionMaxAge).Register(api)
 	NewAuditEvents(d.Audit, guard, d.Guard, d.Logger).WithRetention(d.AuditRetentionDays).Register(api)
 	NewContext(d.Context, d.Logger).Register(api)
-	NewInvitations(d.Invitations, d.Logger).Register(api)
+	NewInvitations(d.Invitations, d.Logger).WithAuthorizer(guard).Register(api)
 	NewSSOConnections(d.SSO, d.Guard, d.Issuer, d.Logger).Register(api)
 }

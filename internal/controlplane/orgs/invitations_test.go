@@ -43,7 +43,22 @@ func TestInviteValidatesBeforeTouchingTheDatabase(t *testing.T) {
 		"bad role":  {{Email: "a@example.com", Role: "superuser"}},
 		"bad email": {ok, {Email: "nope", Role: RoleMember}},
 	} {
-		if _, err := s.Invite(context.Background(), uuid.New(), "acme", in); !errors.Is(err, ErrInvalid) {
+		if _, err := s.Invite(context.Background(), uuid.New(), "acme", in, nil); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v, want ErrInvalid", name, err)
+		}
+	}
+	project := uuid.New()
+	tooMany := make([]ProjectGrant, MaxProjectGrants+1)
+	for i := range tooMany {
+		tooMany[i] = ProjectGrant{ProjectID: uuid.New(), Role: "viewer"}
+	}
+	for name, grants := range map[string][]ProjectGrant{
+		"too many grants":     tooMany,
+		"org role":            {{ProjectID: project, Role: RoleMember}},
+		"unknown role":        {{ProjectID: project, Role: "owner"}},
+		"project named twice": {{ProjectID: project, Role: "viewer"}, {ProjectID: project, Role: "admin"}},
+	} {
+		if _, err := s.Invite(context.Background(), uuid.New(), "acme", []Invite{ok}, grants); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: %v, want ErrInvalid", name, err)
 		}
 	}

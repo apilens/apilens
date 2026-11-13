@@ -428,6 +428,21 @@ to the org keeps their role. It is idempotent: accepting a used invitation
 again answers the org with `joined: false` while the user is still a member.
 Both live under `/api/v1/auth`, so the identity role serves them.
 
+An invitation can also carry project roles (D4 in #753):
+`POST …/invitations` takes `project_grants: [{project, role}]` (at most 20,
+`admin`/`editor`/`viewer`), stored in `invitation_project_grants` and applied
+to every invitation of the request. The inviter needs `manage_access` on each
+project (SpiceDB); a project they cannot manage, one of another org or one
+that does not exist answers `forbidden` and invites nobody. Lists answer
+`project_grants` per invitation, the public lookup only the project names
+and roles (`projects: [{name, role}]`), and the email names the project when
+there is exactly one. Accepting creates the membership and a direct project
+role for each grant in the same transaction (`membership.upserted` and
+`project_member.upserted`; a higher direct role the user already has is
+kept). Revoking or replacing an invitation deletes its grants.
+`GET /api/v1/projects/{slug}/invitations` (`manage_access`) lists the pending
+invitations that carry a role on the project.
+
 ## Tokens and sessions
 
 ### Access token

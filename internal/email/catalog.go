@@ -21,7 +21,9 @@ const (
 	// TemplateNewSignin: device, ip, time. Links to the Sessions page.
 	TemplateNewSignin = "new_signin"
 	// TemplateInvitation: org, inviter, role, token (for /invite/{token}),
-	// expires_at.
+	// expires_at, project and project_role (the project's name and role
+	// when the invitation carries exactly one project role, else both
+	// empty).
 	TemplateInvitation = "invitation"
 	// TemplateSecurityChange: change (one of the SecurityChange values),
 	// device, ip, time. Links to the Security page.
