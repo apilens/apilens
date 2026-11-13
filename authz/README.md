@@ -19,7 +19,7 @@ Code checks permissions only through `internal/authz.Client` (`Check`, `CheckBul
 | --- | --- | --- |
 | `organization` | `owner`, `admin`, `member`, `viewer` | Org membership (one role per user) |
 | `project` | `org` | The project's organization |
-| `project` | `admin`, `editor`, `viewer` | Optional sharing of a single project |
+| `project` | `admin`, `editor`, `viewer` | A direct project role (`project_members`), granted on Access › Members or by an invitation |
 | `project` | `default_editor` (subject `organization#member`), `default_viewer` (subjects `organization#member`, `organization#viewer`) | The project's default access ([ADR 0009](../docs/adr/0009-project-access.md)) |
 
 Org owners and org admins are Admin on every project (`org->manage`). Everyone else in the org gets what the project's default access says, written as default relations:
@@ -31,6 +31,25 @@ Org owners and org admins are Admin on every project (`org->manage`). Everyone e
 | `none` (restricted) | none | nothing (`view` false) | nothing (`view` false) |
 
 Direct project roles add to that; the highest grant wins. They never grant anything on the org or on other projects. The relay writes the `org_role` relations when a project is created and moves them with the project; a project with no default relations is restricted.
+
+### Project roles at a glance
+
+The target matrix of #753 (D1), which the tables below spell out per
+permission:
+
+| Action | Viewer | Editor | Admin |
+| --- | :-: | :-: | :-: |
+| See data, settings, members, key names and prefixes (`view`) | ✓ | ✓ | ✓ |
+| Edit general settings, environments, privacy policy (`edit`) | | ✓ | ✓ |
+| Create, rotate and revoke API keys (`manage_keys`) | | ✓ | ✓ |
+| Capture policy, alert rules and channels, health checks (`manage_capture`, `manage_alerts`) | | | ✓ |
+| Manage access: grant, change role, remove, default access (`manage_access`) | | | ✓ |
+| Read the activity log (`view_audit`) | | | ✓ |
+| Danger zone: pause, rename slug, delete (`delete`) | | | ✓ |
+
+Org owners and org admins are Admin on every project. Restoring a deleted
+project is an organization operation (`organization#manage`), because a
+deleted project has no relationships left ([project lifecycle](../docs/architecture/project-lifecycle.md)).
 
 ## Role → action mapping
 
@@ -51,11 +70,13 @@ The UI gates on the `Action` vocabulary (`docs/architecture/identity.md`, mirror
 | `members.remove` | `organization#manage_members` | ✓ | ✓ | | | | | |
 | `billing.manage` | `organization#manage_billing` | ✓ | | | | | | |
 
+`project#delete` gates the whole danger zone: deleting the project, pausing and resuming its ingest and renaming its slug.
+
 The org-level permissions are not part of the UI vocabulary. They gate the org screens:
 
 | Permission | Org owner | Org admin | Org member | Org viewer |
 | --- | :-: | :-: | :-: | :-: |
-| `organization#manage` (org settings) | ✓ | ✓ | | |
+| `organization#manage` (org settings, the org audit log, listing and restoring deleted projects) | ✓ | ✓ | | |
 | `organization#create_project` | ✓ | ✓ | ✓ | |
 | `organization#view` | ✓ | ✓ | ✓ | ✓ |
 
@@ -83,7 +104,7 @@ Typed API operations on one organization or project declare their permission wit
 
 API keys only ever satisfy `project#view` on their own project; OAuth clients hold no grants. Handlers read the resolved ids with `authz.TargetFromContext`.
 
-Operations under `/api/v1/projects/{slug}` (no `{org}` in the path) check in the handler with `guard.AuthorizeProject`, which gives the same answers, and pass the resolved project id to the service; services never check roles themselves (#770). Projects, environments and the privacy policy: `view` to read, `edit` to change, `delete` to delete. API keys: `view` to list, `manage_keys` to create, change and revoke. `GET /api/v1/orgs/{slug}/projects` needs `organization#view` and lists only the projects the caller can `view`; the `role` of a project in the API is the caller's effective project role (`admin` ⇔ `manage_access`, `editor` ⇔ `edit`, `viewer` ⇔ `view`, answered by one `CheckBulk`).
+Operations under `/api/v1/projects/{slug}` (no `{org}` in the path) check in the handler with `guard.AuthorizeProject`, which gives the same answers, and pass the resolved project id to the service; services never check roles themselves (#770). Projects, environments and the privacy policy: `view` to read, `edit` to change, `delete` to delete, pause, resume and rename the slug. API keys: `view` to list, `manage_keys` to create, change, rotate and revoke. Project access: `view` to list who has access, `manage_access` to grant, change and remove roles and to set the default access. Audit events: `view_audit` on the project, `organization#manage` for the org log. `GET /api/v1/orgs/{slug}/projects` needs `organization#view` and lists only the projects the caller can `view`; the `role` of a project in the API is the caller's effective project role (`admin` ⇔ `manage_access`, `editor` ⇔ `edit`, `viewer` ⇔ `view`, answered by one `CheckBulk`).
 
 ## Changing the schema
 
