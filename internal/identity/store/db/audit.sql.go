@@ -14,8 +14,16 @@ import (
 )
 
 const insertAuditEvent = `-- name: InsertAuditEvent :one
-INSERT INTO audit_events (user_id, actor_user_id, event, ip, user_agent, metadata)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO audit_events (
+    user_id, actor_user_id, event, ip, user_agent, metadata,
+    org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label
+)
+VALUES (
+    $1, $2, $3, $4, $5, $6,
+    $7, $8, $9, $10,
+    $11, $12, $13,
+    (SELECT COALESCE(NULLIF(u.name, ''), u.email::text) FROM users u WHERE u.id = $2)
+)
 RETURNING id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at, org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label
 `
 
@@ -26,9 +34,18 @@ type InsertAuditEventParams struct {
 	Ip          *netip.Addr
 	UserAgent   string
 	Metadata    []byte
+	OrgID       *uuid.UUID
+	ProjectID   *uuid.UUID
+	TargetType  *string
+	TargetID    *string
+	TargetLabel *string
+	RequestID   *string
+	Changes     []byte
 }
 
-// Records a security-relevant event about a user's account.
+// Records a security-relevant event, scoped to an organization and project
+// when it belongs to one. actor_label is the actor's name (or email) now, so
+// the row stays readable after the actor is purged.
 func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) (AuditEvent, error) {
 	row := q.db.QueryRow(ctx, insertAuditEvent,
 		arg.UserID,
@@ -37,6 +54,13 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventPara
 		arg.Ip,
 		arg.UserAgent,
 		arg.Metadata,
+		arg.OrgID,
+		arg.ProjectID,
+		arg.TargetType,
+		arg.TargetID,
+		arg.TargetLabel,
+		arg.RequestID,
+		arg.Changes,
 	)
 	var i AuditEvent
 	err := row.Scan(

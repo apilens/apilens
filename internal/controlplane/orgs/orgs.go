@@ -146,10 +146,13 @@ func (s *Service) create(ctx context.Context, owner uuid.UUID, name, slug string
 		return Org{}, err
 	}
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
-		User:  &owner,
-		Actor: &owner,
-		Kind:  audit.OrgCreated,
-		Meta:  map[string]any{"org_id": o.ID.String(), "slug": o.Slug},
+		User:    &owner,
+		Actor:   &owner,
+		Kind:    audit.OrgCreated,
+		Org:     &o.ID,
+		Target:  orgTarget(o.ID, o.Name),
+		Changes: &audit.Changes{Next: map[string]any{"slug": o.Slug, "name": o.Name}},
+		Meta:    map[string]any{"org_id": o.ID.String(), "slug": o.Slug},
 	}); err != nil {
 		return Org{}, err
 	}

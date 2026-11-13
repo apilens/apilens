@@ -176,9 +176,11 @@ func (s *InvitationService) Accept(ctx context.Context, user uuid.UUID, token st
 		return AcceptedInvitation{}, fmt.Errorf("orgs: get membership: %w", err)
 	}
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
-		User:  &user,
-		Actor: &user,
-		Kind:  audit.InvitationAccepted,
+		User:   &user,
+		Actor:  &user,
+		Kind:   audit.InvitationAccepted,
+		Org:    &o.ID,
+		Target: audit.Target{Type: "invitation", ID: inv.ID.String(), Label: u.Email},
 		Meta: map[string]any{
 			"org_id": o.ID.String(), "slug": o.Slug, "invitation_id": inv.ID.String(),
 			"role": org.Role, "invited_role": inv.Role, "joined": joined,

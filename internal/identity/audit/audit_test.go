@@ -53,6 +53,13 @@ const (
 	argIP
 	argUserAgent
 	argMeta
+	argOrg
+	argProject
+	argTargetType
+	argTargetID
+	argTargetLabel
+	argRequestID
+	argChanges
 )
 
 func TestRecordTakesIPAndUserAgentFromRequestContext(t *testing.T) {

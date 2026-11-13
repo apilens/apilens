@@ -38,7 +38,8 @@ type Auditor interface {
 // NewApp describes an app to create.
 type NewApp struct {
 	ProjectID uuid.UUID
-	Slug      string // must satisfy ValidSlug
+	OrgID     uuid.UUID // the project's organization, for the audit event
+	Slug      string    // must satisfy ValidSlug
 	Name      string
 	Origin    string     // OriginSDK or OriginDashboard
 	KeyID     *uuid.UUID // the ingest key whose data created it (OriginSDK)
@@ -92,7 +93,12 @@ func Insert(ctx context.Context, tx pgx.Tx, auditor Auditor, a NewApp) (id uuid.
 		if a.KeyID != nil {
 			meta["key_id"] = a.KeyID.String()
 		}
-		if err := auditor.Record(audit.WithTx(ctx, tx), audit.Event{User: a.Actor, Actor: a.Actor, Kind: audit.AppCreated, Meta: meta}); err != nil {
+		if err := auditor.Record(audit.WithTx(ctx, tx), audit.Event{
+			User: a.Actor, Actor: a.Actor, Kind: audit.AppCreated,
+			Org: orgRef(a.OrgID), Project: &a.ProjectID, Target: appTarget(row.ID, row.Name),
+			Changes: &audit.Changes{Next: map[string]any{"slug": row.Slug, "name": row.Name, "default": a.Default}},
+			Meta:    meta,
+		}); err != nil {
 			return uuid.Nil, false, err
 		}
 	}
@@ -182,7 +188,7 @@ func (p *Provisioner) tx(ctx context.Context, projectID uuid.UUID, fn func(q *db
 func (p *Provisioner) Create(ctx context.Context, projectID, keyID uuid.UUID, slug, name string) (uuid.UUID, bool, error) {
 	var id uuid.UUID
 	var created bool
-	err := p.tx(ctx, projectID, func(q *db.Queries, tx pgx.Tx, _ db.LockProjectByIDRow) error {
+	err := p.tx(ctx, projectID, func(q *db.Queries, tx pgx.Tx, project db.LockProjectByIDRow) error {
 		now := p.now()
 		existing, err := q.GetActiveAppBySlug(ctx, db.GetActiveAppBySlugParams{ProjectID: projectID, Slug: slug})
 		if err == nil {
@@ -220,7 +226,7 @@ func (p *Provisioner) Create(ctx context.Context, projectID, keyID uuid.UUID, sl
 		}
 		key := keyID
 		id, created, err = Insert(ctx, tx, p.audit, NewApp{
-			ProjectID: projectID, Slug: slug, Name: name, Origin: OriginSDK, KeyID: &key, Now: now,
+			ProjectID: projectID, OrgID: project.OrgID, Slug: slug, Name: name, Origin: OriginSDK, KeyID: &key, Now: now,
 		})
 		return err
 	})
@@ -256,7 +262,7 @@ func (p *Provisioner) EnsureDefault(ctx context.Context, projectID uuid.UUID) (u
 		}
 		var err error
 		id, _, err = Insert(ctx, tx, p.audit, NewApp{
-			ProjectID: projectID, Slug: DefaultSlug, Name: "Default", Origin: OriginSDK, Default: true, Now: p.now(),
+			ProjectID: projectID, OrgID: project.OrgID, Slug: DefaultSlug, Name: "Default", Origin: OriginSDK, Default: true, Now: p.now(),
 		})
 		return err
 	})
@@ -267,7 +273,7 @@ func (p *Provisioner) EnsureDefault(ctx context.Context, projectID uuid.UUID) (u
 // app.restored with by=sdk. An app that is not archived (or was merged into
 // another) is left alone.
 func (p *Provisioner) Unarchive(ctx context.Context, projectID, appID, keyID uuid.UUID) error {
-	return p.tx(ctx, projectID, func(q *db.Queries, tx pgx.Tx, _ db.LockProjectByIDRow) error {
+	return p.tx(ctx, projectID, func(q *db.Queries, tx pgx.Tx, project db.LockProjectByIDRow) error {
 		row, err := q.UnarchiveApp(ctx, appID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -278,8 +284,23 @@ func (p *Provisioner) Unarchive(ctx context.Context, projectID, appID, keyID uui
 		if p.audit == nil {
 			return nil
 		}
-		return p.audit.Record(audit.WithTx(ctx, tx), audit.Event{Kind: audit.AppRestored, Meta: map[string]any{
-			"project_id": projectID.String(), "app_id": row.ID.String(), "slug": row.Slug, "by": OriginSDK, "key_id": keyID.String(),
-		}})
+		return p.audit.Record(audit.WithTx(ctx, tx), audit.Event{
+			Kind: audit.AppRestored, Org: &project.OrgID, Project: &projectID, Target: appTarget(row.ID, row.Name),
+			Meta: map[string]any{
+				"project_id": projectID.String(), "app_id": row.ID.String(), "slug": row.Slug, "by": OriginSDK, "key_id": keyID.String(),
+			}})
 	})
+}
+
+// appTarget is the audit target of an app event.
+func appTarget(id uuid.UUID, name string) audit.Target {
+	return audit.Target{Type: "app", ID: id.String(), Label: name}
+}
+
+// orgRef is id, or nil when it is unset.
+func orgRef(id uuid.UUID) *uuid.UUID {
+	if id == uuid.Nil {
+		return nil
+	}
+	return &id
 }

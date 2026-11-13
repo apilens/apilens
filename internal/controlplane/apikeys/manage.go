@@ -426,10 +426,16 @@ func (s *Service) CreateKey(ctx context.Context, user uuid.UUID, slug string, k 
 	meta["rate_limit_per_minute"] = intPtr(row.RateLimitPerMinute)
 	meta["environments"] = row.Environments
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
-		User:  &user,
-		Actor: &user,
-		Kind:  audit.APIKeyCreated,
-		Meta:  meta,
+		User:    &user,
+		Actor:   &user,
+		Kind:    audit.APIKeyCreated,
+		Org:     &p.OrgID,
+		Project: &p.ID,
+		Target:  keyTarget(row.ID, row.Name),
+		Changes: &audit.Changes{Next: map[string]any{
+			"name": row.Name, "prefix": row.Prefix, "scopes": row.Scopes, "app_ids": idStrings(row.AppIds), "expires_at": row.ExpiresAt,
+		}},
+		Meta: meta,
 	}); err != nil {
 		return Created{}, err
 	}
@@ -497,7 +503,21 @@ func (s *Service) UpdateAccess(ctx context.Context, user uuid.UUID, slug string,
 	meta["app_ids"] = idStrings(appIDs)
 	meta["rate_limit_per_minute"] = intPtr(limit)
 	meta["environments"] = envs
-	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{User: &user, Actor: &user, Kind: audit.APIKeyUpdated, Meta: meta}); err != nil {
+	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
+		User: &user, Actor: &user, Kind: audit.APIKeyUpdated,
+		Org: &p.OrgID, Project: &p.ID, Target: keyTarget(k.ID, k.Name),
+		Changes: &audit.Changes{
+			Previous: map[string]any{
+				"scopes": k.Scopes, "app_ids": idStrings(k.AppIds),
+				"rate_limit_per_minute": intPtr(k.RateLimitPerMinute), "environments": k.Environments,
+			},
+			Next: map[string]any{
+				"scopes": scopes, "app_ids": idStrings(appIDs),
+				"rate_limit_per_minute": intPtr(limit), "environments": envs,
+			},
+		},
+		Meta: meta,
+	}); err != nil {
 		return Key{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -593,10 +613,13 @@ func (s *Service) Revoke(ctx context.Context, user uuid.UUID, slug string, id uu
 		return fmt.Errorf("apikeys: revoke: %w", err)
 	}
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
-		User:  &user,
-		Actor: &user,
-		Kind:  audit.APIKeyRevoked,
-		Meta:  keyMeta(p, k.ID, k.Name, k.Prefix, k.Scopes),
+		User:    &user,
+		Actor:   &user,
+		Kind:    audit.APIKeyRevoked,
+		Org:     &p.OrgID,
+		Project: &p.ID,
+		Target:  keyTarget(k.ID, k.Name),
+		Meta:    keyMeta(p, k.ID, k.Name, k.Prefix, k.Scopes),
 	}); err != nil {
 		return err
 	}
@@ -628,6 +651,11 @@ func lockProject(ctx context.Context, q *db.Queries, user uuid.UUID, slug string
 		return p, ErrForbidden
 	}
 	return p, nil
+}
+
+// keyTarget is the audit target of a key event.
+func keyTarget(id uuid.UUID, name string) audit.Target {
+	return audit.Target{Type: "api_key", ID: id.String(), Label: name}
 }
 
 // keyMeta is the audit metadata of a key event. It never holds the raw key

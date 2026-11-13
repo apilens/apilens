@@ -170,7 +170,7 @@ func (s *Service) create(ctx context.Context, user uuid.UUID, orgSlug, name, slu
 	// project slug, which older install instructions told SDKs to send. It
 	// goes through apps.Insert, the code path ingest creates apps through.
 	if _, _, err := apps.Insert(ctx, tx, s.audit, apps.NewApp{
-		ProjectID: p.ID, Slug: p.Slug, Name: p.Name, Origin: apps.OriginDashboard, Default: true, Actor: &user,
+		ProjectID: p.ID, OrgID: org.ID, Slug: p.Slug, Name: p.Name, Origin: apps.OriginDashboard, Default: true, Actor: &user,
 	}); err != nil {
 		return Project{}, fmt.Errorf("projects: create default app: %w", err)
 	}
