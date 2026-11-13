@@ -45,10 +45,11 @@ const usage = `apilens — API observability platform (one binary, many roles)
 
 Usage:
   apilens [-target=all] [-config.file=path]   run roles (comma-separated targets)
-  apilens migrate [-only=postgres,clickhouse,authz]
+  apilens migrate [-only=postgres,clickhouse,authz] [-confirm-retention-change]
                                               apply Postgres (incl. River jobs) and ClickHouse
                                               migrations and the SpiceDB schema (when
-                                              authz.endpoint is set)
+                                              authz.endpoint is set); set ClickHouse TTLs from
+                                              retention.* (shortening needs the confirm flag)
   apilens seed [flags]                        create a dev org/project/app and print an ingest key,
                                               plus a dev owner (dev@example.com) and its magic link
   apilens user create -email=... -org=... [-role=member]
@@ -163,7 +164,7 @@ func runServe(ctx context.Context, args []string, stderr io.Writer, environ []st
 	}
 	// `-target=migrate` is accepted for parity with the other one-shot roles.
 	if len(cfg.Target) == 1 && cfg.Target[0] == "migrate" {
-		return migrate(ctx, cfg, logger, nil)
+		return migrate(ctx, cfg, logger, nil, false)
 	}
 	logger.Info("apilens starting", "version", buildinfo.Get().Version, "targets", cfg.Target)
 	return New(cfg, logger).Run(ctx)
@@ -173,6 +174,7 @@ func runMigrate(ctx context.Context, args []string, stderr io.Writer, environ []
 	fs := flag.NewFlagSet("apilens migrate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	only := fs.String("only", "", "comma-separated subset to apply: "+strings.Join(migrateSteps, ", ")+" (default: all)")
+	confirmRetention := fs.Bool("confirm-retention-change", false, "allow retention.* to shorten a ClickHouse TTL (deletes data older than the new period)")
 	cfg, logger, err := loadConfig(fs, args, environ, stderr)
 	if err != nil {
 		return err
@@ -183,15 +185,17 @@ func runMigrate(ctx context.Context, args []string, stderr io.Writer, environ []
 			return fmt.Errorf("migrate: unknown -only step %q (want %s)", s, strings.Join(migrateSteps, ", "))
 		}
 	}
-	return migrate(ctx, cfg, logger, steps)
+	return migrate(ctx, cfg, logger, steps, *confirmRetention)
 }
 
 // migrateSteps are the parts of `apilens migrate`, in the order they run.
 var migrateSteps = []string{"postgres", "clickhouse", "authz"}
 
-// migrate applies the selected steps (all when steps is empty). The authz
-// step writes the SpiceDB schema and is skipped when authz.endpoint is unset.
-func migrate(ctx context.Context, cfg *config.Config, logger *slog.Logger, steps []string) error {
+// migrate applies the selected steps (all when steps is empty). The
+// clickhouse step also sets the table TTLs from retention.*; shortening one
+// needs confirmRetention. The authz step writes the SpiceDB schema and is
+// skipped when authz.endpoint is unset.
+func migrate(ctx context.Context, cfg *config.Config, logger *slog.Logger, steps []string, confirmRetention bool) error {
 	want := func(step string) bool { return len(steps) == 0 || slices.Contains(steps, step) }
 	if want("postgres") {
 		pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-migrate")
@@ -209,6 +213,9 @@ func migrate(ctx context.Context, cfg *config.Config, logger *slog.Logger, steps
 	}
 	if want("clickhouse") {
 		if err := migrations.UpClickHouse(ctx, cfg.ClickHouse, logger); err != nil {
+			return err
+		}
+		if err := migrations.ApplyRetention(ctx, cfg.ClickHouse, cfg.Retention, confirmRetention, logger); err != nil {
 			return err
 		}
 	}

@@ -418,17 +418,26 @@ For a running fleet, the [remote capture policy](#remote-capture-policy) does th
 
 ## Retention
 
-Telemetry is stored in ClickHouse and deleted automatically by table TTL; there is nothing to configure and no way to extend it per project.
+Telemetry is stored in ClickHouse and deleted automatically by table TTL. Retention is set per install, not per project: every project on an install keeps data for the same periods. `GET /api/v1/projects/{project}/retention` returns, per signal, the label, the period in days, what it covers and whether the install may change it.
 
-| Data | Kept for |
-|---|---|
-| Request records (`api_requests`): headers, bodies, query strings, IPs, validation errors | **90 days** |
-| Error-trace logs (`api_logs`) and trace spans (`api_spans`) | 30 days |
-| Per-minute traffic rollups (`api_requests_1m`) | 30 days |
-| Per-hour traffic rollups (`api_requests_1h`) and deploy markers (`api_deploys`): counts and latencies only, no payloads | 400 days |
-| Consumer list (`api_consumers`): the ids and names your code passed to `set_consumer`, with first/last seen | No TTL |
+| Data | Config key | Default | Allowed |
+|---|---|---|---|
+| Request records (`api_requests`): headers, bodies, query strings, IPs, validation errors | `retention.requests` | **90 days** | 1 to 3650 |
+| Error-trace logs (`api_logs`) | `retention.logs` | 30 days | 1 to 3650 |
+| Trace spans (`api_spans`) | `retention.spans` | 30 days | 1 to 3650 |
+| Per-minute traffic rollups (`api_requests_1m`) | `retention.rollups_1m` | 30 days | 1 to 400 |
+| Per-hour traffic rollups (`api_requests_1h`): counts and latencies only, no payloads | `retention.rollups_1h` | 400 days | 30 to 3650 |
+| Deploy markers (`api_deploys`) | fixed | 400 days | |
+| Consumer list (`api_consumers`): the ids and names your code passed to `set_consumer`, with first/last seen | fixed | No TTL | |
 
-Metadata (users, projects, apps, keys, policies) lives in Postgres. Requests recorded before you tightened capture or added a pattern keep what was captured until their 90 days run out.
+### Changing retention (self-hosted)
+
+Set the keys in the config file or as environment variables (`APILENS_RETENTION__REQUESTS=180`), then run `apilens migrate`. It compares each table's TTL with the config and runs `ALTER TABLE ... MODIFY TTL` on the ones that differ.
+
+- **Lengthening** applies directly. Rows already deleted do not come back.
+- **Shortening deletes data** older than the new period. `apilens migrate` refuses it, names each table and changes nothing, until you re-run it with `-confirm-retention-change`; it then logs a warning per shortened table.
+
+Metadata (users, projects, apps, keys, policies) lives in Postgres. Requests recorded before you tightened capture or added a pattern keep what was captured until their retention period runs out.
 
 ## What APILens never does
 
