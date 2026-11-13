@@ -27,6 +27,8 @@ type Deps struct {
 	// reads the records ingest refused because of their app.
 	Apps          AppService
 	AppRejections AppRejectionReader
+	// Access reads who has access to a project and why.
+	Access AccessService
 	// Guard authorizes every operation on an organization (authz.Require);
 	// nil refuses them with authz_unavailable (fail closed).
 	Guard   *authz.Guard
@@ -61,6 +63,7 @@ func Register(api huma.API, d Deps) {
 		guard = d.Guard
 	}
 	NewApps(d.Apps, d.AppRejections, guard, d.Logger).Register(api)
+	NewAccess(d.Access, guard, d.Logger).Register(api)
 	NewContext(d.Context, d.Logger).Register(api)
 	NewInvitations(d.Invitations, d.Logger).Register(api)
 	NewSSOConnections(d.SSO, d.Guard, d.Issuer, d.Logger).Register(api)

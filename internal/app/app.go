@@ -22,6 +22,7 @@ import (
 
 	"github.com/apilens/apilens/internal/alerts"
 	"github.com/apilens/apilens/internal/authz"
+	"github.com/apilens/apilens/internal/controlplane/access"
 	controlplaneapi "github.com/apilens/apilens/internal/controlplane/api"
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
 	appsvc "github.com/apilens/apilens/internal/controlplane/apps"
@@ -489,6 +490,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Members:       orgService,
 		Apps:          appService,
 		AppRejections: appRejections,
+		Access:        access.New(a.pool),
 		Projects:      projects.New(a.pool).WithAudit(audit.New(a.pool)),
 		APIKeys:       apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger).WithMaxKeys(a.cfg.Ingest.MaxKeysPerProject),
 		Privacy:       privacy.NewService(a.pool),

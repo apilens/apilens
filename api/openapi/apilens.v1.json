@@ -158,6 +158,142 @@
         ],
         "type": "object"
       },
+      "AccessAddedBy": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "The user's name, or their email when they have not set one.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "AccessMember": {
+        "additionalProperties": false,
+        "properties": {
+          "added_at": {
+            "description": "When the direct role was granted, or when the person joined the organization without one.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "added_by": {
+            "$ref": "#/components/schemas/AccessAddedBy",
+            "description": "Who granted the direct role; absent without one, or once their account is deleted."
+          },
+          "avatar_initials": {
+            "description": "Initials of the name, or of the email's local part when no name is set.",
+            "type": "string"
+          },
+          "direct_role": {
+            "description": "The role granted directly on the project; null without a direct grant.",
+            "enum": [
+              "admin",
+              "editor",
+              "viewer"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effective_role": {
+            "description": "The highest role any source grants.",
+            "enum": [
+              "admin",
+              "editor",
+              "viewer"
+            ],
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "type": "string"
+          },
+          "last_active_at": {
+            "description": "When the person last signed in; null if never.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "sources": {
+            "description": "Every source of access, in the order org_role, default, direct.",
+            "items": {
+              "$ref": "#/components/schemas/AccessSource"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "email",
+          "avatar_initials",
+          "effective_role",
+          "sources",
+          "direct_role",
+          "added_at",
+          "last_active_at"
+        ],
+        "type": "object"
+      },
+      "AccessSource": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "description": "org_role: the organization role (owners and admins are admin on every project); default: the project's default access for org members; direct: added to the project directly.",
+            "enum": [
+              "org_role",
+              "default",
+              "direct"
+            ],
+            "type": "string"
+          },
+          "org_role": {
+            "description": "The organization role the grant comes from; absent for direct.",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "viewer"
+            ],
+            "type": "string"
+          },
+          "role": {
+            "description": "The project role this source grants.",
+            "enum": [
+              "admin",
+              "editor",
+              "viewer"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "role"
+        ],
+        "type": "object"
+      },
       "AddEnvironmentInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -6556,6 +6692,49 @@
         },
         "required": [
           "sessions"
+        ],
+        "type": "object"
+      },
+      "ListProjectAccessOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ListProjectAccessOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "default_access": {
+            "description": "What org members get without a direct grant: org_role (members edit, viewers view), viewer (everyone views), none (only org owners and admins and people added directly).",
+            "enum": [
+              "org_role",
+              "viewer",
+              "none"
+            ],
+            "type": "string"
+          },
+          "members": {
+            "description": "By email.",
+            "items": {
+              "$ref": "#/components/schemas/AccessMember"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "next_cursor": {
+            "description": "Pass as cursor for the next page; empty on the last page.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "default_access",
+          "members",
+          "next_cursor"
         ],
         "type": "object"
       },
@@ -22051,6 +22230,175 @@
           }
         ],
         "summary": "Update a project",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{slug}/access": {
+      "get": {
+        "description": "Lists every org member who can view the project with their effective role (the highest of their organization role, the project's default access and a direct grant) and each source of it, by email, with cursor pagination. On a project whose default access is `none`, org members without a direct grant are not listed. Needs `view` on the project (any member who can see it); a project the caller cannot view answers 404 `not_found`.",
+        "operationId": "list-project-access",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only people whose name or email contains this text (case-insensitive).",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Only people whose name or email contains this text (case-insensitive).",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only people with this effective role.",
+            "explode": false,
+            "in": "query",
+            "name": "role",
+            "schema": {
+              "description": "Only people with this effective role.",
+              "enum": [
+                "admin",
+                "editor",
+                "viewer"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only people with a source of this kind.",
+            "explode": false,
+            "in": "query",
+            "name": "source",
+            "schema": {
+              "description": "Only people with a source of this kind.",
+              "enum": [
+                "org_role",
+                "default",
+                "direct"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "next_cursor of the previous page; omitted means the first page.",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "next_cursor of the previous page; omitted means the first page.",
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListProjectAccessOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List who has access to a project",
         "tags": [
           "Projects"
         ]
