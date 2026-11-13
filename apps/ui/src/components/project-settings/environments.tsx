@@ -244,7 +244,7 @@ function Row({ env: e, first, last, manage, busy, pending, actions }: { env: Env
             onClick={() =>
               actions.patch(e, { is_production: !e.is_production }, e.is_production ? `${e.name} is no longer marked as production.` : `${e.name} is marked as production.`)
             }
-            aria-label={e.is_production ? `Unmark ${e.name} as production` : `Mark ${e.name} as production`}
+            aria-label={e.is_production ? `Unmark production: ${e.name}` : `Mark as production: ${e.name}`}
           >
             {e.is_production ? "Unmark production" : "Mark as production"}
           </button>

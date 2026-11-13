@@ -178,7 +178,10 @@ function DangerBody({ project, org, initial, renamedFrom }: { project: string; o
           <span id="pdz-reason">{ADMINS_ONLY}</span>
         </p>
       )}
-      <section className="os-card os-card--danger" aria-label="Danger zone actions">
+      <section className="os-card os-card--danger" aria-labelledby="pdz-title">
+        <div className="os-card__head">
+          <h2 id="pdz-title">Pause, rename or delete</h2>
+        </div>
         <div className="os-card__body pdz-rows">
           <div className="os-danger pdz-row">
             {paused ? (

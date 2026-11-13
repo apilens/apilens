@@ -98,10 +98,10 @@ test("reorders with the move buttons, and Traffic's picker follows the order wit
 test("marks an environment as production and picks its colour by name", async ({ page }) => {
   await signIn(page);
   const staging = row(page, "staging");
-  await staging.getByRole("button", { name: "Mark staging as production" }).click();
+  await staging.getByRole("button", { name: "Mark as production: staging" }).click();
   await expect(status(page)).toHaveText("staging is marked as production.");
   await expect(staging.getByText("Production", { exact: true })).toBeVisible();
-  await expect(staging.getByRole("button", { name: "Unmark staging as production" })).toBeVisible();
+  await expect(staging.getByRole("button", { name: "Unmark production: staging" })).toBeVisible();
 
   await staging.getByLabel("Colour of staging").selectOption({ label: "Teal" });
   await expect(status(page)).toHaveText("staging is teal now.");
