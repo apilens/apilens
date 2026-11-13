@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -44,7 +46,19 @@ type Resolver interface {
 	Project(ctx context.Context, slug string) (id, org uuid.UUID, err error)
 }
 
-// PGResolver resolves slugs from the control-plane tables.
+// CanonicalResolver is a Resolver that also reports a project's current
+// slug, which differs from the slug asked for when that one was retired by
+// a rename. A Guard over one announces the current slug (see
+// ContentLocation); over a plain Resolver it announces nothing.
+type CanonicalResolver interface {
+	Resolver
+	ProjectCanonical(ctx context.Context, slug string) (id, org uuid.UUID, canonical string, err error)
+}
+
+// PGResolver resolves slugs from the control-plane tables. A project slug
+// no active project uses falls back to the slugs renames retired
+// (project_slug_history), so an old slug keeps naming its project until
+// another project takes it.
 type PGResolver struct {
 	q *db.Queries
 }
@@ -66,14 +80,20 @@ func (r *PGResolver) OrgID(ctx context.Context, slug string) (uuid.UUID, error) 
 
 // Project implements Resolver.
 func (r *PGResolver) Project(ctx context.Context, slug string) (uuid.UUID, uuid.UUID, error) {
+	id, org, _, err := r.ProjectCanonical(ctx, slug)
+	return id, org, err
+}
+
+// ProjectCanonical implements CanonicalResolver.
+func (r *PGResolver) ProjectCanonical(ctx context.Context, slug string) (uuid.UUID, uuid.UUID, string, error) {
 	p, err := r.q.ResolveProjectSlug(ctx, slug)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, uuid.Nil, ErrNoResource
+		return uuid.Nil, uuid.Nil, "", ErrNoResource
 	}
 	if err != nil {
-		return uuid.Nil, uuid.Nil, fmt.Errorf("authz: resolve project: %w", err)
+		return uuid.Nil, uuid.Nil, "", fmt.Errorf("authz: resolve project: %w", err)
 	}
-	return p.ID, p.OrgID, nil
+	return p.ID, p.OrgID, p.Slug, nil
 }
 
 // GuardOptions tunes a Guard.
@@ -95,9 +115,11 @@ type Guard struct {
 	slugs    *expirable.LRU[string, target]
 }
 
-// target is a resolved organization or project.
+// target is a resolved organization or project; slug is the project's
+// current slug when the resolver reports it.
 type target struct {
 	org, project uuid.UUID
+	slug         string
 }
 
 // Target is what a Guard resolved for the request, read by handlers with
@@ -105,6 +127,10 @@ type target struct {
 type Target struct {
 	OrgID     uuid.UUID
 	ProjectID uuid.UUID // uuid.Nil for an organization resource
+	// ProjectSlug is the project's current slug when the resolver reports
+	// it (a CanonicalResolver), else "". It differs from the slug the
+	// request named when that one was retired by a rename.
+	ProjectSlug string
 }
 
 type targetKey struct{}
@@ -230,7 +256,7 @@ func (g *Guard) Require(api huma.API, resourceType string, permission Permission
 		t, err := g.authorize(ctx, p, resourceType, permission)
 		switch {
 		case err == nil:
-			c := context.WithValue(ctx.Context(), targetKey{}, Target{OrgID: t.org, ProjectID: t.project})
+			c := context.WithValue(ctx.Context(), targetKey{}, Target{OrgID: t.org, ProjectID: t.project, ProjectSlug: t.slug})
 			next(huma.WithContext(ctx, c))
 		case errors.Is(err, errHidden), errors.Is(err, ErrNoResource):
 			writeProblem(api, ctx, identity.Err(identity.CodeNotFound))
@@ -259,7 +285,11 @@ func (g *Guard) authorize(ctx huma.Context, p authn.Principal, typ string, perm 
 	if err != nil {
 		return target{}, err
 	}
-	return g.authorizeKey(ctx.Context(), p, typ, perm, key, orgSlug)
+	t, err := g.authorizeKey(ctx.Context(), p, typ, perm, key, orgSlug)
+	if err == nil && typ == TypeProject {
+		announceCanonical(ctx.Context(), key[len(typ)+1:], t.slug)
+	}
+	return t, err
 }
 
 // authorizeKey is authorize on an already-built cache key.
@@ -304,7 +334,8 @@ func (g *Guard) AuthorizeProject(ctx context.Context, p authn.Principal, slug st
 	t, err := g.authorizeKey(ctx, p, TypeProject, permission, TypeProject+":"+slug, "")
 	switch {
 	case err == nil:
-		return Target{OrgID: t.org, ProjectID: t.project}, nil
+		announceCanonical(ctx, slug, t.slug)
+		return Target{OrgID: t.org, ProjectID: t.project, ProjectSlug: t.slug}, nil
 	case errors.Is(err, errHidden):
 		return Target{}, ErrNoResource
 	case errors.Is(err, errForbidden):
@@ -341,6 +372,19 @@ func (g *Guard) slugKey(ctx huma.Context, typ string) (key, orgSlug string, err 
 	return TypeProject + ":" + project, org, nil
 }
 
+// ForgetProject drops the cached lookups of the project slugs, so the next
+// request naming one resolves it again: after a rename, the old slug then
+// reports the new canonical slug at once in this process (other processes
+// within GuardOptions.SlugTTL).
+func (g *Guard) ForgetProject(slugs ...string) {
+	if g == nil {
+		return
+	}
+	for _, s := range slugs {
+		g.slugs.Remove(TypeProject + ":" + s)
+	}
+}
+
 // resolve looks the resource up, through the cache. cached reports whether
 // the answer came from the cache.
 func (g *Guard) resolve(ctx context.Context, typ, key, orgSlug string) (t target, cached bool, err error) {
@@ -349,6 +393,8 @@ func (g *Guard) resolve(ctx context.Context, typ, key, orgSlug string) (t target
 		slug := key[len(typ)+1:]
 		if typ == TypeOrganization {
 			t.org, err = g.resolver.OrgID(ctx, slug)
+		} else if cr, ok := g.resolver.(CanonicalResolver); ok {
+			t.project, t.org, t.slug, err = cr.ProjectCanonical(ctx, slug)
 		} else {
 			t.project, t.org, err = g.resolver.Project(ctx, slug)
 		}
@@ -429,4 +475,63 @@ func writeProblem(api huma.API, ctx huma.Context, p *identity.Problem) {
 	ctx.SetHeader("Content-Type", identity.ProblemContentType)
 	ctx.SetStatus(p.Status)
 	_ = api.Marshal(ctx.BodyWriter(), identity.ProblemContentType, p)
+}
+
+// locationKey carries the *locationHook of ContentLocation.
+type locationKey struct{}
+
+// locationHook sets the Content-Location header of the request it was made
+// for, once.
+type locationHook struct {
+	ctx huma.Context
+	set bool
+}
+
+// ContentLocation is an API-wide middleware (huma.API.UseMiddleware) that
+// lets a Guard tell clients a project's current slug: when a request names a
+// project by a slug a rename retired, the Guard resolves it to the project
+// (Require and AuthorizeProject alike) and the response carries
+// `Content-Location`, the request's path and query with that slug replaced
+// by the current one, so clients can update links and redirect. It must be
+// installed before the middlewares and operations that authorize.
+func ContentLocation(ctx huma.Context, next func(huma.Context)) {
+	h := &locationHook{ctx: ctx}
+	next(huma.WithContext(ctx, context.WithValue(ctx.Context(), locationKey{}, h)))
+}
+
+// announceCanonical sets Content-Location when the request named the
+// project by requested and its current slug is canonical.
+func announceCanonical(ctx context.Context, requested, canonical string) {
+	if canonical == "" || canonical == requested {
+		return
+	}
+	h, ok := ctx.Value(locationKey{}).(*locationHook)
+	if !ok || h.set {
+		return
+	}
+	h.set = true
+	h.ctx.SetHeader("Content-Location", CanonicalLocation(h.ctx.URL(), requested, canonical))
+}
+
+// CanonicalLocation returns u's path and query with the project slug
+// requested replaced by canonical: each path segment equal to requested and
+// a `project` query parameter equal to it.
+func CanonicalLocation(u url.URL, requested, canonical string) string {
+	segs := strings.Split(u.Path, "/")
+	for i, s := range segs {
+		if s == requested {
+			segs[i] = canonical
+		}
+	}
+	out := url.URL{Path: strings.Join(segs, "/")}
+	if u.RawQuery != "" {
+		q := u.Query()
+		if q.Get("project") == requested {
+			q.Set("project", canonical)
+			out.RawQuery = q.Encode()
+		} else {
+			out.RawQuery = u.RawQuery
+		}
+	}
+	return out.String()
 }

@@ -110,23 +110,38 @@ func (q *Queries) ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]L
 }
 
 const resolveProjectSlug = `-- name: ResolveProjectSlug :one
-SELECT p.id, p.org_id
-FROM projects p
-JOIN organizations o ON o.id = p.org_id
-WHERE p.slug = $1 AND p.deleted_at IS NULL AND o.deleted_at IS NULL
+SELECT r.id, r.org_id, r.slug
+FROM (
+    SELECT p.id, p.org_id, p.slug, 0 AS rank
+    FROM projects p
+    JOIN organizations o ON o.id = p.org_id
+    WHERE p.slug = $1 AND p.deleted_at IS NULL AND o.deleted_at IS NULL
+    UNION ALL
+    SELECT p.id, p.org_id, p.slug, 1 AS rank
+    FROM project_slug_history h
+    JOIN projects p ON p.id = h.project_id
+    JOIN organizations o ON o.id = p.org_id
+    WHERE h.slug = $1 AND p.deleted_at IS NULL AND o.deleted_at IS NULL
+) r
+ORDER BY r.rank
+LIMIT 1
 `
 
 type ResolveProjectSlugRow struct {
 	ID    uuid.UUID
 	OrgID uuid.UUID
+	Slug  string
 }
 
-// Resolves an active project slug (globally unique) to its id and its
-// active organization, for authorization of /…/{project} paths.
+// Resolves a project slug (globally unique among active projects) to its
+// id, its active organization and its current (canonical) slug, for
+// authorization of /…/{project} paths. A slug no active project uses falls
+// back to project_slug_history: a renamed project's old slug resolves to it
+// until another project takes the slug.
 func (q *Queries) ResolveProjectSlug(ctx context.Context, slug string) (ResolveProjectSlugRow, error) {
 	row := q.db.QueryRow(ctx, resolveProjectSlug, slug)
 	var i ResolveProjectSlugRow
-	err := row.Scan(&i.ID, &i.OrgID)
+	err := row.Scan(&i.ID, &i.OrgID, &i.Slug)
 	return i, err
 }
 

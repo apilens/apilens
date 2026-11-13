@@ -776,6 +776,9 @@ func (a *App) useSessionAuth() {
 		api := a.server.API()
 		verifier := authn.NewSessionVerifier(src, a.cfg.Identity.Issuer, nil).WithDenylist(a.denylist)
 		api.UseMiddleware(authn.Middleware(api, verifier))
+		// Before every authorizing middleware (query's included): a request
+		// naming a project by a renamed slug answers Content-Location.
+		api.UseMiddleware(authz.ContentLocation)
 	})
 }
 

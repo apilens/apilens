@@ -561,13 +561,24 @@ func (q *Queries) LockScheduledProject(ctx context.Context, arg LockScheduledPro
 
 const projectSlugTaken = `-- name: ProjectSlugTaken :one
 SELECT EXISTS (
-    SELECT 1 FROM projects WHERE slug = $1 AND (deleted_at IS NULL OR purge_after IS NOT NULL)
+    SELECT 1 FROM projects p
+    WHERE p.slug = $1::text AND (p.deleted_at IS NULL OR p.purge_after IS NOT NULL)
+    UNION ALL
+    SELECT 1 FROM project_slug_history h
+    WHERE h.slug = $1::text AND h.retired_at > $2::timestamptz
 )
 `
 
-// Whether an active project or one awaiting purge holds the slug.
-func (q *Queries) ProjectSlugTaken(ctx context.Context, slug string) (bool, error) {
-	row := q.db.QueryRow(ctx, projectSlugTaken, slug)
+type ProjectSlugTakenParams struct {
+	Slug          string
+	ReservedAfter time.Time
+}
+
+// Whether an active project or one awaiting purge holds the slug, or a
+// rename retired it after reserved_after (project_slug_history keeps it for
+// its project).
+func (q *Queries) ProjectSlugTaken(ctx context.Context, arg ProjectSlugTakenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, projectSlugTaken, arg.Slug, arg.ReservedAfter)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -631,13 +642,22 @@ func (q *Queries) SetEnvironmentPositions(ctx context.Context, arg SetEnvironmen
 }
 
 const takenProjectSlugs = `-- name: TakenProjectSlugs :many
-SELECT slug FROM projects
-WHERE slug = ANY($1::text[]) AND (deleted_at IS NULL OR purge_after IS NOT NULL)
+SELECT p.slug FROM projects p
+WHERE p.slug = ANY($1::text[]) AND (p.deleted_at IS NULL OR p.purge_after IS NOT NULL)
+UNION
+SELECT h.slug FROM project_slug_history h
+WHERE h.slug = ANY($1::text[]) AND h.retired_at > $2::timestamptz
 `
 
-// Which of the given slugs active projects or projects awaiting purge hold.
-func (q *Queries) TakenProjectSlugs(ctx context.Context, slugs []string) ([]string, error) {
-	rows, err := q.db.Query(ctx, takenProjectSlugs, slugs)
+type TakenProjectSlugsParams struct {
+	Slugs         []string
+	ReservedAfter time.Time
+}
+
+// Which of the given slugs active projects or projects awaiting purge hold,
+// or a rename retired after reserved_after.
+func (q *Queries) TakenProjectSlugs(ctx context.Context, arg TakenProjectSlugsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, takenProjectSlugs, arg.Slugs, arg.ReservedAfter)
 	if err != nil {
 		return nil, err
 	}

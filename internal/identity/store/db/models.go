@@ -428,6 +428,12 @@ type ProjectMember struct {
 	UpdatedAt time.Time
 }
 
+type ProjectSlugHistory struct {
+	Slug      string
+	ProjectID uuid.UUID
+	RetiredAt time.Time
+}
+
 type RecoveryRequest struct {
 	ID          uuid.UUID
 	UserID      uuid.UUID

@@ -48,9 +48,23 @@ JOIN organizations o ON o.id = p.org_id
 WHERE p.id = @id AND p.deleted_at IS NULL;
 
 -- name: ResolveProjectSlug :one
--- Resolves an active project slug (globally unique) to its id and its
--- active organization, for authorization of /…/{project} paths.
-SELECT p.id, p.org_id
-FROM projects p
-JOIN organizations o ON o.id = p.org_id
-WHERE p.slug = @slug AND p.deleted_at IS NULL AND o.deleted_at IS NULL;
+-- Resolves a project slug (globally unique among active projects) to its
+-- id, its active organization and its current (canonical) slug, for
+-- authorization of /…/{project} paths. A slug no active project uses falls
+-- back to project_slug_history: a renamed project's old slug resolves to it
+-- until another project takes the slug.
+SELECT r.id, r.org_id, r.slug
+FROM (
+    SELECT p.id, p.org_id, p.slug, 0 AS rank
+    FROM projects p
+    JOIN organizations o ON o.id = p.org_id
+    WHERE p.slug = @slug AND p.deleted_at IS NULL AND o.deleted_at IS NULL
+    UNION ALL
+    SELECT p.id, p.org_id, p.slug, 1 AS rank
+    FROM project_slug_history h
+    JOIN projects p ON p.id = h.project_id
+    JOIN organizations o ON o.id = p.org_id
+    WHERE h.slug = @slug AND p.deleted_at IS NULL AND o.deleted_at IS NULL
+) r
+ORDER BY r.rank
+LIMIT 1;

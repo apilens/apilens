@@ -264,6 +264,7 @@ contains API key material, and `audit.Redact` masks secret fields as
 | `project.resumed` | ingest for a paused project is resumed (changes: `paused`) |
 | `project.deleted` | a project is deleted and scheduled for purge (changes: `purge_after`, when the purge job may remove it; the slug stays reserved until then) |
 | `project.restored` | a deleted project is restored before its purge; its access, API keys and slug come back as they were |
+| `project.slug_changed` | a project's slug is renamed (changes: `slug`); the old slug keeps leading to the project until another project takes it and is reserved for it for 30 days |
 
 ## Delivery
 

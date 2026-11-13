@@ -9,15 +9,25 @@ VALUES (@id, @org_id, @slug, @name, @description, @created_by)
 RETURNING id, org_id, slug, name, description, created_at, updated_at, created_by, repository_url;
 
 -- name: ProjectSlugTaken :one
--- Whether an active project or one awaiting purge holds the slug.
+-- Whether an active project or one awaiting purge holds the slug, or a
+-- rename retired it after reserved_after (project_slug_history keeps it for
+-- its project).
 SELECT EXISTS (
-    SELECT 1 FROM projects WHERE slug = @slug AND (deleted_at IS NULL OR purge_after IS NOT NULL)
+    SELECT 1 FROM projects p
+    WHERE p.slug = @slug::text AND (p.deleted_at IS NULL OR p.purge_after IS NOT NULL)
+    UNION ALL
+    SELECT 1 FROM project_slug_history h
+    WHERE h.slug = @slug::text AND h.retired_at > @reserved_after::timestamptz
 );
 
 -- name: TakenProjectSlugs :many
--- Which of the given slugs active projects or projects awaiting purge hold.
-SELECT slug FROM projects
-WHERE slug = ANY(@slugs::text[]) AND (deleted_at IS NULL OR purge_after IS NOT NULL);
+-- Which of the given slugs active projects or projects awaiting purge hold,
+-- or a rename retired after reserved_after.
+SELECT p.slug FROM projects p
+WHERE p.slug = ANY(@slugs::text[]) AND (p.deleted_at IS NULL OR p.purge_after IS NOT NULL)
+UNION
+SELECT h.slug FROM project_slug_history h
+WHERE h.slug = ANY(@slugs::text[]) AND h.retired_at > @reserved_after::timestamptz;
 
 -- name: ListOrgProjects :many
 SELECT id, org_id, slug, name, description, created_at, updated_at, created_by, repository_url
