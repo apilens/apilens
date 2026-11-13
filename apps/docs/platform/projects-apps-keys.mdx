@@ -161,3 +161,15 @@ Archived, merged and recently deleted apps are listed in the collapsed **Archive
 ## Dashboard sign-in
 
 The dashboard (your human account, not the telemetry) authenticates via the APILens identity service: magic-link email, passkeys, or password, with optional TOTP two-factor. API keys cannot sign in to the dashboard and dashboard sessions cannot send telemetry.
+
+## Project access
+
+Everyone in the organization gets a project role from the project's **default access**: `org_role` (the default: members edit, viewers view), `viewer` (everyone views) or `none` (only organization owners and admins and people added directly). Project admins can also give an organization member a role on one project directly (`admin`, `editor` or `viewer`); the person's role on the project is the highest of their organization role, the default access and the direct role. Through the API:
+
+| Request | What it does |
+|---|---|
+| `PUT /api/v1/projects/{slug}/members/{user_id}` with `{"role": "editor"}` | Grants or changes a direct role. The person must already be a member of the organization (`409 not_org_member`). |
+| `DELETE /api/v1/projects/{slug}/members/{user_id}` | Removes a direct role; you can remove your own. |
+| `PATCH /api/v1/projects/{slug}/access` with `{"default_access": "none"}` | Changes the default access. Add `?dry_run=true` to see how many people would lose access (`lose_access`) without changing anything. |
+
+These need a project admin who signed in less than 10 minutes ago. A project has at most **500 people added directly**; one more answers `409 member_limit_reached`. Self-hosted installs change the cap with `access.max_direct_members_per_project` (`APILENS_ACCESS__MAX_DIRECT_MEMBERS_PER_PROJECT`, default `500`, `0` for no cap).

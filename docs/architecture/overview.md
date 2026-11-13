@@ -254,6 +254,10 @@ contains API key material, and `audit.Redact` masks secret fields as
 | `health_check.deleted` | a health check is deleted |
 | `app_settings.updated` | an app's settings change (changes: `latency_threshold_ms`) |
 | `endpoint_settings.updated` | an endpoint's settings are saved (changes: `expected_status_codes`, `latency_threshold_ms`, `excluded`) |
+| `project_member.added` | a direct project role is granted to an organization member (metadata has the project and `role`) |
+| `project_member.role_changed` | a direct project role changes (metadata has `from` and `to`) |
+| `project_member.removed` | a direct project role is removed (metadata has `role` and `self` when people removed their own grant) |
+| `project.access_changed` | a project's default access for organization members changes (metadata has `from`, `to` and `lose_access`, how many people lost access) |
 
 ## Delivery
 

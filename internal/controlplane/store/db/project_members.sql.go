@@ -12,6 +12,37 @@ import (
 	"github.com/google/uuid"
 )
 
+const countProjectDefaultOnlyAccess = `-- name: CountProjectDefaultOnlyAccess :one
+SELECT count(*) FROM projects p
+JOIN memberships m ON m.org_id = p.org_id AND m.role IN ('member', 'viewer')
+JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL
+LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = m.user_id
+WHERE p.id = $1 AND pm.user_id IS NULL
+`
+
+// Org members whose only access to the project is its default access:
+// members and viewers without a direct grant. They lose access when the
+// default becomes none.
+func (q *Queries) CountProjectDefaultOnlyAccess(ctx context.Context, projectID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countProjectDefaultOnlyAccess, projectID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countProjectMembers = `-- name: CountProjectMembers :one
+SELECT count(*) FROM project_members
+WHERE project_id = $1
+`
+
+// The direct grants of a project (access.max_direct_members_per_project).
+func (q *Queries) CountProjectMembers(ctx context.Context, projectID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countProjectMembers, projectID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteProjectMember = `-- name: DeleteProjectMember :execrows
 DELETE FROM project_members
 WHERE project_id = $1 AND user_id = $2
@@ -118,7 +149,7 @@ WITH ranked AS (
     JOIN memberships m ON m.org_id = p.org_id
     JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL
     LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = m.user_id
-    WHERE p.id = $7 AND p.deleted_at IS NULL
+    WHERE p.id = $8 AND p.deleted_at IS NULL
 )
 SELECT r.user_id, r.org_role, r.joined_at, r.email, r.name, r.last_login_at,
        r.direct_role, r.added_by, r.granted_at, r.org_rank, r.default_rank, r.direct_rank,
@@ -133,16 +164,18 @@ WHERE GREATEST(r.org_rank, r.default_rank, r.direct_rank) > 0
        OR ($3::text = 'org_role' AND r.org_rank > 0)
        OR ($3::text = 'default' AND r.default_rank > 0)
        OR ($3::text = 'direct' AND r.direct_rank > 0))
-  AND ($4::text IS NULL
-       OR (r.email, r.user_id) > ($4::citext, $5::uuid))
+  AND ($4::uuid IS NULL OR r.user_id = $4::uuid)
+  AND ($5::text IS NULL
+       OR (r.email, r.user_id) > ($5::citext, $6::uuid))
 ORDER BY r.email, r.user_id
-LIMIT $6
+LIMIT $7
 `
 
 type ListProjectAccessParams struct {
 	Q             *string
 	EffectiveRank *int32
 	Source        *string
+	UserID        *uuid.UUID
 	AfterEmail    *string
 	AfterID       *uuid.UUID
 	RowLimit      int32
@@ -172,12 +205,14 @@ type ListProjectAccessRow struct {
 // role (owners and admins are admin), the project default access and a
 // direct grant. The effective rank is the highest. Filters: q (substring of
 // name or email; the caller escapes LIKE wildcards), effective_rank, source
-// (org_role, default, direct). Keyset pagination on (email, user_id).
+// (org_role, default, direct), user_id (one person). Keyset pagination on
+// (email, user_id).
 func (q *Queries) ListProjectAccess(ctx context.Context, arg ListProjectAccessParams) ([]ListProjectAccessRow, error) {
 	rows, err := q.db.Query(ctx, listProjectAccess,
 		arg.Q,
 		arg.EffectiveRank,
 		arg.Source,
+		arg.UserID,
 		arg.AfterEmail,
 		arg.AfterID,
 		arg.RowLimit,
@@ -317,6 +352,36 @@ func (q *Queries) ListUserProjectMembers(ctx context.Context, userID uuid.UUID) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockProjectAccess = `-- name: LockProjectAccess :one
+SELECT id, org_id, slug, name, default_access FROM projects
+WHERE id = $1 AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type LockProjectAccessRow struct {
+	ID            uuid.UUID
+	OrgID         uuid.UUID
+	Slug          string
+	Name          string
+	DefaultAccess string
+}
+
+// A project's organization and default access, row-locking the project so
+// the access writes of one project run one at a time (the direct member cap
+// is counted under this lock).
+func (q *Queries) LockProjectAccess(ctx context.Context, id uuid.UUID) (LockProjectAccessRow, error) {
+	row := q.db.QueryRow(ctx, lockProjectAccess, id)
+	var i LockProjectAccessRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Slug,
+		&i.Name,
+		&i.DefaultAccess,
+	)
+	return i, err
 }
 
 const setProjectDefaultAccess = `-- name: SetProjectDefaultAccess :one

@@ -104,6 +104,14 @@ const (
 	HealthCheckDeleted      Kind = "health_check.deleted"
 	AppSettingsUpdated      Kind = "app_settings.updated"
 	EndpointSettingsUpdated Kind = "endpoint_settings.updated"
+	// ProjectMemberAdded, ProjectMemberRoleChanged, ProjectMemberRemoved: a
+	// direct project role is granted, changed or removed.
+	ProjectMemberAdded       Kind = "project_member.added"
+	ProjectMemberRoleChanged Kind = "project_member.role_changed"
+	ProjectMemberRemoved     Kind = "project_member.removed"
+	// ProjectAccessChanged: a project's default access for org members
+	// changes.
+	ProjectAccessChanged Kind = "project.access_changed"
 )
 
 var kinds = []Kind{
@@ -118,6 +126,7 @@ var kinds = []Kind{
 	ProjectCreated, ProjectUpdated, EnvironmentAdded, EnvironmentUpdated, EnvironmentRemoved, PrivacyPolicyUpdated,
 	InvitationRevoked, AlertRuleCreated, AlertRuleUpdated, AlertRuleDeleted, AlertChannelCreated, AlertChannelUpdated,
 	AlertChannelDeleted, HealthCheckCreated, HealthCheckDeleted, AppSettingsUpdated, EndpointSettingsUpdated,
+	ProjectMemberAdded, ProjectMemberRoleChanged, ProjectMemberRemoved, ProjectAccessChanged,
 }
 
 // Kinds returns every known event kind, in catalogue order.

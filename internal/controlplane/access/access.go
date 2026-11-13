@@ -112,13 +112,18 @@ type Page struct {
 	NextCursor    string // "" on the last page
 }
 
-// Service reads project access.
+// Service reads and manages project access.
 type Service struct {
-	pool *pgxpool.Pool
+	pool       *pgxpool.Pool
+	audit      Auditor
+	notifier   Notifier
+	maxMembers int // 0: no cap on direct grants
 }
 
 // New returns a Service over pool.
-func New(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
+func New(pool *pgxpool.Pool) *Service {
+	return &Service{pool: pool, maxMembers: DefaultMaxDirectMembers}
+}
 
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 

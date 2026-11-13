@@ -47,6 +47,16 @@ type Config struct {
 	Exports    ExportsConfig    `koanf:"exports"`
 	Alerts     AlertsConfig     `koanf:"alerts"`
 	Retention  RetentionConfig  `koanf:"retention"`
+	Access     AccessConfig     `koanf:"access"`
+}
+
+// AccessConfig configures project access management.
+type AccessConfig struct {
+	// MaxDirectMembersPerProject bounds the people added to one project
+	// directly (project_members rows); granting one more answers
+	// member_limit_reached. Org owners and admins and people with access
+	// through the default access do not count. 0 disables it.
+	MaxDirectMembersPerProject int `koanf:"max_direct_members_per_project"`
 }
 
 // ServerConfig configures the shared HTTP server.
@@ -503,6 +513,8 @@ func Defaults() map[string]any {
 
 		"identity.sensitive_action_max_age": "10m",
 
+		"access.max_direct_members_per_project": 500,
+
 		"identity.oauth.google.client_id":     "",
 		"identity.oauth.google.client_secret": "",
 		"identity.oauth.github.client_id":     "",
@@ -660,6 +672,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Ingest.MaxKeysPerProject < 0 {
 		errs = append(errs, errors.New("ingest.max_keys_per_project must be >= 0 (0 disables)"))
+	}
+	if c.Access.MaxDirectMembersPerProject < 0 {
+		errs = append(errs, errors.New("access.max_direct_members_per_project must be >= 0 (0 disables)"))
 	}
 	if c.Ingest.KeyCacheSize <= 0 {
 		errs = append(errs, errors.New("ingest.key_cache_size must be > 0"))

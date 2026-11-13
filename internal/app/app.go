@@ -29,6 +29,7 @@ import (
 	"github.com/apilens/apilens/internal/controlplane/auditlog"
 	"github.com/apilens/apilens/internal/controlplane/capture"
 	"github.com/apilens/apilens/internal/controlplane/catalog"
+	"github.com/apilens/apilens/internal/controlplane/notify"
 	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/controlplane/privacy"
@@ -492,7 +493,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Members:       orgService,
 		Apps:          appService,
 		AppRejections: appRejections,
-		Access:        access.New(a.pool),
+		Access:        access.New(a.pool).WithAudit(audit.New(a.pool)).WithMaxDirectMembers(a.cfg.Access.MaxDirectMembersPerProject).WithNotifier(notify.New(a.jobs)),
 		Audit:         auditlog.New(a.pool, a.checker()),
 		Projects:      projects.New(a.pool).WithAudit(audit.New(a.pool)),
 		APIKeys:       apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger).WithMaxKeys(a.cfg.Ingest.MaxKeysPerProject),

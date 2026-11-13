@@ -208,6 +208,15 @@
       "AccessMember": {
         "additionalProperties": false,
         "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AccessMember.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
           "added_at": {
             "description": "When the direct role was granted, or when the person joined the organization without one.",
             "format": "date-time",
@@ -10559,6 +10568,108 @@
           "last_seen_at",
           "expires_at",
           "current"
+        ],
+        "type": "object"
+      },
+      "SetDefaultAccessInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SetDefaultAccessInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "default_access": {
+            "description": "What org members get without a direct grant: org_role (members edit, viewers view), viewer (everyone views), none (only org owners and admins and people added directly).",
+            "enum": [
+              "org_role",
+              "viewer",
+              "none"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "default_access"
+        ],
+        "type": "object"
+      },
+      "SetDefaultAccessOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SetDefaultAccessOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "default_access": {
+            "description": "The default access now; unchanged on a dry run.",
+            "enum": [
+              "org_role",
+              "viewer",
+              "none"
+            ],
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "True when nothing was changed.",
+            "type": "boolean"
+          },
+          "lose_access": {
+            "description": "How many people lose (or, on a dry run, would lose) access: org members and viewers without a direct grant when the default becomes none; 0 otherwise.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "previous_default_access": {
+            "description": "The default access before the request.",
+            "enum": [
+              "org_role",
+              "viewer",
+              "none"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "default_access",
+          "previous_default_access",
+          "lose_access",
+          "dry_run"
+        ],
+        "type": "object"
+      },
+      "SetProjectRoleInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SetProjectRoleInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "role": {
+            "description": "The direct project role.",
+            "enum": [
+              "admin",
+              "editor",
+              "viewer"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
         ],
         "type": "object"
       },
@@ -23213,6 +23324,143 @@
         "tags": [
           "Projects"
         ]
+      },
+      "patch": {
+        "description": "Sets what org members get on the project without a direct grant: `org_role` (members edit, viewers view), `viewer` (everyone views) or `none` (only org owners and admins and people added directly). `lose_access` says how many people lose access (members and viewers without a direct grant when the default becomes `none`); with `dry_run=true` nothing changes, so the UI can confirm first. Emits `project.access_changed`, audited as `project.access_changed`, and emails the project admins. Needs `manage_access` on the project (project admins: org owners and admins and people granted admin): a project the caller cannot view answers 404 `not_found`, a viewer or editor 403 `forbidden`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. The relationship change is written to the outbox in the same transaction, like membership changes, so the next permission check sees it.",
+        "operationId": "set-project-default-access",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only report how many people would lose access; change nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "dry_run",
+            "schema": {
+              "description": "Only report how many people would lose access; change nothing.",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDefaultAccessInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetDefaultAccessOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`, `reauth_required`.",
+            "x-apilens-codes": [
+              "forbidden",
+              "reauth_required"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Set a project's default access",
+        "tags": [
+          "Projects"
+        ]
       }
     },
     "/api/v1/projects/{slug}/api-keys": {
@@ -25257,6 +25505,294 @@
           }
         ],
         "summary": "Remove an environment",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{slug}/members/{user_id}": {
+      "delete": {
+        "description": "Removes the person's direct role on the project; they keep what their organization role and the default access give them. A caller may remove their own grant. Removing a grant that does not exist answers 204. The person must be a member of the project's organization (`not_org_member` otherwise). Emits `project_member.deleted`; audited as `project_member.removed`. Needs `manage_access` on the project (project admins: org owners and admins and people granted admin): a project the caller cannot view answers 404 `not_found`, a viewer or editor 403 `forbidden`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. The relationship change is written to the outbox in the same transaction, like membership changes, so the next permission check sees it.",
+        "operationId": "remove-project-member",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The person's user id; they must be a member of the project's organization.",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "description": "The person's user id; they must be a member of the project's organization.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`, `reauth_required`.",
+            "x-apilens-codes": [
+              "forbidden",
+              "reauth_required"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `not_org_member`.",
+            "x-apilens-codes": [
+              "not_org_member"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Remove a project role",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "put": {
+        "description": "Gives the person a direct role on the project, or changes it. The person must be a member of the project's organization (`not_org_member` otherwise; invite them first). A role lower than what they already have through the organization or the default access is allowed: the response is their access afterwards, with the effective role (the highest of every source). A project holds at most `access.max_direct_members_per_project` (default 500) direct grants: one more answers `member_limit_reached` (409). Emits `project_member.upserted`; audited as `project_member.added` or `project_member.role_changed`. Needs `manage_access` on the project (project admins: org owners and admins and people granted admin): a project the caller cannot view answers 404 `not_found`, a viewer or editor 403 `forbidden`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. The relationship change is written to the outbox in the same transaction, like membership changes, so the next permission check sees it.",
+        "operationId": "set-project-member-role",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The person's user id; they must be a member of the project's organization.",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "description": "The person's user id; they must be a member of the project's organization.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetProjectRoleInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessMember"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`, `reauth_required`.",
+            "x-apilens-codes": [
+              "forbidden",
+              "reauth_required"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `member_limit_reached`, `not_org_member`.",
+            "x-apilens-codes": [
+              "member_limit_reached",
+              "not_org_member"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Grant or change a project role",
         "tags": [
           "Projects"
         ]
