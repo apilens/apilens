@@ -34,11 +34,37 @@ const port = Number(process.env.PORT || 3000);
 
 const app = express();
 
+// Consumer attribution, the way a real API does it: each caller is a user who
+// sends a personal access token as `Authorization: Bearer <token>`. The app looks
+// the token up and hands the SDK who called: the user (id, name) and, as the
+// group, the company the user belongs to. The token itself never reaches APILens:
+// the SDKs redact `authorization` by default. A missing or unknown token is an
+// anonymous caller. The same users exist in examples/fastapi, examples/express
+// and examples/spring.
+const USERS = {
+  demo_tok_priya: { id: "usr_1f3a9c", name: "Priya Shah", group: "Acme Corp" },
+  demo_tok_daniel: { id: "usr_2b7e41", name: "Daniel Okafor", group: "Acme Corp" },
+  demo_tok_mei: { id: "usr_3c9d02", name: "Mei Lin", group: "Acme Corp" },
+  demo_tok_lucas: { id: "usr_4a1f77", name: "Lucas Moreau", group: "Acme Corp" },
+  demo_tok_sofia: { id: "usr_5e6b13", name: "Sofia Rossi", group: "Globex Logistics" },
+  demo_tok_arjun: { id: "usr_6d2c58", name: "Arjun Mehta", group: "Globex Logistics" },
+  demo_tok_hana: { id: "usr_7f8a90", name: "Hana Kim", group: "Globex Logistics" },
+  demo_tok_omar: { id: "usr_8b3e26", name: "Omar Haddad", group: "Initech" },
+  demo_tok_emma: { id: "usr_9c4f31", name: "Emma Schulz", group: "Initech" },
+  demo_tok_kenji: { id: "usr_a15d84", name: "Kenji Watanabe", group: "Umbrella Health" },
+  demo_tok_ana: { id: "usr_b26e95", name: "Ana Silva", group: "Umbrella Health" },
+  demo_tok_noah: { id: "usr_c37fa6", name: "Noah Williams", group: "Umbrella Health" },
+};
+const consumerFromToken = (req) => {
+  const [scheme, token] = String(req.headers?.authorization ?? "").split(" ");
+  return scheme?.toLowerCase() === "bearer" ? (USERS[(token ?? "").trim()] ?? null) : null;
+};
+
 if (posture !== "off") {
   const { useApiLens } = await import("apilens-js-sdk/express");
   // apiKey, appId, baseUrl, environment and every capture option come from
   // APILENS_* env vars; the posture picks the capture profile.
-  useApiLens(app, { captureProfile: posture });
+  useApiLens(app, { captureProfile: posture, getConsumer: consumerFromToken });
 }
 
 app.use(express.json());

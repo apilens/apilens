@@ -19,6 +19,10 @@ import {
   transferGate,
 } from "@/lib/org-members";
 import { roleLabel } from "@/lib/scope";
+import { ListSearch, useCanonicalPage, useListSearch } from "@/components/list-search/list-search";
+import { Pagination } from "@/components/pagination/pagination";
+import { countLine, searchRows } from "@/lib/list-search";
+import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { DialogError, Gated, Modal, type OrgRef, type Status, statusOf } from "./controls";
 import { InviteDialog } from "./invite-dialog";
 import { OrgSettingsNav } from "./nav";
@@ -31,9 +35,18 @@ import "./members.css";
  * transfer ownership; `members.invite` opens the invite dialog. Controls the user cannot use stay
  * visible, disabled, with the reason on hover and focus. The rows come from the server: after an
  * action the page is revalidated and re-rendered with the new list.
+ *
+ * The API returns every member, so the list is searched (name, email, role) and paged here, with
+ * `?q=&page=&per=` in the URL (`search` is the page's searchParams). A list that shrinks under the
+ * reader (they removed the last member of the last page) lands on the new last page.
  */
-export function OrgMembersSettings({ org, members, viewer }: { org: OrgRef; members: Member[]; viewer: Viewer }) {
+export function OrgMembersSettings({ org, members, viewer, search = {} }: { org: OrgRef; members: Member[]; viewer: Viewer; search?: SearchParams }) {
   const owners = ownerCount(members);
+  const pathname = `/orgs/${org.slug}/settings/members`;
+  const list = useListSearch(pathname, search);
+  const matched = searchRows(members, list.query, (m) => [m.user.name, m.user.email, roleLabel(m.role)]);
+  const { rows, window } = slicePage(matched, parsePage(list.params));
+  useCanonicalPage(pathname, search, list.settled ? window : null);
   const [status, setStatus] = useState<Status>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [pendingRole, setPendingRole] = useState<{ id: string; role: OrgRole } | null>(null);
@@ -58,7 +71,7 @@ export function OrgMembersSettings({ org, members, viewer }: { org: OrgRef; memb
   const transfer = transferGate(viewer, members);
 
   return (
-    <div className="os om">
+    <div className="page os om">
       <header className="os-head">
         <p className="cp-h">Organization</p>
         <h1 className="cp-lede">Members</h1>
@@ -66,7 +79,8 @@ export function OrgMembersSettings({ org, members, viewer }: { org: OrgRef; memb
       </header>
 
       <div className="om-bar">
-        <p className="om-count">{members.length === 1 ? "1 member" : `${members.length} members`}</p>
+        <p className="om-count">{countLine(matched.length, members.length, "member", "members", list.query)}</p>
+        <ListSearch value={list.query} onChange={list.setQuery} label="Search members" placeholder="Search by name, email or role" controls="om-list" />
         <span className={`om-status${status ? ` ${status.tone}` : ""}`} role="status" aria-live="polite">
           {status?.text ?? ""}
         </span>
@@ -86,8 +100,17 @@ export function OrgMembersSettings({ org, members, viewer }: { org: OrgRef; memb
         </Gated>
       </div>
 
+      {matched.length === 0 ? (
+        <div className="om-wrap ls-none" id="om-list">
+          <p className="ls-none__t">No members match “{list.query.trim()}”</p>
+          <p className="ls-none__p">Search looks at names, email addresses and roles.</p>
+          <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm" onClick={() => list.setQuery("")}>
+            Clear search
+          </button>
+        </div>
+      ) : (
       <div className="om-wrap">
-        <table className="om-table">
+        <table className="om-table" id="om-list">
           <caption className="sr-only">Members of {org.name}</caption>
           <thead>
             <tr>
@@ -100,7 +123,7 @@ export function OrgMembersSettings({ org, members, viewer }: { org: OrgRef; memb
             </tr>
           </thead>
           <tbody>
-            {members.map((m) => {
+            {rows.map((m) => {
               const name = memberName(m);
               const self = m.user.id === viewer.id;
               const role = roleGate(viewer, m, owners);
@@ -164,7 +187,9 @@ export function OrgMembersSettings({ org, members, viewer }: { org: OrgRef; memb
             })}
           </tbody>
         </table>
+        <Pagination pathname={pathname} params={list.params} total={window.total} label="Members pages" className="ls-pages" />
       </div>
+      )}
 
       <dl className="om-roles">
         {MEMBER_ROLES.map((r) => (

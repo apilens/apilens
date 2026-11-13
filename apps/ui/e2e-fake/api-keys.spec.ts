@@ -1,5 +1,5 @@
 // Project settings → API keys (#350) against the fake identity (e2e-fake/fake-identity.ts), which
-// serves `GET|POST|DELETE /projects/shop/api-keys` and answers 403 to a user without the
+// serves `GET|POST|DELETE /projects/shop/api-keys` (and PUT .../access) and answers 403 to a user without the
 // `api_keys.create` / `api_keys.revoke` capability. No email is sent by any test here.
 import { type Page, expect, test } from "@playwright/test";
 
@@ -38,20 +38,28 @@ const SEEDED = [
 
 test("lists keys with their prefix, scopes, dates and status", async ({ page }) => {
   await signIn(page, { apiKeys: SEEDED });
-  await expect(card(page).getByRole("columnheader")).toHaveText(["Name", "Key", "Scopes", "Last used", "Created", "Status", "Actions"]);
+  await expect(card(page).getByRole("columnheader")).toHaveText(["Name", "Key", "Permissions", "Apps", "Last used", "Status", "Actions"]);
   await expect(rows(page)).toHaveCount(4);
   await expect(rows(page).nth(0).getByRole("cell")).toHaveText([
-    "Production backend",
+    "Production backendCreated Oct 1, 2026",
     "apl_live_Q2x9aZ1…",
-    "Ingest",
+    "Ingest · Can create apps",
+    "All appsNo data sent yet",
     "Oct 2, 2026",
-    "Oct 1, 2026",
     "ActiveExpires Jan 1, 2099",
-    "Revoke",
+    "Edit accessRevoke",
   ]);
-  await expect(rows(page).nth(1).getByRole("cell")).toHaveText(["Analytics script", "apl_live_r8Lm0Pq…", "Ingest, Read", "Never", "Sep 1, 2026", "Active", "Revoke"]);
+  await expect(rows(page).nth(1).getByRole("cell")).toHaveText([
+    "Analytics scriptCreated Sep 1, 2026",
+    "apl_live_r8Lm0Pq…",
+    "Ingest, Read · Can create apps",
+    "All appsNo data sent yet",
+    "Never",
+    "Active",
+    "Edit accessRevoke",
+  ]);
   // A revoked key cannot be revoked again; an expired one still can.
-  await expect(rows(page).nth(2).getByRole("cell")).toHaveText(["Old staging", "apl_live_k3Vn7Ws…", "Read", "Never", "Aug 1, 2026", "Revoked", ""]);
+  await expect(rows(page).nth(2).getByRole("cell")).toHaveText(["Old stagingCreated Aug 1, 2026", "apl_live_k3Vn7Ws…", "Read", "Doesn’t send data", "Never", "Revoked", ""]);
   await expect(rows(page).nth(3).getByRole("cell").nth(5)).toHaveText("Expired");
   await expect(rows(page).nth(3).getByRole("button", { name: "Revoke Trial" })).toBeEnabled();
 });
@@ -83,7 +91,10 @@ test("creates a key and shows it once with copy", async ({ page, context }) => {
   const field = dialog(page).getByRole("textbox", { name: "API key" });
   const raw = await field.inputValue();
   expect(raw).toMatch(/^apl_live_[A-Za-z0-9_-]{20,}$/);
-  await expect(dialog(page)).toContainText("Ingest, Read · expires");
+  await expect(dialog(page)).toContainText("Ingest, Read · Can create apps · expires");
+  // The environment to copy names the app with a placeholder and says the app appears on its own.
+  await expect(dialog(page).locator("pre.ak-snippet")).toHaveText(new RegExp("APILENS_APP_ID=your-service-name$"));
+  await expect(dialog(page)).toContainText("The app appears in Apps automatically when its first data arrives");
   await page.keyboard.press("Escape");
   await expect(dialog(page)).toBeVisible();
   await dialog(page).getByRole("button", { name: "Copy API key" }).click();
@@ -96,7 +107,7 @@ test("creates a key and shows it once with copy", async ({ page, context }) => {
   await expect(card(page).getByRole("status")).toHaveText("Created Production backend.");
   await expect(rows(page)).toHaveCount(1);
   await expect(rows(page).first().getByRole("cell").nth(1)).toHaveText(`${raw.slice(0, 16)}…`);
-  await expect(rows(page).first().getByRole("cell").nth(2)).toHaveText("Ingest, Read");
+  await expect(rows(page).first().getByRole("cell").nth(2)).toHaveText("Ingest, Read · Can create apps");
   await expect(page.getByText(raw)).toHaveCount(0);
   await page.reload();
   await expect(rows(page)).toHaveCount(1);
@@ -135,16 +146,48 @@ test("revokes a key after confirming", async ({ page }) => {
   await expect(rows(page).nth(0).getByRole("cell").nth(5)).toContainText("Active");
 });
 
-test("without api_keys.create/revoke the controls are disabled with the reason", async ({ page }) => {
+test("without api_keys.create/revoke the list is read-only and says why", async ({ page }) => {
   await signIn(page, { capabilities: ["project.read"], apiKeys: SEEDED.slice(0, 1) });
   await expect(rows(page)).toHaveCount(1);
-  const create = card(page).getByRole("button", { name: "Create API key" });
-  const revoke = rows(page).first().getByRole("button", { name: "Revoke Production backend" });
+  await expect(card(page).getByRole("button", { name: "Create API key" })).toHaveCount(0);
+  await expect(rows(page).first().getByRole("button")).toHaveCount(0);
+  await expect(card(page)).toContainText("You can see this project’s keys but not change them.");
+});
+
+test("limits a key to apps, which turns off creating apps, and back", async ({ page }) => {
+  await signIn(page, { apiKeys: SEEDED.slice(0, 1) });
+  await rows(page).first().getByRole("button", { name: "Edit access of Production backend" }).click();
+  const create = dialog(page).getByRole("checkbox", { name: /Can create apps/ });
+  await expect(create).toBeChecked();
+  await dialog(page).getByRole("radio", { name: /Limit to apps/ }).check();
   await expect(create).toBeDisabled();
-  await expect(revoke).toBeDisabled();
-  const reason = "Only admins can do this. Ask an admin for access.";
-  await expect(card(page).locator('[data-gated="api_keys.create"]')).toHaveAttribute("title", reason);
-  await expect(card(page).locator('[data-gated="api_keys.revoke"]')).toHaveAttribute("title", reason);
+  await expect(dialog(page)).toContainText("Keys limited to apps never create apps");
+  await dialog(page).getByRole("button", { name: "Save access" }).click();
+  await expect(dialog(page).getByRole("alert")).toHaveText("Choose at least one app, or allow all apps.");
+  await dialog(page).getByRole("checkbox", { name: /Shop/ }).check();
+  await dialog(page).getByRole("button", { name: "Save access" }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(rows(page).first().getByRole("cell").nth(2)).toHaveText("Ingest · Limited to 1 app");
+  await expect(rows(page).first().getByRole("cell").nth(3)).toContainText("Shop");
+
+  await rows(page).first().getByRole("button", { name: "Edit access of Production backend" }).click();
+  await dialog(page).getByRole("radio", { name: /All apps/ }).check();
+  await expect(create).toBeEnabled();
+  await dialog(page).getByRole("button", { name: "Save access" }).click();
+  await expect(rows(page).first().getByRole("cell").nth(2)).toHaveText("Ingest · Can create apps");
+});
+
+test("pages a long list in the URL", async ({ page }) => {
+  const many = Array.from({ length: 30 }, (_, i) => ({ name: `Key ${i + 1}`, scopes: ["read"], created_at: `2026-10-${String(30 - i).padStart(2, "0")}T10:00:00Z` }));
+  await signIn(page, { apiKeys: many });
+  await expect(rows(page)).toHaveCount(25);
+  await page.getByRole("navigation", { name: "API key pages" }).getByRole("link", { name: "Page 2" }).click();
+  await page.waitForURL(/page=2/);
+  await expect(rows(page)).toHaveCount(5);
+  // A page past the end lands on the last page.
+  await page.goto(`${KEYS}?page=9`);
+  await page.waitForURL(/page=2/);
+  await expect(rows(page)).toHaveCount(5);
 });
 
 // Visual check (light/dark at 1440 and 390): `API_KEY_SHOTS=<dir> pnpm test:e2e:fake api-keys`.

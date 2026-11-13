@@ -49,7 +49,7 @@ export function CaptureSettings({ project, projectName, userId, load }: { projec
   const { apps, app } = load;
 
   return (
-    <div className="os cps">
+    <div className="page page--measure os cps">
       <header className="os-head">
         <p className="cp-h">{projectName} · Settings</p>
         <h1 className="cp-lede">Capture policy</h1>

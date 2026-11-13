@@ -17,6 +17,11 @@ const impactWindow = time.Hour
 // The -If variant of the shared quantile merge, so one scan yields both sides.
 const quantilesIf = "quantilesTDigestMergeIf(0.5, 0.75, 0.9, 0.95, 0.99)(latency, %s)"
 
+// deployIDExpr is a deploy's id: a hash of what identifies the deploy, so
+// api_deploys needs no id column and the same report always gets the same
+// id. Identical duplicate reports share an id; reading one is enough.
+const deployIDExpr = "lower(hex(cityHash64(app_id, environment, release, commit, url, deployed_at)))"
+
 // registerDeployChanges mounts GET /api/v1/deploys/changes: the most recent
 // deploys, each with its error rate and p95 in the hour before and after.
 func registerDeployChanges(api huma.API, s *Service) {
@@ -27,7 +32,8 @@ func registerDeployChanges(api huma.API, s *Service) {
 		Summary:     "Deploys with error rate and p95 one hour before and after each",
 		Description: "The most recent deploys of the range, newest first, each with requests, error rate and p95 of its app " +
 			"(or the project for a project-wide deploy) in the hour before and the hour after the deploy's minute, to spot " +
-			"releases that changed behaviour." + readAccess,
+			"releases that changed behaviour. app narrows to one app's deploys; offset pages through them and total counts every " +
+			"deploy that matches." + readAccess,
 		Tags:     []string{"Dashboard"},
 		Security: security,
 	}, s.deployChanges)
@@ -37,7 +43,9 @@ func registerDeployChanges(api huma.API, s *Service) {
 // costs one rollup read).
 type DeployChangesInput struct {
 	RangeInput
-	Limit int `query:"limit" minimum:"1" maximum:"50" default:"25" doc:"Most recent deploys to compare."`
+	App    string `query:"app" format:"uuid" doc:"App id; empty means the deploys of every app, project-wide ones included. An app of another project matches nothing."`
+	Limit  int    `query:"limit" minimum:"1" maximum:"50" default:"25" doc:"Most recent deploys to compare."`
+	Offset int    `query:"offset" minimum:"0" maximum:"10000" default:"0" doc:"Deploys to skip, newest first, for paging; past the end answers no deploys and the same total."`
 }
 
 type sideStats struct {
@@ -47,6 +55,7 @@ type sideStats struct {
 }
 
 type deployChange struct {
+	ID           string    `json:"id" doc:"The deploy's id: a stable hash of its report, for GET /api/v1/deploys/{id}."`
 	DeployedAt   time.Time `json:"deployed_at" doc:"When the deploy happened, as reported."`
 	Release      string    `json:"release" doc:"Release name or version that was deployed."`
 	Commit       string    `json:"commit" doc:"Commit that was deployed; empty when not reported."`
@@ -61,6 +70,7 @@ type deployChange struct {
 type deployChangesOutput struct {
 	Body struct {
 		WindowMinutes int            `json:"window_minutes" doc:"Length of the before and after windows, in minutes."`
+		Total         int            `json:"total" doc:"Deploys of the range matching env and app, on every page."`
 		Deploys       []deployChange `json:"deploys" doc:"Deploys of the range, newest first, with traffic before and after each."`
 	}
 }
@@ -93,13 +103,23 @@ func (s *Service) deployChanges(ctx context.Context, in *DeployChangesInput) (*d
 	if limit <= 0 || limit > 50 {
 		limit = 25
 	}
+	offset := max(in.Offset, 0)
 	where, args := tenantFilter(p.ProjectID, in.Env)
+	if where, args, err = withApp(where, args, in.App); err != nil {
+		return nil, err
+	}
+	where += " AND deployed_at >= ? AND deployed_at < ?"
+	args = append(args, w.from, w.to)
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
+	var total uint64
+	if err := s.ch.QueryRow(qctx, `SELECT count() FROM api_deploys WHERE `+where, args...).Scan(&total); err != nil {
+		return nil, internalError("deploy changes", err)
+	}
 	rows, err := s.ch.Query(qctx, `
-		SELECT deployed_at, release, commit, environment, url, app_id
-		FROM api_deploys WHERE `+where+` AND deployed_at >= ? AND deployed_at < ?
-		ORDER BY deployed_at DESC LIMIT ?`, append(args, w.from, w.to, limit)...)
+		SELECT `+deployIDExpr+`, deployed_at, release, commit, environment, url, app_id
+		FROM api_deploys WHERE `+where+`
+		ORDER BY deployed_at DESC, release LIMIT ? OFFSET ?`, append(args, limit, offset)...)
 	if err != nil {
 		return nil, internalError("deploy changes", err)
 	}
@@ -109,7 +129,7 @@ func (s *Service) deployChanges(ctx context.Context, in *DeployChangesInput) (*d
 			d   deployChange
 			app uuid.UUID
 		)
-		if err := rows.Scan(&d.DeployedAt, &d.Release, &d.Commit, &d.Environment, &d.URL, &app); err != nil {
+		if err := rows.Scan(&d.ID, &d.DeployedAt, &d.Release, &d.Commit, &d.Environment, &d.URL, &app); err != nil {
 			_ = rows.Close()
 			return nil, internalError("deploy changes", err)
 		}
@@ -132,6 +152,7 @@ func (s *Service) deployChanges(ctx context.Context, in *DeployChangesInput) (*d
 	}
 	out := &deployChangesOutput{}
 	out.Body.WindowMinutes = int(impactWindow.Minutes())
+	out.Body.Total = int(total)
 	out.Body.Deploys = list
 	return out, nil
 }

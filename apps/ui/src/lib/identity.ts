@@ -571,6 +571,8 @@ export interface ContextProject {
   slug: string;
   name: string;
   environments: string[];
+  /** Active (not deleted) apps in the project. */
+  app_count: number;
 }
 
 export interface ContextOrg {
@@ -756,14 +758,30 @@ export interface CreateProjectRequest {
   environments?: string[];
 }
 
-export type ApiKeyScope = "ingest" | "read";
+/** `apps:create` is set by the server on an ingest key that may create apps (`can_create_apps`). */
+export type ApiKeyScope = "ingest" | "read" | "apps:create";
+
+/** An app a key has sent data for (`KeyApp`); `apps_seen` lists the most recent first. */
+export interface KeyApp {
+  app_id: string;
+  slug: string;
+  name: string;
+  first_seen_at: string;
+  last_seen_at: string;
+}
 
 /** `GET /projects/{slug}/api-keys` item (#285). */
 export interface ApiKey {
   id: string;
   name: string;
   prefix: string;
-  scopes: ApiKeyScope[];
+  scopes: ApiKeyScope[] | null;
+  /** Data with an app name the project does not have yet creates that app. */
+  can_create_apps: boolean;
+  /** The apps the key may send data for; null for every app. */
+  app_ids: string[] | null;
+  /** The apps the key has sent data for, most recent first. */
+  apps_seen: KeyApp[] | null;
   last_used_at: string | null;
   created_at: string;
   expires_at?: string | null;
@@ -774,6 +792,16 @@ export interface CreateApiKeyRequest {
   name: string;
   scopes: ApiKeyScope[];
   expires_at?: string;
+  /** Default true for ingest keys; a key limited to apps never creates apps. */
+  can_create_apps?: boolean;
+  /** Omitted for every app. */
+  app_ids?: string[];
+}
+
+/** `PUT /projects/{slug}/api-keys/{id}/access`. */
+export interface UpdateApiKeyAccessRequest {
+  can_create_apps: boolean;
+  app_ids: string[] | null;
 }
 
 /** `POST /projects/{slug}/api-keys`: the raw `key` is returned exactly once. */
@@ -992,6 +1020,8 @@ export interface DeploySide {
 
 /** One deploy of `GET /deploys/changes` (#597), newest first. */
 export interface DeployChange {
+  /** A stable hash of the deploy's report: `GET /deploys/{id}`. */
+  id: string;
   deployed_at: string;
   release: string;
   commit: string;
@@ -1010,7 +1040,101 @@ export interface DeployChange {
 /** `GET /deploys/changes`. */
 export interface DeployChanges {
   window_minutes: number;
+  /** Deploys matching env and app on every page. */
+  total: number;
   deploys: DeployChange[] | null;
+}
+
+/** The scope and page of `GET /deploys/changes`. */
+export interface DeployChangesQuery {
+  range?: QueryRange;
+  limit?: number;
+  offset?: number;
+  env?: string;
+  /** An app's id; absent means every app, project-wide deploys included. */
+  app?: string;
+}
+
+/** The previous or next deploy of the same app and environment. */
+export interface DeployRef {
+  id: string;
+  release: string;
+  deployed_at: string;
+}
+
+/** One minute around a deploy in `GET /deploys/{id}`. */
+export interface DeployPoint {
+  ts: string;
+  requests: number;
+  client_errors: number;
+  server_errors: number;
+  p95_ms: number;
+}
+
+/** `GET /deploys/{id}`: one deploy, its windows, the minutes around it and its neighbours. */
+export interface DeployDetail {
+  deploy: DeployChange & { received_at: string };
+  window_minutes: number;
+  before_from: string;
+  /** The deploy's own minute: in the series, in neither side. */
+  deploy_minute: string;
+  after_from: string;
+  after_to: string;
+  /** Minutes the after window covers so far. */
+  after_minutes: number;
+  previous?: DeployRef;
+  next?: DeployRef;
+  series: DeployPoint[] | null;
+}
+
+/** One side of an endpoint in `GET /deploys/{id}/comparison`. */
+export interface DeploySplitSide extends DeploySide {
+  client_errors: number;
+  server_errors: number;
+}
+
+export interface DeployEndpoint {
+  method: string;
+  path: string;
+  /** compared: traffic on both sides; new: only after; gone: only before. */
+  change: "compared" | "new" | "gone";
+  before: DeploySplitSide;
+  after: DeploySplitSide;
+}
+
+export interface DeployStatusCount {
+  status_code: number;
+  before: number;
+  after: number;
+  new: boolean;
+}
+
+export interface DeployException {
+  exception_type: string;
+  message: string;
+  before: number;
+  after: number;
+  new: boolean;
+  method: string;
+  path: string;
+}
+
+export interface DeployConsumer {
+  consumer_id: string;
+  consumer_name: string;
+  before_requests: number;
+  before_errors: number;
+  after_requests: number;
+  after_errors: number;
+}
+
+/** `GET /deploys/{id}/comparison`: what changed with a deploy. */
+export interface DeployComparison {
+  endpoints: DeployEndpoint[] | null;
+  statuses: DeployStatusCount[] | null;
+  exceptions: DeployException[] | null;
+  consumers: DeployConsumer[] | null;
+  consumers_affected: number;
 }
 
 // Alerts (#609): threshold rules, notification channels, events and the incidents feed. -----
@@ -1022,9 +1146,10 @@ export type AlertCondition = "gt" | "gte" | "lt" | "lte";
 /** Where a rule stands after its latest evaluation. */
 export type AlertStatus = "ok" | "pending" | "triggered" | "resolving";
 
-/** The optional filters of a rule: one consumer, one consumer group (its id), one endpoint. */
+/** The optional filters of a rule: one consumer, one consumer group, one endpoint. */
 export interface AlertFilters {
   consumer?: string;
+  /** A consumer group by name, as the SDK reports it (`consumer_group` on a request). */
   group?: string;
   /** "METHOD /route/{template}", or "/route/{template}" for every method. */
   endpoint?: string;
@@ -1156,12 +1281,6 @@ export interface StatusSplit {
   server_errors: number;
 }
 
-/** The consumer group a consumer is in. */
-export interface ConsumerGroupRef {
-  id: string;
-  name: string;
-}
-
 /** Unique consumers in a period, split by whether they were first seen in it. */
 export interface ConsumerCounts {
   consumers: number;
@@ -1169,12 +1288,12 @@ export interface ConsumerCounts {
   returning: number;
 }
 
-/** One consumer of `GET /consumers` (#580), by requests. */
+/** One consumer (a user of the customer's API) of `GET /consumers` (#580). */
 export interface ConsumerRow extends StatusSplit {
   consumer_id: string;
   consumer_name: string;
-  /** Absent when the consumer is in no group. */
-  group?: ConsumerGroupRef | null;
+  /** The latest non-empty group the SDK reported for the consumer in the range; "" when none. */
+  consumer_group: string;
   first_seen: string;
   last_seen: string;
   /** First seen within the range. */
@@ -1183,23 +1302,35 @@ export interface ConsumerRow extends StatusSplit {
   sparkline: number[] | null;
 }
 
-/** `GET /consumers`. */
+export type ConsumerSortKey = "requests" | "errors" | "last_seen";
+
+/** `GET /consumers`: one page of consumers, plus the range's unique consumers. */
 export interface ConsumersList {
   range: string;
   from: string;
   to: string;
   bucket_seconds: number;
   summary: ConsumerCounts;
+  /** Requests of identified consumers in the range (group applied, search not). */
+  totals: StatusSplit;
   /** Unique consumers per bucket; new means first seen within that bucket. */
   points: (ConsumerCounts & { ts: string })[] | null;
+  /** Consumers matching group and search, across all pages. */
+  total: number;
   consumers: ConsumerRow[] | null;
+}
+
+/** One of the endpoints a consumer called most. */
+export interface ConsumerEndpoint extends StatusSplit {
+  method: string;
+  path: string;
 }
 
 /** `GET /consumers/{consumer_id}`. */
 export interface ConsumerDetail {
   consumer_id: string;
   consumer_name: string;
-  group?: ConsumerGroupRef | null;
+  consumer_group: string;
   first_seen: string;
   last_seen: string;
   new: boolean;
@@ -1209,18 +1340,31 @@ export interface ConsumerDetail {
   bucket_seconds: number;
   summary: StatusSplit & { requests_per_minute: number };
   points: (StatusSplit & { ts: string })[] | null;
+  top_endpoints: ConsumerEndpoint[] | null;
+  /** One page (limit, offset); the total is summary.requests. */
   recent_requests: RequestRow[] | null;
+  /** One page (limit, offset); the total is the 4xx plus 5xx count. */
   recent_errors: RequestRow[] | null;
 }
 
-/** One group of `GET /projects/{slug}/consumer-groups`. */
-export interface ConsumerGroup {
-  id: string;
-  name: string;
-  /** How many consumers are assigned to it. */
+/** One SDK-reported group of `GET /consumer-groups`. */
+export interface ConsumerGroupTraffic extends StatusSplit {
+  group: string;
   consumers: number;
-  created_at: string;
-  updated_at: string;
+  last_seen: string;
+  sparkline: number[] | null;
+}
+
+export type GroupSortKey = ConsumerSortKey | "consumers";
+
+/** `GET /consumer-groups`: one page of the groups the SDK reported in the range. */
+export interface ConsumerGroupsTraffic {
+  range: string;
+  from: string;
+  to: string;
+  bucket_seconds: number;
+  total: number;
+  groups: ConsumerGroupTraffic[] | null;
 }
 
 /** An app of a project, as `GET /project` lists it. */
@@ -1228,6 +1372,60 @@ export interface NamedApp {
   id: string;
   slug: string;
   name: string;
+}
+
+/** Where an app stands: in use, archived, merged into another, or deleted (restorable for 30 days). */
+export type AppState = "active" | "archived" | "merged" | "deleted";
+
+/** `GET /projects/{slug}/apps` item: an app with its origin and lifecycle. */
+export interface ManagedApp {
+  id: string;
+  slug: string;
+  name: string;
+  state: AppState;
+  /** `sdk`: created the first time an SDK sent its name; `dashboard`: created by a person. */
+  created_by: "sdk" | "dashboard";
+  created_by_key_id: string | null;
+  created_by_key_name: string | null;
+  created_at: string;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  archived_at: string | null;
+  deleted_at: string | null;
+  restorable_until: string | null;
+  acknowledged_at: string | null;
+  /** Created by an SDK in the last 7 days and not acknowledged yet. */
+  new: boolean;
+  /** Receives records that name no app; cannot be archived, merged or deleted. */
+  is_default: boolean;
+  merged_into: string | null;
+  merged_into_slug: string | null;
+}
+
+/** Why the ingest edge rejected records for an app name. */
+export type AppRejectionReason =
+  | "app_create_forbidden"
+  | "app_not_allowed"
+  | "app_deleted"
+  | "app_limit"
+  | "app_rate_limit"
+  | "invalid_app_name"
+  | "unknown_app";
+
+/** One app name and reason of `GET /projects/{slug}/app-rejections`. */
+export interface AppRejection {
+  app: string;
+  reason: AppRejectionReason;
+  records: number;
+  /** `YYYY-MM-DD` (UTC) of the last rejection. */
+  last_day: string;
+}
+
+export interface AppRejections {
+  days: number;
+  /** False when the install keeps no ingest counters. */
+  available: boolean;
+  rejections: AppRejection[] | null;
 }
 
 /** `GET /project?project=` (query role): the project, its apps and its recent environments. */
@@ -1965,8 +2163,15 @@ export function createClient(config: ClientConfig) {
         ...o,
         query: { project: projectSlug, ...trafficScope(q), ...(q.limit !== undefined ? { limit: q.limit } : {}) },
       }),
-    deployChanges: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
-      request<DeployChanges>("GET", "/deploys/changes", { ...o, query: { project: projectSlug, ...q } }),
+    deployChanges: (projectSlug: string, q: DeployChangesQuery, o: Authed) =>
+      request<DeployChanges>("GET", "/deploys/changes", {
+        ...o,
+        query: { project: projectSlug, range: q.range, limit: q.limit, offset: q.offset || undefined, env: q.env || undefined, app: q.app || undefined },
+      }),
+    getDeploy: (projectSlug: string, id: string, o: Authed) =>
+      request<DeployDetail>("GET", `/deploys/${seg(id)}`, { ...o, query: { project: projectSlug } }),
+    deployComparison: (projectSlug: string, id: string, o: Authed) =>
+      request<DeployComparison>("GET", `/deploys/${seg(id)}/comparison`, { ...o, query: { project: projectSlug } }),
 
     // api: alerts (#609) -------------------------------------------------------------------
     listAlertRules: (projectSlug: string, o: Authed) =>
@@ -1993,28 +2198,18 @@ export function createClient(config: ClientConfig) {
       request<{ events: AlertEvent[] | null; next_cursor: string }>("GET", `/projects/${seg(projectSlug)}/alerts/events`, { ...o, query: q }),
     incidents: (projectSlug: string, q: { range?: IncidentsRange; limit?: number }, o: Authed) =>
       request<Incidents>("GET", `/projects/${seg(projectSlug)}/incidents`, { ...o, query: q }),
-    listConsumers: (projectSlug: string, q: { range?: QueryRange; group?: string; limit?: number }, o: Authed) =>
-      request<ConsumersList>("GET", "/consumers", { ...o, query: { project: projectSlug, ...q } }),
-    getConsumer: (projectSlug: string, consumerId: string, q: { range?: QueryRange }, o: Authed) =>
+    listConsumers: (
+      projectSlug: string,
+      q: { range?: QueryRange; group?: string; search?: string; sort?: ConsumerSortKey; limit?: number; offset?: number },
+      o: Authed,
+    ) => request<ConsumersList>("GET", "/consumers", { ...o, query: { project: projectSlug, ...q } }),
+    getConsumer: (projectSlug: string, consumerId: string, q: { range?: QueryRange; limit?: number; offset?: number }, o: Authed) =>
       request<ConsumerDetail>("GET", `/consumers/${seg(consumerId)}`, { ...o, query: { project: projectSlug, ...q } }),
-
-    // api: consumer groups (#580) ----------------------------------------------------------
-    listConsumerGroups: (projectSlug: string, o: Authed) =>
-      request<{ groups: ConsumerGroup[] | null }>("GET", `/projects/${seg(projectSlug)}/consumer-groups`, o),
-    createConsumerGroup: (projectSlug: string, name: string, o: Authed) =>
-      request<ConsumerGroup>("POST", `/projects/${seg(projectSlug)}/consumer-groups`, { ...o, body: { name } }),
-    renameConsumerGroup: (projectSlug: string, id: string, name: string, o: Authed) =>
-      request<ConsumerGroup>("PUT", `/projects/${seg(projectSlug)}/consumer-groups/${seg(id)}`, { ...o, body: { name } }),
-    deleteConsumerGroup: (projectSlug: string, id: string, o: Authed) =>
-      request<void>("DELETE", `/projects/${seg(projectSlug)}/consumer-groups/${seg(id)}`, o),
-    assignConsumerGroup: (projectSlug: string, consumerId: string, groupId: string, o: Authed) =>
-      request<{ consumer_id: string; group: ConsumerGroupRef; assigned_at: string }>(
-        "PUT",
-        `/projects/${seg(projectSlug)}/consumers/${seg(consumerId)}/group`,
-        { ...o, body: { group_id: groupId } },
-      ),
-    unassignConsumerGroup: (projectSlug: string, consumerId: string, o: Authed) =>
-      request<void>("DELETE", `/projects/${seg(projectSlug)}/consumers/${seg(consumerId)}/group`, o),
+    listConsumerGroupTraffic: (
+      projectSlug: string,
+      q: { range?: QueryRange; search?: string; sort?: GroupSortKey; limit?: number; offset?: number },
+      o: Authed,
+    ) => request<ConsumerGroupsTraffic>("GET", "/consumer-groups", { ...o, query: { project: projectSlug, ...q } }),
 
     projectApps: (projectSlug: string, o: Authed) =>
       request<ProjectApps>("GET", "/project", { ...o, query: { project: projectSlug } }),
@@ -2101,6 +2296,26 @@ export function createClient(config: ClientConfig) {
       request<CreatedApiKey>("POST", `/projects/${seg(projectSlug)}/api-keys`, { ...o, body }),
     revokeApiKey: (projectSlug: string, id: string, o: Authed) =>
       request<void>("DELETE", `/projects/${seg(projectSlug)}/api-keys/${seg(id)}`, o),
+    updateApiKeyAccess: (projectSlug: string, id: string, body: UpdateApiKeyAccessRequest, o: Authed) =>
+      request<ApiKey>("PUT", `/projects/${seg(projectSlug)}/api-keys/${seg(id)}/access`, { ...o, body }),
+
+    // api: the project's apps, created by SDKs or in the dashboard ---------------------------
+    listManagedApps: (projectSlug: string, o: Authed) =>
+      request<{ apps: ManagedApp[] | null }>("GET", `/projects/${seg(projectSlug)}/apps`, o),
+    renameApp: (projectSlug: string, id: string, name: string, o: Authed) =>
+      request<void>("PATCH", `/projects/${seg(projectSlug)}/apps/${seg(id)}`, { ...o, body: { name } }),
+    archiveApp: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("POST", `/projects/${seg(projectSlug)}/apps/${seg(id)}/archive`, o),
+    restoreApp: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("POST", `/projects/${seg(projectSlug)}/apps/${seg(id)}/restore`, o),
+    acknowledgeApp: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("POST", `/projects/${seg(projectSlug)}/apps/${seg(id)}/acknowledge`, o),
+    mergeApp: (projectSlug: string, id: string, into: string, o: Authed) =>
+      request<void>("POST", `/projects/${seg(projectSlug)}/apps/${seg(id)}/merge`, { ...o, body: { into } }),
+    deleteApp: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("DELETE", `/projects/${seg(projectSlug)}/apps/${seg(id)}`, o),
+    appRejections: (projectSlug: string, days: number, o: Authed) =>
+      request<AppRejections>("GET", `/projects/${seg(projectSlug)}/app-rejections`, { ...o, query: { days } }),
   };
 }
 

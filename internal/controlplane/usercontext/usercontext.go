@@ -86,6 +86,8 @@ type Project struct {
 	Slug         string
 	Name         string
 	Environments []string // sorted, never nil
+	// AppCount is the number of the project's active (not deleted) apps.
+	AppCount int
 }
 
 // Org is an organization the user belongs to, with their role in it.
@@ -181,7 +183,7 @@ func (s *Service) Get(ctx context.Context, user uuid.UUID) (Context, error) {
 			e = []string{}
 		}
 		org := &out.Orgs[i]
-		org.Projects = append(org.Projects, Project{ID: p.ID, Slug: p.Slug, Name: p.Name, Environments: e})
+		org.Projects = append(org.Projects, Project{ID: p.ID, Slug: p.Slug, Name: p.Name, Environments: e, AppCount: int(p.AppCount)})
 		if p.Slug == last {
 			out.LastProjectSlug = last
 		}

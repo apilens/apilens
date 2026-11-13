@@ -22,6 +22,10 @@ type Deps struct {
 	Privacy  PrivacyService
 	Capture  CaptureService
 	Context  ContextService
+	// Apps manages a project's apps; AppRejections (nil without Valkey)
+	// reads the records ingest refused because of their app.
+	Apps          AppService
+	AppRejections AppRejectionReader
 	// Guard authorizes every operation on an organization (authz.Require);
 	// nil refuses them with authz_unavailable (fail closed).
 	Guard   *authz.Guard
@@ -47,6 +51,11 @@ func Register(api huma.API, d Deps) {
 	NewAPIKeys(d.APIKeys, d.Logger).Register(api)
 	NewPrivacy(d.Privacy, d.Logger).Register(api)
 	NewCapturePolicies(d.Capture, d.Guard, d.Logger).Register(api)
+	var guard ProjectAuthorizer
+	if d.Guard != nil {
+		guard = d.Guard
+	}
+	NewApps(d.Apps, d.AppRejections, guard, d.Logger).Register(api)
 	NewContext(d.Context, d.Logger).Register(api)
 	NewInvitations(d.Invitations, d.Logger).Register(api)
 	NewSSOConnections(d.SSO, d.Guard, d.Issuer, d.Logger).Register(api)

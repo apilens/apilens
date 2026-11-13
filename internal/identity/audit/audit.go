@@ -64,6 +64,14 @@ const (
 	SSOUpdated           Kind = "sso.updated"
 	SSODeleted           Kind = "sso.deleted"
 	CapturePolicyUpdated Kind = "capture_policy.updated"
+	APIKeyUpdated        Kind = "api_key.updated"
+	AppCreated           Kind = "app.created"
+	AppArchived          Kind = "app.archived"
+	AppRestored          Kind = "app.restored"
+	AppRenamed           Kind = "app.renamed"
+	AppMerged            Kind = "app.merged"
+	AppDeleted           Kind = "app.deleted"
+	AppAcknowledged      Kind = "app.acknowledged"
 )
 
 var kinds = []Kind{
@@ -72,6 +80,7 @@ var kinds = []Kind{
 	RecoveryRequested, RecoveryConfirmed, RecoveryCancelled, OAuthLinked, OAuthUnlinked,
 	OrgCreated, OrgUpdated, OrgDeleted, MemberAdded, MemberRoleChanged, MemberRemoved, MemberJoined, InvitationSent, InvitationAccepted,
 	APIKeyCreated, APIKeyRevoked, SSOUpdated, SSODeleted, CapturePolicyUpdated,
+	APIKeyUpdated, AppCreated, AppArchived, AppRestored, AppRenamed, AppMerged, AppDeleted, AppAcknowledged,
 }
 
 // Kinds returns every known event kind, in catalogue order.

@@ -48,8 +48,8 @@ type AppMetadataRoute struct {
 type AppMetadata struct {
 	_ struct{} `json:"-" additionalProperties:"true"` // newer SDKs may send more
 
-	ProjectSlug     string             `json:"project_slug,omitempty" doc:"Optional; must match the API key's project"`
-	AppID            string             `json:"app_id" doc:"App UUID or slug" example:"storefront"`
+	ProjectSlug      string             `json:"project_slug,omitempty" doc:"Optional; must match the API key's project"`
+	AppID            string             `json:"app_id,omitempty" doc:"The app: its name (an unknown name creates the app when the key may create apps), slug or UUID. Omitted or empty: the project's default app." example:"storefront"`
 	Environment      string             `json:"environment,omitempty" doc:"Defaults to production" example:"production"`
 	Framework        string             `json:"framework,omitempty" doc:"Web framework; also recorded on the app when it has none yet" example:"fastapi"`
 	FrameworkVersion string             `json:"framework_version,omitempty" example:"0.115.0"`
@@ -112,9 +112,10 @@ func RegisterOpenAPI(api huma.API) {
 		Responses: map[string]*huma.Response{
 			"200": {Description: "Stored", Content: jsonOf(accepted)},
 			"401": errResp("Missing or invalid API key"),
-			"403": errResp("API key lacks the ingest scope"),
 			"413": errResp("Body too large"),
-			"422": errResp("Invalid payload, unknown app, or an api_key field"),
+			"403": errResp("API key lacks the ingest scope, may not create the app it names, or is limited to other apps"),
+			"409": errResp("The app was deleted less than 30 days ago; restore it from Apps"),
+			"422": errResp("Invalid payload, an app limit reached, or an api_key field"),
 			"503": errResp("Temporarily unavailable; retry after Retry-After"),
 		},
 	})
@@ -153,11 +154,8 @@ func (e *Edge) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		e.fail(w, signal, errValidation("invalid metadata: %v", err))
 		return
 	}
-	if strings.TrimSpace(body.AppID) == "" {
-		e.fail(w, signal, errValidation("app_id is required"))
-		return
-	}
-	apps, aerr := e.resolveApps(r.Context(), p, []string{body.ProjectSlug}, []string{body.AppID}, false)
+	// A report without app_id is the project's default app.
+	batch, aerr := e.resolveBatch(r.Context(), signal, p, []string{body.ProjectSlug}, []string{body.AppID}, false, tally{})
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
@@ -187,7 +185,7 @@ func (e *Edge) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	err = e.metadata.UpsertAppMetadata(r.Context(), db.UpsertAppMetadataParams{
-		AppID:            apps[strings.TrimSpace(body.AppID)],
+		AppID:            batch.id(body.AppID),
 		Environment:      environment(body.Environment),
 		ProjectID:        p.ProjectID,
 		Framework:        truncate(strings.ToLower(strings.TrimSpace(body.Framework)), maxFrameworkChars),

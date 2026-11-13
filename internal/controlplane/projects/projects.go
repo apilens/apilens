@@ -8,8 +8,8 @@
 // slug end with exactly one winner. Creating and deleting a project write the
 // project.created / project.deleted outbox rows (ADR 0006) in the same
 // transaction as the change. Creating a project also registers its default
-// app, whose identifier is the project slug, so SDKs can send events with
-// app_id = <project slug> straight away.
+// app (slug = project slug), which receives records that name no app; other
+// apps are created by ingest from the app names SDKs send.
 //
 // Role checks read memberships until the authz middleware lands; they follow
 // authz/schema.zed: any member may read, owners, admins and members may
@@ -31,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/apilens/apilens/internal/controlplane/apps"
 	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
@@ -107,11 +108,18 @@ func CanDelete(role string) bool { return orgs.CanManage(role) }
 
 // Service manages projects and environments.
 type Service struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	audit apps.Auditor // nil: the default app's app.created is not audited
 }
 
 // New returns a Service over pool.
 func New(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
+
+// WithAudit audits the creation of each new project's default app.
+func (s *Service) WithAudit(a apps.Auditor) *Service {
+	s.audit = a
+	return s
+}
 
 // Create creates the project slug named name in the organization orgSlug on
 // behalf of user, with the given environments (DefaultEnvironments when
@@ -158,10 +166,12 @@ func (s *Service) create(ctx context.Context, user uuid.UUID, orgSlug, name, slu
 	if err != nil {
 		return Project{}, fmt.Errorf("projects: create project: %w", err)
 	}
-	// The default app: ingest only accepts app identifiers registered on the
-	// project, and the install instructions tell SDKs to send app_id = the
-	// project slug. Without it a new project's first events are rejected.
-	if _, err := q.UpsertApp(ctx, db.UpsertAppParams{ID: uuid.New(), ProjectID: p.ID, Slug: p.Slug, Name: p.Name}); err != nil {
+	// The default app receives records that name no app; its slug is the
+	// project slug, which older install instructions told SDKs to send. It
+	// goes through apps.Insert, the code path ingest creates apps through.
+	if _, _, err := apps.Insert(ctx, tx, s.audit, apps.NewApp{
+		ProjectID: p.ID, Slug: p.Slug, Name: p.Name, Origin: apps.OriginDashboard, Default: true, Actor: &user,
+	}); err != nil {
 		return Project{}, fmt.Errorf("projects: create default app: %w", err)
 	}
 	for _, e := range envs {

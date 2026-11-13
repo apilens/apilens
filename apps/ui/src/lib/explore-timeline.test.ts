@@ -17,6 +17,7 @@ import {
   timeX,
   timelinePoll,
   windowText,
+  timelineTotals,
 } from "./explore-timeline";
 import type { RequestTimeline } from "./identity";
 
@@ -141,5 +142,15 @@ describe("timelinePoll", () => {
     expect(timelinePoll(401, { ok: false, code: "session_expired", next: "/auth/refresh" })).toEqual({ kind: "expired", next: "/auth/refresh" });
     expect(timelinePoll(503, null)).toEqual({ kind: "error", code: "unavailable" });
     expect(timelinePoll(200, { ok: true })).toEqual({ kind: "error", code: "network_error" });
+  });
+});
+
+describe("timelineTotals", () => {
+  it("sums every bucket by status class", () => {
+    const b = (requests: number, successful: number, c: number, sv: number) => ({ ts: "t", requests, successful, client_errors: c, server_errors: sv });
+    expect(timelineTotals({ buckets: [b(10, 7, 2, 1), b(5, 5, 0, 0)] })).toEqual({ requests: 15, successful: 12, client_errors: 2, server_errors: 1 });
+  });
+  it("reads no buckets as zero", () => {
+    expect(timelineTotals({ buckets: null })).toEqual({ requests: 0, successful: 0, client_errors: 0, server_errors: 0 });
   });
 });

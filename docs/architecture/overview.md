@@ -210,9 +210,17 @@ shipped; a test checks that this table lists every one.
 | `invitation.accepted` | an organization invitation is accepted |
 | `api_key.created` | a project API key is created (metadata has the project, key id, name, display prefix and scopes; never the key) |
 | `api_key.revoked` | a project API key is revoked |
+| `api_key.updated` | a project API key's permissions or app scope change (metadata has `can_create_apps` and `app_ids`) |
 | `sso.updated` | an organization's SSO connection is created or changed (metadata has `created`, `enforce`, `secret_changed` and the changed `fields`; never the secret) |
 | `sso.deleted` | an organization's SSO connection is removed |
 | `capture_policy.updated` | an app's remote capture policy is saved (metadata has the app, its project and the new values) |
+| `app.created` | an app is created: with its project (`created_by` dashboard) or by ingest from the app name an SDK sent (`created_by` sdk, with the key id; no actor) |
+| `app.archived` | an app is archived from the Apps page |
+| `app.restored` | an archived or deleted app is restored; `by` is `dashboard`, or `sdk` when data naming an archived app un-archived it |
+| `app.renamed` | an app's display name changes (the slug never does) |
+| `app.merged` | an app is merged into another (metadata has both apps); its slug becomes an alias |
+| `app.deleted` | an app is deleted; its slug stays reserved for 30 days |
+| `app.acknowledged` | a new app the SDK created is kept from the "New app detected" notice |
 
 ## Delivery
 

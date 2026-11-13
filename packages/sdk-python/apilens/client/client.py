@@ -585,13 +585,12 @@ class ApiLensClient:
         return ``False``. Disabled with ``send_metadata=False``,
         ``enabled=False`` or env ``APILENS_SEND_METADATA=false``.
         """
-        if app_id:
-            # Every framework middleware reports metadata on construction, so
-            # this is also where its app is enrolled for heartbeats.
-            self.register_app(app_id, environment)
+        # Every framework middleware reports metadata on construction, so
+        # this is also where its app is enrolled for heartbeats. An empty
+        # app_id is the project's default app.
+        app_id = (app_id or "").strip()
+        self.register_app(app_id, environment)
         if not (self.config.enabled and self.config.send_metadata and env_send_metadata_enabled()):
-            return False
-        if not app_id:
             return False
         key = (os.getpid(), self.config.base_url, app_id, environment or self.config.environment)
         with _metadata_lock:
@@ -697,10 +696,9 @@ class ApiLensClient:
     def register_app(self, app_id: str, environment: str = "") -> None:
         """Send heartbeats for ``app_id`` in ``environment`` (default: the
         config's) from now on. The first one goes out on the next flush-loop
-        pass. Registering the same app again does nothing."""
-        if not app_id:
-            return
-        key = (app_id, environment or self.config.environment)
+        pass. Registering the same app again does nothing. ``""`` is the
+        project's default app (no app name configured)."""
+        key = ((app_id or "").strip(), environment or self.config.environment)
         with self._heartbeat_lock:
             if key in self._heartbeat_due:
                 return

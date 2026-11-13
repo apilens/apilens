@@ -73,6 +73,14 @@ type ApiKey struct {
 	ExpiresAt  *time.Time
 	RevokedAt  *time.Time
 	LastUsedAt *time.Time
+	AppIds     []uuid.UUID
+}
+
+type ApiKeyApp struct {
+	KeyID       uuid.UUID
+	AppID       uuid.UUID
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
 }
 
 type App struct {
@@ -84,6 +92,20 @@ type App struct {
 	CreatedAt          time.Time
 	DeletedAt          *time.Time
 	LatencyThresholdMs *int32
+	CreatedBy          string
+	CreatedByKeyID     *uuid.UUID
+	FirstSeenAt        *time.Time
+	ArchivedAt         *time.Time
+	AcknowledgedAt     *time.Time
+	MergedInto         *uuid.UUID
+	IsDefault          bool
+}
+
+type AppAlias struct {
+	ProjectID uuid.UUID
+	AliasSlug string
+	AppID     uuid.UUID
+	CreatedAt time.Time
 }
 
 type AppInstance struct {
@@ -160,21 +182,6 @@ type CapturePolicy struct {
 	MaxPayloadBytes     *int32
 	UpdatedAt           time.Time
 	UpdatedBy           *uuid.UUID
-}
-
-type ConsumerGroup struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
-	Name      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type ConsumerGroupMember struct {
-	ProjectID  uuid.UUID
-	ConsumerID string
-	GroupID    uuid.UUID
-	AssignedAt time.Time
 }
 
 type EndpointSetting struct {

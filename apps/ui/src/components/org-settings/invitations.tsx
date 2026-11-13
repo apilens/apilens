@@ -5,6 +5,10 @@ import { resendInvitation, revokeInvitation } from "@/app/orgs/[org]/settings/in
 import type { Invitation } from "@/lib/identity";
 import { formatDay, formatWait, inviterName, isExpired, resendWait } from "@/lib/invitations";
 import { roleLabel } from "@/lib/scope";
+import { ListSearch, useCanonicalPage, useListSearch } from "@/components/list-search/list-search";
+import { Pagination } from "@/components/pagination/pagination";
+import { countLine, searchRows } from "@/lib/list-search";
+import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { DialogError, Gated, Modal, type OrgRef, type Status, statusOf } from "./controls";
 import { InviteDialog } from "./invite-dialog";
 import { OrgSettingsNav } from "./nav";
@@ -22,8 +26,28 @@ const COOLDOWN = "An invitation can be emailed once every 5 minutes.";
  * shared invite dialog. Others see why the list is hidden. The rows come from the server: after
  * an action the page is revalidated and re-rendered with the new list. `now` is the server's
  * clock at render, so the first paint matches; the countdown then follows the browser's.
+ * The API returns every pending invitation, so the list is searched (email, role, who sent it) and
+ * paged here; revoking the last one of the last page lands on the new last page.
  */
-export function OrgInvitationsSettings({ org, invitations, manage, now: renderedAt }: { org: OrgRef; invitations: Invitation[]; manage: boolean; now: number }) {
+export function OrgInvitationsSettings({
+  org,
+  invitations: all,
+  manage,
+  now: renderedAt,
+  search = {},
+}: {
+  org: OrgRef;
+  invitations: Invitation[];
+  manage: boolean;
+  now: number;
+  /** The page's searchParams: the list is searched (`?q=`) and paged (`?page=&per=`) here. */
+  search?: SearchParams;
+}) {
+  const pathname = `/orgs/${org.slug}/settings/invitations`;
+  const list = useListSearch(pathname, search);
+  const matched = searchRows(all, list.query, (inv) => [inv.email, roleLabel(inv.role), inviterName(inv)]);
+  const { rows: invitations, window } = slicePage(matched, parsePage(list.params));
+  useCanonicalPage(pathname, search, list.settled ? window : null);
   const [status, setStatus] = useState<Status>(null);
   const [revoking, setRevoking] = useState<Invitation | null>(null);
   const [inviting, setInviting] = useState(false);
@@ -37,7 +61,7 @@ export function OrgInvitationsSettings({ org, invitations, manage, now: rendered
   const counting = invitations.some((inv) => waitOf(inv) > 0);
 
   // A fresh list (after an action) is measured against the current time, not the last tick.
-  useEffect(() => setNow(Date.now()), [invitations]);
+  useEffect(() => setNow(Date.now()), [all]);
   useEffect(() => {
     if (!counting) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -63,7 +87,7 @@ export function OrgInvitationsSettings({ org, invitations, manage, now: rendered
   const gate = manage ? ({ allowed: true } as const) : ({ allowed: false, reason: NO_ACCESS } as const);
 
   return (
-    <div className="os om">
+    <div className="page os om">
       <header className="os-head">
         <p className="cp-h">Organization</p>
         <h1 className="cp-lede">Invitations</h1>
@@ -71,7 +95,10 @@ export function OrgInvitationsSettings({ org, invitations, manage, now: rendered
       </header>
 
       <div className="om-bar">
-        <p className="om-count">{!manage ? "Pending invitations" : invitations.length === 1 ? "1 pending invitation" : `${invitations.length} pending invitations`}</p>
+        <p className="om-count">{!manage ? "Pending invitations" : countLine(matched.length, all.length, "pending invitation", "pending invitations", list.query)}</p>
+        {manage && all.length > 0 ? (
+          <ListSearch value={list.query} onChange={list.setQuery} label="Search invitations" placeholder="Search by email, role or sender" controls="oi-list" />
+        ) : null}
         <span className={`om-status${status ? ` ${status.tone}` : ""}`} role="status" aria-live="polite">
           {status?.text ?? ""}
         </span>
@@ -89,14 +116,25 @@ export function OrgInvitationsSettings({ org, invitations, manage, now: rendered
           <p className="oi-empty__t">Only owners and admins can see invitations</p>
           <p className="oi-empty__p">Ask an owner or admin of {org.name} to invite someone or to resend an invitation.</p>
         </div>
-      ) : invitations.length === 0 ? (
+      ) : all.length === 0 ? (
         <div className="om-wrap oi-empty">
           <p className="oi-empty__t">No pending invitations</p>
           <p className="oi-empty__p">People you invite show up here until they accept. You can resend or revoke an invitation from this list.</p>
+          <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm oi-empty__btn" onClick={() => setInviting(true)} disabled={pending}>
+            Invite people
+          </button>
+        </div>
+      ) : matched.length === 0 ? (
+        <div className="om-wrap ls-none" id="oi-list">
+          <p className="ls-none__t">No invitations match “{list.query.trim()}”</p>
+          <p className="ls-none__p">Search looks at email addresses, roles and who sent the invitation.</p>
+          <button type="button" className="ah-btn ah-btn--secondary ah-btn--sm" onClick={() => list.setQuery("")}>
+            Clear search
+          </button>
         </div>
       ) : (
         <div className="om-wrap">
-          <table className="om-table oi-table">
+          <table className="om-table oi-table" id="oi-list">
             <caption className="sr-only">Pending invitations to {org.name}</caption>
             <thead>
               <tr>
@@ -159,6 +197,7 @@ export function OrgInvitationsSettings({ org, invitations, manage, now: rendered
               })}
             </tbody>
           </table>
+          <Pagination pathname={pathname} params={list.params} total={window.total} label="Invitations pages" className="ls-pages" />
         </div>
       )}
 

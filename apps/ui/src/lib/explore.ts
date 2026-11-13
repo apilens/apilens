@@ -5,6 +5,7 @@ import { RANGE_LABEL } from "./consumers";
 import { type ExploreFilters, NO_FILTERS, filterEntries, parseFilters } from "./explore-filters";
 import { type ExploreWindow, chartWindow, instantText, logWindow, parseWindow, windowEntries, windowText } from "./explore-timeline";
 import type { QueryRange, RequestRow } from "./identity";
+import { TRAIL_PARAM, trailHrefs } from "./pagination";
 
 export const EXPLORE_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
 export const DEFAULT_RANGE: QueryRange = "1h";
@@ -13,7 +14,7 @@ export const LOG_LIMIT = 200;
 /** How often the log reads again while live. Every range ends now, so the log can always be live. */
 export const LOG_POLL_MS = 5_000;
 /** Height of one row in px; the virtual window depends on it, so the CSS uses the same number. */
-export const ROW_HEIGHT = 40;
+export const ROW_HEIGHT = 32;
 /** Rows rendered above and below the visible ones. */
 export const OVERSCAN = 8;
 /**
@@ -81,8 +82,12 @@ export function scopeText(q: Pick<ExploreState, "range"> & ExploreWindow): strin
   return q.at ? `${base}, up to ${instantText(q.at)}` : base;
 }
 
-/** A stable key for a row: its trace id (one request row per trace), else its time and position. */
-export const rowKey = (r: Pick<RequestRow, "timestamp" | "trace_id">, i: number) => r.trace_id || `${r.timestamp}#${i}`;
+/**
+ * A stable key for a row: its request id (unique per request), else its trace id, else its time and
+ * position. A trace can hold more than one request row (an app calling itself), so the trace id
+ * alone is not unique.
+ */
+export const rowKey = (r: Pick<RequestRow, "timestamp" | "trace_id"> & { id?: string }, i: number) => r.id || r.trace_id || `${r.timestamp}#${i}`;
 
 /** The status class of a response code, for the chip: 4xx warn, 5xx error, the rest neutral. */
 export function statusClass(code: number): "2xx" | "3xx" | "4xx" | "5xx" | "other" {
@@ -118,6 +123,36 @@ export function formatBytes(n: number | null | undefined): string {
 /** Who made the request: the consumer's name, else its id, else null when it was anonymous. */
 export function consumerOf(r: Pick<RequestRow, "consumer_id" | "consumer_name">): string | null {
   return (r.consumer_name ?? "").trim() || (r.consumer_id ?? "").trim() || null;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+
+/**
+ * When a request happened, for the log's Time column (UTC, like every chart): the clock time to the
+ * millisecond (`10:51:03` and `.214`), with the day in front (`Nov 5`) when it is not `now`'s UTC day.
+ * Unparseable times read as a dash.
+ */
+export function logTime(ts: string, now: number): { day: string; clock: string; ms: string } {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return { day: "", clock: "–", ms: "" };
+  const n = new Date(now);
+  const sameDay = d.getUTCFullYear() === n.getUTCFullYear() && d.getUTCMonth() === n.getUTCMonth() && d.getUTCDate() === n.getUTCDate();
+  return {
+    day: sameDay ? "" : `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`,
+    clock: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`,
+    ms: `.${pad(d.getUTCMilliseconds(), 3)}`,
+  };
+}
+
+/**
+ * The quick status filter behind a count in the timeline header: the log narrowed to one status
+ * class (`4xx`, `5xx`, or `4xx,5xx` for every error), or back to all statuses when that filter is
+ * already on. The other filters and the range stay; a zoom or jump point starts over.
+ */
+export function statusQuickHref(project: string, q: ExploreState, status: string): { href: string; active: boolean } {
+  const active = q.filters.status === status;
+  return { href: exploreHref(project, { range: q.range, filters: { ...q.filters, status: active ? "" : status } }), active };
 }
 
 /** True when the SDK sampled the request out: a base record without headers or bodies. */
@@ -169,16 +204,49 @@ export function moveFocus(key: string, current: number, count: number, page: num
   }
 }
 
-/** One poll of the Route Handler, as the log cares. */
-export type LogPoll = { kind: "rows"; rows: RequestRow[] } | { kind: "expired"; next: string } | { kind: "error"; code: string };
+/** One poll of the Route Handler, as the log cares: the rows and the cursor of the older ones ("" when none). */
+export type LogPoll = { kind: "rows"; rows: RequestRow[]; older: string } | { kind: "expired"; next: string } | { kind: "error"; code: string };
 
-/** Reads the Route Handler's answer (`{ok: true, requests}` or `{ok: false, code, next?}`). */
+/** Reads the Route Handler's answer (`{ok: true, requests, next_cursor?}` or `{ok: false, code, next?}`). */
 export function logPoll(status: number, body: unknown): LogPoll {
   const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
-  if (b.ok === true) return { kind: "rows", rows: Array.isArray(b.requests) ? (b.requests as RequestRow[]) : [] };
+  if (b.ok === true) return { kind: "rows", rows: Array.isArray(b.requests) ? (b.requests as RequestRow[]) : [], older: typeof b.next_cursor === "string" ? b.next_cursor : "" };
   const code = typeof b.code === "string" ? b.code : status >= 500 ? "unavailable" : "network_error";
   if (status === 401 && code === "session_expired") return { kind: "expired", next: typeof b.next === "string" ? b.next : "/sign-in" };
   return { kind: "error", code };
+}
+
+// Older pages ------------------------------------------------------------------------------
+//
+// The log shows the newest LOG_LIMIT rows; Older walks back past them with the API's keyset
+// cursor, kept in the URL as a trail (`?cursor=c1.c2`, lib/pagination) so Newer can step back.
+// The trail is not part of ExploreState: every other link (range, filters, the timeline's zoom and
+// jump) is built from the state and so starts again on the newest page. Live polling runs on the
+// newest page only; an older page is a fixed slice of the past.
+
+/**
+ * Newer, Older and Newest of the log: `trail` is the cursors walked to reach this page, `older` the
+ * API's next_cursor for this page's rows ("" on the oldest page). `page` is 1 on the newest page.
+ */
+export function logPages(project: string, q: ExploreState, trail: readonly string[], older: string) {
+  const href = exploreHref(project, q);
+  const i = href.indexOf("?");
+  const params = Object.fromEntries(new URLSearchParams(i < 0 ? "" : href.slice(i + 1)));
+  if (trail.length) params[TRAIL_PARAM] = trail.join(".");
+  return trailHrefs(href.slice(0, i < 0 ? undefined : i), params, older);
+}
+
+/**
+ * The log's caption: which requests it lists. The newest page says how many (at most LOG_LIMIT);
+ * an older page says which, counting from the newest (every page before it was full), and that it
+ * is not live.
+ */
+export function logCaption(q: ExploreState, page: number, count: number, filtered: boolean): string {
+  const where = `${scopeText(q)}${filtered ? " matching the filters" : ""}`;
+  if (page <= 1) return `The newest ${count === 1 ? "request" : `${count} requests`} in ${where}, newest first.`;
+  const from = (page - 1) * LOG_LIMIT + 1;
+  const n = (v: number) => new Intl.NumberFormat("en-US").format(v);
+  return `Requests ${n(from)}–${n(from + count - 1)} from the newest in ${where}, newest first. Live updates run on the newest page only.`;
 }
 
 export const LOG_LOAD_FAILED = "We couldn’t load requests just now.";

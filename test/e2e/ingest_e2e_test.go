@@ -359,3 +359,22 @@ func (e env) getJSON(t *testing.T, key, path string, out any) {
 		t.Fatal(err)
 	}
 }
+
+// TestIngestCreatesApps checks that apps come from the SDK: an app name the
+// project does not have creates the app (it used to be a 422), and a record
+// without app_id lands in the project's default app.
+func TestIngestCreatesApps(t *testing.T) {
+	e := loadEnv(t)
+	run := fmt.Sprintf("e2e%d", time.Now().UnixNano())
+	ts := time.Now().UTC().Format(time.RFC3339Nano)
+	reqs := []map[string]any{
+		{"app_id": "E2E Service " + run, "timestamp": ts, "environment": "e2e", "method": "GET", "path": "/" + run + "/new", "status_code": 200},
+		{"timestamp": ts, "environment": "e2e", "method": "GET", "path": "/" + run + "/default", "status_code": 200},
+	}
+	if code, body := e.post(t, "/v1/requests", e.key, map[string]any{"requests": reqs}); code != 200 || !strings.Contains(body, `"accepted":2`) {
+		t.Fatalf("/v1/requests = %d %s", code, body)
+	}
+	e.eventually(t, "new app rows", fmt.Sprintf("SELECT count() FROM api_requests WHERE path = '/%s/new'", run), 1)
+	e.eventually(t, "default app rows", fmt.Sprintf("SELECT count() FROM api_requests WHERE path = '/%s/default'", run), 1)
+	e.eventually(t, "distinct apps", fmt.Sprintf("SELECT uniqExact(app_id) FROM api_requests WHERE path LIKE '/%s/%%'", run), 2)
+}

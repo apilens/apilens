@@ -1,13 +1,22 @@
 /* Explore (#585). Tokens from tokens.css only. Color carries meaning: the status chip is neutral for
    2xx and 3xx, --warn for 4xx and --error for 5xx; latency turns --warn above 500 ms and --error
-   above 2 s (it also says so in its title, never by color alone). Rows are a fixed 40px (ROW_HEIGHT
+   above 2 s (it also says so in its title, never by color alone). Rows are a fixed 32px (ROW_HEIGHT
    in lib/explore.ts): the log renders only the rows in view and positions them by that height. At
    phone width the consumer and size columns drop, so the page never scrolls sideways. */
-.ex { max-width: 1280px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
+/* Page width and gutters come from .page (styles/page.css). */
 .ex-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
-.ex-muted { color: var(--ink-muted); }
 
-.ex-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+.ex-muted, .ex-faint { color: var(--ink-muted); }
+
+/* The toolbar: one row (range, filters, then saved view, Export and Live at the right edge). The
+   filter section is display: contents, so its button row sits in this row and its form, when open,
+   drops to a full-width line of its own (order) instead of growing the row. */
+.ex-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: var(--space-6) 0 var(--space-4); }
+.ex-tools > .ex-filters { display: contents; }
+.ex-tools .ex-filters__bar { flex: 1 1 260px; min-width: 0; }
+.ex-tools .ex-form { flex-basis: 100%; order: 99; margin-top: 0; }
+.ex-tools__end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-left: auto; }
+.ex-tools .ex-views { margin-top: 0; }
 .ex-seg { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); }
 .ex-seg a { padding: 4px 12px; border-radius: 7px; font: 500 13px/20px var(--font-sans); color: var(--ink-muted); text-decoration: none; }
 .ex-seg a:hover { color: var(--ink); }
@@ -29,15 +38,15 @@
 
 /* The log: one card, the grid scrolls inside it with a sticky header row. */
 .ex-card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); overflow: hidden; }
-.ex-grid { position: relative; height: 640px; max-height: calc(100dvh - 260px); min-height: 320px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; font: 400 13px/20px var(--font-sans); color: var(--ink); }
+.ex-grid { position: relative; height: max(360px, calc(100dvh - 380px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; font: 400 13px/20px var(--font-sans); color: var(--ink); }
 .ex-grid:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
 .ex-head { position: sticky; top: 0; z-index: 1; }
 .ex-spacer { position: relative; }
 .ex-row {
   display: grid;
-  grid-template-columns: 88px 72px minmax(0, 1fr) 64px 88px minmax(0, 200px) 72px;
+  grid-template-columns: 128px 76px minmax(0, 1fr) 64px 80px minmax(0, 180px) 72px;
   align-items: center;
-  height: 40px;
+  height: 32px;
   border-bottom: 1px solid var(--border);
   box-sizing: border-box;
 }
@@ -45,10 +54,15 @@
 .ex-spacer > .ex-row:hover { background: var(--surface-2); }
 .ex-spacer > .ex-row:focus { outline: none; }
 .ex-spacer > .ex-row:focus-visible { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent-ink); }
+/* Errors read apart while scanning: an edge in the status color (the chip still says the code). */
+.ex-spacer > .ex-row.is-4xx { box-shadow: inset 2px 0 0 var(--warn); }
+.ex-spacer > .ex-row.is-5xx { box-shadow: inset 2px 0 0 var(--error); }
 .ex-row--head { background: var(--surface-2); font: 500 12px/16px var(--font-sans); color: var(--ink-muted); }
 .ex-cell { min-width: 0; padding: 0 var(--space-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ex-cell--status, .ex-cell--latency, .ex-cell--size { text-align: right; font-variant-numeric: tabular-nums; }
-.ex-cell--time { color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.ex-cell--time { font: 400 12px/20px var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+.ex-row--head .ex-cell--time { font: inherit; color: inherit; }
+.ex-time__day, .ex-time__ms { color: var(--ink-muted); }
 .ex-cell--method { font: 500 12px/18px var(--font-mono); color: var(--ink-muted); }
 .ex-row--head .ex-cell--method { font: inherit; }
 .ex-cell--path { display: flex; align-items: center; gap: var(--space-2); }
@@ -64,6 +78,9 @@
 
 .ex-row--skeleton .ex-bone { display: block; height: 10px; border-radius: 5px; background: var(--surface-2); }
 .ex-foot { margin: 0; padding: var(--space-2) var(--space-4); border-top: 1px solid var(--border); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ex-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-4); }
+.ex-foot p { margin: 0; }
+.ex-foot .pg { padding: 0; }
 
 /* Filter bar (#586): the Filters button, the active filters as removable chips, and the form. */
 .ex-filters { margin-bottom: var(--space-4); }
@@ -197,8 +214,9 @@ span.rd-j-tog { cursor: default; }
 }
 
 @media (max-width: 760px) {
-  .ex { padding: var(--space-4) var(--space-4) var(--space-12); }
-  .ex-row { grid-template-columns: 68px 56px minmax(0, 1fr) 52px 68px; }
+  .ex-row { grid-template-columns: 76px 60px minmax(0, 1fr) 52px 64px; }
+  .ex-tools__end { margin-left: 0; }
+  .ex-time__ms, .ex-time__day { display: none; }
   .ex-cell { padding: 0 6px; }
   .ex-cell--method { font-size: 11px; }
   .ex-cell--consumer, .ex-cell--size { display: none; }
@@ -213,16 +231,24 @@ span.rd-j-tog { cursor: default; }
    and selection never animate unless the reader allows motion. */
 .ex-tl { --ex-tl-4xx: #fab219; --ex-tl-5xx: #d03b3b; margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
 .ex-tl[aria-busy="true"] .ex-tl__plot { opacity: .6; }
-.ex-tl__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-4); margin-bottom: var(--space-6); }
+.ex-tl__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); margin-bottom: var(--space-6); }
 .ex-tl__title { margin: 0; font: 600 14px/20px var(--font-sans); color: var(--ink); }
-.ex-tl__legend { display: flex; flex-wrap: wrap; gap: var(--space-4); margin: 0; padding: 0; list-style: none; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ex-tl__legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); margin: 0; padding: 0; list-style: none; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 .ex-tl__legend li { display: inline-flex; align-items: center; gap: 6px; }
+.ex-tl__total { color: var(--ink); }
+.ex-tl__total strong { font-weight: 600; font-variant-numeric: tabular-nums; }
+.ex-tl__n { font: 500 12px/18px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); }
+/* The error counts are quick filters: a quiet pill that fills when that filter is on. */
+.ex-tl__quick { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border: 1px solid var(--border); border-radius: var(--radius-pill); color: var(--ink-muted); text-decoration: none; }
+.ex-tl__quick:hover { background: var(--surface-2); color: var(--ink); }
+.ex-tl__quick[aria-current="true"] { border-color: var(--border-strong); background: var(--surface-2); color: var(--ink); }
+.ex-tl__quick:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 .ex-tl__swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
 .ex-tl__scope { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin-left: auto; font: 400 13px/20px var(--font-sans); color: var(--ink); }
 .ex-tl__plot { position: relative; width: 100%; cursor: crosshair; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .ex-tl__plot:focus { outline: none; }
 .ex-tl__plot:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 4px; border-radius: 2px; }
-.ex-tl__plot svg { display: block; width: 100%; height: 96px; overflow: visible; }
+.ex-tl__plot svg { display: block; width: 100%; height: 64px; overflow: visible; }
 .ex-tl__top { position: absolute; top: -20px; right: 0; font: 400 11px/14px var(--font-mono); color: var(--ink-muted); }
 .ex-tl__grid { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .ex-tl__base { stroke: var(--border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
@@ -235,10 +261,10 @@ span.rd-j-tog { cursor: default; }
 .ex-tl__cursor { stroke: var(--accent-ink); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .ex-tl__tip { position: absolute; bottom: calc(100% + 6px); z-index: 2; width: max-content; max-width: min(440px, 100%); box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-1); font: 400 12px/18px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); pointer-events: none; }
 .ex-tl__axis { display: flex; justify-content: space-between; margin-top: 4px; font: 400 11px/16px var(--font-mono); color: var(--ink-muted); }
-.ex-tl__hint { margin: var(--space-2) 0 0; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 .ex-tl__error { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 var(--space-2); font: 400 13px/20px var(--font-sans); color: var(--ink); }
 .ex-tl__error svg { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--ink-muted); }
-.ex-tl__sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* The keyboard help: read by screen readers (aria-describedby on the plot), not shown. */
+.ex-tl__hint, .ex-tl__sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Motion only for readers who allow it (#587 acceptance: respects reduced motion). */
 @media (prefers-reduced-motion: no-preference) {
@@ -275,8 +301,6 @@ span.rd-j-tog { cursor: default; }
 
 /* CSV export (#590): Export beside the view switcher, the recent exports in its popover, and the
    toast that follows a running export, bottom right, one at a time. */
-.ex-head__actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-3); }
-.ex-head__actions > .ah-btn { margin-top: var(--space-4); }
 .ex-exports { list-style: none; margin: 0; padding: 0 0 4px; }
 .ex-exports__row { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; padding: 2px 4px 2px 8px; }
 .ex-exports__text { display: flex; flex: 1; flex-direction: column; min-width: 0; }

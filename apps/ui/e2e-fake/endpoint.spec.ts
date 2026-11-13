@@ -11,6 +11,15 @@ const PAGE = "/shop/endpoints/GET/%2Forders%2F%7Bid%7D";
 const bucket = (i: number) => new Date(Date.UTC(2026, 10, 5, 10, 0) + i * 15 * 60_000).toISOString();
 const ts = (i: number) => ({ ts: bucket(i) });
 
+/** The hover tooltip of chart `name` at bucket `i` (0-based), reached with the keyboard. */
+async function tipAt(page: Page, name: RegExp, i: number) {
+  const box = page.getByRole("group", { name });
+  await box.focus();
+  await page.keyboard.press("Home");
+  for (let k = 0; k < i; k++) await page.keyboard.press("ArrowRight");
+  return box.locator(".ct-tip");
+}
+
 const REQUESTS = {
   summary: { requests: 8200, successful: 7908, client_errors: 290, server_errors: 2, requests_per_minute: 5.69 },
   points: [
@@ -177,7 +186,8 @@ test("Errors tab: error rates, status codes, validation errors and server except
   const chart = page.getByRole("img", { name: /Error rate/ });
   await expect(page.getByRole("list", { name: "Error rate legend" }).getByRole("listitem")).toHaveText(["4xx rate", "5xx rate"]);
   await expect(chart.locator("path.ep-line")).toHaveCount(2);
-  await expect(chart.locator(".tr-hit title").nth(1)).toHaveText(/4xx rate: 4%\n5xx rate: <0\.1%/);
+  const rate = await tipAt(page, /^Error rate\. Use the arrow keys/, 1);
+  await expect(rate.locator("dd")).toHaveText(["4%", "<0.1%"]);
 
   const statuses = page.getByRole("table", { name: "Error status codes" });
   await expect(statuses.locator("tbody tr")).toHaveCount(3);
@@ -221,8 +231,12 @@ test("Response times tab: percentiles, Apdex, the p50/p75/p95 trend and the hist
   await expect(trend.locator('path[data-series="p95_ms"]')).toHaveAttribute("d", /^M[\d.]+,[\d.]+(L[\d.]+,[\d.]+){2}$/);
   const hist = page.getByRole("img", { name: /Response time histogram/ });
   await expect(hist.locator(".tr-hit")).toHaveCount(14);
-  await expect(hist.locator(".tr-hit title").nth(5)).toHaveText("20–50 ms: 2,600");
-  await expect(hist.locator(".tr-hit title").last()).toHaveText("≥10 s: 0");
+  const bar = await tipAt(page, /^Response time histogram\. Use the arrow keys/, 5);
+  await expect(bar.locator(".ct-tip__title")).toHaveText("20–50 ms");
+  await expect(bar.locator("dd").first()).toHaveText("2,600");
+  await page.keyboard.press("End");
+  await expect(bar.locator(".ct-tip__title")).toHaveText("≥10 s");
+  await expect(bar.locator("dd").first()).toHaveText("0");
   expect((await reads()).map((r) => [r.tab, r.query])).toEqual([["latency", { range: "7d" }]]);
 
   // The status filter is in the URL and sent to the read.
@@ -247,14 +261,21 @@ test("Data transferred tab: bytes in and out, the in/out series and both size hi
   await expect(series.locator(".tr-hit")).toHaveCount(4);
   await expect(series.locator(".ep-c-in")).toHaveCount(4);
   await expect(series.locator(".ep-c-out")).toHaveCount(4);
-  await expect(series.locator(".tr-hit title").first()).toHaveText(/Received \(requests\): 391 KB\nSent \(responses\): 5.3 MB/);
+  const bytes = await tipAt(page, /^Bytes in and out\. Use the arrow keys/, 0);
+  await expect(bytes.locator("dt")).toHaveText(["Received (requests)", "Sent (responses)", "Total"]);
+  await expect(bytes.locator("dd").first()).toHaveText("391 KB");
+  await expect(bytes.locator("dd").nth(1)).toHaveText("5.3 MB");
 
   const req = page.getByRole("img", { name: /Request size histogram/ });
   const res = page.getByRole("img", { name: /Response size histogram/ });
   await expect(req.locator(".tr-hit")).toHaveCount(10);
   await expect(res.locator(".tr-hit")).toHaveCount(10);
-  await expect(req.locator(".tr-hit title").first()).toHaveText("0 B: 6,000");
-  await expect(res.locator(".tr-hit title").nth(3)).toHaveText("1–4 KB: 5,800");
+  const reqBar = await tipAt(page, /^Request size histogram\. Use the arrow keys/, 0);
+  await expect(reqBar.locator(".ct-tip__title")).toHaveText("0 B");
+  await expect(reqBar.locator("dd").first()).toHaveText("6,000");
+  const resBar = await tipAt(page, /^Response size histogram\. Use the arrow keys/, 3);
+  await expect(resBar.locator(".ct-tip__title")).toHaveText("1–4 KB");
+  await expect(resBar.locator("dd").first()).toHaveText("5,800");
   expect((await reads()).map((r) => r.tab)).toEqual(["transfer"]);
 
   const a11y = await new AxeBuilder({ page }).include(".ep").analyze();

@@ -23,7 +23,7 @@ const app = express();
 
 useApiLens(app, {
   apiKey: process.env.APILENS_API_KEY,
-  appId: "storefront-web",        // the app's slug from your APILens project
+  appId: "storefront-web",        // your service's name; the app appears on first data
   environment: "production",
 });
 ```
@@ -54,7 +54,7 @@ The config accepts both camelCase and snake_case keys. The client mirrors the Py
 | Option | Default | Notes |
 |---|---|---|
 | `apiKey` | — (required) | Project-level key |
-| `appId` | `""` | App slug — set it |
+| `appId` | `APILENS_APP_ID`, else `OTEL_SERVICE_NAME`, else none (default app) | Your service's name; an unknown name creates the app ([apps](/platform/projects-apps-keys)) |
 | `baseUrl` | `https://ingest.apilens.ai/v1` | Ingest endpoint |
 | `environment` | `"production"` | |
 | `batchSize` | `200` | Flush trigger |

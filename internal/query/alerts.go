@@ -100,7 +100,7 @@ func (s *Service) WithAlerts(pool AlertPool, sealer *idkeys.Sealer, tester Chann
 // AlertFilters narrow the requests a rule counts; every field is optional.
 type AlertFilters struct {
 	Consumer string `json:"consumer,omitempty" maxLength:"256" doc:"Only requests of this consumer id, as the SDK reports it."`
-	Group    string `json:"group,omitempty" maxLength:"36" doc:"Only requests of the members of this consumer group (its id)."`
+	Group    string `json:"group,omitempty" maxLength:"256" doc:"Only requests tagged with this consumer group, by name as the SDK reports it (consumer_group on a request, listed by list-consumer-group-traffic). A group the SDK has not reported yet counts no requests until it does."`
 	Endpoint string `json:"endpoint,omitempty" maxLength:"512" doc:"Only requests of this endpoint: \"METHOD /route/{template}\", or \"/route/{template}\" for every method."`
 }
 
@@ -572,7 +572,7 @@ func validateRule(ctx context.Context, q *db.Queries, project uuid.UUID, b Alert
 	if err != nil {
 		return v, err
 	}
-	if v.filters, err = checkRuleFilters(ctx, q, project, b.Filters); err != nil {
+	if v.filters, err = checkRuleFilters(b.Filters); err != nil {
 		return v, err
 	}
 	if len(v.channelIDs) > 0 {
@@ -658,22 +658,11 @@ func checkRuleFields(b AlertRuleBody) (validRule, error) {
 	return v, nil
 }
 
-// checkRuleFilters trims the filters, checks the group is one of the
-// project's and encodes them for alert_rules.filters.
-func checkRuleFilters(ctx context.Context, q *db.Queries, project uuid.UUID, f AlertFilters) ([]byte, error) {
+// checkRuleFilters trims the filters and encodes them for
+// alert_rules.filters. The group is the SDK's consumer group name, matched
+// exactly, so it is not checked against the groups seen so far.
+func checkRuleFilters(f AlertFilters) ([]byte, error) {
 	f = AlertFilters{Consumer: strings.TrimSpace(f.Consumer), Group: strings.TrimSpace(f.Group), Endpoint: strings.TrimSpace(f.Endpoint)}
-	if f.Group != "" {
-		id, err := uuid.Parse(f.Group)
-		if err != nil {
-			return nil, huma.Error422UnprocessableEntity("filters.group is not a consumer group of the project")
-		}
-		if _, err := q.GetConsumerGroup(ctx, db.GetConsumerGroupParams{ID: id, ProjectID: project}); errors.Is(err, pgx.ErrNoRows) {
-			return nil, huma.Error422UnprocessableEntity("filters.group is not a consumer group of the project")
-		} else if err != nil {
-			return nil, internalError("consumer group", err)
-		}
-		f.Group = id.String()
-	}
 	b, err := json.Marshal(f)
 	if err != nil {
 		return nil, internalError("filters", err)
