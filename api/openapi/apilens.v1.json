@@ -8467,6 +8467,19 @@
             "format": "date-time",
             "type": "string"
           },
+          "created_by": {
+            "description": "The id of the user who created the project; null when unknown (projects created before this was recorded, or a deleted user).",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "description": "Short description; empty when the project has none.",
+            "maxLength": 280,
+            "type": "string"
+          },
           "environments": {
             "description": "The project's environment names, sorted.",
             "items": {
@@ -8478,6 +8491,7 @@
             ]
           },
           "id": {
+            "description": "The project's immutable identifier; unlike the slug it never changes.",
             "format": "uuid",
             "type": "string"
           },
@@ -8503,17 +8517,25 @@
           },
           "slug": {
             "type": "string"
+          },
+          "updated_at": {
+            "description": "When the name or description last changed; the creation time until then.",
+            "format": "date-time",
+            "type": "string"
           }
         },
         "required": [
           "id",
           "slug",
           "name",
+          "description",
           "org_id",
           "org_slug",
           "role",
           "environments",
-          "created_at"
+          "created_at",
+          "updated_at",
+          "created_by"
         ],
         "type": "object"
       },
@@ -11737,6 +11759,11 @@
             ],
             "format": "uri",
             "readOnly": true,
+            "type": "string"
+          },
+          "description": {
+            "description": "Short description, at most 280 characters; surrounding spaces are trimmed and an empty string clears it.",
+            "maxLength": 280,
             "type": "string"
           },
           "name": {
@@ -23044,7 +23071,7 @@
         ]
       },
       "patch": {
-        "description": "Renames the project. Owners, admins and members only. A slug other than the current one answers `slug_immutable`. Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart.",
+        "description": "Changes the project's name and description. Owners, admins and members only. An empty name or a description over 280 characters answers `invalid_request`; a slug other than the current one answers `slug_immutable`. A change moves `updated_at` and emits the `project.updated` audit event with the previous and next values. Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart.",
         "operationId": "update-project",
         "parameters": [
           {

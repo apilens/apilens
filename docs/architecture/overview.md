@@ -238,7 +238,7 @@ contains API key material, and `audit.Redact` masks secret fields as
 | `session.reauthenticated` | the user confirms who they are again without signing out (passkey, authenticator code, email code or SSO with `prompt=login`); metadata has `method` and `session_id`. The session's authentication time moves to now |
 | `session.reauth_failed` | a re-authentication attempt fails (metadata has `method` and `reason`) |
 | `project.created` | a project is created (changes: `name`, `slug`, `environments`) |
-| `project.updated` | a project's settings change (changes: the changed fields, such as `name`) |
+| `project.updated` | a project's settings change (changes: the changed fields, such as `name` or `description`) |
 | `environment.added` | an environment is added to a project by hand (target: the environment) |
 | `environment.updated` | an environment's settings change (changes: the changed fields) |
 | `environment.removed` | an environment is removed from a project |

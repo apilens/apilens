@@ -28,6 +28,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -46,6 +47,10 @@ import (
 // (environments.name allows 1..64).
 const EnvironmentPattern = `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`
 
+// MaxDescription bounds a project's description, in characters
+// (projects.description allows 0..280).
+const MaxDescription = 280
+
 // MaxEnvironments bounds the environments of one project.
 const MaxEnvironments = 20
 
@@ -59,8 +64,9 @@ func ValidEnvironment(name string) bool { return envRE.MatchString(name) }
 
 // Errors returned by Service.
 var (
-	// ErrInvalid: the name, slug or an environment name is unusable.
-	ErrInvalid = errors.New("projects: invalid name, slug or environment")
+	// ErrInvalid: the name, description, slug or an environment name is
+	// unusable.
+	ErrInvalid = errors.New("projects: invalid name, description, slug or environment")
 	// ErrNotFound: no active project (or organization) has the slug, or the
 	// user is not a member of its organization. The cases are deliberately
 	// indistinguishable.
@@ -88,17 +94,21 @@ type Project struct {
 	ID           uuid.UUID
 	Slug         string
 	Name         string
+	Description  string
 	OrgID        uuid.UUID
 	OrgSlug      string
 	Role         string // the user's role in the organization
 	Environments []string
 	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	CreatedBy    *uuid.UUID // nil when unknown (older or seeded projects, purged user)
 }
 
 // Update is a partial update of a project; nil fields are left unchanged.
 type Update struct {
-	Name *string
-	Slug *string
+	Name        *string
+	Description *string
+	Slug        *string
 }
 
 // CanWrite reports whether an organization role may create and edit
@@ -167,7 +177,7 @@ func (s *Service) create(ctx context.Context, user uuid.UUID, orgSlug, name, slu
 	if !CanWrite(org.Role) {
 		return Project{}, ErrForbidden
 	}
-	p, err := q.CreateProject(ctx, db.CreateProjectParams{ID: uuid.New(), OrgID: org.ID, Slug: slug, Name: name})
+	p, err := q.CreateProject(ctx, db.CreateProjectParams{ID: uuid.New(), OrgID: org.ID, Slug: slug, Name: name, Description: "", CreatedBy: &user})
 	if err != nil {
 		return Project{}, fmt.Errorf("projects: create project: %w", err)
 	}
@@ -199,8 +209,8 @@ func (s *Service) create(ctx context.Context, user uuid.UUID, orgSlug, name, slu
 		return Project{}, fmt.Errorf("projects: commit: %w", err)
 	}
 	return Project{
-		ID: p.ID, Slug: p.Slug, Name: p.Name, OrgID: org.ID, OrgSlug: org.Slug, Role: org.Role,
-		Environments: envs, CreatedAt: p.CreatedAt,
+		ID: p.ID, Slug: p.Slug, Name: p.Name, Description: p.Description, OrgID: org.ID, OrgSlug: org.Slug, Role: org.Role,
+		Environments: envs, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, CreatedBy: p.CreatedBy,
 	}, nil
 }
 
@@ -262,8 +272,8 @@ func (s *Service) List(ctx context.Context, user uuid.UUID, orgSlug string) ([]P
 	ids := make([]uuid.UUID, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, Project{
-			ID: r.ID, Slug: r.Slug, Name: r.Name, OrgID: org.ID, OrgSlug: org.Slug, Role: org.Role,
-			Environments: []string{}, CreatedAt: r.CreatedAt,
+			ID: r.ID, Slug: r.Slug, Name: r.Name, Description: r.Description, OrgID: org.ID, OrgSlug: org.Slug, Role: org.Role,
+			Environments: []string{}, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, CreatedBy: r.CreatedBy,
 		})
 		ids = append(ids, r.ID)
 	}
@@ -294,13 +304,23 @@ func (s *Service) Get(ctx context.Context, user uuid.UUID, slug string) (Project
 }
 
 // Update applies u to the project slug on behalf of user, who must be an
-// owner, admin or member of its organization. The name is trimmed; a slug
-// different from the current one is ErrSlugImmutable.
+// owner, admin or member of its organization. The name and description are
+// trimmed; an empty name or a description over MaxDescription characters is
+// ErrInvalid, and a slug different from the current one is ErrSlugImmutable.
+// A change moves updated_at and, in the same transaction, records
+// project.updated with the previous and next values of the changed fields;
+// an update that changes nothing writes nothing.
 func (s *Service) Update(ctx context.Context, user uuid.UUID, slug string, u Update) (Project, error) {
-	var name string
+	var name, desc string
 	if u.Name != nil {
 		name = strings.TrimSpace(*u.Name)
 		if name == "" {
+			return Project{}, ErrInvalid
+		}
+	}
+	if u.Description != nil {
+		desc = strings.TrimSpace(*u.Description)
+		if utf8.RuneCountInString(desc) > MaxDescription {
 			return Project{}, ErrInvalid
 		}
 	}
@@ -311,16 +331,26 @@ func (s *Service) Update(ctx context.Context, user uuid.UUID, slug string, u Upd
 		if u.Slug != nil && *u.Slug != cur.Slug {
 			return nil, ErrSlugImmutable
 		}
-		if u.Name == nil {
+		prev, next := map[string]any{}, map[string]any{}
+		if u.Name != nil && name != cur.Name {
+			prev["name"], next["name"] = cur.Name, name
+		} else {
+			name = cur.Name
+		}
+		if u.Description != nil && desc != cur.Description {
+			prev["description"], next["description"] = cur.Description, desc
+		} else {
+			desc = cur.Description
+		}
+		if len(next) == 0 {
 			return nil, nil
 		}
-		previous := cur.Name
-		p, err := q.UpdateProjectName(ctx, db.UpdateProjectNameParams{ID: cur.ID, Name: name})
+		p, err := q.UpdateProjectDetails(ctx, db.UpdateProjectDetailsParams{ID: cur.ID, Name: name, Description: desc})
 		if err != nil {
 			return nil, fmt.Errorf("projects: update: %w", err)
 		}
-		cur.Name = p.Name
-		changes := audit.Diff(map[string]any{"name": previous}, map[string]any{"name": p.Name})
+		cur.Name, cur.Description, cur.UpdatedAt = p.Name, p.Description, p.UpdatedAt
+		changes := audit.Diff(prev, next)
 		if changes == nil {
 			return nil, nil
 		}
@@ -484,8 +514,8 @@ func withEnvironments(ctx context.Context, q *db.Queries, r db.LockMemberProject
 		e = []string{}
 	}
 	return Project{
-		ID: r.ID, Slug: r.Slug, Name: r.Name, OrgID: r.OrgID, OrgSlug: r.OrgSlug, Role: r.Role,
-		Environments: e, CreatedAt: r.CreatedAt,
+		ID: r.ID, Slug: r.Slug, Name: r.Name, Description: r.Description, OrgID: r.OrgID, OrgSlug: r.OrgSlug, Role: r.Role,
+		Environments: e, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, CreatedBy: r.CreatedBy,
 	}, nil
 }
 

@@ -395,6 +395,9 @@ type Project struct {
 	CreatedAt     time.Time
 	DeletedAt     *time.Time
 	DefaultAccess string
+	Description   string
+	UpdatedAt     time.Time
+	CreatedBy     *uuid.UUID
 }
 
 type ProjectMember struct {
