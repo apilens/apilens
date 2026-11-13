@@ -397,6 +397,16 @@ describe("operations", () => {
     ],
     ["DELETE", "/projects/{slug}/api-keys/{id}", (c) => c.revokeApiKey("a/b?c", "a/b?c", authed)],
     ["PUT", "/projects/{slug}/api-keys/{id}/access", (c) => c.updateApiKeyAccess("a/b?c", "a/b?c", { can_create_apps: false, app_ids: ["a1"] }, authed)],
+    ["POST", "/projects/{slug}/api-keys/{id}/rotate", (c) => c.rotateApiKey("a/b?c", "a/b?c", "24h", authed)],
+    ["GET", "/projects/{slug}/access", (c) => c.projectAccess("a/b?c", {}, authed)],
+    ["PATCH", "/projects/{slug}/access", (c) => c.setDefaultAccess("a/b?c", "none", {}, authed)],
+    ["PUT", "/projects/{slug}/members/{user_id}", (c) => c.setProjectMember("a/b?c", "a/b?c", "editor", authed)],
+    ["DELETE", "/projects/{slug}/members/{user_id}", (c) => c.removeProjectMember("a/b?c", "a/b?c", authed)],
+    ["GET", "/projects/{slug}/invitations", (c) => c.projectInvitations("a/b?c", authed)],
+    ["GET", "/projects/{slug}/audit-events", (c) => c.listAuditEvents({ project: "a/b?c" }, {}, authed)],
+    ["GET", "/orgs/{slug}/audit-events", (c) => c.listAuditEvents({ org: "a/b?c" }, {}, authed)],
+    ["GET", "/projects/{slug}/audit-events/actions", (c) => c.auditActions({ project: "a/b?c" }, authed)],
+    ["GET", "/orgs/{slug}/audit-events/actions", (c) => c.auditActions({ org: "a/b?c" }, authed)],
     ["GET", "/projects/{slug}/apps", (c) => c.listManagedApps("a/b?c", authed)],
     ["PATCH", "/projects/{slug}/apps/{id}", (c) => c.renameApp("a/b?c", "a/b?c", "Orders", authed)],
     ["POST", "/projects/{slug}/apps/{id}/archive", (c) => c.archiveApp("a/b?c", "a/b?c", authed)],
@@ -634,5 +644,56 @@ describe("endpoint detail operations (#593)", () => {
       ["PUT", "/api/v1/apps/a%2Fb%3Fc/settings", ""],
     ]);
     expect(calls[2].body).toEqual({ latency_threshold_ms: 250 });
+  });
+});
+
+describe("access, audit and key rotation operations (#804)", () => {
+  const authed = { accessToken: "jwt" };
+
+  it("sends the access filters and page as query parameters, leaving empty ones out", async () => {
+    const { client, calls } = recordingClient(() => json({ default_access: "org_role", members: [], next_cursor: "" }));
+    await client.projectAccess("shop", { q: "ada", role: "editor", source: "direct", limit: 25, cursor: "c1" }, authed);
+    await client.projectAccess("shop", { q: "", role: undefined }, authed);
+    expect(calls.map((c) => Object.fromEntries(new URL(c.url).searchParams))).toEqual([
+      { q: "ada", role: "editor", source: "direct", limit: "25", cursor: "c1" },
+      {},
+    ]);
+    expect(calls.every((c) => c.headers.get("authorization") === "Bearer jwt")).toBe(true);
+  });
+
+  it("sets a direct role, removes it, and changes the default access with an optional dry run", async () => {
+    const { client, calls } = recordingClient((req) => (req.method === "DELETE" ? new Response(null, { status: 204 }) : json({})));
+    await client.setProjectMember("shop", "u1", "viewer", authed);
+    await expect(client.removeProjectMember("shop", "u1", authed)).resolves.toBeUndefined();
+    await client.setDefaultAccess("shop", "none", { dryRun: true }, authed);
+    await client.setDefaultAccess("shop", "viewer", {}, authed);
+    expect(calls.map((c) => [c.method, new URL(c.url).pathname, new URL(c.url).search, c.body])).toEqual([
+      ["PUT", "/api/v1/projects/shop/members/u1", "", { role: "viewer" }],
+      ["DELETE", "/api/v1/projects/shop/members/u1", "", undefined],
+      ["PATCH", "/api/v1/projects/shop/access", "?dry_run=true", { default_access: "none" }],
+      ["PATCH", "/api/v1/projects/shop/access", "", { default_access: "viewer" }],
+    ]);
+  });
+
+  it("rotates a key with its overlap window", async () => {
+    const { client, calls } = recordingClient(() => json({ id: "k2", key: "apl_live_x", previous: { id: "k1", rotated_to: "k2" } }, 201));
+    const rotated = await client.rotateApiKey("shop", "k1", "7d", authed);
+    expect(rotated.previous.rotated_to).toBe("k2");
+    expect(calls[0].body).toEqual({ overlap: "7d" });
+  });
+
+  it("reads the org and project audit log with its filters, and builds the CSV export URL", async () => {
+    const { client, calls } = recordingClient(() => json({ events: [], next_cursor: "", retention_days: 400 }));
+    await client.listAuditEvents({ project: "shop" }, { action: "api_key.", from: "2026-11-01T00:00:00Z", q: "", limit: 50 }, authed);
+    await client.listAuditEvents({ org: "acme" }, { actor: "u1", target_type: "member", cursor: "c2" }, authed);
+    expect(calls.map((c) => [new URL(c.url).pathname, Object.fromEntries(new URL(c.url).searchParams)])).toEqual([
+      ["/api/v1/projects/shop/audit-events", { action: "api_key.", from: "2026-11-01T00:00:00Z", limit: "50" }],
+      ["/api/v1/orgs/acme/audit-events", { actor: "u1", target_type: "member", cursor: "c2" }],
+    ]);
+    const url = new URL(client.auditExportUrl({ project: "a/b" }, { action: "project_member.", to: "2026-11-13T00:00:00Z", q: "" }));
+    expect(url.origin).toBe(BASE);
+    expect(url.pathname).toBe("/api/v1/projects/a%2Fb/audit-events/export");
+    expect(Object.fromEntries(url.searchParams)).toEqual({ action: "project_member.", to: "2026-11-13T00:00:00Z", format: "csv" });
+    expect(client.auditExportUrl({ org: "acme" })).toBe(`${BASE}/api/v1/orgs/acme/audit-events/export?format=csv`);
   });
 });

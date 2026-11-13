@@ -82,6 +82,31 @@
 //                                                  revoking answer 403 without the capability
 //   PUT  /api/v1/projects/shop/api-keys/{id}/access an ingest key's app access: {can_create_apps, app_ids}
 //                                                  (null: every app; a limited key never creates apps)
+//   POST /api/v1/projects/shop/api-keys/{id}/rotate {overlap} (#804): a successor with the same name, scopes,
+//                                                  apps, environments and rate limit (raw key once) plus the
+//                                                  old key as `previous`, working until the overlap ends;
+//                                                  key_not_active (409) for a revoked, expired or rotated key
+//   GET|PATCH /api/v1/projects/shop/access         who has access and the default access (#804): q, role,
+//                                                  source, limit, cursor; PATCH {default_access} (?dry_run=true
+//                                                  changes nothing) counts who loses access; needs access.manage
+//   PUT|DELETE /api/v1/projects/shop/members/{id}  grant/change a direct role (not_org_member 409 for anyone
+//                                                  else) or remove it (204); need access.manage
+//   GET  /api/v1/projects/shop/invitations         pending org invitations carrying a shop role
+//   POST /__fake/access {members?, default_access?, invitations?, down?}
+//                                                  test hook: replaces shop's people, default access and
+//                                                  invitations; an omitted field goes back to the measured
+//                                                  seed (9 people with mixed sources), so {} resets; `down`:
+//                                                  those reads answer 503. The person with email
+//                                                  you@example.com is the signed-in user
+//   GET  /api/v1/{projects|orgs}/{slug}/audit-events[/actions|/export]
+//                                                  shop's and acme's audit log (#804): newest first, filtered
+//                                                  by actor, action (prefix with a trailing dot), target_type,
+//                                                  from, to, q; paged by limit and cursor; the CSV export with
+//                                                  the API's columns. Project reads need audit.read, org reads
+//                                                  an org owner or admin
+//   POST /__fake/audit {events?, retention_days?, down?}
+//                                                  test hook: replaces the audit log; omitted, the measured
+//                                                  seed (40 events over three weeks) is back, so {} resets
 //   GET  /api/v1/projects/shop/apps                shop's apps with origin and lifecycle (the first is the
 //                                                  default unless seeded); PATCH/DELETE .../apps/{id} and
 //                                                  POST .../apps/{id}/{archive|restore|acknowledge|merge}
@@ -201,7 +226,8 @@
 //                                                  with `totp_secret` (base32) it answers 2fa_required;
 //                                                  `passkeys` seeds the new user's passkey list,
 //                                                  `capabilities` their actions on shop, `api_keys`
-//                                                  shop's keys as that user sees them;
+//                                                  shop's keys as that user sees them ("measured": four keys
+//                                                  in different states, #804);
 //                                                  `sso` seeds acme's SSO connection (fields of the read),
 //                                                  `stale` makes /2fa/enable and creating an API key
 //                                                  answer reauth_required until /auth/reauth/verify;
@@ -539,6 +565,13 @@ interface FakeApiKey {
   expires_at: string | null;
   last_used_at: string | null;
   revoked_at: string | null;
+  created_by?: { id: string; name: string };
+  environments: string[] | null;
+  last_used_ip: string | null;
+  last_used_sdk: string | null;
+  rate_limit_per_minute: number | null;
+  rotated_from: string | null;
+  rotated_to: string | null;
 }
 
 /** The one project of the fake context. */
@@ -732,8 +765,9 @@ function privacyPolicyOf(): Record<string, unknown> {
 }
 
 function seedApiKey(input: Record<string, unknown>): FakeApiKey {
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
   return {
-    id: randomUUID(),
+    id: str(input.id) ?? randomUUID(),
     name: String(input.name ?? "Key"),
     prefix: String(input.prefix ?? `apl_live_${token().slice(0, 7)}`),
     scopes: Array.isArray(input.scopes) ? input.scopes.map(String) : ["ingest"],
@@ -744,6 +778,13 @@ function seedApiKey(input: Record<string, unknown>): FakeApiKey {
     expires_at: typeof input.expires_at === "string" ? input.expires_at : null,
     last_used_at: typeof input.last_used_at === "string" ? input.last_used_at : null,
     revoked_at: typeof input.revoked_at === "string" ? input.revoked_at : null,
+    created_by: typeof input.created_by === "object" && input.created_by !== null ? (input.created_by as FakeApiKey["created_by"]) : undefined,
+    environments: Array.isArray(input.environments) ? input.environments.map(String) : null,
+    last_used_ip: str(input.last_used_ip),
+    last_used_sdk: str(input.last_used_sdk),
+    rate_limit_per_minute: typeof input.rate_limit_per_minute === "number" ? input.rate_limit_per_minute : null,
+    rotated_from: str(input.rotated_from),
+    rotated_to: str(input.rotated_to),
   };
 }
 
@@ -752,7 +793,8 @@ interface Seeds {
   extra?: { members?: number; invitations?: number; sessions?: number };
   passkeys?: Record<string, unknown>[];
   capabilities?: string[];
-  apiKeys?: Record<string, unknown>[];
+  /** "measured": the four keys of `measuredKeys` (#804). */
+  apiKeys?: Record<string, unknown>[] | "measured";
   sso?: Record<string, unknown>;
   joinable?: Record<string, unknown>[];
   /** Organizations the user owns, as if created through `POST /orgs` (#802). */
@@ -853,7 +895,7 @@ function bundle(next: string, seeds: Seeds = {}, role: Role = "owner") {
   seedExtra(id, seeds.extra);
   passkeys.set(id, (seeds.passkeys ?? []).map(seedPasskey));
   if (seeds.capabilities) capabilities.set(id, seeds.capabilities);
-  apiKeys.set(id, (seeds.apiKeys ?? []).map(seedApiKey));
+  apiKeys.set(id, seeds.apiKeys === "measured" ? measuredKeys() : (seeds.apiKeys ?? []).map(seedApiKey));
   if (seeds.sso) ssoByUser.set(id, ssoConnection(seeds.sso));
   joinableByUser.set(id, (seeds.joinable ?? []).map(seedJoinable));
   for (const o of seeds.orgs ?? []) createdOrgs.set(o.slug, { id: `org_${randomUUID()}`, slug: o.slug, name: o.name, role: "owner", owner: id });
@@ -1478,7 +1520,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     privacyPolicy = null;
     return send(res, 204);
   }
-  const keysPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/api-keys(?:\/([^/]+)(\/access)?)?$/);
+  const keysPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/api-keys(?:\/([^/]+)(\/access|\/rotate)?)?$/);
   if (keysPath) {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
@@ -1494,7 +1536,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (!allowed("api_keys.create")) return problem(res, 403, "forbidden");
       // A sensitive action (#793): a sign-in older than the window answers reauth_required.
       if (totps.get(bearerOf(req))?.stale) return problem(res, 403, "reauth_required");
-      const { name, scopes, expires_at: expires, can_create_apps: canCreate, app_ids: appIds } = await readBody(req);
+      const { name, scopes, expires_at: expires, can_create_apps: canCreate, app_ids: appIds, environments: envs, rate_limit_per_minute: rate } = await readBody(req);
       const label = typeof name === "string" ? name.trim() : "";
       const picked = Array.isArray(scopes) ? scopes.map(String) : [];
       const valid = picked.length > 0 && picked.every((s) => s === "ingest" || s === "read") && new Set(picked).size === picked.length;
@@ -1515,12 +1557,51 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         expires_at: when === undefined ? null : new Date(when).toISOString(),
         last_used_at: null,
         revoked_at: null,
+        created_by: { id: user, name: "Fake User" },
+        environments: Array.isArray(envs) && envs.length > 0 ? envs.map(String) : null,
+        last_used_ip: null,
+        last_used_sdk: null,
+        rate_limit_per_minute: typeof rate === "number" ? rate : null,
+        rotated_from: null,
+        rotated_to: null,
       };
       apiKeys.set(user, [created, ...list]);
       rawKeys.set(raw, { project: keysProject, id: created.id, user });
       return send(res, 201, { ...created, key: raw });
     }
-    if (req.method === "PUT" && sub !== undefined && keysPath[3]) {
+    if (req.method === "POST" && sub !== undefined && keysPath[3] === "/rotate") {
+      if (!allowed("api_keys.create")) return problem(res, 403, "forbidden");
+      if (totps.get(bearerOf(req))?.stale) return problem(res, 403, "reauth_required");
+      const { overlap } = await readBody(req);
+      const window = ROTATE_OVERLAP_MS[String(overlap)];
+      if (window === undefined) return problem(res, 400, "invalid_request");
+      const found = list.find((k) => k.id === decodeURIComponent(sub));
+      if (!found) return problem(res, 410, "api_key_gone");
+      const now = Date.now();
+      if (found.revoked_at || found.rotated_to || (found.expires_at && Date.parse(found.expires_at) <= now)) return problem(res, 409, "key_not_active");
+      const raw = `apl_live_${token()}`;
+      const next: FakeApiKey = {
+        ...found,
+        id: randomUUID(),
+        prefix: raw.slice(0, 16),
+        apps_seen: [],
+        created_at: new Date(now).toISOString(),
+        expires_at: null,
+        last_used_at: null,
+        last_used_ip: null,
+        last_used_sdk: null,
+        created_by: { id: user, name: "Fake User" },
+        rotated_from: found.id,
+        rotated_to: null,
+      };
+      const end = now + window;
+      found.expires_at = new Date(found.expires_at ? Math.min(end, Date.parse(found.expires_at)) : end).toISOString();
+      found.rotated_to = next.id;
+      apiKeys.set(user, [next, ...list]);
+      rawKeys.set(raw, { project: keysProject, id: next.id, user });
+      return send(res, 201, { ...next, key: raw, previous: found });
+    }
+    if (req.method === "PUT" && sub !== undefined && keysPath[3] === "/access") {
       if (!allowed("api_keys.create")) return problem(res, 403, "forbidden");
       const found = list.find((k) => k.id === decodeURIComponent(sub));
       if (!found || found.revoked_at) return problem(res, 410, "api_key_gone");
@@ -2621,7 +2702,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const seeded: Seeds = {
       passkeys: Array.isArray(seeds) ? (seeds as Record<string, unknown>[]) : [],
       capabilities: Array.isArray(caps) ? caps.map(String) : undefined,
-      apiKeys: Array.isArray(keys) ? (keys as Record<string, unknown>[]) : [],
+      apiKeys: keys === "measured" ? "measured" : Array.isArray(keys) ? (keys as Record<string, unknown>[]) : [],
       sso: typeof sso === "object" && sso !== null && !Array.isArray(sso) ? (sso as Record<string, unknown>) : undefined,
       joinable: Array.isArray(joinable) ? (joinable as Record<string, unknown>[]) : [],
       extra: typeof extra === "object" && extra !== null && !Array.isArray(extra) ? (extra as Seeds["extra"]) : undefined,
@@ -2632,6 +2713,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     return send(res, 200, { code });
   }
   if (await alerts(req, res, path, url)) return;
+  if (await accessAndAudit(req, res, path, url)) return;
   return problem(res, 404, "not_found");
 }
 
@@ -3163,6 +3245,381 @@ async function alerts(req: IncomingMessage, res: ServerResponse, path: string, u
   if (typeof b.config === "object" && b.config !== null) c.config = b.config as Record<string, unknown>;
   c.updated_at = now;
   return send(res, 200, out(c)), true;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Project access, the audit log and key rotation (#804)
+
+/** How long a rotated key keeps working (`RotateAPIKeyInputBody.overlap`). */
+const ROTATE_OVERLAP_MS: Record<string, number> = { none: 0, "24h": 24 * 3600_000, "7d": 7 * 24 * 3600_000 };
+
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+const hoursAhead = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
+
+/** Fixed ids of the measured seed, so seeds, keys and audit events point at the same people. */
+const PEOPLE_IDS = {
+  you: "0c9d8e7f-6a5b-4c3d-8e2f-1a0b9c8d7e6f",
+  olive: "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  ada: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+  max: "3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f",
+  vera: "4d5e6f7a-8b9c-4d0e-9f2a-3b4c5d6e7f8a",
+  priya: "5e6f7a8b-9c0d-4e1f-8a3b-4c5d6e7f8a9b",
+  tom: "6f7a8b9c-0d1e-4f2a-9b4c-5d6e7f8a9b0c",
+  lena: "7a8b9c0d-1e2f-4a3b-8c5d-6e7f8a9b0c1d",
+  sam: "8b9c0d1e-2f3a-4b4c-9d6e-7f8a9b0c1d2e",
+} as const;
+
+/**
+ * Shop's four measured keys, newest first: the successor of a rotation in daily use, the rotated
+ * key in its overlap window, a staging key that expires in six days, and a revoked one.
+ */
+function measuredKeys(): FakeApiKey[] {
+  const successor = "9c0d1e2f-3a4b-4c5d-8e7f-8a9b0c1d2e3f";
+  const rotated = "a0b1c2d3-e4f5-4a6b-9c7d-8e9f0a1b2c3d";
+  return [
+    { id: successor, name: "Production backend", prefix: "apl_live_Hk27sQe", scopes: ["ingest", "apps:create"], created_at: hoursAgo(26), last_used_at: hoursAgo(0.05), last_used_ip: "203.0.113.24", last_used_sdk: "apilenss/0.5.0", environments: ["production"], rotated_from: rotated, created_by: { id: PEOPLE_IDS.ada, name: "Ada Admin" } },
+    { id: rotated, name: "Production backend", prefix: "apl_live_Q2x9aZ1", scopes: ["ingest", "apps:create"], created_at: hoursAgo(24 * 61), last_used_at: hoursAgo(3.2), last_used_ip: "203.0.113.24", last_used_sdk: "apilenss/0.4.2", environments: ["production"], expires_at: hoursAhead(22), rotated_to: successor, created_by: { id: PEOPLE_IDS.olive, name: "Olive Owner" } },
+    { name: "Staging worker", prefix: "apl_live_r8Lm0Pq", scopes: ["ingest", "read"], created_at: hoursAgo(24 * 19), last_used_at: hoursAgo(41), last_used_ip: "198.51.100.73", last_used_sdk: "apilens-node/0.3.1", environments: ["staging"], expires_at: hoursAhead(24 * 6), rate_limit_per_minute: 6000, created_by: { id: PEOPLE_IDS.priya, name: "Priya Patel" } },
+    { name: "Old analytics export", prefix: "apl_live_k3Vn7Ws", scopes: ["read"], created_at: hoursAgo(24 * 120), last_used_at: hoursAgo(24 * 14), last_used_ip: "192.0.2.15", revoked_at: hoursAgo(24 * 12) },
+  ].map((k) => seedApiKey({ can_create_apps: k.scopes.includes("apps:create"), ...k }));
+}
+
+/** A person of acme as the shop access list derives them: org role, direct grant, dates. */
+interface FakePerson {
+  user_id: string;
+  name: string;
+  email: string;
+  org_role: Role;
+  direct_role: "admin" | "editor" | "viewer" | null;
+  added_at: string;
+  added_by?: { id: string; name: string };
+  last_active_at: string | null;
+}
+
+/** Nine people with mixed sources: two org admins and owners, two by the default only, four with a grant, one never signed in. */
+function measuredPeople(): FakePerson[] {
+  const ada = { id: PEOPLE_IDS.ada, name: "Ada Admin" };
+  const p = (id: string, name: string, email: string, org_role: Role, direct: FakePerson["direct_role"], addedDays: number, activeHours: number | null, by?: FakePerson["added_by"]): FakePerson => ({
+    user_id: id, name, email, org_role, direct_role: direct, added_at: hoursAgo(addedDays * 24), added_by: direct ? by : undefined, last_active_at: activeHours === null ? null : hoursAgo(activeHours),
+  });
+  return [
+    p(PEOPLE_IDS.you, "Fake User", "you@example.com", "owner", null, 90, 0.1),
+    p(PEOPLE_IDS.olive, "Olive Owner", "olive@example.com", "owner", null, 120, 30),
+    p(PEOPLE_IDS.ada, "Ada Admin", "ada@example.com", "admin", null, 80, 2),
+    p(PEOPLE_IDS.max, "Max Member", "max@example.com", "member", null, 45, 5),
+    p(PEOPLE_IDS.vera, "Vera Viewer", "vera@example.com", "viewer", null, 12, 72),
+    p(PEOPLE_IDS.priya, "Priya Patel", "priya@example.com", "member", "admin", 20, 1, ada),
+    p(PEOPLE_IDS.tom, "Tom Becker", "tom@example.com", "viewer", "editor", 9, 26, ada),
+    p(PEOPLE_IDS.lena, "Lena Kovač", "lena@example.com", "member", "viewer", 4, 140, { id: PEOPLE_IDS.olive, name: "Olive Owner" }),
+    p(PEOPLE_IDS.sam, "Sam Okafor", "sam@example.com", "viewer", null, 2, null),
+  ];
+}
+
+/** Two pending org invitations that carry a shop role, one past its expiry. */
+function measuredProjectInvitations(): Record<string, unknown>[] {
+  const grant = (role: string) => [{ project_id: "c3d4e5f6-a7b8-4c9d-8e0f-1a2b3c4d5e6f", project: PROJECT, project_name: "Shop", role }];
+  return [
+    { id: "d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f7a", email: "new.dev@example.com", role: "member", project_grants: grant("editor"), created_at: hoursAgo(20), expires_at: hoursAhead(24 * 7 - 20), resent_at: null, invited_by: { id: PEOPLE_IDS.ada, email: "ada@example.com", name: "Ada Admin" } },
+    { id: "e5f6a7b8-c9d0-4e1f-8a2b-3c4d5e6f7a8b", email: "contractor@example.com", role: "viewer", project_grants: grant("viewer"), created_at: hoursAgo(24 * 9), expires_at: hoursAgo(24 * 2), resent_at: null, invited_by: { id: PEOPLE_IDS.olive, email: "olive@example.com", name: "Olive Owner" } },
+  ];
+}
+
+const accessState = {
+  defaultAccess: "org_role" as "org_role" | "viewer" | "none",
+  people: measuredPeople(),
+  invitations: measuredProjectInvitations(),
+  down: false,
+};
+
+const PROJECT_RANK = { viewer: 1, editor: 2, admin: 3 } as const;
+const PROJECT_ROLE_OF = ["", "viewer", "editor", "admin"] as const;
+
+/** A person's sources and effective role under `def`, as `ListProjectAccess` derives them; null without access. */
+function accessMember(p: FakePerson, def: string, caller: string) {
+  const sources: Record<string, unknown>[] = [];
+  if (p.org_role === "owner" || p.org_role === "admin") sources.push({ kind: "org_role", role: "admin", org_role: p.org_role });
+  const byDefault = def === "org_role" ? (p.org_role === "member" ? "editor" : p.org_role === "viewer" ? "viewer" : null) : def === "viewer" && (p.org_role === "member" || p.org_role === "viewer") ? "viewer" : null;
+  if (byDefault) sources.push({ kind: "default", role: byDefault, org_role: p.org_role });
+  if (p.direct_role) sources.push({ kind: "direct", role: p.direct_role });
+  if (sources.length === 0) return null;
+  const rank = Math.max(...sources.map((s) => PROJECT_RANK[s.role as keyof typeof PROJECT_RANK]));
+  const initials = (p.name || p.email.split("@")[0]).split(/\s+/).map((w) => w[0]?.toUpperCase() ?? "").join("").slice(0, 2);
+  return {
+    user_id: p.user_id === PEOPLE_IDS.you ? caller : p.user_id,
+    name: p.name,
+    email: p.email,
+    avatar_initials: initials,
+    effective_role: PROJECT_ROLE_OF[rank],
+    sources,
+    direct_role: p.direct_role,
+    added_at: p.added_at,
+    ...(p.added_by ? { added_by: p.added_by } : {}),
+    last_active_at: p.last_active_at,
+  };
+}
+
+const offsetCursor = (n: number) => Buffer.from(String(n)).toString("base64url");
+function offsetOf(cursor: string | null): number | null {
+  if (!cursor) return 0;
+  const n = Number(Buffer.from(cursor, "base64url").toString());
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+function limitOf(q: URLSearchParams): number | null {
+  const raw = q.get("limit");
+  if (raw === null) return 50;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 1 && n <= 200 ? n : null;
+}
+
+/** The labels of the org-scoped audit catalogue (internal/identity/audit/list.go), in catalogue order. */
+const AUDIT_ACTIONS: [string, string][] = [
+  ["org.created", "Organization created"], ["org.updated", "Organization updated"], ["org.deleted", "Organization deleted"],
+  ["member.added", "Member added"], ["member.role_changed", "Member role changed"], ["member.removed", "Member removed"],
+  ["member.joined", "Member joined"], ["invitation.sent", "Invitation sent"], ["invitation.accepted", "Invitation accepted"],
+  ["api_key.created", "API key created"], ["api_key.revoked", "API key revoked"], ["sso.updated", "SSO connection updated"],
+  ["sso.deleted", "SSO connection deleted"], ["capture_policy.updated", "Capture policy updated"], ["api_key.updated", "API key updated"],
+  ["app.created", "App created"], ["app.archived", "App archived"], ["app.restored", "App restored"], ["app.renamed", "App renamed"],
+  ["app.merged", "App merged"], ["app.deleted", "App deleted"], ["app.acknowledged", "App acknowledged"],
+  ["api_key.rotated", "Api key rotated"], ["project.created", "Project created"], ["project.updated", "Project updated"],
+  ["environment.added", "Environment added"], ["environment.updated", "Environment updated"], ["environment.removed", "Environment removed"],
+  ["privacy_policy.updated", "Privacy policy updated"], ["invitation.revoked", "Invitation revoked"],
+  ["alert_rule.created", "Alert rule created"], ["alert_rule.updated", "Alert rule updated"], ["alert_rule.deleted", "Alert rule deleted"],
+  ["alert_channel.created", "Alert channel created"], ["alert_channel.updated", "Alert channel updated"], ["alert_channel.deleted", "Alert channel deleted"],
+  ["health_check.created", "Health check created"], ["health_check.deleted", "Health check deleted"],
+  ["app_settings.updated", "App settings updated"], ["endpoint_settings.updated", "Endpoint settings updated"],
+  ["project_member.added", "Project member added"], ["project_member.role_changed", "Project member role changed"],
+  ["project_member.removed", "Project member removed"], ["project.access_changed", "Project access changed"],
+  ["audit_log.exported", "Audit log exported"], ["api_key.expired", "Api key expired"],
+];
+
+type FakeAuditEvent = Record<string, unknown> & { id: string; time: string; action: string; actor: { type: string; id?: string; label: string }; target?: { type: string; id: string; label: string }; project?: { slug: string; name: string } };
+
+/**
+ * Forty events over three weeks, newest first: key work, access changes, settings, apps and
+ * alerts on shop, plus a few org-wide ones (invitations, SSO). Ids count down from 40.
+ */
+function measuredAudit(): FakeAuditEvent[] {
+  const people: Record<string, { id: string; label: string; ip: string; ua: string }> = {
+    ada: { id: PEOPLE_IDS.ada, label: "Ada Admin", ip: "203.0.113.24", ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 Safari/17.6" },
+    olive: { id: PEOPLE_IDS.olive, label: "Olive Owner", ip: "198.51.100.12", ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0 Safari/537.36" },
+    priya: { id: PEOPLE_IDS.priya, label: "Priya Patel", ip: "203.0.113.88", ua: "Mozilla/5.0 (X11; Linux x86_64) Firefox/133.0" },
+    you: { id: PEOPLE_IDS.you, label: "Fake User", ip: "192.0.2.44", ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) Chrome/131.0 Safari/537.36" },
+  };
+  // [hours ago, action, actor (or "system"), target type, target label, previous, next, org-wide]
+  const rows: [number, string, string, string, string, Record<string, unknown>?, Record<string, unknown>?, boolean?][] = [
+    [0.6, "api_key.rotated", "ada", "api_key", "Production backend"],
+    [3, "project_member.role_changed", "ada", "member", "tom@example.com", { role: "viewer" }, { role: "editor" }],
+    [7, "alert_rule.updated", "priya", "alert_rule", "Checkout p95 over 800 ms", { threshold: 1000 }, { threshold: 800 }],
+    [19, "invitation.sent", "ada", "invitation", "new.dev@example.com", undefined, undefined, true],
+    [26, "api_key.created", "ada", "api_key", "Production backend"],
+    [31, "environment.added", "system", "environment", "canary"],
+    [44, "app.created", "system", "app", "billing-worker"],
+    [52, "project_member.added", "olive", "member", "lena@example.com", undefined, { role: "viewer" }],
+    [70, "privacy_policy.updated", "priya", "project", "shop", { mask_headers: ["authorization"] }, { mask_headers: ["authorization", "x-session"] }],
+    [81, "capture_policy.updated", "priya", "app", "Shop", { sample_rate: 1 }, { sample_rate: 0.5 }],
+    [96, "health_check.created", "priya", "health_check", "GET /healthz"],
+    [110, "audit_log.exported", "olive", "project", "shop"],
+    [130, "app.renamed", "ada", "app", "Storefront API", { name: "storefront" }, { name: "Storefront API" }],
+    [150, "project.access_changed", "olive", "project", "shop", { default_access: "viewer" }, { default_access: "org_role" }],
+    [171, "alert_channel.created", "priya", "alert_channel", "#payments-oncall"],
+    [190, "sso.updated", "olive", "sso_connection", "acme.example.com", undefined, undefined, true],
+    [205, "project_member.added", "ada", "member", "tom@example.com", undefined, { role: "viewer" }],
+    [216, "invitation.accepted", "system", "invitation", "tom@example.com", undefined, undefined, true],
+    [230, "api_key.updated", "priya", "api_key", "Staging worker", { environments: null }, { environments: ["staging"] }],
+    [262, "api_key.expired", "system", "api_key", "Load test"],
+    [288, "endpoint_settings.updated", "priya", "endpoint", "POST /charge", { expected_status_codes: [] }, { expected_status_codes: [402] }],
+    [300, "project.access_changed", "olive", "project", "shop", { default_access: "org_role" }, { default_access: "viewer" }],
+    [312, "environment.updated", "ada", "environment", "production", { color: "gray" }, { color: "red" }],
+    [330, "app.archived", "ada", "app", "legacy-cron"],
+    [345, "alert_rule.created", "priya", "alert_rule", "Checkout p95 over 800 ms"],
+    [360, "member.role_changed", "olive", "member", "ada@example.com", { role: "member" }, { role: "admin" }, true],
+    [372, "api_key.revoked", "ada", "api_key", "Old analytics export"],
+    [388, "app.merged", "ada", "app", "shop-web"],
+    [400, "project_member.removed", "ada", "member", "former@example.com", { role: "editor" }],
+    [418, "app_settings.updated", "priya", "app", "Shop", { latency_threshold_ms: null }, { latency_threshold_ms: 400 }],
+    [430, "project_member.added", "ada", "member", "priya@example.com", undefined, { role: "admin" }],
+    [441, "environment.added", "system", "environment", "staging"],
+    [455, "api_key.created", "priya", "api_key", "Staging worker"],
+    [468, "invitation.sent", "olive", "invitation", "priya@example.com", undefined, undefined, true],
+    [475, "project.updated", "olive", "project", "shop", { name: "shop" }, { name: "Shop" }],
+    [482, "alert_channel.updated", "priya", "alert_channel", "#payments-oncall", { name: "#payments" }, { name: "#payments-oncall" }],
+    [490, "health_check.deleted", "you", "health_check", "GET /status"],
+    [496, "app.created", "system", "app", "storefront"],
+    [500, "environment.added", "system", "environment", "production"],
+    [503, "project.created", "olive", "project", "shop"],
+  ];
+  return rows.map(([h, action, who, type, label, previous, next, orgWide], i) => {
+    const p = people[who];
+    return {
+      id: String(rows.length - i),
+      time: hoursAgo(h),
+      action,
+      actor: p ? { type: "user", id: p.id, label: p.label } : { type: "system", label: "System" },
+      ip: p?.ip ?? "",
+      user_agent: p?.ua ?? "",
+      request_id: p ? `req_${(rows.length - i).toString(36).padStart(4, "0")}f8a2c` : "",
+      target: { type, id: type === "project" ? "c3d4e5f6-a7b8-4c9d-8e0f-1a2b3c4d5e6f" : `${type}_${i + 1}`, label },
+      ...(orgWide ? {} : { project: { slug: PROJECT, name: "Shop" } }),
+      changes: previous || next ? { ...(previous ? { previous } : {}), ...(next ? { next } : {}) } : null,
+    };
+  });
+}
+
+const auditState = { events: measuredAudit(), retentionDays: 400, down: false };
+
+/** The audit events of a scope matching the API's filters; a string is an error code. */
+function auditMatches(q: URLSearchParams, projectOnly: boolean): FakeAuditEvent[] | string {
+  const from = q.get("from");
+  const to = q.get("to");
+  if ((from && Number.isNaN(Date.parse(from))) || (to && Number.isNaN(Date.parse(to)))) return "invalid_request";
+  const action = q.get("action") ?? "";
+  const actor = q.get("actor") ?? "";
+  const type = q.get("target_type") ?? "";
+  const text = (q.get("q") ?? "").toLowerCase();
+  return auditState.events.filter(
+    (e) =>
+      (!projectOnly || e.project) &&
+      (!action || (action.endsWith(".") ? e.action.startsWith(action) : e.action === action)) &&
+      (!actor || e.actor.id === actor) &&
+      (!type || e.target?.type === type) &&
+      (!from || Date.parse(e.time) >= Date.parse(from)) &&
+      (!to || Date.parse(e.time) < Date.parse(to)) &&
+      (!text || (e.target?.label ?? "").toLowerCase().includes(text)),
+  );
+}
+
+const csvCell = (v: unknown) => {
+  const s = v === undefined || v === null ? "" : typeof v === "string" ? v : JSON.stringify(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/** Shop's access, invitations and audit log, acme's audit log, and their test hooks. True when it answered. */
+async function accessAndAudit(req: IncomingMessage, res: ServerResponse, path: string, url: URL): Promise<boolean> {
+  const q = url.searchParams;
+  if (req.method === "POST" && path === "/__fake/access") {
+    const b = await readBody(req);
+    accessState.people = Array.isArray(b.members) ? (b.members as FakePerson[]) : measuredPeople();
+    accessState.defaultAccess = b.default_access === "viewer" || b.default_access === "none" ? b.default_access : "org_role";
+    accessState.invitations = Array.isArray(b.invitations) ? (b.invitations as Record<string, unknown>[]) : measuredProjectInvitations();
+    accessState.down = b.down === true;
+    return send(res, 204), true;
+  }
+  if (req.method === "POST" && path === "/__fake/audit") {
+    const b = await readBody(req);
+    auditState.events = Array.isArray(b.events) ? (b.events as FakeAuditEvent[]) : measuredAudit();
+    auditState.retentionDays = typeof b.retention_days === "number" ? b.retention_days : 400;
+    auditState.down = b.down === true;
+    return send(res, 204), true;
+  }
+
+  const audit = path.match(/^\/api\/v1\/(projects|orgs)\/([^/]+)\/audit-events(\/actions|\/export)?$/);
+  const access = path.match(/^\/api\/v1\/projects\/([^/]+)\/(access|invitations|members\/([^/]+))$/);
+  if (!audit && !access) return false;
+  const user = signedInUser(req);
+  if (!user) return problem(res, 401, "unauthenticated"), true;
+  const allowed = (action: string) => capabilitiesOf(user).includes(action);
+
+  if (audit) {
+    const [, kind, rawSlug, sub] = audit;
+    const slug = decodeURIComponent(rawSlug);
+    if (req.method !== "GET") return problem(res, 405, "method_not_allowed"), true;
+    if (kind === "projects" ? slug !== PROJECT : slug !== "acme") return problem(res, 404, "not_found"), true;
+    const may = kind === "projects" ? allowed("audit.read") : roleOf(user) === "owner" || roleOf(user) === "admin";
+    if (!may) return problem(res, 403, "forbidden"), true;
+    if (sub === "/actions") return send(res, 200, { actions: AUDIT_ACTIONS.map(([action, label]) => ({ action, label })) }), true;
+    if (auditState.down) return problem(res, 503, "unavailable"), true;
+    const matched = auditMatches(q, kind === "projects");
+    if (typeof matched === "string") return problem(res, 400, matched), true;
+    // The project list leaves the project out: it is the one asked for.
+    const shaped = matched.map((e) => (kind === "projects" ? { ...e, project: undefined } : e));
+    if (sub === "/export") {
+      const header = ["timestamp", "action", "actor_id", "actor_name", "actor_email", "ip", "user_agent", "request_id", "target_type", "target_id", "target_label", "project", "previous", "next"];
+      const lines = shaped.map((e) => {
+        const changes = (e.changes ?? {}) as { previous?: unknown; next?: unknown };
+        return [e.time, e.action, e.actor.id ?? "", e.actor.label, "", e.ip, e.user_agent, e.request_id, e.target?.type, e.target?.id, e.target?.label, e.project?.slug ?? "", changes.previous, changes.next].map(csvCell).join(",");
+      });
+      res.writeHead(200, {
+        "content-type": "text/csv; charset=utf-8",
+        "content-disposition": `attachment; filename="${kind === "projects" ? slug : "acme"}-audit-${new Date().toISOString().slice(0, 10)}.csv"`,
+        "cache-control": "no-store",
+      });
+      return res.end([header.join(","), ...lines].join("\n") + "\n"), true;
+    }
+    const limit = limitOf(q);
+    const offset = offsetOf(q.get("cursor"));
+    if (limit === null || offset === null) return problem(res, 400, "invalid_request"), true;
+    const page = shaped.slice(offset, offset + limit);
+    const next = offset + limit < shaped.length ? offsetCursor(offset + limit) : "";
+    return send(res, 200, { events: page, next_cursor: next, retention_days: auditState.retentionDays }), true;
+  }
+
+  const [, rawSlug, what, rawTarget] = access!;
+  if (decodeURIComponent(rawSlug) !== PROJECT) return problem(res, 404, "not_found"), true;
+  if (!allowed("project.read")) return problem(res, 404, "not_found"), true;
+  const listed = () =>
+    accessState.people
+      .map((p) => accessMember(p, accessState.defaultAccess, user))
+      .filter((m): m is NonNullable<typeof m> => m !== null)
+      .sort((a, b) => a.email.localeCompare(b.email));
+
+  if (what === "invitations") {
+    if (req.method !== "GET") return problem(res, 405, "method_not_allowed"), true;
+    return send(res, 200, accessState.invitations), true;
+  }
+  if (what === "access" && req.method === "GET") {
+    if (accessState.down) return problem(res, 503, "unavailable"), true;
+    const role = q.get("role");
+    const source = q.get("source");
+    if ((role && !(role in PROJECT_RANK)) || (source && !["org_role", "default", "direct"].includes(source))) return problem(res, 400, "invalid_request"), true;
+    const limit = limitOf(q);
+    const offset = offsetOf(q.get("cursor"));
+    if (limit === null || offset === null) return problem(res, 400, "invalid_request"), true;
+    const text = (q.get("q") ?? "").toLowerCase();
+    const matched = listed().filter(
+      (m) =>
+        (!text || m.name.toLowerCase().includes(text) || m.email.toLowerCase().includes(text)) &&
+        (!role || m.effective_role === role) &&
+        (!source || m.sources.some((s) => s.kind === source)),
+    );
+    const next = offset + limit < matched.length ? offsetCursor(offset + limit) : "";
+    return send(res, 200, { default_access: accessState.defaultAccess, members: matched.slice(offset, offset + limit), next_cursor: next }), true;
+  }
+
+  // Writes: access.manage and a recent sign-in (#753 D12).
+  if (!allowed("access.manage")) return problem(res, 403, "forbidden"), true;
+  if (totps.get(bearerOf(req))?.stale) return problem(res, 403, "reauth_required"), true;
+
+  if (what === "access" && req.method === "PATCH") {
+    const { default_access: def } = await readBody(req);
+    if (def !== "org_role" && def !== "viewer" && def !== "none") return problem(res, 400, "invalid_request"), true;
+    const previous = accessState.defaultAccess;
+    const lose = def === "none" && previous !== "none" ? accessState.people.filter((p) => (p.org_role === "member" || p.org_role === "viewer") && !p.direct_role).length : 0;
+    const dry = q.get("dry_run") === "true";
+    if (!dry) accessState.defaultAccess = def;
+    return send(res, 200, { default_access: dry ? previous : def, previous_default_access: previous, lose_access: lose, dry_run: dry }), true;
+  }
+  if (rawTarget !== undefined && (req.method === "PUT" || req.method === "DELETE")) {
+    const target = decodeURIComponent(rawTarget);
+    const person = accessState.people.find((p) => (p.user_id === PEOPLE_IDS.you ? user : p.user_id) === target);
+    let role: unknown;
+    if (req.method === "PUT") {
+      role = (await readBody(req)).role;
+      if (role !== "admin" && role !== "editor" && role !== "viewer") return problem(res, 400, "invalid_request"), true;
+    }
+    if (!person) return problem(res, 409, "not_org_member"), true;
+    if (req.method === "DELETE") {
+      person.direct_role = null;
+      person.added_by = undefined;
+      return send(res, 204), true;
+    }
+    if (person.direct_role !== role) {
+      if (!person.direct_role) person.added_at = new Date().toISOString();
+      person.direct_role = role as FakePerson["direct_role"];
+      person.added_by = { id: user, name: "Fake User" };
+    }
+    return send(res, 200, accessMember(person, accessState.defaultAccess, user)), true;
+  }
+  return problem(res, 405, "method_not_allowed"), true;
 }
 
 createServer((req, res) => {

@@ -128,7 +128,14 @@ describe("savedKeyState", () => {
     apps_seen: [],
     last_used_at: null,
     created_at: "2026-11-04T11:00:00Z",
+    expires_at: null,
     revoked_at: null,
+    environments: null,
+    last_used_ip: null,
+    last_used_sdk: null,
+    rate_limit_per_minute: null,
+    rotated_from: null,
+    rotated_to: null,
     ...over,
   });
 

@@ -741,6 +741,17 @@ export interface Invitation {
   resent_at: string | null;
   /** Who sent it; absent once their account is gone. */
   invited_by?: { id: string; email: string; name: string };
+  /** The project roles the invitee gets on accepting (#753 D4); empty when none. */
+  project_grants: InvitationProjectGrant[] | null;
+}
+
+/** A project role an invitation carries (`InvitationProjectGrant`). */
+export interface InvitationProjectGrant {
+  project_id: string;
+  /** The project's slug. */
+  project: string;
+  project_name: string;
+  role: ProjectRole;
 }
 
 /** `POST /orgs/{slug}/invitations` result, one per requested address in request order. */
@@ -815,8 +826,28 @@ export interface ApiKey {
   apps_seen: KeyApp[] | null;
   last_used_at: string | null;
   created_at: string;
-  expires_at?: string | null;
+  expires_at: string | null;
   revoked_at: string | null;
+  /** Who created the key; absent when unknown or once their account is deleted. */
+  created_by?: KeyCreator;
+  /** The environments the key may send data for; null for every environment. */
+  environments: string[] | null;
+  /** The client IP of the last ingest request; null if never used or not recorded. */
+  last_used_ip: string | null;
+  /** The SDK name and version of the last ingest request (`apilenss/0.5.0`); null if none. */
+  last_used_sdk: string | null;
+  /** Records per minute the ingest edge accepts with this key; null for no per-key limit. */
+  rate_limit_per_minute: number | null;
+  /** The key this one replaced in a rotation; null otherwise. */
+  rotated_from: string | null;
+  /** The key that replaced this one; it keeps working until `expires_at` (the overlap). */
+  rotated_to: string | null;
+}
+
+/** Who created a key (`KeyCreator`): their name, or their email when they have not set one. */
+export interface KeyCreator {
+  id: string;
+  name: string;
 }
 
 export interface CreateApiKeyRequest {
@@ -827,6 +858,10 @@ export interface CreateApiKeyRequest {
   can_create_apps?: boolean;
   /** Omitted for every app. */
   app_ids?: string[];
+  /** Pin the key to these environments of the project; omitted for every environment. */
+  environments?: string[];
+  /** Omitted for no per-key limit. */
+  rate_limit_per_minute?: number;
 }
 
 /** `PUT /projects/{slug}/api-keys/{id}/access`. */
@@ -840,12 +875,165 @@ export interface CreatedApiKey extends ApiKey {
   key: string;
 }
 
+/** How long a rotated key keeps working (`RotateAPIKeyInputBody.overlap`), never past its expiry. */
+export type RotateOverlap = "none" | "24h" | "7d";
+
+/** `POST /projects/{slug}/api-keys/{id}/rotate`: the new key (raw `key` once) and the rotated one. */
+export interface RotatedApiKey extends CreatedApiKey {
+  /** The rotated key: `rotated_to` names the new key, `expires_at` ends the overlap window. */
+  previous: ApiKey;
+}
+
 /** `GET /projects/{slug}/ingest-status` (#287). */
 export interface IngestStatus {
   received: boolean;
   first_at: string | null;
   last_at: string | null;
   count_1h: number;
+}
+
+// Project access (#753 D1-D4) and the audit log (D7). Shapes as in api/openapi/apilens.v1.json.
+
+/** What org members get on a project without a direct grant (#753 D2). */
+export type DefaultAccess = "org_role" | "viewer" | "none";
+
+/** Where a person's project role comes from. */
+export type AccessSourceKind = "org_role" | "default" | "direct";
+
+/** One reason a person has a role on the project (`AccessSource`). */
+export interface AccessSource {
+  kind: AccessSourceKind;
+  /** The project role this source grants. */
+  role: ProjectRole;
+  /** The organization role it comes from; absent for `direct`. */
+  org_role?: OrgRole;
+}
+
+/** A person with access to a project (`AccessMember`), as `GET /projects/{slug}/access` lists them. */
+export interface AccessMember {
+  user_id: string;
+  name: string;
+  email: string;
+  avatar_initials: string;
+  /** The highest role any source grants (#753 D3). */
+  effective_role: ProjectRole;
+  /** Every source, in the order org_role, default, direct. */
+  sources: AccessSource[] | null;
+  /** The role granted directly on the project; null without a direct grant. */
+  direct_role: ProjectRole | null;
+  /** When the direct role was granted, or when the person joined the organization without one. */
+  added_at: string;
+  /** Who granted the direct role; absent without one or once their account is deleted. */
+  added_by?: { id: string; name: string };
+  /** When the person last signed in; null if never. */
+  last_active_at: string | null;
+}
+
+/** `GET /projects/{slug}/access`: one page of the people with access, by email. */
+export interface ProjectAccess {
+  default_access: DefaultAccess;
+  members: AccessMember[] | null;
+  /** Empty on the last page. */
+  next_cursor: string;
+}
+
+/** The filters and page of `GET /projects/{slug}/access`. */
+export interface ProjectAccessQuery {
+  /** Substring of name or email, case-insensitive. */
+  q?: string;
+  /** Effective role. */
+  role?: ProjectRole;
+  /** People with a source of this kind. */
+  source?: AccessSourceKind;
+  limit?: number;
+  cursor?: string;
+}
+
+/** `PATCH /projects/{slug}/access` (with or without `dry_run`). */
+export interface DefaultAccessChange {
+  /** The default access now; unchanged on a dry run. */
+  default_access: DefaultAccess;
+  previous_default_access: DefaultAccess;
+  /** How many people lose (or on a dry run would lose) access; 0 unless the default becomes none. */
+  lose_access: number;
+  dry_run: boolean;
+}
+
+/** Whose audit log a read covers: an organization's (every project) or one project's. */
+export type AuditScope = { org: string } | { project: string };
+
+/** Who did an audited action (`AuditActor`). */
+export interface AuditActor {
+  type: "user" | "system";
+  /** The user's id; absent for system. */
+  id?: string;
+  /** Their name (or email) when recorded; "System" for system; empty when unknown. */
+  label: string;
+}
+
+/** What an audited action acted on (`AuditTarget`). */
+export interface AuditTarget {
+  /** api_key, member, app, project, ... */
+  type: string;
+  id: string;
+  /** Its name when recorded, readable after it is gone. */
+  label: string;
+}
+
+/** One audit event (`AuditEvent`); `changes` never holds secrets. */
+export interface AuditEvent {
+  id: string;
+  time: string;
+  /** noun.verb, e.g. `api_key.created`. */
+  action: string;
+  actor: AuditActor;
+  /** Empty when unknown. */
+  ip: string;
+  user_agent: string;
+  /** Empty outside a request. */
+  request_id: string;
+  target?: AuditTarget;
+  /** On the organization list: the project of a project event; absent for an org-wide event. */
+  project?: { slug: string; name: string };
+  /** `{previous, next}` for a change; null otherwise. */
+  changes: { previous?: Record<string, unknown>; next?: Record<string, unknown> } | null;
+}
+
+/** `GET .../audit-events`: newest first. */
+export interface AuditEvents {
+  events: AuditEvent[] | null;
+  /** Empty on the last page. */
+  next_cursor: string;
+  /** How many days events are kept; 0 means forever. */
+  retention_days: number;
+}
+
+/** The filters of `GET .../audit-events` and its CSV export. */
+export interface AuditFilters {
+  /** Only events this user did. */
+  actor?: string;
+  /** One action, or every action with a prefix when it ends with a dot (`api_key.`). */
+  action?: string;
+  target_type?: string;
+  /** RFC 3339; at or after. */
+  from?: string;
+  /** RFC 3339; before. */
+  to?: string;
+  /** Substring of the target label, case-insensitive. */
+  q?: string;
+}
+
+/** The filters and page of `GET .../audit-events`. */
+export interface AuditQuery extends AuditFilters {
+  limit?: number;
+  cursor?: string;
+}
+
+/** `GET .../audit-events/actions` item: an action offered as a filter, in catalogue order. */
+export interface AuditAction {
+  action: string;
+  /** Its display name (`API key created`). */
+  label: string;
 }
 
 // Query role (internal/query, #295): with a session the project is the `project` query parameter
@@ -2074,6 +2262,18 @@ function endpointScope(q: EndpointQuery): Query {
   };
 }
 
+/** `/orgs/{slug}` or `/projects/{slug}`: where an audit read lives. */
+function auditBase(scope: AuditScope): string {
+  return "org" in scope ? `/orgs/${seg(scope.org)}` : `/projects/${seg(scope.project)}`;
+}
+
+/** Query parameters without the empty ones. */
+function compact(q: object): Query {
+  const out: Query = {};
+  for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") out[k] = v as string | number | boolean;
+  return out;
+}
+
 export function createClient(config: ClientConfig) {
   const request = makeRequest(config);
   type Authed = CallOptions & { accessToken: string };
@@ -2384,6 +2584,38 @@ export function createClient(config: ClientConfig) {
       request<void>("DELETE", `/projects/${seg(projectSlug)}/api-keys/${seg(id)}`, o),
     updateApiKeyAccess: (projectSlug: string, id: string, body: UpdateApiKeyAccessRequest, o: Authed) =>
       request<ApiKey>("PUT", `/projects/${seg(projectSlug)}/api-keys/${seg(id)}/access`, { ...o, body }),
+    rotateApiKey: (projectSlug: string, id: string, overlap: RotateOverlap, o: Authed) =>
+      request<RotatedApiKey>("POST", `/projects/${seg(projectSlug)}/api-keys/${seg(id)}/rotate`, { ...o, body: { overlap } }),
+
+    // api: project access (#753 D1-D4) -------------------------------------------------------
+    projectAccess: (projectSlug: string, q: ProjectAccessQuery, o: Authed) =>
+      request<ProjectAccess>("GET", `/projects/${seg(projectSlug)}/access`, { ...o, query: compact(q) }),
+    setProjectMember: (projectSlug: string, userId: string, role: ProjectRole, o: Authed) =>
+      request<AccessMember>("PUT", `/projects/${seg(projectSlug)}/members/${seg(userId)}`, { ...o, body: { role } }),
+    removeProjectMember: (projectSlug: string, userId: string, o: Authed) =>
+      request<void>("DELETE", `/projects/${seg(projectSlug)}/members/${seg(userId)}`, o),
+    /** With `dryRun` it only reports how many people would lose access and changes nothing. */
+    setDefaultAccess: (projectSlug: string, defaultAccess: DefaultAccess, opts: { dryRun?: boolean }, o: Authed) =>
+      request<DefaultAccessChange>("PATCH", `/projects/${seg(projectSlug)}/access`, {
+        ...o,
+        body: { default_access: defaultAccess },
+        query: opts.dryRun ? { dry_run: true } : undefined,
+      }),
+    /** Pending org invitations that carry a role on the project. */
+    projectInvitations: (projectSlug: string, o: Authed) =>
+      request<Invitation[] | null>("GET", `/projects/${seg(projectSlug)}/invitations`, o),
+
+    // api: the audit log of an organization or a project (#753 D7) ----------------------------
+    listAuditEvents: (scope: AuditScope, q: AuditQuery, o: Authed) =>
+      request<AuditEvents>("GET", `${auditBase(scope)}/audit-events`, { ...o, query: compact(q) }),
+    auditActions: (scope: AuditScope, o: Authed) =>
+      request<{ actions: AuditAction[] | null }>("GET", `${auditBase(scope)}/audit-events/actions`, o),
+    /**
+     * The backend URL of the CSV export with these filters. It needs the user's Bearer token, so a
+     * server route fetches it and streams the file; the browser never sees this URL.
+     */
+    auditExportUrl: (scope: AuditScope, filters: AuditFilters = {}) =>
+      buildUrl(config.baseUrl, `${auditBase(scope)}/audit-events/export`, { ...compact(filters), format: "csv" }),
 
     // api: the project's apps, created by SDKs or in the dashboard ---------------------------
     listManagedApps: (projectSlug: string, o: Authed) =>
