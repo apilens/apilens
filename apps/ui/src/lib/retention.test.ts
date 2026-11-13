@@ -1,5 +1,47 @@
 import { describe, expect, it } from "vitest";
-import { RETENTION_LIMITS, formatPeriod, isCustomized, longestRetention, rangeLabel, retentionDaysError, retentionError } from "./retention";
+import {
+  RETENTION_LIMITS,
+  afterRetention,
+  formatPeriod,
+  isCustomized,
+  longestRetention,
+  rangeLabel,
+  retentionDaysError,
+  retentionDocsUrl,
+  retentionError,
+} from "./retention";
+
+describe("afterRetention", () => {
+  const defaults = [
+    { key: "requests", period_days: 90 },
+    { key: "rollups_1m", period_days: 30 },
+    { key: "rollups_1h", period_days: 400 },
+  ] as const;
+
+  it("says the hourly metrics keep counts when they outlast the signal", () => {
+    expect(afterRetention({ key: "requests", period_days: 90 }, defaults)).toMatch(/stay in the hourly metrics/);
+    expect(afterRetention({ key: "rollups_1m", period_days: 30 }, defaults)).toMatch(/use the hourly metrics/);
+  });
+
+  it("does not promise hourly metrics that are kept for less", () => {
+    const short = [{ key: "rollups_1h", period_days: 60 }] as const;
+    expect(afterRetention({ key: "requests", period_days: 90 }, short)).toBe("Deleted with their headers and bodies.");
+    expect(afterRetention({ key: "rollups_1m", period_days: 90 }, short)).toBe("Deleted.");
+    expect(afterRetention({ key: "requests", period_days: 90 }, null)).toBe("Deleted with their headers and bodies.");
+  });
+
+  it("has a line for every signal", () => {
+    for (const key of ["logs", "spans", "rollups_1h", "deploys"] as const) {
+      expect(afterRetention({ key, period_days: 30 }, defaults)).toMatch(/^Deleted\. /);
+    }
+  });
+});
+
+describe("retentionDocsUrl", () => {
+  it("links the self-host section of the data privacy page", () => {
+    expect(retentionDocsUrl("https://apilens.ai/docs/")).toBe("https://apilens.ai/docs/getting-started/data-privacy#changing-retention-self-hosted");
+  });
+});
 
 describe("RETENTION_LIMITS", () => {
   it("mirrors the install config (internal/platform/config/retention.go)", () => {

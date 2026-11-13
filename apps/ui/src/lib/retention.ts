@@ -62,3 +62,39 @@ export function retentionError(code: string | undefined): string {
       return "Something went wrong loading retention. Reload the page to try again.";
   }
 }
+
+/**
+ * What happens to a signal's data once its period runs out (Project settings › Retention, #818):
+ * ClickHouse deletes it by table TTL. Requests and per-minute metrics say what the hourly metrics
+ * still show, when the hourly metrics are kept longer.
+ */
+export function afterRetention(
+  signal: Pick<RetentionSignal, "key" | "period_days">,
+  signals: readonly Pick<RetentionSignal, "key" | "period_days">[] | null | undefined,
+): string {
+  const hourly = (signals ?? []).find((s) => s.key === "rollups_1h");
+  const hourlyLonger = hourly !== undefined && hourly.period_days > signal.period_days;
+  switch (signal.key) {
+    case "requests":
+      return hourlyLonger
+        ? "Deleted with their headers and bodies. Counts and latencies stay in the hourly metrics."
+        : "Deleted with their headers and bodies.";
+    case "logs":
+      return "Deleted. A request’s trace no longer shows them.";
+    case "spans":
+      return "Deleted. A request’s trace no longer shows its waterfall.";
+    case "rollups_1m":
+      return hourlyLonger ? "Deleted. Charts over older ranges use the hourly metrics." : "Deleted.";
+    case "rollups_1h":
+      return "Deleted. Charts show nothing older.";
+    case "deploys":
+      return "Deleted. Charts no longer mark them.";
+    default:
+      return "Deleted.";
+  }
+}
+
+/** The self-host docs on changing retention (`retention.<signal>`, then `apilens migrate`). */
+export function retentionDocsUrl(docs: string): string {
+  return `${docs.replace(/\/+$/, "")}/getting-started/data-privacy#changing-retention-self-hosted`;
+}
