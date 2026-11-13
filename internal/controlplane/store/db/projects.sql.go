@@ -35,24 +35,29 @@ func (q *Queries) CreateEnvironment(ctx context.Context, arg CreateEnvironmentPa
 
 const createProject = `-- name: CreateProject :one
 
-INSERT INTO projects (id, org_id, slug, name)
-VALUES ($1, $2, $3, $4)
-RETURNING id, org_id, slug, name, created_at
+INSERT INTO projects (id, org_id, slug, name, description, created_by)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, org_id, slug, name, description, created_at, updated_at, created_by
 `
 
 type CreateProjectParams struct {
-	ID    uuid.UUID
-	OrgID uuid.UUID
-	Slug  string
-	Name  string
+	ID          uuid.UUID
+	OrgID       uuid.UUID
+	Slug        string
+	Name        string
+	Description string
+	CreatedBy   *uuid.UUID
 }
 
 type CreateProjectRow struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	Slug      string
-	Name      string
-	CreatedAt time.Time
+	ID          uuid.UUID
+	OrgID       uuid.UUID
+	Slug        string
+	Name        string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CreatedBy   *uuid.UUID
 }
 
 // Explicit project and environment queries of the projects API. The
@@ -64,6 +69,8 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (C
 		arg.OrgID,
 		arg.Slug,
 		arg.Name,
+		arg.Description,
+		arg.CreatedBy,
 	)
 	var i CreateProjectRow
 	err := row.Scan(
@@ -71,7 +78,10 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (C
 		&i.OrgID,
 		&i.Slug,
 		&i.Name,
+		&i.Description,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
 	)
 	return i, err
 }
@@ -95,7 +105,7 @@ func (q *Queries) DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentPa
 }
 
 const getMemberProject = `-- name: GetMemberProject :one
-SELECT p.id, p.slug, p.name, p.created_at, o.id AS org_id, o.slug AS org_slug, m.role
+SELECT p.id, p.slug, p.name, p.description, p.created_at, p.updated_at, p.created_by, o.id AS org_id, o.slug AS org_slug, m.role
 FROM projects p
 JOIN organizations o ON o.id = p.org_id AND o.deleted_at IS NULL
 JOIN memberships m ON m.org_id = o.id AND m.user_id = $1
@@ -108,13 +118,16 @@ type GetMemberProjectParams struct {
 }
 
 type GetMemberProjectRow struct {
-	ID        uuid.UUID
-	Slug      string
-	Name      string
-	CreatedAt time.Time
-	OrgID     uuid.UUID
-	OrgSlug   string
-	Role      string
+	ID          uuid.UUID
+	Slug        string
+	Name        string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CreatedBy   *uuid.UUID
+	OrgID       uuid.UUID
+	OrgSlug     string
+	Role        string
 }
 
 // An active project of an active organization by slug, with the user's role
@@ -127,7 +140,10 @@ func (q *Queries) GetMemberProject(ctx context.Context, arg GetMemberProjectPara
 		&i.ID,
 		&i.Slug,
 		&i.Name,
+		&i.Description,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
 		&i.OrgID,
 		&i.OrgSlug,
 		&i.Role,
@@ -136,18 +152,21 @@ func (q *Queries) GetMemberProject(ctx context.Context, arg GetMemberProjectPara
 }
 
 const listOrgProjects = `-- name: ListOrgProjects :many
-SELECT id, org_id, slug, name, created_at
+SELECT id, org_id, slug, name, description, created_at, updated_at, created_by
 FROM projects
 WHERE org_id = $1 AND deleted_at IS NULL
 ORDER BY name, slug
 `
 
 type ListOrgProjectsRow struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	Slug      string
-	Name      string
-	CreatedAt time.Time
+	ID          uuid.UUID
+	OrgID       uuid.UUID
+	Slug        string
+	Name        string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CreatedBy   *uuid.UUID
 }
 
 func (q *Queries) ListOrgProjects(ctx context.Context, orgID uuid.UUID) ([]ListOrgProjectsRow, error) {
@@ -164,7 +183,10 @@ func (q *Queries) ListOrgProjects(ctx context.Context, orgID uuid.UUID) ([]ListO
 			&i.OrgID,
 			&i.Slug,
 			&i.Name,
+			&i.Description,
 			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CreatedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -210,7 +232,7 @@ func (q *Queries) ListProjectsEnvironments(ctx context.Context, projectIds []uui
 }
 
 const lockMemberProject = `-- name: LockMemberProject :one
-SELECT p.id, p.slug, p.name, p.created_at, o.id AS org_id, o.slug AS org_slug, m.role
+SELECT p.id, p.slug, p.name, p.description, p.created_at, p.updated_at, p.created_by, o.id AS org_id, o.slug AS org_slug, m.role
 FROM projects p
 JOIN organizations o ON o.id = p.org_id AND o.deleted_at IS NULL
 JOIN memberships m ON m.org_id = o.id AND m.user_id = $1
@@ -224,13 +246,16 @@ type LockMemberProjectParams struct {
 }
 
 type LockMemberProjectRow struct {
-	ID        uuid.UUID
-	Slug      string
-	Name      string
-	CreatedAt time.Time
-	OrgID     uuid.UUID
-	OrgSlug   string
-	Role      string
+	ID          uuid.UUID
+	Slug        string
+	Name        string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CreatedBy   *uuid.UUID
+	OrgID       uuid.UUID
+	OrgSlug     string
+	Role        string
 }
 
 // GetMemberProject, row-locking the project for the rest of the transaction.
@@ -241,7 +266,10 @@ func (q *Queries) LockMemberProject(ctx context.Context, arg LockMemberProjectPa
 		&i.ID,
 		&i.Slug,
 		&i.Name,
+		&i.Description,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
 		&i.OrgID,
 		&i.OrgSlug,
 		&i.Role,
@@ -301,34 +329,42 @@ func (q *Queries) TakenProjectSlugs(ctx context.Context, slugs []string) ([]stri
 	return items, nil
 }
 
-const updateProjectName = `-- name: UpdateProjectName :one
-UPDATE projects SET name = $1
-WHERE id = $2 AND deleted_at IS NULL
-RETURNING id, org_id, slug, name, created_at
+const updateProjectDetails = `-- name: UpdateProjectDetails :one
+UPDATE projects SET name = $1, description = $2, updated_at = now()
+WHERE id = $3 AND deleted_at IS NULL
+RETURNING id, org_id, slug, name, description, created_at, updated_at, created_by
 `
 
-type UpdateProjectNameParams struct {
-	Name string
-	ID   uuid.UUID
+type UpdateProjectDetailsParams struct {
+	Name        string
+	Description string
+	ID          uuid.UUID
 }
 
-type UpdateProjectNameRow struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	Slug      string
-	Name      string
-	CreatedAt time.Time
+type UpdateProjectDetailsRow struct {
+	ID          uuid.UUID
+	OrgID       uuid.UUID
+	Slug        string
+	Name        string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CreatedBy   *uuid.UUID
 }
 
-func (q *Queries) UpdateProjectName(ctx context.Context, arg UpdateProjectNameParams) (UpdateProjectNameRow, error) {
-	row := q.db.QueryRow(ctx, updateProjectName, arg.Name, arg.ID)
-	var i UpdateProjectNameRow
+// Sets the name and description and moves updated_at to now.
+func (q *Queries) UpdateProjectDetails(ctx context.Context, arg UpdateProjectDetailsParams) (UpdateProjectDetailsRow, error) {
+	row := q.db.QueryRow(ctx, updateProjectDetails, arg.Name, arg.Description, arg.ID)
+	var i UpdateProjectDetailsRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.Slug,
 		&i.Name,
+		&i.Description,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
 	)
 	return i, err
 }

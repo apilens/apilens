@@ -43,14 +43,17 @@ type ProjectService interface {
 
 // Project is a project as seen by a member of its organization.
 type Project struct {
-	ID           string    `json:"id" format:"uuid"`
+	ID           string    `json:"id" format:"uuid" doc:"The project's immutable identifier; unlike the slug it never changes."`
 	Slug         string    `json:"slug"`
 	Name         string    `json:"name"`
+	Description  string    `json:"description" maxLength:"280" doc:"Short description; empty when the project has none."`
 	OrgID        string    `json:"org_id" format:"uuid"`
 	OrgSlug      string    `json:"org_slug"`
 	Role         string    `json:"role" enum:"owner,admin,member,viewer" doc:"The signed-in user's role in the project's organization."`
 	Environments []string  `json:"environments" doc:"The project's environment names, sorted."`
 	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at" doc:"When the name or description last changed; the creation time until then."`
+	CreatedBy    *string   `json:"created_by" format:"uuid" nullable:"true" doc:"The id of the user who created the project; null when unknown (projects created before this was recorded, or a deleted user)."`
 }
 
 // ProjectOutput is the response of the single-project operations.
@@ -83,8 +86,9 @@ type ProjectSlugInput struct {
 type UpdateProjectInput struct {
 	ProjectSlugInput
 	Body struct {
-		Name *string `json:"name,omitempty" minLength:"1" maxLength:"100" doc:"Display name; surrounding spaces are trimmed."`
-		Slug *string `json:"slug,omitempty" pattern:"^[a-z0-9][a-z0-9-]{0,62}$" doc:"Must equal the current slug: slugs cannot be changed yet (slug_immutable)."`
+		Name        *string `json:"name,omitempty" minLength:"1" maxLength:"100" doc:"Display name; surrounding spaces are trimmed."`
+		Description *string `json:"description,omitempty" maxLength:"280" doc:"Short description, at most 280 characters; surrounding spaces are trimmed and an empty string clears it."`
+		Slug        *string `json:"slug,omitempty" pattern:"^[a-z0-9][a-z0-9-]{0,62}$" doc:"Must equal the current slug: slugs cannot be changed yet (slug_immutable)."`
 	}
 }
 
@@ -198,7 +202,7 @@ func (p *Projects) Register(api huma.API) {
 		Method:      http.MethodPatch,
 		Path:        ProjectPath,
 		Summary:     "Update a project",
-		Description: "Renames the project. Owners, admins and members only. A slug other than the current one answers `slug_immutable`. " + notMember,
+		Description: "Changes the project's name and description. Owners, admins and members only. An empty name or a description over 280 characters answers `invalid_request`; a slug other than the current one answers `slug_immutable`. A change moves `updated_at` and emits the `project.updated` audit event with the previous and next values. " + notMember,
 		Tags:        tags,
 		Security:    security,
 	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeSlugImmutable, identity.CodeInternal), p.update)
@@ -241,15 +245,23 @@ func toProject(pr projects.Project) Project {
 	if envs == nil {
 		envs = []string{}
 	}
+	var createdBy *string
+	if pr.CreatedBy != nil {
+		id := pr.CreatedBy.String()
+		createdBy = &id
+	}
 	return Project{
 		ID:           pr.ID.String(),
 		Slug:         pr.Slug,
 		Name:         pr.Name,
+		Description:  pr.Description,
 		OrgID:        pr.OrgID.String(),
 		OrgSlug:      pr.OrgSlug,
 		Role:         pr.Role,
 		Environments: envs,
 		CreatedAt:    pr.CreatedAt.UTC(),
+		UpdatedAt:    pr.UpdatedAt.UTC(),
+		CreatedBy:    createdBy,
 	}
 }
 
@@ -316,7 +328,7 @@ func (p *Projects) update(ctx context.Context, in *UpdateProjectInput) (*Project
 	if err != nil {
 		return nil, err
 	}
-	pr, err := p.svc.Update(ctx, uid, in.Slug, projects.Update{Name: in.Body.Name, Slug: in.Body.Slug})
+	pr, err := p.svc.Update(ctx, uid, in.Slug, projects.Update{Name: in.Body.Name, Description: in.Body.Description, Slug: in.Body.Slug})
 	if err != nil {
 		return nil, p.problem(ctx, "update project", err)
 	}
