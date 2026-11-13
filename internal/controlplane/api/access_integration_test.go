@@ -14,6 +14,7 @@ import (
 	"github.com/apilens/apilens/internal/controlplane/access"
 	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
+	"github.com/apilens/apilens/internal/identity/audit"
 	"github.com/apilens/apilens/internal/testutil"
 )
 
@@ -37,7 +38,7 @@ func setupAccess(t *testing.T) *accessFixture {
 	f := setupProjects(t)
 	logger := testutil.Logger(t)
 	guard := authz.NewGuard(f.authz, authz.NewPGResolver(f.pool), authz.GuardOptions{}, logger)
-	NewAccess(access.New(f.pool), guard, logger).Register(f.api)
+	NewAccess(access.New(f.pool).WithAudit(audit.New(f.pool)).WithMaxDirectMembers(testMaxDirectMembers), guard, logger).Register(f.api)
 
 	users := map[string]uuid.UUID{}
 	for _, name := range []string{"owner", "admin", "member", "member2", "viewer", "viewer2", "stranger"} {

@@ -60,7 +60,8 @@ RETURNING default_access;
 -- role (owners and admins are admin), the project default access and a
 -- direct grant. The effective rank is the highest. Filters: q (substring of
 -- name or email; the caller escapes LIKE wildcards), effective_rank, source
--- (org_role, default, direct). Keyset pagination on (email, user_id).
+-- (org_role, default, direct), user_id (one person). Keyset pagination on
+-- (email, user_id).
 WITH ranked AS (
     SELECT m.user_id, m.role AS org_role, m.created_at AS joined_at,
            u.email, u.name, u.last_login_at,
@@ -92,7 +93,32 @@ WHERE GREATEST(r.org_rank, r.default_rank, r.direct_rank) > 0
        OR (sqlc.narg(source)::text = 'org_role' AND r.org_rank > 0)
        OR (sqlc.narg(source)::text = 'default' AND r.default_rank > 0)
        OR (sqlc.narg(source)::text = 'direct' AND r.direct_rank > 0))
+  AND (sqlc.narg(user_id)::uuid IS NULL OR r.user_id = sqlc.narg(user_id)::uuid)
   AND (sqlc.narg(after_email)::text IS NULL
        OR (r.email, r.user_id) > (sqlc.narg(after_email)::citext, sqlc.narg(after_id)::uuid))
 ORDER BY r.email, r.user_id
 LIMIT @row_limit;
+
+
+-- name: LockProjectAccess :one
+-- A project's organization and default access, row-locking the project so
+-- the access writes of one project run one at a time (the direct member cap
+-- is counted under this lock).
+SELECT id, org_id, slug, name, default_access FROM projects
+WHERE id = @id AND deleted_at IS NULL
+FOR UPDATE;
+
+-- name: CountProjectMembers :one
+-- The direct grants of a project (access.max_direct_members_per_project).
+SELECT count(*) FROM project_members
+WHERE project_id = @project_id;
+
+-- name: CountProjectDefaultOnlyAccess :one
+-- Org members whose only access to the project is its default access:
+-- members and viewers without a direct grant. They lose access when the
+-- default becomes none.
+SELECT count(*) FROM projects p
+JOIN memberships m ON m.org_id = p.org_id AND m.role IN ('member', 'viewer')
+JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL
+LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = m.user_id
+WHERE p.id = @project_id AND pm.user_id IS NULL;

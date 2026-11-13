@@ -17,12 +17,22 @@ import (
 	"github.com/apilens/apilens/internal/platform/server"
 )
 
-// ProjectAccessPath lists who has access to a project and why.
-const ProjectAccessPath = ProjectPath + "/access"
+// Paths of the project access endpoints.
+const (
+	// ProjectAccessPath lists who has access to a project and why, and
+	// sets its default access.
+	ProjectAccessPath = ProjectPath + "/access"
+	// ProjectMemberPath grants, changes or removes a direct project role.
+	ProjectMemberPath = ProjectPath + "/members/{user_id}"
+)
 
-// AccessService reads project access; *access.Service satisfies it.
+// AccessService reads and manages project access; *access.Service
+// satisfies it.
 type AccessService interface {
 	List(ctx context.Context, project uuid.UUID, f access.Filter) (access.Page, error)
+	Grant(ctx context.Context, actor, project, target uuid.UUID, role string) (access.Person, error)
+	Revoke(ctx context.Context, actor, project, target uuid.UUID) (bool, error)
+	SetDefault(ctx context.Context, actor, project uuid.UUID, def string, dryRun bool) (access.DefaultChange, error)
 }
 
 // AccessSource is one reason a person has a role on the project.
@@ -71,16 +81,68 @@ type ListProjectAccessOutput struct {
 	}
 }
 
+// ProjectMemberInput names a person in the path of a project access write.
+type ProjectMemberInput struct {
+	ProjectSlugInput
+	UserID string `path:"user_id" format:"uuid" doc:"The person's user id; they must be a member of the project's organization."`
+}
+
+// SetProjectRoleInput is the request of PUT
+// /api/v1/projects/{slug}/members/{user_id}.
+type SetProjectRoleInput struct {
+	ProjectMemberInput
+	Body struct {
+		Role string `json:"role" enum:"admin,editor,viewer" doc:"The direct project role."`
+	}
+}
+
+// SetProjectRoleOutput is the response of PUT
+// /api/v1/projects/{slug}/members/{user_id}.
+type SetProjectRoleOutput struct {
+	Body AccessMember
+}
+
+// SetDefaultAccessInput is the request of PATCH
+// /api/v1/projects/{slug}/access.
+type SetDefaultAccessInput struct {
+	ProjectSlugInput
+	DryRun bool `query:"dry_run" doc:"Only report how many people would lose access; change nothing."`
+	Body   struct {
+		DefaultAccess string `json:"default_access" enum:"org_role,viewer,none" doc:"What org members get without a direct grant: org_role (members edit, viewers view), viewer (everyone views), none (only org owners and admins and people added directly)."`
+	}
+}
+
+// SetDefaultAccessOutput is the response of PATCH
+// /api/v1/projects/{slug}/access.
+type SetDefaultAccessOutput struct {
+	Body struct {
+		DefaultAccess         string `json:"default_access" enum:"org_role,viewer,none" doc:"The default access now; unchanged on a dry run."`
+		PreviousDefaultAccess string `json:"previous_default_access" enum:"org_role,viewer,none" doc:"The default access before the request."`
+		LoseAccess            int64  `json:"lose_access" doc:"How many people lose (or, on a dry run, would lose) access: org members and viewers without a direct grant when the default becomes none; 0 otherwise."`
+		DryRun                bool   `json:"dry_run" doc:"True when nothing was changed."`
+	}
+}
+
 // Access serves the project access endpoints.
 type Access struct {
 	svc    AccessService
 	authz  ProjectAuthorizer
 	logger *slog.Logger
+	// recentAuth is the sign-in age the access writes allow
+	// (identity.sensitive_action_max_age); 0 means authz.DefaultRecentAuth.
+	recentAuth time.Duration
+	now        func() time.Time
 }
 
 // NewAccess returns the project access endpoints over svc.
 func NewAccess(svc AccessService, guard ProjectAuthorizer, logger *slog.Logger) *Access {
-	return &Access{svc: svc, authz: guard, logger: logger}
+	return &Access{svc: svc, authz: guard, logger: logger, now: time.Now}
+}
+
+// WithRecentAuth sets the sign-in age the access writes allow and returns a.
+func (a *Access) WithRecentAuth(maxAge time.Duration) *Access {
+	a.recentAuth = maxAge
+	return a
 }
 
 // Register mounts the project access operations.
@@ -96,6 +158,52 @@ func (a *Access) Register(api huma.API) {
 		Tags:     []string{server.TagProjects},
 		Security: []map[string][]string{{authn.SchemeSession: {}}},
 	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), a.list)
+
+	security := []map[string][]string{{authn.SchemeSession: {}}}
+	manage := "Needs `manage_access` on the project (project admins: org owners and admins and people granted admin): a project the caller cannot view answers 404 `not_found`, a viewer or editor 403 `forbidden`. " +
+		"Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. " +
+		"The relationship change is written to the outbox in the same transaction, like membership changes, so the next permission check sees it."
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "set-project-member-role",
+		Method:      http.MethodPut,
+		Path:        ProjectMemberPath,
+		Summary:     "Grant or change a project role",
+		Description: "Gives the person a direct role on the project, or changes it. The person must be a member of the project's organization (`not_org_member` otherwise; invite them first). " +
+			"A role lower than what they already have through the organization or the default access is allowed: the response is their access afterwards, with the effective role (the highest of every source). " +
+			"A project holds at most `access.max_direct_members_per_project` (default 500) direct grants: one more answers `member_limit_reached` (409). " +
+			"Emits `project_member.upserted`; audited as `project_member.added` or `project_member.role_changed`. " + manage,
+		Tags:     []string{server.TagProjects},
+		Security: security,
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeReauthRequired, identity.CodeNotFound,
+		identity.CodeNotOrgMember, identity.CodeMemberLimitReached, identity.CodeAuthzUnavailable, identity.CodeInternal), a.setRole)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID:   "remove-project-member",
+		Method:        http.MethodDelete,
+		Path:          ProjectMemberPath,
+		DefaultStatus: http.StatusNoContent,
+		Summary:       "Remove a project role",
+		Description: "Removes the person's direct role on the project; they keep what their organization role and the default access give them. A caller may remove their own grant. " +
+			"Removing a grant that does not exist answers 204. The person must be a member of the project's organization (`not_org_member` otherwise). " +
+			"Emits `project_member.deleted`; audited as `project_member.removed`. " + manage,
+		Tags:     []string{server.TagProjects},
+		Security: security,
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeReauthRequired, identity.CodeNotFound,
+		identity.CodeNotOrgMember, identity.CodeAuthzUnavailable, identity.CodeInternal), a.removeRole)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "set-project-default-access",
+		Method:      http.MethodPatch,
+		Path:        ProjectAccessPath,
+		Summary:     "Set a project's default access",
+		Description: "Sets what org members get on the project without a direct grant: `org_role` (members edit, viewers view), `viewer` (everyone views) or `none` (only org owners and admins and people added directly). " +
+			"`lose_access` says how many people lose access (members and viewers without a direct grant when the default becomes `none`); with `dry_run=true` nothing changes, so the UI can confirm first. " +
+			"Emits `project.access_changed`, audited as `project.access_changed`, and emails the project admins. " + manage,
+		Tags:     []string{server.TagProjects},
+		Security: security,
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeReauthRequired, identity.CodeNotFound,
+		identity.CodeAuthzUnavailable, identity.CodeInternal), a.setDefault)
 }
 
 func (a *Access) authorize(ctx context.Context, slug string, permission authz.Permission) (uuid.UUID, error) {
@@ -120,6 +228,89 @@ func (a *Access) authorize(ctx context.Context, slug string, permission authz.Pe
 		a.logger.ErrorContext(ctx, "authorize project access", "error", err)
 		return uuid.Nil, identity.Err(identity.CodeInternal)
 	}
+}
+
+// authorizeWrite authorizes an access write: manage_access on the project,
+// then a recent sign-in. It returns the project and the caller.
+func (a *Access) authorizeWrite(ctx context.Context, slug string) (uuid.UUID, uuid.UUID, error) {
+	pid, err := a.authorize(ctx, slug, authz.ProjectManageAccess)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+	p, _ := authn.FromContext(ctx)
+	maxAge := a.recentAuth
+	if maxAge <= 0 {
+		maxAge = authz.DefaultRecentAuth
+	}
+	if !authz.RecentAuth(p, maxAge, a.now()) {
+		return uuid.Nil, uuid.Nil, identity.Err(identity.CodeReauthRequired)
+	}
+	return pid, p.UserID, nil
+}
+
+// writeProblem maps an error of an access write to a problem.
+func (a *Access) writeProblem(ctx context.Context, op string, err error) error {
+	switch {
+	case errors.Is(err, access.ErrInvalid):
+		return identity.Err(identity.CodeInvalidRequest)
+	case errors.Is(err, access.ErrNotFound):
+		return identity.Err(identity.CodeNotFound)
+	case errors.Is(err, access.ErrNotOrgMember):
+		return identity.Err(identity.CodeNotOrgMember)
+	case errors.Is(err, access.ErrMemberLimit):
+		return identity.Err(identity.CodeMemberLimitReached)
+	default:
+		a.logger.ErrorContext(ctx, op, "error", err)
+		return identity.Err(identity.CodeInternal)
+	}
+}
+
+func (a *Access) setRole(ctx context.Context, in *SetProjectRoleInput) (*SetProjectRoleOutput, error) {
+	pid, actor, err := a.authorizeWrite(ctx, in.Slug)
+	if err != nil {
+		return nil, err
+	}
+	target, err := uuid.Parse(in.UserID)
+	if err != nil {
+		return nil, identity.Err(identity.CodeInvalidRequest)
+	}
+	p, err := a.svc.Grant(ctx, actor, pid, target, in.Body.Role)
+	if err != nil {
+		return nil, a.writeProblem(ctx, "set project role", err)
+	}
+	return &SetProjectRoleOutput{Body: toAccessMember(p)}, nil
+}
+
+func (a *Access) removeRole(ctx context.Context, in *ProjectMemberInput) (*struct{}, error) {
+	pid, actor, err := a.authorizeWrite(ctx, in.Slug)
+	if err != nil {
+		return nil, err
+	}
+	target, err := uuid.Parse(in.UserID)
+	if err != nil {
+		return nil, identity.Err(identity.CodeInvalidRequest)
+	}
+	if _, err := a.svc.Revoke(ctx, actor, pid, target); err != nil {
+		return nil, a.writeProblem(ctx, "remove project role", err)
+	}
+	return nil, nil
+}
+
+func (a *Access) setDefault(ctx context.Context, in *SetDefaultAccessInput) (*SetDefaultAccessOutput, error) {
+	pid, actor, err := a.authorizeWrite(ctx, in.Slug)
+	if err != nil {
+		return nil, err
+	}
+	c, err := a.svc.SetDefault(ctx, actor, pid, in.Body.DefaultAccess, in.DryRun)
+	if err != nil {
+		return nil, a.writeProblem(ctx, "set default access", err)
+	}
+	out := &SetDefaultAccessOutput{}
+	out.Body.DefaultAccess = c.Current
+	out.Body.PreviousDefaultAccess = c.Previous
+	out.Body.LoseAccess = c.LoseAccess
+	out.Body.DryRun = c.DryRun
+	return out, nil
 }
 
 func (a *Access) list(ctx context.Context, in *ListProjectAccessInput) (*ListProjectAccessOutput, error) {

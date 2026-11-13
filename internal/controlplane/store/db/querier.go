@@ -31,6 +31,12 @@ type Querier interface {
 	// Owners whose account is not deleted: a deleted owner cannot act for the
 	// organization, so it does not count towards the last-owner rule.
 	CountOrgOwners(ctx context.Context, orgID uuid.UUID) (int64, error)
+	// Org members whose only access to the project is its default access:
+	// members and viewers without a direct grant. They lose access when the
+	// default becomes none.
+	CountProjectDefaultOnlyAccess(ctx context.Context, projectID uuid.UUID) (int64, error)
+	// The direct grants of a project (access.max_direct_members_per_project).
+	CountProjectMembers(ctx context.Context, projectID uuid.UUID) (int64, error)
 	// Apps the SDK created in the project since @since, deleted ones included.
 	CountSDKAppsSince(ctx context.Context, arg CountSDKAppsSinceParams) (int64, error)
 	// Inserts a key and returns it with its creator.
@@ -263,7 +269,8 @@ type Querier interface {
 	// role (owners and admins are admin), the project default access and a
 	// direct grant. The effective rank is the highest. Filters: q (substring of
 	// name or email; the caller escapes LIKE wildcards), effective_rank, source
-	// (org_role, default, direct). Keyset pagination on (email, user_id).
+	// (org_role, default, direct), user_id (one person). Keyset pagination on
+	// (email, user_id).
 	ListProjectAccess(ctx context.Context, arg ListProjectAccessParams) ([]ListProjectAccessRow, error)
 	// Recipients of the project change emails (internal/controlplane/notify).
 	// The effective admins of a project (ADR 0009, D1 in #753): org owners and
@@ -356,6 +363,10 @@ type Querier interface {
 	// A key of the project, row-locked for the rest of the transaction, with
 	// its creator (NULL when unknown or the account is deleted).
 	LockProjectAPIKey(ctx context.Context, arg LockProjectAPIKeyParams) (LockProjectAPIKeyRow, error)
+	// A project's organization and default access, row-locking the project so
+	// the access writes of one project run one at a time (the direct member cap
+	// is counted under this lock).
+	LockProjectAccess(ctx context.Context, id uuid.UUID) (LockProjectAccessRow, error)
 	LockProjectApp(ctx context.Context, arg LockProjectAppParams) (LockProjectAppRow, error)
 	// Row-locks an active project; serialises app creation per project.
 	LockProjectByID(ctx context.Context, id uuid.UUID) (LockProjectByIDRow, error)
