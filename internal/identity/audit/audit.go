@@ -112,6 +112,9 @@ const (
 	// ProjectAccessChanged: a project's default access for org members
 	// changes.
 	ProjectAccessChanged Kind = "project.access_changed"
+	// AuditLogExported: an organization's or project's audit events were
+	// exported (GET .../audit-events/export).
+	AuditLogExported Kind = "audit_log.exported"
 )
 
 var kinds = []Kind{
@@ -127,6 +130,7 @@ var kinds = []Kind{
 	InvitationRevoked, AlertRuleCreated, AlertRuleUpdated, AlertRuleDeleted, AlertChannelCreated, AlertChannelUpdated,
 	AlertChannelDeleted, HealthCheckCreated, HealthCheckDeleted, AppSettingsUpdated, EndpointSettingsUpdated,
 	ProjectMemberAdded, ProjectMemberRoleChanged, ProjectMemberRemoved, ProjectAccessChanged,
+	AuditLogExported,
 }
 
 // Kinds returns every known event kind, in catalogue order.

@@ -13,6 +13,114 @@ import (
 	"github.com/google/uuid"
 )
 
+const auditClock = `-- name: AuditClock :one
+SELECT clock_timestamp()::timestamptz AS now
+`
+
+// The database's current time: an export ends there, on the clock that
+// stamps created_at, so a skewed app clock cannot cut or extend it.
+func (q *Queries) AuditClock(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRow(ctx, auditClock)
+	var now time.Time
+	err := row.Scan(&now)
+	return now, err
+}
+
+const countAuditEventsForOrg = `-- name: CountAuditEventsForOrg :one
+SELECT count(*) FROM (
+    SELECT 1 FROM audit_events
+    WHERE org_id = $1::uuid
+      AND (project_id IS NULL OR project_id = ANY($2::uuid[]))
+      AND ($3::uuid IS NULL OR actor_user_id = $3::uuid)
+      AND ($4::text IS NULL OR event = $4::text)
+      AND ($5::text IS NULL OR starts_with(event, $5::text))
+      AND ($6::text IS NULL OR target_type = $6::text)
+      AND ($7::text IS NULL OR strpos(lower(target_label), lower($7::text)) > 0)
+      AND ($8::timestamptz IS NULL OR created_at >= $8::timestamptz)
+      AND ($9::timestamptz IS NULL OR created_at < $9::timestamptz)
+    LIMIT $10
+) capped
+`
+
+type CountAuditEventsForOrgParams struct {
+	OrgID           uuid.UUID
+	VisibleProjects []uuid.UUID
+	ActorUserID     *uuid.UUID
+	Event           *string
+	EventPrefix     *string
+	TargetType      *string
+	TargetLabel     *string
+	FromTime        *time.Time
+	ToTime          *time.Time
+	MaxRows         int32
+}
+
+// How many events an export of ListAuditEventsForOrg (same filters, no
+// cursor) would hold, counting at most max_rows: an export compares it with
+// its cap to say whether it was truncated without reading every row.
+func (q *Queries) CountAuditEventsForOrg(ctx context.Context, arg CountAuditEventsForOrgParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditEventsForOrg,
+		arg.OrgID,
+		arg.VisibleProjects,
+		arg.ActorUserID,
+		arg.Event,
+		arg.EventPrefix,
+		arg.TargetType,
+		arg.TargetLabel,
+		arg.FromTime,
+		arg.ToTime,
+		arg.MaxRows,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countAuditEventsForProject = `-- name: CountAuditEventsForProject :one
+SELECT count(*) FROM (
+    SELECT 1 FROM audit_events
+    WHERE project_id = $1::uuid
+      AND ($2::uuid IS NULL OR actor_user_id = $2::uuid)
+      AND ($3::text IS NULL OR event = $3::text)
+      AND ($4::text IS NULL OR starts_with(event, $4::text))
+      AND ($5::text IS NULL OR target_type = $5::text)
+      AND ($6::text IS NULL OR strpos(lower(target_label), lower($6::text)) > 0)
+      AND ($7::timestamptz IS NULL OR created_at >= $7::timestamptz)
+      AND ($8::timestamptz IS NULL OR created_at < $8::timestamptz)
+    LIMIT $9
+) capped
+`
+
+type CountAuditEventsForProjectParams struct {
+	ProjectID   uuid.UUID
+	ActorUserID *uuid.UUID
+	Event       *string
+	EventPrefix *string
+	TargetType  *string
+	TargetLabel *string
+	FromTime    *time.Time
+	ToTime      *time.Time
+	MaxRows     int32
+}
+
+// Like CountAuditEventsForOrg, for ListAuditEventsForProject.
+func (q *Queries) CountAuditEventsForProject(ctx context.Context, arg CountAuditEventsForProjectParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditEventsForProject,
+		arg.ProjectID,
+		arg.ActorUserID,
+		arg.Event,
+		arg.EventPrefix,
+		arg.TargetType,
+		arg.TargetLabel,
+		arg.FromTime,
+		arg.ToTime,
+		arg.MaxRows,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteAuditEventsBefore = `-- name: DeleteAuditEventsBefore :execrows
 DELETE FROM audit_events
 WHERE id IN (
@@ -330,6 +438,37 @@ func (q *Queries) ListAuditEventsForUser(ctx context.Context, arg ListAuditEvent
 			&i.Changes,
 			&i.ActorLabel,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserEmails = `-- name: ListUserEmails :many
+SELECT id, email::text AS email FROM users WHERE id = ANY($1::uuid[])
+`
+
+type ListUserEmailsRow struct {
+	ID    uuid.UUID
+	Email string
+}
+
+// The current emails of users, for the actor_email column of an audit
+// export. A purged user has no row.
+func (q *Queries) ListUserEmails(ctx context.Context, ids []uuid.UUID) ([]ListUserEmailsRow, error) {
+	rows, err := q.db.Query(ctx, listUserEmails, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserEmailsRow{}
+	for rows.Next() {
+		var i ListUserEmailsRow
+		if err := rows.Scan(&i.ID, &i.Email); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

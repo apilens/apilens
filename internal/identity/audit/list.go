@@ -54,6 +54,9 @@ type Entry struct {
 	// email) when the event was recorded, "" when unknown.
 	Actor      *uuid.UUID
 	ActorLabel string
+	// ActorEmail is the actor's current email; set by exports only (Export.Each),
+	// "" for the system or a purged actor.
+	ActorEmail string
 	// Project is the project the event belongs to; nil for an org-wide
 	// event.
 	Project   *uuid.UUID
@@ -251,6 +254,7 @@ var labels = map[Kind]string{
 	AppMerged:            "App merged",
 	AppDeleted:           "App deleted",
 	AppAcknowledged:      "App acknowledged",
+	AuditLogExported:     "Audit log exported",
 }
 
 // Label is the display name of k: "API key created" for api_key.created.

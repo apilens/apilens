@@ -75,3 +75,46 @@ WHERE id IN (
     ORDER BY id
     LIMIT @batch_size
 );
+
+-- name: CountAuditEventsForOrg :one
+-- How many events an export of ListAuditEventsForOrg (same filters, no
+-- cursor) would hold, counting at most max_rows: an export compares it with
+-- its cap to say whether it was truncated without reading every row.
+SELECT count(*) FROM (
+    SELECT 1 FROM audit_events
+    WHERE org_id = @org_id::uuid
+      AND (project_id IS NULL OR project_id = ANY(@visible_projects::uuid[]))
+      AND (sqlc.narg('actor_user_id')::uuid IS NULL OR actor_user_id = sqlc.narg('actor_user_id')::uuid)
+      AND (sqlc.narg('event')::text IS NULL OR event = sqlc.narg('event')::text)
+      AND (sqlc.narg('event_prefix')::text IS NULL OR starts_with(event, sqlc.narg('event_prefix')::text))
+      AND (sqlc.narg('target_type')::text IS NULL OR target_type = sqlc.narg('target_type')::text)
+      AND (sqlc.narg('target_label')::text IS NULL OR strpos(lower(target_label), lower(sqlc.narg('target_label')::text)) > 0)
+      AND (sqlc.narg('from_time')::timestamptz IS NULL OR created_at >= sqlc.narg('from_time')::timestamptz)
+      AND (sqlc.narg('to_time')::timestamptz IS NULL OR created_at < sqlc.narg('to_time')::timestamptz)
+    LIMIT @max_rows
+) capped;
+
+-- name: CountAuditEventsForProject :one
+-- Like CountAuditEventsForOrg, for ListAuditEventsForProject.
+SELECT count(*) FROM (
+    SELECT 1 FROM audit_events
+    WHERE project_id = @project_id::uuid
+      AND (sqlc.narg('actor_user_id')::uuid IS NULL OR actor_user_id = sqlc.narg('actor_user_id')::uuid)
+      AND (sqlc.narg('event')::text IS NULL OR event = sqlc.narg('event')::text)
+      AND (sqlc.narg('event_prefix')::text IS NULL OR starts_with(event, sqlc.narg('event_prefix')::text))
+      AND (sqlc.narg('target_type')::text IS NULL OR target_type = sqlc.narg('target_type')::text)
+      AND (sqlc.narg('target_label')::text IS NULL OR strpos(lower(target_label), lower(sqlc.narg('target_label')::text)) > 0)
+      AND (sqlc.narg('from_time')::timestamptz IS NULL OR created_at >= sqlc.narg('from_time')::timestamptz)
+      AND (sqlc.narg('to_time')::timestamptz IS NULL OR created_at < sqlc.narg('to_time')::timestamptz)
+    LIMIT @max_rows
+) capped;
+
+-- name: ListUserEmails :many
+-- The current emails of users, for the actor_email column of an audit
+-- export. A purged user has no row.
+SELECT id, email::text AS email FROM users WHERE id = ANY(@ids::uuid[]);
+
+-- name: AuditClock :one
+-- The database's current time: an export ends there, on the clock that
+-- stamps created_at, so a skewed app clock cannot cut or extend it.
+SELECT clock_timestamp()::timestamptz AS now;

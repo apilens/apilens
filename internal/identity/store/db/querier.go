@@ -6,6 +6,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -18,6 +19,9 @@ type Querier interface {
 	// (the name at the time) stays so org and project history stays readable.
 	// Run after DeletePersonalAuditEventsForUsers and before PurgeUsers.
 	AnonymizeAuditEventsForUsers(ctx context.Context, ids []uuid.UUID) (int64, error)
+	// The database's current time: an export ends there, on the clock that
+	// stamps created_at, so a skewed app clock cannot cut or extend it.
+	AuditClock(ctx context.Context) (time.Time, error)
 	// Cancels every pending request of a user, e.g. before a new request or
 	// once 2FA has been turned off another way.
 	CancelPendingRecoveryRequestsForUser(ctx context.Context, arg CancelPendingRecoveryRequestsForUserParams) (int64, error)
@@ -43,6 +47,12 @@ type Querier interface {
 	// is accepted at most once even under concurrent redemption. Returns
 	// pgx.ErrNoRows for an unknown, used or expired code.
 	ConsumeOAuthAuthCode(ctx context.Context, codeHash *string) (OauthAuthRequest, error)
+	// How many events an export of ListAuditEventsForOrg (same filters, no
+	// cursor) would hold, counting at most max_rows: an export compares it with
+	// its cap to say whether it was truncated without reading every row.
+	CountAuditEventsForOrg(ctx context.Context, arg CountAuditEventsForOrgParams) (int64, error)
+	// Like CountAuditEventsForOrg, for ListAuditEventsForProject.
+	CountAuditEventsForProject(ctx context.Context, arg CountAuditEventsForProjectParams) (int64, error)
 	// Number of providers linked to a user.
 	CountOAuthIdentitiesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	// Number of passkeys registered to a user.
@@ -238,6 +248,9 @@ type Querier interface {
 	// family but one. Revocation pushes these ids into the access-token
 	// denylist.
 	ListTokenSessionIDs(ctx context.Context, arg ListTokenSessionIDsParams) ([]uuid.UUID, error)
+	// The current emails of users, for the actor_email column of an audit
+	// export. A purged user has no row.
+	ListUserEmails(ctx context.Context, ids []uuid.UUID) ([]ListUserEmailsRow, error)
 	// A user's confirmed TOTP row, locked until the transaction ends, so that
 	// disabling 2FA and regenerating backup codes do not interleave. Returns
 	// pgx.ErrNoRows when 2FA is not on (no row, or only a pending secret).
