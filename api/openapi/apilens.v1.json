@@ -86,6 +86,14 @@
             "description": "The first characters of the key, for recognising it.",
             "type": "string"
           },
+          "rate_limit_per_minute": {
+            "description": "The most records (requests, logs, spans, deploys) the ingest edge accepts with this key per minute, on top of the project quota; over it ingest answers 429 quota_exceeded with Retry-After. Null: no per-key limit.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "revoked_at": {
             "description": "When the key was revoked; null while it is active.",
             "format": "date-time",
@@ -118,7 +126,8 @@
           "last_used_at",
           "last_used_sdk",
           "last_used_ip",
-          "revoked_at"
+          "revoked_at",
+          "rate_limit_per_minute"
         ],
         "type": "object"
       },
@@ -2344,6 +2353,13 @@
             "minLength": 1,
             "type": "string"
           },
+          "rate_limit_per_minute": {
+            "description": "The most records the ingest edge accepts with this key per minute, on top of the project quota (429 quota_exceeded with Retry-After over it). Omit for no per-key limit.",
+            "format": "int64",
+            "maximum": 100000000,
+            "minimum": 1,
+            "type": "integer"
+          },
           "scopes": {
             "description": "What the key may do: ingest (send telemetry), read (query the project's data).",
             "items": {
@@ -2822,6 +2838,14 @@
             "description": "The first characters of the key, for recognising it.",
             "type": "string"
           },
+          "rate_limit_per_minute": {
+            "description": "The most records (requests, logs, spans, deploys) the ingest edge accepts with this key per minute, on top of the project quota; over it ingest answers 429 quota_exceeded with Retry-After. Null: no per-key limit.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "revoked_at": {
             "description": "When the key was revoked; null while it is active.",
             "format": "date-time",
@@ -2855,7 +2879,8 @@
           "last_used_at",
           "last_used_sdk",
           "last_used_ip",
-          "revoked_at"
+          "revoked_at",
+          "rate_limit_per_minute"
         ],
         "type": "object"
       },
@@ -8589,7 +8614,7 @@
         "additionalProperties": false,
         "properties": {
           "reason": {
-            "description": "Why the records were refused: records_per_minute or bytes_per_day (project quota), invalid (OTLP record dropped as invalid), an app refusal code (app_not_allowed, app_limit_reached, ...), or unspecified for records counted before reasons were kept.",
+            "description": "Why the records were refused: records_per_minute or bytes_per_day (project quota), key_records_per_minute (the API key's rate limit), invalid (OTLP record dropped as invalid), an app refusal code (app_not_allowed, app_limit_reached, ...), or unspecified for records counted before reasons were kept.",
             "type": "string"
           },
           "records": {
@@ -10668,6 +10693,13 @@
           "can_create_apps": {
             "description": "Whether data sent with the key creates apps it names that the project does not have (ingest keys only).",
             "type": "boolean"
+          },
+          "rate_limit_per_minute": {
+            "description": "The most records the ingest edge accepts with this key per minute; 0 removes the per-key limit. Omit to keep the current limit.",
+            "format": "int64",
+            "maximum": 100000000,
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [
@@ -21721,7 +21753,7 @@
         ]
       },
       "post": {
-        "description": "Issues an API key for the project and returns it in full, once: only its hash is stored. Owners, admins and members only. Audited as `api_key.created`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
+        "description": "Issues an API key for the project and returns it in full, once: only its hash is stored. Owners, admins and members only. A project has at most `ingest.max_keys_per_project` (default 50) active keys: past that it answers `key_limit_reached` (409) until one is revoked or expires. Audited as `api_key.created`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
         "operationId": "create-api-key",
         "parameters": [
           {
@@ -21795,6 +21827,19 @@
             "x-apilens-codes": [
               "forbidden",
               "reauth_required"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `key_limit_reached`.",
+            "x-apilens-codes": [
+              "key_limit_reached"
             ]
           },
           "500": {
@@ -21933,7 +21978,7 @@
     },
     "/api/v1/projects/{slug}/api-keys/{id}/access": {
       "put": {
-        "description": "Replaces whether the key may create apps (the apps:create scope) and which apps it may send data for (null: every app). Every process forgets the cached key, so the change applies to the next request. A revoked key or an id the project does not have answers `api_key_gone` (410); an app id the project does not have answers `invalid_request`. Owners, admins and members only. Audited as `api_key.updated`. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
+        "description": "Replaces whether the key may create apps (the apps:create scope) and which apps it may send data for (null: every app), and sets its ingest rate limit when `rate_limit_per_minute` is sent (0 removes it). Every process forgets the cached key, so the change applies to the next request. A revoked key or an id the project does not have answers `api_key_gone` (410); an app id the project does not have answers `invalid_request`. Owners, admins and members only. Audited as `api_key.updated`. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
         "operationId": "update-api-key-access",
         "parameters": [
           {
@@ -22051,7 +22096,7 @@
             "session": []
           }
         ],
-        "summary": "Change what an API key may do with apps",
+        "summary": "Change what an API key may do with apps, and its rate limit",
         "tags": [
           "Projects"
         ]

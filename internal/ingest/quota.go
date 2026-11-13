@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/valkey-io/valkey-go"
 
+	"github.com/apilens/apilens/internal/controlplane/apikeys"
 	"github.com/apilens/apilens/internal/platform/config"
 )
 
@@ -18,20 +19,36 @@ import (
 const (
 	ReasonRecordsPerMinute = "records_per_minute"
 	ReasonBytesPerDay      = "bytes_per_day"
+	// ReasonKeyRecordsPerMinute is the API key's own rate limit
+	// (api_keys.rate_limit_per_minute).
+	ReasonKeyRecordsPerMinute = "key_records_per_minute"
 )
 
-// Quota admits a batch against a project's ingest limits.
+// Charge is one batch to admit: its records and decompressed bytes, charged
+// to the project and, when the key has a rate limit, to the key.
+type Charge struct {
+	ProjectID uuid.UUID
+	// KeyID and KeyRecordsPerMinute are the API key's rate limit; 0 means
+	// the key has none.
+	KeyID               uuid.UUID
+	KeyRecordsPerMinute int64
+	Records, Bytes      int64
+}
+
+// Quota admits a batch against a project's ingest limits and its API key's
+// rate limit.
 type Quota interface {
-	// Admit charges records and bytes to the project. When the batch does not
-	// fit, nothing is charged and the decision says which limit refused it and
-	// when it would fit.
-	Admit(ctx context.Context, projectID uuid.UUID, records, bytes int64) (QuotaDecision, error)
+	// Admit charges the batch to every limit that applies. When it does not
+	// fit, nothing is charged and the decision says which limit refused it
+	// and when it would fit.
+	Admit(ctx context.Context, c Charge) (QuotaDecision, error)
 }
 
 // QuotaDecision is the outcome of one Admit call.
 type QuotaDecision struct {
 	Allowed bool
-	// Reason is the refusing limit (ReasonRecordsPerMinute, ReasonBytesPerDay).
+	// Reason is the refusing limit (ReasonRecordsPerMinute, ReasonBytesPerDay,
+	// ReasonKeyRecordsPerMinute).
 	Reason string
 	// RetryAfter is how long until the batch would fit; zero when Allowed.
 	RetryAfter time.Duration
@@ -83,8 +100,9 @@ type bucket struct {
 	period   time.Duration
 }
 
-// ValkeyQuota enforces config.QuotaConfig with token buckets in Valkey, so
-// every edge replica shares one budget per project.
+// ValkeyQuota enforces config.QuotaConfig and per-key rate limits with token
+// buckets in Valkey, so every edge replica shares one budget per project and
+// per key.
 type ValkeyQuota struct {
 	client  valkey.Client
 	buckets []bucket
@@ -103,19 +121,27 @@ func NewValkeyQuota(client valkey.Client, cfg config.QuotaConfig) *ValkeyQuota {
 	return q
 }
 
-// Admit implements Quota.
-func (q *ValkeyQuota) Admit(ctx context.Context, projectID uuid.UUID, records, bytes int64) (QuotaDecision, error) {
-	if len(q.buckets) == 0 {
+// Admit implements Quota. The project buckets and the key bucket are
+// charged in one script, all or nothing.
+func (q *ValkeyQuota) Admit(ctx context.Context, c Charge) (QuotaDecision, error) {
+	buckets := q.buckets
+	if c.KeyRecordsPerMinute > 0 {
+		buckets = append(buckets[:len(buckets):len(buckets)], bucket{ReasonKeyRecordsPerMinute, c.KeyRecordsPerMinute, time.Minute})
+	}
+	if len(buckets) == 0 {
 		return QuotaDecision{Allowed: true}, nil
 	}
-	keys := make([]string, len(q.buckets))
-	args := make([]string, 0, 3*len(q.buckets))
-	for i, b := range q.buckets {
-		cost := records
-		if b.reason == ReasonBytesPerDay {
-			cost = bytes
+	keys := make([]string, len(buckets))
+	args := make([]string, 0, 3*len(buckets))
+	for i, b := range buckets {
+		cost, owner := c.Records, c.ProjectID
+		switch b.reason {
+		case ReasonBytesPerDay:
+			cost = c.Bytes
+		case ReasonKeyRecordsPerMinute:
+			owner = c.KeyID
 		}
-		keys[i] = quotaKeyPrefix + b.reason + ":" + projectID.String()
+		keys[i] = quotaKeyPrefix + b.reason + ":" + owner.String()
 		args = append(args, strconv.FormatInt(b.capacity, 10), strconv.FormatInt(b.period.Milliseconds(), 10), strconv.FormatInt(cost, 10))
 	}
 	v, err := tokenBuckets.Exec(ctx, q.client, keys, args).AsIntSlice()
@@ -129,40 +155,48 @@ func (q *ValkeyQuota) Admit(ctx context.Context, projectID uuid.UUID, records, b
 		return QuotaDecision{Allowed: true}, nil
 	}
 	i := int(v[1]) - 1
-	if i < 0 || i >= len(q.buckets) {
+	if i < 0 || i >= len(buckets) {
 		return QuotaDecision{}, fmt.Errorf("ingest quota: unexpected bucket index %d", v[1])
 	}
-	return QuotaDecision{Reason: q.buckets[i].reason, RetryAfter: time.Duration(v[2]) * time.Millisecond}, nil
+	return QuotaDecision{Reason: buckets[i].reason, RetryAfter: time.Duration(v[2]) * time.Millisecond}, nil
 }
 
 // quotaLogEvery bounds how often an unavailable quota backend is logged.
 const quotaLogEvery = time.Minute
 
-// admit checks the project's quota for a batch and records the outcome in t
-// (the admitted bytes, or the refusing limit). It fails open: when the
-// quota backend does not answer the batch is accepted, so a Valkey outage
-// never drops telemetry, and the outage is logged at most once a minute.
-func (e *Edge) admit(ctx context.Context, projectID uuid.UUID, records, bytes int, t tally) *apiError {
+// admit checks the project's quota and the key's rate limit for a batch and
+// records the outcome in t (the admitted bytes, or the refusing limit). It
+// fails open: when the quota backend does not answer the batch is accepted,
+// so a Valkey outage never drops telemetry, and the outage is logged at most
+// once a minute.
+func (e *Edge) admit(ctx context.Context, p apikeys.Principal, records, bytes int, t tally) *apiError {
 	if e.quota == nil {
-		t.charge(projectID, bytes)
+		t.charge(p.ProjectID, bytes)
 		return nil
 	}
-	d, err := e.quota.Admit(ctx, projectID, int64(records), int64(bytes))
+	d, err := e.quota.Admit(ctx, Charge{
+		ProjectID: p.ProjectID, KeyID: p.KeyID, KeyRecordsPerMinute: int64(p.RateLimitPerMinute),
+		Records: int64(records), Bytes: int64(bytes),
+	})
 	if err != nil {
 		e.logQuotaUnavailable(err)
-		t.charge(projectID, bytes)
+		t.charge(p.ProjectID, bytes)
 		return nil
 	}
 	if d.Allowed {
-		t.charge(projectID, bytes)
+		t.charge(p.ProjectID, bytes)
 		return nil
 	}
-	t.refuse(projectID, d.Reason)
+	t.refuse(p.ProjectID, d.Reason)
 	e.rejected.WithLabelValues(d.Reason).Inc()
+	detail := fmt.Sprintf("Project ingest quota exceeded (%s), retry later", d.Reason)
+	if d.Reason == ReasonKeyRecordsPerMinute {
+		detail = fmt.Sprintf("API key rate limit exceeded (%s), retry later", d.Reason)
+	}
 	return &apiError{
 		status:     http.StatusTooManyRequests,
 		Code:       "quota_exceeded",
-		Detail:     fmt.Sprintf("Project ingest quota exceeded (%s), retry later", d.Reason),
+		Detail:     detail,
 		retryAfter: max(d.RetryAfter, time.Second),
 	}
 }

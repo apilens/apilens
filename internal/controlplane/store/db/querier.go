@@ -25,6 +25,9 @@ type Querier interface {
 	ClaimPendingOutbox(ctx context.Context, batchSize int32) ([]ClaimPendingOutboxRow, error)
 	CompleteRequestExport(ctx context.Context, arg CompleteRequestExportParams) (int64, error)
 	CountActiveApps(ctx context.Context, projectID uuid.UUID) (int64, error)
+	// The project's keys that still work: not revoked and not expired
+	// (ingest.max_keys_per_project counts these).
+	CountActiveProjectAPIKeys(ctx context.Context, projectID uuid.UUID) (int32, error)
 	// Owners whose account is not deleted: a deleted owner cannot act for the
 	// organization, so it does not count towards the last-owner rule.
 	CountOrgOwners(ctx context.Context, orgID uuid.UUID) (int64, error)
@@ -416,7 +419,8 @@ type Querier interface {
 	UnarchiveApp(ctx context.Context, id uuid.UUID) (UnarchiveAppRow, error)
 	// Apps merged into a deleted app stay archived but no longer point at it.
 	UnmergeAppsFrom(ctx context.Context, appID *uuid.UUID) error
-	// Replaces a key's scopes and app scope (NULL = every app).
+	// Replaces a key's scopes, app scope (NULL = every app) and per-key ingest
+	// rate limit (NULL = none).
 	UpdateAPIKeyAccess(ctx context.Context, arg UpdateAPIKeyAccessParams) error
 	// Replaces every editable field of a rule. The app and project never change.
 	UpdateAlertRule(ctx context.Context, arg UpdateAlertRuleParams) (AlertRule, error)

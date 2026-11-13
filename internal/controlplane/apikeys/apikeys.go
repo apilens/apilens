@@ -56,6 +56,9 @@ type Principal struct {
 	Scopes      []string
 	// AppIDs limits the key to these apps; nil allows every app.
 	AppIDs []uuid.UUID
+	// RateLimitPerMinute caps the records ingest accepts with this key per
+	// minute; 0: no per-key limit.
+	RateLimitPerMinute int
 }
 
 // CanCreateApps reports whether ingest may create apps from the app names
@@ -216,6 +219,9 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 			KeyID: row.ID, ProjectID: row.ProjectID, ProjectSlug: row.ProjectSlug,
 			OrgID: row.OrgID, Scopes: row.Scopes, AppIDs: row.AppIds,
 		}}
+		if row.RateLimitPerMinute != nil {
+			e.principal.RateLimitPerMinute = int(*row.RateLimitPerMinute)
+		}
 		v.positive.Add(hash, e)
 		return e, nil
 	})

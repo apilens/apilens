@@ -1,11 +1,12 @@
 -- name: CreateAPIKey :one
 -- Inserts a key and returns it with its creator.
 WITH k AS (
-    INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at, app_ids, created_by)
-    VALUES (@id, @project_id, @name, @prefix, @key_hash, @scopes, sqlc.narg(expires_at), sqlc.narg(app_ids)::uuid[], sqlc.narg(created_by)::uuid)
-    RETURNING id, project_id, name, prefix, scopes, created_at, expires_at, app_ids, created_by
+    INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at, app_ids, created_by, rate_limit_per_minute)
+    VALUES (@id, @project_id, @name, @prefix, @key_hash, @scopes, sqlc.narg(expires_at), sqlc.narg(app_ids)::uuid[], sqlc.narg(created_by)::uuid,
+            sqlc.narg(rate_limit_per_minute)::integer)
+    RETURNING id, project_id, name, prefix, scopes, created_at, expires_at, app_ids, created_by, rate_limit_per_minute
 )
-SELECT k.id, k.project_id, k.name, k.prefix, k.scopes, k.created_at, k.expires_at, k.app_ids,
+SELECT k.id, k.project_id, k.name, k.prefix, k.scopes, k.created_at, k.expires_at, k.app_ids, k.rate_limit_per_minute,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL;
@@ -13,7 +14,7 @@ LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL;
 -- name: GetActiveAPIKeyByHash :one
 -- Resolves an ingest key to its project. Revoked, expired and keys of
 -- deleted projects never match.
-SELECT k.id, k.project_id, k.scopes, k.expires_at, k.app_ids, p.slug AS project_slug, p.org_id
+SELECT k.id, k.project_id, k.scopes, k.expires_at, k.app_ids, k.rate_limit_per_minute, p.slug AS project_slug, p.org_id
 FROM api_keys k
 JOIN projects p ON p.id = k.project_id
 WHERE k.key_hash = @key_hash
@@ -39,7 +40,7 @@ RETURNING key_hash;
 -- Every key of the project, revoked ones included, newest first, with its
 -- creator (NULL when unknown or the account is deleted).
 SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.created_at, k.expires_at, k.revoked_at, k.last_used_at,
-       k.last_used_sdk, k.last_used_ip,
+       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM api_keys k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
@@ -50,7 +51,7 @@ ORDER BY k.created_at DESC, k.id;
 -- A key of the project, row-locked for the rest of the transaction, with
 -- its creator (NULL when unknown or the account is deleted).
 SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.key_hash, k.revoked_at, k.created_at, k.expires_at, k.last_used_at,
-       k.last_used_sdk, k.last_used_ip,
+       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM api_keys k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
@@ -58,9 +59,19 @@ WHERE k.id = @id AND k.project_id = @project_id
 FOR UPDATE OF k;
 
 -- name: UpdateAPIKeyAccess :exec
--- Replaces a key's scopes and app scope (NULL = every app).
-UPDATE api_keys SET scopes = @scopes, app_ids = sqlc.narg(app_ids)::uuid[]
+-- Replaces a key's scopes, app scope (NULL = every app) and per-key ingest
+-- rate limit (NULL = none).
+UPDATE api_keys SET scopes = @scopes, app_ids = sqlc.narg(app_ids)::uuid[],
+    rate_limit_per_minute = sqlc.narg(rate_limit_per_minute)::integer
 WHERE id = @id;
+
+-- name: CountActiveProjectAPIKeys :one
+-- The project's keys that still work: not revoked and not expired
+-- (ingest.max_keys_per_project counts these).
+SELECT count(*)::integer FROM api_keys
+WHERE project_id = @project_id
+  AND revoked_at IS NULL
+  AND (expires_at IS NULL OR expires_at > now());
 
 -- name: ListProjectKeyApps :many
 -- The apps each key of the project sent records for, with when.

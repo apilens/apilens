@@ -36,7 +36,7 @@ type UsageReader interface {
 
 // RejectedRecords is the rejected records of one reason.
 type RejectedRecords struct {
-	Reason  string `json:"reason" doc:"Why the records were refused: records_per_minute or bytes_per_day (project quota), invalid (OTLP record dropped as invalid), an app refusal code (app_not_allowed, app_limit_reached, ...), or unspecified for records counted before reasons were kept."`
+	Reason  string `json:"reason" doc:"Why the records were refused: records_per_minute or bytes_per_day (project quota), key_records_per_minute (the API key's rate limit), invalid (OTLP record dropped as invalid), an app refusal code (app_not_allowed, app_limit_reached, ...), or unspecified for records counted before reasons were kept."`
 	Records int64  `json:"records" doc:"Rejected records."`
 }
 

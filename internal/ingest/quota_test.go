@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ import (
 	coltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 
+	"github.com/apilens/apilens/internal/controlplane/apikeys"
 	"github.com/apilens/apilens/internal/platform/config"
 )
 
@@ -32,14 +34,16 @@ type quotaCall struct {
 type fakeQuota struct {
 	mu       sync.Mutex
 	calls    []quotaCall
+	charges  []Charge
 	decision QuotaDecision
 	err      error
 }
 
-func (q *fakeQuota) Admit(_ context.Context, project uuid.UUID, records, bytes int64) (QuotaDecision, error) {
+func (q *fakeQuota) Admit(_ context.Context, c Charge) (QuotaDecision, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.calls = append(q.calls, quotaCall{project, records, bytes})
+	q.calls = append(q.calls, quotaCall{c.ProjectID, c.Records, c.Bytes})
+	q.charges = append(q.charges, c)
 	return q.decision, q.err
 }
 
@@ -161,8 +165,58 @@ func TestQuotaNotChargedForRejectedAuth(t *testing.T) {
 }
 
 func TestValkeyQuotaWithoutLimitsAdmits(t *testing.T) {
-	d, err := NewValkeyQuota(nil, config.QuotaConfig{}).Admit(context.Background(), testProject, 1, 1)
+	d, err := NewValkeyQuota(nil, config.QuotaConfig{}).Admit(context.Background(), Charge{ProjectID: testProject, Records: 1, Bytes: 1})
 	if err != nil || !d.Allowed {
 		t.Fatalf("Admit = %+v, %v", d, err)
+	}
+}
+
+// limitedVerifier answers testKey as a key with a per-key rate limit.
+type limitedVerifier struct{ perMinute int }
+
+func (v limitedVerifier) Verify(ctx context.Context, raw string) (apikeys.Principal, error) {
+	p, err := fakeVerifier{}.Verify(ctx, raw)
+	p.RateLimitPerMinute = v.perMinute
+	return p, err
+}
+
+func newLimitedKeyEdge(t *testing.T, q Quota, perMinute int, sink *fakeSink) (*Edge, http.Handler) {
+	t.Helper()
+	cfg := config.IngestConfig{MaxBodyBytes: 1 << 20, MaxRecordsPerRequest: 1000}
+	e := New(limitedVerifier{perMinute}, fakeApps{}, sink, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil).WithQuota(q)
+	e.now = func() time.Time { return fixedNow }
+	mux := http.NewServeMux()
+	e.Register(mux)
+	return e, mux
+}
+
+func TestQuotaChargesTheKeyRateLimit(t *testing.T) {
+	q := &fakeQuota{decision: QuotaDecision{Allowed: true}}
+	_, h := newLimitedKeyEdge(t, q, 120, &fakeSink{})
+	if rec := post(t, h, "/v1/requests", validRequest, nil); rec.Code != http.StatusOK {
+		t.Fatalf("got %d %s", rec.Code, rec.Body)
+	}
+	want := Charge{ProjectID: testProject, KeyID: testKeyID, KeyRecordsPerMinute: 120, Records: 1, Bytes: int64(len(validRequest))}
+	if len(q.charges) != 1 || q.charges[0] != want {
+		t.Fatalf("charges = %+v, want [%+v]", q.charges, want)
+	}
+}
+
+func TestKeyRateLimitIs429LikeTheProjectQuota(t *testing.T) {
+	q := &fakeQuota{decision: QuotaDecision{Reason: ReasonKeyRecordsPerMinute, RetryAfter: 2500 * time.Millisecond}}
+	sink := &fakeSink{}
+	e, h := newLimitedKeyEdge(t, q, 10, sink)
+	rec := post(t, h, "/v1/requests", validRequest, nil)
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "3" {
+		t.Fatalf("got %d Retry-After=%q %s", rec.Code, rec.Header().Get("Retry-After"), rec.Body)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"error":"quota_exceeded"`) || !strings.Contains(body, "API key rate limit exceeded (key_records_per_minute)") {
+		t.Fatalf("body = %s", body)
+	}
+	if len(sink.requests) != 0 {
+		t.Fatalf("rejected batch was stored: %+v", sink.requests)
+	}
+	if got := promtest.ToFloat64(e.rejected.WithLabelValues(ReasonKeyRecordsPerMinute)); got != 1 {
+		t.Fatalf("apilens_ingest_rejected_total{reason=key_records_per_minute} = %v, want 1", got)
 	}
 }

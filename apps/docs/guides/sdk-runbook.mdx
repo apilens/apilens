@@ -235,11 +235,12 @@ API Lens ingest failed after retries; dropping batch of <n> <signal>
 
 In Python `<error>` is the last failure, `Retryable ingest error status=429` here; `last_error` in the stats adds the response body.
 
-Two different limits answer 429:
+Three different limits answer 429:
 
 | Body `error` | Limit | What to do |
 |---|---|---|
 | `quota_exceeded`, detail `Project ingest quota exceeded (records_per_minute)` or `(bytes_per_day)` | The project's ingest quota. Counted as **Rejected** in **Ingest health**. | Lower the **Sample rate** or turn bodies off in **Project settings → Capture** (takes effect without a deploy), or raise the quota. Self-hosted: `APILENS_INGEST__QUOTA__RECORDS_PER_MINUTE` and `APILENS_INGEST__QUOTA__BYTES_PER_DAY` on the ingest service. |
+| `quota_exceeded`, detail `API key rate limit exceeded (key_records_per_minute)` | The rate limit set on this API key (`rate_limit_per_minute`). Counted as **Rejected** in **Ingest health**. | Lower the **Sample rate**, give the service its own key, or raise or remove the key's limit (`PUT /api/v1/projects/{slug}/api-keys/{id}/access` with `rate_limit_per_minute`, `0` removes it). |
 | `rate_limited`, detail `At most one heartbeat per instance every 10s` | Heartbeats from one instance less than 10 s apart. Only heartbeats are refused; records are not. | Usually several clients in one process (a client created per request or per worker thread). Create one client per process. |
 
 With DEBUG logging on, Python also logs each retry and the wait, which is the `Retry-After` the SDK is honouring:

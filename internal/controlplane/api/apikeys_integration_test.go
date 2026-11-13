@@ -36,6 +36,13 @@ const keyCacheTTL = time.Minute
 
 func setupKeys(t *testing.T) *keysFixture {
 	t.Helper()
+	return setupKeysWith(t, 0)
+}
+
+// setupKeysWith is setupKeys with ingest.max_keys_per_project = maxKeys (0:
+// no cap).
+func setupKeysWith(t *testing.T, maxKeys int) *keysFixture {
+	t.Helper()
 	f := setupProjects(t)
 	logger := testutil.Logger(t)
 	vcfg := testutil.Valkey(t)
@@ -47,7 +54,7 @@ func setupKeys(t *testing.T) *keysFixture {
 	publish := func(ctx context.Context, hash string) error {
 		return cache.Publish(ctx, vk, apikeys.InvalidateChannel, hash)
 	}
-	NewAPIKeys(apikeys.NewService(f.pool, audit.New(f.pool), publish, logger), logger).Register(f.api)
+	NewAPIKeys(apikeys.NewService(f.pool, audit.New(f.pool), publish, logger).WithMaxKeys(maxKeys), logger).Register(f.api)
 
 	// The edge: its own verifier and its own subscription.
 	v := apikeys.NewVerifier(db.New(f.pool), apikeys.Options{Size: 100, TTL: keyCacheTTL, NegativeTTL: keyCacheTTL}, logger, nil)
