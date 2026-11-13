@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { resendInvitation, revokeInvitation } from "@/app/orgs/[org]/settings/invitations/actions";
-import type { Invitation } from "@/lib/identity";
+import type { Invitation, OrgRole } from "@/lib/identity";
 import { formatDay, formatWait, inviterName, isExpired, resendWait } from "@/lib/invitations";
 import { roleLabel } from "@/lib/scope";
 import { ListSearch, useCanonicalPage, useListSearch } from "@/components/list-search/list-search";
@@ -31,12 +31,15 @@ const COOLDOWN = "An invitation can be emailed once every 5 minutes.";
  */
 export function OrgInvitationsSettings({
   org,
+  role,
   invitations: all,
   manage,
   now: renderedAt,
   search = {},
 }: {
   org: OrgRef;
+  /** The signed-in user's role in the organization (which settings tabs they see). */
+  role: OrgRole;
   invitations: Invitation[];
   manage: boolean;
   now: number;
@@ -91,7 +94,7 @@ export function OrgInvitationsSettings({
       <header className="os-head">
         <p className="cp-h">Organization</p>
         <h1 className="cp-lede">Invitations</h1>
-        <OrgSettingsNav org={org.slug} current="invitations" />
+        <OrgSettingsNav org={org.slug} current="invitations" role={role} />
       </header>
 
       <div className="om-bar">

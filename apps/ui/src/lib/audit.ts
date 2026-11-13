@@ -7,7 +7,7 @@
 // time bound instead of the API's cursor: the next page holds the events at or before the oldest
 // time the current page did not finish (`pageCut`). Unit-tested in audit.test.ts.
 
-import type { AuditAction, AuditEvent, AuditFilters } from "./identity";
+import type { AuditAction, AuditEvent, AuditFilters, AuditScope } from "./identity";
 import type { ParamsInput } from "./pagination";
 
 /** The action groups offered as a filter, in order. */
@@ -203,10 +203,12 @@ export function groupFilters(group: AuditGroup, actions: readonly AuditAction[])
 
 // ---------------------------------------------------------------------------------- URL filters
 
-/** The filters of the Activity tab as the URL holds them (`?who=&group=&from=&to=`). */
+/** The filters of the Activity tab as the URL holds them (`?who=&group=&from=&to=`, plus `project=` on the organization's audit log). */
 export interface ActivityFilters {
   /** A person's user id. */
   who?: string;
+  /** On the organization's audit log (#813): one project's slug. */
+  project?: string;
   group?: AuditGroup;
   /** First day, `YYYY-MM-DD` (UTC). */
   from?: string;
@@ -216,6 +218,7 @@ export interface ActivityFilters {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const PROJECT_SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const isDay = (v: string | undefined): v is string => !!v && DAY.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`));
 
 const first = (params: ParamsInput, key: string): string | undefined => {
@@ -230,8 +233,10 @@ export function parseActivityFilters(params: ParamsInput): ActivityFilters {
   const group = first(params, "group");
   const from = first(params, "from");
   const to = first(params, "to");
+  const project = first(params, "project");
   return {
     ...(who && UUID.test(who) ? { who: who.toLowerCase() } : {}),
+    ...(project && PROJECT_SLUG.test(project) ? { project } : {}),
     ...(isAuditGroup(group) ? { group } : {}),
     ...(isDay(from) ? { from } : {}),
     ...(isDay(to) ? { to } : {}),
@@ -239,16 +244,28 @@ export function parseActivityFilters(params: ParamsInput): ActivityFilters {
 }
 
 /** True when any filter is set. */
-export const hasFilters = (f: ActivityFilters) => !!(f.who || f.group || f.from || f.to);
+export const hasFilters = (f: ActivityFilters) => !!(f.who || f.project || f.group || f.from || f.to);
 
 /** The query string of `f` (no `?`), for links and the export. */
 export function filtersQuery(f: ActivityFilters): string {
   const p = new URLSearchParams();
   if (f.who) p.set("who", f.who);
+  if (f.project) p.set("project", f.project);
   if (f.group) p.set("group", f.group);
   if (f.from) p.set("from", f.from);
   if (f.to) p.set("to", f.to);
   return p.toString();
+}
+
+/**
+ * Where the organization's audit log (#813) reads: one project's log when the Project filter names
+ * one of the organization's `projects`, otherwise the organization's (every project the caller can
+ * view, plus its org-wide events). A project the list does not hold is dropped from the filters.
+ */
+export function orgAuditScope(org: string, f: ActivityFilters, projects: readonly string[]): { scope: AuditScope; filters: ActivityFilters } {
+  if (f.project && projects.includes(f.project)) return { scope: { project: f.project }, filters: f };
+  const { project: _, ...rest } = f;
+  return { scope: { org }, filters: rest };
 }
 
 /** The day after `day` (`YYYY-MM-DD`). */

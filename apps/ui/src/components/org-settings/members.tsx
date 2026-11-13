@@ -75,7 +75,7 @@ export function OrgMembersSettings({ org, members, viewer, search = {} }: { org:
       <header className="os-head">
         <p className="cp-h">Organization</p>
         <h1 className="cp-lede">Members</h1>
-        <OrgSettingsNav org={org.slug} current="members" />
+        <OrgSettingsNav org={org.slug} current="members" role={viewer.role} />
       </header>
 
       <div className="om-bar">

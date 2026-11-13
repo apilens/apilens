@@ -12,8 +12,14 @@ export interface PersonOption {
   name: string;
 }
 
+/** A project offered in the Project filter of the organization's audit log (#813). */
+export interface ProjectOption {
+  slug: string;
+  name: string;
+}
+
 /**
- * The Activity filters (#812): person, action group and a date range, all in the URL. Each change
+ * The Activity filters (#812): on the organization's audit log a project (#813), then person, action group and a date range, all in the URL. Each change
  * navigates to the URL with the new filter and without the page cursor, so the reader starts
  * again on the newest events. A filter value the lists no longer hold (a shared link) stays
  * selectable.
@@ -23,12 +29,15 @@ export function ActivityFilters({
   params,
   filters,
   people,
+  projects,
   groups,
 }: {
   pathname: string;
   params: SearchParams;
   filters: Filters;
   people: PersonOption[];
+  /** Offered as the Project filter when present (the organization's audit log). */
+  projects?: ProjectOption[];
   groups: readonly (typeof AUDIT_GROUPS)[number][];
 }) {
   const router = useRouter();
@@ -36,9 +45,22 @@ export function ActivityFilters({
   const go = (patch: Partial<Record<keyof Filters, string>>) => router.push(hrefWithoutPage(pathname, params, { cursor: null, ...patch }), { scroll: false });
   const unknownPerson = filters.who && !people.some((p) => p.id === filters.who);
   const unknownGroup = filters.group && !groups.some((g) => g.slug === filters.group);
-  const any = !!(filters.who || filters.group || filters.from || filters.to);
+  const any = !!(filters.who || filters.project || filters.group || filters.from || filters.to);
   return (
     <div className="acl-filters" role="group" aria-label="Filter activity">
+      {projects ? (
+        <div className="acl-field">
+          <label htmlFor={`${id}-project`}>Project</label>
+          <select id={`${id}-project`} className="acl-select" value={filters.project ?? ""} onChange={(e) => go({ project: e.target.value })}>
+            <option value="">All projects</option>
+            {projects.map((p) => (
+              <option key={p.slug} value={p.slug}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
       <div className="acl-field">
         <label htmlFor={`${id}-who`}>Person</label>
         <select id={`${id}-who`} className="acl-select" value={filters.who ?? ""} onChange={(e) => go({ who: e.target.value })}>

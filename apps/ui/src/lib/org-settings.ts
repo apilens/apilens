@@ -20,6 +20,11 @@ export function canManageOrg(role: OrgRole): boolean {
   return role === "owner" || role === "admin";
 }
 
+/** Owners and admins read the organization's audit log (#813); the API answers 403 to anyone else. */
+export function canReadOrgAudit(role: OrgRole): boolean {
+  return role === "owner" || role === "admin";
+}
+
 /** Only owners delete the organization. */
 export function canDeleteOrg(role: OrgRole): boolean {
   return role === "owner";
@@ -124,6 +129,8 @@ export interface OrgSettingsSection {
   /** URL segment under `/orgs/<org>/settings`; empty for General. */
   slug: string;
   label: string;
+  /** Shown only to the roles this allows; every role sees a section without it. */
+  visible?: (role: OrgRole) => boolean;
 }
 
 export const ORG_SETTINGS_SECTIONS: readonly OrgSettingsSection[] = [
@@ -131,7 +138,13 @@ export const ORG_SETTINGS_SECTIONS: readonly OrgSettingsSection[] = [
   { slug: "members", label: "Members" },
   { slug: "invitations", label: "Invitations" },
   { slug: "sso", label: "Single sign-on" },
+  { slug: "audit", label: "Audit log", visible: canReadOrgAudit },
 ];
+
+/** The sections someone with `role` sees as tabs. */
+export function orgSettingsSections(role: OrgRole): OrgSettingsSection[] {
+  return ORG_SETTINGS_SECTIONS.filter((s) => !s.visible || s.visible(role));
+}
 
 /** `/orgs/<org>/settings` or `/orgs/<org>/settings/<slug>`. */
 export function orgSettingsHref(org: string, section: Pick<OrgSettingsSection, "slug">): string {

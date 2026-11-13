@@ -10,8 +10,10 @@ import {
   encodeBound,
   exportFilters,
   fieldValue,
+  filtersQuery,
   groupFilters,
   offeredGroups,
+  orgAuditScope,
   pageCut,
   parseActivityFilters,
   relativeTime,
@@ -97,6 +99,18 @@ describe("URL filters", () => {
       to: "2026-11-13",
     });
     expect(parseActivityFilters({ who: "ada", group: "x", from: "2026-13-45", to: "yesterday" })).toEqual({});
+  });
+
+  it("reads the organization log's project filter and writes it back", () => {
+    expect(parseActivityFilters({ project: "shop", group: "keys" })).toEqual({ project: "shop", group: "keys" });
+    expect(parseActivityFilters({ project: "../acme" })).toEqual({});
+    expect(filtersQuery({ who: "u", project: "shop", group: "keys" })).toBe("who=u&project=shop&group=keys");
+  });
+
+  it("reads one project's log when the project filter names a project of the organization", () => {
+    expect(orgAuditScope("acme", { project: "shop", group: "keys" }, ["shop", "web"])).toEqual({ scope: { project: "shop" }, filters: { project: "shop", group: "keys" } });
+    expect(orgAuditScope("acme", { project: "gone", group: "keys" }, ["shop"])).toEqual({ scope: { org: "acme" }, filters: { group: "keys" } });
+    expect(orgAuditScope("acme", {}, ["shop"])).toEqual({ scope: { org: "acme" }, filters: {} });
   });
 
   it("turns days into an RFC 3339 range and a group into one query per action filter", () => {
