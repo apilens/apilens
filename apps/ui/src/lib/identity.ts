@@ -487,6 +487,32 @@ export interface PasskeyLoginVerifyRequest {
   remember?: boolean;
 }
 
+/** How a signed-in user can confirm who they are again (#797), strongest first. */
+export type ReauthMethod = "passkey" | "totp" | "email" | "sso";
+
+/** `POST /auth/reauth/options` (#797). */
+export interface ReauthOptions {
+  methods: ReauthMethod[];
+  /** Present when `passkey` is a method: `options` feeds `navigator.credentials.get()`. */
+  passkey?: { challenge_id: string; options: { publicKey: Record<string, unknown> } & Record<string, unknown> };
+  /** Present when `sso` is the only method: re-authenticate at the identity provider. */
+  sso_url?: string;
+  email_code_sent: boolean;
+  /** With `send_email_code`: seconds before another code can be requested. */
+  retry_after?: number;
+}
+
+export type ReauthVerifyRequest =
+  | { method: "totp" | "email"; code: string }
+  | { method: "passkey"; challenge_id: string; response: Record<string, unknown> };
+
+/** `POST /auth/reauth/verify` (#797): a new access token whose `auth_time` is now. */
+export interface ReauthVerified {
+  access_token: string;
+  expires_in: number;
+  auth_time: string;
+}
+
 /** `POST /auth/passkeys/register/options` (#263). `options` is WebAuthn `PublicKeyCredentialCreationOptions` JSON. */
 export interface PasskeyRegisterOptions {
   challenge_id: string;
@@ -2075,6 +2101,10 @@ export function createClient(config: ClientConfig) {
       request<PasskeyRegisterOptions>("POST", "/auth/passkeys/register/options", o),
     passkeyRegisterVerify: (body: PasskeyRegisterVerifyRequest, o: Authed) =>
       request<Passkey>("POST", "/auth/passkeys/register/verify", { ...o, body }),
+    reauthOptions: (body: { send_email_code?: boolean; next?: string }, o: Authed) =>
+      request<ReauthOptions>("POST", "/auth/reauth/options", { ...o, body }),
+    reauthVerify: (body: ReauthVerifyRequest, o: Authed) =>
+      request<ReauthVerified>("POST", "/auth/reauth/verify", { ...o, body }),
 
     // identity: OpenID provider sign-in (#301) ---------------------------------------------
     oidcRequest: (id: string, o?: CallOptions) =>

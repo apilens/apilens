@@ -32,6 +32,10 @@
 //   POST /api/v1/auth/2fa/verify                   internal/identity/twofactor.go
 //   POST /api/v1/auth/2fa/disable
 //   POST /api/v1/auth/2fa/backup-codes/regenerate
+//   POST /api/v1/auth/reauth/options              re-authentication (#803): passkey when the user has one, totp
+//   POST /api/v1/auth/reauth/verify               when two-factor is on, else email (code 123456 once sent);
+//                                                  verify answers a new access token for the same session and
+//                                                  clears `stale`
 //   GET|PATCH /api/v1/users/me                     the fake user; PATCH renames it and saves
 //                                                  preferences.home per user (#328)
 //   PATCH /api/v1/users/me/onboarding              saves the step, completed and merges the answers per user (#327);
@@ -199,7 +203,8 @@
 //                                                  `capabilities` their actions on shop, `api_keys`
 //                                                  shop's keys as that user sees them;
 //                                                  `sso` seeds acme's SSO connection (fields of the read),
-//                                                  `stale` makes /2fa/enable answer reauth_required;
+//                                                  `stale` makes /2fa/enable and creating an API key
+//                                                  answer reauth_required until /auth/reauth/verify;
 //                                                  `joinable` [{slug, name, member_initials?, member_count?,
 //                                                  projects?: [slug]}] seeds the orgs they may join (#329);
 //                                                  `orgs` [{slug, name}] seeds orgs they own (#802)
@@ -1487,6 +1492,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (req.method === "GET" && sub === undefined) return send(res, 200, list);
     if (req.method === "POST" && sub === undefined) {
       if (!allowed("api_keys.create")) return problem(res, 403, "forbidden");
+      // A sensitive action (#793): a sign-in older than the window answers reauth_required.
+      if (totps.get(bearerOf(req))?.stale) return problem(res, 403, "reauth_required");
       const { name, scopes, expires_at: expires, can_create_apps: canCreate, app_ids: appIds } = await readBody(req);
       const label = typeof name === "string" ? name.trim() : "";
       const picked = Array.isArray(scopes) ? scopes.map(String) : [];
@@ -2587,6 +2594,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     return problem(res, 404, "not_found");
   }
 
+  if (req.method === "POST" && (path === "/api/v1/auth/reauth/options" || path === "/api/v1/auth/reauth/verify")) {
+    return reauth(req, res, path.slice("/api/v1/auth/reauth/".length));
+  }
   if (path.startsWith("/api/v1/auth/2fa/") && path !== "/api/v1/auth/2fa/exchange") {
     const t = totps.get(req.headers.authorization?.replace(/^Bearer /, "") ?? "");
     if (!t) return problem(res, 401, "unauthenticated");
@@ -2623,6 +2633,74 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   }
   if (await alerts(req, res, path, url)) return;
   return problem(res, 404, "not_found");
+}
+
+/** Re-authentication challenges (#803): challenge id → user and challenge (once, like identity). */
+const reauthChallenges = new Map<string, { user: string; challenge: string }>();
+/** Access tokens whose user asked for an emailed re-authentication code (never sent anywhere). */
+const reauthEmailed = new Set<string>();
+/** The emailed re-authentication code (the fake sends no mail). */
+const REAUTH_EMAIL_CODE = "123456";
+
+const bearerOf = (req: IncomingMessage) => req.headers.authorization?.replace(/^Bearer /, "") ?? "";
+
+/** `POST /auth/reauth/{options|verify}` as in internal/identity/reauth.go. */
+async function reauth(req: IncomingMessage, res: ServerResponse, route: string) {
+  const access = bearerOf(req);
+  const user = userByAccess.get(access);
+  const t = totps.get(access);
+  if (!user || !t) return problem(res, 401, "unauthenticated");
+  const keys = passkeys.get(user) ?? [];
+  const methods = [...(keys.length > 0 ? ["passkey"] : []), t.secret ? "totp" : "email"];
+  const body = await readBody(req);
+
+  if (route === "options") {
+    const sent = body.send_email_code === true && methods.includes("email");
+    if (sent) reauthEmailed.add(access);
+    let passkey: unknown;
+    if (methods.includes("passkey")) {
+      const id = token();
+      const challenge = b64u(randomBytes(32));
+      reauthChallenges.set(id, { user, challenge });
+      passkey = {
+        challenge_id: id,
+        options: {
+          publicKey: {
+            challenge,
+            rpId: "localhost",
+            timeout: 60000,
+            userVerification: "preferred",
+            allowCredentials: keys.map((k) => ({ type: "public-key", id: k.credential_id })),
+          },
+        },
+      };
+    }
+    return send(res, 200, { methods, ...(passkey ? { passkey } : {}), email_code_sent: sent });
+  }
+  if (route !== "verify") return problem(res, 404, "not_found");
+  const method = String(body.method ?? "");
+  if (!methods.includes(method)) return problem(res, 400, "invalid_request");
+  const code = typeof body.code === "string" ? body.code.replace(/[\s-]/g, "") : "";
+  if (method === "totp" && !totpValid(t.secret as Buffer, code)) return problem(res, 400, "invalid_code");
+  if (method === "email" && (!reauthEmailed.has(access) || code !== REAUTH_EMAIL_CODE)) return problem(res, 400, "invalid_code");
+  if (method === "passkey") {
+    const ch = reauthChallenges.get(String(body.challenge_id ?? ""));
+    reauthChallenges.delete(String(body.challenge_id ?? ""));
+    const credential = body.response as { rawId?: string; response?: { clientDataJSON?: string } } | undefined;
+    if (!ch || ch.user !== user || !credential?.rawId || !credential.response?.clientDataJSON) return problem(res, 401, "passkey_failed");
+    const client = JSON.parse(Buffer.from(credential.response.clientDataJSON, "base64url").toString("utf8"));
+    if (client.type !== "webauthn.get" || client.challenge !== ch.challenge || client.origin !== UI_URL) return problem(res, 401, "passkey_failed");
+    if (!keys.some((k) => k.credential_id === credential.rawId)) return problem(res, 401, "passkey_unknown");
+  }
+  // Same session, new access token whose auth_time is now; the refresh token does not change.
+  reauthEmailed.delete(access);
+  t.stale = false;
+  const fresh = `at_${token()}`;
+  userByAccess.set(fresh, user);
+  totps.set(fresh, t);
+  const mine = sessionsByUser.get(user)?.find((s) => s.access === access);
+  if (mine) mine.access = fresh;
+  return send(res, 200, { access_token: fresh, expires_in: 900, auth_time: new Date().toISOString() });
 }
 
 /** The two-factor settings endpoints, with identity's answers and status codes. */

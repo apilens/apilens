@@ -1,0 +1,6 @@
+/* Re-authentication dialog (#803), on the shared dialog frame of confirm-dialog.css. Tokens from styles/tokens.css only. */
+.ra__methods { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-4); }
+.ra__methods .cd__field { margin-top: 0; }
+.ra__wide { width: 100%; min-height: 32px; text-decoration: none; }
+.ra__muted { margin: var(--space-2) 0 0; min-height: 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.ra__muted:empty { margin: 0; }
