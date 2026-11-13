@@ -1,10 +1,10 @@
-// Access › API keys (`/<project>/access/keys`, #801): moved here unchanged from project settings,
-// whose `/settings/keys` now redirects to this tab.
+// Access › API keys (`/<project>/access/keys`, #801, #810): moved here from project settings,
+// whose `/settings/keys` now redirects to this tab. `?state=` and `?inactive=1` filter the list.
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { ApiKeysSettings } from "@/components/project-settings/api-keys";
 import { getSession } from "@/lib/auth/server";
-import { KEYS_PAGE } from "@/lib/api-keys";
+import { KEYS_PAGE, filterKeys, parseKeyFilter } from "@/lib/api-keys";
 import { type ApiKey, type ManagedApp, identity, isApiError } from "@/lib/identity";
 import { pageRedirect } from "@/lib/pagination";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
@@ -32,7 +32,7 @@ export async function load({ project, search, next }: SectionContext): Promise<K
     attempt(async () => (await session.call((o) => identity().listManagedApps(project, o))).apps ?? []),
   ]);
   // A page past the end (the list shrank, or a hand-edited URL) lands on the last page.
-  const fix = keys ? pageRedirect(next, search, keys.length, KEYS_PAGE) : null;
+  const fix = keys ? pageRedirect(next, search, filterKeys(keys, parseKeyFilter(search)).length, KEYS_PAGE) : null;
   if (fix) redirect(fix);
   return { keys, apps };
 }
