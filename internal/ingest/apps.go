@@ -185,6 +185,7 @@ func (e *Edge) resolveBatch(ctx context.Context, signal string, p apikeys.Princi
 	for _, id := range b.apps {
 		e.sawKeyApp(p.KeyID, id)
 	}
+	e.sawEnvironments(p, b, idents, envs)
 	if b.dropped > 0 && b.dropped == len(idents) {
 		first := b.report[0]
 		details := make([]string, len(b.report))
@@ -194,6 +195,42 @@ func (e *Edge) resolveBatch(ctx context.Context, signal string, p apikeys.Princi
 		return b, &apiError{status: rejectionStatus(first.Error), Code: first.Error, Detail: strings.Join(details, "; ")}
 	}
 	return b, nil
+}
+
+// --------------------------------------------------------- environments
+
+// EnvironmentRegistry registers the environments data names and keeps
+// their last seen time; *catalog.EnvironmentRegistry satisfies it. Seen must
+// not block on storage.
+type EnvironmentRegistry interface {
+	Seen(projectID, keyID uuid.UUID, names []string)
+}
+
+// WithEnvironments makes the edge register the environments of the records
+// it stores (#788); nil registers nothing.
+func (e *Edge) WithEnvironments(r EnvironmentRegistry) *Edge {
+	e.envs = r
+	return e
+}
+
+// sawEnvironments reports the distinct environments of the records of b
+// that are stored.
+func (e *Edge) sawEnvironments(p apikeys.Principal, b *appBatch, idents, envs []string) {
+	if e.envs == nil {
+		return
+	}
+	var names []string
+	seen := map[string]bool{}
+	for i, id := range idents {
+		if !b.keep(i, id) || seen[envs[i]] {
+			continue
+		}
+		seen[envs[i]] = true
+		names = append(names, envs[i])
+	}
+	if len(names) > 0 {
+		e.envs.Seen(p.ProjectID, p.KeyID, names)
+	}
 }
 
 // ------------------------------------------------------------ key usage

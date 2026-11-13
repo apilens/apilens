@@ -35,10 +35,13 @@ type Querier interface {
 	// members and viewers without a direct grant. They lose access when the
 	// default becomes none.
 	CountProjectDefaultOnlyAccess(ctx context.Context, projectID uuid.UUID) (int64, error)
+	CountProjectEnvironments(ctx context.Context, projectID uuid.UUID) (int64, error)
 	// The direct grants of a project (access.max_direct_members_per_project).
 	CountProjectMembers(ctx context.Context, projectID uuid.UUID) (int64, error)
 	// Apps the SDK created in the project since @since, deleted ones included.
 	CountSDKAppsSince(ctx context.Context, arg CountSDKAppsSinceParams) (int64, error)
+	// Environments ingest registered in the project since @since.
+	CountSDKEnvironmentsSince(ctx context.Context, arg CountSDKEnvironmentsSinceParams) (int64, error)
 	// Inserts a key and returns it with its creator.
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
 	// Alert rules.
@@ -321,6 +324,10 @@ type Querier interface {
 	// The environments of one project in display order, with the active API
 	// keys pinned to each and the health checks that use each.
 	ListProjectEnvironmentDetails(ctx context.Context, projectID uuid.UUID) ([]ListProjectEnvironmentDetailsRow, error)
+	// Environments ingest registers from the names SDKs send (#788). Ingest
+	// writes here off the request path, at most once a minute per project and
+	// environment and process (catalog.EnvironmentRegistry).
+	ListProjectEnvironmentNames(ctx context.Context, projectID uuid.UUID) ([]string, error)
 	// The apps each key of the project sent records for, with when.
 	ListProjectKeyApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectKeyAppsRow, error)
 	// The hashes of the project's keys that are not revoked, so a pause,
@@ -470,6 +477,10 @@ type Querier interface {
 	ProjectSlugTaken(ctx context.Context, slug string) (bool, error)
 	// Records a probe of a check and its status.
 	RecordHealthCheckResult(ctx context.Context, arg RecordHealthCheckResultParams) error
+	// Adds an environment the SDK reported unless the project already has one
+	// of that name. It goes last in the project's order; production and prod are
+	// marked as production.
+	RegisterSDKEnvironment(ctx context.Context, arg RegisterSDKEnvironmentParams) (int64, error)
 	// Drops a deleted channel from every rule of its project that notifies it.
 	// Run in the same transaction as DeleteNotificationChannel.
 	RemoveChannelFromAlertRules(ctx context.Context, arg RemoveChannelFromAlertRulesParams) (int64, error)
@@ -521,6 +532,9 @@ type Querier interface {
 	// Records a use of the key. With record_use (an ingest request) the SDK and
 	// client IP of that request replace the previous ones; NULL clears them.
 	TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error
+	// Moves last_seen_at forward (and sets first_seen_at the first time) when
+	// data names the environment.
+	TouchEnvironmentSeen(ctx context.Context, arg TouchEnvironmentSeenParams) (int64, error)
 	// Un-archives an archived app that was not merged into another.
 	UnarchiveApp(ctx context.Context, id uuid.UUID) (UnarchiveAppRow, error)
 	// Apps merged into a deleted app stay archived but no longer point at it.
