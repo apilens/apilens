@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	authzed "github.com/authzed/authzed-go/v1"
@@ -495,7 +496,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		AppRejections: appRejections,
 		Access:        access.New(a.pool).WithAudit(audit.New(a.pool)).WithMaxDirectMembers(a.cfg.Access.MaxDirectMembersPerProject).WithNotifier(notify.New(a.jobs)),
 		Audit:         auditlog.New(a.pool, a.checker()),
-		Projects:      projects.New(a.pool).WithAudit(audit.New(a.pool)).WithAnyRepositoryHost(a.cfg.Integrations.AllowAnyRepositoryHost),
+		Projects:      projects.New(a.pool).WithAudit(audit.New(a.pool)).WithAnyRepositoryHost(a.cfg.Integrations.AllowAnyRepositoryHost).WithDataRetention(time.Duration(a.cfg.Retention.Longest()) * 24 * time.Hour),
 		APIKeys:       apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger).WithMaxKeys(a.cfg.Ingest.MaxKeysPerProject),
 		Privacy:       privacy.NewService(a.pool).WithAudit(audit.New(a.pool)),
 		Capture:       capture.NewService(a.pool, audit.New(a.pool)),

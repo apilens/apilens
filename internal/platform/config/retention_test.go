@@ -20,6 +20,9 @@ func TestRetention(t *testing.T) {
 	if cfg.Retention.Logs != 7 || cfg.Retention.Rollups1h != 730 || cfg.Retention.Requests != 90 {
 		t.Fatalf("retention = %+v", cfg.Retention)
 	}
+	if got := cfg.Retention.Longest(); got != 730 {
+		t.Fatalf("longest = %d, want 730", got)
+	}
 }
 
 func TestRetentionValidation(t *testing.T) {

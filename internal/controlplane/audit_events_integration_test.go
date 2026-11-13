@@ -102,6 +102,22 @@ func TestProjectAuditEvents(t *testing.T) {
 	if prev != nil || next["name"] != "staging" {
 		t.Fatalf("environment.added = %v -> %v", prev, next)
 	}
+	prod, blue, hide := true, "blue", true
+	if _, err := ps.UpdateEnvironment(ctx, owner, p.ID, "staging", projects.EnvironmentUpdate{IsProduction: &prod, Color: &blue, Hidden: &hide}); err != nil {
+		t.Fatal(err)
+	}
+	prev, next = last(audit.EnvironmentUpdated, p.ID, "environment", "staging")
+	if prev["is_production"] != false || next["is_production"] != true || prev["color"] != nil || next["color"] != "blue" ||
+		prev["hidden"] != false || next["hidden"] != true {
+		t.Fatalf("environment.updated = %v -> %v", prev, next)
+	}
+	if _, err := ps.ReorderEnvironments(ctx, owner, p.ID, []string{"staging"}); err != nil {
+		t.Fatal(err)
+	}
+	prev, next = last(audit.EnvironmentUpdated, p.ID, "environment", "staging")
+	if prev["position"] != float64(1) || next["position"] != float64(0) {
+		t.Fatalf("environment.updated (order) = %v -> %v", prev, next)
+	}
 	if _, err := ps.RemoveEnvironment(ctx, owner, p.ID, "staging"); err != nil {
 		t.Fatal(err)
 	}

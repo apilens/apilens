@@ -33,6 +33,14 @@ FROM apps
 WHERE project_id = @project_id AND deleted_at IS NULL
 ORDER BY slug;
 
+-- name: ListPickerEnvironments :many
+-- The environments of one project in display order and whether each is
+-- hidden, for the environment pickers.
+SELECT name, (hidden_at IS NOT NULL)::bool AS hidden
+FROM environments
+WHERE project_id = @project_id
+ORDER BY position, name;
+
 -- name: GetProjectWithOrg :one
 SELECT p.id, p.slug, p.name, o.id AS org_id, o.slug AS org_slug, o.name AS org_name
 FROM projects p

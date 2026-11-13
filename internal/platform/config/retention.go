@@ -50,6 +50,16 @@ func (r RetentionConfig) Days(key string) int {
 	return 0
 }
 
+// Longest returns the longest configured period, in days: how long any
+// telemetry of a project can still exist.
+func (r RetentionConfig) Longest() int {
+	longest := 0
+	for _, b := range RetentionBounds {
+		longest = max(longest, r.Days(b.Key))
+	}
+	return longest
+}
+
 func retentionDefaults(m map[string]any) {
 	for _, b := range RetentionBounds {
 		m["retention."+b.Key] = b.Default

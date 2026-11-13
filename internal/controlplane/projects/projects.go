@@ -139,6 +139,9 @@ type Service struct {
 	// anyRepositoryHost lets a repository link name any https host
 	// (integrations.allow_any_repository_host), not only RepositoryHosts.
 	anyRepositoryHost bool
+	// retention is how long data seen for an environment keeps it in use
+	// (WithDataRetention); zero means DefaultDataRetention.
+	retention time.Duration
 }
 
 // New returns a Service over pool.
@@ -422,17 +425,25 @@ func (s *Service) AddEnvironment(ctx context.Context, user, id uuid.UUID, name s
 }
 
 // RemoveEnvironment removes the environment name from the project id on
-// behalf of user.
-// Removing an environment the project does not have changes nothing.
-// Telemetry already recorded for the environment is kept.
+// behalf of user. Removing an environment the project does not have changes
+// nothing. An environment in use (data within retention, an active API key
+// pinned to it or a health check using it) is ErrEnvironmentInUse: hide it
+// instead. Telemetry already recorded for the environment is kept.
 func (s *Service) RemoveEnvironment(ctx context.Context, user, id uuid.UUID, name string) (Project, error) {
 	return s.write(ctx, user, id, func(q *db.Queries, cur *db.LockActiveProjectRow) (*audit.Event, error) {
-		n, err := q.DeleteEnvironment(ctx, db.DeleteEnvironmentParams{ProjectID: cur.ID, Name: name})
+		envs, err := s.environmentDetails(ctx, q, cur.ID)
 		if err != nil {
-			return nil, fmt.Errorf("projects: delete environment: %w", err)
+			return nil, err
 		}
-		if n == 0 {
+		i := slices.IndexFunc(envs, func(e Environment) bool { return e.Name == name })
+		if i < 0 {
 			return nil, nil
+		}
+		if envs[i].InUse() {
+			return nil, ErrEnvironmentInUse
+		}
+		if _, err := q.DeleteEnvironment(ctx, db.DeleteEnvironmentParams{ProjectID: cur.ID, Name: name}); err != nil {
+			return nil, fmt.Errorf("projects: delete environment: %w", err)
 		}
 		return &audit.Event{
 			Kind: audit.EnvironmentRemoved, Target: environmentTarget(name),
