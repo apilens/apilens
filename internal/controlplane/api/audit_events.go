@@ -33,6 +33,8 @@ const (
 type AuditService interface {
 	ListProject(ctx context.Context, project uuid.UUID, q audit.Query) (auditlog.Page, error)
 	ListOrg(ctx context.Context, user, org uuid.UUID, q audit.Query) (auditlog.Page, error)
+	ExportProject(ctx context.Context, project uuid.UUID, ref auditlog.Project, r auditlog.ExportRequest) (auditlog.Export, error)
+	ExportOrg(ctx context.Context, r auditlog.ExportRequest) (auditlog.Export, error)
 }
 
 // AuditActor is who did an audited action.
@@ -70,16 +72,21 @@ type AuditEvent struct {
 	Changes   map[string]any `json:"changes" required:"true" nullable:"true" doc:"{\"previous\": ..., \"next\": ...} for a change; null otherwise. Never holds secrets."`
 }
 
-// ListAuditEventsQuery are the filters and page of an audit event listing.
-type ListAuditEventsQuery struct {
+// AuditEventFilters are the filters of an audit event listing or export.
+type AuditEventFilters struct {
 	Actor      string `query:"actor" format:"uuid" doc:"Only events this user did."`
 	Action     string `query:"action" maxLength:"100" doc:"Only this action (api_key.created), or every action with a prefix when it ends with a dot (api_key.)."`
 	TargetType string `query:"target_type" maxLength:"100" doc:"Only events on this type of target (api_key)."`
 	From       string `query:"from" format:"date-time" doc:"Only events at or after this time."`
 	To         string `query:"to" format:"date-time" doc:"Only events before this time."`
 	Q          string `query:"q" maxLength:"200" doc:"Only events whose target label contains this text (case-insensitive)."`
-	Limit      int    `query:"limit" minimum:"1" maximum:"200" default:"50"`
-	Cursor     string `query:"cursor" maxLength:"512" doc:"next_cursor of the previous page; omitted means the first page."`
+}
+
+// ListAuditEventsQuery are the filters and page of an audit event listing.
+type ListAuditEventsQuery struct {
+	AuditEventFilters
+	Limit  int    `query:"limit" minimum:"1" maximum:"200" default:"50"`
+	Cursor string `query:"cursor" maxLength:"512" doc:"next_cursor of the previous page; omitted means the first page."`
 }
 
 // ListProjectAuditEventsInput is the request of GET /api/v1/projects/{slug}/audit-events.
@@ -194,30 +201,38 @@ func (a *AuditEvents) Register(api huma.API) {
 		Security:    session,
 		Middlewares: guard,
 	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), a.orgActions)
+
+	a.registerExport(api, session, guard)
 }
 
 // authorizeProject checks view_audit on the project slug names.
 func (a *AuditEvents) authorizeProject(ctx context.Context, slug string) (uuid.UUID, error) {
+	t, err := a.authorizeProjectTarget(ctx, slug)
+	return t.ProjectID, err
+}
+
+// authorizeProjectTarget checks view_audit on the project slug names.
+func (a *AuditEvents) authorizeProjectTarget(ctx context.Context, slug string) (authz.Target, error) {
 	p, ok := authn.FromContext(ctx)
 	if !ok || p.Kind != authn.KindUser {
-		return uuid.Nil, identity.Err(identity.CodeUnauthenticated)
+		return authz.Target{}, identity.Err(identity.CodeUnauthenticated)
 	}
 	if a.authz == nil {
-		return uuid.Nil, identity.ErrRetryAfter(identity.CodeAuthzUnavailable, time.Second)
+		return authz.Target{}, identity.ErrRetryAfter(identity.CodeAuthzUnavailable, time.Second)
 	}
 	t, err := a.authz.AuthorizeProject(ctx, p, slug, authz.ProjectViewAudit)
 	switch {
 	case err == nil:
-		return t.ProjectID, nil
+		return t, nil
 	case errors.Is(err, authz.ErrNoResource):
-		return uuid.Nil, identity.Err(identity.CodeNotFound)
+		return authz.Target{}, identity.Err(identity.CodeNotFound)
 	case errors.Is(err, authz.ErrForbidden):
-		return uuid.Nil, identity.Err(identity.CodeForbidden)
+		return authz.Target{}, identity.Err(identity.CodeForbidden)
 	case errors.Is(err, authz.ErrUnavailable):
-		return uuid.Nil, identity.ErrRetryAfter(identity.CodeAuthzUnavailable, time.Second)
+		return authz.Target{}, identity.ErrRetryAfter(identity.CodeAuthzUnavailable, time.Second)
 	default:
 		a.logger.ErrorContext(ctx, "authorize project audit events", "error", err)
-		return uuid.Nil, identity.Err(identity.CodeInternal)
+		return authz.Target{}, identity.Err(identity.CodeInternal)
 	}
 }
 
@@ -275,14 +290,21 @@ func auditActions() *ListAuditActionsOutput {
 	return out
 }
 
-// query validates the filters into an audit.Query.
+// query validates the filters and page into an audit.Query.
 func (in *ListAuditEventsQuery) query() (audit.Query, error) {
+	q, err := in.AuditEventFilters.query()
+	q.Limit, q.Cursor = in.Limit, in.Cursor
+	return q, err
+}
+
+// query validates the filters into an audit.Query.
+func (in *AuditEventFilters) query() (audit.Query, error) {
 	invalid := func(detail string) error {
 		pr := identity.Err(identity.CodeInvalidRequest)
 		pr.Detail = detail
 		return pr
 	}
-	q := audit.Query{Action: in.Action, TargetType: in.TargetType, Q: in.Q, Limit: in.Limit, Cursor: in.Cursor}
+	q := audit.Query{Action: in.Action, TargetType: in.TargetType, Q: in.Q}
 	if in.Actor != "" {
 		id, err := uuid.Parse(in.Actor)
 		if err != nil {

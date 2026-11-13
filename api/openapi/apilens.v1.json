@@ -18280,6 +18280,221 @@
         ]
       }
     },
+    "/api/v1/orgs/{slug}/audit-events/export": {
+      "get": {
+        "description": "Exports the organization's audit trail for access reviews: its org-wide events and those of the projects the caller can view. Streams a CSV file (`text/csv`, one header row, then one row per event, newest first) with the columns timestamp, action, actor_id, actor_name, actor_email, ip, user_agent, request_id, target_type, target_id, target_label, project, previous, next (`previous` and `next` are the JSON values of a change). Takes the filters of the listing, without its page; at most 100 000 rows, the newest, with the header `X-Truncated: true` when more matched. A cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with `'` so spreadsheets never run it as a formula. The export itself is audited (`audit_log.exported`). Org owners and admins only, like the event list.",
+        "operationId": "export-org-audit-events",
+        "parameters": [
+          {
+            "description": "The organization's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The organization's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events this user did.",
+            "explode": false,
+            "in": "query",
+            "name": "actor",
+            "schema": {
+              "description": "Only events this user did.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this action (api_key.created), or every action with a prefix when it ends with a dot (api_key.).",
+            "explode": false,
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "description": "Only this action (api_key.created), or every action with a prefix when it ends with a dot (api_key.).",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events on this type of target (api_key).",
+            "explode": false,
+            "in": "query",
+            "name": "target_type",
+            "schema": {
+              "description": "Only events on this type of target (api_key).",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events at or after this time.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Only events at or after this time.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events before this time.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "Only events before this time.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events whose target label contains this text (case-insensitive).",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Only events whose target label contains this text (case-insensitive).",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The file format; only csv.",
+            "explode": false,
+            "in": "query",
+            "name": "format",
+            "schema": {
+              "default": "csv",
+              "description": "The file format; only csv.",
+              "enum": [
+                "csv"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The CSV file.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment, with a file name.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Truncated": {
+                "description": "true when more than 100 000 events matched and only the newest 100 000 are in the file; absent otherwise.",
+                "schema": {
+                  "enum": [
+                    "true"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Export an organization's audit events",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
     "/api/v1/orgs/{slug}/invitations": {
       "get": {
         "description": "Lists the organization's pending invitations, newest first, including expired ones that can still be resent. Owners and admins only (403 `forbidden`).",
@@ -25567,6 +25782,221 @@
           }
         ],
         "summary": "List the actions a project's audit events can be filtered by",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{slug}/audit-events/export": {
+      "get": {
+        "description": "Exports the project's audit trail for access reviews. Streams a CSV file (`text/csv`, one header row, then one row per event, newest first) with the columns timestamp, action, actor_id, actor_name, actor_email, ip, user_agent, request_id, target_type, target_id, target_label, project, previous, next (`previous` and `next` are the JSON values of a change). Takes the filters of the listing, without its page; at most 100 000 rows, the newest, with the header `X-Truncated: true` when more matched. A cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with `'` so spreadsheets never run it as a formula. The export itself is audited (`audit_log.exported`). Needs `view_audit` on the project, like the event list.",
+        "operationId": "export-project-audit-events",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events this user did.",
+            "explode": false,
+            "in": "query",
+            "name": "actor",
+            "schema": {
+              "description": "Only events this user did.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this action (api_key.created), or every action with a prefix when it ends with a dot (api_key.).",
+            "explode": false,
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "description": "Only this action (api_key.created), or every action with a prefix when it ends with a dot (api_key.).",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events on this type of target (api_key).",
+            "explode": false,
+            "in": "query",
+            "name": "target_type",
+            "schema": {
+              "description": "Only events on this type of target (api_key).",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events at or after this time.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Only events at or after this time.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events before this time.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "Only events before this time.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events whose target label contains this text (case-insensitive).",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Only events whose target label contains this text (case-insensitive).",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The file format; only csv.",
+            "explode": false,
+            "in": "query",
+            "name": "format",
+            "schema": {
+              "default": "csv",
+              "description": "The file format; only csv.",
+              "enum": [
+                "csv"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The CSV file.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment, with a file name.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Truncated": {
+                "description": "true when more than 100 000 events matched and only the newest 100 000 are in the file; absent otherwise.",
+                "schema": {
+                  "enum": [
+                    "true"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Export a project's audit events",
         "tags": [
           "Projects"
         ]
