@@ -169,6 +169,10 @@
 //                                                  `status` (#591) overrides any field of the read
 //   GET  /api/v1/traffic/{summary|timeseries}?app= one app's traffic (#591): its `traffic` seed
 //                                                  ({summary, points}), else none
+//   GET  /api/v1/projects/shop/usage?days=         project usage (#819): the seeded ingest days summed over
+//                                                  shop's apps (a day may add rejected_by, environments,
+//                                                  bytes); 503 when an app's ingest is "off", 500 when
+//                                                  seeded usage: "error"; quota from /__fake/apps {quota}
 //   POST /__fake/apps {apps}                       test hook: replaces shop's apps [{id, slug, name,
 //                                                  policy?, environments?, ingest?, sdk_stats?, status?,
 //                                                  traffic?, managed?}], their policies, reports, health
@@ -671,6 +675,9 @@ const appSdkStats = new Map<string, Record<string, unknown>>();
 /** The Apps overview (#591): each app's SDK status and its traffic ({summary, points}), by app id. */
 const appStatuses = new Map<string, Record<string, unknown>>();
 const appTraffic = new Map<string, { summary?: Record<string, unknown>; points?: unknown[] }>();
+/** Project usage (#819): the install's ingest quota, seeded by `/__fake/apps` {quota}; `usage: "error"` answers 500. */
+let usageQuota = { records_per_minute: 0, bytes_per_day: 0 };
+let usageError = false;
 
 function capturePolicyOf(app: { id: string; slug: string }): Record<string, unknown> {
   return {
@@ -1664,6 +1671,82 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     }
     return problem(res, 404, "not_found");
   }
+  // Project usage (#819): the same seeded edge counters as ingest-stats, summed over shop's apps.
+  // A seeded day may carry `rejected_by` ({reason: n}), `environments` ({env: n}) and `bytes`.
+  if (req.method === "GET" && path === `/api/v1/projects/${PROJECT}/usage`) {
+    if (!signedInUser(req)) return problem(res, 401, "unauthenticated");
+    if (shopApps.some((a) => appIngest.get(a.id) === "off")) return problem(res, 503, "unavailable");
+    if (usageError) return problem(res, 500, "internal");
+    const days = Math.min(30, Math.max(1, Number(url.searchParams.get("days") ?? 30)));
+    const keys = ["accepted", "rejected", "truncated", "masked"] as const;
+    type Sum = Record<(typeof keys)[number], number> & { reasons: Record<string, number> };
+    const zero = (): Sum => ({ accepted: 0, rejected: 0, truncated: 0, masked: 0, reasons: {} });
+    const addDay = (s: Sum, d: Record<string, unknown>) => {
+      for (const k of keys) s[k] += Number(d[k] ?? 0);
+      const by = (d.rejected_by ?? {}) as Record<string, number>;
+      let named = 0;
+      for (const [r, n] of Object.entries(by)) {
+        s.reasons[r] = (s.reasons[r] ?? 0) + n;
+        named += n;
+      }
+      const rest = Number(d.rejected ?? 0) - named;
+      if (rest > 0) s.reasons.unspecified = (s.reasons.unspecified ?? 0) + rest;
+    };
+    const counts = (s: Sum) => ({
+      accepted: s.accepted,
+      rejected: s.rejected,
+      truncated: s.truncated,
+      masked: s.masked,
+      rejected_by_reason: Object.entries(s.reasons)
+        .map(([reason, records]) => ({ reason, records }))
+        .sort((a, b) => b.records - a.records || a.reason.localeCompare(b.reason)),
+    });
+    const daily = Array.from({ length: days }, zero);
+    const bytes = Array.from({ length: days }, () => 0);
+    const total = zero();
+    const envs: Record<string, number> = {};
+    let rejectedToday = 0;
+    const apps = shopApps.map((app) => {
+      const seeded = (appIngest.get(app.id) ?? []) as Record<string, unknown>[];
+      const sum = zero();
+      for (let i = 0; i < days; i++) {
+        const d = seeded[seeded.length - days + i] ?? {};
+        addDay(daily[i], d);
+        addDay(sum, d);
+        addDay(total, d);
+        bytes[i] += Number(d.bytes ?? 0);
+        for (const [env, n] of Object.entries((d.environments ?? {}) as Record<string, number>)) envs[env] = (envs[env] ?? 0) + n;
+        if (i === days - 1) {
+          const by = (d.rejected_by ?? {}) as Record<string, number>;
+          rejectedToday += (by.records_per_minute ?? 0) + (by.bytes_per_day ?? 0);
+        }
+      }
+      return { app_id: app.id, app: app.slug, ...counts(sum) };
+    });
+    apps.sort((a, b) => b.accepted - a.accepted);
+    const bytesToday = bytes[days - 1];
+    return send(res, 200, {
+      project: PROJECT,
+      days,
+      totals: counts(total),
+      bytes: bytes.reduce((n, b) => n + b, 0),
+      daily: daily.map((d, i) => ({
+        date: new Date(Date.now() - (days - 1 - i) * 86_400_000).toISOString().slice(0, 10),
+        ...counts(d),
+        bytes: bytes[i],
+      })),
+      apps,
+      environments: Object.entries(envs)
+        .map(([environment, accepted]) => ({ environment, accepted }))
+        .sort((a, b) => b.accepted - a.accepted || a.environment.localeCompare(b.environment)),
+      quota: {
+        ...usageQuota,
+        bytes_today: bytesToday,
+        bytes_today_ratio: usageQuota.bytes_per_day > 0 ? bytesToday / usageQuota.bytes_per_day : null,
+        rejected_today: rejectedToday,
+      },
+    });
+  }
   // An app's ingest health (#602): the edge's counters per UTC day and its status's SDK counters.
   const healthPath = path.match(/^\/api\/v1\/apps\/([^/]+)\/(ingest-stats|status)$/);
   if (healthPath && req.method === "GET") {
@@ -1711,9 +1794,12 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   }
   if (req.method === "POST" && path === "/__fake/apps") {
     // Test hook: replaces shop's apps, their saved policies, their SDK reports and health counters.
-    const { apps, rejections } = await readBody(req);
+    const { apps, rejections, quota, usage } = await readBody(req);
     const list = Array.isArray(apps) ? (apps as Record<string, unknown>[]) : [];
     appRejectionSeed = Array.isArray(rejections) ? (rejections as Record<string, unknown>[]) : [];
+    const q = (typeof quota === "object" && quota !== null ? quota : {}) as Record<string, unknown>;
+    usageQuota = { records_per_minute: Number(q.records_per_minute ?? 0), bytes_per_day: Number(q.bytes_per_day ?? 0) };
+    usageError = usage === "error";
     capturePolicies.clear();
     appReports.clear();
     appIngest.clear();
