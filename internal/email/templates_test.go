@@ -29,6 +29,7 @@ var sampleData = map[string]map[string]any{
 	"invitation": {
 		"org": "Acme <Labs>", "inviter": "Ada Lovelace", "role": "member",
 		"token": "inv_9f8e7d", "expires_at": "2026-11-11T09:30:00Z",
+		"project": "Shop <EU>", "project_role": "editor",
 	},
 	"security_change": {
 		"change": "passkey_added", "device": "Safari on iOS", "ip": "2001:db8::1", "time": "2026-11-04T09:30:00Z",
@@ -287,6 +288,39 @@ func TestAPIKeyExpiring(t *testing.T) {
 	if strings.Contains(msg.HTML, "<prod>") || !strings.Contains(msg.HTML, "checkout &lt;prod&gt;") ||
 		!strings.Contains(msg.HTML, "Shop &lt;EU&gt;") {
 		t.Error("HTML does not escape the key and project names")
+	}
+}
+
+// TestInvitationProject renders the invitation with one project role (the
+// project is named, escaped in HTML) and without one (only the
+// organization is named).
+func TestInvitationProject(t *testing.T) {
+	r := defaultRenderer(t)
+	msg, err := r.Render("invitation", "new@example.com", sampleData["invitation"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "Ada Lovelace invited you to Shop <EU> in Acme <Labs> on APILens"; msg.Subject != want {
+		t.Errorf("subject = %q, want %q", msg.Subject, want)
+	}
+	if want := "with the member role, and the Shop <EU> project with the editor role."; !strings.Contains(msg.Text, want) {
+		t.Errorf("text lacks %q:\n%s", want, msg.Text)
+	}
+	if strings.Contains(msg.HTML, "<EU>") || !strings.Contains(msg.HTML, "<strong>Shop &lt;EU&gt;</strong> project with the editor role") {
+		t.Errorf("HTML does not name the escaped project:\n%s", msg.HTML)
+	}
+
+	data := maps.Clone(sampleData["invitation"])
+	data["project"], data["project_role"] = "", ""
+	msg, err = r.Render("invitation", "new@example.com", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "Ada Lovelace invited you to join Acme <Labs> on APILens"; msg.Subject != want {
+		t.Errorf("subject without a project = %q, want %q", msg.Subject, want)
+	}
+	if !strings.Contains(msg.Text, "with the member role.\n") || strings.Contains(msg.Text, "project") || strings.Contains(msg.HTML, "project") {
+		t.Errorf("email without a project mentions one:\n%s", msg.Text)
 	}
 }
 

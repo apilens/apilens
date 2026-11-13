@@ -53,6 +53,9 @@ type Querier interface {
 	// Fails on invitations_org_email_pending if the address already has a
 	// pending invitation to the organization.
 	CreateInvitation(ctx context.Context, arg CreateInvitationParams) (Invitation, error)
+	// Project roles carried by invitations (#779). Only pending invitations have
+	// grants: revoking or replacing an invitation deletes them.
+	CreateInvitationProjectGrant(ctx context.Context, arg CreateInvitationProjectGrantParams) error
 	// Membership writes never check the last-owner rule themselves: the service
 	// layer locks the organization (LockOrganization), checks CountOrgOwners and
 	// only then demotes or removes an owner, in one transaction.
@@ -77,9 +80,13 @@ type Querier interface {
 	DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentParams) (int64, error)
 	// Deletes a check and its events.
 	DeleteHealthCheck(ctx context.Context, arg DeleteHealthCheckParams) (int64, error)
+	DeleteInvitationProjectGrants(ctx context.Context, invitationID uuid.UUID) error
 	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) (int64, error)
 	DeleteNotificationChannel(ctx context.Context, arg DeleteNotificationChannelParams) (int64, error)
 	DeleteOrgSSOConnection(ctx context.Context, orgID uuid.UUID) (int64, error)
+	// Drops the grants of the address's pending invitation to the organization
+	// before RevokePendingInvitationByEmail replaces it.
+	DeletePendingInvitationProjectGrantsByEmail(ctx context.Context, arg DeletePendingInvitationProjectGrantsByEmailParams) error
 	DeleteProjectMember(ctx context.Context, arg DeleteProjectMemberParams) (int64, error)
 	DeleteSavedView(ctx context.Context, arg DeleteSavedViewParams) (int64, error)
 	// Drops every direct grant a user holds on the organization's projects
@@ -244,6 +251,9 @@ type Querier interface {
 	// Every enabled check of an active app of an active project: what the job
 	// probes.
 	ListHealthChecksToRun(ctx context.Context) ([]ListHealthChecksToRunRow, error)
+	// The grants of the invitations with their active projects, by project
+	// name; grants on deleted projects are left out.
+	ListInvitationProjectGrants(ctx context.Context, invitationIds []uuid.UUID) ([]ListInvitationProjectGrantsRow, error)
 	// Active organizations with domain join on for the (lower-case) email
 	// domain that the user is not already a member of.
 	ListJoinableOrganizations(ctx context.Context, arg ListJoinableOrganizationsParams) ([]ListJoinableOrganizationsRow, error)
@@ -258,6 +268,8 @@ type Querier interface {
 	// The channels a rule notifies (alert_rules.channel_ids), for sending.
 	// Channels of other projects are never returned.
 	ListNotificationChannelsByIDs(ctx context.Context, arg ListNotificationChannelsByIDsParams) ([]NotificationChannel, error)
+	// The active projects of the organization among ids.
+	ListOrgActiveProjectsByID(ctx context.Context, arg ListOrgActiveProjectsByIDParams) ([]ListOrgActiveProjectsByIDRow, error)
 	ListOrgMembers(ctx context.Context, orgID uuid.UUID) ([]ListOrgMembersRow, error)
 	ListOrgProjects(ctx context.Context, orgID uuid.UUID) ([]ListOrgProjectsRow, error)
 	ListPendingInvitations(ctx context.Context, orgID uuid.UUID) ([]Invitation, error)
@@ -299,6 +311,9 @@ type Querier interface {
 	ListProjectKeyApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectKeyAppsRow, error)
 	// Direct grants of a project with their users; deleted accounts are hidden.
 	ListProjectMembers(ctx context.Context, projectID uuid.UUID) ([]ListProjectMembersRow, error)
+	// The pending invitations that carry a grant on the project, newest first,
+	// with the inviting user's email and name (NULL once their account is gone).
+	ListProjectPendingInvitations(ctx context.Context, projectID uuid.UUID) ([]ListProjectPendingInvitationsRow, error)
 	// Every privacy policy row of a project: the project-wide one (app_id NULL)
 	// and the per-app ones. Rows of deleted apps are skipped.
 	ListProjectPrivacyPolicies(ctx context.Context, projectID uuid.UUID) ([]ListProjectPrivacyPoliciesRow, error)

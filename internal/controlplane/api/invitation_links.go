@@ -42,13 +42,21 @@ type InvitationOrg struct {
 	Slug string `json:"slug"`
 }
 
+// InvitationPreviewProject is a project role an invitation carries, as the
+// public invitation page shows it: the project's name only.
+type InvitationPreviewProject struct {
+	Name string `json:"name" doc:"The project's name."`
+	Role string `json:"role" enum:"admin,editor,viewer" doc:"The project role the invitee gets when they accept."`
+}
+
 // InvitationPreview is what the invitation page shows before sign-in.
 type InvitationPreview struct {
-	Org         InvitationOrg `json:"org"`
-	InviterName string        `json:"inviter_name" doc:"Who sent the invitation (their name, or email when they have none); empty once their account is gone."`
-	EmailMasked string        `json:"email_masked" doc:"The invited address with most of its local part hidden (a***@example.com)."`
-	Role        string        `json:"role" enum:"admin,member,viewer" doc:"The role the invitee joins with."`
-	ExpiresAt   time.Time     `json:"expires_at" doc:"When the link stops working."`
+	Org         InvitationOrg              `json:"org"`
+	InviterName string                     `json:"inviter_name" doc:"Who sent the invitation (their name, or email when they have none); empty once their account is gone."`
+	EmailMasked string                     `json:"email_masked" doc:"The invited address with most of its local part hidden (a***@example.com)."`
+	Role        string                     `json:"role" enum:"admin,member,viewer" doc:"The role the invitee joins with."`
+	Projects    []InvitationPreviewProject `json:"projects" doc:"The project roles the invitee gets when they accept, by project name; empty when none."`
+	ExpiresAt   time.Time                  `json:"expires_at" doc:"When the link stops working."`
 }
 
 // InvitationPreviewOutput is the response of GET
@@ -94,7 +102,7 @@ func (h *InvitationLinks) Register(api huma.API) {
 		Method:      http.MethodGet,
 		Path:        InvitationLinkPath,
 		Summary:     "Look up an invitation by its link",
-		Description: "Public. The `/invite/{token}` page calls it before asking the invitee to sign in: it shows the organization, the inviter, the invited address (masked), the role and the expiry. " +
+		Description: "Public. The `/invite/{token}` page calls it before asking the invitee to sign in: it shows the organization, the inviter, the invited address (masked), the role, the names of the projects the invitation gives a role on and the expiry. " +
 			"An unknown token answers `invalid_token`; an expired, revoked or accepted invitation answers `invite_expired`. Rate-limited per client IP (429 `rate_limited` with Retry-After).",
 		Tags:        []string{server.TagAuth},
 		Middlewares: huma.Middlewares{h.limiter.Limit(api, "invitation_lookup", h.perIP, ratelimit.Key{})},
@@ -105,7 +113,7 @@ func (h *InvitationLinks) Register(api huma.API) {
 		Method:      http.MethodPost,
 		Path:        AcceptInvitationPath,
 		Summary:     "Accept an invitation",
-		Description: "Makes the signed-in user a member of the invitation's organization with its role and marks the invitation accepted. " +
+		Description: "Makes the signed-in user a member of the invitation's organization with its role, gives them the project roles the invitation carries (emitting `project_member.upserted`; a higher direct role they already have is kept) and marks the invitation accepted, in one transaction. " +
 			"The user's verified email must be the invited address (403 `invite_email_mismatch`). A user who already belongs to the organization keeps their role. " +
 			"Accepting an invitation that the user already accepted answers the organization again (`joined` false). " +
 			"An unknown token answers `invalid_token`; an expired or revoked invitation answers `invite_expired`. Audited as `invitation.accepted`.",
@@ -137,11 +145,16 @@ func (h *InvitationLinks) lookup(ctx context.Context, in *InvitationTokenInput) 
 	if err != nil {
 		return nil, h.problem(ctx, "look up invitation", err)
 	}
+	projects := make([]InvitationPreviewProject, 0, len(p.Projects))
+	for _, pr := range p.Projects {
+		projects = append(projects, InvitationPreviewProject{Name: pr.Name, Role: pr.Role})
+	}
 	return &InvitationPreviewOutput{Body: InvitationPreview{
 		Org:         InvitationOrg{Name: p.OrgName, Slug: p.OrgSlug},
 		InviterName: p.InviterName,
 		EmailMasked: p.EmailMasked,
 		Role:        p.Role,
+		Projects:    projects,
 		ExpiresAt:   p.ExpiresAt.UTC(),
 	}}, nil
 }

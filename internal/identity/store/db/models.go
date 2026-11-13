@@ -250,6 +250,12 @@ type Invitation struct {
 	ResentAt   *time.Time
 }
 
+type InvitationProjectGrant struct {
+	InvitationID uuid.UUID
+	ProjectID    uuid.UUID
+	Role         string
+}
+
 type Membership struct {
 	OrgID     uuid.UUID
 	UserID    uuid.UUID
