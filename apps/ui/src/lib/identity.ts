@@ -1523,6 +1523,55 @@ export interface AppIngestStats {
   daily: IngestDay[] | null;
 }
 
+// Project usage (#790, #819): the per-app edge counters summed over a project's apps, with the
+// rejections by reason, the bytes and the configured quota (`GET /projects/{slug}/usage`). Shapes
+// as in api/openapi/apilens.v1.json.
+
+/** Rejected records of one reason (`records_per_minute`, `bytes_per_day`, `invalid`, an app refusal code, `unspecified`). */
+export interface RejectedRecords {
+  reason: string;
+  records: number;
+}
+
+/** `IngestCounts` with `rejected` split by reason, most records first. */
+export interface UsageCounts extends IngestCounts {
+  rejected_by_reason: RejectedRecords[] | null;
+}
+
+/** One UTC day of usage; `date` is `YYYY-MM-DD`. */
+export interface UsageDay extends UsageCounts {
+  date: string;
+  bytes: number;
+}
+
+/** One app's usage over the period. */
+export interface AppUsageTotals extends UsageCounts {
+  app_id: string;
+  app: string;
+}
+
+/** The ingest limits (0 = unlimited) and today's use of them. */
+export interface QuotaUsage {
+  records_per_minute: number;
+  bytes_per_day: number;
+  bytes_today: number;
+  /** `bytes_today / bytes_per_day`; null when bytes are unlimited. */
+  bytes_today_ratio: number | null;
+  rejected_today: number;
+}
+
+/** `GET /projects/{slug}/usage?days=`: oldest day first; 503 when the install keeps no counters. */
+export interface ProjectUsage {
+  project: string;
+  days: number;
+  totals: UsageCounts;
+  bytes: number;
+  daily: UsageDay[] | null;
+  apps: AppUsageTotals[] | null;
+  environments: { environment: string; accepted: number }[] | null;
+  quota: QuotaUsage;
+}
+
 /** SDK delivery counters summed over the instances seen in the last hour. */
 export interface AppSdkStats {
   instances: number;
@@ -2226,6 +2275,8 @@ export function createClient(config: ClientConfig) {
       request<AppIngestStats>("GET", `/apps/${seg(appId)}/ingest-stats`, { ...o, query: { project: projectSlug, days } }),
     appHealthStatus: (projectSlug: string, appId: string, o: Authed) =>
       request<AppStatus>("GET", `/apps/${seg(appId)}/status`, { ...o, query: { project: projectSlug } }),
+    projectUsage: (projectSlug: string, days: number, o: Authed) =>
+      request<ProjectUsage>("GET", `/projects/${seg(projectSlug)}/usage`, { ...o, query: { days } }),
 
     // query: active HTTP health checks (#608), project settings → Health checks -------------
     listHealthChecks: (projectSlug: string, o: Authed) =>
