@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -67,9 +68,38 @@ type Key struct {
 	ExpiresAt  *time.Time
 	RevokedAt  *time.Time
 	LastUsedAt *time.Time
+	// LastUsedSDK is the SDK name and version of the last ingest request.
+	LastUsedSDK *string
+	// LastUsedIP is the client IP of the last ingest request (only while
+	// ingest.record_key_ip is true).
+	LastUsedIP *netip.Addr
+	// CreatedBy is the user who created the key; nil when unknown or the
+	// account is deleted.
+	CreatedBy *Creator
 	// AppsSeen are the apps the key sent records for, most recent first
 	// (List only).
 	AppsSeen []KeyApp
+}
+
+// Creator is the user who created a key.
+type Creator struct {
+	ID   uuid.UUID
+	Name string // the user's name, or their email when they have none
+}
+
+// creator builds the Creator of a key row; nil when the user is unknown or
+// deleted (the query's LEFT JOIN found nothing).
+func creator(id *uuid.UUID, name, email *string) *Creator {
+	if id == nil {
+		return nil
+	}
+	c := &Creator{ID: *id}
+	if name != nil && strings.TrimSpace(*name) != "" {
+		c.Name = *name
+	} else if email != nil {
+		c.Name = *email
+	}
+	return c
 }
 
 // CanCreateApps reports whether ingest creates apps from this key's data.
@@ -265,6 +295,7 @@ func (s *Service) CreateKey(ctx context.Context, user uuid.UUID, slug string, k 
 	}
 	row, err := q.CreateAPIKey(ctx, db.CreateAPIKeyParams{
 		ID: uuid.New(), ProjectID: p.ID, Name: name, Prefix: prefix, KeyHash: hash, Scopes: scopes, ExpiresAt: expiresAt, AppIds: appIDs,
+		CreatedBy: &user,
 	})
 	if err != nil {
 		return Created{}, fmt.Errorf("apikeys: create: %w", err)
@@ -286,6 +317,7 @@ func (s *Service) CreateKey(ctx context.Context, user uuid.UUID, slug string, k 
 		Key: Key{
 			ID: row.ID, ProjectID: row.ProjectID, Name: row.Name, Prefix: row.Prefix, Scopes: row.Scopes, AppIDs: row.AppIds,
 			CreatedAt: row.CreatedAt, ExpiresAt: row.ExpiresAt,
+			CreatedBy: creator(row.CreatorID, row.CreatorName, row.CreatorEmail),
 		},
 		Raw: raw,
 	}, nil
@@ -340,6 +372,7 @@ func (s *Service) UpdateAccess(ctx context.Context, user uuid.UUID, slug string,
 	return Key{
 		ID: k.ID, ProjectID: p.ID, Name: k.Name, Prefix: k.Prefix, Scopes: scopes, AppIDs: appIDs,
 		CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, LastUsedAt: k.LastUsedAt,
+		LastUsedSDK: k.LastUsedSdk, LastUsedIP: k.LastUsedIp, CreatedBy: creator(k.CreatorID, k.CreatorName, k.CreatorEmail),
 	}, nil
 }
 
@@ -383,6 +416,7 @@ func (s *Service) List(ctx context.Context, user uuid.UUID, slug string) ([]Key,
 		out = append(out, Key{
 			ID: r.ID, ProjectID: p.ID, Name: r.Name, Prefix: r.Prefix, Scopes: r.Scopes, AppIDs: r.AppIds,
 			CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, RevokedAt: r.RevokedAt, LastUsedAt: r.LastUsedAt,
+			LastUsedSDK: r.LastUsedSdk, LastUsedIP: r.LastUsedIp, CreatedBy: creator(r.CreatorID, r.CreatorName, r.CreatorEmail),
 			AppsSeen: byKey[r.ID],
 		})
 	}

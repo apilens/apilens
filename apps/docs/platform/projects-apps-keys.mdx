@@ -68,7 +68,9 @@ Every project has a default app, created with the project and named after it. Re
 
 Keys belong to the **project**. Create them in **Project settings → API keys**; the full key is shown once, then only its prefix. Name keys after who uses them (`prod-backend`, `team-payments`, `deploy-pipeline`) so the Apps page can tell you which key brought an app in, and so you can revoke one without touching the others.
 
-Each key shows its permissions, which apps it may send for, the apps it has actually sent data for, and when it was last used.
+Each key shows its permissions, which apps it may send for, the apps it has actually sent data for, who created it, and when it was last used: with the SDK name and version (`apilenss/0.5.0`, from the `User-Agent` of the ingest request) and the client IP of that request. Last use is recorded at most once every few minutes per key.
+
+The IP is personal data. Self-hosted installs that do not want it stored set `ingest.record_key_ip: false` (`APILENS_INGEST__RECORD_KEY_IP=false`, default `true`); a key's recorded IP is then cleared on its next use. The IP is the address of the connection to the ingest service; forwarding headers are not trusted.
 
 ### Can create apps
 

@@ -41,13 +41,22 @@ type APIKey struct {
 	Prefix string   `json:"prefix" doc:"The first characters of the key, for recognising it."`
 	Scopes []string `json:"scopes" doc:"What the key may do: ingest (send telemetry), apps:create (ingest may create an app from an app name it has not seen), read (query the project's data)."`
 	// CanCreateApps is apps:create on a key not limited to some apps.
-	CanCreateApps bool       `json:"can_create_apps" doc:"Whether data sent with the key creates an app the first time it names one the project does not have. False for keys without apps:create and for keys limited to some apps."`
-	AppIDs        []string   `json:"app_ids" required:"true" nullable:"true" doc:"The apps the key may send data for; null means every app of the project."`
-	AppsSeen      []KeyApp   `json:"apps_seen" doc:"The apps the key sent data for, most recent first (recorded at most once a minute)."`
-	CreatedAt     time.Time  `json:"created_at"`
-	ExpiresAt     *time.Time `json:"expires_at" required:"true" nullable:"true" doc:"When the key stops working; null if never."`
-	LastUsedAt    *time.Time `json:"last_used_at" required:"true" nullable:"true" doc:"When the key was last used (recorded at most every few minutes); null if never."`
-	RevokedAt     *time.Time `json:"revoked_at" required:"true" nullable:"true" doc:"When the key was revoked; null while it is active."`
+	CanCreateApps bool        `json:"can_create_apps" doc:"Whether data sent with the key creates an app the first time it names one the project does not have. False for keys without apps:create and for keys limited to some apps."`
+	AppIDs        []string    `json:"app_ids" required:"true" nullable:"true" doc:"The apps the key may send data for; null means every app of the project."`
+	AppsSeen      []KeyApp    `json:"apps_seen" doc:"The apps the key sent data for, most recent first (recorded at most once a minute)."`
+	CreatedAt     time.Time   `json:"created_at"`
+	CreatedBy     *KeyCreator `json:"created_by,omitempty" doc:"Who created the key; absent when unknown (keys older than this field with no audit record) or once their account is deleted."`
+	ExpiresAt     *time.Time  `json:"expires_at" required:"true" nullable:"true" doc:"When the key stops working; null if never."`
+	LastUsedAt    *time.Time  `json:"last_used_at" required:"true" nullable:"true" doc:"When the key was last used (recorded at most every few minutes); null if never."`
+	LastUsedSDK   *string     `json:"last_used_sdk" required:"true" nullable:"true" doc:"The SDK name and version (User-Agent product) of the last ingest request, recorded with last_used_at; null if never used for ingest or the client sent none. Example: apilenss/0.5.0."`
+	LastUsedIP    *string     `json:"last_used_ip" required:"true" nullable:"true" doc:"The client IP of the last ingest request, recorded with last_used_at; null if never used for ingest or when the install does not record it (ingest.record_key_ip false)."`
+	RevokedAt     *time.Time  `json:"revoked_at" required:"true" nullable:"true" doc:"When the key was revoked; null while it is active."`
+}
+
+// KeyCreator is the user who created an API key.
+type KeyCreator struct {
+	ID   string `json:"id" format:"uuid"`
+	Name string `json:"name" doc:"The user's name, or their email when they have not set one."`
 }
 
 // KeyApp is an app a key sent data for.
@@ -189,6 +198,15 @@ func toAPIKey(key apikeys.Key) APIKey {
 			appIDs[i] = id.String()
 		}
 	}
+	var createdBy *KeyCreator
+	if key.CreatedBy != nil {
+		createdBy = &KeyCreator{ID: key.CreatedBy.ID.String(), Name: key.CreatedBy.Name}
+	}
+	var lastIP *string
+	if key.LastUsedIP != nil {
+		s := key.LastUsedIP.String()
+		lastIP = &s
+	}
 	return APIKey{
 		ID:            key.ID.String(),
 		Name:          key.Name,
@@ -198,8 +216,11 @@ func toAPIKey(key apikeys.Key) APIKey {
 		AppIDs:        appIDs,
 		AppsSeen:      seen,
 		CreatedAt:     key.CreatedAt.UTC(),
+		CreatedBy:     createdBy,
 		ExpiresAt:     utc(key.ExpiresAt),
 		LastUsedAt:    utc(key.LastUsedAt),
+		LastUsedSDK:   key.LastUsedSDK,
+		LastUsedIP:    lastIP,
 		RevokedAt:     utc(key.RevokedAt),
 	}
 }
