@@ -94,6 +94,8 @@ type Querier interface {
 	// before RevokePendingInvitationByEmail replaces it.
 	DeletePendingInvitationProjectGrantsByEmail(ctx context.Context, arg DeletePendingInvitationProjectGrantsByEmailParams) error
 	DeleteProjectMember(ctx context.Context, arg DeleteProjectMemberParams) (int64, error)
+	// Forgets a retired slug once a project uses it again.
+	DeleteProjectSlugHistory(ctx context.Context, slug string) error
 	DeleteSavedView(ctx context.Context, arg DeleteSavedViewParams) (int64, error)
 	// Drops every direct grant a user holds on the organization's projects
 	// (when they leave it); returns the project ids so the caller can emit one
@@ -430,6 +432,12 @@ type Querier interface {
 	LockProjectApp(ctx context.Context, arg LockProjectAppParams) (LockProjectAppRow, error)
 	// Row-locks an active project; serialises app creation per project.
 	LockProjectByID(ctx context.Context, id uuid.UUID) (LockProjectByIDRow, error)
+	// Project slug renames (#794): retired slugs live in project_slug_history,
+	// keep resolving to their project and are reserved for it for a while.
+	// Serializes creates and renames that claim or retire the slug until the
+	// transaction ends, so a reservation check and the write that relies on it
+	// cannot interleave with another one.
+	LockProjectSlug(ctx context.Context, slug string) error
 	// Serializes the transactions that save an enforcing connection, so two
 	// organizations cannot both start enforcing one domain.
 	LockSSOEnforcement(ctx context.Context) error
@@ -473,8 +481,14 @@ type Querier interface {
 	// Pauses ingest for the active project; no row changes when it is already
 	// paused.
 	PauseProject(ctx context.Context, arg PauseProjectParams) (int64, error)
-	// Whether an active project or one awaiting purge holds the slug.
-	ProjectSlugTaken(ctx context.Context, slug string) (bool, error)
+	// Whether the slug is unusable for the project project_id: another active
+	// project or one awaiting purge holds it, or a rename of another project
+	// retired it after reserved_after.
+	ProjectSlugReservedFor(ctx context.Context, arg ProjectSlugReservedForParams) (bool, error)
+	// Whether an active project or one awaiting purge holds the slug, or a
+	// rename retired it after reserved_after (project_slug_history keeps it for
+	// its project).
+	ProjectSlugTaken(ctx context.Context, arg ProjectSlugTakenParams) (bool, error)
 	// Records a probe of a check and its status.
 	RecordHealthCheckResult(ctx context.Context, arg RecordHealthCheckResultParams) error
 	// Adds an environment the SDK reported unless the project already has one
@@ -494,8 +508,11 @@ type Querier interface {
 	ResendInvitation(ctx context.Context, arg ResendInvitationParams) (Invitation, error)
 	// Resolves an open event. Returns pgx.ErrNoRows when it is not open.
 	ResolveAlertEvent(ctx context.Context, arg ResolveAlertEventParams) (AlertEvent, error)
-	// Resolves an active project slug (globally unique) to its id and its
-	// active organization, for authorization of /…/{project} paths.
+	// Resolves a project slug (globally unique among active projects) to its
+	// id, its active organization and its current (canonical) slug, for
+	// authorization of /…/{project} paths. A slug no active project uses falls
+	// back to project_slug_history: a renamed project's old slug resolves to it
+	// until another project takes the slug.
 	ResolveProjectSlug(ctx context.Context, slug string) (ResolveProjectSlugRow, error)
 	// Brings an archived, merged or deleted app back; acknowledges it.
 	RestoreApp(ctx context.Context, id uuid.UUID) error
@@ -503,6 +520,8 @@ type Querier interface {
 	// Resumes ingest for the active project; no row changes when it is not
 	// paused.
 	ResumeProject(ctx context.Context, id uuid.UUID) (int64, error)
+	// Records that the project project_id no longer uses the slug.
+	RetireProjectSlug(ctx context.Context, arg RetireProjectSlugParams) error
 	RevokeAPIKey(ctx context.Context, id uuid.UUID) (string, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (Invitation, error)
 	// Revokes the address's pending invitation to the organization, if any, so
@@ -515,6 +534,10 @@ type Querier interface {
 	// Gives each named environment its index in names as its position.
 	SetEnvironmentPositions(ctx context.Context, arg SetEnvironmentPositionsParams) error
 	SetProjectDefaultAccess(ctx context.Context, arg SetProjectDefaultAccessParams) (string, error)
+	// Renames the project and moves updated_at to now. Fails on
+	// projects_slug_active or projects_slug_reserved when an active project or
+	// one awaiting purge holds the slug.
+	SetProjectSlug(ctx context.Context, arg SetProjectSlugParams) (SetProjectSlugRow, error)
 	// No row means the export was cancelled meanwhile.
 	SetRequestExportProgress(ctx context.Context, arg SetRequestExportProgressParams) (int64, error)
 	SetRequestExportTotal(ctx context.Context, arg SetRequestExportTotalParams) (int64, error)
@@ -527,8 +550,9 @@ type Querier interface {
 	StartRequestExport(ctx context.Context, id uuid.UUID) (RequestExport, error)
 	// Which of the given slugs active organizations already use.
 	TakenOrganizationSlugs(ctx context.Context, slugs []string) ([]string, error)
-	// Which of the given slugs active projects or projects awaiting purge hold.
-	TakenProjectSlugs(ctx context.Context, slugs []string) ([]string, error)
+	// Which of the given slugs active projects or projects awaiting purge hold,
+	// or a rename retired after reserved_after.
+	TakenProjectSlugs(ctx context.Context, arg TakenProjectSlugsParams) ([]string, error)
 	// Records a use of the key. With record_use (an ingest request) the SDK and
 	// client IP of that request replace the previous ones; NULL clears them.
 	TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error

@@ -13,7 +13,14 @@
 // (WithAudit), creating, renaming, deleting and restoring a project and
 // adding or removing an environment record project.created,
 // project.updated, project.deleted, project.restored, environment.added and
-// environment.removed in the same transaction. Creating a project also registers its default
+// environment.removed in the same transaction.
+//
+// A project's slug can be renamed (Rename). The old slug goes to
+// project_slug_history: path resolution falls back to it, so the old slug
+// keeps leading to the project until another project takes it, and for
+// SlugReservation only the same project may take it (back). Creates and
+// renames serialize on a per-slug advisory lock so the reservation check
+// and the write it allows cannot interleave. Creating a project also registers its default
 // app (slug = project slug), which receives records that name no app; other
 // apps are created by ingest from the app names SDKs send.
 //
@@ -57,6 +64,10 @@ const MaxDescription = 280
 // MaxEnvironments bounds the environments of one project.
 const MaxEnvironments = 20
 
+// SlugReservation is how long a slug a rename retired stays reserved for
+// the project that used it (D9: the same window as app slugs).
+const SlugReservation = 30 * 24 * time.Hour
+
 // DefaultEnvironments are created when a create request names none.
 var DefaultEnvironments = []string{"production"}
 
@@ -78,6 +89,10 @@ var (
 	// ErrTooManyEnvironments: the project would have more than
 	// MaxEnvironments environments.
 	ErrTooManyEnvironments = errors.New("projects: too many environments")
+
+	// errSlugReserved: a rename of another project retired the slug less
+	// than SlugReservation ago; callers turn it into a SlugTakenError.
+	errSlugReserved = errors.New("projects: slug reserved")
 )
 
 // SlugTakenError is returned by Create when the slug is reserved or used by
@@ -199,7 +214,7 @@ func (s *Service) Create(ctx context.Context, user uuid.UUID, orgSlug, name, slu
 		return Project{}, s.taken(ctx, slug)
 	}
 	p, err := s.create(ctx, user, orgSlug, name, slug, envs)
-	if isViolation(err, "23505", "projects_slug_active") || isViolation(err, "23505", "projects_slug_reserved") {
+	if errors.Is(err, errSlugReserved) || isViolation(err, "23505", "projects_slug_active") || isViolation(err, "23505", "projects_slug_reserved") {
 		return Project{}, s.taken(ctx, slug)
 	}
 	return p, err
@@ -220,7 +235,11 @@ func (s *Service) create(ctx context.Context, user uuid.UUID, orgSlug, name, slu
 	if err != nil {
 		return Project{}, fmt.Errorf("projects: lock organization: %w", err)
 	}
-	p, err := q.CreateProject(ctx, db.CreateProjectParams{ID: uuid.New(), OrgID: org.ID, Slug: slug, Name: name, Description: "", CreatedBy: &user})
+	id := uuid.New()
+	if err := claimSlug(ctx, q, id, slug); err != nil {
+		return Project{}, err
+	}
+	p, err := q.CreateProject(ctx, db.CreateProjectParams{ID: id, OrgID: org.ID, Slug: slug, Name: name, Description: "", CreatedBy: &user})
 	if err != nil {
 		return Project{}, fmt.Errorf("projects: create project: %w", err)
 	}
@@ -274,7 +293,7 @@ func (s *Service) Available(ctx context.Context, slug string) (bool, []string, e
 		return false, nil, ErrInvalid
 	}
 	if !orgs.Reserved(slug) {
-		taken, err := db.New(s.pool).ProjectSlugTaken(ctx, slug)
+		taken, err := db.New(s.pool).ProjectSlugTaken(ctx, db.ProjectSlugTakenParams{Slug: slug, ReservedAfter: reservedAfter()})
 		if err != nil {
 			return false, nil, fmt.Errorf("projects: check slug: %w", err)
 		}
@@ -287,9 +306,12 @@ func (s *Service) Available(ctx context.Context, slug string) (bool, []string, e
 }
 
 // Suggest returns up to orgs.MaxSuggestions valid, unreserved slugs derived
-// from slug that no active project uses.
+// from slug that no active project uses and no rename reserves.
 func (s *Service) Suggest(ctx context.Context, slug string) ([]string, error) {
-	out, err := orgs.SuggestSlugs(ctx, slug, db.New(s.pool).TakenProjectSlugs)
+	q := db.New(s.pool)
+	out, err := orgs.SuggestSlugs(ctx, slug, func(ctx context.Context, slugs []string) ([]string, error) {
+		return q.TakenProjectSlugs(ctx, db.TakenProjectSlugsParams{Slugs: slugs, ReservedAfter: reservedAfter()})
+	})
 	if err != nil {
 		return nil, fmt.Errorf("projects: suggest slugs: %w", err)
 	}
@@ -419,6 +441,83 @@ func (s *Service) Update(ctx context.Context, user, id uuid.UUID, u Update) (Pro
 		return &audit.Event{Kind: audit.ProjectUpdated, Target: projectTarget(cur.ID, cur.Name), Changes: changes}, nil
 	})
 }
+
+// Rename changes the slug of the project id to slug on behalf of user, with
+// the rules of Create: an invalid slug is ErrInvalid; a reserved slug, one
+// another project uses (active or awaiting purge) or one a rename of another project retired
+// less than SlugReservation ago returns *SlugTakenError. The project may
+// take back a slug it used before. The old slug moves to
+// project_slug_history (it keeps resolving to the project and is reserved
+// for it), updated_at moves, and project.slug_changed is recorded in the
+// same transaction. Renaming to the current slug changes nothing.
+// Telemetry, keys and relationships are keyed by the project id: nothing
+// else moves.
+func (s *Service) Rename(ctx context.Context, user, id uuid.UUID, slug string) (Project, error) {
+	if !orgs.ValidSlug(slug) {
+		return Project{}, ErrInvalid
+	}
+	if orgs.Reserved(slug) {
+		return Project{}, s.taken(ctx, slug)
+	}
+	p, err := s.write(ctx, user, id, func(q *db.Queries, cur *db.LockActiveProjectRow) (*audit.Event, error) {
+		old := cur.Slug
+		if slug == old {
+			return nil, nil
+		}
+		// Both slugs change hands: lock them in a fixed order so two
+		// renames cannot deadlock (claimSlug's own lock then re-enters).
+		for _, l := range []string{min(old, slug), max(old, slug)} {
+			if err := q.LockProjectSlug(ctx, l); err != nil {
+				return nil, fmt.Errorf("projects: lock slug: %w", err)
+			}
+		}
+		if err := claimSlug(ctx, q, cur.ID, slug); err != nil {
+			return nil, err
+		}
+		r, err := q.SetProjectSlug(ctx, db.SetProjectSlugParams{ID: cur.ID, Slug: slug})
+		if err != nil {
+			return nil, fmt.Errorf("projects: rename: %w", err)
+		}
+		if err := q.RetireProjectSlug(ctx, db.RetireProjectSlugParams{Slug: old, ProjectID: cur.ID}); err != nil {
+			return nil, fmt.Errorf("projects: retire slug: %w", err)
+		}
+		cur.Slug, cur.UpdatedAt = r.Slug, r.UpdatedAt
+		return &audit.Event{
+			Kind:    audit.ProjectSlugChanged,
+			Target:  projectTarget(cur.ID, cur.Name),
+			Changes: audit.Diff(map[string]any{"slug": old}, map[string]any{"slug": slug}),
+		}, nil
+	})
+	if errors.Is(err, errSlugReserved) || isViolation(err, "23505", "projects_slug_active") || isViolation(err, "23505", "projects_slug_reserved") {
+		return Project{}, s.taken(ctx, slug)
+	}
+	return p, err
+}
+
+// claimSlug prepares slug for use by the project id in the transaction of
+// q: it takes the slug's advisory lock, answers errSlugReserved when
+// another project uses it (active or awaiting purge) or a rename of another
+// project retired it less than SlugReservation ago, and forgets the retired
+// slug so it stops resolving to its old project.
+func claimSlug(ctx context.Context, q *db.Queries, id uuid.UUID, slug string) error {
+	if err := q.LockProjectSlug(ctx, slug); err != nil {
+		return fmt.Errorf("projects: lock slug: %w", err)
+	}
+	reserved, err := q.ProjectSlugReservedFor(ctx, db.ProjectSlugReservedForParams{Slug: slug, ProjectID: id, ReservedAfter: reservedAfter()})
+	if err != nil {
+		return fmt.Errorf("projects: check slug: %w", err)
+	}
+	if reserved {
+		return errSlugReserved
+	}
+	if err := q.DeleteProjectSlugHistory(ctx, slug); err != nil {
+		return fmt.Errorf("projects: forget retired slug: %w", err)
+	}
+	return nil
+}
+
+// reservedAfter is the earliest retirement time that still reserves a slug.
+func reservedAfter() time.Time { return time.Now().Add(-SlugReservation) }
 
 // AddEnvironment adds the environment name to the project id on behalf of
 // user. Adding an environment the project already has changes nothing.

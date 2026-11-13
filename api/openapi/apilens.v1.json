@@ -8783,6 +8783,10 @@
             "readOnly": true,
             "type": "string"
           },
+          "canonical_slug": {
+            "description": "The project's current slug, to redirect to: a request that named the project by a slug a rename retired still resolves, and answers this slug here and in the Content-Location header.",
+            "type": "string"
+          },
           "commit_url_template": {
             "description": "URL of a commit in the repository with the placeholder {commit} for the URL-encoded commit id; null when no repository is set or its host's URL layout is not known (hosts other than github.com, gitlab.com and bitbucket.org).",
             "type": [
@@ -8897,7 +8901,8 @@
           "commit_url_template",
           "release_url_template",
           "paused_at",
-          "paused_by"
+          "paused_by",
+          "canonical_slug"
         ],
         "type": "object"
       },
@@ -9712,6 +9717,29 @@
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "RenameProjectInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RenameProjectInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "slug": {
+            "description": "The new slug, with the rules of create: lower-case letters, digits and hyphens, starting with a letter or digit, at most 63 characters, globally unique among projects.",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
         ],
         "type": "object"
       },
@@ -12248,7 +12276,7 @@
             "type": "string"
           },
           "slug": {
-            "description": "Must equal the current slug: slugs cannot be changed yet (slug_immutable).",
+            "description": "Must equal the current slug (slug_immutable): rename a project with POST /api/v1/projects/{slug}/rename.",
             "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
             "type": "string"
           }
@@ -21135,7 +21163,7 @@
     },
     "/api/v1/projects/slug-available": {
       "get": {
-        "description": "Answers whether a new project can use `slug` (project slugs are globally unique) and, when it cannot (taken or reserved), up to three free alternatives. Rate-limited per user.",
+        "description": "Answers whether a new project can use `slug` (project slugs are globally unique) and, when it cannot (taken, reserved, or retired by another project's rename less than 30 days ago), up to three free alternatives. Rate-limited per user.",
         "operationId": "check-project-slug",
         "parameters": [
           {
@@ -28105,6 +28133,148 @@
           }
         ],
         "summary": "Replace a privacy policy",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{slug}/rename": {
+      "post": {
+        "description": "Changes the project's slug and returns the project. The new slug follows the rules of create: a reserved slug, one another project uses or one another project's rename retired less than 30 days ago answers `slug_taken` (409) with up to three free `suggestions`; the project may take back a slug it used before. The old slug keeps leading to the project until another project takes it (every operation answers with the current slug in `Content-Location` and, on project responses, `canonical_slug`) and is reserved for the project for 30 days. Telemetry, keys and SDK setups are keyed by the project id: no data moves. Renaming to the current slug changes nothing. Needs `delete` on the project (project admins, organization owners and admins; 403 `forbidden` for editors and viewers). Emits `project.slug_changed`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
+        "operationId": "rename-project",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameProjectInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`, `reauth_required`.",
+            "x-apilens-codes": [
+              "forbidden",
+              "reauth_required"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `slug_taken`.",
+            "x-apilens-codes": [
+              "slug_taken"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Rename a project's slug",
         "tags": [
           "Projects"
         ]

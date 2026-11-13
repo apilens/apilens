@@ -127,6 +127,9 @@ const (
 	// purge.
 	ProjectDeleted  Kind = "project.deleted"
 	ProjectRestored Kind = "project.restored"
+	// ProjectSlugChanged: a project's slug is renamed; the old slug keeps
+	// leading to the project and is reserved for it for 30 days.
+	ProjectSlugChanged Kind = "project.slug_changed"
 )
 
 var kinds = []Kind{
@@ -145,6 +148,7 @@ var kinds = []Kind{
 	AuditLogExported, APIKeyExpired,
 	ProjectPaused, ProjectResumed,
 	ProjectDeleted, ProjectRestored,
+	ProjectSlugChanged,
 }
 
 // Kinds returns every known event kind, in catalogue order.

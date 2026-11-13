@@ -31,6 +31,7 @@ const (
 	ProjectResumePath        = ProjectPath + "/resume"
 	DeletedProjectsPath      = OrgProjectsPath + "/deleted"
 	RestoreProjectPath       = OrgProjectsPath + "/{id}/restore"
+	ProjectRenamePath        = ProjectPath + "/rename"
 )
 
 // ProjectService creates, reads, updates and deletes projects and their
@@ -44,6 +45,7 @@ type ProjectService interface {
 	Delete(ctx context.Context, user, id uuid.UUID, confirm string) (projects.Scheduled, error)
 	ListDeleted(ctx context.Context, orgID uuid.UUID) ([]projects.Scheduled, error)
 	Restore(ctx context.Context, user, orgID, id uuid.UUID) (projects.Project, error)
+	Rename(ctx context.Context, user, id uuid.UUID, slug string) (projects.Project, error)
 	AddEnvironment(ctx context.Context, user, id uuid.UUID, name string) (projects.Project, error)
 	RemoveEnvironment(ctx context.Context, user, id uuid.UUID, name string) (projects.Project, error)
 	ListEnvironments(ctx context.Context, id uuid.UUID) ([]projects.Environment, error)
@@ -73,6 +75,9 @@ type Project struct {
 	// Ingest pause (POST .../pause and .../resume).
 	PausedAt *time.Time `json:"paused_at" nullable:"true" doc:"When ingest was paused for the project: while set, the ingest edge answers 403 project_paused to every call made with the project's keys. Null while ingest is accepted."`
 	PausedBy *string    `json:"paused_by" format:"uuid" nullable:"true" doc:"The id of the user who paused ingest; null when ingest is not paused or the user is deleted."`
+
+	// CanonicalSlug is the slug clients redirect to (#794).
+	CanonicalSlug string `json:"canonical_slug" doc:"The project's current slug, to redirect to: a request that named the project by a slug a rename retired still resolves, and answers this slug here and in the Content-Location header."`
 }
 
 // ProjectOutput is the response of the single-project operations.
@@ -107,7 +112,7 @@ type UpdateProjectInput struct {
 	Body struct {
 		Name        *string `json:"name,omitempty" minLength:"1" maxLength:"100" doc:"Display name; surrounding spaces are trimmed."`
 		Description *string `json:"description,omitempty" maxLength:"280" doc:"Short description, at most 280 characters; surrounding spaces are trimmed and an empty string clears it."`
-		Slug        *string `json:"slug,omitempty" pattern:"^[a-z0-9][a-z0-9-]{0,62}$" doc:"Must equal the current slug: slugs cannot be changed yet (slug_immutable)."`
+		Slug        *string `json:"slug,omitempty" pattern:"^[a-z0-9][a-z0-9-]{0,62}$" doc:"Must equal the current slug (slug_immutable): rename a project with POST /api/v1/projects/{slug}/rename."`
 		// RepositoryURL is checked by projects.NormalizeRepositoryURL.
 		RepositoryURL *string `json:"repository_url,omitempty" maxLength:"2048" doc:"The https URL of the project's source repository on github.com, gitlab.com or bitbucket.org (any https host when the install sets integrations.allow_any_repository_host), at most 2048 characters. Surrounding spaces, a trailing slash and a trailing .git are dropped; an empty string removes the link."`
 	}
@@ -119,6 +124,15 @@ type AddEnvironmentInput struct {
 	ProjectSlugInput
 	Body struct {
 		Name string `json:"name" pattern:"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" doc:"Environment name: letters, digits, '.', '_' and '-', starting with a letter or digit, at most 64 characters."`
+	}
+}
+
+// RenameProjectInput is the request of POST
+// /api/v1/projects/{slug}/rename.
+type RenameProjectInput struct {
+	ProjectSlugInput
+	Body struct {
+		Slug string `json:"slug" pattern:"^[a-z0-9][a-z0-9-]{0,62}$" doc:"The new slug, with the rules of create: lower-case letters, digits and hyphens, starting with a letter or digit, at most 63 characters, globally unique among projects."`
 	}
 }
 
@@ -255,7 +269,7 @@ type Projects struct {
 	recentAuth time.Duration
 }
 
-// WithRecentAuth sets the sign-in age sensitive operations (delete) allow
+// WithRecentAuth sets the sign-in age sensitive operations (delete, rename) allow
 // and returns p.
 func (p *Projects) WithRecentAuth(maxAge time.Duration) *Projects {
 	p.recentAuth = maxAge
@@ -310,7 +324,7 @@ func (p *Projects) Register(api huma.API) {
 		Method:      http.MethodGet,
 		Path:        ProjectSlugAvailablePath,
 		Summary:     "Check whether a project slug is free",
-		Description: "Answers whether a new project can use `slug` (project slugs are globally unique) and, when it cannot (taken or reserved), up to three free alternatives. Rate-limited per user.",
+		Description: "Answers whether a new project can use `slug` (project slugs are globally unique) and, when it cannot (taken, reserved, or retired by another project's rename less than 30 days ago), up to three free alternatives. Rate-limited per user.",
 		Tags:        tags,
 		Security:    security,
 		Middlewares: huma.Middlewares{p.limiter.Limit(api, "project_slug_check", ratelimit.Rate{}, ratelimit.Key{Rate: p.slugCheck, From: userKey})},
@@ -374,6 +388,19 @@ func (p *Projects) Register(api huma.API) {
 		Security:    security,
 		Middlewares: huma.Middlewares{p.guard.RequireOrg(api, authz.OrgManage), authz.RequireRecentAuth(api, p.recentAuth)},
 	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeReauthRequired, identity.CodeAuthzUnavailable, identity.CodeInternal), p.restore)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "rename-project",
+		Method:      http.MethodPost,
+		Path:        ProjectRenamePath,
+		Summary:     "Rename a project's slug",
+		Description: "Changes the project's slug and returns the project. The new slug follows the rules of create: a reserved slug, one another project uses or one another project's rename retired less than 30 days ago answers `slug_taken` (409) with up to three free `suggestions`; the project may take back a slug it used before. " +
+			"The old slug keeps leading to the project until another project takes it (every operation answers with the current slug in `Content-Location` and, on project responses, `canonical_slug`) and is reserved for the project for 30 days. Telemetry, keys and SDK setups are keyed by the project id: no data moves. Renaming to the current slug changes nothing. " +
+			"Needs `delete` on the project (project admins, organization owners and admins; 403 `forbidden` for editors and viewers). Emits `project.slug_changed`. " + recentAuth + hidden,
+		Tags:        tags,
+		Security:    security,
+		Middlewares: huma.Middlewares{authz.RequireRecentAuth(api, p.recentAuth)},
+	}, identity.CodeInvalidRequest, identity.CodeSlugTaken, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeReauthRequired, identity.CodeAuthzUnavailable, identity.CodeInternal), p.rename)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "add-project-environment",
@@ -503,6 +530,8 @@ func toProject(pr projects.Project) Project {
 
 		PausedAt: utcPtr(pr.PausedAt),
 		PausedBy: uuidPtr(pr.PausedBy),
+
+		CanonicalSlug: pr.Slug,
 	}
 }
 
@@ -690,6 +719,18 @@ func (p *Projects) restore(ctx context.Context, in *RestoreProjectInput) (*Proje
 	// this request.
 	pr.Role = projects.RoleAdmin
 	return &ProjectOutput{Body: toProject(pr)}, nil
+}
+
+func (p *Projects) rename(ctx context.Context, in *RenameProjectInput) (*ProjectOutput, error) {
+	out, err := p.project(ctx, "rename project", in.Slug, authz.ProjectDelete, func(id, user uuid.UUID) (projects.Project, error) {
+		return p.svc.Rename(ctx, user, id, in.Body.Slug)
+	})
+	if err == nil {
+		// Both slugs now resolve differently: the old one to the project
+		// under its new canonical slug, the new one for the first time.
+		p.guard.ForgetProject(in.Slug, in.Body.Slug)
+	}
+	return out, err
 }
 
 func (p *Projects) addEnvironment(ctx context.Context, in *AddEnvironmentInput) (*ProjectOutput, error) {
