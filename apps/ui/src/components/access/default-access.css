@@ -1,0 +1,24 @@
+/* Access › Members › Default access card (#808), on top of org-settings.css (.os-card). Tokens from tokens.css only. */
+.da { margin-bottom: var(--space-6); }
+.da .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+.da-choices { min-width: 0; margin: var(--space-4) 0 0; padding: 0; border: 0; }
+.da-choice { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer; }
+.da-choice + .da-choice { margin-top: var(--space-2); }
+.da-choice.on { border-color: var(--accent); background: var(--ok-soft); }
+.da-choice input { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
+.da-choice b { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font: 500 13px/18px var(--font-sans); color: var(--ink); }
+.da-choice > span > span { display: block; margin-top: 2px; font: 400 12.5px/18px var(--font-sans); color: var(--ink-muted); }
+.da-choice:has(input:focus-visible) { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.da-choices:disabled .da-choice { cursor: not-allowed; }
+.da-choices:disabled .da-choice:not(.on) { opacity: .7; }
+
+.da-current { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface-2); font: 500 11px/1 var(--font-sans); color: var(--ink-muted); }
+
+.da-impact b { color: var(--ink); font-weight: 500; }
+
+/* The "Restricted" label next to the project's name in the page header. */
+.da-restricted { display: inline-flex; align-items: center; height: 18px; margin-left: 8px; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border)); border-radius: var(--radius-pill); background: var(--warn-soft); color: var(--warn); font: 500 11px/1 var(--font-sans); letter-spacing: 0; text-transform: none; vertical-align: 1px; }
+
+.da .os-card__foot .os-status { min-width: 0; margin: 0 auto 0 0; }
+.da .os-card__foot .ah-btn { flex: none; }
