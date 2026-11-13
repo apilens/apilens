@@ -26,6 +26,7 @@ import (
 	controlplaneapi "github.com/apilens/apilens/internal/controlplane/api"
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
 	appsvc "github.com/apilens/apilens/internal/controlplane/apps"
+	"github.com/apilens/apilens/internal/controlplane/auditlog"
 	"github.com/apilens/apilens/internal/controlplane/capture"
 	"github.com/apilens/apilens/internal/controlplane/catalog"
 	"github.com/apilens/apilens/internal/controlplane/orgs"
@@ -491,6 +492,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Apps:          appService,
 		AppRejections: appRejections,
 		Access:        access.New(a.pool),
+		Audit:         auditlog.New(a.pool, a.checker()),
 		Projects:      projects.New(a.pool).WithAudit(audit.New(a.pool)),
 		APIKeys:       apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger).WithMaxKeys(a.cfg.Ingest.MaxKeysPerProject),
 		Privacy:       privacy.NewService(a.pool),

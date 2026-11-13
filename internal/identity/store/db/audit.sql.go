@@ -87,20 +87,28 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventPara
 const listAuditEventsForOrg = `-- name: ListAuditEventsForOrg :many
 SELECT id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at, org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label FROM audit_events
 WHERE org_id = $1::uuid
-  AND ($2::uuid IS NULL OR actor_user_id = $2::uuid)
-  AND ($3::text IS NULL OR starts_with(event, $3::text))
-  AND ($4::timestamptz IS NULL OR created_at >= $4::timestamptz)
-  AND ($5::timestamptz IS NULL OR created_at < $5::timestamptz)
-  AND ($6::timestamptz IS NULL
-       OR (created_at, id) < ($6::timestamptz, $7::bigint))
+  AND (project_id IS NULL OR project_id = ANY($2::uuid[]))
+  AND ($3::uuid IS NULL OR actor_user_id = $3::uuid)
+  AND ($4::text IS NULL OR event = $4::text)
+  AND ($5::text IS NULL OR starts_with(event, $5::text))
+  AND ($6::text IS NULL OR target_type = $6::text)
+  AND ($7::text IS NULL OR strpos(lower(target_label), lower($7::text)) > 0)
+  AND ($8::timestamptz IS NULL OR created_at >= $8::timestamptz)
+  AND ($9::timestamptz IS NULL OR created_at < $9::timestamptz)
+  AND ($10::timestamptz IS NULL
+       OR (created_at, id) < ($10::timestamptz, $11::bigint))
 ORDER BY created_at DESC, id DESC
-LIMIT $8
+LIMIT $12
 `
 
 type ListAuditEventsForOrgParams struct {
 	OrgID           uuid.UUID
+	VisibleProjects []uuid.UUID
 	ActorUserID     *uuid.UUID
+	Event           *string
 	EventPrefix     *string
+	TargetType      *string
+	TargetLabel     *string
 	FromTime        *time.Time
 	ToTime          *time.Time
 	BeforeCreatedAt *time.Time
@@ -108,15 +116,21 @@ type ListAuditEventsForOrgParams struct {
 	PageSize        int32
 }
 
-// An organization's events (its projects' included), newest first,
-// keyset-paginated like ListAuditEventsForUser. Optional filters: actor,
-// event prefix ('member.' or 'api_key.created'), and a [from, to) time range.
-// Served by audit_events_org_created.
+// An organization's events, newest first, keyset-paginated like
+// ListAuditEventsForUser. Org-wide events (no project) are always included;
+// project events only for the projects in visible_projects (the ones the
+// caller can view). Optional filters: actor, exact event or event prefix
+// ('api_key.'), target type, a [from, to) time range, and text the target
+// label contains (case-insensitive). Served by audit_events_org_created.
 func (q *Queries) ListAuditEventsForOrg(ctx context.Context, arg ListAuditEventsForOrgParams) ([]AuditEvent, error) {
 	rows, err := q.db.Query(ctx, listAuditEventsForOrg,
 		arg.OrgID,
+		arg.VisibleProjects,
 		arg.ActorUserID,
+		arg.Event,
 		arg.EventPrefix,
+		arg.TargetType,
+		arg.TargetLabel,
 		arg.FromTime,
 		arg.ToTime,
 		arg.BeforeCreatedAt,
@@ -162,19 +176,25 @@ const listAuditEventsForProject = `-- name: ListAuditEventsForProject :many
 SELECT id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at, org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label FROM audit_events
 WHERE project_id = $1::uuid
   AND ($2::uuid IS NULL OR actor_user_id = $2::uuid)
-  AND ($3::text IS NULL OR starts_with(event, $3::text))
-  AND ($4::timestamptz IS NULL OR created_at >= $4::timestamptz)
-  AND ($5::timestamptz IS NULL OR created_at < $5::timestamptz)
-  AND ($6::timestamptz IS NULL
-       OR (created_at, id) < ($6::timestamptz, $7::bigint))
+  AND ($3::text IS NULL OR event = $3::text)
+  AND ($4::text IS NULL OR starts_with(event, $4::text))
+  AND ($5::text IS NULL OR target_type = $5::text)
+  AND ($6::text IS NULL OR strpos(lower(target_label), lower($6::text)) > 0)
+  AND ($7::timestamptz IS NULL OR created_at >= $7::timestamptz)
+  AND ($8::timestamptz IS NULL OR created_at < $8::timestamptz)
+  AND ($9::timestamptz IS NULL
+       OR (created_at, id) < ($9::timestamptz, $10::bigint))
 ORDER BY created_at DESC, id DESC
-LIMIT $8
+LIMIT $11
 `
 
 type ListAuditEventsForProjectParams struct {
 	ProjectID       uuid.UUID
 	ActorUserID     *uuid.UUID
+	Event           *string
 	EventPrefix     *string
+	TargetType      *string
+	TargetLabel     *string
 	FromTime        *time.Time
 	ToTime          *time.Time
 	BeforeCreatedAt *time.Time
@@ -188,7 +208,10 @@ func (q *Queries) ListAuditEventsForProject(ctx context.Context, arg ListAuditEv
 	rows, err := q.db.Query(ctx, listAuditEventsForProject,
 		arg.ProjectID,
 		arg.ActorUserID,
+		arg.Event,
 		arg.EventPrefix,
+		arg.TargetType,
+		arg.TargetLabel,
 		arg.FromTime,
 		arg.ToTime,
 		arg.BeforeCreatedAt,
