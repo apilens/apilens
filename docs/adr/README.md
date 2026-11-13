@@ -14,3 +14,4 @@ decision, and what would make us revisit it. New ADRs are proposed in a PR
 | [0006](0006-authorization-spicedb.md) | Authorization with SpiceDB and a transactional outbox | Accepted (M2) |
 | [0007](0007-ai-ml-python-service.md) | AI/ML as a separate Python service with bring-your-own LLM | Accepted (M4) |
 | [0008](0008-background-jobs.md) | Background jobs with River (Go) and DBOS (Python) | Accepted (M2–M4) |
+| [0009](0009-project-access.md) | Project access: Admin/Editor/Viewer roles, per-project default access, highest grant wins | Accepted (M4) |
