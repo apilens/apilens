@@ -555,7 +555,11 @@ Served by the identity role and authenticated with the session scheme
   the stored object; `preferences.home` is one of `endpoints`, `requests`,
   `exceptions`, and `preferences.last_project_slug` is a project slug (or
   empty to clear it) that `/users/me/context` returns as
-  `last_project_slug`. Unknown fields fail validation (`422`). Audited as
+  `last_project_slug`. `preferences.security_emails` (a boolean, on unless
+  set to `false`) turns off the project change emails sent to project
+  admins (`internal/controlplane/notify`: API key created, rotated or
+  revoked, default access changed, project paused, resumed or restored);
+  the deletion email is always sent. Unknown fields fail validation (`422`). Audited as
   `user.updated` with the changed field names, never their values.
 - `PATCH /api/v1/users/me/onboarding` (`internal/identity/onboarding.go`)
   saves onboarding progress so a refresh resumes: `step` replaces the stored

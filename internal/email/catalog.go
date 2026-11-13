@@ -62,7 +62,87 @@ const (
 	// user's address when they confirm who they are again before a
 	// sensitive action (re-authentication); no sign-in link.
 	TemplateReauthCode = "reauth_code"
+	// TemplateProjectChange: change (one of the ProjectChange values),
+	// project (name), slug (for the /<slug>/... link), actor (name or email
+	// of who made the change), detail (the key name for key changes, the
+	// new default access for default_access_changed, else empty) and time.
+	// Sent to project admins by internal/controlplane/notify unless they
+	// turned off the security_emails preference.
+	TemplateProjectChange = "project_change"
+	// TemplateProjectDeletionScheduled: project (name), slug, actor, time
+	// and purge_at (when the project is removed for good). Sent to every
+	// project admin, whatever their security_emails preference.
+	TemplateProjectDeletionScheduled = "project_deletion_scheduled"
 )
+
+// Values of the project_change template's change field. An unknown value
+// fails the render.
+const (
+	ProjectChangeKeyCreated           = "api_key_created"
+	ProjectChangeKeyRotated           = "api_key_rotated"
+	ProjectChangeKeyRevoked           = "api_key_revoked"
+	ProjectChangeDefaultAccessChanged = "default_access_changed"
+	ProjectChangeRestored             = "project_restored"
+	ProjectChangePaused               = "project_paused"
+	ProjectChangeResumed              = "project_resumed"
+)
+
+// ProjectChanges lists every ProjectChange value in display order.
+var ProjectChanges = []string{
+	ProjectChangeKeyCreated, ProjectChangeKeyRotated, ProjectChangeKeyRevoked,
+	ProjectChangeDefaultAccessChanged,
+	ProjectChangeRestored, ProjectChangePaused, ProjectChangeResumed,
+}
+
+// ProjectCopy is the wording of one project_change email.
+type ProjectCopy struct {
+	Subject string // sentence case, no trailing full stop
+	Summary string // one sentence for the body
+	Path    string // UI page the button opens, under /<slug>
+	Button  string // button label
+}
+
+// projectChangeCopy returns the copy for change in project, made by actor;
+// detail is the key name or the new default access. It is a template
+// function: the template that prints the copy escapes it.
+func projectChangeCopy(change, project, actor, detail string) (ProjectCopy, error) {
+	keys := ProjectCopy{Path: "/access", Button: "Review API keys"}
+	danger := ProjectCopy{Path: "/settings/danger", Button: "Open project settings"}
+	var c ProjectCopy
+	switch change {
+	case ProjectChangeKeyCreated:
+		c = keys
+		c.Subject = fmt.Sprintf("An API key was created in %s", project)
+		c.Summary = fmt.Sprintf("%s created the API key \"%s\" in the project %s.", actor, detail, project)
+	case ProjectChangeKeyRotated:
+		c = keys
+		c.Subject = fmt.Sprintf("An API key was rotated in %s", project)
+		c.Summary = fmt.Sprintf("%s rotated the API key \"%s\" in the project %s. The old secret stops working when the overlap window ends.", actor, detail, project)
+	case ProjectChangeKeyRevoked:
+		c = keys
+		c.Subject = fmt.Sprintf("An API key was revoked in %s", project)
+		c.Summary = fmt.Sprintf("%s revoked the API key \"%s\" in the project %s. SDKs that use it can no longer send data.", actor, detail, project)
+	case ProjectChangeDefaultAccessChanged:
+		c = ProjectCopy{Path: "/access", Button: "Review access"}
+		c.Subject = fmt.Sprintf("Default access to %s changed", project)
+		c.Summary = fmt.Sprintf("%s changed what organization members get on the project %s to: %s.", actor, project, detail)
+	case ProjectChangeRestored:
+		c = danger
+		c.Subject = fmt.Sprintf("The project %s was restored", project)
+		c.Summary = fmt.Sprintf("%s restored the project %s. Its deletion is cancelled and ingest is accepted again.", actor, project)
+	case ProjectChangePaused:
+		c = danger
+		c.Subject = fmt.Sprintf("The project %s was paused", project)
+		c.Summary = fmt.Sprintf("%s paused the project %s. Ingest is rejected until it is resumed.", actor, project)
+	case ProjectChangeResumed:
+		c = danger
+		c.Subject = fmt.Sprintf("The project %s was resumed", project)
+		c.Summary = fmt.Sprintf("%s resumed the project %s. Ingest is accepted again.", actor, project)
+	default:
+		return ProjectCopy{}, fmt.Errorf("project_change: unknown change %q", change)
+	}
+	return c, nil
+}
 
 // Values of the security_change template's change field. An unknown value
 // fails the render rather than sending a vague alert.

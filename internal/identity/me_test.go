@@ -85,7 +85,7 @@ func TestGetMe(t *testing.T) {
 	}
 	want := map[string]any{
 		"id": p.UserID.String(), "email": "ada@example.com", "email_verified": false, "name": "Ada", "avatar_url": "",
-		"preferences": map[string]any{"home": "requests", "last_project_slug": "checkout"},
+		"preferences": map[string]any{"home": "requests", "last_project_slug": "checkout", "security_emails": true},
 		"onboarding":  map[string]any{"step": "about"},
 		"created_at":  "2026-01-02T03:04:05Z",
 		"amr":         []any{"passkey"},
@@ -99,6 +99,18 @@ func TestGetMe(t *testing.T) {
 	}
 	if len(svc.ids) != 1 || svc.ids[0] != p.UserID {
 		t.Fatalf("service called with %v", svc.ids)
+	}
+}
+
+func TestNewMeSecurityEmails(t *testing.T) {
+	for stored, want := range map[string]bool{
+		`{}`:                        true,
+		`{"security_emails":true}`:  true,
+		`{"security_emails":false}`: false,
+	} {
+		if got := NewMe(db.User{Preferences: []byte(stored)}, nil).Preferences.SecurityEmails; got != want {
+			t.Errorf("%s: security_emails = %v, want %v", stored, got, want)
+		}
 	}
 }
 
@@ -132,18 +144,27 @@ func TestPatchMeBuildsPatch(t *testing.T) {
 		t.Fatalf("patch = %+v", got)
 	}
 
+	resp = api.Patch(MePath, map[string]any{"preferences": map[string]any{"security_emails": false}})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("security emails: status = %d: %s", resp.Code, resp.Body)
+	}
+	if got := svc.patches[3]; len(got.Preferences) != 1 || got.Preferences["security_emails"] != false {
+		t.Fatalf("patch = %+v", got)
+	}
+
 	for name, body := range map[string]map[string]any{
-		"bad home":         {"preferences": map[string]any{"home": "dashboard"}},
-		"bad last project": {"preferences": map[string]any{"last_project_slug": "Not A Slug"}},
-		"unknown pref":     {"preferences": map[string]any{"colour": "red"}},
-		"bad avatar":       {"avatar_url": "ftp://x"},
-		"long name":        {"name": strings.Repeat("a", 121)},
+		"bad security emails": {"preferences": map[string]any{"security_emails": "no"}},
+		"bad home":            {"preferences": map[string]any{"home": "dashboard"}},
+		"bad last project":    {"preferences": map[string]any{"last_project_slug": "Not A Slug"}},
+		"unknown pref":        {"preferences": map[string]any{"colour": "red"}},
+		"bad avatar":          {"avatar_url": "ftp://x"},
+		"long name":           {"name": strings.Repeat("a", 121)},
 	} {
 		if resp := api.Patch(MePath, body); resp.Code != http.StatusUnprocessableEntity {
 			t.Errorf("%s: status = %d", name, resp.Code)
 		}
 	}
-	if len(svc.patches) != 3 {
+	if len(svc.patches) != 4 {
 		t.Fatalf("invalid bodies reached the service: %d calls", len(svc.patches))
 	}
 }

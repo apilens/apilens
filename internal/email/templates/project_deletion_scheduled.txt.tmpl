@@ -1,0 +1,16 @@
+{{- /* Data: project, slug, actor, time, purge_at. */ -}}
+{{define "subject"}}The project {{.project}} is scheduled for deletion{{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+{{.actor}} deleted the project {{.project}}. Ingest for it is rejected from now on, and its data is removed for good on {{datetime .purge_at}}.
+
+Project: {{.project}}
+Deleted by: {{.actor}}
+Time: {{datetime .time}}
+Removed for good: {{datetime .purge_at}}
+
+Until then, any admin of the project can restore it from Project settings, Danger zone:
+{{link (print "/" (seg .slug) "/settings/danger")}}
+
+You get this email because you are an admin of {{.project}}. Deletion emails are always sent.
+{{- end}}

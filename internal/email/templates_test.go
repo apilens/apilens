@@ -67,6 +67,20 @@ var sampleData = map[string]map[string]any{
 		"expected_status": "200", "started_at": "2026-11-04T09:30:00Z", "ended_at": "2026-11-04T09:41:00Z",
 		"project": "shop",
 	},
+	"project_change": {
+		"change": "api_key_created", "project": "Shop <EU>", "slug": "shop-eu", "actor": "Ada Lovelace",
+		"detail": "checkout <prod>", "time": "2026-11-04T09:30:00Z",
+	},
+	"project_deletion_scheduled": {
+		"project": "Shop <EU>", "slug": "shop-eu", "actor": "Ada Lovelace",
+		"time": "2026-11-04T09:30:00Z", "purge_at": "2026-11-11T09:30:00Z",
+	},
+}
+
+// projectChangeDetail is the detail each project_change variant is sent with.
+var projectChangeDetail = map[string]string{
+	ProjectChangeKeyCreated: "checkout <prod>", ProjectChangeKeyRotated: "checkout <prod>",
+	ProjectChangeKeyRevoked: "checkout <prod>", ProjectChangeDefaultAccessChanged: "everyone in the organization can view",
 }
 
 func defaultRenderer(t *testing.T) *Renderer {
@@ -138,9 +152,15 @@ func TestTemplatesCopyAndLinks(t *testing.T) {
 	}
 	var cases []tc
 	for name, data := range sampleData {
-		if name != "security_change" { // covered below, once per change
+		if name != "security_change" && name != "project_change" { // covered below, once per change
 			cases = append(cases, tc{name, data})
 		}
+	}
+	for _, change := range ProjectChanges {
+		data := maps.Clone(sampleData["project_change"])
+		data["change"] = change
+		data["detail"] = projectChangeDetail[change]
+		cases = append(cases, tc{"project_change", data})
 	}
 	for _, change := range securityChanges {
 		data := map[string]any{}
@@ -204,6 +224,40 @@ func TestSecurityChangeUnknown(t *testing.T) {
 	data["change"] = "nope"
 	if _, err := defaultRenderer(t).Render("security_change", "a@example.com", data); err == nil {
 		t.Error("unknown change rendered")
+	}
+}
+
+func TestProjectChangeUnknown(t *testing.T) {
+	data := maps.Clone(sampleData["project_change"])
+	data["change"] = "nope"
+	if _, err := defaultRenderer(t).Render("project_change", "a@example.com", data); err == nil {
+		t.Error("unknown change rendered")
+	}
+}
+
+// TestProjectChangeVariants renders every project_change value: each names
+// the project and the actor, and links into the project.
+func TestProjectChangeVariants(t *testing.T) {
+	r := defaultRenderer(t)
+	for _, change := range ProjectChanges {
+		data := maps.Clone(sampleData["project_change"])
+		data["change"] = change
+		data["detail"] = projectChangeDetail[change]
+		msg, err := r.Render("project_change", "admin@example.com", data)
+		if err != nil {
+			t.Fatalf("%s: %v", change, err)
+		}
+		for _, want := range []string{"Shop <EU>", "Ada Lovelace", testUIURL + "/shop-eu/", testUIURL + "/settings"} {
+			if !strings.Contains(msg.Text, want) {
+				t.Errorf("%s: text lacks %q", change, want)
+			}
+		}
+		if d := projectChangeDetail[change]; d != "" && !strings.Contains(msg.Text, d) {
+			t.Errorf("%s: text lacks the detail %q", change, d)
+		}
+		if strings.Contains(msg.HTML, "<EU>") || !strings.Contains(msg.HTML, "Shop &lt;EU&gt;") {
+			t.Errorf("%s: HTML does not escape the project name", change)
+		}
 	}
 }
 

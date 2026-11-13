@@ -7939,8 +7939,15 @@
           "last_project_slug": {
             "description": "Slug of the project the user last opened.",
             "type": "string"
+          },
+          "security_emails": {
+            "description": "Whether the user gets an email when a project they administer changes (API keys, default access, pause, restore). On unless turned off; deletion emails are always sent.",
+            "type": "boolean"
           }
         },
+        "required": [
+          "security_emails"
+        ],
         "type": "object"
       },
       "PreferencesPatch": {
@@ -7959,6 +7966,10 @@
             "description": "Slug of the project the user last opened, or empty to clear it. It is not checked against the user's projects; /users/me/context drops one they cannot see.",
             "pattern": "^([a-z0-9][a-z0-9-]{0,62})?$",
             "type": "string"
+          },
+          "security_emails": {
+            "description": "Turn the project change emails sent to project admins on or off. Deletion emails are always sent.",
+            "type": "boolean"
           }
         },
         "type": "object"
