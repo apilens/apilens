@@ -255,6 +255,13 @@ type Querier interface {
 	// Every key of the project, revoked ones included, newest first, with its
 	// creator (NULL when unknown or the account is deleted).
 	ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) ([]ListProjectAPIKeysRow, error)
+	// Every org member who can view the project (ADR 0009), with what each
+	// source grants as a rank (0 none, 1 viewer, 2 editor, 3 admin): the org
+	// role (owners and admins are admin), the project default access and a
+	// direct grant. The effective rank is the highest. Filters: q (substring of
+	// name or email; the caller escapes LIKE wildcards), effective_rank, source
+	// (org_role, default, direct). Keyset pagination on (email, user_id).
+	ListProjectAccess(ctx context.Context, arg ListProjectAccessParams) ([]ListProjectAccessRow, error)
 	ListProjectAppAliases(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppAliasesRow, error)
 	// The active apps of a project with an app-wide Apdex threshold.
 	ListProjectAppLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]ListProjectAppLatencyThresholdsRow, error)
