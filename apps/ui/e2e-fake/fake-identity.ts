@@ -272,8 +272,9 @@
 //   GET  /api/v1/projects/shop/retention           the retention per signal at the install defaults
 //   POST /__fake/project {project?, deleted?, down?}  test hooks: replace shop's fields, the deleted
 //   POST /__fake/environments {environments?}      projects, the environments, the retention signals;
-//   POST /__fake/retention {signals?}              an omitted field goes back to the measured seed, so
-//                                                  {} resets; `down`: shop's settings reads answer 503
+//   POST /__fake/retention {signals?, delay_ms?}   an omitted field goes back to the measured seed, so
+//                                                  {} resets; `down`: shop's settings reads answer 503;
+//                                                  `delay_ms`: the retention read waits that long
 //
 // Nothing here sends mail or talks to a real provider. Run with
 // `node --experimental-strip-types e2e-fake/fake-identity.ts` (Playwright starts it).
@@ -3794,6 +3795,8 @@ const projectState = {
   environments: measuredEnvironments(),
   deleted: measuredDeletedProjects(),
   retention: measuredRetention(),
+  /** How long `GET .../retention` waits before answering (#818: the loading state). */
+  retentionDelayMs: 0,
   down: false,
 };
 
@@ -3837,6 +3840,7 @@ async function projectSettings(req: IncomingMessage, res: ServerResponse, path: 
   if (req.method === "POST" && path === "/__fake/retention") {
     const b = await readBody(req);
     projectState.retention = Array.isArray(b.signals) ? (b.signals as Record<string, unknown>[]) : measuredRetention();
+    projectState.retentionDelayMs = typeof b.delay_ms === "number" ? b.delay_ms : 0;
     return send(res, 204), true;
   }
 
@@ -3925,6 +3929,7 @@ async function projectSettings(req: IncomingMessage, res: ServerResponse, path: 
 
   if (sub === "retention") {
     if (req.method !== "GET") return problem(res, 405, "method_not_allowed"), true;
+    if (projectState.retentionDelayMs > 0) await new Promise((r) => setTimeout(r, projectState.retentionDelayMs));
     return send(res, 200, { signals: projectState.retention }), true;
   }
 

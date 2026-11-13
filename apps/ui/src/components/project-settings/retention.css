@@ -1,0 +1,28 @@
+/* Project settings › Retention (#818). Cards from Organization settings (.os-card), the table from
+   Security › Passkeys (.pk-table, rows become stacked cards on narrow screens). */
+.rt-lede { margin: var(--space-2) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.rt > .pk-load-err { margin-bottom: var(--space-6); }
+.rt .os-card__head code { font: 400 12px/18px var(--font-mono); color: var(--ink); }
+
+.rt-table th[scope="row"] { width: 44%; padding: var(--space-3) var(--space-3) var(--space-3) 0; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; white-space: normal; }
+.rt-table tbody tr:last-child th { border-bottom: 0; }
+.rt-table td { vertical-align: top; }
+.rt-label { display: block; font: 500 13px/20px var(--font-sans); color: var(--ink); }
+.rt-covers { display: block; margin-top: 2px; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.rt-period { font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rt-fixed { display: inline-flex; align-items: center; height: 18px; margin-left: var(--space-2); padding: 0 var(--space-2); border-radius: var(--radius-pill); background: var(--surface-2); font: 500 11px/1 var(--font-sans); color: var(--ink-muted); }
+
+.rt-bone-row { display: flex; align-items: center; gap: var(--space-4); padding: 14px 0; border-top: 1px solid var(--border); }
+.rt-bone-row:first-child { border-top: 0; }
+.rt-bone { display: block; height: 10px; border-radius: 5px; background: var(--surface-2); animation: rt-pulse 1.4s ease-in-out infinite; }
+.rt-bone--name { width: 34%; }
+.rt-bone--cell { width: 14%; }
+.rt-bone--wide { flex: 1; }
+@keyframes rt-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .rt-bone { animation: none; } }
+
+@media (max-width: 860px) {
+  .rt-table th[scope="row"] { display: block; width: auto; padding: 0 0 var(--space-2); border-bottom: 0; }
+  .rt-period { white-space: normal; }
+  .rt-bone--cell { display: none; }
+}
