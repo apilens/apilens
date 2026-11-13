@@ -178,6 +178,18 @@ runs in a transaction (`audit.WithTx`), the event is written in it, so it
 commits or rolls back with the change it describes. Kinds are stable once
 shipped; a test checks that this table lists every one.
 
+Organization and project events also carry their scope (`org_id`,
+`project_id`), the target acted on (`target_type`, `target_id`,
+`target_label`, for example `api_key` / its id / its name) and, for a change,
+`changes` as `{"previous": ..., "next": ...}`. The recorder fills
+`request_id` from the request context (`audit.Middleware` assigns a fresh id
+per request and returns it as the `X-Request-Id` response header; an incoming
+one is ignored) and `actor_label` from the actor's name, or email, at the
+time. `changes` never holds secrets: `Record` refuses a change whose secret
+fields (`client_secret`, `key_hash`, `*_token`, ...) carry a value or that
+contains API key material, and `audit.Redact` masks secret fields as
+`[redacted]` so a change can still say that a secret changed.
+
 | Kind | Recorded when |
 |---|---|
 | `user.created` | an account is created (sign-up, invitation, or an operator's `apilens seed` / `apilens user create`: `method` `operator`) |

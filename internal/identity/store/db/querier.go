@@ -185,7 +185,9 @@ type Querier interface {
 	// Counts one wrong code guess on a live row and returns the new count.
 	// Returns pgx.ErrNoRows when the row is no longer live.
 	IncrementEmailTokenAttempts(ctx context.Context, id uuid.UUID) (int32, error)
-	// Records a security-relevant event about a user's account.
+	// Records a security-relevant event, scoped to an organization and project
+	// when it belongs to one. actor_label is the actor's name (or email) now, so
+	// the row stays readable after the actor is purged.
 	InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) (AuditEvent, error)
 	// Only identity reads or writes signing keys (ADR 0005). Pass
 	// activated_at = NULL to publish a key in JWKS before it signs.

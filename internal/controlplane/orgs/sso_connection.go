@@ -336,10 +336,17 @@ func (s *SSOConnections) Put(ctx context.Context, user uuid.UUID, slug string, s
 	if err != nil {
 		return SSOConnection{}, false, fmt.Errorf("orgs: save sso connection: %w", err)
 	}
+	var previous any
+	if exists {
+		previous = ssoValues(cur, false)
+	}
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
-		User:  &user,
-		Actor: &user,
-		Kind:  audit.SSOUpdated,
+		User:    &user,
+		Actor:   &user,
+		Kind:    audit.SSOUpdated,
+		Org:     &org,
+		Target:  ssoTarget(org, c.Issuer),
+		Changes: &audit.Changes{Previous: previous, Next: ssoValues(c, secretChanged)},
 		Meta: map[string]any{
 			"org_id":         org.String(),
 			"slug":           orgSlug,
@@ -355,6 +362,25 @@ func (s *SSOConnections) Put(ctx context.Context, user uuid.UUID, slug string, s
 		return SSOConnection{}, false, fmt.Errorf("orgs: commit: %w", err)
 	}
 	return toSSOConnection(c, orgSlug), !exists, nil
+}
+
+// ssoTarget is the audit target of an SSO event: the organization's
+// connection, labelled with its issuer.
+func ssoTarget(org uuid.UUID, issuer string) audit.Target {
+	return audit.Target{Type: "sso_connection", ID: org.String(), Label: issuer}
+}
+
+// ssoValues are the settings of c as audit changes record them. The client
+// secret is never recorded: when it changed, it shows as audit.Redacted.
+func ssoValues(c db.OrgSsoConnection, secretChanged bool) map[string]any {
+	m := map[string]any{
+		"issuer": c.Issuer, "client_id": c.ClientID, "domains": c.Domains,
+		"enforce": c.Enforce, "default_role": c.DefaultRole,
+	}
+	if secretChanged {
+		m["client_secret"] = audit.Redacted
+	}
+	return m
 }
 
 // ssoChanged lists the settings that differ between before and after, for
@@ -388,6 +414,13 @@ func (s *SSOConnections) Delete(ctx context.Context, user uuid.UUID, slug string
 	if err != nil {
 		return err
 	}
+	cur, err := q.GetOrgSSOConnection(ctx, org)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrSSONotConfigured
+	}
+	if err != nil {
+		return fmt.Errorf("orgs: get sso connection: %w", err)
+	}
 	n, err := q.DeleteOrgSSOConnection(ctx, org)
 	if err != nil {
 		return fmt.Errorf("orgs: delete sso connection: %w", err)
@@ -396,10 +429,13 @@ func (s *SSOConnections) Delete(ctx context.Context, user uuid.UUID, slug string
 		return ErrSSONotConfigured
 	}
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
-		User:  &user,
-		Actor: &user,
-		Kind:  audit.SSODeleted,
-		Meta:  map[string]any{"org_id": org.String(), "slug": orgSlug},
+		User:    &user,
+		Actor:   &user,
+		Kind:    audit.SSODeleted,
+		Org:     &org,
+		Target:  ssoTarget(org, cur.Issuer),
+		Changes: &audit.Changes{Previous: ssoValues(cur, false)},
+		Meta:    map[string]any{"org_id": org.String(), "slug": orgSlug},
 	}); err != nil {
 		return err
 	}

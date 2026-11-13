@@ -145,6 +145,23 @@ func TestCreateAndListAPIKeys(t *testing.T) {
 	if strings.Contains(raw, c.Key) || strings.Contains(raw, apikeys.Hash(c.Key)) {
 		t.Fatalf("audit metadata leaks the key: %s", raw)
 	}
+	// Scoped to the org and project, with the key as target, the member's name as
+	// actor_label and the new settings as changes, never the key itself.
+	var orgID, projectID uuid.UUID
+	var targetType, targetID, targetLabel, actorLabel, changes string
+	if err := f.pool.QueryRow(f.ctx, `SELECT org_id, project_id, target_type, target_id, target_label, actor_label, changes::text
+		FROM audit_events WHERE event = 'api_key.created'`).Scan(&orgID, &projectID, &targetType, &targetID, &targetLabel, &actorLabel, &changes); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count(t, `SELECT count(*) FROM projects WHERE id = $1 AND org_id = $2`, p.ID, orgID); n != 1 || projectID.String() != p.ID {
+		t.Fatalf("audit scope = org %s project %s, want project %s", orgID, projectID, p.ID)
+	}
+	if targetType != "api_key" || targetID != c.ID || targetLabel != "CI ingest" || actorLabel != "Ada" {
+		t.Fatalf("audit target = %s/%s/%s actor_label = %s", targetType, targetID, targetLabel, actorLabel)
+	}
+	if !strings.Contains(changes, `"prefix": "`+c.Prefix+`"`) || strings.Contains(changes, c.Key) || strings.Contains(changes, apikeys.Hash(c.Key)) {
+		t.Fatalf("audit changes = %s", changes)
+	}
 
 	second := f.mustCreateKey(t, owner, "shop", "Prod", "ingest")
 

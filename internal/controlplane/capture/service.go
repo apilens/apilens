@@ -101,6 +101,16 @@ func (s *Service) Put(ctx context.Context, actor uuid.UUID, app App, pol Policy)
 		v := int32(*pol.MaxPayloadBytes) //nolint:gosec // Validate bounds it to MaxPayloadBytesLimit.
 		maxBytes = &v
 	}
+	prev, err := q.GetCapturePolicy(ctx, app.ID)
+	var previous any
+	switch {
+	case err == nil:
+		previous = policyValues(fromRow(prev.Enabled, prev.SampleRate, prev.CaptureHeaders, prev.CaptureRequestBody, prev.CaptureResponseBody, prev.MaxPayloadBytes))
+	case errors.Is(err, pgx.ErrNoRows):
+		previous = policyValues(Default())
+	default:
+		return Stored{}, fmt.Errorf("capture: get policy: %w", err)
+	}
 	row, err := q.UpsertCapturePolicy(ctx, db.UpsertCapturePolicyParams{
 		AppID:               app.ID,
 		Enabled:             pol.Enabled,
@@ -116,10 +126,14 @@ func (s *Service) Put(ctx context.Context, actor uuid.UUID, app App, pol Policy)
 	}
 	saved := fromRow(row.Enabled, row.SampleRate, row.CaptureHeaders, row.CaptureRequestBody, row.CaptureResponseBody, row.MaxPayloadBytes)
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
-		User:  &actor,
-		Actor: &actor,
-		Kind:  audit.CapturePolicyUpdated,
-		Meta:  policyMeta(app, saved),
+		User:    &actor,
+		Actor:   &actor,
+		Kind:    audit.CapturePolicyUpdated,
+		Org:     &app.OrgID,
+		Project: &app.ProjectID,
+		Target:  audit.Target{Type: "app", ID: app.ID.String(), Label: app.Slug},
+		Changes: &audit.Changes{Previous: previous, Next: policyValues(saved)},
+		Meta:    policyMeta(app, saved),
 	}); err != nil {
 		return Stored{}, err
 	}
@@ -189,6 +203,22 @@ func fromRow(enabled bool, rate float64, headers, reqBody, respBody bool, maxByt
 		p.MaxPayloadBytes = &v
 	}
 	return p
+}
+
+// policyValues is a policy as audit changes record it.
+func policyValues(p Policy) map[string]any {
+	m := map[string]any{
+		"enabled":               p.Enabled,
+		"sample_rate":           p.SampleRate,
+		"capture_headers":       p.CaptureHeaders,
+		"capture_request_body":  p.CaptureRequestBody,
+		"capture_response_body": p.CaptureResponseBody,
+		"max_payload_bytes":     nil,
+	}
+	if p.MaxPayloadBytes != nil {
+		m["max_payload_bytes"] = *p.MaxPayloadBytes
+	}
+	return m
 }
 
 // policyMeta is the audit metadata of a policy change: the new values.

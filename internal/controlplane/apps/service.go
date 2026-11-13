@@ -135,7 +135,8 @@ func (s *Service) write(ctx context.Context, actor, projectID, id uuid.UUID, kin
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.New(tx)
-	if _, err := q.LockProjectByID(ctx, projectID); errors.Is(err, pgx.ErrNoRows) {
+	project, err := q.LockProjectByID(ctx, projectID)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return fmt.Errorf("apps: lock project: %w", err)
@@ -152,7 +153,11 @@ func (s *Service) write(ctx context.Context, actor, projectID, id uuid.UUID, kin
 		return err
 	}
 	if s.audit != nil && kind != "" {
-		if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{User: &actor, Actor: &actor, Kind: kind, Meta: meta}); err != nil {
+		if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
+			User: &actor, Actor: &actor, Kind: kind,
+			Org: &project.OrgID, Project: &projectID, Target: appTarget(a.ID, a.Name),
+			Meta: meta,
+		}); err != nil {
 			return err
 		}
 	}

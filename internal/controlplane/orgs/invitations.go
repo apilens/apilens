@@ -383,8 +383,10 @@ func (s *InvitationService) send(ctx context.Context, tx pgx.Tx, actor uuid.UUID
 		return fmt.Errorf("orgs: enqueue invitation email: %w", err)
 	}
 	return s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
-		Actor: &actor,
-		Kind:  audit.InvitationSent,
+		Actor:  &actor,
+		Kind:   audit.InvitationSent,
+		Org:    &org.ID,
+		Target: audit.Target{Type: "invitation", ID: id.String(), Label: to},
 		Meta: map[string]any{
 			"org_id": org.ID.String(), "slug": org.Slug, "invitation_id": id.String(),
 			"email": to, "role": role, "resent": resent,

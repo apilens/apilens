@@ -1,7 +1,17 @@
 -- name: InsertAuditEvent :one
--- Records a security-relevant event about a user's account.
-INSERT INTO audit_events (user_id, actor_user_id, event, ip, user_agent, metadata)
-VALUES (sqlc.narg('user_id'), sqlc.narg('actor_user_id'), @event, sqlc.narg('ip'), @user_agent, @metadata)
+-- Records a security-relevant event, scoped to an organization and project
+-- when it belongs to one. actor_label is the actor's name (or email) now, so
+-- the row stays readable after the actor is purged.
+INSERT INTO audit_events (
+    user_id, actor_user_id, event, ip, user_agent, metadata,
+    org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label
+)
+VALUES (
+    sqlc.narg('user_id'), sqlc.narg('actor_user_id'), @event, sqlc.narg('ip'), @user_agent, @metadata,
+    sqlc.narg('org_id'), sqlc.narg('project_id'), sqlc.narg('target_type'), sqlc.narg('target_id'),
+    sqlc.narg('target_label'), sqlc.narg('request_id'), sqlc.narg('changes'),
+    (SELECT COALESCE(NULLIF(u.name, ''), u.email::text) FROM users u WHERE u.id = sqlc.narg('actor_user_id'))
+)
 RETURNING *;
 
 -- name: ListAuditEventsForUser :many

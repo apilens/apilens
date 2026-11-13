@@ -108,7 +108,7 @@ func (s *Service) ChangeRole(ctx context.Context, user uuid.UUID, slug string, t
 			return Member{}, err
 		}
 	}
-	if err := s.setRole(ctx, tx, user, org, target, m.Role, role); err != nil {
+	if err := s.setRole(ctx, tx, user, org, target, m.Email, m.Role, role); err != nil {
 		return Member{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -177,10 +177,13 @@ func (s *Service) remove(ctx context.Context, user uuid.UUID, slug string, targe
 		}
 	}
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
-		User:  &target,
-		Actor: &user,
-		Kind:  audit.MemberRemoved,
-		Meta:  map[string]any{"org_id": org.ID.String(), "slug": org.Slug, "role": m.Role, "left": self},
+		User:    &target,
+		Actor:   &user,
+		Kind:    audit.MemberRemoved,
+		Org:     &org.ID,
+		Target:  memberTarget(target, m.Email),
+		Changes: &audit.Changes{Previous: map[string]any{"role": m.Role}},
+		Meta:    map[string]any{"org_id": org.ID.String(), "slug": org.Slug, "role": m.Role, "left": self},
 	}); err != nil {
 		return err
 	}
@@ -216,11 +219,15 @@ func (s *Service) TransferOwnership(ctx context.Context, user uuid.UUID, slug st
 		return err
 	}
 	if m.Role != RoleOwner {
-		if err := s.setRole(ctx, tx, user, org, target, m.Role, RoleOwner); err != nil {
+		if err := s.setRole(ctx, tx, user, org, target, m.Email, m.Role, RoleOwner); err != nil {
 			return err
 		}
 	}
-	if err := s.setRole(ctx, tx, user, org, user, RoleOwner, RoleAdmin); err != nil {
+	self, err := getMember(ctx, q, org.ID, user)
+	if err != nil {
+		return err
+	}
+	if err := s.setRole(ctx, tx, user, org, user, self.Email, RoleOwner, RoleAdmin); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -230,8 +237,9 @@ func (s *Service) TransferOwnership(ctx context.Context, user uuid.UUID, slug st
 }
 
 // setRole changes target's role from from to to inside tx, emitting
-// membership.upserted and auditing member.role_changed by actor.
-func (s *Service) setRole(ctx context.Context, tx pgx.Tx, actor uuid.UUID, org db.LockMemberOrganizationRow, target uuid.UUID, from, to string) error {
+// membership.upserted and auditing member.role_changed by actor. label
+// names the target in the audit event (their email).
+func (s *Service) setRole(ctx context.Context, tx pgx.Tx, actor uuid.UUID, org db.LockMemberOrganizationRow, target uuid.UUID, label, from, to string) error {
 	if _, err := db.New(tx).UpdateMembershipRole(ctx, db.UpdateMembershipRoleParams{OrgID: org.ID, UserID: target, Role: to}); err != nil {
 		return fmt.Errorf("orgs: update role: %w", err)
 	}
@@ -239,11 +247,20 @@ func (s *Service) setRole(ctx context.Context, tx pgx.Tx, actor uuid.UUID, org d
 		return err
 	}
 	return s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
-		User:  &target,
-		Actor: &actor,
-		Kind:  audit.MemberRoleChanged,
-		Meta:  map[string]any{"org_id": org.ID.String(), "slug": org.Slug, "from": from, "to": to},
+		User:    &target,
+		Actor:   &actor,
+		Kind:    audit.MemberRoleChanged,
+		Org:     &org.ID,
+		Target:  memberTarget(target, label),
+		Changes: &audit.Changes{Previous: map[string]any{"role": from}, Next: map[string]any{"role": to}},
+		Meta:    map[string]any{"org_id": org.ID.String(), "slug": org.Slug, "from": from, "to": to},
 	})
+}
+
+// memberTarget is the audit target of a membership event: the user, labelled
+// with their email.
+func memberTarget(user uuid.UUID, email string) audit.Target {
+	return audit.Target{Type: "member", ID: user.String(), Label: email}
 }
 
 // ensureAnotherOwner returns ErrLastOwner unless the organization, whose row
