@@ -37,11 +37,13 @@ export default async function ChangesPage({ params, searchParams }: { params: Pr
   const filter = parseChangesFilter(sp);
   const options = { sizes: CHANGES_PAGE_SIZES };
   const state = parsePage(sp, options);
-  const [res, apps] = await Promise.all([
+  const [res, apps, repo] = await Promise.all([
     read(next, (o) =>
       identity().deployChanges(project, { range: CHANGES_RANGE, limit: state.per, offset: pageOffset(state), app: filter.app, env: filter.env }, o),
     ),
     read(next, (o) => identity().projectApps(project, o)),
+    // The repository link (Settings › Integrations) turns commit ids into links; without it they stay text.
+    read(next, (o) => identity().getProject(project, o)),
   ]);
   const load: ChangesLoad | null = res === null ? null : { deploys: res.deploys ?? [], total: res.total ?? 0 };
   // A page past the last one (a hand-edited URL, or deploys aged out of the 7 days): go to the last.
@@ -60,6 +62,7 @@ export default async function ChangesPage({ params, searchParams }: { params: Pr
         params={sp}
         apps={apps?.apps ?? (apps === null ? null : [])}
         environments={found.project.environments ?? []}
+        commitUrlTemplate={repo?.commit_url_template ?? null}
       />
     </AppShell>
   );

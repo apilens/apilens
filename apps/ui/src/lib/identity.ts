@@ -792,6 +792,17 @@ export interface Project {
   org_slug?: string;
   environments: string[];
   created_at?: string;
+  /** The project's source repository (https), null when none is set (#791). */
+  repository_url?: string | null;
+  /** A commit's URL with `{commit}` for the URL-encoded id; null when unset or the host's layout is unknown. */
+  commit_url_template?: string | null;
+  /** A release's URL with `{release}` for the URL-encoded name; null like `commit_url_template`. */
+  release_url_template?: string | null;
+}
+
+/** `PATCH /projects/{slug}`: only the fields sent change; `repository_url: ""` removes the link. */
+export interface UpdateProjectRequest {
+  repository_url?: string;
 }
 
 export interface CreateProjectRequest {
@@ -2426,6 +2437,8 @@ export function createClient(config: ClientConfig) {
     createProject: (orgSlug: string, body: CreateProjectRequest, o: Authed) =>
       request<Project>("POST", `/orgs/${seg(orgSlug)}/projects`, { ...o, body }),
     getProject: (slug: string, o: Authed) => request<Project>("GET", `/projects/${seg(slug)}`, o),
+    updateProject: (slug: string, body: UpdateProjectRequest, o: Authed) =>
+      request<Project>("PATCH", `/projects/${seg(slug)}`, { ...o, body }),
     projectSlugAvailable: (slug: string, o: Authed) =>
       request<SlugAvailability>("GET", "/projects/slug-available", { ...o, query: { slug } }),
     ingestStatus: (projectSlug: string, o: Authed) =>

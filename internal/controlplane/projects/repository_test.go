@@ -61,6 +61,19 @@ func TestNormalizeRepositoryURL(t *testing.T) {
 		}
 	}
 
+	// The reason is a sentence the API answers as the problem detail.
+	for in, want := range map[string]string{
+		"https://git.example.com/acme/shop": "The repository must be on github.com, gitlab.com or bitbucket.org.",
+		"http://github.com/acme/shop":       "The repository link must start with https://.",
+		"https://github.com/acme":           "The repository link must name a repository, like https://github.com/acme/shop.",
+	} {
+		_, err := NormalizeRepositoryURL(in, false)
+		var re *RepositoryURLError
+		if !errors.As(err, &re) || re.Reason != want {
+			t.Errorf("NormalizeRepositoryURL(%q) = %v; want reason %q", in, err, want)
+		}
+	}
+
 	// The limit is inclusive.
 	at := "https://github.com/acme/"
 	at += strings.Repeat("a", MaxRepositoryURL-len(at))

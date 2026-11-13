@@ -213,6 +213,11 @@
 //                                                  until saved; PUT answers 403 without project.update and
 //                                                  invalid_request naming a pattern JavaScript cannot compile
 //   POST /__fake/privacy {}                        test hook: forgets shop's saved deny list
+//   GET|PATCH /api/v1/projects/shop                shop with its repository link and commit/release URL
+//                                                  templates (#820); PATCH {repository_url} answers 403
+//                                                  without project.update and invalid_request with the
+//                                                  API's reason (detail) for a link it refuses; "" removes it
+//   POST /__fake/repository {}                     test hook: forgets shop's repository link
 //   GET|POST /api/v1/projects/shop/alerts/health-checks, DELETE .../{id}, GET .../{id}/events
 //                                                  shop's health checks and their failures (#608): none
 //                                                  unless seeded; POST answers 422 for a private address
@@ -747,6 +752,43 @@ let healthChecks: Record<string, unknown>[] = [];
 let healthCheckEvents: Record<string, Record<string, unknown>[]> = {};
 
 let privacyPolicy: { mask_query_params: string[]; mask_headers: string[]; mask_body_fields: string[]; updated_at: string } | null = null;
+
+/** shop's source repository link (#820); null until set. */
+let shopRepository: string | null = null;
+
+/** shop as `GET /projects/shop` answers it, with the templates the API derives for known hosts. */
+function shopProject(): Record<string, unknown> {
+  const layout: Record<string, [string, string]> = {
+    "github.com": ["/commit/", "/releases/tag/"],
+    "gitlab.com": ["/-/commit/", "/-/releases/"],
+    "bitbucket.org": ["/commits/", "/src/"],
+  };
+  const known = shopRepository ? layout[new URL(shopRepository).host] : undefined;
+  return {
+    id: "prj_shop", slug: PROJECT, name: "Shop", org_slug: "acme", environments: ["production"], role: "admin",
+    repository_url: shopRepository,
+    commit_url_template: known ? `${shopRepository}${known[0]}{commit}` : null,
+    release_url_template: known ? `${shopRepository}${known[1]}{release}` : null,
+  };
+}
+
+/** The API's check of a repository link (NormalizeRepositoryURL): its canonical form, or why not. */
+function fakeRepositoryUrl(raw: string): { ok: true; url: string } | { ok: false; reason: string } {
+  const s = raw.trim();
+  if (s === "") return { ok: true, url: "" };
+  let u: URL;
+  try {
+    u = new URL(s);
+  } catch {
+    return { ok: false, reason: "The repository link is not a URL." };
+  }
+  if (u.protocol !== "https:") return { ok: false, reason: "The repository link must start with https://." };
+  if (u.username || u.password || u.search || u.hash) return { ok: false, reason: "The repository link must not carry credentials, a query or a fragment." };
+  if (!["github.com", "gitlab.com", "bitbucket.org"].includes(u.host)) return { ok: false, reason: "The repository must be on github.com, gitlab.com or bitbucket.org." };
+  const path = u.pathname.replace(/\/+$/, "").replace(/\.git$/, "");
+  if (path.split("/").filter(Boolean).length < 2) return { ok: false, reason: "The repository link must name a repository, like https://github.com/acme/shop." };
+  return { ok: true, url: `https://${u.host}${path}` };
+}
 
 function privacyPolicyOf(): Record<string, unknown> {
   return {
@@ -1443,6 +1485,30 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   if (ssoPath) return orgSSO(req, res, ssoPath[1], ssoPath[2] !== undefined);
   const orgPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/(members|transfer-ownership|invitations)(?:\/([^/]+)(\/resend)?)?$/);
   if (orgPath) return orgs(req, res, orgPath[1], orgPath[2], orgPath[3], orgPath[4] !== undefined);
+  // shop itself (#820), for its repository link. Like the API: another project answers forbidden,
+  // a change needs `project.update`, and a refused link answers invalid_request with the reason.
+  if (req.method === "POST" && path === "/__fake/repository") {
+    shopRepository = null;
+    return send(res, 204);
+  }
+  const projectPath = path.match(/^\/api\/v1\/projects\/([^/]+)$/);
+  if (projectPath && projectPath[1] !== "slug-available") {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    if (decodeURIComponent(projectPath[1]) !== PROJECT) return problem(res, 403, "forbidden");
+    if (req.method === "GET") return send(res, 200, shopProject());
+    if (req.method !== "PATCH") return problem(res, 404, "not_found");
+    if (!capabilitiesOf(user).includes("project.update")) return problem(res, 403, "forbidden");
+    const body = await readBody(req);
+    if (body.repository_url !== undefined) {
+      const checked = fakeRepositoryUrl(String(body.repository_url));
+      if (!checked.ok) {
+        return send(res, 400, { status: 400, title: "Invalid request", code: "invalid_request", detail: checked.reason }, "application/problem+json");
+      }
+      shopRepository = checked.url || null;
+    }
+    return send(res, 200, shopProject());
+  }
   // shop's deny list (#599). Like the API: another project answers forbidden, saving needs
   // `project.update`, and a pattern that does not compile answers invalid_request naming it.
   const privacyPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/privacy-policy$/);

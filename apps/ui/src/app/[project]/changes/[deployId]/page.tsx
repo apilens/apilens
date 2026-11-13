@@ -4,7 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { type DeployLoad, DeployView } from "@/components/changes/deploy";
 import { getContext, getSession } from "@/lib/auth/server";
 import { deployHref } from "@/lib/changes";
-import { type CallOptions, identity, isApiError } from "@/lib/identity";
+import { type CallOptions, type Project, identity, isApiError } from "@/lib/identity";
 import { type SearchParams, pageHref } from "@/lib/pagination";
 import { findProject } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
@@ -43,20 +43,23 @@ export default async function DeployPage({ params, searchParams }: { params: Pro
   let load: DeployLoad = { state: "not-found" };
   let comparison = null;
   let apps = null;
+  let repo: Pick<Project, "commit_url_template" | "release_url_template"> | null = null;
   if (DEPLOY_ID.test(id)) {
-    const [d, c, a] = await Promise.all([
+    const [d, c, a, r] = await Promise.all([
       read(next, (o) => identity().getDeploy(project, id, o)),
       read(next, (o) => identity().deployComparison(project, id, o)),
       read(next, (o) => identity().projectApps(project, o)),
+      read(next, (o) => identity().getProject(project, o)),
     ]);
     load = d.ok ? { state: "ok", detail: d.value } : d.status === 404 || d.status === 422 ? { state: "not-found" } : { state: "error" };
     comparison = c.ok ? c.value : null;
     apps = a.ok ? (a.value.apps ?? []) : null;
+    repo = r.ok ? r.value : null;
   }
 
   return (
     <AppShell context={context} project={project} view="changes">
-      <DeployView project={project} projectName={found.project.name} id={id} load={load} comparison={comparison} apps={apps} params={sp} now={Date.now()} />
+      <DeployView project={project} projectName={found.project.name} id={id} load={load} comparison={comparison} apps={apps} params={sp} now={Date.now()} repository={repo} />
     </AppShell>
   );
 }

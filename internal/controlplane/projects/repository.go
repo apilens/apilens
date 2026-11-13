@@ -23,38 +23,54 @@ const (
 	ReleasePlaceholder = "{release}"
 )
 
+// RepositoryURLError is why NormalizeRepositoryURL rejected a link. It is
+// ErrInvalid (errors.Is), and Reason is a sentence the API answers as the
+// problem's detail so a client can show it next to the field.
+type RepositoryURLError struct {
+	Reason string
+}
+
+func (e *RepositoryURLError) Error() string {
+	return ErrInvalid.Error() + ": repository url: " + e.Reason
+}
+
+// Unwrap makes a RepositoryURLError match ErrInvalid.
+func (e *RepositoryURLError) Unwrap() error { return ErrInvalid }
+
 // NormalizeRepositoryURL checks a repository link and returns it in its
 // canonical form: https only, no credentials, query or fragment, a lower-case
 // host from RepositoryHosts (any host when anyHost; a port only then), and a
 // path naming the repository (owner/name on the known hosts) without a
 // trailing slash or ".git". Surrounding spaces are trimmed; an empty link is
-// returned as "" (no repository). Anything else is ErrInvalid.
+// returned as "" (no repository). Anything else is a *RepositoryURLError
+// (ErrInvalid).
 func NormalizeRepositoryURL(raw string, anyHost bool) (string, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
 		return "", nil
 	}
-	invalid := func(why string) error { return fmt.Errorf("%w: repository url %s", ErrInvalid, why) }
+	invalid := func(why string) error { return &RepositoryURLError{Reason: why} }
+	tooLong := fmt.Sprintf("The repository link must be at most %d characters.", MaxRepositoryURL)
 	if len(s) > MaxRepositoryURL {
-		return "", invalid("is too long")
+		return "", invalid(tooLong)
 	}
 	u, err := url.Parse(s)
 	if err != nil {
-		return "", invalid("is not a URL")
+		return "", invalid("The repository link is not a URL.")
 	}
 	if !strings.EqualFold(u.Scheme, "https") || u.Opaque != "" {
-		return "", invalid("must use https")
+		return "", invalid("The repository link must start with https://.")
 	}
 	if u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
-		return "", invalid("must not carry credentials, a query or a fragment")
+		return "", invalid("The repository link must not carry credentials, a query or a fragment.")
 	}
 	host := strings.ToLower(u.Hostname())
 	if host == "" {
-		return "", invalid("has no host")
+		return "", invalid("The repository link has no host.")
 	}
 	known := slices.Contains(RepositoryHosts, host)
 	if !anyHost && (!known || u.Port() != "") {
-		return "", invalid("host is not allowed")
+		return "", invalid("The repository must be on github.com, gitlab.com or bitbucket.org.")
 	}
 	path := strings.TrimRight(u.EscapedPath(), "/")
 	path = strings.TrimRight(strings.TrimSuffix(path, ".git"), "/")
@@ -65,11 +81,11 @@ func NormalizeRepositoryURL(raw string, anyHost bool) (string, error) {
 		}
 	}
 	if segments == 0 || (known && segments < 2) || strings.Contains(path, "//") {
-		return "", invalid("does not name a repository")
+		return "", invalid("The repository link must name a repository, like https://github.com/acme/shop.")
 	}
 	out := "https://" + strings.ToLower(u.Host) + path
 	if len(out) > MaxRepositoryURL {
-		return "", invalid("is too long")
+		return "", invalid(tooLong)
 	}
 	return out, nil
 }
