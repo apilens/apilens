@@ -1524,6 +1524,146 @@
         ],
         "type": "object"
       },
+      "AuditAction": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "The event kind (api_key.created).",
+            "type": "string"
+          },
+          "label": {
+            "description": "Its display name (API key created).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "label"
+        ],
+        "type": "object"
+      },
+      "AuditActor": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The user's id; absent for system.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "label": {
+            "description": "The user's name (or email) when the event was recorded; \"System\" for system; empty when unknown.",
+            "type": "string"
+          },
+          "type": {
+            "description": "user: a person; system: APILens itself (a job, the SDK) or an anonymous caller.",
+            "enum": [
+              "user",
+              "system"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "label"
+        ],
+        "type": "object"
+      },
+      "AuditEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "The event kind, noun.verb (api_key.created). GET .../audit-events/actions lists them.",
+            "type": "string"
+          },
+          "actor": {
+            "$ref": "#/components/schemas/AuditActor"
+          },
+          "changes": {
+            "additionalProperties": {},
+            "description": "{\"previous\": ..., \"next\": ...} for a change; null otherwise. Never holds secrets.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "ip": {
+            "description": "The client IP of the request; empty when unknown.",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/AuditProject",
+            "description": "On the organization list: the project of a project event; absent for an org-wide event."
+          },
+          "request_id": {
+            "description": "The X-Request-Id of the request that caused it; empty outside a request.",
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/AuditTarget",
+            "description": "What was acted on; absent when nothing in particular (a sign-in)."
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "user_agent": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "time",
+          "action",
+          "actor",
+          "ip",
+          "user_agent",
+          "request_id",
+          "changes"
+        ],
+        "type": "object"
+      },
+      "AuditProject": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name"
+        ],
+        "type": "object"
+      },
+      "AuditTarget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "description": "Its name when the event was recorded, readable after it is gone.",
+            "type": "string"
+          },
+          "type": {
+            "description": "The kind of thing (api_key, member, app, project, ...).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "label"
+        ],
+        "type": "object"
+      },
       "AuthProviders": {
         "additionalProperties": false,
         "properties": {
@@ -6652,6 +6792,67 @@
         },
         "required": [
           "apps"
+        ],
+        "type": "object"
+      },
+      "ListAuditActionsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ListAuditActionsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "actions": {
+            "description": "In catalogue order.",
+            "items": {
+              "$ref": "#/components/schemas/AuditAction"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "actions"
+        ],
+        "type": "object"
+      },
+      "ListAuditEventsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ListAuditEventsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "events": {
+            "description": "Newest first.",
+            "items": {
+              "$ref": "#/components/schemas/AuditEvent"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "next_cursor": {
+            "description": "Pass as cursor for the next page; empty on the last page.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "events",
+          "next_cursor"
         ],
         "type": "object"
       },
@@ -17391,6 +17592,318 @@
         ]
       }
     },
+    "/api/v1/orgs/{slug}/audit-events": {
+      "get": {
+        "description": "Lists the organization's audit trail: its org-wide events and those of the projects the caller can view (never another project's); each project event names its project. Filters: `actor`, `action` (exact, or a prefix ending with a dot such as `api_key.`), `target_type`, `from`/`to` and `q` (target label). Newest first, with cursor pagination (50 per page by default, at most 200). Org owners and admins only (403 `forbidden` otherwise, 404 `not_found` for an organization the caller cannot view).",
+        "operationId": "list-org-audit-events",
+        "parameters": [
+          {
+            "description": "The organization's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The organization's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events this user did.",
+            "explode": false,
+            "in": "query",
+            "name": "actor",
+            "schema": {
+              "description": "Only events this user did.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this action (api_key.created), or every action with a prefix when it ends with a dot (api_key.).",
+            "explode": false,
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "description": "Only this action (api_key.created), or every action with a prefix when it ends with a dot (api_key.).",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events on this type of target (api_key).",
+            "explode": false,
+            "in": "query",
+            "name": "target_type",
+            "schema": {
+              "description": "Only events on this type of target (api_key).",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events at or after this time.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Only events at or after this time.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events before this time.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "Only events before this time.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events whose target label contains this text (case-insensitive).",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Only events whose target label contains this text (case-insensitive).",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "next_cursor of the previous page; omitted means the first page.",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "next_cursor of the previous page; omitted means the first page.",
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAuditEventsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List an organization's audit events",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/api/v1/orgs/{slug}/audit-events/actions": {
+      "get": {
+        "description": "Lists the audit event actions with display labels, for the action filter. Org owners and admins only, like the event list.",
+        "operationId": "list-org-audit-actions",
+        "parameters": [
+          {
+            "description": "The organization's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The organization's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAuditActionsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List the actions an organization's audit events can be filtered by",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
     "/api/v1/orgs/{slug}/invitations": {
       "get": {
         "description": "Lists the organization's pending invitations, newest first, including expired ones that can still be resent. Owners and admins only (403 `forbidden`).",
@@ -23867,6 +24380,318 @@
           }
         ],
         "summary": "Restore an app",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{slug}/audit-events": {
+      "get": {
+        "description": "Lists the project's audit trail: who did what, when, from where, and what changed. Filters: `actor`, `action` (exact, or a prefix ending with a dot such as `api_key.`), `target_type`, `from`/`to` and `q` (target label). Newest first, with cursor pagination (50 per page by default, at most 200). Needs `view_audit` on the project (project admins, org owners and admins): 403 `forbidden` for editors and viewers, 404 `not_found` for a project the caller cannot view.",
+        "operationId": "list-project-audit-events",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events this user did.",
+            "explode": false,
+            "in": "query",
+            "name": "actor",
+            "schema": {
+              "description": "Only events this user did.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only this action (api_key.created), or every action with a prefix when it ends with a dot (api_key.).",
+            "explode": false,
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "description": "Only this action (api_key.created), or every action with a prefix when it ends with a dot (api_key.).",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events on this type of target (api_key).",
+            "explode": false,
+            "in": "query",
+            "name": "target_type",
+            "schema": {
+              "description": "Only events on this type of target (api_key).",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events at or after this time.",
+            "explode": false,
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "Only events at or after this time.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events before this time.",
+            "explode": false,
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "Only events before this time.",
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only events whose target label contains this text (case-insensitive).",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Only events whose target label contains this text (case-insensitive).",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "next_cursor of the previous page; omitted means the first page.",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "next_cursor of the previous page; omitted means the first page.",
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAuditEventsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List a project's audit events",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{slug}/audit-events/actions": {
+      "get": {
+        "description": "Lists the audit event actions with display labels, for the action filter. Needs `view_audit` on the project, like the event list.",
+        "operationId": "list-project-audit-actions",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAuditActionsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List the actions a project's audit events can be filtered by",
         "tags": [
           "Projects"
         ]

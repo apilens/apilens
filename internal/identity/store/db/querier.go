@@ -201,10 +201,12 @@ type Querier interface {
 	// The settings "Sessions" list: live rows only (one per family), most
 	// recently used first.
 	ListActiveSessionsForUser(ctx context.Context, userID uuid.UUID) ([]Session, error)
-	// An organization's events (its projects' included), newest first,
-	// keyset-paginated like ListAuditEventsForUser. Optional filters: actor,
-	// event prefix ('member.' or 'api_key.created'), and a [from, to) time range.
-	// Served by audit_events_org_created.
+	// An organization's events, newest first, keyset-paginated like
+	// ListAuditEventsForUser. Org-wide events (no project) are always included;
+	// project events only for the projects in visible_projects (the ones the
+	// caller can view). Optional filters: actor, exact event or event prefix
+	// ('api_key.'), target type, a [from, to) time range, and text the target
+	// label contains (case-insensitive). Served by audit_events_org_created.
 	ListAuditEventsForOrg(ctx context.Context, arg ListAuditEventsForOrgParams) ([]AuditEvent, error)
 	// A project's events, newest first, keyset-paginated and filtered like
 	// ListAuditEventsForOrg. Served by audit_events_project_created.
