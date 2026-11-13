@@ -3,6 +3,7 @@
 // in `lib/project-settings.ts` without an entry here shows "Nothing here yet".
 import * as alerts from "./alerts";
 import * as capture from "./capture";
+import * as danger from "./danger";
 import * as environments from "./environments";
 import * as general from "./general";
 import * as healthChecks from "./health-checks";
@@ -26,4 +27,5 @@ export const SECTION_CONTENT: Readonly<Record<string, Section>> = {
   alerts: section(alerts),
   "health-checks": section(healthChecks),
   integrations: section(integrations),
+  danger: section(danger),
 };

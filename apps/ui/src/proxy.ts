@@ -3,6 +3,7 @@
 // signed out. Routing rules live in `lib/auth-gate.ts`.
 import { type NextRequest, NextResponse } from "next/server";
 import { REFRESH_HEADER, decide } from "./lib/auth-gate";
+import { PATH_HEADER } from "./lib/project-redirect";
 import { SESSION_COOKIE_NAME, open } from "./lib/session-edge";
 
 export async function proxy(request: NextRequest) {
@@ -29,6 +30,10 @@ export async function proxy(request: NextRequest) {
     const headers = new Headers(request.headers);
     headers.delete(REFRESH_HEADER);
     if (decision.refresh) headers.set(REFRESH_HEADER, "1");
+    // The path for `[project]/layout.tsx`, which redirects a renamed project's old slug (#821).
+    const query = new URLSearchParams(search);
+    query.delete("_rsc");
+    headers.set(PATH_HEADER, query.size > 0 ? `${pathname}?${query}` : pathname);
     response = NextResponse.next({ request: { headers } });
   }
 
