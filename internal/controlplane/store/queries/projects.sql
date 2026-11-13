@@ -2,20 +2,22 @@
 -- Upsert* queries in catalog.sql stay for the idempotent dev seed.
 
 -- name: CreateProject :one
--- Fails on projects_slug_active when an active project uses the slug.
+-- Fails on projects_slug_active or projects_slug_reserved when an active
+-- project or one awaiting purge holds the slug.
 INSERT INTO projects (id, org_id, slug, name, description, created_by)
 VALUES (@id, @org_id, @slug, @name, @description, @created_by)
 RETURNING id, org_id, slug, name, description, created_at, updated_at, created_by, repository_url;
 
 -- name: ProjectSlugTaken :one
+-- Whether an active project or one awaiting purge holds the slug.
 SELECT EXISTS (
-    SELECT 1 FROM projects WHERE slug = @slug AND deleted_at IS NULL
+    SELECT 1 FROM projects WHERE slug = @slug AND (deleted_at IS NULL OR purge_after IS NOT NULL)
 );
 
 -- name: TakenProjectSlugs :many
--- Which of the given slugs active projects already use.
+-- Which of the given slugs active projects or projects awaiting purge hold.
 SELECT slug FROM projects
-WHERE slug = ANY(@slugs::text[]) AND deleted_at IS NULL;
+WHERE slug = ANY(@slugs::text[]) AND (deleted_at IS NULL OR purge_after IS NOT NULL);
 
 -- name: ListOrgProjects :many
 SELECT id, org_id, slug, name, description, created_at, updated_at, created_by, repository_url
@@ -64,9 +66,41 @@ UPDATE projects SET name = @name, description = @description, repository_url = @
 WHERE id = @id AND deleted_at IS NULL
 RETURNING id, org_id, slug, name, description, created_at, updated_at, created_by, repository_url;
 
--- name: SoftDeleteProject :execrows
-UPDATE projects SET deleted_at = now()
-WHERE id = @id AND deleted_at IS NULL;
+-- name: ScheduleProjectDeletion :one
+-- Soft-deletes the project and schedules its purge grace_seconds from now
+-- (0: at once). The slug stays reserved until the purge (projects_slug_reserved).
+UPDATE projects
+SET deleted_at = now(), purge_after = now() + make_interval(secs => @grace_seconds::bigint)
+WHERE id = @id AND deleted_at IS NULL
+RETURNING deleted_at::timestamptz AS deleted_at, purge_after::timestamptz AS purge_after;
+
+-- name: ListScheduledProjects :many
+-- The organization's deleted projects that can still be restored (purge
+-- not yet due), most recently deleted first.
+SELECT id, slug, name, description, created_at, deleted_at::timestamptz AS deleted_at, purge_after::timestamptz AS purge_after
+FROM projects
+WHERE org_id = @org_id AND deleted_at IS NOT NULL AND purge_after > now()
+ORDER BY deleted_at DESC, id;
+
+-- name: LockScheduledProject :one
+-- A deleted project of the active organization org_id that can still be
+-- restored, row-locked for the rest of the transaction.
+SELECT p.id, p.slug, p.name, p.description, p.default_access, p.created_at, p.updated_at, p.created_by, p.repository_url,
+       o.id AS org_id, o.slug AS org_slug, p.purge_after::timestamptz AS purge_after
+FROM projects p
+JOIN organizations o ON o.id = p.org_id AND o.deleted_at IS NULL
+WHERE p.id = @id AND o.id = @org_id AND p.deleted_at IS NOT NULL AND p.purge_after > now()
+FOR UPDATE OF p;
+
+-- name: RestoreProject :execrows
+UPDATE projects SET deleted_at = NULL, purge_after = NULL
+WHERE id = @id AND deleted_at IS NOT NULL;
+
+-- name: ListProjectMemberRoles :many
+-- The direct grants of a project, to rebuild its relationships on restore.
+SELECT user_id, role FROM project_members
+WHERE project_id = @project_id
+ORDER BY user_id;
 
 -- name: CreateEnvironment :execrows
 -- Adds the environment unless the project already has one of that name. It

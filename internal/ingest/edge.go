@@ -193,6 +193,8 @@ func (e *Edge) authenticate(r *http.Request) (apikeys.Principal, *apiError) {
 	}
 	p, err := e.verifier.Verify(apikeys.WithUse(r.Context(), e.keyUse(r)), raw)
 	switch {
+	case errors.Is(err, apikeys.ErrProjectDeleted):
+		return apikeys.Principal{}, &apiError{status: http.StatusForbidden, Code: "project_deleted", Detail: "The key's project was deleted"}
 	case errors.Is(err, apikeys.ErrInvalidKey):
 		return apikeys.Principal{}, errAuth()
 	case err != nil:

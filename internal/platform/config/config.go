@@ -51,6 +51,7 @@ type Config struct {
 	Audit      AuditConfig      `koanf:"audit"`
 	// Integrations configures links to outside tools.
 	Integrations IntegrationsConfig `koanf:"integrations"`
+	Project      ProjectConfig      `koanf:"project"`
 }
 
 // AccessConfig configures project access management.
@@ -577,6 +578,7 @@ func Defaults() map[string]any {
 	}
 	retentionDefaults(m)
 	auditDefaults(m)
+	projectDefaults(m)
 	return m
 }
 
@@ -724,6 +726,7 @@ func (c *Config) Validate() error {
 	errs = append(errs, c.validateEmail()...)
 	errs = append(errs, c.validateRetention()...)
 	errs = append(errs, c.validateAudit()...)
+	errs = append(errs, c.validateProject()...)
 	if len(errs) > 0 {
 		return fmt.Errorf("config: %w", errors.Join(errs...))
 	}

@@ -61,6 +61,7 @@ The endpoint `GET /v1/orders/{order_id}` is auto-created on first sight — noth
 | `200` | `{"accepted": n, "rejected": [{"app_id", "app", "records", "error", "detail"}]}` | Stored, except the records of the listed apps (see below). |
 | `401` | `{"error": "authentication_error", "detail": ...}` | Missing/invalid `X-API-Key`. |
 | `403` | `{"error": "app_create_forbidden" \| "app_not_allowed" \| "environment_not_allowed", "detail": ...}` | Every record names an app the key cannot create, an app outside the key's app list, or an environment the key is not pinned to. |
+| `403` | `{"error": "project_deleted", "detail": ...}` | The key's project was deleted. Restoring the project within its grace period (7 days by default) makes the key work again. |
 | `409` | `{"error": "app_deleted", "detail": ...}` | Every record names an app deleted less than 30 days ago; restore it from **Apps**. |
 | `422` | `{"error": "validation_error" \| "app_limit" \| "app_rate_limit", "detail": ...}` | A record failed schema validation (nothing in the batch is stored), or every record names a new app over an app limit. |
 

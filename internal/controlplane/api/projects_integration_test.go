@@ -335,14 +335,15 @@ func TestDeleteProject(t *testing.T) {
 	f.join(t, "acme", member, "member")
 	p := f.mustCreateProject(t, owner, "acme", "Doomed", "doomed")
 
-	if resp := f.api.Delete(ProjectsPath+"/doomed", as(member)); resp.Code != http.StatusForbidden || decode[problem](t, resp).Code != "forbidden" {
+	confirm := map[string]any{"confirm": "doomed"}
+	if resp := f.api.Delete(ProjectsPath+"/doomed", as(member), confirm); resp.Code != http.StatusForbidden || decode[problem](t, resp).Code != "forbidden" {
 		t.Fatalf("member delete: %d %s", resp.Code, resp.Body)
 	}
 	if n := f.count(t, `SELECT count(*) FROM outbox WHERE topic = 'project.deleted'`); n != 0 {
 		t.Fatalf("refused delete emitted %d rows", n)
 	}
-	resp := f.api.Delete(ProjectsPath+"/doomed", as(admin))
-	if resp.Code != http.StatusNoContent || resp.Body.Len() != 0 {
+	resp := f.api.Delete(ProjectsPath+"/doomed", as(admin), confirm)
+	if resp.Code != http.StatusOK || decode[DeletedProject](t, resp).ID != p.ID {
 		t.Fatalf("delete: %d %s", resp.Code, resp.Body)
 	}
 	var aggregate string
@@ -359,11 +360,11 @@ func TestDeleteProject(t *testing.T) {
 	if list := decode[[]Project](t, f.api.Get(OrgsPath+"/acme/projects", as(owner))); len(list) != 0 {
 		t.Fatalf("list after delete = %+v", list)
 	}
-	if resp := f.api.Delete(ProjectsPath+"/doomed", as(owner)); resp.Code != http.StatusNotFound {
+	if resp := f.api.Delete(ProjectsPath+"/doomed", as(owner), confirm); resp.Code != http.StatusNotFound {
 		t.Fatalf("second delete: %d", resp.Code)
 	}
-	// The slug is free again.
-	if again := f.mustCreateProject(t, member, "acme", "Reborn", "doomed"); again.ID == p.ID {
-		t.Fatal("re-created project reused the id")
+	// The slug stays reserved until the purge: the project can be restored.
+	if resp := f.createProject(member, "acme", "Reborn", "doomed"); resp.Code != http.StatusConflict || decode[problem](t, resp).Code != "slug_taken" {
+		t.Fatalf("re-create deleted slug: %d %s", resp.Code, resp.Body)
 	}
 }

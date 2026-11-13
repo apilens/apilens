@@ -48,6 +48,11 @@ const (
 // ErrInvalidKey is returned for unknown, revoked, expired or malformed keys.
 var ErrInvalidKey = errors.New("apikeys: invalid key")
 
+// ErrProjectDeleted is returned for a key of a deleted project (scheduled
+// for purge). It wraps ErrInvalidKey, so callers that only know that error
+// still refuse the key; ingest answers 403 project_deleted for it.
+var ErrProjectDeleted = fmt.Errorf("%w: project deleted", ErrInvalidKey)
+
 // Principal is what a valid key authorises.
 type Principal struct {
 	KeyID       uuid.UUID
@@ -169,6 +174,17 @@ type Options struct {
 type entry struct {
 	principal Principal
 	valid     bool
+	// deleted: the key is unrevoked but its project is deleted (negative
+	// cache only).
+	deleted bool
+}
+
+// err is the error Verify answers for an invalid entry.
+func (e entry) err() error {
+	if e.deleted {
+		return ErrProjectDeleted
+	}
+	return ErrInvalidKey
 }
 
 // Verifier resolves raw keys to principals with caching.
@@ -222,9 +238,9 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 		v.touch(ctx, e.principal.KeyID)
 		return e.principal, nil
 	}
-	if _, ok := v.negative.Get(hash); ok {
+	if e, ok := v.negative.Get(hash); ok {
 		v.hits.Inc()
-		return Principal{}, ErrInvalidKey
+		return Principal{}, e.err()
 	}
 	v.misses.Inc()
 
@@ -236,6 +252,11 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 		}
 		if err != nil {
 			return entry{}, err
+		}
+		if row.ProjectDeleted {
+			e := entry{deleted: true}
+			v.negative.Add(hash, e)
+			return e, nil
 		}
 		e := entry{valid: true, principal: Principal{
 			KeyID: row.ID, ProjectID: row.ProjectID, ProjectSlug: row.ProjectSlug,
@@ -255,7 +276,7 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 	}
 	e := res.(entry)
 	if !e.valid {
-		return Principal{}, ErrInvalidKey
+		return Principal{}, e.err()
 	}
 	v.touch(ctx, e.principal.KeyID)
 	return e.principal, nil
@@ -266,8 +287,9 @@ func (p Principal) expired(now time.Time) bool {
 	return p.ExpiresAt != nil && !p.ExpiresAt.After(now)
 }
 
-// Invalidate drops a key hash from both caches (called on revocation and
-// when a Valkey invalidation message arrives).
+// Invalidate drops a key hash from both caches (called on revocation, when
+// the key's project is deleted or restored, and when a Valkey invalidation
+// message arrives).
 func (v *Verifier) Invalidate(hash string) {
 	v.positive.Remove(hash)
 	v.negative.Remove(hash)

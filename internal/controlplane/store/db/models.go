@@ -416,6 +416,7 @@ type Project struct {
 	RepositoryUrl *string
 	PausedAt      *time.Time
 	PausedBy      *uuid.UUID
+	PurgeAfter    *time.Time
 }
 
 type ProjectMember struct {

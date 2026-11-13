@@ -680,11 +680,12 @@ SpiceDB holds the derived relationships that permission checks read
 | `membership.upserted` | org id | `{org_id, user_id, role}` | `DELETE` the user's other org roles, `TOUCH organization:{org}#{role}@user:{user}` |
 | `membership.deleted` | org id | `{org_id, user_id}` | `DELETE organization:{org}#{owner,admin,member,viewer}@user:{user}` |
 | `project.created` | project id | `{project_id, org_id}` | `TOUCH project:{project}#org@organization:{org}`, and the `org_role` default access: `TOUCH …#default_editor@organization:{org}#member`, `TOUCH …#default_viewer@organization:{org}#viewer` |
-| `project.deleted` | project id | `{project_id}` | `DELETE` every relationship of `project:{project}` |
+| `project.deleted` | project id | `{project_id}` | `DELETE` every relationship of `project:{project}`. The project is scheduled for purge (`purge_after`); Postgres keeps its default access and `project_members` rows so a restore can write them back. Nobody, org owners and admins included, holds a permission on a deleted project: listing and restoring deleted projects need `manage` on the organization |
 | `project.moved` | project id | `{project_id, from_org_id, to_org_id}` | `DELETE …#org@organization:{from}`, `TOUCH …#org@organization:{to}`; across orgs the `org_role` default relations move the same way |
 | `project_member.upserted` | project id | `{project_id, org_id, user_id, role}` (`admin`, `editor`, `viewer`) | `DELETE` the user's other project roles and `TOUCH project:{project}#{role}@user:{user}` in one write, so a role change never leaves two roles |
 | `project_member.deleted` | project id | `{project_id, org_id, user_id}` | `DELETE project:{project}#{admin,editor,viewer}@user:{user}`. Leaving an organization (`membership.deleted`) deletes the person's `project_members` rows on its projects in the same transaction and emits one of these per removed grant |
 | `project.access_changed` | project id | `{project_id, org_id, default_access}` (`org_role`, `viewer`, `none`) | `TOUCH` the relations of the new default and `DELETE` the rest of `…#default_editor@organization:{org}#member`, `…#default_viewer@organization:{org}#member`, `…#default_viewer@organization:{org}#viewer`. `org_role`: editor from member, viewer from viewer; `viewer`: both viewer relations; `none`: none of them |
+| `project.restored` | project id | `{project_id, org_id, default_access, members: [{user_id, role}]}` | A deleted project restored before its purge: `TOUCH project:{project}#org@organization:{org}`, the relations of `default_access` (as `project.access_changed`) and `TOUCH project:{project}#{role}@user:{user}` per direct grant, all read from Postgres at restore time |
 
 The topics and payloads above are the contract the outbox helper (#277) and
 the relay (#291) implement. The helper is
@@ -846,6 +847,7 @@ Rules:
 | `not_org_member` | 409 Conflict | Only members of this organization can be added to the project. Invite them to the organization first. |
 | `member_limit_reached` | 409 Conflict | This project has the most people added directly it can have. Remove someone, or give everyone access through the default access. |
 | `environment_in_use` | 409 Conflict | This environment has data, or an API key or health check uses it, so it can't be deleted. Hide it instead. |
+| `confirmation_mismatch` | 422 Unprocessable Entity | That doesn't match. Type the project's slug exactly as shown to confirm. |
 | `sso_required` | 403 Forbidden | Your organization requires single sign-on. Sign in through your company's identity provider. |
 | `sso_not_configured` | 409 Conflict | Single sign-on isn't set up for this organization yet. |
 | `sso_untested` | 409 Conflict | Sign in through single sign-on at least once before you enforce it, so nobody gets locked out. |

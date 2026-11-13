@@ -219,6 +219,7 @@ func TestLegacyErrors(t *testing.T) {
 		"bad key":        {path: "/v1/requests", body: validRequest, headers: map[string]string{"X-API-Key": "apl_live_nope_nope_nope_nope"}, code: 401},
 		"bearer ok":      {path: "/v1/requests", body: validRequest, headers: map[string]string{"X-API-Key": "", "Authorization": "Bearer " + testKey}, code: 200},
 		"auth backend":   {path: "/v1/requests", body: validRequest, verifier: fakeVerifier{err: errors.New("db down")}, code: 503},
+		"deleted proj":   {path: "/v1/requests", body: validRequest, verifier: fakeVerifier{err: apikeys.ErrProjectDeleted}, code: 403, contains: "project_deleted"},
 		"slug mismatch":  {path: "/v1/requests", body: strings.Replace(validRequest, `"shop"`, `"other"`, 1), code: 422, contains: "project_slug"},
 		"unknown app":    {path: "/v1/requests", body: strings.Replace(validRequest, `"storefront"`, `"ghost"`, 1), code: 403, contains: "cannot create apps"},
 		"bad timestamp":  {path: "/v1/requests", body: strings.Replace(validRequest, "2026-10-22T11:59:00.123456+00:00", "yesterday", 1), code: 422},

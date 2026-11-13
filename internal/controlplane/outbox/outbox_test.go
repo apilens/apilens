@@ -27,6 +27,7 @@ func TestPayloadJSONMatchesDocumentedContract(t *testing.T) {
 		{ProjectMemberUpsertedPayload{ProjectID: proj, OrgID: org, UserID: user, Role: "editor"}, ProjectMemberUpserted, proj, []string{"project_id", "org_id", "user_id", "role"}},
 		{ProjectMemberDeletedPayload{ProjectID: proj, OrgID: org, UserID: user}, ProjectMemberDeleted, proj, []string{"project_id", "org_id", "user_id"}},
 		{ProjectAccessChangedPayload{ProjectID: proj, OrgID: org, DefaultAccess: "none"}, ProjectAccessChanged, proj, []string{"project_id", "org_id", "default_access"}},
+		{ProjectRestoredPayload{ProjectID: proj, OrgID: org, DefaultAccess: "none", Members: []ProjectMemberGrant{{UserID: user, Role: "viewer"}}}, ProjectRestored, proj, []string{"project_id", "org_id", "default_access", "members"}},
 	}
 	if len(cases) != len(Topics) {
 		t.Fatalf("%d cases for %d topics", len(cases), len(Topics))
@@ -42,7 +43,7 @@ func TestPayloadJSONMatchesDocumentedContract(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var m map[string]string
+		var m map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &m); err != nil {
 			t.Fatalf("%s: %s: %v", c.topic, raw, err)
 		}

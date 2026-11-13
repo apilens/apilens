@@ -39,14 +39,14 @@ func TestSensitiveOperationsNeedRecentSignIn(t *testing.T) {
 	})
 
 	t.Run("delete-project", func(t *testing.T) {
-		resp := f.api.Delete(ProjectsPath+"/shop", as(owner), stale)
+		resp := f.api.Delete(ProjectsPath+"/shop", as(owner), stale, map[string]any{"confirm": "shop"})
 		if resp.Code != http.StatusForbidden || decode[problem](t, resp).Code != "reauth_required" {
 			t.Fatalf("stale: %d %s", resp.Code, resp.Body)
 		}
 		if n := f.count(t, `SELECT count(*) FROM projects WHERE id = $1 AND deleted_at IS NULL`, p.ID); n != 1 {
 			t.Fatal("stale session deleted the project")
 		}
-		if resp := f.api.Delete(ProjectsPath+"/shop", as(owner)); resp.Code != http.StatusNoContent {
+		if resp := f.api.Delete(ProjectsPath+"/shop", as(owner), map[string]any{"confirm": "shop"}); resp.Code != http.StatusOK {
 			t.Fatalf("fresh: %d %s", resp.Code, resp.Body)
 		}
 	})
@@ -61,10 +61,10 @@ func TestSensitiveActionMaxAgeIsConfigurable(t *testing.T) {
 	f.mustCreate(t, owner, "Acme", "acme")
 	f.mustCreateProject(t, owner, "acme", "Shop", "shop")
 
-	if resp := f.api.Delete(ProjectsPath+"/shop", as(owner), signedIn(61*time.Minute)); resp.Code != http.StatusForbidden || decode[problem](t, resp).Code != "reauth_required" {
+	if resp := f.api.Delete(ProjectsPath+"/shop", as(owner), signedIn(61*time.Minute), map[string]any{"confirm": "shop"}); resp.Code != http.StatusForbidden || decode[problem](t, resp).Code != "reauth_required" {
 		t.Fatalf("61m: %d %s", resp.Code, resp.Body)
 	}
-	if resp := f.api.Delete(ProjectsPath+"/shop", as(owner), signedIn(30*time.Minute)); resp.Code != http.StatusNoContent {
+	if resp := f.api.Delete(ProjectsPath+"/shop", as(owner), signedIn(30*time.Minute), map[string]any{"confirm": "shop"}); resp.Code != http.StatusOK {
 		t.Fatalf("30m: %d %s", resp.Code, resp.Body)
 	}
 }

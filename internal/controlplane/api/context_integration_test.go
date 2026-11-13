@@ -68,7 +68,7 @@ func TestUserContext(t *testing.T) {
 	f.mustCreateProject(t, ada, "acme", "Web", "web")
 	f.mustCreateProject(t, ada, "acme", "Checkout", "checkout", "staging", "production")
 	f.mustCreateProject(t, ada, "acme", "Retired", "retired")
-	if resp := f.api.Delete(ProjectsPath+"/retired", as(ada)); resp.Code != http.StatusNoContent {
+	if resp := f.api.Delete(ProjectsPath+"/retired", as(ada), map[string]any{"confirm": "retired"}); resp.Code != http.StatusOK {
 		t.Fatalf("delete project: %d %s", resp.Code, resp.Body)
 	}
 	f.mustCreate(t, grace, "Globex", "globex")

@@ -12,16 +12,18 @@ FROM k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL;
 
 -- name: GetActiveAPIKeyByHash :one
--- Resolves an ingest key to its project. Revoked, expired and keys of
--- deleted projects never match. project_paused: ingest is paused for the
--- project (the edge refuses the key, the query role does not).
+-- Resolves an ingest key to its project. Revoked and expired keys never
+-- match; a key of a deleted project matches with project_deleted set, and
+-- the verifier refuses it (ingest answers project_deleted). project_paused:
+-- ingest is paused for the project (the edge refuses the key, the query
+-- role does not).
 SELECT k.id, k.project_id, k.scopes, k.expires_at, k.app_ids, k.rate_limit_per_minute, k.environments, p.slug AS project_slug, p.org_id,
-       (p.paused_at IS NOT NULL)::bool AS project_paused
+       (p.paused_at IS NOT NULL)::bool AS project_paused,
+       (p.deleted_at IS NOT NULL)::bool AS project_deleted
 FROM api_keys k
 JOIN projects p ON p.id = k.project_id
 WHERE k.key_hash = @key_hash
   AND k.revoked_at IS NULL
-  AND p.deleted_at IS NULL
   AND (k.expires_at IS NULL OR k.expires_at > now());
 
 -- name: TouchAPIKey :exec

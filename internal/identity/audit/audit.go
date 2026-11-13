@@ -122,6 +122,11 @@ const (
 	// edge answers 403 project_paused) or resumed.
 	ProjectPaused  Kind = "project.paused"
 	ProjectResumed Kind = "project.resumed"
+	// ProjectDeleted: a project is deleted and scheduled for purge
+	// (changes: purge_after). ProjectRestored: it is restored before the
+	// purge.
+	ProjectDeleted  Kind = "project.deleted"
+	ProjectRestored Kind = "project.restored"
 )
 
 var kinds = []Kind{
@@ -139,6 +144,7 @@ var kinds = []Kind{
 	ProjectMemberAdded, ProjectMemberRoleChanged, ProjectMemberRemoved, ProjectAccessChanged,
 	AuditLogExported, APIKeyExpired,
 	ProjectPaused, ProjectResumed,
+	ProjectDeleted, ProjectRestored,
 }
 
 // Kinds returns every known event kind, in catalogue order.

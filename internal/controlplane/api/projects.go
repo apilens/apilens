@@ -29,6 +29,8 @@ const (
 	EnvironmentOrderPath     = EnvironmentsPath + "/order"
 	ProjectPausePath         = ProjectPath + "/pause"
 	ProjectResumePath        = ProjectPath + "/resume"
+	DeletedProjectsPath      = OrgProjectsPath + "/deleted"
+	RestoreProjectPath       = OrgProjectsPath + "/{id}/restore"
 )
 
 // ProjectService creates, reads, updates and deletes projects and their
@@ -39,7 +41,9 @@ type ProjectService interface {
 	List(ctx context.Context, user uuid.UUID, orgSlug string) ([]projects.Project, error)
 	Get(ctx context.Context, id uuid.UUID) (projects.Project, error)
 	Update(ctx context.Context, user, id uuid.UUID, u projects.Update) (projects.Project, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+	Delete(ctx context.Context, user, id uuid.UUID, confirm string) (projects.Scheduled, error)
+	ListDeleted(ctx context.Context, orgID uuid.UUID) ([]projects.Scheduled, error)
+	Restore(ctx context.Context, user, orgID, id uuid.UUID) (projects.Project, error)
 	AddEnvironment(ctx context.Context, user, id uuid.UUID, name string) (projects.Project, error)
 	RemoveEnvironment(ctx context.Context, user, id uuid.UUID, name string) (projects.Project, error)
 	ListEnvironments(ctx context.Context, id uuid.UUID) ([]projects.Environment, error)
@@ -179,6 +183,48 @@ type ReorderEnvironmentsInput struct {
 	}
 }
 
+// DeleteProjectInput is the request of DELETE /api/v1/projects/{slug}. The
+// body is optional in the schema so the guard answers first (404/403); a
+// missing body is a wrong confirmation.
+type DeleteProjectInput struct {
+	ProjectSlugInput
+	Body *DeleteProjectBody
+}
+
+// DeleteProjectBody confirms a project delete.
+type DeleteProjectBody struct {
+	Confirm string `json:"confirm" maxLength:"63" doc:"The project's slug, typed by the user to confirm; anything else (or no body) answers confirmation_mismatch (422) and nothing changes."`
+}
+
+// DeletedProject is a deleted project waiting for its purge.
+type DeletedProject struct {
+	ID          string    `json:"id" format:"uuid"`
+	Slug        string    `json:"slug" doc:"The project's slug; reserved until the purge."`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+	DeletedAt   time.Time `json:"deleted_at"`
+	PurgeAfter  time.Time `json:"purge_after" doc:"When the project and its data are removed for good; it can be restored until then."`
+}
+
+// DeletedProjectOutput is the response of DELETE /api/v1/projects/{slug}.
+type DeletedProjectOutput struct {
+	Body DeletedProject
+}
+
+// ListDeletedProjectsOutput is the response of GET
+// /api/v1/orgs/{slug}/projects/deleted.
+type ListDeletedProjectsOutput struct {
+	Body []DeletedProject
+}
+
+// RestoreProjectInput is the request of POST
+// /api/v1/orgs/{slug}/projects/{id}/restore.
+type RestoreProjectInput struct {
+	OrgSlugInput
+	ID string `path:"id" format:"uuid" doc:"The deleted project's id."`
+}
+
 // ProjectSlugAvailableInput is the request of GET
 // /api/v1/projects/slug-available.
 type ProjectSlugAvailableInput struct {
@@ -291,16 +337,43 @@ func (p *Projects) Register(api huma.API) {
 	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeSlugImmutable, identity.CodeAuthzUnavailable, identity.CodeInternal), p.update)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
-		OperationID:   "delete-project",
-		Method:        http.MethodDelete,
-		Path:          ProjectPath,
-		DefaultStatus: http.StatusNoContent,
-		Summary:       "Delete a project",
-		Description:   "Soft-deletes the project; its slug becomes free. Needs `delete` on the project (project admins, organization owners and admins; 403 `forbidden` for editors and viewers). Emits `project.deleted`. " + recentAuth + hidden,
-		Tags:          tags,
-		Security:      security,
-		Middlewares:   huma.Middlewares{authz.RequireRecentAuth(api, p.recentAuth)},
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeReauthRequired, identity.CodeAuthzUnavailable, identity.CodeInternal), p.delete)
+		OperationID: "delete-project",
+		Method:      http.MethodDelete,
+		Path:        ProjectPath,
+		Summary:     "Delete a project",
+		Description: "Deletes the project and schedules its purge after `project.deletion_grace` (7 days by default); returns when it will be purged. `confirm` must be the project's slug, else `confirmation_mismatch` (422) and nothing changes. " +
+			"From that moment the project is gone from every project endpoint, nobody holds a permission on it, its API keys are refused by ingest with 403 `project_deleted`, and its slug stays reserved. " +
+			"Organization owners and admins can restore it until `purge_after` (`POST /orgs/{slug}/projects/{id}/restore`). " +
+			"Needs `delete` on the project (project admins, organization owners and admins; 403 `forbidden` for editors and viewers). Emits `project.deleted`; audited as `project.deleted` with the purge date. " + recentAuth + hidden,
+		Tags:        tags,
+		Security:    security,
+		Middlewares: huma.Middlewares{authz.RequireRecentAuth(api, p.recentAuth)},
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeConfirmationMismatch, identity.CodeReauthRequired, identity.CodeAuthzUnavailable, identity.CodeInternal), p.delete)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "list-deleted-projects",
+		Method:      http.MethodGet,
+		Path:        DeletedProjectsPath,
+		Summary:     "List an organization's deleted projects",
+		Description: "Lists the organization's deleted projects that can still be restored, most recently deleted first, with when each will be purged. " +
+			"Needs `manage` on the organization (owners and admins; 403 `forbidden` for members and viewers). " + hiddenOrg,
+		Tags:        tags,
+		Security:    security,
+		Middlewares: huma.Middlewares{p.guard.RequireOrg(api, authz.OrgManage)},
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.listDeleted)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "restore-project",
+		Method:      http.MethodPost,
+		Path:        RestoreProjectPath,
+		Summary:     "Restore a deleted project",
+		Description: "Restores a deleted project of the organization before its purge and returns it: its access (default access and people added directly), API keys, apps, environments and slug are back exactly as before the delete. " +
+			"A project that is not deleted, belongs to another organization or is past `purge_after` answers `not_found` (404). " +
+			"Needs `manage` on the organization (owners and admins; 403 `forbidden` for members and viewers). Emits `project.restored`; audited as `project.restored`. " + recentAuth + hiddenOrg,
+		Tags:        tags,
+		Security:    security,
+		Middlewares: huma.Middlewares{p.guard.RequireOrg(api, authz.OrgManage), authz.RequireRecentAuth(api, p.recentAuth)},
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeReauthRequired, identity.CodeAuthzUnavailable, identity.CodeInternal), p.restore)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "add-project-environment",
@@ -463,6 +536,8 @@ func (p *Projects) problem(ctx context.Context, op string, err error) error {
 		return identity.Err(identity.CodeEnvironmentInUse)
 	case errors.Is(err, projects.ErrSlugImmutable):
 		return identity.Err(identity.CodeSlugImmutable)
+	case errors.Is(err, projects.ErrConfirmMismatch):
+		return identity.Err(identity.CodeConfirmationMismatch)
 	case errors.Is(err, projects.ErrInvalid), errors.Is(err, projects.ErrTooManyEnvironments):
 		return identity.Err(identity.CodeInvalidRequest)
 	default:
@@ -549,15 +624,67 @@ func (p *Projects) update(ctx context.Context, in *UpdateProjectInput) (*Project
 	})
 }
 
-func (p *Projects) delete(ctx context.Context, in *ProjectSlugInput) (*struct{}, error) {
-	t, _, err := authorizeProject(ctx, p.guard, p.logger, in.Slug, authz.ProjectDelete)
+func toDeletedProject(s projects.Scheduled) DeletedProject {
+	return DeletedProject{
+		ID: s.ID.String(), Slug: s.Slug, Name: s.Name, Description: s.Description,
+		CreatedAt: s.CreatedAt.UTC(), DeletedAt: s.DeletedAt.UTC(), PurgeAfter: s.PurgeAfter.UTC(),
+	}
+}
+
+func (p *Projects) delete(ctx context.Context, in *DeleteProjectInput) (*DeletedProjectOutput, error) {
+	t, uid, err := authorizeProject(ctx, p.guard, p.logger, in.Slug, authz.ProjectDelete)
 	if err != nil {
 		return nil, err
 	}
-	if err := p.svc.Delete(ctx, t.ProjectID); err != nil {
+	confirm := ""
+	if in.Body != nil {
+		confirm = in.Body.Confirm
+	}
+	s, err := p.svc.Delete(ctx, uid, t.ProjectID, confirm)
+	if err != nil {
 		return nil, p.problem(ctx, "delete project", err)
 	}
-	return nil, nil
+	return &DeletedProjectOutput{Body: toDeletedProject(s)}, nil
+}
+
+func (p *Projects) listDeleted(ctx context.Context, _ *OrgSlugInput) (*ListDeletedProjectsOutput, error) {
+	t, ok := authz.TargetFromContext(ctx)
+	if !ok {
+		return nil, identity.Err(identity.CodeInternal)
+	}
+	list, err := p.svc.ListDeleted(ctx, t.OrgID)
+	if err != nil {
+		return nil, p.problem(ctx, "list deleted projects", err)
+	}
+	out := &ListDeletedProjectsOutput{Body: make([]DeletedProject, 0, len(list))}
+	for _, s := range list {
+		out.Body = append(out.Body, toDeletedProject(s))
+	}
+	return out, nil
+}
+
+func (p *Projects) restore(ctx context.Context, in *RestoreProjectInput) (*ProjectOutput, error) {
+	uid, err := signedInUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	t, ok := authz.TargetFromContext(ctx)
+	if !ok {
+		return nil, identity.Err(identity.CodeInternal)
+	}
+	id, err := uuid.Parse(in.ID)
+	if err != nil {
+		return nil, identity.Err(identity.CodeNotFound)
+	}
+	pr, err := p.svc.Restore(ctx, uid, t.OrgID, id)
+	if err != nil {
+		return nil, p.problem(ctx, "restore project", err)
+	}
+	// manage on the organization (owners and admins) is admin on every
+	// project; SpiceDB learns about the restore through the outbox, after
+	// this request.
+	pr.Role = projects.RoleAdmin
+	return &ProjectOutput{Body: toProject(pr)}, nil
 }
 
 func (p *Projects) addEnvironment(ctx context.Context, in *AddEnvironmentInput) (*ProjectOutput, error) {

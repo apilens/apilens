@@ -116,6 +116,7 @@ func expect(t *testing.T, what string, resp *httptest.ResponseRecorder, status i
 func TestProjectOperationsFollowProjectRoles(t *testing.T) {
 	f := setupProjectRoles(t)
 	ok, created, gone := http.StatusOK, http.StatusCreated, http.StatusNoContent
+	confirm := map[string]any{"confirm": "shop"}
 	hidden, refused := http.StatusNotFound, http.StatusForbidden
 	type want struct{ admin, editor, viewer, outsider int }
 	shop := ProjectsPath + "/shop"
@@ -203,8 +204,8 @@ func TestProjectOperationsFollowProjectRoles(t *testing.T) {
 	}
 
 	// Delete needs project admin.
-	expect(t, "delete-project as editor", f.api.Delete(shop, as(f.users["editor"])), refused)
-	expect(t, "delete-project as viewer", f.api.Delete(shop, as(f.users["viewer"])), refused)
-	expect(t, "delete-project as outsider", f.api.Delete(shop, as(f.users["outsider"])), hidden)
-	expect(t, "delete-project as admin", f.api.Delete(shop, as(f.users["admin"])), gone)
+	expect(t, "delete-project as editor", f.api.Delete(shop, as(f.users["editor"]), confirm), refused)
+	expect(t, "delete-project as viewer", f.api.Delete(shop, as(f.users["viewer"]), confirm), refused)
+	expect(t, "delete-project as outsider", f.api.Delete(shop, as(f.users["outsider"]), confirm), hidden)
+	expect(t, "delete-project as admin", f.api.Delete(shop, as(f.users["admin"]), confirm), ok)
 }

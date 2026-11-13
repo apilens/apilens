@@ -20,7 +20,7 @@ FROM projects
 WHERE id = ANY(@ids::uuid[]) AND paused_at IS NOT NULL;
 
 -- name: ListProjectKeyHashes :many
--- The hashes of the project's keys that are not revoked, so a pause or
--- resume can drop them from every verifier cache.
+-- The hashes of the project's keys that are not revoked, so a pause,
+-- resume, delete or restore can drop them from every verifier cache.
 SELECT key_hash FROM api_keys
 WHERE project_id = @project_id AND revoked_at IS NULL;

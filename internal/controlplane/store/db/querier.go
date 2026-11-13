@@ -70,7 +70,8 @@ type Querier interface {
 	CreateOrganization(ctx context.Context, arg CreateOrganizationParams) (Organization, error)
 	// Explicit project and environment queries of the projects API. The
 	// Upsert* queries in catalog.sql stay for the idempotent dev seed.
-	// Fails on projects_slug_active when an active project uses the slug.
+	// Fails on projects_slug_active or projects_slug_reserved when an active
+	// project or one awaiting purge holds the slug.
 	CreateProject(ctx context.Context, arg CreateProjectParams) (CreateProjectRow, error)
 	CreateRequestExport(ctx context.Context, arg CreateRequestExportParams) (RequestExport, error)
 	CreateSavedView(ctx context.Context, arg CreateSavedViewParams) (SavedView, error)
@@ -104,9 +105,11 @@ type Querier interface {
 	EnsureUptimeMonitor(ctx context.Context, arg EnsureUptimeMonitorParams) (UptimeMonitor, error)
 	ExpireRequestExport(ctx context.Context, id uuid.UUID) (int64, error)
 	FailRequestExport(ctx context.Context, arg FailRequestExportParams) (int64, error)
-	// Resolves an ingest key to its project. Revoked, expired and keys of
-	// deleted projects never match. project_paused: ingest is paused for the
-	// project (the edge refuses the key, the query role does not).
+	// Resolves an ingest key to its project. Revoked and expired keys never
+	// match; a key of a deleted project matches with project_deleted set, and
+	// the verifier refuses it (ingest answers project_deleted). project_paused:
+	// ingest is paused for the project (the edge refuses the key, the query
+	// role does not).
 	GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error)
 	GetActiveAppBySlug(ctx context.Context, arg GetActiveAppBySlugParams) (GetActiveAppBySlugRow, error)
 	// An active project of an active organization by id; no row when either is
@@ -320,9 +323,11 @@ type Querier interface {
 	ListProjectEnvironmentDetails(ctx context.Context, projectID uuid.UUID) ([]ListProjectEnvironmentDetailsRow, error)
 	// The apps each key of the project sent records for, with when.
 	ListProjectKeyApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectKeyAppsRow, error)
-	// The hashes of the project's keys that are not revoked, so a pause or
-	// resume can drop them from every verifier cache.
+	// The hashes of the project's keys that are not revoked, so a pause,
+	// resume, delete or restore can drop them from every verifier cache.
 	ListProjectKeyHashes(ctx context.Context, projectID uuid.UUID) ([]string, error)
+	// The direct grants of a project, to rebuild its relationships on restore.
+	ListProjectMemberRoles(ctx context.Context, projectID uuid.UUID) ([]ListProjectMemberRolesRow, error)
 	// Direct grants of a project with their users; deleted accounts are hidden.
 	ListProjectMembers(ctx context.Context, projectID uuid.UUID) ([]ListProjectMembersRow, error)
 	// The pending invitations that carry a grant on the project, newest first,
@@ -353,6 +358,9 @@ type Querier interface {
 	// own private ones (a NULL viewer, a read key, sees the shared ones only).
 	// An empty surface lists every surface.
 	ListSavedViews(ctx context.Context, arg ListSavedViewsParams) ([]SavedView, error)
+	// The organization's deleted projects that can still be restored (purge
+	// not yet due), most recently deleted first.
+	ListScheduledProjects(ctx context.Context, orgID uuid.UUID) ([]ListScheduledProjectsRow, error)
 	// Uptime from SDK heartbeats (internal/alerts: the alerts.uptime job).
 	// Every environment of an active app of an active project that sent a
 	// heartbeat since @since, with its latest heartbeat: what the uptime job
@@ -418,6 +426,9 @@ type Querier interface {
 	// Serializes the transactions that save an enforcing connection, so two
 	// organizations cannot both start enforcing one domain.
 	LockSSOEnforcement(ctx context.Context) error
+	// A deleted project of the active organization org_id that can still be
+	// restored, row-locked for the rest of the transaction.
+	LockScheduledProject(ctx context.Context, arg LockScheduledProjectParams) (LockScheduledProjectRow, error)
 	MarkAPIKeyExpiredRecorded(ctx context.Context, arg MarkAPIKeyExpiredRecordedParams) error
 	MarkAPIKeyExpiryNotified(ctx context.Context, arg MarkAPIKeyExpiryNotifiedParams) error
 	// Links a rotated key to its successor and sets when it stops working (the
@@ -455,6 +466,7 @@ type Querier interface {
 	// Pauses ingest for the active project; no row changes when it is already
 	// paused.
 	PauseProject(ctx context.Context, arg PauseProjectParams) (int64, error)
+	// Whether an active project or one awaiting purge holds the slug.
 	ProjectSlugTaken(ctx context.Context, slug string) (bool, error)
 	// Records a probe of a check and its status.
 	RecordHealthCheckResult(ctx context.Context, arg RecordHealthCheckResultParams) error
@@ -476,6 +488,7 @@ type Querier interface {
 	ResolveProjectSlug(ctx context.Context, slug string) (ResolveProjectSlugRow, error)
 	// Brings an archived, merged or deleted app back; acknowledges it.
 	RestoreApp(ctx context.Context, id uuid.UUID) error
+	RestoreProject(ctx context.Context, id uuid.UUID) (int64, error)
 	// Resumes ingest for the active project; no row changes when it is not
 	// paused.
 	ResumeProject(ctx context.Context, id uuid.UUID) (int64, error)
@@ -484,6 +497,9 @@ type Querier interface {
 	// Revokes the address's pending invitation to the organization, if any, so
 	// a new one can replace it.
 	RevokePendingInvitationByEmail(ctx context.Context, arg RevokePendingInvitationByEmailParams) (int64, error)
+	// Soft-deletes the project and schedules its purge grace_seconds from now
+	// (0: at once). The slug stays reserved until the purge (projects_slug_reserved).
+	ScheduleProjectDeletion(ctx context.Context, arg ScheduleProjectDeletionParams) (ScheduleProjectDeletionRow, error)
 	SetAppDefault(ctx context.Context, id uuid.UUID) error
 	// Gives each named environment its index in names as its position.
 	SetEnvironmentPositions(ctx context.Context, arg SetEnvironmentPositionsParams) error
@@ -495,13 +511,12 @@ type Querier interface {
 	// monitor if the job has not checked it yet.
 	SetUptimeMonitorMuted(ctx context.Context, arg SetUptimeMonitorMutedParams) (UptimeMonitor, error)
 	SoftDeleteOrganization(ctx context.Context, id uuid.UUID) (int64, error)
-	SoftDeleteProject(ctx context.Context, id uuid.UUID) (int64, error)
 	// Moves a queued (or retried, still running) export to running. No row
 	// means it was cancelled or is already done.
 	StartRequestExport(ctx context.Context, id uuid.UUID) (RequestExport, error)
 	// Which of the given slugs active organizations already use.
 	TakenOrganizationSlugs(ctx context.Context, slugs []string) ([]string, error)
-	// Which of the given slugs active projects already use.
+	// Which of the given slugs active projects or projects awaiting purge hold.
 	TakenProjectSlugs(ctx context.Context, slugs []string) ([]string, error)
 	// Records a use of the key. With record_use (an ingest request) the SDK and
 	// client IP of that request replace the previous ones; NULL clears them.
