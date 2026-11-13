@@ -507,11 +507,18 @@ const roleOf = (id: string): Role => membersByUser.get(id)?.find((m) => m.user.i
 
 /** What `users/me/context` lists for the shop project, as SpiceDB would answer for `role`. */
 function capabilitiesFor(role: Role): string[] {
-  const all = ["project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage", "members.invite", "members.remove", "billing.manage"];
+  const all = ["project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage", "access.manage", "audit.read", "members.invite", "members.remove", "billing.manage"];
   if (role === "owner") return all;
   if (role === "admin") return all.filter((a) => a !== "project.delete" && a !== "billing.manage");
   if (role === "member") return ["project.read", "project.update", "api_keys.create", "api_keys.revoke"];
   return ["project.read"];
+}
+
+/** The effective project role `users/me/context` lists for a project with these actions. */
+function projectRoleOf(actions: readonly string[]): "admin" | "editor" | "viewer" {
+  if (actions.includes("access.manage")) return "admin";
+  if (actions.includes("project.update")) return "editor";
+  return "viewer";
 }
 
 /** A project API key as `GET /projects/{slug}/api-keys` lists it. */
@@ -782,7 +789,7 @@ function joinedOrgs(id: string) {
       slug: o.slug,
       name: o.name,
       role: "member",
-      projects: o.projects.map((p) => ({ id: `prj_${p}`, slug: p, name: p, environments: ["production"], app_count: 1 })),
+      projects: o.projects.map((p) => ({ id: `prj_${p}`, slug: p, name: p, environments: ["production"], app_count: 1, role: "editor" })),
     }));
 }
 
@@ -892,7 +899,7 @@ const GLOBEX = {
   slug: "globex",
   name: "Globex",
   role: "member",
-  projects: [{ id: "prj_globex", slug: "storefront", name: "storefront", environments: ["production"], app_count: 1 }],
+  projects: [{ id: "prj_globex", slug: "storefront", name: "storefront", environments: ["production"], app_count: 1, role: "editor" }],
 };
 /** Users who accepted an invitation. */
 const joinedGlobex = new Set<string>();
@@ -921,7 +928,7 @@ const ENV_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const createdProjectsOf = (id: string, org: string) =>
   [...createdProjects.values()]
     .filter((p) => p.owner === id && p.org === org)
-    .map(({ id: pid, slug, name, environments }) => ({ id: pid, slug, name, environments, app_count: 1 }));
+    .map(({ id: pid, slug, name, environments }) => ({ id: pid, slug, name, environments, app_count: 1, role: "admin" }));
 const createdOrgsOf = (id: string) =>
   [...createdOrgs.values()].filter((o) => o.owner === id).map(({ owner: _owner, ...o }) => ({ ...o, projects: createdProjectsOf(id, o.slug) }));
 
@@ -946,7 +953,7 @@ function context(id: string) {
         slug: "acme",
         name: "Acme",
         role,
-        projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"], app_count: shopApps.length }, ...createdProjectsOf(id, "acme")],
+        projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"], app_count: shopApps.length, role: projectRoleOf(capabilitiesOf(id)) }, ...createdProjectsOf(id, "acme")],
       },
       ...(joinedGlobex.has(id) ? [GLOBEX] : []),
       ...createdOrgsOf(id),

@@ -688,12 +688,18 @@ once shipped; a new shape gets a new topic.
 `GET /api/v1/users/me/context` (api role, `internal/controlplane/api/context.go`,
 `internal/controlplane/usercontext`) returns in one call what the app shell
 needs: `user` (the `/users/me` body), `orgs` (each with the user's `role` and
-its projects with their environments), `last_project_slug` (the preference,
+the projects they can view, each with its environments and the user's
+effective project `role`), `last_project_slug` (the preference,
 or null when the user can no longer see that project), `onboarding`
 (`{step, completed}` read from the stored onboarding object) and
 `capabilities`. It is four indexed queries in one read-only snapshot plus one
 SpiceDB `CheckBulkPermissions` call whatever the number of organizations and
 projects (under 50 ms for 10 × 10, asserted by an integration test).
+A project the user cannot view (`project#view`, e.g. a restricted project
+without a grant) is left out of `orgs` and `capabilities`; the effective
+role is read from the same answers (`access.manage` → admin,
+`project.update` → editor, `project.read` → viewer), so neither costs an
+extra SpiceDB call.
 
 The UI never derives permissions from a role. `GET /api/v1/users/me/context`
 returns, per project, the list of **actions** the user may perform, in the
@@ -723,6 +729,8 @@ the UI shows.
 | `api_keys.revoke` | `project#manage_keys` | revoking keys |
 | `capture.manage` | `project#manage_capture` | editing an app's remote capture policy |
 | `alerts.manage` | `project#manage_alerts` | creating, changing and deleting alert rules and notification channels, sending test notifications |
+| `access.manage` | `project#manage_access` | granting, changing and removing project roles and changing the default access on Access › Members |
+| `audit.read` | `project#view_audit` | the project's activity log (Access › Activity) |
 | `members.invite` | `organization#invite` | the invite dialog and Invitations page |
 | `members.remove` | `organization#manage_members` | role changes and removal on Members |
 | `billing.manage` | `organization#manage_billing` | billing (SaaS) |

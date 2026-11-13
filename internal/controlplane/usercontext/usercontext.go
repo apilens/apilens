@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -40,6 +41,8 @@ const (
 	ActionAPIKeysRevoke = "api_keys.revoke"
 	ActionCaptureManage = "capture.manage"
 	ActionAlertsManage  = "alerts.manage"
+	ActionAccessManage  = "access.manage"
+	ActionAuditRead     = "audit.read"
 	ActionMembersInvite = "members.invite"
 	ActionMembersRemove = "members.remove"
 	ActionBillingManage = "billing.manage"
@@ -66,6 +69,8 @@ var Vocabulary = []Grant{
 	{ActionAPIKeysRevoke, authz.ProjectManageKeys, false},
 	{ActionCaptureManage, authz.ProjectManageCapture, false},
 	{ActionAlertsManage, authz.ProjectManageAlerts, false},
+	{ActionAccessManage, authz.ProjectManageAccess, false},
+	{ActionAuditRead, authz.ProjectViewAudit, false},
 	{ActionMembersInvite, authz.OrgInvite, true},
 	{ActionMembersRemove, authz.OrgManageMembers, true},
 	{ActionBillingManage, authz.OrgManageBilling, true},
@@ -77,10 +82,18 @@ type Checker interface {
 	CheckBulk(ctx context.Context, items []authz.CheckItem) ([]bool, error)
 }
 
+// Effective project roles (D1 in #753), highest first.
+const (
+	RoleAdmin  = "admin"
+	RoleEditor = "editor"
+	RoleViewer = "viewer"
+)
+
 // ErrNotFound means the user does not exist or is deleted.
 var ErrNotFound = errors.New("usercontext: user not found")
 
-// Project is a project of one of the user's organizations.
+// Project is a project of one of the user's organizations that the user can
+// view (project#view).
 type Project struct {
 	ID           uuid.UUID
 	Slug         string
@@ -88,6 +101,9 @@ type Project struct {
 	Environments []string // sorted, never nil
 	// AppCount is the number of the project's active (not deleted) apps.
 	AppCount int
+	// Role is the user's effective project role (admin, editor or viewer),
+	// read from the same CheckBulk answers as the capabilities.
+	Role string
 }
 
 // Org is an organization the user belongs to, with their role in it.
@@ -96,7 +112,7 @@ type Org struct {
 	Slug     string
 	Name     string
 	Role     string
-	Projects []Project // by name, never nil
+	Projects []Project // the ones the user can view, by name, never nil
 }
 
 // Context is the signed-in user's context.
@@ -107,7 +123,8 @@ type Context struct {
 	// names a project they can still see; empty otherwise.
 	LastProjectSlug string
 	// Capabilities lists, per project slug, the actions the user may
-	// perform, in Vocabulary order. Every project of Orgs has an entry.
+	// perform, in Vocabulary order. Every project of Orgs has an entry, and
+	// only those: a project without project.read is left out of both.
 	Capabilities map[string][]string
 }
 
@@ -172,7 +189,6 @@ func (s *Service) Get(ctx context.Context, user uuid.UUID) (Context, error) {
 		index[o.ID] = len(out.Orgs)
 		out.Orgs = append(out.Orgs, Org{ID: o.ID, Slug: o.Slug, Name: o.Name, Role: o.Role, Projects: []Project{}})
 	}
-	last := lastProject(u.Preferences)
 	for _, p := range projectRows {
 		i, ok := index[p.OrgID]
 		if !ok {
@@ -184,16 +200,53 @@ func (s *Service) Get(ctx context.Context, user uuid.UUID) (Context, error) {
 		}
 		org := &out.Orgs[i]
 		org.Projects = append(org.Projects, Project{ID: p.ID, Slug: p.Slug, Name: p.Name, Environments: e, AppCount: int(p.AppCount)})
-		if p.Slug == last {
-			out.LastProjectSlug = last
-		}
 	}
 	caps, err := s.capabilities(ctx, user, out.Orgs)
 	if err != nil {
 		return Context{}, err
 	}
 	out.Capabilities = caps
+	visible(&out, lastProject(u.Preferences))
 	return out, nil
+}
+
+// visible keeps the projects the user can view (project.read among their
+// capabilities, so a restricted project they hold no grant on is left out),
+// sets each kept project's effective role and drops the capabilities of the
+// others. last becomes LastProjectSlug when it names a kept project.
+func visible(c *Context, last string) {
+	for i := range c.Orgs {
+		org := &c.Orgs[i]
+		kept := make([]Project, 0, len(org.Projects))
+		for _, p := range org.Projects {
+			p.Role = role(c.Capabilities[p.Slug])
+			if p.Role == "" {
+				delete(c.Capabilities, p.Slug)
+				continue
+			}
+			kept = append(kept, p)
+			if p.Slug == last {
+				c.LastProjectSlug = last
+			}
+		}
+		org.Projects = kept
+	}
+}
+
+// role is the effective project role the actions imply: access.manage
+// (project#manage_access = admin + org->manage) means admin, project.update
+// (project#edit) editor and project.read (project#view) viewer; empty when
+// the user cannot view the project.
+func role(actions []string) string {
+	switch {
+	case slices.Contains(actions, ActionAccessManage):
+		return RoleAdmin
+	case slices.Contains(actions, ActionProjectUpdate):
+		return RoleEditor
+	case slices.Contains(actions, ActionProjectRead):
+		return RoleViewer
+	}
+	return ""
 }
 
 // capabilities resolves Vocabulary for every project of orgs with one

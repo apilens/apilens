@@ -1,8 +1,8 @@
 // The app shell's tenancy, read from `GET /users/me/context` (#286): which organization and
 // project a URL points at, and how the shell labels them. Pure; safe in Client Components.
-import type { ContextOrg, ContextProject, OrgRole, User, UserContext } from "./identity";
+import type { ContextOrg, ContextProject, OrgRole, ProjectRole, User, UserContext } from "./identity";
 
-export type { ContextOrg, ContextProject, UserContext };
+export type { ContextOrg, ContextProject, ProjectRole, UserContext };
 
 /** The organization and project a `/<project>/...` URL points at, when the user can see it. */
 export function findProject(ctx: UserContext, slug: string): { org: ContextOrg; project: ContextProject } | undefined {
@@ -31,6 +31,11 @@ export function orgMark(org: Pick<ContextOrg, "name" | "slug">): string {
 
 /** `owner` → `Owner`. */
 export function roleLabel(role: OrgRole): string {
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+/** `editor` → `Editor`. */
+export function projectRoleLabel(role: ProjectRole): string {
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
 

@@ -30,7 +30,7 @@ const viewer = (role: OrgRole, manage = role === "owner" || role === "admin"): V
 function context(role: OrgRole, capabilities: Record<string, string[]>, projects = ["shop"]): UserContext {
   return {
     user: { id: "me" } as UserContext["user"],
-    orgs: [{ id: "o1", slug: "acme", name: "Acme", role, projects: projects.map((slug) => ({ id: slug, slug, name: slug, environments: [], app_count: 1 })) }],
+    orgs: [{ id: "o1", slug: "acme", name: "Acme", role, projects: projects.map((slug) => ({ id: slug, slug, name: slug, environments: [], app_count: 1, role: "admin" as const })) }],
     last_project_slug: null,
     onboarding: { step: null, completed: true },
     capabilities,

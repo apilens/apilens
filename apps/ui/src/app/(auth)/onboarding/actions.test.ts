@@ -54,7 +54,7 @@ const GLOBEX: ContextOrg = {
   slug: "globex",
   name: "Globex",
   role: "member",
-  projects: [{ id: "p2", slug: "storefront", name: "storefront", environments: ["production"], app_count: 1 }],
+  projects: [{ id: "p2", slug: "storefront", name: "storefront", environments: ["production"], app_count: 1, role: "admin" as const }],
 };
 
 function ctx(answers: Record<string, unknown>, orgs: ContextOrg[]): UserContext {

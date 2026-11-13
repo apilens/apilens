@@ -2391,7 +2391,7 @@
             "type": "string"
           },
           "projects": {
-            "description": "The organization's active projects, ordered by name.",
+            "description": "The organization's active projects the user can view, ordered by name. A restricted project appears only for org owners and admins and people granted a project role.",
             "items": {
               "$ref": "#/components/schemas/ContextProject"
             },
@@ -2449,6 +2449,15 @@
           "name": {
             "type": "string"
           },
+          "role": {
+            "description": "The signed-in user's effective project role: the highest one any source grants (organization role, project default access, direct grant).",
+            "enum": [
+              "admin",
+              "editor",
+              "viewer"
+            ],
+            "type": "string"
+          },
           "slug": {
             "type": "string"
           }
@@ -2458,7 +2467,8 @@
           "slug",
           "name",
           "environments",
-          "app_count"
+          "app_count",
+          "role"
         ],
         "type": "object"
       },
@@ -11352,7 +11362,7 @@
                 "null"
               ]
             },
-            "description": "Per project slug, the actions the user may perform there (project.read, project.update, project.delete, api_keys.create, api_keys.revoke, capture.manage, alerts.manage, members.invite, members.remove, billing.manage). Every project in orgs has an entry, listing actions in this order. Computed from SpiceDB; the UI gates on these, the server still checks every request.",
+            "description": "Per project slug, the actions the user may perform there (project.read, project.update, project.delete, api_keys.create, api_keys.revoke, capture.manage, alerts.manage, access.manage, audit.read, members.invite, members.remove, billing.manage). Every project in orgs has an entry, listing actions in this order. Computed from SpiceDB; the UI gates on these, the server still checks every request.",
             "type": "object"
           },
           "last_project_slug": {

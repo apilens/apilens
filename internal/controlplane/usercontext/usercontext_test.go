@@ -52,8 +52,8 @@ func TestCapabilities(t *testing.T) {
 	for _, m := range []map[string]bool{
 		// acme owner: everything.
 		grant(authz.Organization(acme.String()), authz.OrgInvite, authz.OrgManageMembers, authz.OrgManageBilling),
-		grant(authz.Project(acme.String(), web.String()), authz.ProjectView, authz.ProjectEdit, authz.ProjectDelete, authz.ProjectManageKeys, authz.ProjectManageCapture, authz.ProjectManageAlerts),
-		grant(authz.Project(acme.String(), checkout.String()), authz.ProjectView, authz.ProjectEdit, authz.ProjectDelete, authz.ProjectManageKeys, authz.ProjectManageCapture, authz.ProjectManageAlerts),
+		grant(authz.Project(acme.String(), web.String()), authz.ProjectView, authz.ProjectEdit, authz.ProjectDelete, authz.ProjectManageKeys, authz.ProjectManageCapture, authz.ProjectManageAlerts, authz.ProjectManageAccess, authz.ProjectViewAudit),
+		grant(authz.Project(acme.String(), checkout.String()), authz.ProjectView, authz.ProjectEdit, authz.ProjectDelete, authz.ProjectManageKeys, authz.ProjectManageCapture, authz.ProjectManageAlerts, authz.ProjectManageAccess, authz.ProjectViewAudit),
 		// initech viewer: view only.
 		grant(authz.Project(initech.String(), reports.String()), authz.ProjectView),
 	} {
@@ -69,7 +69,7 @@ func TestCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := []string{
-		ActionProjectRead, ActionProjectUpdate, ActionProjectDelete, ActionAPIKeysCreate, ActionAPIKeysRevoke, ActionCaptureManage, ActionAlertsManage,
+		ActionProjectRead, ActionProjectUpdate, ActionProjectDelete, ActionAPIKeysCreate, ActionAPIKeysRevoke, ActionCaptureManage, ActionAlertsManage, ActionAccessManage, ActionAuditRead,
 		ActionMembersInvite, ActionMembersRemove, ActionBillingManage,
 	}
 	want := map[string][]string{"web": all, "checkout": all, "reports": {ActionProjectRead}}
@@ -82,15 +82,15 @@ func TestCapabilities(t *testing.T) {
 		}
 	}
 
-	// One round trip; each (permission, resource) pair asked once: six
+	// One round trip; each (permission, resource) pair asked once: eight
 	// project permissions per project, three org permissions per org that
 	// has projects.
 	if len(checker.calls) != 1 {
 		t.Fatalf("CheckBulk calls = %d, want 1", len(checker.calls))
 	}
 	items := checker.calls[0]
-	if len(items) != 3*6+2*3 {
-		t.Fatalf("items = %d, want %d", len(items), 3*6+2*3)
+	if len(items) != 3*8+2*3 {
+		t.Fatalf("items = %d, want %d", len(items), 3*8+2*3)
 	}
 	seen := map[string]bool{}
 	for _, it := range items {
@@ -140,6 +140,8 @@ func TestVocabulary(t *testing.T) {
 		{"api_keys.revoke", "manage_keys", false},
 		{"capture.manage", "manage_capture", false},
 		{"alerts.manage", "manage_alerts", false},
+		{"access.manage", "manage_access", false},
+		{"audit.read", "view_audit", false},
 		{"members.invite", "invite", true},
 		{"members.remove", "manage_members", true},
 		{"billing.manage", "manage_billing", true},
@@ -160,5 +162,49 @@ func TestLastProject(t *testing.T) {
 		if got := lastProject([]byte(raw)); got != want {
 			t.Errorf("lastProject(%s) = %q, want %q", raw, got, want)
 		}
+	}
+}
+
+// A project the user cannot view (a restricted project without a grant) is
+// left out of the orgs, the capabilities and the last project; each kept
+// project carries the effective role its actions imply.
+func TestVisible(t *testing.T) {
+	c := Context{
+		Orgs: []Org{
+			{Slug: "acme", Projects: []Project{{Slug: "admin"}, {Slug: "editor"}, {Slug: "secret"}, {Slug: "viewer"}}},
+			{Slug: "initech", Projects: []Project{{Slug: "hidden"}}},
+		},
+		Capabilities: map[string][]string{
+			"admin":  {ActionProjectRead, ActionProjectUpdate, ActionAccessManage, ActionAuditRead},
+			"editor": {ActionProjectRead, ActionProjectUpdate, ActionAPIKeysCreate},
+			"secret": {},
+			"viewer": {ActionProjectRead, ActionMembersInvite},
+			"hidden": {ActionMembersInvite},
+		},
+	}
+	visible(&c, "secret")
+	type view struct{ slug, role string }
+	var got []view
+	for _, o := range c.Orgs {
+		for _, p := range o.Projects {
+			got = append(got, view{p.Slug, p.Role})
+		}
+	}
+	want := []view{{"admin", RoleAdmin}, {"editor", RoleEditor}, {"viewer", RoleViewer}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("projects = %v, want %v", got, want)
+	}
+	if c.Orgs[1].Projects == nil || len(c.Orgs[1].Projects) != 0 {
+		t.Fatalf("initech projects = %v, want empty", c.Orgs[1].Projects)
+	}
+	if _, ok := c.Capabilities["secret"]; ok || len(c.Capabilities) != 3 {
+		t.Fatalf("capabilities = %v", c.Capabilities)
+	}
+	if c.LastProjectSlug != "" {
+		t.Fatalf("last project = %q, want empty", c.LastProjectSlug)
+	}
+	visible(&c, "editor")
+	if c.LastProjectSlug != "editor" {
+		t.Fatalf("last project = %q, want editor", c.LastProjectSlug)
 	}
 }

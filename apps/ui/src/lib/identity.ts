@@ -573,7 +573,12 @@ export interface ContextProject {
   environments: string[];
   /** Active (not deleted) apps in the project. */
   app_count: number;
+  /** The user's effective project role: the highest any source grants. */
+  role: ProjectRole;
 }
+
+/** A project role (#753 D1); org owners and admins are admin on every project. */
+export type ProjectRole = "admin" | "editor" | "viewer";
 
 export interface ContextOrg {
   id: string;
