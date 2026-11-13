@@ -1,0 +1,65 @@
+---
+title: "Activity log"
+description: "Who changed access, API keys and settings on a project or in an organization, how long it is kept, and how to export it."
+---
+
+APILens records every change to who may do what and to project settings in an append-only **activity log**. Nobody, including organization owners, can edit or delete an entry.
+
+- **Project activity**: the project's **Access** page, **Activity** tab (`/<project>/access/activity`). Visible to project admins and organization owners and admins.
+- **Organization audit log**: **Organization settings → Audit log**. Covers the organization and all its projects. Visible to organization owners and admins.
+
+Anyone else sees the tab or section missing, and a direct link explains that only admins can read it.
+
+## What is recorded
+
+Each entry is one action, shown as a sentence ("Ada Admin rotated key Production backend"), newest first. Actions are grouped like this:
+
+| Group | Actions |
+|---|---|
+| **Access** | People added to the project, role changes, people removed, the default access changed; organization members added, changed, removed or joined; invitations sent, accepted or revoked; SSO changes; the activity log exported. |
+| **API keys** | Keys created, updated, rotated, revoked or expired. |
+| **Settings** | Projects created, updated, paused, resumed, renamed (new slug), scheduled for deletion, restored or purged; organization settings changed. |
+| **Environments** | Environments added, updated (production flag, colour, order, hidden) or removed. |
+| **Alerts** | Alert rules, alert channels and health checks created, changed or deleted. |
+| **Data** | Apps created, renamed, archived, merged, deleted, restored or kept; app and endpoint settings; privacy and capture policy changes. |
+
+Selecting an entry opens its detail:
+
+| Field | What it holds |
+|---|---|
+| **Action** | The action as `noun.verb`, for example `api_key.rotated`, and when it happened. |
+| **Who** | The person who did it, or the system for automatic actions (a key expiring, a purge). |
+| **Target** | What it was done to: a person, a key, an environment. |
+| **IP address**, **User agent**, **Request id** | Of the request that made the change; "None: this happened outside a request" for background jobs. |
+| **Changes** | The changed fields, before and after. |
+| **Event id** | The entry's id, to quote when you report it. |
+
+## Filter
+
+Filter by **Person**, **Action** group and a **From**/**To** date range (and **Project** on the organization log). Filters live in the URL, so a filtered view can be bookmarked or shared with another admin.
+
+## Retention
+
+Entries are kept for **400 days** by default, then deleted by a daily job. The log says how far back it goes under the list. Self-hosted installs change the period with `audit.retention` (see [Audit log retention](/self-host/audit-log)). Activity log retention is separate from telemetry [retention](/getting-started/data-privacy#retention).
+
+When a project is purged after deletion, its own entries are kept; the purge is recorded in the organization's log as `project.purged`.
+
+## Export
+
+**Export CSV** downloads the entries that match the current filters, newest first, with the columns:
+
+```text
+timestamp, action, actor_id, actor_name, actor_email, ip, user_agent, request_id,
+target_type, target_id, target_label, project, previous, next
+```
+
+`previous` and `next` hold the changed fields as JSON. An export holds at most 100,000 rows (the newest); when more matched, the response carries `X-Truncated: true`. The export takes at most one kind of action, so an **Action** group that spans several kinds (for example **Access**) disables the button until you clear it. Each export is itself recorded as `audit_log.exported`.
+
+Through the API:
+
+| Request | What it does |
+|---|---|
+| `GET /api/v1/projects/{slug}/audit-events` | A page of the project's entries, with `retention_days`. |
+| `GET /api/v1/orgs/{slug}/audit-events` | A page of the organization's entries. |
+| `GET /api/v1/projects/{slug}/audit-events/export` | The project's entries as CSV. |
+| `GET /api/v1/orgs/{slug}/audit-events/export` | The organization's entries as CSV. |

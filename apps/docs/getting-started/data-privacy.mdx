@@ -418,16 +418,16 @@ For a running fleet, the [remote capture policy](#remote-capture-policy) does th
 
 ## Retention
 
-Telemetry is stored in ClickHouse and deleted automatically by table TTL. Retention is set per install, not per project: every project on an install keeps data for the same periods. `GET /api/v1/projects/{project}/retention` returns, per signal, the label, the period in days, what it covers and whether the install may change it.
+Telemetry is stored in ClickHouse and deleted automatically by table TTL. Retention is set per install, not per project: every project on an install keeps data for the same periods, and it cannot be changed per project. **Project settings → Retention** shows the periods read-only, per signal, with what each covers and whether the install may change it; `GET /api/v1/projects/{project}/retention` returns the same. The periods are read from the tables themselves, so they are what ClickHouse enforces.
 
 | Data | Config key | Default | Allowed |
 |---|---|---|---|
-| Request records (`api_requests`): headers, bodies, query strings, IPs, validation errors | `retention.requests` | **90 days** | 1 to 3650 |
-| Error-trace logs (`api_logs`) | `retention.logs` | 30 days | 1 to 3650 |
-| Trace spans (`api_spans`) | `retention.spans` | 30 days | 1 to 3650 |
-| Per-minute traffic rollups (`api_requests_1m`) | `retention.rollups_1m` | 30 days | 1 to 400 |
-| Per-hour traffic rollups (`api_requests_1h`): counts and latencies only, no payloads | `retention.rollups_1h` | 400 days | 30 to 3650 |
-| Deploy markers (`api_deploys`) | fixed | 400 days | |
+| **Requests** (`api_requests`): the request log and request detail with headers, bodies, query strings, IPs and validation errors | `retention.requests` | **90 days** | 1 to 3650 |
+| **Logs** (`api_logs`): log records sent by the SDK, shown with a request's trace | `retention.logs` | 30 days | 1 to 3650 |
+| **Spans** (`api_spans`): the trace waterfall in request detail | `retention.spans` | 30 days | 1 to 3650 |
+| **Per-minute metrics** (`api_requests_1m`): short-range charts | `retention.rollups_1m` | 30 days | 1 to 400 |
+| **Hourly metrics** (`api_requests_1h`): long-range charts; counts and latencies only, no payloads | `retention.rollups_1h` | 400 days | 30 to 3650 |
+| **Deploys** (`api_deploys`): deploy markers on charts and the deploy comparison | fixed | 400 days | |
 | Consumer list (`api_consumers`): the ids and names your code passed to `set_consumer`, with first/last seen | fixed | No TTL | |
 
 ### Changing retention (self-hosted)
@@ -438,6 +438,11 @@ Set the keys in the config file or as environment variables (`APILENS_RETENTION_
 - **Shortening deletes data** older than the new period. `apilens migrate` refuses it, names each table and changes nothing, until you re-run it with `-confirm-retention-change`; it then logs a warning per shortened table.
 
 Metadata (users, projects, apps, keys, policies) lives in Postgres. Requests recorded before you tightened capture or added a pattern keep what was captured until their retention period runs out.
+
+Two things are kept on their own schedule:
+
+- The [activity log](/platform/activity-log) of who changed access, keys and settings is kept for 400 days by default (`audit.retention`, see [Audit log retention](/self-host/audit-log)).
+- A [deleted project](/platform/deleting-a-project)'s telemetry and settings are removed for good 7 days after deletion, whatever the retention periods.
 
 ## What APILens never does
 

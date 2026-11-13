@@ -82,6 +82,11 @@
             "group": "Platform",
             "pages": [
               "platform/projects-apps-keys",
+              "platform/project-access",
+              "platform/api-keys",
+              "platform/activity-log",
+              "platform/project-settings",
+              "platform/deleting-a-project",
               "auth/authentication-flow",
               "auth/passwordless-and-password"
             ]

@@ -178,7 +178,7 @@ API Lens ingest rejected the heartbeat with status <status>: <body>
 ```
 
 1. Check the key the process actually sees: `APILENS_API_KEY`, or the value in code (code wins). Watch for quotes or whitespace from a secret manager.
-2. In **Project settings → API keys**, confirm the key exists, is not revoked, and belongs to the project you are looking at. Keys are per project.
+2. In **Access → API keys**, confirm the key exists, is not revoked, and belongs to the project you are looking at. Keys are per project.
 3. Check `base_url` in the log line: a key for one install (for example a self-hosted ingest) is not valid on another.
 4. A **403** `permission_denied` (`API key is not allowed to ingest`) is a valid key without the `ingest` scope: create an ingest key.
 5. A **403** `project_paused` means ingest is paused for the project. Every batch is dropped (`non_retryable`, not retried) until a project admin resumes ingest in **Project settings** (`POST /api/v1/projects/{slug}/resume`). Stored data stays readable while the project is paused.

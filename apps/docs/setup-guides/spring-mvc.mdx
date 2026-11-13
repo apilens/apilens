@@ -37,7 +37,7 @@ apilens.app-id=orders-api
 apilens.environment=production
 ```
 
-That's it. When `apilens.api-key` is set, the auto-configuration builds the client from the `apilens.*` properties and registers `ApiLensSpringFilter`. `api-key` is your **project-level** key (Settings → API keys); `app-id` attributes this service's traffic to the right app in the project. The client is flushed when the application context closes.
+That's it. When `apilens.api-key` is set, the auto-configuration builds the client from the `apilens.*` properties and registers `ApiLensSpringFilter`. `api-key` is your **project-level** key (Access → API keys); `app-id` attributes this service's traffic to the right app in the project. The client is flushed when the application context closes.
 
 ## How it captures
 
