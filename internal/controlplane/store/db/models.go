@@ -81,6 +81,8 @@ type ApiKey struct {
 	Environments       []string
 	RotatedFrom        *uuid.UUID
 	RotatedTo          *uuid.UUID
+	ExpiryNotifiedAt   *time.Time
+	ExpiredRecordedAt  *time.Time
 }
 
 type ApiKeyApp struct {

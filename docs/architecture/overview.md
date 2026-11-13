@@ -259,6 +259,7 @@ contains API key material, and `audit.Redact` masks secret fields as
 | `project_member.removed` | a direct project role is removed (metadata has `role` and `self` when people removed their own grant) |
 | `project.access_changed` | a project's default access for organization members changes (metadata has `from`, `to` and `lose_access`, how many people lost access) |
 | `audit_log.exported` | an organization's or project's audit events are exported as CSV (metadata has `format`, the `filters`, the `rows` exported and `truncated`) |
+| `api_key.expired` | a project API key passed its `expires_at` (written once by the hourly expiry job, with no actor; metadata has the key id, name, prefix, scopes and `expires_at`; never the key). Revoked and rotated keys get none: `api_key.revoked` and `api_key.rotated` already say when they stop working |
 
 ## Delivery
 

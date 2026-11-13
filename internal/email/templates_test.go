@@ -75,6 +75,10 @@ var sampleData = map[string]map[string]any{
 		"project": "Shop <EU>", "slug": "shop-eu", "actor": "Ada Lovelace",
 		"time": "2026-11-04T09:30:00Z", "purge_at": "2026-11-11T09:30:00Z",
 	},
+	"api_key_expiring": {
+		"project": "Shop <EU>", "slug": "shop-eu", "key": "checkout <prod>", "prefix": "apl_live_a1b2",
+		"expires_at": "2026-11-11T09:30:00Z",
+	},
 }
 
 // projectChangeDetail is the detail each project_change variant is sent with.
@@ -258,6 +262,31 @@ func TestProjectChangeVariants(t *testing.T) {
 		if strings.Contains(msg.HTML, "<EU>") || !strings.Contains(msg.HTML, "Shop &lt;EU&gt;") {
 			t.Errorf("%s: HTML does not escape the project name", change)
 		}
+	}
+}
+
+// TestAPIKeyExpiring checks the expiry reminder names the key, its prefix,
+// the project and the expiry, links to the project's API keys and escapes
+// names in HTML.
+func TestAPIKeyExpiring(t *testing.T) {
+	msg, err := defaultRenderer(t).Render(TemplateAPIKeyExpiring, "admin@example.com", sampleData["api_key_expiring"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "An API key in Shop <EU> expires on 11 November 2026"; msg.Subject != want {
+		t.Errorf("subject = %q; want %q", msg.Subject, want)
+	}
+	for _, want := range []string{
+		`"checkout <prod>"`, "apl_live_a1b2", "Shop <EU>", "Wed, 11 Nov 2026 09:30 UTC",
+		testUIURL + "/shop-eu/access", testUIURL + "/settings",
+	} {
+		if !strings.Contains(msg.Text, want) {
+			t.Errorf("text lacks %q", want)
+		}
+	}
+	if strings.Contains(msg.HTML, "<prod>") || !strings.Contains(msg.HTML, "checkout &lt;prod&gt;") ||
+		!strings.Contains(msg.HTML, "Shop &lt;EU&gt;") {
+		t.Error("HTML does not escape the key and project names")
 	}
 }
 

@@ -115,6 +115,9 @@ const (
 	// AuditLogExported: an organization's or project's audit events were
 	// exported (GET .../audit-events/export).
 	AuditLogExported Kind = "audit_log.exported"
+	// APIKeyExpired: a project API key passed its expires_at; written once,
+	// with no actor, by the hourly API key expiry job.
+	APIKeyExpired Kind = "api_key.expired"
 )
 
 var kinds = []Kind{
@@ -130,7 +133,7 @@ var kinds = []Kind{
 	InvitationRevoked, AlertRuleCreated, AlertRuleUpdated, AlertRuleDeleted, AlertChannelCreated, AlertChannelUpdated,
 	AlertChannelDeleted, HealthCheckCreated, HealthCheckDeleted, AppSettingsUpdated, EndpointSettingsUpdated,
 	ProjectMemberAdded, ProjectMemberRoleChanged, ProjectMemberRemoved, ProjectAccessChanged,
-	AuditLogExported,
+	AuditLogExported, APIKeyExpired,
 }
 
 // Kinds returns every known event kind, in catalogue order.

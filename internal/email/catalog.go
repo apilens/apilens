@@ -73,6 +73,13 @@ const (
 	// and purge_at (when the project is removed for good). Sent to every
 	// project admin, whatever their security_emails preference.
 	TemplateProjectDeletionScheduled = "project_deletion_scheduled"
+	// TemplateAPIKeyExpiring: project (name), slug (for the
+	// /<slug>/access link), key (the key name), prefix (its display
+	// prefix) and expires_at. Sent once per key, about 7 days before it
+	// expires, to project admins by the hourly API key expiry job
+	// (internal/controlplane/apikeys) unless they turned off the
+	// security_emails preference.
+	TemplateAPIKeyExpiring = "api_key_expiring"
 )
 
 // Values of the project_change template's change field. An unknown value
