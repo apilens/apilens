@@ -36,7 +36,7 @@ export function OrgGeneralSettings({ org }: { org: Org }) {
       <header className="os-head">
         <p className="cp-h">Organization</p>
         <h1 className="cp-lede">Settings</h1>
-        <OrgSettingsNav org={org.slug} current="" />
+        <OrgSettingsNav org={org.slug} current="" role={org.role} />
       </header>
 
       {manage ? null : (

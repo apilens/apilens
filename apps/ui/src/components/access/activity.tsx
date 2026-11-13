@@ -4,7 +4,7 @@ import { type ActivityFilters as Filters, type AUDIT_GROUPS, filtersQuery, group
 import type { AuditEvent } from "@/lib/identity";
 import { type SearchParams, trailHrefs } from "@/lib/pagination";
 import { Pagination } from "../pagination/pagination";
-import { ActivityFilters, type PersonOption } from "./activity-filters";
+import { ActivityFilters, type PersonOption, type ProjectOption } from "./activity-filters";
 import { ActivityTable } from "./activity-table";
 import "../security/security.css";
 import "../org-settings/org-settings.css";
@@ -37,14 +37,26 @@ export function ActivitySkeleton() {
   );
 }
 
-/** A deep link without `audit.read`: says so, instead of a blank page. */
-export function ActivityNotAllowed() {
+/**
+ * A deep link without `audit.read` (on the organization's log: without being an owner or admin):
+ * says so, instead of a blank page.
+ */
+export function ActivityNotAllowed({ scope = "project" }: { scope?: "project" | "org" }) {
   return (
     <section className="os-card" aria-labelledby="acl-denied">
       <div className="os-card__body pk-body">
         <div className="pk-empty">
-          <h3 id="acl-denied">You can’t see this project’s activity log</h3>
-          <p>Only project admins can read who changed access, keys and settings. Ask an admin of this project if you need it.</p>
+          {scope === "org" ? (
+            <>
+              <h3 id="acl-denied">You can’t see this organization’s audit log</h3>
+              <p>Only organization owners and admins can read who changed members, access, keys and settings. Ask an owner or admin if you need it.</p>
+            </>
+          ) : (
+            <>
+              <h3 id="acl-denied">You can’t see this project’s activity log</h3>
+              <p>Only project admins can read who changed access, keys and settings. Ask an admin of this project if you need it.</p>
+            </>
+          )}
         </div>
       </div>
     </section>
@@ -65,12 +77,18 @@ export function ActivityLoadFailed() {
 }
 
 export interface ActivityViewProps {
-  project: string;
-  /** `/<project>/access/activity`. */
+  /** The CSV export route; the filters are appended as its query. */
+  exportPath: string;
+  /** `/<project>/access/activity` or `/orgs/<org>/settings/audit`. */
   pathname: string;
   params: SearchParams;
   filters: Filters;
   people: PersonOption[];
+  /**
+   * The organization's audit log (#813): its projects, offered as the Project filter and shown as
+   * a Project column. Absent on a project's own log.
+   */
+  projects?: ProjectOption[];
   groups: readonly (typeof AUDIT_GROUPS)[number][];
   /** Each action's display name. */
   labels: Record<string, string>;
@@ -84,18 +102,22 @@ export interface ActivityViewProps {
   now: number;
 }
 
-/** The populated or empty log: filters, the table, paging, the retention line and the export. */
+/**
+ * The populated or empty log: filters, the table, paging, the retention line and the export. One
+ * component for a project's Activity tab and the organization's audit log, which adds `projects`.
+ */
 export function ActivityView(p: ActivityViewProps) {
   const pages = trailHrefs(p.pathname, p.params, p.next);
   const q = filtersQuery(p.filters);
-  const exportHref = `/api/projects/${encodeURIComponent(p.project)}/audit-export${q ? `?${q}` : ""}`;
+  const exportHref = `${p.exportPath}${q ? `?${q}` : ""}`;
   const filtered = hasFilters(p.filters);
+  const org = p.projects !== undefined;
   return (
     <section className="os-card" aria-label="Activity log">
       <div className="os-card__head acl-head">
         <div>
           <h2>Activity log</h2>
-          <p>Who changed access, keys and settings on this project, newest first.</p>
+          <p>{org ? "Who changed members, access, keys and settings in this organization and its projects, newest first." : "Who changed access, keys and settings on this project, newest first."}</p>
         </div>
         {p.exportable ? (
           <a className="ah-btn ah-btn--secondary ah-btn--sm" href={exportHref} download>
@@ -113,7 +135,7 @@ export function ActivityView(p: ActivityViewProps) {
         )}
       </div>
       <div className="os-card__body">
-        <ActivityFilters pathname={p.pathname} params={p.params} filters={p.filters} people={p.people} groups={p.groups} />
+        <ActivityFilters pathname={p.pathname} params={p.params} filters={p.filters} people={p.people} projects={p.projects} groups={p.groups} />
         {p.events.length === 0 ? (
           <div className="pk-empty acl-empty">
             {pages.page > 1 ? (
@@ -129,7 +151,7 @@ export function ActivityView(p: ActivityViewProps) {
               <>
                 <h3>No activity matches these filters</h3>
                 <p>
-                  Try another person, action or date range, or{" "}
+                  Try another {org ? "project, person" : "person"}, action or date range, or{" "}
                   <Link className="cp-link" href={p.pathname}>
                     clear the filters
                   </Link>
@@ -139,13 +161,17 @@ export function ActivityView(p: ActivityViewProps) {
             ) : (
               <>
                 <h3>No activity yet</h3>
-                <p>When someone grants access, creates or rotates a key, or changes a setting on this project, it shows up here.</p>
+                <p>
+                  {org
+                    ? "When someone invites a member, grants access, creates or rotates a key, or changes a setting in this organization, it shows up here."
+                    : "When someone grants access, creates or rotates a key, or changes a setting on this project, it shows up here."}
+                </p>
               </>
             )}
           </div>
         ) : (
           <div className="acl-scroll">
-            <ActivityTable events={p.events} labels={p.labels} now={p.now} />
+            <ActivityTable events={p.events} labels={p.labels} now={p.now} scope={org ? "org" : "project"} />
           </div>
         )}
         <Pagination mode="cursor" newerHref={pages.newerHref} olderHref={pages.olderHref} label="Activity pages" className="acl-pager" />

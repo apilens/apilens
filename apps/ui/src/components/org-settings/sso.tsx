@@ -67,7 +67,7 @@ export function OrgSSOSettings({ org, connection }: { org: OrgRef; connection: S
       <header className="os-head">
         <p className="cp-h">Organization</p>
         <h1 className="cp-lede">Settings</h1>
-        <OrgSettingsNav org={org.slug} current="sso" />
+        <OrgSettingsNav org={org.slug} current="sso" role={org.role} />
       </header>
 
       {owner ? (

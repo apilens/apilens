@@ -39,7 +39,7 @@ export default async function OrgInvitationsPage({ params, searchParams }: { par
   const invitations = orgCan(context, slug, "members.invite") ? await loadInvitations(slug, next) : null;
   return (
     <AppShell context={context} org={slug} view="settings">
-      <OrgInvitationsSettings org={{ slug: org.slug, name: org.name }} invitations={invitations ?? []} manage={invitations !== null} now={Date.now()} search={await searchParams} />
+      <OrgInvitationsSettings org={{ slug: org.slug, name: org.name }} role={org.role} invitations={invitations ?? []} manage={invitations !== null} now={Date.now()} search={await searchParams} />
     </AppShell>
   );
 }

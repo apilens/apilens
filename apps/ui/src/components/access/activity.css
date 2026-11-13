@@ -21,6 +21,8 @@
 .acl-open:hover { text-decoration: underline; }
 .acl-open:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; border-radius: 2px; }
 .acl-target { overflow-wrap: anywhere; }
+/* break-word, not anywhere: a whole word ("Organization") sets the column's minimum width. */
+.acl-project { overflow-wrap: break-word; }
 .acl-mono { font-family: var(--font-mono); font-size: 12.5px; }
 .acl-empty { margin-top: var(--space-2); }
 .acl-pager { margin-top: var(--space-4); }

@@ -6,12 +6,29 @@ import type { AuditEvent } from "@/lib/identity";
 import { formatExact } from "@/lib/passkey-settings";
 import { CopyValue } from "../copy-value";
 
+/** Where an event happened on the organization's log: its project, or the organization itself. */
+function ProjectCell({ e }: { e: AuditEvent }) {
+  return e.project ? <span>{e.project.name || e.project.slug}</span> : <span className="pk-muted">Organization</span>;
+}
+
 /**
  * The Activity table (#812): when (relative, exact on hover), who, what in a sentence, the target
- * and the IP. Each row's sentence is a button: it (or a click anywhere on the row) opens the detail
- * panel. `labels` names each action (`auditActions`); `now` is the load time.
+ * and the IP; on the organization's audit log (`scope` org, #813) also the project. Each row's
+ * sentence is a button: it (or a click anywhere on the row) opens the detail panel. `labels` names
+ * each action (`auditActions`); `now` is the load time.
  */
-export function ActivityTable({ events, labels, now }: { events: AuditEvent[]; labels: Record<string, string>; now: number }) {
+export function ActivityTable({
+  events,
+  labels,
+  now,
+  scope = "project",
+}: {
+  events: AuditEvent[];
+  labels: Record<string, string>;
+  now: number;
+  scope?: "project" | "org";
+}) {
+  const org = scope === "org";
   const [open, setOpen] = useState<AuditEvent | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
 
@@ -23,12 +40,13 @@ export function ActivityTable({ events, labels, now }: { events: AuditEvent[]; l
   return (
     <>
       <table className="pk-table acl-table">
-        <caption className="pk-sr">Activity on this project, newest first. Select an event to see its details.</caption>
+        <caption className="pk-sr">{org ? "Activity in this organization" : "Activity on this project"}, newest first. Select an event to see its details.</caption>
         <thead>
           <tr>
             <th scope="col">Time</th>
             <th scope="col">Who</th>
             <th scope="col">What</th>
+            {org ? <th scope="col">Project</th> : null}
             <th scope="col">Target</th>
             <th scope="col">IP</th>
           </tr>
@@ -63,6 +81,11 @@ export function ActivityTable({ events, labels, now }: { events: AuditEvent[]; l
                   {auditSentence(e)}
                 </button>
               </td>
+              {org ? (
+                <td data-label="Project" className="acl-project">
+                  <ProjectCell e={e} />
+                </td>
+              ) : null}
               <td data-label="Target" className="acl-target">
                 {e.target ? (
                   <>
@@ -84,6 +107,7 @@ export function ActivityTable({ events, labels, now }: { events: AuditEvent[]; l
           event={open}
           label={labels[open.action]}
           now={now}
+          org={org}
           onClose={() => {
             setOpen(null);
             opener.current?.focus();
@@ -99,7 +123,7 @@ export function ActivityTable({ events, labels, now }: { events: AuditEvent[]; l
  * fields before and after. Escape, the close button and a click outside close it; focus then goes
  * back to the row it was opened from.
  */
-function ActivityDetail({ event: e, label, now, onClose }: { event: AuditEvent; label: string | undefined; now: number; onClose: () => void }) {
+function ActivityDetail({ event: e, label, now, org, onClose }: { event: AuditEvent; label: string | undefined; now: number; org: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -152,6 +176,14 @@ function ActivityDetail({ event: e, label, now, onClose }: { event: AuditEvent; 
                 {e.actor.id ? <span className="acl-mono pk-muted acl-id">{e.actor.id}</span> : null}
               </dd>
             </div>
+            {org ? (
+              <div>
+                <dt>Project</dt>
+                <dd>
+                  <ProjectCell e={e} />
+                </dd>
+              </div>
+            ) : null}
             <div>
               <dt>Target</dt>
               <dd>
