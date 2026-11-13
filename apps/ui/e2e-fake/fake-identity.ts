@@ -249,6 +249,31 @@
 //                                                  minus those joined; none unless seeded
 //   POST /api/v1/orgs/{slug}/join                  joins a seeded joinable org as a member (it then shows in
 //                                                  the context with its projects); 403 forbidden otherwise
+//   GET|PATCH|DELETE /api/v1/projects/shop         project settings (#805): the project; PATCH {name,
+//                                                  description, repository_url} needs project.update
+//                                                  (slug_immutable for another slug, invalid_request 400
+//                                                  with the reason for a refused value, the link checked
+//                                                  as #820 above); DELETE {confirm}
+//                                                  needs project.delete and a recent sign-in, answers the
+//                                                  DeletedProject (confirmation_mismatch 422) and shop
+//                                                  answers 404 until restored
+//   POST /api/v1/projects/shop/{rename|pause|resume}  need project.delete; rename {slug} needs a recent
+//                                                  sign-in, answers slug_taken 409 for a taken slug, and
+//                                                  the old slug keeps resolving
+//   GET  /api/v1/orgs/acme/projects/deleted        acme's deleted projects (one seeded, plus shop once
+//   POST /api/v1/orgs/acme/projects/{id}/restore   deleted); org owners and admins; restore needs a
+//                                                  recent sign-in
+//   GET|POST /api/v1/projects/shop/environments    shop's environments in order (five seeded: in use,
+//   PUT  .../environments/order                    new, empty and hidden); add {name}, reorder {names},
+//   PATCH|DELETE .../environments/{name}           patch {is_production, color, hidden, position};
+//                                                  DELETE answers environment_in_use 409 for one with
+//                                                  data, a pinned key or a health check. Changes need
+//                                                  project.update
+//   GET  /api/v1/projects/shop/retention           the retention per signal at the install defaults
+//   POST /__fake/project {project?, deleted?, down?}  test hooks: replace shop's fields, the deleted
+//   POST /__fake/environments {environments?}      projects, the environments, the retention signals;
+//   POST /__fake/retention {signals?}              an omitted field goes back to the measured seed, so
+//                                                  {} resets; `down`: shop's settings reads answer 503
 //
 // Nothing here sends mail or talks to a real provider. Run with
 // `node --experimental-strip-types e2e-fake/fake-identity.ts` (Playwright starts it).
@@ -1485,29 +1510,12 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   if (ssoPath) return orgSSO(req, res, ssoPath[1], ssoPath[2] !== undefined);
   const orgPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/(members|transfer-ownership|invitations)(?:\/([^/]+)(\/resend)?)?$/);
   if (orgPath) return orgs(req, res, orgPath[1], orgPath[2], orgPath[3], orgPath[4] !== undefined);
-  // shop itself (#820), for its repository link. Like the API: another project answers forbidden,
-  // a change needs `project.update`, and a refused link answers invalid_request with the reason.
+  // shop itself (#820), for its repository link: `GET|PATCH|DELETE /projects/shop` are served with
+  // the rest of the project settings (#805, `projectSettings`). A change needs `project.update`,
+  // and a refused link answers invalid_request with the reason.
   if (req.method === "POST" && path === "/__fake/repository") {
     shopRepository = null;
     return send(res, 204);
-  }
-  const projectPath = path.match(/^\/api\/v1\/projects\/([^/]+)$/);
-  if (projectPath && projectPath[1] !== "slug-available") {
-    const user = signedInUser(req);
-    if (!user) return problem(res, 401, "unauthenticated");
-    if (decodeURIComponent(projectPath[1]) !== PROJECT) return problem(res, 403, "forbidden");
-    if (req.method === "GET") return send(res, 200, shopProject());
-    if (req.method !== "PATCH") return problem(res, 404, "not_found");
-    if (!capabilitiesOf(user).includes("project.update")) return problem(res, 403, "forbidden");
-    const body = await readBody(req);
-    if (body.repository_url !== undefined) {
-      const checked = fakeRepositoryUrl(String(body.repository_url));
-      if (!checked.ok) {
-        return send(res, 400, { status: 400, title: "Invalid request", code: "invalid_request", detail: checked.reason }, "application/problem+json");
-      }
-      shopRepository = checked.url || null;
-    }
-    return send(res, 200, shopProject());
   }
   // shop's deny list (#599). Like the API: another project answers forbidden, saving needs
   // `project.update`, and a pattern that does not compile answers invalid_request naming it.
@@ -2780,6 +2788,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   }
   if (await alerts(req, res, path, url)) return;
   if (await accessAndAudit(req, res, path, url)) return;
+  if (await projectSettings(req, res, path)) return;
   return problem(res, 404, "not_found");
 }
 
@@ -3684,6 +3693,301 @@ async function accessAndAudit(req: IncomingMessage, res: ServerResponse, path: s
       person.added_by = { id: user, name: "Fake User" };
     }
     return send(res, 200, accessMember(person, accessState.defaultAccess, user)), true;
+  }
+  return problem(res, 405, "method_not_allowed"), true;
+}
+
+// Project settings (#805): general, danger zone (#753 D8, D9), environments (D11), retention (D10).
+
+const SHOP_ID = "c3d4e5f6-a7b8-4c9d-8e0f-1a2b3c4d5e6f";
+const MAX_FAKE_ENVIRONMENTS = 20;
+const ENV_COLORS = new Set(["gray", "red", "orange", "yellow", "green", "teal", "blue", "purple"]);
+const DELETION_GRACE_MS = 7 * 24 * 3600_000;
+
+/** One environment of shop; its position is its index in `projectState.environments`. */
+interface FakeEnvironment {
+  name: string;
+  is_production: boolean;
+  color: string | null;
+  hidden_at: string | null;
+  source: "sdk" | "dashboard";
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+  has_data: boolean;
+  api_keys: number;
+  health_checks: number;
+}
+
+/** An environment someone just added: no data, nothing refers to it. */
+function newEnvironment(name: string, fields: Partial<FakeEnvironment> = {}): FakeEnvironment {
+  return {
+    name, is_production: false, color: null, hidden_at: null, source: "dashboard", first_seen_at: null, last_seen_at: null,
+    created_at: new Date().toISOString(), has_data: false, api_keys: 0, health_checks: 0, ...fields,
+  };
+}
+
+/** Five environments: production and staging in daily use, a new canary, an empty preview, a hidden old QA one. */
+function measuredEnvironments(): FakeEnvironment[] {
+  return [
+    newEnvironment("production", { source: "sdk", is_production: true, color: "green", created_at: hoursAgo(500), first_seen_at: hoursAgo(500), last_seen_at: hoursAgo(0.02), has_data: true, api_keys: 2, health_checks: 1 }),
+    newEnvironment("staging", { source: "sdk", color: "yellow", created_at: hoursAgo(441), first_seen_at: hoursAgo(441), last_seen_at: hoursAgo(41), has_data: true, api_keys: 1 }),
+    newEnvironment("canary", { source: "sdk", color: "orange", created_at: hoursAgo(31), first_seen_at: hoursAgo(31), last_seen_at: hoursAgo(0.5), has_data: true }),
+    newEnvironment("preview", { created_at: hoursAgo(72) }),
+    newEnvironment("qa-legacy", { source: "sdk", color: "gray", created_at: hoursAgo(24 * 90), first_seen_at: hoursAgo(24 * 90), last_seen_at: hoursAgo(24 * 40), hidden_at: hoursAgo(24 * 10), has_data: true }),
+  ];
+}
+
+/** One project of acme deleted two days ago, restorable for five more days. */
+function measuredDeletedProjects(): Record<string, unknown>[] {
+  return [
+    { id: "f6a7b8c9-d0e1-4f2a-9b3c-4d5e6f7a8b9c", slug: "legacy-checkout", name: "Legacy checkout", description: "The PHP checkout before the shop rewrite.", created_at: hoursAgo(24 * 400), deleted_at: hoursAgo(48), purge_after: hoursAhead(24 * 5) },
+  ];
+}
+
+/** The signals as internal/retention lists them, at the install defaults. */
+function measuredRetention(): Record<string, unknown>[] {
+  return [
+    { key: "requests", label: "Requests", period_days: 90, configurable: true, covers: "Individual requests: the request log, request detail with headers and bodies, consumers and exports." },
+    { key: "logs", label: "Logs", period_days: 30, configurable: true, covers: "Application log records sent by the SDK, shown with a request's trace." },
+    { key: "spans", label: "Spans", period_days: 30, configurable: true, covers: "Trace spans: the waterfall in request detail." },
+    { key: "rollups_1m", label: "Per-minute metrics", period_days: 30, configurable: true, covers: "Per-minute traffic, error and latency aggregates behind short-range charts." },
+    { key: "rollups_1h", label: "Hourly metrics", period_days: 400, configurable: true, covers: "Hourly traffic, error and latency aggregates behind long-range charts." },
+    { key: "deploys", label: "Deploys", period_days: 400, configurable: false, covers: "Deploy markers on charts and the deploy comparison." },
+  ];
+}
+
+/** shop's fields besides its repository link, which #820 keeps in `shopRepository`. */
+interface FakeProject {
+  slug: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  paused_at: string | null;
+  paused_by: string | null;
+  deleted_at: string | null;
+}
+
+function measuredProject(): FakeProject {
+  return {
+    slug: PROJECT, name: "Shop", description: "Storefront API: catalogue, cart and checkout.",
+    created_at: hoursAgo(503), updated_at: hoursAgo(475), created_by: PEOPLE_IDS.olive, paused_at: null, paused_by: null, deleted_at: null,
+  };
+}
+
+const projectState = {
+  project: measuredProject(),
+  environments: measuredEnvironments(),
+  deleted: measuredDeletedProjects(),
+  retention: measuredRetention(),
+  down: false,
+};
+
+/** Shop as the settings operations return it (`Project`), for the signed-in user; the link and templates as #820 derives them. */
+function projectOut(user: string): Record<string, unknown> {
+  const p = projectState.project;
+  const { repository_url, commit_url_template, release_url_template } = shopProject();
+  return {
+    id: SHOP_ID, slug: p.slug, name: p.name, description: p.description, org_id: "org_fake", org_slug: "acme",
+    role: projectRoleOf(capabilitiesOf(user)), environments: projectState.environments.map((e) => e.name).toSorted(),
+    created_at: p.created_at, updated_at: p.updated_at, created_by: p.created_by,
+    repository_url, commit_url_template, release_url_template,
+    paused_at: p.paused_at, paused_by: p.paused_by, canonical_slug: p.slug,
+  };
+}
+
+function environmentOut(e: FakeEnvironment, position: number): Record<string, unknown> {
+  return { ...e, position, hidden: e.hidden_at !== null, deletable: !e.has_data && e.api_keys === 0 && e.health_checks === 0 };
+}
+
+const environmentsOut = () => ({ environments: projectState.environments.map(environmentOut), max_environments: MAX_FAKE_ENVIRONMENTS });
+
+/** Shop's general settings, danger zone, environments and retention, and their test hooks. True when it answered. */
+async function projectSettings(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
+  if (req.method === "POST" && path === "/__fake/project") {
+    const b = await readBody(req);
+    const fields = typeof b.project === "object" && b.project !== null ? (b.project as Partial<FakeProject>) : {};
+    projectState.project = { ...measuredProject(), ...fields };
+    shopRepository = null;
+    projectState.deleted = Array.isArray(b.deleted) ? (b.deleted as Record<string, unknown>[]) : measuredDeletedProjects();
+    projectState.down = b.down === true;
+    return send(res, 204), true;
+  }
+  if (req.method === "POST" && path === "/__fake/environments") {
+    const b = await readBody(req);
+    projectState.environments = Array.isArray(b.environments)
+      ? (b.environments as (Partial<FakeEnvironment> & { name: string })[]).map((e) => newEnvironment(e.name, e))
+      : measuredEnvironments();
+    return send(res, 204), true;
+  }
+  if (req.method === "POST" && path === "/__fake/retention") {
+    const b = await readBody(req);
+    projectState.retention = Array.isArray(b.signals) ? (b.signals as Record<string, unknown>[]) : measuredRetention();
+    return send(res, 204), true;
+  }
+
+  const orgPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/projects\/(?:(deleted)|([^/]+)\/restore)$/);
+  const projPath = path.match(/^\/api\/v1\/projects\/([^/]+)(?:\/(rename|pause|resume|retention|environments)(?:\/([^/]+))?)?$/);
+  if (!orgPath && !projPath) return false;
+  if (projPath && projPath[3] !== undefined && projPath[2] !== "environments") return false;
+  const user = signedInUser(req);
+  if (!user) return problem(res, 401, "unauthenticated"), true;
+  const allowed = (action: string) => capabilitiesOf(user).includes(action);
+  const stale = () => totps.get(bearerOf(req))?.stale === true;
+
+  if (orgPath) {
+    if (decodeURIComponent(orgPath[1]) !== "acme") return problem(res, 404, "not_found"), true;
+    const manager = roleOf(user) === "owner" || roleOf(user) === "admin";
+    if (orgPath[2] === "deleted") {
+      if (req.method !== "GET") return problem(res, 405, "method_not_allowed"), true;
+      if (!manager) return problem(res, 403, "forbidden"), true;
+      return send(res, 200, projectState.deleted), true;
+    }
+    if (req.method !== "POST") return problem(res, 405, "method_not_allowed"), true;
+    if (!manager) return problem(res, 403, "forbidden"), true;
+    if (stale()) return problem(res, 403, "reauth_required"), true;
+    const id = decodeURIComponent(orgPath[3]);
+    const row = projectState.deleted.find((d) => d.id === id && Date.parse(String(d.purge_after)) > Date.now());
+    if (!row) return problem(res, 404, "not_found"), true;
+    projectState.deleted = projectState.deleted.filter((d) => d !== row);
+    if (id === SHOP_ID) {
+      projectState.project.deleted_at = null;
+      return send(res, 200, projectOut(user)), true;
+    }
+    const none = { environments: [], repository_url: null, commit_url_template: null, release_url_template: null, paused_at: null, paused_by: null };
+    return send(res, 200, { ...projectOut(user), ...none, id, slug: row.slug, canonical_slug: row.slug, name: row.name, description: row.description, created_at: row.created_at, updated_at: row.created_at }), true;
+  }
+
+  const [, rawSlug, sub, rawEnv] = projPath!;
+  const p = projectState.project;
+  const slug = decodeURIComponent(rawSlug);
+  // The old slug keeps resolving after a rename (#753 D9).
+  if ((slug !== p.slug && slug !== PROJECT) || p.deleted_at !== null || !allowed("project.read")) return problem(res, 404, "not_found"), true;
+  if (projectState.down) return problem(res, 503, "unavailable"), true;
+
+  if (sub === undefined) {
+    if (req.method === "GET") return send(res, 200, projectOut(user)), true;
+    if (req.method === "PATCH") {
+      if (!allowed("project.update")) return problem(res, 403, "forbidden"), true;
+      const b = await readBody(req);
+      if (b.slug !== undefined && b.slug !== p.slug) return problem(res, 422, "slug_immutable"), true;
+      const invalid = (detail: string) =>
+        send(res, 400, { status: 400, title: "Invalid request", code: "invalid_request", detail }, "application/problem+json");
+      const next = { name: p.name, description: p.description, repository: shopRepository };
+      if (b.name !== undefined) {
+        const name = typeof b.name === "string" ? b.name.trim() : "";
+        if (!name || [...name].length > 100) return invalid("The name must be 1 to 100 characters."), true;
+        next.name = name;
+      }
+      if (b.description !== undefined) {
+        const description = typeof b.description === "string" ? b.description.trim() : null;
+        if (description === null || [...description].length > 280) return invalid("The description must be at most 280 characters."), true;
+        next.description = description;
+      }
+      if (b.repository_url !== undefined) {
+        const checked = fakeRepositoryUrl(String(b.repository_url));
+        if (!checked.ok) return invalid(checked.reason), true;
+        next.repository = checked.url || null;
+      }
+      if (next.name !== p.name || next.description !== p.description || next.repository !== shopRepository) {
+        Object.assign(p, { name: next.name, description: next.description, updated_at: new Date().toISOString() });
+        shopRepository = next.repository;
+      }
+      return send(res, 200, projectOut(user)), true;
+    }
+    if (req.method === "DELETE") {
+      if (!allowed("project.delete")) return problem(res, 403, "forbidden"), true;
+      if (stale()) return problem(res, 403, "reauth_required"), true;
+      const { confirm } = await readBody(req);
+      if (confirm !== p.slug) return problem(res, 422, "confirmation_mismatch"), true;
+      const now = Date.now();
+      p.deleted_at = new Date(now).toISOString();
+      const row = { id: SHOP_ID, slug: p.slug, name: p.name, description: p.description, created_at: p.created_at, deleted_at: p.deleted_at, purge_after: new Date(now + DELETION_GRACE_MS).toISOString() };
+      projectState.deleted = [row, ...projectState.deleted];
+      return send(res, 200, row), true;
+    }
+    return problem(res, 405, "method_not_allowed"), true;
+  }
+
+  if (sub === "retention") {
+    if (req.method !== "GET") return problem(res, 405, "method_not_allowed"), true;
+    return send(res, 200, { signals: projectState.retention }), true;
+  }
+
+  if (sub !== "environments") {
+    // rename, pause, resume: the danger zone needs `delete` on the project.
+    if (req.method !== "POST") return problem(res, 405, "method_not_allowed"), true;
+    if (!allowed("project.delete")) return problem(res, 403, "forbidden"), true;
+    if (sub === "rename") {
+      if (stale()) return problem(res, 403, "reauth_required"), true;
+      const { slug: next } = await readBody(req);
+      if (typeof next !== "string" || !ORG_SLUG.test(next)) return problem(res, 422, "invalid_request"), true;
+      // The same project may take its old slug back; any other taken or reserved slug is refused.
+      if (next !== p.slug && next !== PROJECT && projectSlugTaken(next)) {
+        return send(res, 409, { status: 409, title: "slug_taken", code: "slug_taken", suggestions: projectSlugSuggestions(next) }, "application/problem+json"), true;
+      }
+      if (next !== p.slug) Object.assign(p, { slug: next, updated_at: new Date().toISOString() });
+      return send(res, 200, projectOut(user)), true;
+    }
+    if (sub === "pause" && p.paused_at === null) Object.assign(p, { paused_at: new Date().toISOString(), paused_by: user });
+    if (sub === "resume") Object.assign(p, { paused_at: null, paused_by: null });
+    return send(res, 200, projectOut(user)), true;
+  }
+
+  // Environments: reads need project.read, changes project.update.
+  const envs = projectState.environments;
+  if (rawEnv === undefined) {
+    if (req.method === "GET") return send(res, 200, environmentsOut()), true;
+    if (req.method !== "POST") return problem(res, 405, "method_not_allowed"), true;
+    if (!allowed("project.update")) return problem(res, 403, "forbidden"), true;
+    const { name } = await readBody(req);
+    if (typeof name !== "string" || !ENV_NAME.test(name)) return problem(res, 422, "invalid_request"), true;
+    if (!envs.some((e) => e.name === name)) {
+      if (envs.length >= MAX_FAKE_ENVIRONMENTS) return problem(res, 422, "invalid_request"), true;
+      envs.push(newEnvironment(name));
+    }
+    return send(res, 200, projectOut(user)), true;
+  }
+  if (rawEnv === "order" && req.method === "PUT") {
+    if (!allowed("project.update")) return problem(res, 403, "forbidden"), true;
+    const { names } = await readBody(req);
+    const valid = Array.isArray(names) && names.length <= MAX_FAKE_ENVIRONMENTS && new Set(names).size === names.length && names.every((n) => envs.some((e) => e.name === n));
+    if (!valid) return problem(res, 422, "invalid_request"), true;
+    const listed = names as string[];
+    projectState.environments = [...listed.map((n) => envs.find((e) => e.name === n)!), ...envs.filter((e) => !listed.includes(e.name))];
+    return send(res, 200, environmentsOut()), true;
+  }
+  const name = decodeURIComponent(rawEnv);
+  const at = envs.findIndex((e) => e.name === name);
+  if (req.method === "PATCH") {
+    if (!allowed("project.update")) return problem(res, 403, "forbidden"), true;
+    if (at < 0) return problem(res, 404, "not_found"), true;
+    const b = await readBody(req);
+    const bad =
+      (b.is_production !== undefined && typeof b.is_production !== "boolean") ||
+      (b.hidden !== undefined && typeof b.hidden !== "boolean") ||
+      (b.color !== undefined && b.color !== "none" && !ENV_COLORS.has(String(b.color))) ||
+      (b.position !== undefined && !(Number.isInteger(b.position) && (b.position as number) >= 0));
+    if (bad) return problem(res, 422, "invalid_request"), true;
+    const env = envs[at];
+    if (typeof b.is_production === "boolean") env.is_production = b.is_production;
+    if (b.color !== undefined) env.color = b.color === "none" ? null : String(b.color);
+    if (typeof b.hidden === "boolean" && b.hidden !== (env.hidden_at !== null)) env.hidden_at = b.hidden ? new Date().toISOString() : null;
+    if (typeof b.position === "number") {
+      envs.splice(at, 1);
+      envs.splice(Math.min(b.position, envs.length), 0, env);
+    }
+    return send(res, 200, environmentOut(env, envs.indexOf(env))), true;
+  }
+  if (req.method === "DELETE") {
+    if (!allowed("project.update")) return problem(res, 403, "forbidden"), true;
+    if (at >= 0) {
+      if (!environmentOut(envs[at], at).deletable) return problem(res, 409, "environment_in_use"), true;
+      envs.splice(at, 1);
+    }
+    return send(res, 200, projectOut(user)), true;
   }
   return problem(res, 405, "method_not_allowed"), true;
 }
