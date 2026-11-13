@@ -56,6 +56,8 @@ export async function resumeProjectIngest(project: string): Promise<ResumeProjec
   return withActionSession(async (session) => {
     try {
       const resumed = await session.call((o) => identity().resumeProject(project, o));
+      // Clears the paused banner every project page shows (#823).
+      revalidatePath("/", "layout");
       return { ok: true, project: resumed };
     } catch (err) {
       if (!isApiError(err)) throw err;

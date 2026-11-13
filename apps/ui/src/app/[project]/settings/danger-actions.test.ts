@@ -35,6 +35,8 @@ describe("pauseProjectIngest", () => {
     pauseProject.mockResolvedValue({ ...SHOP, paused_at: "2026-11-13T10:00:00Z" });
     await expect(pauseProjectIngest("shop", " Shop ")).resolves.toMatchObject({ ok: true, project: { paused_at: "2026-11-13T10:00:00Z" } });
     expect(pauseProject).toHaveBeenCalledWith("shop", { accessToken: "a" });
+    // Every project page shows the paused banner (#823).
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
   });
 
   it("refuses a wrong name, a bad slug or no name without pausing", async () => {
@@ -47,6 +49,7 @@ describe("pauseProjectIngest", () => {
     await expect(pauseProjectIngest("shop", 42)).resolves.toMatchObject({ ok: false, code: "confirmation_mismatch" });
     await expect(pauseProjectIngest("../x", "Shop")).resolves.toMatchObject({ ok: false, code: "not_found" });
     expect(pauseProject).not.toHaveBeenCalled();
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("explains API errors", async () => {
