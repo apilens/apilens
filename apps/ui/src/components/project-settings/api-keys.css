@@ -24,7 +24,9 @@
 .ak-none { margin: var(--space-6) 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); text-align: center; }
 .ak-empty-link { margin: 0 0 var(--space-2); font: 500 13px/20px var(--font-sans); }
 .ak-empty-link a { color: var(--accent-ink); }
-.ak-actions { display: inline-flex; flex-wrap: nowrap; justify-content: flex-end; gap: var(--space-1); }
+/* Three row actions (Edit access, Rotate, Revoke) wrap rather than push the table past the card. */
+.ak-table td.pk-actions { white-space: normal; }
+.ak-actions { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1); }
 .ak-readonly { margin-bottom: var(--space-4); }
 .ak-hint { margin: 6px 0 0; font: 400 12.5px/18px var(--font-sans); color: var(--ink-muted); }
 .ak .pg { margin-top: var(--space-4); }

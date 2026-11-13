@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
-import { createApiKey, revokeApiKey, updateApiKeyAccess } from "@/app/[project]/settings/actions";
+import { createApiKey, revokeApiKey, rotateApiKey, updateApiKeyAccess } from "@/app/[project]/settings/actions";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useReauth } from "@/components/reauth-dialog";
 import {
+  DEFAULT_OVERLAP,
   EXPIRY_CHOICES,
   type ExpiryChoice,
   INACTIVE_PARAM,
@@ -15,6 +16,7 @@ import {
   type KeyAccess,
   type KeyFilter,
   MAX_KEY_NAME,
+  ROTATE_OVERLAPS,
   SCOPES,
   STATE_FILTERS,
   STATE_LABEL,
@@ -22,6 +24,7 @@ import {
   type StateFilter,
   abilitiesText,
   accessOf,
+  canRotate,
   checkKeyName,
   expiryFor,
   filterKeys,
@@ -33,19 +36,22 @@ import {
   keysPath,
   limitsText,
   maskedKey,
+  overlapText,
   parseKeyFilter,
   permissionSummary,
   relativeTime,
   revealAppHint,
   revealSnippet,
+  rotatedText,
   scopesLabel,
   sdkText,
   todayUTC,
   withCreated,
+  withRotated,
 } from "@/lib/api-keys";
 import { activeApps } from "@/lib/app-manage";
 import { REAUTH_CANCELLED } from "@/lib/reauth";
-import type { ApiKey, ApiKeyScope, CreatedApiKey, ManagedApp } from "@/lib/identity";
+import type { ApiKey, ApiKeyScope, CreatedApiKey, ManagedApp, RotateOverlap, RotatedApiKey } from "@/lib/identity";
 import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/pagination";
 import { formatDay, formatExact } from "@/lib/passkey-settings";
 import { useCan } from "@/lib/permissions";
@@ -74,12 +80,16 @@ interface AppsInfo {
  * with the SDK and version, the exact time on hover), expiry and state (Active, Expires in 5 days,
  * Rotating until 14 Nov, Expired, Revoked). The list filters by state in the URL (`?state=`);
  * expired and revoked keys are behind "Show inactive" (`?inactive=1`); it pages in the URL.
- * "Create API key" opens a dialog (name, scopes, app access, optional expiry) that then shows the
- * new key once, to copy; afterwards only the prefix is ever shown. "Edit access" changes an ingest
- * key's app access; "Revoke" opens the shared confirmation dialog, which asks for the key's name.
+ * "Create API key" opens a dialog (name, scopes, app access, environment limits when the project's
+ * environments could be read, optional expiry) that then shows the new key once, to copy;
+ * afterwards only the prefix is ever shown. "Edit access" changes an ingest key's app access;
+ * "Rotate" (#811) creates a successor and asks how long the old key keeps working (Stop now, 24
+ * hours, 7 days), then shows the new key once until "I have stored this key" is ticked; "Revoke"
+ * opens the shared confirmation dialog, which asks for the key's name.
  * Holders of `api_keys.create` / `api_keys.revoke` see the controls; everyone else reads the list
  * with a line saying why. The API checks again. `initial` is null when the list could not be
- * loaded, `apps` when the project's apps could not; `now` is the server's clock so the first render
+ * loaded, `apps` when the project's apps could not, `environments` when the project's environments
+ * could not (the create dialog then leaves the environment field out); `now` is the server's clock so the first render
  * matches; `nav` is the Access page's tabs, shown under the title.
  */
 export function ApiKeysSettings({
@@ -87,6 +97,7 @@ export function ApiKeysSettings({
   projectName,
   initial,
   apps,
+  environments = null,
   params,
   now,
   nav,
@@ -95,6 +106,7 @@ export function ApiKeysSettings({
   projectName: string;
   initial: ApiKey[] | null;
   apps: ManagedApp[] | null;
+  environments?: string[] | null;
   params: SearchParams;
   now: number;
   nav?: ReactNode;
@@ -105,6 +117,9 @@ export function ApiKeysSettings({
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState<ApiKey | null>(null);
   const [editing, setEditing] = useState<ApiKey | null>(null);
+  const [rotating, setRotating] = useState<ApiKey | null>(null);
+  // The server's clock for the first render; a rotation moves it on, so an old key stopped now reads Expired.
+  const [clock, setClock] = useState(now);
   const canCreate = useCan("api_keys.create").allowed;
   const canRevoke = useCan("api_keys.revoke").allowed;
   const readOnly = !canCreate && !canRevoke;
@@ -125,8 +140,8 @@ export function ApiKeysSettings({
   useEffect(() => {
     setFilterState({ state: urlFilter.state, inactive: urlFilter.inactive });
   }, [urlFilter.state, urlFilter.inactive]);
-  const shown = filterKeys(keys, filter, now);
-  const hidden = inactiveCount(keys, now);
+  const shown = filterKeys(keys, filter, clock);
+  const hidden = inactiveCount(keys, clock);
   const settled = filter.state === urlFilter.state && filter.inactive === urlFilter.inactive;
   const { rows, window: w } = slicePage(shown, parsePage(settled ? params : {}, KEYS_PAGE));
 
@@ -149,6 +164,13 @@ export function ApiKeysSettings({
     const name = keys.find((k) => k.id === id)?.name ?? "the key";
     setRevoking(null);
     setStatus({ tone: "ok", text: `Revoked ${name}. Requests using it are rejected from now on.` });
+  };
+
+  const rotated = (result: RotatedApiKey) => {
+    const { key: _raw, previous, ...next } = result;
+    setClock(Date.now());
+    setKeys((list) => withRotated(list, next, previous));
+    setStatus({ tone: "ok", text: rotatedText(previous) });
   };
 
   const saved = (key: ApiKey) => {
@@ -265,12 +287,16 @@ export function ApiKeysSettings({
                         key={k.id}
                         apiKey={k}
                         info={info}
-                        now={now}
+                        now={clock}
                         canEdit={canCreate}
                         canRevoke={canRevoke}
                         onEdit={() => {
                           setStatus(null);
                           setEditing(k);
+                        }}
+                        onRotate={() => {
+                          setStatus(null);
+                          setRotating(k);
                         }}
                         onRevoke={() => {
                           setStatus(null);
@@ -290,7 +316,8 @@ export function ApiKeysSettings({
         </p>
       </section>
 
-      {canCreate ? <CreateKeyDialog project={project} info={info} open={creating} onClose={() => setCreating(false)} onCreated={created} /> : null}
+      {canCreate ? <CreateKeyDialog project={project} info={info} environments={environments} open={creating} onClose={() => setCreating(false)} onCreated={created} /> : null}
+      {rotating ? <RotateDialog project={project} apiKey={rotating} info={info} onClose={() => setRotating(null)} onRotated={rotated} /> : null}
       {editing ? <AccessDialog project={project} apiKey={editing} info={info} onClose={() => setEditing(null)} onSaved={saved} /> : null}
       {canRevoke ? <RevokeDialog project={project} apiKey={revoking} onCancel={() => setRevoking(null)} onRevoked={revoked} /> : null}
     </div>
@@ -304,10 +331,11 @@ interface RowProps {
   canEdit: boolean;
   canRevoke: boolean;
   onEdit: () => void;
+  onRotate: () => void;
   onRevoke: () => void;
 }
 
-function KeyRow({ apiKey: k, info, now, canEdit, canRevoke, onEdit, onRevoke }: RowProps) {
+function KeyRow({ apiKey: k, info, now, canEdit, canRevoke, onEdit, onRotate, onRevoke }: RowProps) {
   const state = keyState(k, now);
   const ingest = isIngestKey(k);
   const limits = limitsText(k, info.names);
@@ -374,6 +402,11 @@ function KeyRow({ apiKey: k, info, now, canEdit, canRevoke, onEdit, onRevoke }: 
                 Edit access
               </button>
             ) : null}
+            {canEdit && canRotate(k, now) ? (
+              <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onRotate} aria-label={`Rotate ${k.name}`} aria-haspopup="dialog">
+                Rotate
+              </button>
+            ) : null}
             {canRevoke ? (
               <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm pk-remove" onClick={onRevoke} aria-label={`Revoke ${k.name}`} aria-haspopup="dialog">
                 Revoke
@@ -432,7 +465,21 @@ function accessProblem(a: KeyAccess): string | null {
  * A modal `<dialog>` in two steps: the form, then the new key shown once. While the key is shown
  * Escape does nothing, so it cannot be dismissed by accident before it is copied; "Done" closes.
  */
-function CreateKeyDialog({ project, info, open, onClose, onCreated }: { project: string; info: AppsInfo; open: boolean; onClose: () => void; onCreated: (key: CreatedApiKey) => void }) {
+function CreateKeyDialog({
+  project,
+  info,
+  environments,
+  open,
+  onClose,
+  onCreated,
+}: {
+  project: string;
+  info: AppsInfo;
+  environments: string[] | null;
+  open: boolean;
+  onClose: () => void;
+  onCreated: (key: CreatedApiKey) => void;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [revealed, setRevealed] = useState<CreatedApiKey | null>(null);
 
@@ -467,6 +514,7 @@ function CreateKeyDialog({ project, info, open, onClose, onCreated }: { project:
         <CreateForm
           project={project}
           pickable={info.pickable}
+          environments={environments}
           onCancel={close}
           onCreated={(key) => {
             setRevealed(key);
@@ -478,10 +526,25 @@ function CreateKeyDialog({ project, info, open, onClose, onCreated }: { project:
   );
 }
 
-function CreateForm({ project, pickable, onCancel, onCreated }: { project: string; pickable: ManagedApp[] | null; onCancel: () => void; onCreated: (key: CreatedApiKey) => void }) {
+function CreateForm({
+  project,
+  pickable,
+  environments,
+  onCancel,
+  onCreated,
+}: {
+  project: string;
+  pickable: ManagedApp[] | null;
+  environments: string[] | null;
+  onCancel: () => void;
+  onCreated: (key: CreatedApiKey) => void;
+}) {
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<ApiKeyScope[]>(["ingest"]);
   const [access, setAccess] = useState<KeyAccess>({ canCreateApps: true, appIds: null });
+  // null: every environment. The field is shown only when the project's environments were read.
+  const [envs, setEnvs] = useState<string[] | null>(null);
+  const pinnable = environments !== null && environments.length > 0;
   const [expiry, setExpiry] = useState<ExpiryChoice>("never");
   const [date, setDate] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
@@ -520,6 +583,10 @@ function CreateForm({ project, pickable, onCancel, onCreated }: { project: strin
       setError(problem);
       return;
     }
+    if (ingest && pinnable && envs !== null && envs.length === 0) {
+      setError("Choose at least one environment, or allow all environments.");
+      return;
+    }
     const when = expiryFor(expiry, date);
     if (!when.ok) {
       setError(when.error);
@@ -532,6 +599,7 @@ function CreateForm({ project, pickable, onCancel, onCreated }: { project: strin
           scopes,
           expiresAt: when.expiresAt,
           ...(ingest ? { canCreateApps: access.appIds === null ? access.canCreateApps : false, appIds: access.appIds } : {}),
+          ...(ingest && pinnable && envs !== null ? { environments: envs } : {}),
         }),
       );
       if (result.ok) onCreated(result.key);
@@ -595,6 +663,17 @@ function CreateForm({ project, pickable, onCancel, onCreated }: { project: strin
               pickable={pickable}
               onChange={(next) => {
                 setAccess(next);
+                setError(null);
+              }}
+            />
+          ) : null}
+
+          {ingest && pinnable ? (
+            <EnvironmentFields
+              value={envs}
+              options={environments}
+              onChange={(next) => {
+                setEnvs(next);
                 setError(null);
               }}
             />
@@ -681,7 +760,12 @@ function useCopy(): [copied: boolean, failed: boolean, copy: (text: string) => P
   return [copied, failed, copy];
 }
 
-function RevealKey({ apiKey, slugs, onDone }: { apiKey: CreatedApiKey; slugs: ReadonlyMap<string, string>; onDone: () => void }) {
+/**
+ * The new key, shown once. With `acknowledge` (after a rotation), "Done" stays disabled until "I
+ * have stored this key" is ticked, since the old key stops working on its own.
+ */
+function RevealKey({ apiKey, slugs, onDone, acknowledge = false }: { apiKey: CreatedApiKey; slugs: ReadonlyMap<string, string>; onDone: () => void; acknowledge?: boolean }) {
+  const [stored, setStored] = useState(false);
   const [copied, copyError, copy] = useCopy();
   const [snippetCopied, snippetError, copySnippet] = useCopy();
   const field = useRef<HTMLInputElement>(null);
@@ -751,9 +835,20 @@ function RevealKey({ apiKey, slugs, onDone }: { apiKey: CreatedApiKey; slugs: Re
             ) : null}
           </div>
         ) : null}
+        {acknowledge ? (
+          <div className="ob-f">
+            <label className={`ak-scope${stored ? " on" : ""}`}>
+              <input type="checkbox" checked={stored} onChange={(e) => setStored(e.currentTarget.checked)} />
+              <span>
+                <b>I have stored this key</b>
+                <span>You can’t see it again after you close this.</span>
+              </span>
+            </label>
+          </div>
+        ) : null}
       </div>
       <div className="ak-dialog__foot">
-        <button type="button" className="ah-btn ah-btn--primary ah-btn--sm" onClick={onDone}>
+        <button type="button" className="ah-btn ah-btn--primary ah-btn--sm" onClick={onDone} disabled={acknowledge && !stored}>
           Done
         </button>
       </div>
@@ -834,6 +929,163 @@ function AccessDialog({ project, apiKey, info, onClose, onSaved }: { project: st
           </button>
         </div>
       </form>
+    </dialog>
+  );
+}
+
+/**
+ * The environments a new ingest key may send data for (#811, after #774): every environment (the
+ * default), or only the ones picked from the project's visible environments.
+ */
+function EnvironmentFields({ value, options, onChange }: { value: string[] | null; options: readonly string[]; onChange: (next: string[] | null) => void }) {
+  const id = useId();
+  const [picked, setPicked] = useState<string[]>(value ?? []);
+  const limited = value !== null;
+
+  const pick = (name: string, on: boolean) => {
+    const current = value ?? [];
+    const next = on ? options.filter((n) => n === name || current.includes(n)) : current.filter((n) => n !== name);
+    setPicked(next);
+    onChange(next);
+  };
+
+  return (
+    <fieldset className="ob-f ak-scopes">
+      <legend className="ob-l">Environments it may send data for</legend>
+      <label className={`ak-scope${!limited ? " on" : ""}`}>
+        <input type="radio" name={`${id}-env`} checked={!limited} onChange={() => onChange(null)} />
+        <span>
+          <b>All environments</b>
+          <span>Data from any environment is accepted, including new ones.</span>
+        </span>
+      </label>
+      <label className={`ak-scope${limited ? " on" : ""}`}>
+        <input type="radio" name={`${id}-env`} checked={limited} onChange={() => onChange(picked)} />
+        <span>
+          <b>Limit to environments</b>
+          <span>Only the environments you pick. Data from any other environment is rejected.</span>
+        </span>
+      </label>
+      {limited ? (
+        <ul className="ak-picks" aria-label="Environments this key may send data for">
+          {options.map((name) => (
+            <li key={name}>
+              <label>
+                <input type="checkbox" checked={(value ?? []).includes(name)} onChange={(e) => pick(name, e.currentTarget.checked)} />
+                <span>{name}</span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </fieldset>
+  );
+}
+
+/**
+ * "Rotate" (#811, D6): a modal in two steps. First it explains that a new key with the same access
+ * replaces this one and asks how long the old key keeps working (Stop now, 24 hours, 7 days; 24
+ * hours by default); focus starts on Cancel and Escape cancels. Rotating needs a recent sign-in
+ * (D12). Then the new key is shown once: Escape does nothing and "Done" waits for "I have stored
+ * this key". Focus goes back to the control that opened it when that is still on the page.
+ */
+function RotateDialog({ project, apiKey, info, onClose, onRotated }: { project: string; apiKey: ApiKey; info: AppsInfo; onClose: () => void; onRotated: (key: RotatedApiKey) => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
+  const [overlap, setOverlap] = useState<RotateOverlap>(DEFAULT_OVERLAP);
+  const [revealed, setRevealed] = useState<RotatedApiKey | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const { withReauth, dialog: reauthDialog } = useReauth();
+  const titleId = useId();
+  const helpId = useId();
+
+  useEffect(() => {
+    const d = dialog.current;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (d && !d.open) d.showModal();
+    cancel.current?.focus();
+    return () => {
+      if (d?.open) d.close();
+      if (opener?.isConnected) opener.focus();
+    };
+  }, []);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (pending) return;
+    start(async () => {
+      const result = await withReauth(() => rotateApiKey(project, apiKey.id, overlap));
+      if (result.ok) {
+        setError(null);
+        setRevealed(result.key);
+        onRotated(result.key);
+      } else if (result.code !== REAUTH_CANCELLED) setError(result.error);
+    });
+  };
+
+  return (
+    <dialog
+      ref={dialog}
+      className="ak-dialog"
+      aria-labelledby={revealed ? "ak-dialog-title" : titleId}
+      onCancel={(e) => {
+        e.preventDefault();
+        if (!revealed && !pending) onClose();
+      }}
+    >
+      {revealed ? (
+        <RevealKey apiKey={revealed} slugs={info.slugs} onDone={onClose} acknowledge />
+      ) : (
+        <form className="ak-form" onSubmit={submit} noValidate>
+          <div className="ak-dialog__head">
+            <h2 id={titleId}>Rotate {apiKey.name}?</h2>
+            <p>
+              A new key with the same access replaces <code>{maskedKey(apiKey.prefix)}</code>. Put the new key in your services before the old one stops working.
+            </p>
+          </div>
+          <div className="ak-dialog__body">
+            <fieldset className="ob-f ak-scopes" disabled={pending} aria-describedby={helpId}>
+              <legend className="ob-l">How long the old key keeps working</legend>
+              {ROTATE_OVERLAPS.map((o) => (
+                <label key={o.value} className={`ak-scope${overlap === o.value ? " on" : ""}`}>
+                  <input
+                    type="radio"
+                    name="ak-overlap"
+                    value={o.value}
+                    checked={overlap === o.value}
+                    onChange={() => {
+                      setOverlap(o.value);
+                      setError(null);
+                    }}
+                  />
+                  <span>
+                    <b>{o.label}</b>
+                    <span>{o.help}</span>
+                  </span>
+                </label>
+              ))}
+              <p id={helpId} className="ak-hint">
+                {overlapText(overlap, apiKey.expires_at)}
+              </p>
+            </fieldset>
+            {error ? (
+              <p className="ob-err" role="alert">
+                {error}
+              </p>
+            ) : null}
+          </div>
+          <div className="ak-dialog__foot">
+            <button ref={cancel} type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onClose} disabled={pending}>
+              Cancel
+            </button>
+            <button type="submit" className={`ah-btn ah-btn--primary ah-btn--sm${pending ? " is-loading" : ""}`} disabled={pending}>
+              Rotate key
+            </button>
+          </div>
+        </form>
+      )}
+      {reauthDialog}
     </dialog>
   );
 }

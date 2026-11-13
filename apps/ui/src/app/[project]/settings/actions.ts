@@ -4,8 +4,21 @@
 // its input (a Server Action is a public POST endpoint), calls the API as the signed-in user and
 // answers a sentence to show, never a raw error. Authorization is the API's: `api_keys.create`
 // and `api_keys.revoke` (owners, admins and members).
-import { accessBody, accessError, apiKeysError, checkAppIds, checkExpiresAt, checkKeyName, checkScopes, isKeyId, isProjectSlug } from "@/lib/api-keys";
-import { type ApiKey, type CreateApiKeyRequest, type CreatedApiKey, identity, isApiError } from "@/lib/identity";
+import {
+  accessBody,
+  accessError,
+  apiKeysError,
+  checkAppIds,
+  checkEnvironments,
+  checkExpiresAt,
+  checkKeyName,
+  checkScopes,
+  isKeyId,
+  isProjectSlug,
+  isRotateOverlap,
+  rotateError,
+} from "@/lib/api-keys";
+import { type ApiKey, type CreateApiKeyRequest, type CreatedApiKey, type RotatedApiKey, identity, isApiError } from "@/lib/identity";
 import { withActionSession } from "@/lib/server-session";
 
 export type CreateApiKeyResult = { ok: true; key: CreatedApiKey } | { ok: false; error: string; code?: string };
@@ -20,7 +33,11 @@ export interface CreateApiKeyInput {
   canCreateApps?: boolean;
   /** Ingest keys: the only apps it may send data for; omitted or null for every app. */
   appIds?: string[] | null;
+  /** Ingest keys: the only environments it may send data for; omitted or null for every environment. */
+  environments?: string[] | null;
 }
+
+export type RotateApiKeyResult = { ok: true; key: RotatedApiKey } | { ok: false; error: string; code?: string };
 
 export type UpdateApiKeyAccessResult = { ok: true; key: ApiKey } | { ok: false; error: string; code?: string };
 
@@ -70,13 +87,41 @@ export async function createApiKey(project: string, input: CreateApiKeyInput): P
       : typeof input?.canCreateApps === "boolean"
         ? { can_create_apps: input.canCreateApps }
         : {};
-  const body: CreateApiKeyRequest = { name: name.name, scopes: scopes.scopes, ...(expiry.expiresAt ? { expires_at: expiry.expiresAt } : {}), ...access };
+  const envs = checkEnvironments(ingest ? input?.environments : undefined);
+  if (!envs.ok) return { ok: false, error: envs.error };
+  const body: CreateApiKeyRequest = {
+    name: name.name,
+    scopes: scopes.scopes,
+    ...(expiry.expiresAt ? { expires_at: expiry.expiresAt } : {}),
+    ...access,
+    ...(envs.environments ? { environments: envs.environments } : {}),
+  };
   return withActionSession(async (session) => {
     try {
       const key = await session.call((o) => identity().createApiKey(project, body, o));
       return { ok: true, key };
     } catch (err) {
       return failed(err);
+    }
+  });
+}
+
+/**
+ * Rotates key `id` of `project` (#811): the API creates a successor with the same access and
+ * answers it (raw key once) with the old key as `previous`, which keeps working for `overlap`.
+ * Needs a recent sign-in (D12): `reauth_required` comes back as the code for `withReauth`.
+ */
+export async function rotateApiKey(project: string, id: string, overlap: string): Promise<RotateApiKeyResult> {
+  if (!isProjectSlug(project)) return { ok: false, error: apiKeysError("not_found"), code: "not_found" };
+  if (!isKeyId(id)) return { ok: false, error: apiKeysError("api_key_gone"), code: "api_key_gone" };
+  if (!isRotateOverlap(overlap)) return { ok: false, error: "Choose how long the old key keeps working." };
+  return withActionSession(async (session) => {
+    try {
+      const key = await session.call((o) => identity().rotateApiKey(project, id, overlap, o));
+      return { ok: true, key };
+    } catch (err) {
+      if (!isApiError(err)) throw err;
+      return { ok: false, error: rotateError(err.code), code: err.code };
     }
   });
 }
