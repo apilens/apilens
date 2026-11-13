@@ -5,12 +5,12 @@
 import type { ApiKey, ApiKeyScope, KeyApp } from "./identity";
 import type { PageOptions } from "./pagination";
 
-/** The section of project settings that lists the keys. */
+/** The Access tab that lists the keys; `/<project>/settings/keys` redirects to it (#801). */
 export const KEYS_SECTION = "keys";
 
-/** `/<project>/settings/keys`. */
+/** `/<project>/access/keys`. */
 export function keysPath(project: string): string {
-  return `/${project}/settings/${KEYS_SECTION}`;
+  return `/${project}/access/${KEYS_SECTION}`;
 }
 
 /** Longest key name the API accepts (`maxLength` of `CreateAPIKeyInputBody.name`). */

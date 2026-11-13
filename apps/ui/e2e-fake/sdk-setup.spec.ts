@@ -66,7 +66,7 @@ test("tabs switch the snippets, which carry the key placeholder, app name and in
   await expect(panel).toContainText(`base_url="${INGEST_URL}/v1"`);
   await expect(panel).toContainText('app_id="shop"');
   await expect(install(page)).toContainText(INGEST_URL);
-  await expect(install(page).getByRole("link", { name: "Create a key in API keys" })).toHaveAttribute("href", "/shop/settings/keys");
+  await expect(install(page).getByRole("link", { name: "Create a key in API keys" })).toHaveAttribute("href", "/shop/access/keys");
   await expect(panel.getByRole("link", { name: "Python SDK docs (FastAPI)" })).toHaveAttribute("href", /\/setup-guides\/fastapi$/);
   // Never a stored key.
   await expect(install(page)).not.toContainText("apl_live_");
@@ -93,7 +93,7 @@ test("without api_keys.create the key line asks an admin instead", async ({ page
   await signIn(page, ["project.read"]);
   await expect(install(page).getByRole("link", { name: "Create a key in API keys" })).toHaveCount(0);
   await expect(install(page)).toContainText("Ask an admin for one");
-  await expect(install(page).getByRole("link", { name: "API keys", exact: true })).toHaveAttribute("href", "/shop/settings/keys");
+  await expect(install(page).getByRole("link", { name: "API keys", exact: true })).toHaveAttribute("href", "/shop/access/keys");
 });
 
 test("a new app waits for its first request, and refresh shows it once it reports", async ({ page }) => {

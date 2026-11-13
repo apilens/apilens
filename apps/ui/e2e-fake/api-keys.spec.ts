@@ -1,10 +1,10 @@
-// Project settings → API keys (#350) against the fake identity (e2e-fake/fake-identity.ts), which
+// Access › API keys (#350, #801) against the fake identity (e2e-fake/fake-identity.ts), which
 // serves `GET|POST|DELETE /projects/shop/api-keys` (and PUT .../access) and answers 403 to a user without the
 // `api_keys.create` / `api_keys.revoke` capability. No email is sent by any test here.
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
-const KEYS = "/shop/settings/keys";
+const KEYS = "/shop/access/keys";
 const MANAGE = ["project.read", "api_keys.create", "api_keys.revoke"];
 
 async function signIn(page: Page, opts: { capabilities?: string[]; apiKeys?: Record<string, unknown>[] } = {}) {

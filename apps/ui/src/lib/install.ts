@@ -4,7 +4,7 @@
 import type { ApiKey, ApiKeyScope } from "./identity";
 import { type Method, languageOf } from "./instrument";
 
-/** Name of the key the step creates, as it then shows in Project settings → API keys. */
+/** Name of the key the step creates, as it then shows in Access → API keys. */
 export const INSTALL_KEY_NAME = "Onboarding";
 
 /** What the key may do: send events, nothing else. */
