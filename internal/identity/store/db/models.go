@@ -384,12 +384,22 @@ type PrivacyPolicy struct {
 }
 
 type Project struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	Slug      string
-	Name      string
+	ID            uuid.UUID
+	OrgID         uuid.UUID
+	Slug          string
+	Name          string
+	CreatedAt     time.Time
+	DeletedAt     *time.Time
+	DefaultAccess string
+}
+
+type ProjectMember struct {
+	ProjectID uuid.UUID
+	UserID    uuid.UUID
+	Role      string
+	AddedBy   *uuid.UUID
 	CreatedAt time.Time
-	DeletedAt *time.Time
+	UpdatedAt time.Time
 }
 
 type RecoveryRequest struct {

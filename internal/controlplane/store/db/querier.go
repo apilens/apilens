@@ -71,7 +71,12 @@ type Querier interface {
 	DeleteMembership(ctx context.Context, arg DeleteMembershipParams) (int64, error)
 	DeleteNotificationChannel(ctx context.Context, arg DeleteNotificationChannelParams) (int64, error)
 	DeleteOrgSSOConnection(ctx context.Context, orgID uuid.UUID) (int64, error)
+	DeleteProjectMember(ctx context.Context, arg DeleteProjectMemberParams) (int64, error)
 	DeleteSavedView(ctx context.Context, arg DeleteSavedViewParams) (int64, error)
+	// Drops every direct grant a user holds on the organization's projects
+	// (when they leave it); returns the project ids so the caller can emit one
+	// outbox event per removed grant.
+	DeleteUserProjectMembersInOrg(ctx context.Context, arg DeleteUserProjectMembersInOrgParams) ([]uuid.UUID, error)
 	// The domains among @domains that another active organization enforces SSO
 	// for. A domain is enforced by at most one organization.
 	EnforcedSSODomainsOfOtherOrgs(ctx context.Context, arg EnforcedSSODomainsOfOtherOrgsParams) ([]string, error)
@@ -157,6 +162,8 @@ type Querier interface {
 	// An active app of a project; no row when the app is unknown, deleted or in
 	// another project.
 	GetProjectApp(ctx context.Context, arg GetProjectAppParams) (GetProjectAppRow, error)
+	GetProjectDefaultAccess(ctx context.Context, id uuid.UUID) (string, error)
+	GetProjectMember(ctx context.Context, arg GetProjectMemberParams) (ProjectMember, error)
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProjectWithOrgRow, error)
 	GetRecentlyDeletedApp(ctx context.Context, arg GetRecentlyDeletedAppParams) (GetRecentlyDeletedAppRow, error)
 	GetRequestExport(ctx context.Context, id uuid.UUID) (RequestExport, error)
@@ -260,6 +267,8 @@ type Querier interface {
 	ListProjectEndpointSettings(ctx context.Context, projectID uuid.UUID) ([]ListProjectEndpointSettingsRow, error)
 	// The apps each key of the project sent records for, with when.
 	ListProjectKeyApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectKeyAppsRow, error)
+	// Direct grants of a project with their users; deleted accounts are hidden.
+	ListProjectMembers(ctx context.Context, projectID uuid.UUID) ([]ListProjectMembersRow, error)
 	// Every privacy policy row of a project: the project-wide one (app_id NULL)
 	// and the per-app ones. Rows of deleted apps are skipped.
 	ListProjectPrivacyPolicies(ctx context.Context, projectID uuid.UUID) ([]ListProjectPrivacyPoliciesRow, error)
@@ -292,6 +301,8 @@ type Querier interface {
 	// The active organizations a user belongs to, with their role and the
 	// number of active projects and (non-deleted) members of each.
 	ListUserOrganizationsWithCounts(ctx context.Context, userID uuid.UUID) ([]ListUserOrganizationsWithCountsRow, error)
+	// A user's direct grants on active projects.
+	ListUserProjectMembers(ctx context.Context, userID uuid.UUID) ([]ListUserProjectMembersRow, error)
 	// The active projects of every active organization the user belongs to
 	// (memberships_user, then projects_org), by organization then name, with
 	// the number of active apps of each (apps_project_slug_active).
@@ -382,6 +393,7 @@ type Querier interface {
 	// a new one can replace it.
 	RevokePendingInvitationByEmail(ctx context.Context, arg RevokePendingInvitationByEmailParams) (int64, error)
 	SetAppDefault(ctx context.Context, id uuid.UUID) error
+	SetProjectDefaultAccess(ctx context.Context, arg SetProjectDefaultAccessParams) (string, error)
 	// No row means the export was cancelled meanwhile.
 	SetRequestExportProgress(ctx context.Context, arg SetRequestExportProgressParams) (int64, error)
 	SetRequestExportTotal(ctx context.Context, arg SetRequestExportTotalParams) (int64, error)
@@ -447,6 +459,11 @@ type Querier interface {
 	UpsertOrganization(ctx context.Context, arg UpsertOrganizationParams) (UpsertOrganizationRow, error)
 	UpsertPrivacyPolicy(ctx context.Context, arg UpsertPrivacyPolicyParams) (UpsertPrivacyPolicyRow, error)
 	UpsertProject(ctx context.Context, arg UpsertProjectParams) (UpsertProjectRow, error)
+	// Direct project roles and project default access (ADR 0009). Callers check
+	// that the user is a member of the project's organization and emit the
+	// outbox event in the same transaction.
+	// Grants a role or changes it; added_by and created_at keep the first grant.
+	UpsertProjectMember(ctx context.Context, arg UpsertProjectMemberParams) (ProjectMember, error)
 }
 
 var _ Querier = (*Queries)(nil)
