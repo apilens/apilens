@@ -69,9 +69,10 @@ type Edge struct {
 	heartbeats     HeartbeatStore // nil: /v1/heartbeat answers 503
 	heartbeatCache HeartbeatCache // nil: no heartbeat rate limit or last-seen key
 
-	keyApps       KeyAppStore       // nil: which apps a key sends for is not recorded
-	keySeen       keyAppSeen        // throttles keyApps writes
-	appRejections AppRejectionStore // nil: app rejections count in Prometheus only
+	keyApps       KeyAppStore         // nil: which apps a key sends for is not recorded
+	keySeen       keyAppSeen          // throttles keyApps writes
+	appRejections AppRejectionStore   // nil: app rejections count in Prometheus only
+	envs          EnvironmentRegistry // nil: environments are not registered from ingest
 
 	records   *prometheus.CounterVec
 	batches   *prometheus.CounterVec

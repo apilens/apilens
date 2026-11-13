@@ -406,6 +406,11 @@ func (a *App) initEdge(context.Context) (modules.Service, error) {
 	}
 	edge.WithHeartbeat(a.queries, heartbeats)
 	edge.WithKeyApps(a.queries)
+	// Environments come from the SDK as well: unknown names are registered
+	// (bounded per project) and last seen moves forward, off the request
+	// path.
+	edge.WithEnvironments(catalog.NewEnvironmentRegistry(a.queries,
+		projects.NewEnvironmentProvisioner(a.pool, audit.New(a.pool)), a.cfg.Ingest.AppCacheTTL, a.logger, a.registry))
 	// Without Valkey the per-app health counters are not kept; Prometheus
 	// still has the totals.
 	if a.valkey != nil {

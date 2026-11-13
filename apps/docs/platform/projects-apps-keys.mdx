@@ -64,6 +64,12 @@ OpenTelemetry exporters sending to `/otlp/v1/*` are attributed by the resource a
 
 Every project has a default app, created with the project and named after it. Records that carry no app name land there. It cannot be archived, merged or deleted.
 
+### Environments come from the SDK too
+
+The first time a batch, heartbeat or metadata report names an environment the project does not have, ingest adds it to the project's environments with source `sdk` ("Reported by the SDK" in settings), and keeps each environment's last seen time current (at most once a minute). This happens in the background, so it never slows ingest down; the environment shows up in the list within seconds. Names that do not match the environment name rules (letters, digits, `.`, `_`, `-`, at most 64 characters) are not added.
+
+A project holds at most 20 environments, and ingest adds at most 5 new ones per project per hour, so an SDK that puts a build number or host name in the environment cannot fill the list. Records for an environment that was not added are **still stored**; only the list entry is missing. The Prometheus counter `apilens_ingest_environments_unregistered_total{reason}` (`environment_limit`, `environment_rate_limit`, `invalid_environment`) counts those attempts.
+
 ## API keys
 
 Keys belong to the **project**. Create them in **Project settings → API keys**; the full key is shown once, then only its prefix. Name keys after who uses them (`prod-backend`, `team-payments`, `deploy-pipeline`) so the Apps page can tell you which key brought an app in, and so you can revoke one without touching the others.
