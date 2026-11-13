@@ -146,6 +146,59 @@ func (g *Guard) RequireProject(api huma.API, permission Permission) func(huma.Co
 	return g.Require(api, TypeProject, permission)
 }
 
+// DefaultRecentAuth is the sign-in age RequireRecentAuth allows when given
+// none: identity.sensitive_action_max_age's default.
+const DefaultRecentAuth = 10 * time.Minute
+
+// RequireRecentAuth returns an operation middleware for sensitive operations
+// (D12: delete or restore a project, rename its slug, change access, create
+// or rotate an API key). It lets the request through only for a user whose
+// session signed in at most maxAge ago (the access token's `auth_time`);
+// maxAge <= 0 means DefaultRecentAuth. It must run after authentication and
+// is independent of the permission check: combine it with Require.
+//
+// Answers, as identity problems:
+//   - unauthenticated (401): no principal.
+//   - forbidden (403): the caller is not a user (API key, OAuth client);
+//     these operations need a user session.
+//   - reauth_required (403): the sign-in is older than maxAge, or the token
+//     predates `auth_time`. The user signs in again and retries.
+//
+// Operations using it list identity.CodeReauthRequired in their OpenAPI.
+func RequireRecentAuth(api huma.API, maxAge time.Duration) func(huma.Context, func(huma.Context)) {
+	return requireRecentAuth(api, maxAge, time.Now)
+}
+
+func requireRecentAuth(api huma.API, maxAge time.Duration, now func() time.Time) func(huma.Context, func(huma.Context)) {
+	if maxAge <= 0 {
+		maxAge = DefaultRecentAuth
+	}
+	return func(ctx huma.Context, next func(huma.Context)) {
+		p, ok := authn.FromContext(ctx.Context())
+		switch {
+		case !ok:
+			writeProblem(api, ctx, identity.Err(identity.CodeUnauthenticated))
+		case p.Kind != authn.KindUser:
+			writeProblem(api, ctx, identity.Err(identity.CodeForbidden))
+		case !RecentAuth(p, maxAge, now()):
+			writeProblem(api, ctx, identity.Err(identity.CodeReauthRequired))
+		default:
+			next(ctx)
+		}
+	}
+}
+
+// RecentAuth reports whether p is a user who signed in at most maxAge before
+// now. A sign-in time slightly in the future (clock skew between replicas,
+// up to authn.Leeway) counts as recent.
+func RecentAuth(p authn.Principal, maxAge time.Duration, now time.Time) bool {
+	if p.Kind != authn.KindUser || p.AuthTime.IsZero() {
+		return false
+	}
+	age := now.Sub(p.AuthTime)
+	return age <= maxAge && age >= -authn.Leeway
+}
+
 // Require returns an operation middleware that lets the request through only
 // when the principal has permission on the resourceType (TypeOrganization or
 // TypeProject) object named by the path. It must run after authentication.

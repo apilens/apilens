@@ -124,6 +124,7 @@ against the published JWKS; identity uses `token.Issuer.Verify`.
 | payload | `exp` | `iat` + `identity.access_token_ttl` |
 | payload | `sid` | session id (UUID) the token was issued for; authz uses it to tie a request to a revocable session |
 | payload | `amr` | how the user authenticated (RFC 8176 style), one or more of `email`, `google`, `github`, `passkey`, `totp`, `sso` |
+| payload | `auth_time` | when the user signed in to the session (seconds; unchanged by refreshes); sensitive operations need it within `identity.sensitive_action_max_age` (see identity.md) |
 
 Tokens carry no email, name or role: authorization looks those up by `sub`.
 Verification tolerates 30 s of clock skew on `exp` and `iat`.

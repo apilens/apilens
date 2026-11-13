@@ -10,6 +10,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 
+	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
 	"github.com/apilens/apilens/internal/identity"
 	"github.com/apilens/apilens/internal/platform/authn"
@@ -120,6 +121,16 @@ type APIKeyInput struct {
 type APIKeys struct {
 	svc    APIKeyService
 	logger *slog.Logger
+	// recentAuth is the sign-in age sensitive operations allow
+	// (identity.sensitive_action_max_age); 0 means authz.DefaultRecentAuth.
+	recentAuth time.Duration
+}
+
+// WithRecentAuth sets the sign-in age sensitive operations (create) allow
+// and returns k.
+func (k *APIKeys) WithRecentAuth(maxAge time.Duration) *APIKeys {
+	k.recentAuth = maxAge
+	return k
 }
 
 // NewAPIKeys returns the API key endpoints over svc.
@@ -133,6 +144,7 @@ func (k *APIKeys) Register(api huma.API) {
 	security := []map[string][]string{{authn.SchemeSession: {}}}
 	tags := []string{server.TagProjects}
 	notMember := "Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart."
+	recentAuth := "Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. "
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID:   "create-api-key",
@@ -141,10 +153,11 @@ func (k *APIKeys) Register(api huma.API) {
 		DefaultStatus: http.StatusCreated,
 		Summary:       "Create an API key",
 		Description: "Issues an API key for the project and returns it in full, once: only its hash is stored. Owners, admins and members only. " +
-			"Audited as `api_key.created`. " + notMember,
-		Tags:     tags,
-		Security: security,
-	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeInternal), k.create)
+			"Audited as `api_key.created`. " + recentAuth + notMember,
+		Tags:        tags,
+		Security:    security,
+		Middlewares: huma.Middlewares{authz.RequireRecentAuth(api, k.recentAuth)},
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeReauthRequired, identity.CodeInternal), k.create)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "list-api-keys",

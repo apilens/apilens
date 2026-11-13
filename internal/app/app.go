@@ -496,6 +496,8 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Limits:        a.cfg.Identity.RateLimits,
 		Logger:        a.logger,
 
+		SensitiveActionMaxAge: a.cfg.Identity.SensitiveActionMaxAge,
+
 		// Invitation emails are enqueued here and sent by the role that
 		// runs the email worker (identity).
 		Invitations: orgs.NewInvitations(a.pool, audit.New(a.pool), a.jobs),

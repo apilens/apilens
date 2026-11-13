@@ -20825,7 +20825,7 @@
     },
     "/api/v1/projects/{slug}": {
       "delete": {
-        "description": "Soft-deletes the project; its slug becomes free. Owners and admins only. Emits `project.deleted`. Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart.",
+        "description": "Soft-deletes the project; its slug becomes free. Owners and admins only. Emits `project.deleted`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. Answers `forbidden` (403) when the project or organization does not exist or the user is not a member of the organization, so the cases cannot be told apart.",
         "operationId": "delete-project",
         "parameters": [
           {
@@ -20865,9 +20865,10 @@
                 }
               }
             },
-            "description": "Forbidden. Codes: `forbidden`.",
+            "description": "Forbidden. Codes: `forbidden`, `reauth_required`.",
             "x-apilens-codes": [
-              "forbidden"
+              "forbidden",
+              "reauth_required"
             ]
           },
           "500": {
@@ -21170,7 +21171,7 @@
         ]
       },
       "post": {
-        "description": "Issues an API key for the project and returns it in full, once: only its hash is stored. Owners, admins and members only. Audited as `api_key.created`. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
+        "description": "Issues an API key for the project and returns it in full, once: only its hash is stored. Owners, admins and members only. Audited as `api_key.created`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. Answers `forbidden` (403) when the project does not exist or the user is not a member of its organization, so the cases cannot be told apart.",
         "operationId": "create-api-key",
         "parameters": [
           {
@@ -21240,9 +21241,10 @@
                 }
               }
             },
-            "description": "Forbidden. Codes: `forbidden`.",
+            "description": "Forbidden. Codes: `forbidden`, `reauth_required`.",
             "x-apilens-codes": [
-              "forbidden"
+              "forbidden",
+              "reauth_required"
             ]
           },
           "500": {

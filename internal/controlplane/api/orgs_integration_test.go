@@ -87,7 +87,12 @@ func setupOrgs(t *testing.T, slugCheck ratelimit.Rate) *orgsFixture {
 			next(ctx)
 			return
 		}
-		c := authn.WithPrincipal(ctx.Context(), authn.Principal{Kind: authn.KindUser, UserID: id})
+		// The session signed in just now, or testSignedInHeader ago.
+		authTime := time.Now()
+		if age, err := time.ParseDuration(ctx.Header(testSignedInHeader)); err == nil {
+			authTime = authTime.Add(-age)
+		}
+		c := authn.WithPrincipal(ctx.Context(), authn.Principal{Kind: authn.KindUser, UserID: id, AuthTime: authTime})
 		c = audit.WithRequest(c, audit.Request{IP: netip.MustParseAddr("203.0.113.7"), UserAgent: "itest"})
 		next(huma.WithContext(ctx, c))
 	})
@@ -113,6 +118,13 @@ func (f *orgsFixture) user(t *testing.T, email string) uuid.UUID {
 }
 
 func as(user uuid.UUID) string { return testUserHeader + ": " + user.String() }
+
+// testSignedInHeader is how long ago the test user's session signed in (a
+// Go duration); without it, just now.
+const testSignedInHeader = "X-Test-Signed-In"
+
+// signedIn is as for a session that signed in age ago.
+func signedIn(age time.Duration) string { return testSignedInHeader + ": " + age.String() }
 
 func (f *orgsFixture) create(user uuid.UUID, name, slug string) *httptest.ResponseRecorder {
 	return f.api.Post(OrgsPath, as(user), map[string]any{"name": name, "slug": slug})

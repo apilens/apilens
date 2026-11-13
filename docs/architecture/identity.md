@@ -444,9 +444,26 @@ recently retired, so rotation never breaks live tokens).
 | `iat`, `exp` | issue time, issue time + `access_token_ttl` |
 | `sid` | session id (the `sessions` row) |
 | `amr` | how the session was authenticated: `email`, `google`, `github`, `passkey`, `totp`, `backup_code`, `sso` |
+| `auth_time` | when the user signed in to the session (OIDC Core `auth_time`, seconds): the session's `created_at`, unchanged by refreshes |
 
 Verifiers (`api`, `query`, later `mcp`) accept only RS256 and only keys from
 JWKS, check `iss`, `aud` and `exp`, and consult the `sid` denylist.
+
+### Sensitive operations (recent sign-in)
+
+Some API operations need a sign-in less than
+`identity.sensitive_action_max_age` (10 min) old, like GitHub's sudo mode:
+deleting a project and creating an API key today, and restoring a project,
+renaming its slug, changing project access and rotating a key as those
+operations land. `authz.RequireRecentAuth(api, maxAge)` (beside
+`RequireProject` in `internal/authz/require.go`) compares the access token's
+`auth_time` with the clock and answers `reauth_required` (403) when the
+sign-in is older, or when the token has no `auth_time` (issued before the
+claim existed; the next refresh adds it). The user signs in again (a new
+session) and retries. API keys and OAuth clients are refused with
+`forbidden`: these operations need a user session. Each such operation lists
+`reauth_required` in the OpenAPI document. 2FA setup applies the same
+10-minute rule inside identity, from the session row.
 
 ### Refresh token and session
 
@@ -484,6 +501,7 @@ SHA-256 is stored. Lifetime is `identity.refresh_token_ttl` (30 days) with
 | `identity.email_code_ttl` / `email_code_max_attempts` | `15m` / `5` |
 | `identity.pre_auth_ttl` | `5m` |
 | `identity.recovery_delay` | `24h` |
+| `identity.sensitive_action_max_age` | `10m` |
 | OAuth state / handoff code | 10 min / 60 s |
 | Email start per email / per IP | 5 / 20 per 15 min |
 | Code verify per email | 10 per 15 min |
