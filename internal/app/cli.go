@@ -16,7 +16,9 @@ import (
 	"syscall"
 	"time"
 
+	authzed "github.com/authzed/authzed-go/v1"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/apilens/apilens/authz"
@@ -47,9 +49,10 @@ Usage:
   apilens [-target=all] [-config.file=path]   run roles (comma-separated targets)
   apilens migrate [-only=postgres,clickhouse,authz] [-confirm-retention-change]
                                               apply Postgres (incl. River jobs) and ClickHouse
-                                              migrations and the SpiceDB schema (when
-                                              authz.endpoint is set); set ClickHouse TTLs from
-                                              retention.* (shortening needs the confirm flag)
+                                              migrations and the SpiceDB schema, then reconcile
+                                              relationships (when authz.endpoint is set); set
+                                              ClickHouse TTLs from retention.* (shortening
+                                              needs the confirm flag)
   apilens seed [flags]                        create a dev org/project/app and print an ingest key,
                                               plus a dev owner (dev@example.com) and its magic link
   apilens user create -email=... -org=... [-role=member]
@@ -193,8 +196,9 @@ var migrateSteps = []string{"postgres", "clickhouse", "authz"}
 
 // migrate applies the selected steps (all when steps is empty). The
 // clickhouse step also sets the table TTLs from retention.*; shortening one
-// needs confirmRetention. The authz step writes the SpiceDB schema and is
-// skipped when authz.endpoint is unset.
+// needs confirmRetention. The authz step writes the SpiceDB schema and
+// reconciles the relationships (migrateAuthz); it is skipped when
+// authz.endpoint is unset.
 func migrate(ctx context.Context, cfg *config.Config, logger *slog.Logger, steps []string, confirmRetention bool) error {
 	want := func(step string) bool { return len(steps) == 0 || slices.Contains(steps, step) }
 	if want("postgres") {
@@ -224,11 +228,53 @@ func migrate(ctx context.Context, cfg *config.Config, logger *slog.Logger, steps
 			logger.Info("authz.endpoint not set; skipping the SpiceDB schema")
 			return nil
 		}
-		client, err := spicedb.Connect(cfg.Authz)
-		if err != nil {
+		return migrateAuthz(ctx, cfg, logger)
+	}
+	return nil
+}
+
+// migrateAuthz writes the SpiceDB schema and runs the reconciler once, so
+// relationships a new schema version expects (the default-access relations
+// of every existing project, ADR 0009) exist when the step returns.
+//
+// Upgrading from a schema in which project access still flows down from the
+// organization, it first writes authz.BridgeSchema (the new relations, the
+// old permission terms kept), backfills, and only then writes the final
+// schema: no org member is locked out in between (authz/README.md).
+func migrateAuthz(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	client, err := spicedb.Connect(cfg.Authz)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close() }()
+	current, err := spicedb.ReadSchema(ctx, client, logger)
+	if err != nil {
+		return err
+	}
+	bridge := authz.InheritsOrgAccess(current)
+	if bridge {
+		schema, ok := authz.BridgeSchema()
+		if !ok {
+			return errors.New("migrate: authz.BridgeSchema no longer matches schema.zed")
+		}
+		logger.Info("upgrading the authz schema through the bridge schema; backfilling default access before switching permissions")
+		if err := spicedb.ApplySchema(ctx, client, schema, logger); err != nil {
 			return err
 		}
-		defer func() { _ = client.Close() }()
+	} else if err := spicedb.ApplySchema(ctx, client, authz.Schema, logger); err != nil {
+		return err
+	}
+	pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-migrate")
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	res, err := reconcileOnce(ctx, cfg, logger, pool, client, false)
+	if err != nil {
+		return err
+	}
+	logger.Info("authz relationships reconciled", "missing", res.Missing, "extra", res.Extra)
+	if bridge {
 		return spicedb.ApplySchema(ctx, client, authz.Schema, logger)
 	}
 	return nil
@@ -471,22 +517,27 @@ func runReconcile(ctx context.Context, args []string, stdout, stderr io.Writer, 
 		return err
 	}
 	defer func() { _ = client.Close() }()
+	res, err := reconcileOnce(ctx, cfg, logger, pool, client, *dryRun)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(stdout).Encode(res)
+}
+
+// reconcileOnce runs the authz reconciler once over pool and client.
+func reconcileOnce(ctx context.Context, cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, client *authzed.Client, dryRun bool) (outbox.ReconcileResult, error) {
 	// Record ZedTokens like the job does, so checks see the repair at once.
 	var tokens authzclient.TokenStore
 	if cfg.Valkey.Enabled() {
 		vk, err := cache.Connect(ctx, cfg.Valkey)
 		if err != nil {
-			return err
+			return outbox.ReconcileResult{}, err
 		}
 		defer vk.Close()
 		tokens = authzclient.NewValkeyTokens(vk)
 	}
 	recorder := authzclient.New(client, tokens, authzclient.Options{}, logger, nil)
-	res, err := outbox.NewReconciler(pool, client, recorder, outbox.ReconcileOptions{}, logger, nil).Reconcile(ctx, *dryRun)
-	if err != nil {
-		return err
-	}
-	return json.NewEncoder(stdout).Encode(res)
+	return outbox.NewReconciler(pool, client, recorder, outbox.ReconcileOptions{}, logger, nil).Reconcile(ctx, dryRun)
 }
 
 func runHealthcheck(ctx context.Context, args []string, stderr io.Writer) error {

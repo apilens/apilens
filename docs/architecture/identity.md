@@ -633,17 +633,22 @@ SpiceDB holds the derived relationships that permission checks read
 3. **Reconcile.** An hourly River job (`authz.reconcile`, run by the
    `identity` role, which the M4 `worker` role will take over) repairs drift:
    relationships lost or left behind by a manual edit, a restored backup or a
-   relay bug. It reads every membership of an active organization and every
-   active project of an active organization from Postgres, reads the
-   relationships it owns from SpiceDB (`organization#{owner,admin,member,viewer}`
-   and `project#org`; project-level roles are left alone), `TOUCH`es what is
-   missing and `DELETE`s what Postgres has no source for, and counts each
+   relay bug. It reads every membership of an active organization, every
+   active project of an active organization (with its `default_access`) and
+   every `project_members` row of such a project from Postgres, reads the
+   relationships it owns from SpiceDB (`organization#{owner,admin,member,viewer}`,
+   `project#org`, `project#{admin,editor,viewer}` and the default relations
+   `project#default_editor|default_viewer`), `TOUCH`es what is missing and
+   `DELETE`s what Postgres has no source for, and counts each
    repair in `apilens_authz_drift_total{kind="missing"|"extra"}`. It holds the
    relay's advisory lock for the whole run, so the relay cannot apply a row in
    between and have it undone by a stale snapshot; rows committed during the
    run are relayed after it. Operators can run it at once with
    `apilens authz reconcile` (`-dry-run` only reports), which prints
-   `{"missing":n,"extra":n,"dry_run":false}`.
+   `{"missing":n,"extra":n,"dry_run":false}`. `apilens migrate` runs it
+   once right after writing the schema, so an upgrade that adds
+   relationships (the default relations of existing projects, #768) is one
+   step; see `authz/README.md` for the upgrade order.
 4. **Read.** Checks go through `internal/authz.Client` with
    `at_least_as_fresh` the org's last ZedToken, so a user sees their own
    writes immediately. When SpiceDB cannot answer, the check **fails closed**

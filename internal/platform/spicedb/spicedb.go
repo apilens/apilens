@@ -82,3 +82,31 @@ func ApplySchema(ctx context.Context, client *authzed.Client, schema string, log
 		backoff = min(backoff*2, 5*time.Second)
 	}
 }
+
+// ReadSchema returns the schema SpiceDB holds, or "" when none was written
+// yet. Unavailable errors are retried like ApplySchema.
+func ReadSchema(ctx context.Context, client *authzed.Client, logger *slog.Logger) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, retryWindow)
+	defer cancel()
+	backoff := 500 * time.Millisecond
+	for {
+		resp, err := client.ReadSchema(ctx, &v1.ReadSchemaRequest{})
+		if err == nil {
+			return resp.GetSchemaText(), nil
+		}
+		switch status.Code(err) {
+		case codes.NotFound:
+			return "", nil
+		case codes.Unavailable:
+		default:
+			return "", fmt.Errorf("spicedb: read schema: %w", err)
+		}
+		logger.Warn("spicedb unavailable, retrying", "err", err, "in", backoff)
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("spicedb: read schema: %w", err)
+		case <-time.After(backoff):
+		}
+		backoff = min(backoff*2, 5*time.Second)
+	}
+}

@@ -52,11 +52,19 @@ type ReconcileResult struct {
 // SpiceDB (ADR 0006): relationships lost or left behind by a manual edit, a
 // restored backup or a bug in the relay.
 //
-// It owns the relationships the relay writes: organization#{owner,admin,
-// member,viewer}@user and project#org@organization. Postgres implies one org
-// role per membership of an active organization and one project#org per
-// active project of an active organization. Relationships SpiceDB holds that
-// Postgres has no source for yet (project-level roles) are left alone.
+// It owns every relationship the relay writes: organization#{owner,admin,
+// member,viewer}@user, project#org@organization, the direct project roles
+// project#{admin,editor,viewer}@user and the default-access relations
+// project#default_editor@organization#member and
+// project#default_viewer@organization#{member,viewer} (ADR 0009). Postgres
+// implies one org role per membership of an active organization; per active
+// project of an active organization one project#org, the default relations
+// of its default_access and one direct role per project_members row. Any
+// owned relationship Postgres does not imply is deleted.
+//
+// The same run backfills projects created before the default relations
+// existed (`apilens migrate` runs it after writing the schema, see
+// authz/README.md).
 //
 // A run holds the relay's advisory lock while it reads Postgres and SpiceDB
 // and writes the repair, so the relay cannot apply a row in between and have
@@ -108,13 +116,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, dryRun bool) (ReconcileResul
 	if err := q.LockOutboxRelay(ctx, relayLockKey); err != nil {
 		return res, fmt.Errorf("authz reconcile: lock: %w", err)
 	}
-	want, err := r.desired(ctx, q)
+	want, projectOrgs, err := r.desired(ctx, q)
 	if err != nil {
 		return res, err
 	}
 	have, err := r.actual(ctx)
 	if err != nil {
 		return res, err
+	}
+	// A direct project role names a user, not the org; take the org from
+	// Postgres, else from the project#org SpiceDB still holds.
+	for _, rel := range have {
+		if rel.GetResource().GetObjectType() == authz.TypeProject && rel.GetRelation() == "org" {
+			if _, ok := projectOrgs[rel.GetResource().GetObjectId()]; !ok {
+				projectOrgs[rel.GetResource().GetObjectId()] = rel.GetSubject().GetObject().GetObjectId()
+			}
+		}
 	}
 
 	var updates []*v1.RelationshipUpdate
@@ -139,7 +156,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, dryRun bool) (ReconcileResul
 	if dryRun {
 		return res, nil
 	}
-	if err := r.write(ctx, updates); err != nil {
+	if err := r.write(ctx, updates, projectOrgs); err != nil {
 		return res, err
 	}
 	r.drift.WithLabelValues("missing").Add(float64(res.Missing))
@@ -150,26 +167,45 @@ func (r *Reconciler) Reconcile(ctx context.Context, dryRun bool) (ReconcileResul
 	return res, nil
 }
 
-// desired returns the relationships Postgres implies, keyed by relKey.
-func (r *Reconciler) desired(ctx context.Context, q *db.Queries) (map[string]*v1.Relationship, error) {
+// desired returns the relationships Postgres implies, keyed by relKey, and
+// the organization of every active project.
+func (r *Reconciler) desired(ctx context.Context, q *db.Queries) (map[string]*v1.Relationship, map[string]string, error) {
 	members, err := q.ListReconcileMemberships(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("authz reconcile: list memberships: %w", err)
+		return nil, nil, fmt.Errorf("authz reconcile: list memberships: %w", err)
 	}
 	projects, err := q.ListReconcileProjects(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("authz reconcile: list projects: %w", err)
+		return nil, nil, fmt.Errorf("authz reconcile: list projects: %w", err)
 	}
-	want := make(map[string]*v1.Relationship, len(members)+len(projects))
+	grants, err := q.ListReconcileProjectMembers(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("authz reconcile: list project members: %w", err)
+	}
+	want := make(map[string]*v1.Relationship, len(members)+3*len(projects)+len(grants))
+	add := func(rel *v1.Relationship) { want[relKey(rel)] = rel }
+	projectOrgs := make(map[string]string, len(projects))
 	for _, m := range members {
-		rel := orgRel(m.OrgID.String(), m.Role, m.UserID)
-		want[relKey(rel)] = rel
+		add(orgRel(m.OrgID.String(), m.Role, m.UserID))
 	}
 	for _, p := range projects {
-		rel := projectOrg(p.ID, p.OrgID)
-		want[relKey(rel)] = rel
+		projectOrgs[p.ID.String()] = p.OrgID.String()
+		add(projectOrg(p.ID, p.OrgID))
+		ds, ok := defaultAccessRelations[p.DefaultAccess]
+		if !ok {
+			return nil, nil, fmt.Errorf("authz reconcile: project %s has unknown default access %q", p.ID, p.DefaultAccess)
+		}
+		for _, d := range ds {
+			add(defaultRel(p.ID, p.OrgID, d))
+		}
 	}
-	return want, nil
+	for _, g := range grants {
+		if !slices.Contains(projectRoles, g.Role) {
+			return nil, nil, fmt.Errorf("authz reconcile: project %s member %s has unknown role %q", g.ProjectID, g.UserID, g.Role)
+		}
+		add(projectRel(g.ProjectID, g.Role, g.UserID))
+	}
+	return want, projectOrgs, nil
 }
 
 // actual returns the relationships SpiceDB holds that the reconciler owns,
@@ -183,9 +219,7 @@ func (r *Reconciler) actual(ctx context.Context) (map[string]*v1.Relationship, e
 		{&v1.RelationshipFilter{ResourceType: authz.TypeOrganization}, func(rel *v1.Relationship) bool {
 			return slices.Contains(orgRoles, rel.GetRelation()) && rel.GetSubject().GetObject().GetObjectType() == authz.TypeUser
 		}},
-		{&v1.RelationshipFilter{ResourceType: authz.TypeProject, OptionalRelation: "org"}, func(rel *v1.Relationship) bool {
-			return rel.GetSubject().GetObject().GetObjectType() == authz.TypeOrganization
-		}},
+		{&v1.RelationshipFilter{ResourceType: authz.TypeProject}, ownedProjectRel},
 	} {
 		rels, err := r.read(ctx, f.filter)
 		if err != nil {
@@ -198,6 +232,27 @@ func (r *Reconciler) actual(ctx context.Context) (map[string]*v1.Relationship, e
 		}
 	}
 	return have, nil
+}
+
+// ownedProjectRel reports whether rel is a project relationship the relay
+// writes: project#org@organization, a direct role @user or a default
+// relation @organization#member|viewer.
+func ownedProjectRel(rel *v1.Relationship) bool {
+	s := rel.GetSubject()
+	subType, subRel := s.GetObject().GetObjectType(), s.GetOptionalRelation()
+	switch rel.GetRelation() {
+	case "org":
+		return subType == authz.TypeOrganization && subRel == ""
+	case "admin", "editor", "viewer":
+		return subType == authz.TypeUser && subRel == ""
+	default:
+		for _, d := range allDefaultRelations {
+			if rel.GetRelation() == d.relation && subType == authz.TypeOrganization && subRel == d.orgRole {
+				return true
+			}
+		}
+		return false
+	}
 }
 
 // read streams every relationship matching filter, fully consistent.
@@ -225,8 +280,8 @@ func (r *Reconciler) read(ctx context.Context, filter *v1.RelationshipFilter) ([
 }
 
 // write applies updates in batches and records the ZedToken for every
-// organization they touch.
-func (r *Reconciler) write(ctx context.Context, updates []*v1.RelationshipUpdate) error {
+// organization they touch. projectOrgs maps a project id to its organization.
+func (r *Reconciler) write(ctx context.Context, updates []*v1.RelationshipUpdate, projectOrgs map[string]string) error {
 	for batch := range slices.Chunk(updates, reconcileWriteBatch) {
 		cctx, cancel := context.WithTimeout(ctx, r.timeout)
 		resp, err := r.spicedb.WriteRelationships(cctx, &v1.WriteRelationshipsRequest{Updates: batch})
@@ -240,8 +295,8 @@ func (r *Reconciler) write(ctx context.Context, updates []*v1.RelationshipUpdate
 		token := resp.GetWrittenAt().GetToken()
 		seen := map[string]bool{}
 		for _, u := range batch {
-			org := relOrg(u.GetRelationship())
-			if seen[org] {
+			org := relOrg(u.GetRelationship(), projectOrgs)
+			if org == "" || seen[org] {
 				continue
 			}
 			seen[org] = true
@@ -253,12 +308,16 @@ func (r *Reconciler) write(ctx context.Context, updates []*v1.RelationshipUpdate
 	return nil
 }
 
-// relOrg is the organization whose reads a relationship affects.
-func relOrg(rel *v1.Relationship) string {
+// relOrg is the organization whose reads a relationship affects, or "" when
+// it is unknown (a direct role on a project neither store has an org for).
+func relOrg(rel *v1.Relationship, projectOrgs map[string]string) string {
 	if rel.GetResource().GetObjectType() == authz.TypeOrganization {
 		return rel.GetResource().GetObjectId()
 	}
-	return rel.GetSubject().GetObject().GetObjectId()
+	if rel.GetSubject().GetObject().GetObjectType() == authz.TypeOrganization {
+		return rel.GetSubject().GetObject().GetObjectId()
+	}
+	return projectOrgs[rel.GetResource().GetObjectId()]
 }
 
 // relKey renders a relationship as "type:id#relation@type:id[#relation]".
