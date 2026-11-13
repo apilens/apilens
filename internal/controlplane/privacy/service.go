@@ -13,6 +13,7 @@ import (
 
 	"github.com/apilens/apilens/internal/controlplane/projects"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
+	"github.com/apilens/apilens/internal/identity/audit"
 )
 
 // Errors returned by Service.
@@ -47,11 +48,24 @@ type Scoped struct {
 // Any member of the project's organization may read them; owners, admins and
 // members may change them (the project edit permission).
 type Service struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	audit Auditor // nil: policy changes are not audited
+}
+
+// Auditor records audit events; *audit.Recorder satisfies it.
+type Auditor interface {
+	Record(ctx context.Context, e audit.Event) error
 }
 
 // NewService returns a Service over pool.
 func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
+
+// WithAudit records privacy_policy.updated, in the transaction of the
+// change, for every policy change.
+func (s *Service) WithAudit(a Auditor) *Service {
+	s.audit = a
+	return s
+}
 
 // Get returns the policy of the project slug, or of its app when app (a
 // slug or id) is not empty.
@@ -109,12 +123,32 @@ func (s *Service) Put(ctx context.Context, user uuid.UUID, slug, app string, pol
 	if err != nil {
 		return Scoped{}, err
 	}
+	previous := Policy{QueryParams: []string{}, Headers: []string{}, BodyFields: []string{}}
+	switch prev, err := q.GetPrivacyPolicy(ctx, db.GetPrivacyPolicyParams{ProjectID: p.ID, AppID: appID(scope)}); {
+	case err == nil:
+		previous = Policy{QueryParams: prev.MaskQueryParams, Headers: prev.MaskHeaders, BodyFields: prev.MaskBodyFields}
+	case !errors.Is(err, pgx.ErrNoRows):
+		return Scoped{}, fmt.Errorf("privacy: get policy: %w", err)
+	}
 	row, err := q.UpsertPrivacyPolicy(ctx, db.UpsertPrivacyPolicyParams{
 		ID: uuid.New(), ProjectID: p.ID, AppID: appID(scope),
 		MaskQueryParams: pol.QueryParams, MaskHeaders: pol.Headers, MaskBodyFields: pol.BodyFields,
 	})
 	if err != nil {
 		return Scoped{}, fmt.Errorf("privacy: upsert policy: %w", err)
+	}
+	next := Policy{QueryParams: row.MaskQueryParams, Headers: row.MaskHeaders, BodyFields: row.MaskBodyFields}
+	if changes := audit.Diff(policyValues(previous), policyValues(next)); changes != nil && s.audit != nil {
+		target := audit.Target{Type: "project", ID: p.ID.String(), Label: p.Name}
+		if scope != nil {
+			target = audit.Target{Type: "app", ID: scope.ID.String(), Label: scope.Slug}
+		}
+		if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
+			User: &user, Actor: &user, Kind: audit.PrivacyPolicyUpdated,
+			Org: &p.OrgID, Project: &p.ID, Target: target, Changes: changes,
+		}); err != nil {
+			return Scoped{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Scoped{}, fmt.Errorf("privacy: commit: %w", err)
@@ -124,6 +158,19 @@ func (s *Service) Put(ctx context.Context, user uuid.UUID, slug, app string, pol
 		Policy:    Policy{QueryParams: row.MaskQueryParams, Headers: row.MaskHeaders, BodyFields: row.MaskBodyFields},
 		UpdatedAt: &row.UpdatedAt,
 	}, nil
+}
+
+// policyValues is pol as audit changes record it: the masked patterns,
+// which are field names and never values.
+func policyValues(pol Policy) map[string]any {
+	return map[string]any{"query_params": orEmpty(pol.QueryParams), "headers": orEmpty(pol.Headers), "body_fields": orEmpty(pol.BodyFields)}
+}
+
+func orEmpty(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 // resolveApp maps an app slug or id to an active app of the project; an

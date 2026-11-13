@@ -156,7 +156,7 @@ func (s *Service) write(ctx context.Context, actor, projectID, id uuid.UUID, kin
 		if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
 			User: &actor, Actor: &actor, Kind: kind,
 			Org: &project.OrgID, Project: &projectID, Target: appTarget(a.ID, a.Name),
-			Meta: meta,
+			Changes: appChanges(kind, a, meta), Meta: meta,
 		}); err != nil {
 			return err
 		}
@@ -300,6 +300,39 @@ func (s *Service) Merge(ctx context.Context, actor, projectID, source, target uu
 		}
 		return q.UpsertAppAlias(ctx, db.UpsertAppAliasParams{ProjectID: projectID, AliasSlug: a.Slug, AppID: t.ID})
 	})
+}
+
+// appChanges is the previous and next of what kind changed on a (as locked
+// before the change): the display name of a rename, the state otherwise.
+func appChanges(kind audit.Kind, a db.LockProjectAppRow, meta map[string]any) *audit.Changes {
+	next := map[audit.Kind]string{
+		audit.AppArchived: StateArchived, audit.AppRestored: StateActive,
+		audit.AppMerged: StateMerged, audit.AppDeleted: StateDeleted,
+	}
+	switch st, ok := next[kind]; {
+	case kind == audit.AppRenamed:
+		return audit.Diff(map[string]any{"name": meta["from"]}, map[string]any{"name": meta["to"]})
+	case ok:
+		n := map[string]any{"state": st}
+		if kind == audit.AppMerged {
+			n["merged_into"] = meta["into_slug"]
+		}
+		return audit.Diff(map[string]any{"state": appState(a)}, n)
+	}
+	return nil
+}
+
+// appState is the state of a locked app row.
+func appState(a db.LockProjectAppRow) string {
+	switch {
+	case a.DeletedAt != nil:
+		return StateDeleted
+	case a.MergedInto != nil:
+		return StateMerged
+	case a.ArchivedAt != nil:
+		return StateArchived
+	}
+	return StateActive
 }
 
 func isUnique(err error) bool {

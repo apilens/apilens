@@ -21,6 +21,7 @@ import (
 	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/identity"
+	"github.com/apilens/apilens/internal/identity/audit"
 	idkeys "github.com/apilens/apilens/internal/identity/keys"
 	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/server"
@@ -444,14 +445,20 @@ func (s *Service) createAlertRule(ctx context.Context, in *createAlertRuleInput)
 	if err != nil {
 		return nil, internalError("rule id", err)
 	}
-	r, err := q.CreateAlertRule(ctx, db.CreateAlertRuleParams{
-		ID: id, ProjectID: project, AppID: appID, Environment: v.environment, Name: v.name, Description: v.description,
-		Metric: v.metric, Condition: v.condition, Threshold: v.threshold, WindowS: v.windowS, EveryS: v.everyS, Cron: v.cron,
-		NotifyAfterS: v.notifyAfterS, ResolveAfterS: v.resolveAfterS, Filters: v.filters, ChannelIds: v.channelIDs,
-		Enabled: v.enabled, CreatedBy: user,
-	})
-	if err != nil {
-		return nil, internalError("create alert rule", err)
+	var r db.AlertRule
+	if err := audited(ctx, s, alertTarget(ctx), q, queries, func(q *db.Queries) (*audit.Event, error) {
+		r, err = q.CreateAlertRule(ctx, db.CreateAlertRuleParams{
+			ID: id, ProjectID: project, AppID: appID, Environment: v.environment, Name: v.name, Description: v.description,
+			Metric: v.metric, Condition: v.condition, Threshold: v.threshold, WindowS: v.windowS, EveryS: v.everyS, Cron: v.cron,
+			NotifyAfterS: v.notifyAfterS, ResolveAfterS: v.resolveAfterS, Filters: v.filters, ChannelIds: v.channelIDs,
+			Enabled: v.enabled, CreatedBy: user,
+		})
+		if err != nil {
+			return nil, internalError("create alert rule", err)
+		}
+		return &audit.Event{Kind: audit.AlertRuleCreated, Target: ruleTarget(r), Changes: audit.Diff(nil, ruleValues(r))}, nil
+	}); err != nil {
+		return nil, err
 	}
 	return &alertRuleOutput{Body: toAlertRule(r, nil)}, nil
 }
@@ -472,17 +479,27 @@ func (s *Service) updateAlertRule(ctx context.Context, in *updateAlertRuleInput)
 	if err != nil {
 		return nil, err
 	}
-	r, err := q.UpdateAlertRule(ctx, db.UpdateAlertRuleParams{
-		ID: cur.ID, ProjectID: project, Environment: v.environment, Name: v.name, Description: v.description,
-		Metric: v.metric, Condition: v.condition, Threshold: v.threshold, WindowS: v.windowS, EveryS: v.everyS, Cron: v.cron,
-		NotifyAfterS: v.notifyAfterS, ResolveAfterS: v.resolveAfterS, Filters: v.filters, ChannelIds: v.channelIDs,
-		Enabled: v.enabled,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, huma.Error404NotFound("alert rule not found")
-	}
-	if err != nil {
-		return nil, internalError("update alert rule", err)
+	var r db.AlertRule
+	if err := audited(ctx, s, alertTarget(ctx), q, queries, func(q *db.Queries) (*audit.Event, error) {
+		r, err = q.UpdateAlertRule(ctx, db.UpdateAlertRuleParams{
+			ID: cur.ID, ProjectID: project, Environment: v.environment, Name: v.name, Description: v.description,
+			Metric: v.metric, Condition: v.condition, Threshold: v.threshold, WindowS: v.windowS, EveryS: v.everyS, Cron: v.cron,
+			NotifyAfterS: v.notifyAfterS, ResolveAfterS: v.resolveAfterS, Filters: v.filters, ChannelIds: v.channelIDs,
+			Enabled: v.enabled,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, huma.Error404NotFound("alert rule not found")
+		}
+		if err != nil {
+			return nil, internalError("update alert rule", err)
+		}
+		changes := audit.Diff(ruleValues(cur), ruleValues(r))
+		if changes == nil {
+			return nil, nil
+		}
+		return &audit.Event{Kind: audit.AlertRuleUpdated, Target: ruleTarget(r), Changes: changes}, nil
+	}); err != nil {
+		return nil, err
 	}
 	return s.alertRuleWithState(ctx, q, r)
 }
@@ -496,14 +513,23 @@ func (s *Service) deleteAlertRule(ctx context.Context, in *alertIDInput) (*struc
 	if err != nil {
 		return nil, huma.Error404NotFound("alert rule not found")
 	}
-	n, err := q.DeleteAlertRule(ctx, db.DeleteAlertRuleParams{ProjectID: project, ID: id})
-	if err != nil {
-		return nil, internalError("delete alert rule", err)
-	}
-	if n == 0 {
-		return nil, huma.Error404NotFound("alert rule not found")
-	}
-	return nil, nil
+	return nil, audited(ctx, s, alertTarget(ctx), q, queries, func(q *db.Queries) (*audit.Event, error) {
+		cur, err := q.GetAlertRule(ctx, db.GetAlertRuleParams{ProjectID: project, ID: id})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, huma.Error404NotFound("alert rule not found")
+		}
+		if err != nil {
+			return nil, internalError("alert rule", err)
+		}
+		n, err := q.DeleteAlertRule(ctx, db.DeleteAlertRuleParams{ProjectID: project, ID: id})
+		if err != nil {
+			return nil, internalError("delete alert rule", err)
+		}
+		if n == 0 {
+			return nil, huma.Error404NotFound("alert rule not found")
+		}
+		return &audit.Event{Kind: audit.AlertRuleDeleted, Target: ruleTarget(cur), Changes: audit.Diff(ruleValues(cur), nil)}, nil
+	})
 }
 
 // loadAlertRule reads one rule of the project; rules of deleted apps are
@@ -756,14 +782,20 @@ func (s *Service) createChannel(ctx context.Context, in *createChannelInput) (*c
 	if err != nil {
 		return nil, internalError("seal channel config", err)
 	}
-	ch, err := q.CreateNotificationChannel(ctx, db.CreateNotificationChannelParams{
-		ID: id, ProjectID: project, Type: string(typ), Name: name, ConfigEnc: sealed, CreatedBy: user,
-	})
-	if isUniqueViolation(err) {
-		return nil, huma.Error409Conflict("the project already has a notification channel with this name")
-	}
-	if err != nil {
-		return nil, internalError("create notification channel", err)
+	var ch db.NotificationChannel
+	if err := audited(ctx, s, alertTarget(ctx), q, queries, func(q *db.Queries) (*audit.Event, error) {
+		ch, err = q.CreateNotificationChannel(ctx, db.CreateNotificationChannelParams{
+			ID: id, ProjectID: project, Type: string(typ), Name: name, ConfigEnc: sealed, CreatedBy: user,
+		})
+		if isUniqueViolation(err) {
+			return nil, huma.Error409Conflict("the project already has a notification channel with this name")
+		}
+		if err != nil {
+			return nil, internalError("create notification channel", err)
+		}
+		return &audit.Event{Kind: audit.AlertChannelCreated, Target: channelTarget(ch), Changes: audit.Diff(nil, channelValues(ch))}, nil
+	}); err != nil {
+		return nil, err
 	}
 	return &channelOutput{Body: toChannel(ch)}, nil
 }
@@ -798,16 +830,30 @@ func (s *Service) updateChannel(ctx context.Context, in *updateChannelInput) (*c
 			return nil, internalError("seal channel config", err)
 		}
 	}
-	ch, err := q.UpdateNotificationChannel(ctx, db.UpdateNotificationChannelParams{
-		ProjectID: project, ID: cur.ID, Name: name, ConfigEnc: sealed,
-	})
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		return nil, huma.Error404NotFound("notification channel not found")
-	case isUniqueViolation(err):
-		return nil, huma.Error409Conflict("the project already has a notification channel with this name")
-	case err != nil:
-		return nil, internalError("update notification channel", err)
+	var ch db.NotificationChannel
+	if err := audited(ctx, s, alertTarget(ctx), q, queries, func(q *db.Queries) (*audit.Event, error) {
+		ch, err = q.UpdateNotificationChannel(ctx, db.UpdateNotificationChannelParams{
+			ProjectID: project, ID: cur.ID, Name: name, ConfigEnc: sealed,
+		})
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return nil, huma.Error404NotFound("notification channel not found")
+		case isUniqueViolation(err):
+			return nil, huma.Error409Conflict("the project already has a notification channel with this name")
+		case err != nil:
+			return nil, internalError("update notification channel", err)
+		}
+		// The config is sealed and holds secrets: the change records only
+		// that it was replaced.
+		prev, next := channelValues(cur), channelValues(ch)
+		prev["config_replaced"], next["config_replaced"] = false, in.Body.Config != nil
+		changes := audit.Diff(prev, next)
+		if changes == nil {
+			return nil, nil
+		}
+		return &audit.Event{Kind: audit.AlertChannelUpdated, Target: channelTarget(ch), Changes: changes}, nil
+	}); err != nil {
+		return nil, err
 	}
 	return &channelOutput{Body: toChannel(ch)}, nil
 }
@@ -827,6 +873,13 @@ func (s *Service) deleteChannel(ctx context.Context, in *alertIDInput) (*struct{
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.New(tx)
+	cur, err := q.GetNotificationChannel(ctx, db.GetNotificationChannelParams{ProjectID: project, ID: id})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, huma.Error404NotFound("notification channel not found")
+	}
+	if err != nil {
+		return nil, internalError("delete notification channel", err)
+	}
 	n, err := q.DeleteNotificationChannel(ctx, db.DeleteNotificationChannelParams{ProjectID: project, ID: id})
 	if err != nil {
 		return nil, internalError("delete notification channel", err)
@@ -836,6 +889,19 @@ func (s *Service) deleteChannel(ctx context.Context, in *alertIDInput) (*struct{
 	}
 	if _, err := q.RemoveChannelFromAlertRules(ctx, db.RemoveChannelFromAlertRulesParams{ProjectID: project, ChannelID: id}); err != nil {
 		return nil, internalError("delete notification channel", err)
+	}
+	if s.audit != nil {
+		t := alertTarget(ctx)
+		ev := audit.Event{
+			Kind: audit.AlertChannelDeleted, Org: &t.OrgID, Project: &t.ProjectID,
+			Target: channelTarget(cur), Changes: audit.Diff(channelValues(cur), nil),
+		}
+		if user, err := alertUser(ctx); err == nil {
+			ev.User, ev.Actor = user, user
+		}
+		if err := s.audit.rec.Record(audit.WithTx(ctx, tx), ev); err != nil {
+			return nil, internalError("audit", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, internalError("delete notification channel", err)

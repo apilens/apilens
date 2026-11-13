@@ -237,6 +237,23 @@ contains API key material, and `audit.Redact` masks secret fields as
 | `app.acknowledged` | a new app the SDK created is kept from the "New app detected" notice |
 | `session.reauthenticated` | the user confirms who they are again without signing out (passkey, authenticator code, email code or SSO with `prompt=login`); metadata has `method` and `session_id`. The session's authentication time moves to now |
 | `session.reauth_failed` | a re-authentication attempt fails (metadata has `method` and `reason`) |
+| `project.created` | a project is created (changes: `name`, `slug`, `environments`) |
+| `project.updated` | a project's settings change (changes: the changed fields, such as `name`) |
+| `environment.added` | an environment is added to a project by hand (target: the environment) |
+| `environment.updated` | an environment's settings change (changes: the changed fields) |
+| `environment.removed` | an environment is removed from a project |
+| `privacy_policy.updated` | a project's or app's privacy policy is saved (changes: the masked `query_params`, `headers` and `body_fields` patterns) |
+| `invitation.revoked` | a pending organization invitation is revoked; its link stops working |
+| `alert_rule.created` | an alert rule is created (changes: its settings) |
+| `alert_rule.updated` | an alert rule is changed (changes: the changed settings) |
+| `alert_rule.deleted` | an alert rule is deleted |
+| `alert_channel.created` | a notification channel is created (changes: `type` and `name`; never its config, which holds secrets) |
+| `alert_channel.updated` | a notification channel is renamed or its config replaced (`config_replaced`; never the config) |
+| `alert_channel.deleted` | a notification channel is deleted and removed from the rules that used it |
+| `health_check.created` | a health check is created (changes: its URL, environment, expected status and state) |
+| `health_check.deleted` | a health check is deleted |
+| `app_settings.updated` | an app's settings change (changes: `latency_threshold_ms`) |
+| `endpoint_settings.updated` | an endpoint's settings are saved (changes: `expected_status_codes`, `latency_threshold_ms`, `excluded`) |
 
 ## Delivery
 

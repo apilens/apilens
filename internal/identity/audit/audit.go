@@ -86,7 +86,24 @@ const (
 	SessionReauthFailed Kind = "session.reauth_failed"
 	// APIKeyRotated: a project API key was replaced by a successor; the
 	// old one keeps working until the end of the overlap window.
-	APIKeyRotated Kind = "api_key.rotated"
+	APIKeyRotated           Kind = "api_key.rotated"
+	ProjectCreated          Kind = "project.created"
+	ProjectUpdated          Kind = "project.updated"
+	EnvironmentAdded        Kind = "environment.added"
+	EnvironmentUpdated      Kind = "environment.updated"
+	EnvironmentRemoved      Kind = "environment.removed"
+	PrivacyPolicyUpdated    Kind = "privacy_policy.updated"
+	InvitationRevoked       Kind = "invitation.revoked"
+	AlertRuleCreated        Kind = "alert_rule.created"
+	AlertRuleUpdated        Kind = "alert_rule.updated"
+	AlertRuleDeleted        Kind = "alert_rule.deleted"
+	AlertChannelCreated     Kind = "alert_channel.created"
+	AlertChannelUpdated     Kind = "alert_channel.updated"
+	AlertChannelDeleted     Kind = "alert_channel.deleted"
+	HealthCheckCreated      Kind = "health_check.created"
+	HealthCheckDeleted      Kind = "health_check.deleted"
+	AppSettingsUpdated      Kind = "app_settings.updated"
+	EndpointSettingsUpdated Kind = "endpoint_settings.updated"
 )
 
 var kinds = []Kind{
@@ -98,6 +115,9 @@ var kinds = []Kind{
 	APIKeyUpdated, AppCreated, AppArchived, AppRestored, AppRenamed, AppMerged, AppDeleted, AppAcknowledged,
 	SessionReauthenticated, SessionReauthFailed,
 	APIKeyRotated,
+	ProjectCreated, ProjectUpdated, EnvironmentAdded, EnvironmentUpdated, EnvironmentRemoved, PrivacyPolicyUpdated,
+	InvitationRevoked, AlertRuleCreated, AlertRuleUpdated, AlertRuleDeleted, AlertChannelCreated, AlertChannelUpdated,
+	AlertChannelDeleted, HealthCheckCreated, HealthCheckDeleted, AppSettingsUpdated, EndpointSettingsUpdated,
 }
 
 // Kinds returns every known event kind, in catalogue order.
@@ -144,6 +164,48 @@ type Target struct {
 type Changes struct {
 	Previous any `json:"previous"`
 	Next     any `json:"next"`
+}
+
+// Diff returns the Changes from previous to next keeping only the fields
+// whose values differ (compared by their JSON encoding), or nil when none
+// does. A nil previous is a creation (every next field is kept) and a nil
+// next a deletion (every previous field is kept). Secret fields are redacted
+// (see Redact).
+func Diff(previous, next map[string]any) *Changes {
+	if previous == nil && next == nil {
+		return nil
+	}
+	if previous == nil || next == nil {
+		c := &Changes{}
+		if previous != nil {
+			c.Previous = Redact(previous)
+		}
+		if next != nil {
+			c.Next = Redact(next)
+		}
+		return c
+	}
+	prev, nxt := map[string]any{}, map[string]any{}
+	for k, v := range previous {
+		if w, ok := next[k]; !ok || !sameJSON(v, w) {
+			prev[k] = v
+		}
+	}
+	for k, v := range next {
+		if w, ok := previous[k]; !ok || !sameJSON(v, w) {
+			nxt[k] = v
+		}
+	}
+	if len(prev) == 0 && len(nxt) == 0 {
+		return nil
+	}
+	return &Changes{Previous: Redact(prev), Next: Redact(nxt)}
+}
+
+func sameJSON(a, b any) bool {
+	x, errA := json.Marshal(a)
+	y, errB := json.Marshal(b)
+	return errA == nil && errB == nil && string(x) == string(y)
 }
 
 // maxUserAgent bounds the stored user agent; the header is client-controlled.

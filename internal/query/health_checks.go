@@ -17,6 +17,7 @@ import (
 	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/identity"
+	"github.com/apilens/apilens/internal/identity/audit"
 	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/server"
 )
@@ -224,12 +225,18 @@ func (s *Service) createHealthCheck(ctx context.Context, in *createHealthCheckIn
 	if err != nil {
 		return nil, internalError("health check id", err)
 	}
-	h, err := q.CreateHealthCheck(ctx, db.CreateHealthCheckParams{
-		ID: id, ProjectID: project, AppID: appID, Environment: v.environment, Url: v.url,
-		ExpectedStatus: v.expected, Enabled: v.enabled, CreatedBy: user,
-	})
-	if err != nil {
-		return nil, internalError("create health check", err)
+	var h db.HealthCheck
+	if err := audited(ctx, s, alertTarget(ctx), q, queries, func(q *db.Queries) (*audit.Event, error) {
+		h, err = q.CreateHealthCheck(ctx, db.CreateHealthCheckParams{
+			ID: id, ProjectID: project, AppID: appID, Environment: v.environment, Url: v.url,
+			ExpectedStatus: v.expected, Enabled: v.enabled, CreatedBy: user,
+		})
+		if err != nil {
+			return nil, internalError("create health check", err)
+		}
+		return &audit.Event{Kind: audit.HealthCheckCreated, Target: healthCheckTarget(h), Changes: audit.Diff(nil, healthCheckValues(h))}, nil
+	}); err != nil {
+		return nil, err
 	}
 	return &healthCheckOutput{Body: toHealthCheck(h)}, nil
 }
@@ -274,14 +281,23 @@ func (s *Service) deleteHealthCheck(ctx context.Context, in *alertIDInput) (*str
 	if err != nil {
 		return nil, huma.Error404NotFound("health check not found")
 	}
-	n, err := q.DeleteHealthCheck(ctx, db.DeleteHealthCheckParams{ProjectID: project, ID: id})
-	if err != nil {
-		return nil, internalError("delete health check", err)
-	}
-	if n == 0 {
-		return nil, huma.Error404NotFound("health check not found")
-	}
-	return nil, nil
+	return nil, audited(ctx, s, alertTarget(ctx), q, queries, func(q *db.Queries) (*audit.Event, error) {
+		cur, err := q.GetHealthCheck(ctx, db.GetHealthCheckParams{ProjectID: project, ID: id})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, huma.Error404NotFound("health check not found")
+		}
+		if err != nil {
+			return nil, internalError("health check", err)
+		}
+		n, err := q.DeleteHealthCheck(ctx, db.DeleteHealthCheckParams{ProjectID: project, ID: id})
+		if err != nil {
+			return nil, internalError("delete health check", err)
+		}
+		if n == 0 {
+			return nil, huma.Error404NotFound("health check not found")
+		}
+		return &audit.Event{Kind: audit.HealthCheckDeleted, Target: healthCheckTarget(cur), Changes: audit.Diff(healthCheckValues(cur), nil)}, nil
+	})
 }
 
 func (s *Service) listHealthCheckEvents(ctx context.Context, in *healthCheckEventsInput) (*healthCheckEventsOutput, error) {

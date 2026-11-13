@@ -55,6 +55,8 @@ type Service struct {
 	alerts      *alertDeps        // nil: the alert operations answer 503
 
 	healthChecksPrivate bool // health check URLs may point to private addresses
+
+	audit *auditDeps // nil: changes are not audited
 }
 
 // NewService builds a Service.

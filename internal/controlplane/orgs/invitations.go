@@ -341,8 +341,14 @@ func (s *InvitationService) notResent(ctx context.Context, q *db.Queries, org, i
 
 // Revoke revokes the pending invitation id of the organization slug on
 // behalf of user, who must be an owner or admin; its link stops working.
+// invitation.revoked is recorded in the same transaction.
 func (s *InvitationService) Revoke(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID) error {
-	q := db.New(s.pool)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("orgs: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := db.New(tx)
 	org, err := q.GetMemberOrganization(ctx, db.GetMemberOrganizationParams{UserID: user, Slug: slug})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
@@ -353,12 +359,25 @@ func (s *InvitationService) Revoke(ctx context.Context, user uuid.UUID, slug str
 	if !CanManage(org.Role) {
 		return ErrForbidden
 	}
-	_, err = q.RevokeInvitation(ctx, db.RevokeInvitationParams{ID: id, OrgID: org.ID})
+	inv, err := q.RevokeInvitation(ctx, db.RevokeInvitationParams{ID: id, OrgID: org.ID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrInvitationNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("orgs: revoke invitation: %w", err)
+	}
+	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
+		Actor:   &user,
+		Kind:    audit.InvitationRevoked,
+		Org:     &org.ID,
+		Target:  audit.Target{Type: "invitation", ID: inv.ID.String(), Label: inv.Email},
+		Changes: audit.Diff(map[string]any{"status": "pending"}, map[string]any{"status": "revoked"}),
+		Meta:    map[string]any{"org_id": org.ID.String(), "slug": org.Slug, "invitation_id": inv.ID.String(), "email": inv.Email, "role": inv.Role},
+	}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("orgs: commit: %w", err)
 	}
 	return nil
 }

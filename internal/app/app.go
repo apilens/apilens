@@ -447,6 +447,7 @@ func (a *App) initQuery(context.Context) (modules.Service, error) {
 	}
 	svc.WithAlerts(a.pool, sealer, query.NewTestSender(a.pool, a.jobs, nil, a.cfg.Identity.PublicUIURL))
 	svc.WithHealthCheckPrivateNetworks(a.cfg.Alerts.HealthChecksAllowPrivate)
+	svc.WithAudit(a.pool, audit.New(a.pool))
 	query.Register(api, svc, guard)
 	return nil, nil
 }
@@ -495,7 +496,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Audit:         auditlog.New(a.pool, a.checker()),
 		Projects:      projects.New(a.pool).WithAudit(audit.New(a.pool)),
 		APIKeys:       apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger).WithMaxKeys(a.cfg.Ingest.MaxKeysPerProject),
-		Privacy:       privacy.NewService(a.pool),
+		Privacy:       privacy.NewService(a.pool).WithAudit(audit.New(a.pool)),
 		Capture:       capture.NewService(a.pool, audit.New(a.pool)),
 		Context:       usercontext.New(a.pool, a.checker()),
 		Guard:         a.guard(),
