@@ -1046,6 +1046,11 @@ const createdProjectsOf = (id: string, org: string) =>
 const createdOrgsOf = (id: string) =>
   [...createdOrgs.values()].filter((o) => o.owner === id).map(({ owner: _owner, ...o }) => ({ ...o, projects: createdProjectsOf(id, o.slug) }));
 
+/** shop's name in the context: "shop" until General (#815) renames it, so the sidebar shows the new name. */
+function shopContextName(): string {
+  return projectState.project.name === measuredProject().name ? "shop" : projectState.project.name;
+}
+
 /** `GET /users/me/context` for a signed-in fake user: one org with one project (plus globex once invited). */
 function context(id: string) {
   const role = roleOf(id);
@@ -1067,7 +1072,7 @@ function context(id: string) {
         slug: "acme",
         name: "Acme",
         role,
-        projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"], app_count: shopApps.length, role: projectRoleOf(capabilitiesOf(id)) }, ...createdProjectsOf(id, "acme")],
+        projects: [{ id: "prj_fake", slug: "shop", name: shopContextName(), environments: ["production"], app_count: shopApps.length, role: projectRoleOf(capabilitiesOf(id)) }, ...createdProjectsOf(id, "acme")],
       },
       ...(joinedGlobex.has(id) ? [GLOBEX] : []),
       ...createdOrgsOf(id),
