@@ -117,6 +117,10 @@ type IngestConfig struct {
 	// (api_keys.last_used_ip, personal data) for access reviews. When false
 	// the IP is not recorded and a recorded one is cleared on next use.
 	RecordKeyIP bool `koanf:"record_key_ip"`
+	// MaxKeysPerProject bounds the active (not revoked, not expired) API
+	// keys of a project; creating one more answers key_limit_reached. 0
+	// disables it.
+	MaxKeysPerProject int `koanf:"max_keys_per_project"`
 }
 
 // QuotaConfig caps how much one project may ingest. Each limit is a token
@@ -460,6 +464,7 @@ func Defaults() map[string]any {
 		"ingest.max_apps_per_project":      50,
 		"ingest.max_new_apps_per_hour":     10,
 		"ingest.record_key_ip":             true,
+		"ingest.max_keys_per_project":      50,
 		"ingest.quota.records_per_minute":  0,
 		"ingest.quota.bytes_per_day":       0,
 		"sink.mode":                        "direct",
@@ -652,6 +657,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Ingest.MaxAppsPerProject < 0 || c.Ingest.MaxNewAppsPerHour < 0 {
 		errs = append(errs, errors.New("ingest.max_apps_per_project and ingest.max_new_apps_per_hour must be >= 0 (0 disables)"))
+	}
+	if c.Ingest.MaxKeysPerProject < 0 {
+		errs = append(errs, errors.New("ingest.max_keys_per_project must be >= 0 (0 disables)"))
 	}
 	if c.Ingest.KeyCacheSize <= 0 {
 		errs = append(errs, errors.New("ingest.key_cache_size must be > 0"))

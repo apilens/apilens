@@ -40,6 +40,9 @@ const MaxKeyApps = 100
 // MaxNameLen bounds a key's display name.
 const MaxNameLen = 100
 
+// MaxRateLimitPerMinute bounds a key's ingest rate limit.
+const MaxRateLimitPerMinute = 100_000_000
+
 // Errors returned by Service.
 var (
 	// ErrInvalid: the name, scopes or expiry are unusable.
@@ -53,6 +56,9 @@ var (
 	ErrForbidden = errors.New("apikeys: forbidden")
 	// ErrKeyNotFound: the project has no key with the id.
 	ErrKeyNotFound = errors.New("apikeys: key not found")
+	// ErrKeyLimit: the project already has ingest.max_keys_per_project
+	// active keys.
+	ErrKeyLimit = errors.New("apikeys: key limit reached")
 )
 
 // Key is an API key as listed to project members. The raw key is never
@@ -76,6 +82,9 @@ type Key struct {
 	// CreatedBy is the user who created the key; nil when unknown or the
 	// account is deleted.
 	CreatedBy *Creator
+	// RateLimitPerMinute caps the records ingest accepts with the key per
+	// minute; nil: no per-key limit.
+	RateLimitPerMinute *int
 	// AppsSeen are the apps the key sent records for, most recent first
 	// (List only).
 	AppsSeen []KeyApp
@@ -126,12 +135,19 @@ type NewKey struct {
 	// AppIDs limits the key to these apps of the project; nil allows every
 	// app. A limited key never creates apps.
 	AppIDs []uuid.UUID
+	// RateLimitPerMinute caps the records ingest accepts with the key per
+	// minute (1..MaxRateLimitPerMinute); nil: no per-key limit.
+	RateLimitPerMinute *int
 }
 
-// Access is what an existing key may do with apps.
+// Access is what an existing key may do with apps, and how fast.
 type Access struct {
 	CanCreateApps bool
 	AppIDs        []uuid.UUID // nil: every app
+	// RateLimitPerMinute replaces the key's ingest rate limit when set: a
+	// positive value is the new limit, 0 removes it. nil keeps the current
+	// one.
+	RateLimitPerMinute *int
 }
 
 // Created is a newly created key with its raw value, which is shown once.
@@ -167,12 +183,61 @@ type Service struct {
 	invalidate Invalidator
 	logger     *slog.Logger
 	now        func() time.Time
+	// maxKeys caps the active keys of a project (ingest.max_keys_per_project);
+	// 0: no cap.
+	maxKeys int
 }
 
 // NewService returns a Service over pool. invalidate may be nil, in which
 // case a revoked key stays usable until verifier caches expire it.
 func NewService(pool *pgxpool.Pool, auditor Auditor, invalidate Invalidator, logger *slog.Logger) *Service {
 	return &Service{pool: pool, audit: auditor, invalidate: invalidate, logger: logger, now: time.Now}
+}
+
+// WithMaxKeys caps the active (not revoked, not expired) keys of a project
+// at n (ingest.max_keys_per_project); 0 removes the cap. It returns s.
+func (s *Service) WithMaxKeys(n int) *Service {
+	s.maxKeys = n
+	return s
+}
+
+// checkKeyLimit returns ErrKeyLimit when the project already has the most
+// active keys it may have. The caller holds the project row lock, so
+// concurrent creates cannot both pass. Key rotation must call it too.
+func (s *Service) checkKeyLimit(ctx context.Context, q *db.Queries, projectID uuid.UUID) error {
+	if s.maxKeys <= 0 {
+		return nil
+	}
+	n, err := q.CountActiveProjectAPIKeys(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("apikeys: count keys: %w", err)
+	}
+	if int(n) >= s.maxKeys {
+		return ErrKeyLimit
+	}
+	return nil
+}
+
+// rateLimit converts a requested per-key rate limit for storage: nil stays
+// nil (no limit), a value outside 1..MaxRateLimitPerMinute is ErrInvalid.
+func rateLimit(v *int) (*int32, error) {
+	if v == nil {
+		return nil, nil
+	}
+	if *v < 1 || *v > MaxRateLimitPerMinute {
+		return nil, ErrInvalid
+	}
+	n := int32(*v) // #nosec G115 -- bounded above
+	return &n, nil
+}
+
+// intPtr widens a stored rate limit.
+func intPtr(v *int32) *int {
+	if v == nil {
+		return nil
+	}
+	n := int(*v)
+	return &n
 }
 
 // NormalizeScopes validates scopes and returns them deduplicated in the
@@ -274,6 +339,10 @@ func (s *Service) CreateKey(ctx context.Context, user uuid.UUID, slug string, k 
 		t := expiresAt.UTC()
 		expiresAt = &t
 	}
+	limit, err := rateLimit(k.RateLimitPerMinute)
+	if err != nil {
+		return Created{}, err
+	}
 	raw, prefix, hash, err := Generate()
 	if err != nil {
 		return Created{}, err
@@ -289,19 +358,23 @@ func (s *Service) CreateKey(ctx context.Context, user uuid.UUID, slug string, k 
 	if err != nil {
 		return Created{}, err
 	}
+	if err := s.checkKeyLimit(ctx, q, p.ID); err != nil {
+		return Created{}, err
+	}
 	appIDs, err := checkApps(ctx, q, p.ID, k.AppIDs, s.now())
 	if err != nil {
 		return Created{}, err
 	}
 	row, err := q.CreateAPIKey(ctx, db.CreateAPIKeyParams{
 		ID: uuid.New(), ProjectID: p.ID, Name: name, Prefix: prefix, KeyHash: hash, Scopes: scopes, ExpiresAt: expiresAt, AppIds: appIDs,
-		CreatedBy: &user,
+		CreatedBy: &user, RateLimitPerMinute: limit,
 	})
 	if err != nil {
 		return Created{}, fmt.Errorf("apikeys: create: %w", err)
 	}
 	meta := keyMeta(p, row.ID, row.Name, row.Prefix, row.Scopes)
 	meta["app_ids"] = idStrings(row.AppIds)
+	meta["rate_limit_per_minute"] = intPtr(row.RateLimitPerMinute)
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
 		User:  &user,
 		Actor: &user,
@@ -316,7 +389,7 @@ func (s *Service) CreateKey(ctx context.Context, user uuid.UUID, slug string, k 
 	return Created{
 		Key: Key{
 			ID: row.ID, ProjectID: row.ProjectID, Name: row.Name, Prefix: row.Prefix, Scopes: row.Scopes, AppIDs: row.AppIds,
-			CreatedAt: row.CreatedAt, ExpiresAt: row.ExpiresAt,
+			RateLimitPerMinute: intPtr(row.RateLimitPerMinute), CreatedAt: row.CreatedAt, ExpiresAt: row.ExpiresAt,
 			CreatedBy: creator(row.CreatorID, row.CreatorName, row.CreatorEmail),
 		},
 		Raw: raw,
@@ -351,12 +424,22 @@ func (s *Service) UpdateAccess(ctx context.Context, user uuid.UUID, slug string,
 		return Key{}, err
 	}
 	scopes := withAppsCreate(k.Scopes, a.CanCreateApps)
-	if err := q.UpdateAPIKeyAccess(ctx, db.UpdateAPIKeyAccessParams{ID: k.ID, Scopes: scopes, AppIds: appIDs}); err != nil {
+	limit := k.RateLimitPerMinute
+	if a.RateLimitPerMinute != nil {
+		limit = nil
+		if *a.RateLimitPerMinute != 0 {
+			if limit, err = rateLimit(a.RateLimitPerMinute); err != nil {
+				return Key{}, err
+			}
+		}
+	}
+	if err := q.UpdateAPIKeyAccess(ctx, db.UpdateAPIKeyAccessParams{ID: k.ID, Scopes: scopes, AppIds: appIDs, RateLimitPerMinute: limit}); err != nil {
 		return Key{}, fmt.Errorf("apikeys: update: %w", err)
 	}
 	meta := keyMeta(p, k.ID, k.Name, k.Prefix, scopes)
 	meta["can_create_apps"] = a.CanCreateApps
 	meta["app_ids"] = idStrings(appIDs)
+	meta["rate_limit_per_minute"] = intPtr(limit)
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{User: &user, Actor: &user, Kind: audit.APIKeyUpdated, Meta: meta}); err != nil {
 		return Key{}, err
 	}
@@ -371,7 +454,7 @@ func (s *Service) UpdateAccess(ctx context.Context, user uuid.UUID, slug string,
 	}
 	return Key{
 		ID: k.ID, ProjectID: p.ID, Name: k.Name, Prefix: k.Prefix, Scopes: scopes, AppIDs: appIDs,
-		CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, LastUsedAt: k.LastUsedAt,
+		RateLimitPerMinute: intPtr(limit), CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, LastUsedAt: k.LastUsedAt,
 		LastUsedSDK: k.LastUsedSdk, LastUsedIP: k.LastUsedIp, CreatedBy: creator(k.CreatorID, k.CreatorName, k.CreatorEmail),
 	}, nil
 }
@@ -415,7 +498,7 @@ func (s *Service) List(ctx context.Context, user uuid.UUID, slug string) ([]Key,
 	for _, r := range rows {
 		out = append(out, Key{
 			ID: r.ID, ProjectID: p.ID, Name: r.Name, Prefix: r.Prefix, Scopes: r.Scopes, AppIDs: r.AppIds,
-			CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, RevokedAt: r.RevokedAt, LastUsedAt: r.LastUsedAt,
+			RateLimitPerMinute: intPtr(r.RateLimitPerMinute), CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, RevokedAt: r.RevokedAt, LastUsedAt: r.LastUsedAt,
 			LastUsedSDK: r.LastUsedSdk, LastUsedIP: r.LastUsedIp, CreatedBy: creator(r.CreatorID, r.CreatorName, r.CreatorEmail),
 			AppsSeen: byKey[r.ID],
 		})

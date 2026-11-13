@@ -52,6 +52,8 @@ type APIKey struct {
 	LastUsedSDK   *string     `json:"last_used_sdk" required:"true" nullable:"true" doc:"The SDK name and version (User-Agent product) of the last ingest request, recorded with last_used_at; null if never used for ingest or the client sent none. Example: apilenss/0.5.0."`
 	LastUsedIP    *string     `json:"last_used_ip" required:"true" nullable:"true" doc:"The client IP of the last ingest request, recorded with last_used_at; null if never used for ingest or when the install does not record it (ingest.record_key_ip false)."`
 	RevokedAt     *time.Time  `json:"revoked_at" required:"true" nullable:"true" doc:"When the key was revoked; null while it is active."`
+	// RateLimitPerMinute is the per-key ingest rate limit.
+	RateLimitPerMinute *int `json:"rate_limit_per_minute" required:"true" nullable:"true" doc:"The most records (requests, logs, spans, deploys) the ingest edge accepts with this key per minute, on top of the project quota; over it ingest answers 429 quota_exceeded with Retry-After. Null: no per-key limit."`
 }
 
 // KeyCreator is the user who created an API key.
@@ -84,6 +86,8 @@ type CreateAPIKeyInput struct {
 		ExpiresAt     *time.Time `json:"expires_at,omitempty" doc:"When the key stops working; must be in the future. Omit for a key that does not expire."`
 		CanCreateApps *bool      `json:"can_create_apps,omitempty" doc:"For an ingest key: whether data sent with it creates an app the first time it names one the project does not have (adds the apps:create scope). Defaults to true."`
 		AppIDs        []string   `json:"app_ids,omitempty" maxItems:"100" doc:"Limit the key to these apps of the project; omit for every app. A limited key never creates apps."`
+		// RateLimitPerMinute is the per-key ingest rate limit; omitted: none.
+		RateLimitPerMinute *int `json:"rate_limit_per_minute,omitempty" minimum:"1" maximum:"100000000" doc:"The most records the ingest edge accepts with this key per minute, on top of the project quota (429 quota_exceeded with Retry-After over it). Omit for no per-key limit."`
 	}
 }
 
@@ -93,6 +97,9 @@ type UpdateAPIKeyAccessInput struct {
 	Body struct {
 		CanCreateApps bool     `json:"can_create_apps" doc:"Whether data sent with the key creates apps it names that the project does not have (ingest keys only)."`
 		AppIDs        []string `json:"app_ids" required:"true" nullable:"true" maxItems:"100" doc:"The apps the key may send data for; null for every app. A limited key never creates apps."`
+		// RateLimitPerMinute replaces the per-key ingest rate limit; 0
+		// removes it, omitted keeps it.
+		RateLimitPerMinute *int `json:"rate_limit_per_minute,omitempty" minimum:"0" maximum:"100000000" doc:"The most records the ingest edge accepts with this key per minute; 0 removes the per-key limit. Omit to keep the current limit."`
 	}
 }
 
@@ -153,11 +160,12 @@ func (k *APIKeys) Register(api huma.API) {
 		DefaultStatus: http.StatusCreated,
 		Summary:       "Create an API key",
 		Description: "Issues an API key for the project and returns it in full, once: only its hash is stored. Owners, admins and members only. " +
+			"A project has at most `ingest.max_keys_per_project` (default 50) active keys: past that it answers `key_limit_reached` (409) until one is revoked or expires. " +
 			"Audited as `api_key.created`. " + recentAuth + notMember,
 		Tags:        tags,
 		Security:    security,
 		Middlewares: huma.Middlewares{authz.RequireRecentAuth(api, k.recentAuth)},
-	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeReauthRequired, identity.CodeInternal), k.create)
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeReauthRequired, identity.CodeKeyLimitReached, identity.CodeInternal), k.create)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID: "list-api-keys",
@@ -173,8 +181,9 @@ func (k *APIKeys) Register(api huma.API) {
 		OperationID: "update-api-key-access",
 		Method:      http.MethodPut,
 		Path:        APIKeyAccessPath,
-		Summary:     "Change what an API key may do with apps",
-		Description: "Replaces whether the key may create apps (the apps:create scope) and which apps it may send data for (null: every app). " +
+		Summary:     "Change what an API key may do with apps, and its rate limit",
+		Description: "Replaces whether the key may create apps (the apps:create scope) and which apps it may send data for (null: every app), " +
+			"and sets its ingest rate limit when `rate_limit_per_minute` is sent (0 removes it). " +
 			"Every process forgets the cached key, so the change applies to the next request. A revoked key or an id the project does not have answers `api_key_gone` (410); " +
 			"an app id the project does not have answers `invalid_request`. Owners, admins and members only. Audited as `api_key.updated`. " + notMember,
 		Tags:     tags,
@@ -235,6 +244,8 @@ func toAPIKey(key apikeys.Key) APIKey {
 		LastUsedSDK:   key.LastUsedSDK,
 		LastUsedIP:    lastIP,
 		RevokedAt:     utc(key.RevokedAt),
+
+		RateLimitPerMinute: key.RateLimitPerMinute,
 	}
 }
 
@@ -253,6 +264,8 @@ func (k *APIKeys) problem(ctx context.Context, op string, err error) error {
 		return identity.Err(identity.CodeForbidden)
 	case errors.Is(err, apikeys.ErrKeyNotFound):
 		return identity.Err(identity.CodeAPIKeyGone)
+	case errors.Is(err, apikeys.ErrKeyLimit):
+		return identity.Err(identity.CodeKeyLimitReached)
 	case errors.Is(err, apikeys.ErrInvalid):
 		return identity.Err(identity.CodeInvalidRequest)
 	default:
@@ -272,6 +285,7 @@ func (k *APIKeys) create(ctx context.Context, in *CreateAPIKeyInput) (*CreateAPI
 	}
 	c, err := k.svc.CreateKey(ctx, uid, in.Slug, apikeys.NewKey{
 		Name: in.Body.Name, Scopes: in.Body.Scopes, ExpiresAt: in.Body.ExpiresAt, CanCreateApps: in.Body.CanCreateApps, AppIDs: appIDs,
+		RateLimitPerMinute: in.Body.RateLimitPerMinute,
 	})
 	if err != nil {
 		return nil, k.problem(ctx, "create api key", err)
@@ -324,7 +338,9 @@ func (k *APIKeys) updateAccess(ctx context.Context, in *UpdateAPIKeyAccessInput)
 	if err != nil {
 		return nil, err
 	}
-	key, err := k.svc.UpdateAccess(ctx, uid, in.Slug, id, apikeys.Access{CanCreateApps: in.Body.CanCreateApps, AppIDs: appIDs})
+	key, err := k.svc.UpdateAccess(ctx, uid, in.Slug, id, apikeys.Access{
+		CanCreateApps: in.Body.CanCreateApps, AppIDs: appIDs, RateLimitPerMinute: in.Body.RateLimitPerMinute,
+	})
 	if err != nil {
 		return nil, k.problem(ctx, "update api key access", err)
 	}

@@ -86,6 +86,21 @@ A key can be limited to a list of apps (**Limit to apps**). Data for any other a
 
 Permission and scope changes apply to the next request: every ingest process drops the cached key.
 
+### Key limits
+
+A project has at most **50 active keys** (not revoked, not expired). Creating one more answers `409 key_limit_reached`; revoke a key you no longer use first. Self-hosted installs change the cap with `ingest.max_keys_per_project` (`APILENS_INGEST__MAX_KEYS_PER_PROJECT`, default `50`, `0` for no cap).
+
+A key can also have its own **rate limit** (`rate_limit_per_minute`, set when the key is created or later through `PUT /api/v1/projects/{slug}/api-keys/{id}/access`; `0` removes it). It caps the records (requests, logs, spans, deploys) ingest accepts with that key per minute, on top of the project quota, so one noisy service cannot use up the whole project's budget. Over it, ingest answers exactly like the project quota, which every SDK already retries after the `Retry-After` it gives:
+
+```json
+HTTP/1.1 429 Too Many Requests
+Retry-After: 12
+
+{"error": "quota_exceeded", "detail": "API key rate limit exceeded (key_records_per_minute), retry later"}
+```
+
+The limit is a token bucket in Valkey shared by every ingest replica; an install without Valkey does not enforce it.
+
 ## Limits
 
 Two guards keep a misconfigured app name (for example one that includes a hostname or pod id) from flooding a project with apps:

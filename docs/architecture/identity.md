@@ -781,6 +781,7 @@ Rules:
 | `last_owner` | 409 Conflict | An organization needs at least one owner. Make someone else an owner first. |
 | `member_gone` | 410 Gone | This person is no longer a member. Refresh the page. |
 | `api_key_gone` | 410 Gone | This API key no longer exists. Refresh the page. |
+| `key_limit_reached` | 409 Conflict | This project has the most active API keys it can have. Revoke one you no longer use, then try again. |
 | `sso_required` | 403 Forbidden | Your organization requires single sign-on. Sign in through your company's identity provider. |
 | `sso_not_configured` | 409 Conflict | Single sign-on isn't set up for this organization yet. |
 | `sso_untested` | 409 Conflict | Sign in through single sign-on at least once before you enforce it, so nobody gets locked out. |

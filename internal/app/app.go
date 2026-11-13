@@ -387,8 +387,11 @@ func (a *App) initExports(context.Context) (modules.Service, error) {
 func (a *App) initEdge(context.Context) (modules.Service, error) {
 	edge := ingest.New(a.verifier, a.apps, a.sink, a.cfg.Ingest, a.logger, a.registry).WithPrivacy(a.privacy).WithMetadata(a.queries).
 		WithCapture(capture.NewResolver(a.queries, a.cfg.Ingest.AppCacheTTL))
-	// Config validation guarantees Valkey when a quota is set.
-	if a.cfg.Ingest.Quota.Enabled() && a.valkey != nil {
+	// Config validation guarantees Valkey when a project quota is set.
+	// Per-key rate limits (api_keys.rate_limit_per_minute) share the same
+	// buckets, so the quota is installed whenever Valkey is; without Valkey
+	// they are not enforced.
+	if a.valkey != nil {
 		edge.WithQuota(ingest.NewValkeyQuota(a.valkey, a.cfg.Ingest.Quota))
 	}
 	// Without Valkey heartbeats are neither rate-limited nor mirrored to
@@ -487,7 +490,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Apps:          appService,
 		AppRejections: appRejections,
 		Projects:      projects.New(a.pool).WithAudit(audit.New(a.pool)),
-		APIKeys:       apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger),
+		APIKeys:       apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger).WithMaxKeys(a.cfg.Ingest.MaxKeysPerProject),
 		Privacy:       privacy.NewService(a.pool),
 		Capture:       capture.NewService(a.pool, audit.New(a.pool)),
 		Context:       usercontext.New(a.pool, a.checker()),

@@ -13,42 +13,61 @@ import (
 	"github.com/google/uuid"
 )
 
+const countActiveProjectAPIKeys = `-- name: CountActiveProjectAPIKeys :one
+SELECT count(*)::integer FROM api_keys
+WHERE project_id = $1
+  AND revoked_at IS NULL
+  AND (expires_at IS NULL OR expires_at > now())
+`
+
+// The project's keys that still work: not revoked and not expired
+// (ingest.max_keys_per_project counts these).
+func (q *Queries) CountActiveProjectAPIKeys(ctx context.Context, projectID uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countActiveProjectAPIKeys, projectID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createAPIKey = `-- name: CreateAPIKey :one
 WITH k AS (
-    INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at, app_ids, created_by)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::uuid[], $9::uuid)
-    RETURNING id, project_id, name, prefix, scopes, created_at, expires_at, app_ids, created_by
+    INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at, app_ids, created_by, rate_limit_per_minute)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::uuid[], $9::uuid,
+            $10::integer)
+    RETURNING id, project_id, name, prefix, scopes, created_at, expires_at, app_ids, created_by, rate_limit_per_minute
 )
-SELECT k.id, k.project_id, k.name, k.prefix, k.scopes, k.created_at, k.expires_at, k.app_ids,
+SELECT k.id, k.project_id, k.name, k.prefix, k.scopes, k.created_at, k.expires_at, k.app_ids, k.rate_limit_per_minute,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
 `
 
 type CreateAPIKeyParams struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
-	Name      string
-	Prefix    string
-	KeyHash   string
-	Scopes    []string
-	ExpiresAt *time.Time
-	AppIds    []uuid.UUID
-	CreatedBy *uuid.UUID
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	Name               string
+	Prefix             string
+	KeyHash            string
+	Scopes             []string
+	ExpiresAt          *time.Time
+	AppIds             []uuid.UUID
+	CreatedBy          *uuid.UUID
+	RateLimitPerMinute *int32
 }
 
 type CreateAPIKeyRow struct {
-	ID           uuid.UUID
-	ProjectID    uuid.UUID
-	Name         string
-	Prefix       string
-	Scopes       []string
-	CreatedAt    time.Time
-	ExpiresAt    *time.Time
-	AppIds       []uuid.UUID
-	CreatorID    *uuid.UUID
-	CreatorName  *string
-	CreatorEmail *string
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	Name               string
+	Prefix             string
+	Scopes             []string
+	CreatedAt          time.Time
+	ExpiresAt          *time.Time
+	AppIds             []uuid.UUID
+	RateLimitPerMinute *int32
+	CreatorID          *uuid.UUID
+	CreatorName        *string
+	CreatorEmail       *string
 }
 
 // Inserts a key and returns it with its creator.
@@ -63,6 +82,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 		arg.ExpiresAt,
 		arg.AppIds,
 		arg.CreatedBy,
+		arg.RateLimitPerMinute,
 	)
 	var i CreateAPIKeyRow
 	err := row.Scan(
@@ -74,6 +94,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 		&i.CreatedAt,
 		&i.ExpiresAt,
 		&i.AppIds,
+		&i.RateLimitPerMinute,
 		&i.CreatorID,
 		&i.CreatorName,
 		&i.CreatorEmail,
@@ -82,7 +103,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 }
 
 const getActiveAPIKeyByHash = `-- name: GetActiveAPIKeyByHash :one
-SELECT k.id, k.project_id, k.scopes, k.expires_at, k.app_ids, p.slug AS project_slug, p.org_id
+SELECT k.id, k.project_id, k.scopes, k.expires_at, k.app_ids, k.rate_limit_per_minute, p.slug AS project_slug, p.org_id
 FROM api_keys k
 JOIN projects p ON p.id = k.project_id
 WHERE k.key_hash = $1
@@ -92,13 +113,14 @@ WHERE k.key_hash = $1
 `
 
 type GetActiveAPIKeyByHashRow struct {
-	ID          uuid.UUID
-	ProjectID   uuid.UUID
-	Scopes      []string
-	ExpiresAt   *time.Time
-	AppIds      []uuid.UUID
-	ProjectSlug string
-	OrgID       uuid.UUID
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	Scopes             []string
+	ExpiresAt          *time.Time
+	AppIds             []uuid.UUID
+	RateLimitPerMinute *int32
+	ProjectSlug        string
+	OrgID              uuid.UUID
 }
 
 // Resolves an ingest key to its project. Revoked, expired and keys of
@@ -112,6 +134,7 @@ func (q *Queries) GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (Ge
 		&i.Scopes,
 		&i.ExpiresAt,
 		&i.AppIds,
+		&i.RateLimitPerMinute,
 		&i.ProjectSlug,
 		&i.OrgID,
 	)
@@ -120,7 +143,7 @@ func (q *Queries) GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (Ge
 
 const listProjectAPIKeys = `-- name: ListProjectAPIKeys :many
 SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.created_at, k.expires_at, k.revoked_at, k.last_used_at,
-       k.last_used_sdk, k.last_used_ip,
+       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM api_keys k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
@@ -129,20 +152,21 @@ ORDER BY k.created_at DESC, k.id
 `
 
 type ListProjectAPIKeysRow struct {
-	ID           uuid.UUID
-	Name         string
-	Prefix       string
-	Scopes       []string
-	AppIds       []uuid.UUID
-	CreatedAt    time.Time
-	ExpiresAt    *time.Time
-	RevokedAt    *time.Time
-	LastUsedAt   *time.Time
-	LastUsedSdk  *string
-	LastUsedIp   *netip.Addr
-	CreatorID    *uuid.UUID
-	CreatorName  *string
-	CreatorEmail *string
+	ID                 uuid.UUID
+	Name               string
+	Prefix             string
+	Scopes             []string
+	AppIds             []uuid.UUID
+	CreatedAt          time.Time
+	ExpiresAt          *time.Time
+	RevokedAt          *time.Time
+	LastUsedAt         *time.Time
+	LastUsedSdk        *string
+	LastUsedIp         *netip.Addr
+	RateLimitPerMinute *int32
+	CreatorID          *uuid.UUID
+	CreatorName        *string
+	CreatorEmail       *string
 }
 
 // Every key of the project, revoked ones included, newest first, with its
@@ -168,6 +192,7 @@ func (q *Queries) ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) (
 			&i.LastUsedAt,
 			&i.LastUsedSdk,
 			&i.LastUsedIp,
+			&i.RateLimitPerMinute,
 			&i.CreatorID,
 			&i.CreatorName,
 			&i.CreatorEmail,
@@ -230,7 +255,7 @@ func (q *Queries) ListProjectKeyApps(ctx context.Context, projectID uuid.UUID) (
 
 const lockProjectAPIKey = `-- name: LockProjectAPIKey :one
 SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.key_hash, k.revoked_at, k.created_at, k.expires_at, k.last_used_at,
-       k.last_used_sdk, k.last_used_ip,
+       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM api_keys k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
@@ -244,21 +269,22 @@ type LockProjectAPIKeyParams struct {
 }
 
 type LockProjectAPIKeyRow struct {
-	ID           uuid.UUID
-	Name         string
-	Prefix       string
-	Scopes       []string
-	AppIds       []uuid.UUID
-	KeyHash      string
-	RevokedAt    *time.Time
-	CreatedAt    time.Time
-	ExpiresAt    *time.Time
-	LastUsedAt   *time.Time
-	LastUsedSdk  *string
-	LastUsedIp   *netip.Addr
-	CreatorID    *uuid.UUID
-	CreatorName  *string
-	CreatorEmail *string
+	ID                 uuid.UUID
+	Name               string
+	Prefix             string
+	Scopes             []string
+	AppIds             []uuid.UUID
+	KeyHash            string
+	RevokedAt          *time.Time
+	CreatedAt          time.Time
+	ExpiresAt          *time.Time
+	LastUsedAt         *time.Time
+	LastUsedSdk        *string
+	LastUsedIp         *netip.Addr
+	RateLimitPerMinute *int32
+	CreatorID          *uuid.UUID
+	CreatorName        *string
+	CreatorEmail       *string
 }
 
 // A key of the project, row-locked for the rest of the transaction, with
@@ -279,6 +305,7 @@ func (q *Queries) LockProjectAPIKey(ctx context.Context, arg LockProjectAPIKeyPa
 		&i.LastUsedAt,
 		&i.LastUsedSdk,
 		&i.LastUsedIp,
+		&i.RateLimitPerMinute,
 		&i.CreatorID,
 		&i.CreatorName,
 		&i.CreatorEmail,
@@ -341,19 +368,27 @@ func (q *Queries) TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error 
 }
 
 const updateAPIKeyAccess = `-- name: UpdateAPIKeyAccess :exec
-UPDATE api_keys SET scopes = $1, app_ids = $2::uuid[]
-WHERE id = $3
+UPDATE api_keys SET scopes = $1, app_ids = $2::uuid[],
+    rate_limit_per_minute = $3::integer
+WHERE id = $4
 `
 
 type UpdateAPIKeyAccessParams struct {
-	Scopes []string
-	AppIds []uuid.UUID
-	ID     uuid.UUID
+	Scopes             []string
+	AppIds             []uuid.UUID
+	RateLimitPerMinute *int32
+	ID                 uuid.UUID
 }
 
-// Replaces a key's scopes and app scope (NULL = every app).
+// Replaces a key's scopes, app scope (NULL = every app) and per-key ingest
+// rate limit (NULL = none).
 func (q *Queries) UpdateAPIKeyAccess(ctx context.Context, arg UpdateAPIKeyAccessParams) error {
-	_, err := q.db.Exec(ctx, updateAPIKeyAccess, arg.Scopes, arg.AppIds, arg.ID)
+	_, err := q.db.Exec(ctx, updateAPIKeyAccess,
+		arg.Scopes,
+		arg.AppIds,
+		arg.RateLimitPerMinute,
+		arg.ID,
+	)
 	return err
 }
 
