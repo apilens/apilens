@@ -22,6 +22,9 @@ func describe(updates []*v1.RelationshipUpdate) []string {
 		r := u.GetRelationship()
 		out[i] = op + " " + r.GetResource().GetObjectType() + ":" + r.GetResource().GetObjectId() + "#" + r.GetRelation() +
 			"@" + r.GetSubject().GetObject().GetObjectType() + ":" + r.GetSubject().GetObject().GetObjectId()
+		if rel := r.GetSubject().GetOptionalRelation(); rel != "" {
+			out[i] += "#" + rel
+		}
 	}
 	return out
 }
@@ -49,11 +52,19 @@ func TestTranslateEveryTopic(t *testing.T) {
 			"DELETE organization:" + o + "#member@user:" + u,
 			"DELETE organization:" + o + "#viewer@user:" + u,
 		}, "", []string{o}},
-		{ProjectCreatedPayload{ProjectID: proj, OrgID: org}, []string{"TOUCH project:" + p + "#org@organization:" + o}, "", []string{o}},
+		{ProjectCreatedPayload{ProjectID: proj, OrgID: org}, []string{
+			"TOUCH project:" + p + "#org@organization:" + o,
+			"TOUCH project:" + p + "#default_editor@organization:" + o + "#member",
+			"TOUCH project:" + p + "#default_viewer@organization:" + o + "#viewer",
+		}, "", []string{o}},
 		{ProjectDeletedPayload{ProjectID: proj}, nil, "project:" + p, nil},
 		{ProjectMovedPayload{ProjectID: proj, FromOrgID: org, ToOrgID: other}, []string{
 			"DELETE project:" + p + "#org@organization:" + o,
 			"TOUCH project:" + p + "#org@organization:" + o2,
+			"DELETE project:" + p + "#default_editor@organization:" + o + "#member",
+			"DELETE project:" + p + "#default_viewer@organization:" + o + "#viewer",
+			"TOUCH project:" + p + "#default_editor@organization:" + o2 + "#member",
+			"TOUCH project:" + p + "#default_viewer@organization:" + o2 + "#viewer",
 		}, "", []string{o, o2}},
 	}
 	if len(cases) != len(Topics) {

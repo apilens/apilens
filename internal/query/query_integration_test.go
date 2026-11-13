@@ -276,6 +276,8 @@ func TestDashboardQueriesAcceptSessions(t *testing.T) {
 	}{
 		{a.OrgID, []*v1.RelationshipUpdate{
 			touch("project", a.ProjectID.String(), "org", "organization", a.OrgID.String()),
+			orgRoleDefault(a.ProjectID.String(), "default_editor", a.OrgID.String(), "member"),
+			orgRoleDefault(a.ProjectID.String(), "default_viewer", a.OrgID.String(), "viewer"),
 			touch("organization", a.OrgID.String(), "member", "user", alice.String()),
 		}},
 		{b.OrgID, []*v1.RelationshipUpdate{touch("project", b.ProjectID.String(), "org", "organization", b.OrgID.String())}},
@@ -369,6 +371,19 @@ func TestDashboardQueriesAcceptSessions(t *testing.T) {
 	if code, _ := summary(user, "/api/v1/traffic/summary?range=1h&project=shop-a"); code != http.StatusServiceUnavailable {
 		t.Fatalf("spicedb down = %d, want 503", code)
 	}
+}
+
+// orgRoleDefault writes one relation of the `org_role` default access (ADR
+// 0009): default_editor@org#member or default_viewer@org#viewer.
+func orgRoleDefault(projectID, relation, orgID, orgRole string) *v1.RelationshipUpdate {
+	return &v1.RelationshipUpdate{Operation: v1.RelationshipUpdate_OPERATION_TOUCH, Relationship: &v1.Relationship{
+		Resource: &v1.ObjectReference{ObjectType: "project", ObjectId: projectID},
+		Relation: relation,
+		Subject: &v1.SubjectReference{
+			Object:           &v1.ObjectReference{ObjectType: "organization", ObjectId: orgID},
+			OptionalRelation: orgRole,
+		},
+	}}
 }
 
 func touch(resType, resID, relation, subjType, subjID string) *v1.RelationshipUpdate {

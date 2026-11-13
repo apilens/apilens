@@ -421,10 +421,11 @@ func Translate(topic Topic, payload []byte) (Change, error) {
 		if err != nil {
 			return Change{}, err
 		}
-		return Change{
-			Updates: []*v1.RelationshipUpdate{touch(projectOrg(p.ProjectID, p.OrgID))},
-			Orgs:    []string{p.OrgID.String()},
-		}, nil
+		updates := []*v1.RelationshipUpdate{touch(projectOrg(p.ProjectID, p.OrgID))}
+		for _, r := range orgRoleDefaults(p.ProjectID, p.OrgID) {
+			updates = append(updates, touch(r))
+		}
+		return Change{Updates: updates, Orgs: []string{p.OrgID.String()}}, nil
 	case ProjectDeleted:
 		p, err := decode[ProjectDeletedPayload](topic, payload)
 		if err != nil {
@@ -443,10 +444,14 @@ func Translate(topic Topic, payload []byte) (Change, error) {
 		if p.FromOrgID == p.ToOrgID {
 			return Change{Updates: []*v1.RelationshipUpdate{touch(projectOrg(p.ProjectID, p.ToOrgID))}, Orgs: []string{p.ToOrgID.String()}}, nil
 		}
-		return Change{
-			Updates: []*v1.RelationshipUpdate{del(projectOrg(p.ProjectID, p.FromOrgID)), touch(projectOrg(p.ProjectID, p.ToOrgID))},
-			Orgs:    []string{p.FromOrgID.String(), p.ToOrgID.String()},
-		}, nil
+		updates := []*v1.RelationshipUpdate{del(projectOrg(p.ProjectID, p.FromOrgID)), touch(projectOrg(p.ProjectID, p.ToOrgID))}
+		for _, r := range orgRoleDefaults(p.ProjectID, p.FromOrgID) {
+			updates = append(updates, del(r))
+		}
+		for _, r := range orgRoleDefaults(p.ProjectID, p.ToOrgID) {
+			updates = append(updates, touch(r))
+		}
+		return Change{Updates: updates, Orgs: []string{p.FromOrgID.String(), p.ToOrgID.String()}}, nil
 	default:
 		return Change{}, fmt.Errorf("%w: %q", ErrUnknownTopic, topic)
 	}
@@ -474,6 +479,23 @@ func projectOrg(project, org uuid.UUID) *v1.Relationship {
 		Relation: "org",
 		Subject:  &v1.SubjectReference{Object: &v1.ObjectReference{ObjectType: authz.TypeOrganization, ObjectId: org.String()}},
 	}
+}
+
+// orgRoleDefaults are the default-access relations for `org_role` (ADR 0009):
+// org members edit the project, org viewers view it. Every project has this
+// default until per-project default access is stored (#766, #767).
+func orgRoleDefaults(project, org uuid.UUID) []*v1.Relationship {
+	set := func(relation, orgRole string) *v1.Relationship {
+		return &v1.Relationship{
+			Resource: &v1.ObjectReference{ObjectType: authz.TypeProject, ObjectId: project.String()},
+			Relation: relation,
+			Subject: &v1.SubjectReference{
+				Object:           &v1.ObjectReference{ObjectType: authz.TypeOrganization, ObjectId: org.String()},
+				OptionalRelation: orgRole,
+			},
+		}
+	}
+	return []*v1.Relationship{set("default_editor", "member"), set("default_viewer", "viewer")}
 }
 
 func touch(r *v1.Relationship) *v1.RelationshipUpdate {
