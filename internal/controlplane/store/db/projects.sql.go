@@ -13,8 +13,12 @@ import (
 )
 
 const createEnvironment = `-- name: CreateEnvironment :execrows
-INSERT INTO environments (id, project_id, name)
-VALUES ($1, $2, $3)
+INSERT INTO environments (id, project_id, name, is_production, position, source)
+VALUES (
+    $1, $2, $3, $3::text IN ('production', 'prod'),
+    (SELECT COALESCE(max(position) + 1, 0) FROM environments WHERE project_id = $2),
+    'dashboard'
+)
 ON CONFLICT (project_id, name) DO NOTHING
 `
 
@@ -24,7 +28,9 @@ type CreateEnvironmentParams struct {
 	Name      string
 }
 
-// Adds the environment unless the project already has one of that name.
+// Adds the environment unless the project already has one of that name. It
+// goes last in the project's order; production and prod are marked as
+// production.
 func (q *Queries) CreateEnvironment(ctx context.Context, arg CreateEnvironmentParams) (int64, error) {
 	result, err := q.db.Exec(ctx, createEnvironment, arg.ID, arg.ProjectID, arg.Name)
 	if err != nil {
@@ -242,6 +248,67 @@ func (q *Queries) ListOrgProjects(ctx context.Context, orgID uuid.UUID) ([]ListO
 	return items, nil
 }
 
+const listProjectEnvironmentDetails = `-- name: ListProjectEnvironmentDetails :many
+SELECT e.name, e.is_production, e.color, e.position, e.hidden_at, e.source,
+       e.first_seen_at, e.last_seen_at, e.created_at,
+       (SELECT count(*) FROM api_keys k
+        WHERE k.project_id = e.project_id AND e.name = ANY(k.environments)
+          AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now()))::int AS api_keys,
+       (SELECT count(*) FROM health_checks h
+        WHERE h.project_id = e.project_id AND h.environment = e.name)::int AS health_checks
+FROM environments e
+WHERE e.project_id = $1
+ORDER BY e.position, e.name
+`
+
+type ListProjectEnvironmentDetailsRow struct {
+	Name         string
+	IsProduction bool
+	Color        *string
+	Position     int32
+	HiddenAt     *time.Time
+	Source       string
+	FirstSeenAt  *time.Time
+	LastSeenAt   *time.Time
+	CreatedAt    time.Time
+	ApiKeys      int32
+	HealthChecks int32
+}
+
+// The environments of one project in display order, with the active API
+// keys pinned to each and the health checks that use each.
+func (q *Queries) ListProjectEnvironmentDetails(ctx context.Context, projectID uuid.UUID) ([]ListProjectEnvironmentDetailsRow, error) {
+	rows, err := q.db.Query(ctx, listProjectEnvironmentDetails, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectEnvironmentDetailsRow{}
+	for rows.Next() {
+		var i ListProjectEnvironmentDetailsRow
+		if err := rows.Scan(
+			&i.Name,
+			&i.IsProduction,
+			&i.Color,
+			&i.Position,
+			&i.HiddenAt,
+			&i.Source,
+			&i.FirstSeenAt,
+			&i.LastSeenAt,
+			&i.CreatedAt,
+			&i.ApiKeys,
+			&i.HealthChecks,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjectsEnvironments = `-- name: ListProjectsEnvironments :many
 SELECT project_id, name
 FROM environments
@@ -374,6 +441,24 @@ func (q *Queries) ProjectSlugTaken(ctx context.Context, slug string) (bool, erro
 	return exists, err
 }
 
+const setEnvironmentPositions = `-- name: SetEnvironmentPositions :exec
+UPDATE environments e
+SET position = o.ord - 1
+FROM unnest($2::text[]) WITH ORDINALITY AS o(name, ord)
+WHERE e.project_id = $1 AND e.name = o.name
+`
+
+type SetEnvironmentPositionsParams struct {
+	ProjectID uuid.UUID
+	Names     []string
+}
+
+// Gives each named environment its index in names as its position.
+func (q *Queries) SetEnvironmentPositions(ctx context.Context, arg SetEnvironmentPositionsParams) error {
+	_, err := q.db.Exec(ctx, setEnvironmentPositions, arg.ProjectID, arg.Names)
+	return err
+}
+
 const softDeleteProject = `-- name: SoftDeleteProject :execrows
 UPDATE projects SET deleted_at = now()
 WHERE id = $1 AND deleted_at IS NULL
@@ -411,6 +496,34 @@ func (q *Queries) TakenProjectSlugs(ctx context.Context, slugs []string) ([]stri
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateEnvironmentSettings = `-- name: UpdateEnvironmentSettings :execrows
+UPDATE environments
+SET is_production = $1, color = $2, hidden_at = $3
+WHERE project_id = $4 AND name = $5
+`
+
+type UpdateEnvironmentSettingsParams struct {
+	IsProduction bool
+	Color        *string
+	HiddenAt     *time.Time
+	ProjectID    uuid.UUID
+	Name         string
+}
+
+func (q *Queries) UpdateEnvironmentSettings(ctx context.Context, arg UpdateEnvironmentSettingsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateEnvironmentSettings,
+		arg.IsProduction,
+		arg.Color,
+		arg.HiddenAt,
+		arg.ProjectID,
+		arg.Name,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateProjectDetails = `-- name: UpdateProjectDetails :one

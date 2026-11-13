@@ -453,15 +453,16 @@ func (f *restrictedFixture) call(op specOperation, path string, user uuid.UUID) 
 // in the handler, after Huma validated the input (a 422 there says nothing
 // about the project); every other write gets an empty object.
 var restrictedBodies = map[string]any{
-	"add-project-environment":    map[string]any{"name": "qa"},
-	"create-api-key":             map[string]any{"name": "CI", "scopes": []string{"ingest"}},
-	"merge-app":                  map[string]any{"into": uuid.NewString()},
-	"rename-app":                 map[string]any{"name": "Storefront"},
-	"rotate-api-key":             map[string]any{"overlap": "none"},
-	"set-project-default-access": map[string]any{"default_access": "org_role"},
-	"set-project-member-role":    map[string]any{"role": "admin"},
-	"update-api-key-access":      map[string]any{"can_create_apps": true, "app_ids": nil},
-	"put-endpoint-settings":      map[string]any{"excluded": true},
+	"add-project-environment":      map[string]any{"name": "qa"},
+	"create-api-key":               map[string]any{"name": "CI", "scopes": []string{"ingest"}},
+	"merge-app":                    map[string]any{"into": uuid.NewString()},
+	"rename-app":                   map[string]any{"name": "Storefront"},
+	"rotate-api-key":               map[string]any{"overlap": "none"},
+	"set-project-default-access":   map[string]any{"default_access": "org_role"},
+	"set-project-member-role":      map[string]any{"role": "admin"},
+	"update-api-key-access":        map[string]any{"can_create_apps": true, "app_ids": nil},
+	"put-endpoint-settings":        map[string]any{"excluded": true},
+	"reorder-project-environments": map[string]any{"names": []string{"production"}},
 	"put-capture-policy": map[string]any{
 		"enabled": true, "sample_rate": 1, "capture_headers": true, "capture_request_body": true, "capture_response_body": true,
 	},

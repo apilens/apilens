@@ -4855,6 +4855,114 @@
         ],
         "type": "object"
       },
+      "Environment": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Environment.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "api_keys": {
+            "description": "Active API keys pinned to the environment.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "color": {
+            "description": "One of the fixed palette gray, red, orange, yellow, green, teal, blue, purple; null when the environment has no colour.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deletable": {
+            "description": "Whether DELETE would remove the environment: false when it has data, an API key pinned to it or a health check using it (hide it instead).",
+            "type": "boolean"
+          },
+          "first_seen_at": {
+            "description": "When data for the environment was first seen; null if never.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "has_data": {
+            "description": "Whether data for the environment was seen within the install's telemetry retention.",
+            "type": "boolean"
+          },
+          "health_checks": {
+            "description": "Health checks that use the environment.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "hidden": {
+            "description": "Hidden environments still ingest; environment pickers leave them out by default.",
+            "type": "boolean"
+          },
+          "hidden_at": {
+            "description": "When the environment was hidden; null when visible.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_production": {
+            "description": "Whether the environment serves real users. Environments named production or prod start as production.",
+            "type": "boolean"
+          },
+          "last_seen_at": {
+            "description": "When data for the environment was last seen; null if never.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "position": {
+            "description": "Index of the environment in the project's order, 0 first.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "source": {
+            "description": "sdk when ingest registered it from the data an SDK sent, dashboard when someone added it.",
+            "enum": [
+              "sdk",
+              "dashboard"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "is_production",
+          "color",
+          "position",
+          "hidden",
+          "hidden_at",
+          "source",
+          "first_seen_at",
+          "last_seen_at",
+          "created_at",
+          "has_data",
+          "api_keys",
+          "health_checks",
+          "deletable"
+        ],
+        "type": "object"
+      },
       "EnvironmentUsage": {
         "additionalProperties": false,
         "properties": {
@@ -4871,6 +4979,40 @@
         "required": [
           "environment",
           "accepted"
+        ],
+        "type": "object"
+      },
+      "EnvironmentsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/EnvironmentsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "environments": {
+            "description": "The project's environments in order, hidden ones included.",
+            "items": {
+              "$ref": "#/components/schemas/Environment"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "max_environments": {
+            "description": "How many environments a project may have.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "environments",
+          "max_environments"
         ],
         "type": "object"
       },
@@ -8705,7 +8847,17 @@
             ]
           },
           "environments": {
-            "description": "Environments with traffic in the last 7 days.",
+            "description": "Visible environments in the project's order, then unregistered environments with traffic in the last 7 days, by name.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "hidden": {
+            "description": "Hidden environments in the project's order; pickers leave them out by default.",
             "items": {
               "type": "string"
             },
@@ -8727,7 +8879,8 @@
           "org",
           "project",
           "apps",
-          "environments"
+          "environments",
+          "hidden"
         ],
         "type": "object"
       },
@@ -9458,6 +9611,35 @@
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "ReorderEnvironmentsInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ReorderEnvironmentsInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "names": {
+            "description": "Environment names in the new order; environments left out follow in their current order. An unknown or repeated name answers invalid_request.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "names"
         ],
         "type": "object"
       },
@@ -11852,6 +12034,50 @@
         "required": [
           "name"
         ],
+        "type": "object"
+      },
+      "UpdateEnvironmentInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/UpdateEnvironmentInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "color": {
+            "description": "A colour of the fixed palette; none clears it.",
+            "enum": [
+              "gray",
+              "red",
+              "orange",
+              "yellow",
+              "green",
+              "teal",
+              "blue",
+              "purple",
+              "none"
+            ],
+            "type": "string"
+          },
+          "hidden": {
+            "description": "Hide or show the environment. Hidden environments still ingest.",
+            "type": "boolean"
+          },
+          "is_production": {
+            "description": "Mark or unmark the environment as production.",
+            "type": "boolean"
+          },
+          "position": {
+            "description": "Move the environment to this index of the project's order (past the end moves it last); the others keep their relative order.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
         "type": "object"
       },
       "UpdateOrgInputBody": {
@@ -20524,7 +20750,7 @@
     },
     "/api/v1/project": {
       "get": {
-        "description": "The project the caller reads, its org, its active apps and the environments with traffic in the last 7 days. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "description": "The project the caller reads, its org, its active apps and the environments for pickers: the project's visible environments in their set order, then environments with traffic in the last 7 days that are not registered yet (by name), and the hidden environments apart. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
         "operationId": "get-project",
         "parameters": [
           {
@@ -26158,6 +26384,96 @@
       }
     },
     "/api/v1/projects/{slug}/environments": {
+      "get": {
+        "description": "Returns the project's environments in order, hidden ones included, with their settings, when data was last seen, whether data exists within retention and what refers to them. Needs `view` on the project (any project role). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
+        "operationId": "list-project-environments",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List a project's environments",
+        "tags": [
+          "Projects"
+        ]
+      },
       "post": {
         "description": "Adds an environment to the project and returns the project; adding one it already has changes nothing. At most 20 environments per project (`invalid_request`). Needs `edit` on the project (project admins and editors; 403 `forbidden` for viewers). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "add-project-environment",
@@ -26285,9 +26601,137 @@
         ]
       }
     },
+    "/api/v1/projects/{slug}/environments/order": {
+      "put": {
+        "description": "Puts the named environments first, in the given order; the others follow in their current order. Returns the environments in their new order. Each environment that moves emits `environment.updated` with its previous and next position. Needs `edit` on the project (project admins and editors; 403 `forbidden` for viewers). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
+        "operationId": "reorder-project-environments",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderEnvironmentsInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Order a project's environments",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
     "/api/v1/projects/{slug}/environments/{name}": {
       "delete": {
-        "description": "Removes an environment from the project and returns the project; removing one it does not have changes nothing. Telemetry already recorded for it is kept. Needs `edit` on the project (project admins and editors; 403 `forbidden` for viewers). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
+        "description": "Removes an environment from the project and returns the project; removing one it does not have changes nothing. An environment with data within retention, an active API key pinned to it or a health check using it answers `environment_in_use` (409): hide it instead. Needs `edit` on the project (project admins and editors; 403 `forbidden` for viewers). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "remove-project-environment",
         "parameters": [
           {
@@ -26363,6 +26807,19 @@
               "not_found"
             ]
           },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict. Codes: `environment_in_use`.",
+            "x-apilens-codes": [
+              "environment_in_use"
+            ]
+          },
           "500": {
             "content": {
               "application/problem+json": {
@@ -26396,6 +26853,143 @@
           }
         ],
         "summary": "Remove an environment",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "patch": {
+        "description": "Changes an environment's production flag, colour, hidden state or position and returns it. An environment the project does not have answers `not_found`. A change emits `environment.updated` with the previous and next values. Needs `edit` on the project (project admins and editors; 403 `forbidden` for viewers). A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
+        "operationId": "update-project-environment",
+        "parameters": [
+          {
+            "description": "The project's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The project's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The environment's name.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "description": "The environment's name.",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEnvironmentInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Environment"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Bad Request. Codes: `invalid_request`.",
+            "x-apilens-codes": [
+              "invalid_request"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Update an environment",
         "tags": [
           "Projects"
         ]

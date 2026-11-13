@@ -43,7 +43,9 @@ type Querier interface {
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error)
 	// Alert rules.
 	CreateAlertRule(ctx context.Context, arg CreateAlertRuleParams) (AlertRule, error)
-	// Adds the environment unless the project already has one of that name.
+	// Adds the environment unless the project already has one of that name. It
+	// goes last in the project's order; production and prod are marked as
+	// production.
 	CreateEnvironment(ctx context.Context, arg CreateEnvironmentParams) (int64, error)
 	// Active HTTP health checks (internal/alerts: the alerts.health_checks job;
 	// internal/query: the health check operations).
@@ -276,6 +278,9 @@ type Querier interface {
 	// ListPendingInvitations with the inviting user's email and name (NULL when
 	// the inviter's account is gone).
 	ListPendingInvitationsWithInviter(ctx context.Context, orgID uuid.UUID) ([]ListPendingInvitationsWithInviterRow, error)
+	// The environments of one project in display order and whether each is
+	// hidden, for the environment pickers.
+	ListPickerEnvironments(ctx context.Context, projectID uuid.UUID) ([]ListPickerEnvironmentsRow, error)
 	// Every key of the project, revoked ones included, newest first, with its
 	// creator (NULL when unknown or the account is deleted).
 	ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) ([]ListProjectAPIKeysRow, error)
@@ -307,6 +312,9 @@ type Querier interface {
 	// The settings that change what the dashboard counts (an expected status
 	// code or exclusion) for the active apps of a project.
 	ListProjectEndpointSettings(ctx context.Context, projectID uuid.UUID) ([]ListProjectEndpointSettingsRow, error)
+	// The environments of one project in display order, with the active API
+	// keys pinned to each and the health checks that use each.
+	ListProjectEnvironmentDetails(ctx context.Context, projectID uuid.UUID) ([]ListProjectEnvironmentDetailsRow, error)
 	// The apps each key of the project sent records for, with when.
 	ListProjectKeyApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectKeyAppsRow, error)
 	// Direct grants of a project with their users; deleted accounts are hidden.
@@ -462,6 +470,8 @@ type Querier interface {
 	// a new one can replace it.
 	RevokePendingInvitationByEmail(ctx context.Context, arg RevokePendingInvitationByEmailParams) (int64, error)
 	SetAppDefault(ctx context.Context, id uuid.UUID) error
+	// Gives each named environment its index in names as its position.
+	SetEnvironmentPositions(ctx context.Context, arg SetEnvironmentPositionsParams) error
 	SetProjectDefaultAccess(ctx context.Context, arg SetProjectDefaultAccessParams) (string, error)
 	// No row means the export was cancelled meanwhile.
 	SetRequestExportProgress(ctx context.Context, arg SetRequestExportProgressParams) (int64, error)
@@ -491,6 +501,7 @@ type Querier interface {
 	// Replaces every editable field of a rule. The app and project never change.
 	UpdateAlertRule(ctx context.Context, arg UpdateAlertRuleParams) (AlertRule, error)
 	UpdateAppLatencyThreshold(ctx context.Context, arg UpdateAppLatencyThresholdParams) (UpdateAppLatencyThresholdRow, error)
+	UpdateEnvironmentSettings(ctx context.Context, arg UpdateEnvironmentSettingsParams) (int64, error)
 	// Replaces a check's editable fields. A changed URL or expected status
 	// clears the latest result (the check shows as not yet checked); its status
 	// and open event stay until the next probe decides.
@@ -523,7 +534,7 @@ type Querier interface {
 	UpsertAppMetadata(ctx context.Context, arg UpsertAppMetadataParams) error
 	UpsertCapturePolicy(ctx context.Context, arg UpsertCapturePolicyParams) (UpsertCapturePolicyRow, error)
 	UpsertEndpointSettings(ctx context.Context, arg UpsertEndpointSettingsParams) (EndpointSetting, error)
-	UpsertEnvironment(ctx context.Context, arg UpsertEnvironmentParams) (Environment, error)
+	UpsertEnvironment(ctx context.Context, arg UpsertEnvironmentParams) (UpsertEnvironmentRow, error)
 	// Creates or replaces an organization's OIDC connection. created_at and
 	// last_login_at survive a replace.
 	UpsertOrgSSOConnection(ctx context.Context, arg UpsertOrgSSOConnectionParams) (OrgSsoConnection, error)

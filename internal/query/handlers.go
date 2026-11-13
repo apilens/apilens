@@ -59,7 +59,8 @@ const readAccess = " Callers authenticate with a project read key or a user sess
 
 // dashboardDescriptions documents the operations Register declares with op.
 var dashboardDescriptions = map[string]string{
-	"get-project": "The project the caller reads, its org, its active apps and the environments with traffic in the last 7 days.",
+	"get-project": "The project the caller reads, its org, its active apps and the environments for pickers: the project's visible environments in their set order, " +
+		"then environments with traffic in the last 7 days that are not registered yet (by name), and the hidden environments apart.",
 	"get-traffic-summary": "Totals of the range from the minute or hour rollups: requests, 4xx and 5xx errors (expected status codes " +
 		"of each endpoint left out), latency percentiles, requests per minute and Apdex. Endpoints excluded from metrics are left out; " +
 		"app narrows to one app.",
@@ -152,7 +153,8 @@ type projectOutput struct {
 		Org          named    `json:"org" doc:"The organization that owns the project."`
 		Project      named    `json:"project" doc:"The project."`
 		Apps         []named  `json:"apps" doc:"The project's active apps."`
-		Environments []string `json:"environments" doc:"Environments with traffic in the last 7 days."`
+		Environments []string `json:"environments" doc:"Visible environments in the project's order, then unregistered environments with traffic in the last 7 days, by name."`
+		Hidden       []string `json:"hidden" doc:"Hidden environments in the project's order; pickers leave them out by default."`
 	}
 }
 
@@ -180,6 +182,21 @@ func (s *Service) project(ctx context.Context, _ *ProjectInput) (*projectOutput,
 		out.Body.Apps = append(out.Body.Apps, named{ID: a.ID.String(), Slug: a.Slug, Name: a.Name})
 	}
 
+	registered, err := s.catalog.ListPickerEnvironments(ctx, p.ProjectID)
+	if err != nil {
+		return nil, internalError("environment lookup", err)
+	}
+	known := make(map[string]bool, len(registered))
+	out.Body.Environments, out.Body.Hidden = []string{}, []string{}
+	for _, e := range registered {
+		known[e.Name] = true
+		if e.Hidden {
+			out.Body.Hidden = append(out.Body.Hidden, e.Name)
+		} else {
+			out.Body.Environments = append(out.Body.Environments, e.Name)
+		}
+	}
+
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
 	rows, err := s.ch.Query(qctx, `SELECT DISTINCT environment FROM api_requests_1h
@@ -188,13 +205,14 @@ func (s *Service) project(ctx context.Context, _ *ProjectInput) (*projectOutput,
 		return nil, internalError("environments", err)
 	}
 	defer func() { _ = rows.Close() }()
-	out.Body.Environments = []string{}
 	for rows.Next() {
 		var env string
 		if err := rows.Scan(&env); err != nil {
 			return nil, internalError("environments", err)
 		}
-		out.Body.Environments = append(out.Body.Environments, env)
+		if !known[env] {
+			out.Body.Environments = append(out.Body.Environments, env)
+		}
 	}
 	return out, rows.Err()
 }

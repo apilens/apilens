@@ -845,6 +845,7 @@ Rules:
 | `key_not_active` | 409 Conflict | This API key is revoked, expired or already rotated, so it can't be rotated. Refresh the page. |
 | `not_org_member` | 409 Conflict | Only members of this organization can be added to the project. Invite them to the organization first. |
 | `member_limit_reached` | 409 Conflict | This project has the most people added directly it can have. Remove someone, or give everyone access through the default access. |
+| `environment_in_use` | 409 Conflict | This environment has data, or an API key or health check uses it, so it can't be deleted. Hide it instead. |
 | `sso_required` | 403 Forbidden | Your organization requires single sign-on. Sign in through your company's identity provider. |
 | `sso_not_configured` | 409 Conflict | Single sign-on isn't set up for this organization yet. |
 | `sso_untested` | 409 Conflict | Sign in through single sign-on at least once before you enforce it, so nobody gets locked out. |

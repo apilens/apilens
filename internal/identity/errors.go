@@ -146,6 +146,10 @@ const (
 	// CodeMemberLimitReached: the project already has as many people added
 	// directly as it may (access.max_direct_members_per_project).
 	CodeMemberLimitReached ErrCode = "member_limit_reached"
+	// CodeEnvironmentInUse: the environment has data within retention, or
+	// an active API key or a health check refers to it, so it cannot be
+	// deleted; hide it instead.
+	CodeEnvironmentInUse ErrCode = "environment_in_use"
 	// CodeForbidden: authenticated and able to see the resource, but not
 	// allowed to perform the action.
 	CodeForbidden ErrCode = "forbidden"
@@ -206,6 +210,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeKeyNotActive:          {http.StatusConflict, "API key not active", "The API key is revoked, expired or already rotated."},
 	CodeNotOrgMember:          {http.StatusConflict, "Not an organization member", "Only members of the project's organization can be added to it."},
 	CodeMemberLimitReached:    {http.StatusConflict, "Member limit reached", "This project has as many people added directly as it may have. Remove someone first."},
+	CodeEnvironmentInUse:      {http.StatusConflict, "Environment in use", "This environment has data or is used by an API key or a health check. Hide it instead."},
 	CodeSSORequired:           {http.StatusForbidden, "Single sign-on required", "This organization requires single sign-on. Sign in through its identity provider."},
 	CodeSSONotConfigured:      {http.StatusConflict, "Single sign-on not configured", "This organization has no single sign-on connection."},
 	CodeSSOUntested:           {http.StatusConflict, "Single sign-on untested", "Sign in through single sign-on at least once before enforcing it."},

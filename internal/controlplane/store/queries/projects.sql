@@ -69,9 +69,15 @@ UPDATE projects SET deleted_at = now()
 WHERE id = @id AND deleted_at IS NULL;
 
 -- name: CreateEnvironment :execrows
--- Adds the environment unless the project already has one of that name.
-INSERT INTO environments (id, project_id, name)
-VALUES (@id, @project_id, @name)
+-- Adds the environment unless the project already has one of that name. It
+-- goes last in the project's order; production and prod are marked as
+-- production.
+INSERT INTO environments (id, project_id, name, is_production, position, source)
+VALUES (
+    @id, @project_id, @name, @name::text IN ('production', 'prod'),
+    (SELECT COALESCE(max(position) + 1, 0) FROM environments WHERE project_id = @project_id),
+    'dashboard'
+)
 ON CONFLICT (project_id, name) DO NOTHING;
 
 -- name: DeleteEnvironment :execrows
@@ -84,3 +90,29 @@ SELECT project_id, name
 FROM environments
 WHERE project_id = ANY(@project_ids::uuid[])
 ORDER BY project_id, name;
+
+-- name: ListProjectEnvironmentDetails :many
+-- The environments of one project in display order, with the active API
+-- keys pinned to each and the health checks that use each.
+SELECT e.name, e.is_production, e.color, e.position, e.hidden_at, e.source,
+       e.first_seen_at, e.last_seen_at, e.created_at,
+       (SELECT count(*) FROM api_keys k
+        WHERE k.project_id = e.project_id AND e.name = ANY(k.environments)
+          AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now()))::int AS api_keys,
+       (SELECT count(*) FROM health_checks h
+        WHERE h.project_id = e.project_id AND h.environment = e.name)::int AS health_checks
+FROM environments e
+WHERE e.project_id = @project_id
+ORDER BY e.position, e.name;
+
+-- name: UpdateEnvironmentSettings :execrows
+UPDATE environments
+SET is_production = @is_production, color = sqlc.narg(color), hidden_at = sqlc.narg(hidden_at)
+WHERE project_id = @project_id AND name = @name;
+
+-- name: SetEnvironmentPositions :exec
+-- Gives each named environment its index in names as its position.
+UPDATE environments e
+SET position = o.ord - 1
+FROM unnest(@names::text[]) WITH ORDINALITY AS o(name, ord)
+WHERE e.project_id = @project_id AND e.name = o.name;

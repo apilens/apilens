@@ -213,10 +213,17 @@ type EndpointSetting struct {
 }
 
 type Environment struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
-	Name      string
-	CreatedAt time.Time
+	ID           uuid.UUID
+	ProjectID    uuid.UUID
+	Name         string
+	CreatedAt    time.Time
+	IsProduction bool
+	Color        *string
+	Position     int32
+	HiddenAt     *time.Time
+	Source       string
+	FirstSeenAt  *time.Time
+	LastSeenAt   *time.Time
 }
 
 type HealthCheck struct {

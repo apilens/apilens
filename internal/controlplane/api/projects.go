@@ -26,6 +26,7 @@ const (
 	ProjectPath              = ProjectsPath + "/{slug}"
 	EnvironmentsPath         = ProjectPath + "/environments"
 	EnvironmentPath          = EnvironmentsPath + "/{name}"
+	EnvironmentOrderPath     = EnvironmentsPath + "/order"
 )
 
 // ProjectService creates, reads, updates and deletes projects and their
@@ -39,6 +40,9 @@ type ProjectService interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	AddEnvironment(ctx context.Context, user, id uuid.UUID, name string) (projects.Project, error)
 	RemoveEnvironment(ctx context.Context, user, id uuid.UUID, name string) (projects.Project, error)
+	ListEnvironments(ctx context.Context, id uuid.UUID) ([]projects.Environment, error)
+	UpdateEnvironment(ctx context.Context, user, id uuid.UUID, name string, u projects.EnvironmentUpdate) (projects.Environment, error)
+	ReorderEnvironments(ctx context.Context, user, id uuid.UUID, names []string) ([]projects.Environment, error)
 }
 
 // Project is a project as seen by a member of its organization.
@@ -111,6 +115,61 @@ type AddEnvironmentInput struct {
 type EnvironmentInput struct {
 	ProjectSlugInput
 	Name string `path:"name" pattern:"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" doc:"The environment's name."`
+}
+
+// Environment is a project environment with its settings.
+type Environment struct {
+	Name         string     `json:"name"`
+	IsProduction bool       `json:"is_production" doc:"Whether the environment serves real users. Environments named production or prod start as production."`
+	Color        *string    `json:"color" required:"true" nullable:"true" doc:"One of the fixed palette gray, red, orange, yellow, green, teal, blue, purple; null when the environment has no colour."`
+	Position     int        `json:"position" doc:"Index of the environment in the project's order, 0 first."`
+	Hidden       bool       `json:"hidden" doc:"Hidden environments still ingest; environment pickers leave them out by default."`
+	HiddenAt     *time.Time `json:"hidden_at" required:"true" nullable:"true" doc:"When the environment was hidden; null when visible."`
+	Source       string     `json:"source" enum:"sdk,dashboard" doc:"sdk when ingest registered it from the data an SDK sent, dashboard when someone added it."`
+	FirstSeenAt  *time.Time `json:"first_seen_at" required:"true" nullable:"true" doc:"When data for the environment was first seen; null if never."`
+	LastSeenAt   *time.Time `json:"last_seen_at" required:"true" nullable:"true" doc:"When data for the environment was last seen; null if never."`
+	CreatedAt    time.Time  `json:"created_at"`
+	HasData      bool       `json:"has_data" doc:"Whether data for the environment was seen within the install's telemetry retention."`
+	APIKeys      int        `json:"api_keys" doc:"Active API keys pinned to the environment."`
+	HealthChecks int        `json:"health_checks" doc:"Health checks that use the environment."`
+	Deletable    bool       `json:"deletable" doc:"Whether DELETE would remove the environment: false when it has data, an API key pinned to it or a health check using it (hide it instead)."`
+}
+
+// EnvironmentOutput is the response of PATCH
+// /api/v1/projects/{slug}/environments/{name}.
+type EnvironmentOutput struct {
+	Body Environment
+}
+
+// EnvironmentsOutput is the response of GET
+// /api/v1/projects/{slug}/environments and of PUT .../environments/order.
+type EnvironmentsOutput struct {
+	Body struct {
+		Environments []Environment `json:"environments" doc:"The project's environments in order, hidden ones included."`
+		Max          int           `json:"max_environments" doc:"How many environments a project may have."`
+	}
+}
+
+// UpdateEnvironmentInput is the request of PATCH
+// /api/v1/projects/{slug}/environments/{name}. Omitted fields are left
+// unchanged.
+type UpdateEnvironmentInput struct {
+	EnvironmentInput
+	Body struct {
+		IsProduction *bool   `json:"is_production,omitempty" doc:"Mark or unmark the environment as production."`
+		Color        *string `json:"color,omitempty" enum:"gray,red,orange,yellow,green,teal,blue,purple,none" doc:"A colour of the fixed palette; none clears it."`
+		Hidden       *bool   `json:"hidden,omitempty" doc:"Hide or show the environment. Hidden environments still ingest."`
+		Position     *int    `json:"position,omitempty" minimum:"0" doc:"Move the environment to this index of the project's order (past the end moves it last); the others keep their relative order."`
+	}
+}
+
+// ReorderEnvironmentsInput is the request of PUT
+// /api/v1/projects/{slug}/environments/order.
+type ReorderEnvironmentsInput struct {
+	ProjectSlugInput
+	Body struct {
+		Names []string `json:"names" maxItems:"20" doc:"Environment names in the new order; environments left out follow in their current order. An unknown or repeated name answers invalid_request."`
+	}
 }
 
 // ProjectSlugAvailableInput is the request of GET
@@ -251,10 +310,66 @@ func (p *Projects) Register(api huma.API) {
 		Method:      http.MethodDelete,
 		Path:        EnvironmentPath,
 		Summary:     "Remove an environment",
-		Description: "Removes an environment from the project and returns the project; removing one it does not have changes nothing. Telemetry already recorded for it is kept. " + edit + hidden,
+		Description: "Removes an environment from the project and returns the project; removing one it does not have changes nothing. An environment with data within retention, an active API key pinned to it or a health check using it answers `environment_in_use` (409): hide it instead. " + edit + hidden,
 		Tags:        tags,
 		Security:    security,
-	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.removeEnvironment)
+	}, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeEnvironmentInUse, identity.CodeAuthzUnavailable, identity.CodeInternal), p.removeEnvironment)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "list-project-environments",
+		Method:      http.MethodGet,
+		Path:        EnvironmentsPath,
+		Summary:     "List a project's environments",
+		Description: "Returns the project's environments in order, hidden ones included, with their settings, when data was last seen, whether data exists within retention and what refers to them. " + view + hidden,
+		Tags:        tags,
+		Security:    security,
+	}, identity.CodeUnauthenticated, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.listEnvironments)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "update-project-environment",
+		Method:      http.MethodPatch,
+		Path:        EnvironmentPath,
+		Summary:     "Update an environment",
+		Description: "Changes an environment's production flag, colour, hidden state or position and returns it. An environment the project does not have answers `not_found`. A change emits `environment.updated` with the previous and next values. " + edit + hidden,
+		Tags:        tags,
+		Security:    security,
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.updateEnvironment)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID: "reorder-project-environments",
+		Method:      http.MethodPut,
+		Path:        EnvironmentOrderPath,
+		Summary:     "Order a project's environments",
+		Description: "Puts the named environments first, in the given order; the others follow in their current order. Returns the environments in their new order. Each environment that moves emits `environment.updated` with its previous and next position. " + edit + hidden,
+		Tags:        tags,
+		Security:    security,
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeNotFound, identity.CodeAuthzUnavailable, identity.CodeInternal), p.reorderEnvironments)
+}
+
+func toEnvironment(e projects.Environment) Environment {
+	utc := func(t *time.Time) *time.Time {
+		if t == nil {
+			return nil
+		}
+		u := t.UTC()
+		return &u
+	}
+	return Environment{
+		Name: e.Name, IsProduction: e.IsProduction, Color: e.Color, Position: e.Position,
+		Hidden: e.Hidden(), HiddenAt: utc(e.HiddenAt), Source: e.Source,
+		FirstSeenAt: utc(e.FirstSeenAt), LastSeenAt: utc(e.LastSeenAt), CreatedAt: e.CreatedAt.UTC(),
+		HasData: e.HasData, APIKeys: e.APIKeys, HealthChecks: e.HealthChecks, Deletable: !e.InUse(),
+	}
+}
+
+func toEnvironments(envs []projects.Environment) *EnvironmentsOutput {
+	out := &EnvironmentsOutput{}
+	out.Body.Environments = make([]Environment, 0, len(envs))
+	for _, e := range envs {
+		out.Body.Environments = append(out.Body.Environments, toEnvironment(e))
+	}
+	out.Body.Max = projects.MaxEnvironments
+	return out
 }
 
 func toProject(pr projects.Project) Project {
@@ -293,8 +408,10 @@ func (p *Projects) problem(ctx context.Context, op string, err error) error {
 	switch {
 	case errors.As(err, &taken):
 		return identity.ErrSlugTaken(taken.Suggestions)
-	case errors.Is(err, projects.ErrNotFound):
+	case errors.Is(err, projects.ErrNotFound), errors.Is(err, projects.ErrEnvironmentNotFound):
 		return identity.Err(identity.CodeNotFound)
+	case errors.Is(err, projects.ErrEnvironmentInUse):
+		return identity.Err(identity.CodeEnvironmentInUse)
 	case errors.Is(err, projects.ErrSlugImmutable):
 		return identity.Err(identity.CodeSlugImmutable)
 	case errors.Is(err, projects.ErrInvalid), errors.Is(err, projects.ErrTooManyEnvironments):
@@ -404,6 +521,44 @@ func (p *Projects) removeEnvironment(ctx context.Context, in *EnvironmentInput) 
 	return p.project(ctx, "remove environment", in.Slug, authz.ProjectEdit, func(id, user uuid.UUID) (projects.Project, error) {
 		return p.svc.RemoveEnvironment(ctx, user, id, in.Name)
 	})
+}
+
+func (p *Projects) listEnvironments(ctx context.Context, in *ProjectSlugInput) (*EnvironmentsOutput, error) {
+	t, _, err := authorizeProject(ctx, p.guard, p.logger, in.Slug, authz.ProjectView)
+	if err != nil {
+		return nil, err
+	}
+	envs, err := p.svc.ListEnvironments(ctx, t.ProjectID)
+	if err != nil {
+		return nil, p.problem(ctx, "list environments", err)
+	}
+	return toEnvironments(envs), nil
+}
+
+func (p *Projects) updateEnvironment(ctx context.Context, in *UpdateEnvironmentInput) (*EnvironmentOutput, error) {
+	t, uid, err := authorizeProject(ctx, p.guard, p.logger, in.Slug, authz.ProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	e, err := p.svc.UpdateEnvironment(ctx, uid, t.ProjectID, in.Name, projects.EnvironmentUpdate{
+		IsProduction: in.Body.IsProduction, Color: in.Body.Color, Hidden: in.Body.Hidden, Position: in.Body.Position,
+	})
+	if err != nil {
+		return nil, p.problem(ctx, "update environment", err)
+	}
+	return &EnvironmentOutput{Body: toEnvironment(e)}, nil
+}
+
+func (p *Projects) reorderEnvironments(ctx context.Context, in *ReorderEnvironmentsInput) (*EnvironmentsOutput, error) {
+	t, uid, err := authorizeProject(ctx, p.guard, p.logger, in.Slug, authz.ProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	envs, err := p.svc.ReorderEnvironments(ctx, uid, t.ProjectID, in.Body.Names)
+	if err != nil {
+		return nil, p.problem(ctx, "order environments", err)
+	}
+	return toEnvironments(envs), nil
 }
 
 func (p *Projects) slugAvailable(ctx context.Context, in *ProjectSlugAvailableInput) (*ProjectSlugAvailableOutput, error) {
