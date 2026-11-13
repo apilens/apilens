@@ -1,6 +1,6 @@
 // Access page shell (#801) against the fake identity (e2e-fake/fake-identity.ts): the Members, API
 // keys and Activity tabs, deep links, `aria-current`, the page title, Activity only with
-// `audit.read`, and the permanent redirect from the old `/settings/keys`. No email is sent.
+// `audit.read` (a direct link without it shows the not-allowed state), and the permanent redirect from the old `/settings/keys`. No email is sent.
 import { type Page, expect, test } from "@playwright/test";
 
 const IDENTITY = "http://localhost:18080";
@@ -61,8 +61,8 @@ test("a viewer sees Members and API keys read-only and no Activity tab", async (
   await page.waitForURL((url) => url.pathname === "/shop/access/keys");
   await expect(page.getByText("You can see this project’s keys but not change them.", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Revoke" })).toHaveCount(0);
-  const res = await page.goto("/shop/access/activity");
-  expect(res?.status()).toBe(404);
+  await page.goto("/shop/access/activity");
+  await expect(page.getByRole("heading", { name: "You can’t see this project’s activity log" })).toBeVisible();
 });
 
 test("unknown and nested tabs are 404", async ({ page }) => {
