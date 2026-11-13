@@ -262,6 +262,8 @@ contains API key material, and `audit.Redact` masks secret fields as
 | `api_key.expired` | a project API key passed its `expires_at` (written once by the hourly expiry job, with no actor; metadata has the key id, name, prefix, scopes and `expires_at`; never the key). Revoked and rotated keys get none: `api_key.revoked` and `api_key.rotated` already say when they stop working |
 | `project.paused` | ingest for a project is paused: the ingest edge answers 403 `project_paused` to its keys (changes: `paused`) |
 | `project.resumed` | ingest for a paused project is resumed (changes: `paused`) |
+| `project.deleted` | a project is deleted and scheduled for purge (changes: `purge_after`, when the purge job may remove it; the slug stays reserved until then) |
+| `project.restored` | a deleted project is restored before its purge; its access, API keys and slug come back as they were |
 
 ## Delivery
 

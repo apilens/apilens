@@ -3269,6 +3269,80 @@
         ],
         "type": "object"
       },
+      "DeleteProjectBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/DeleteProjectBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "confirm": {
+            "description": "The project's slug, typed by the user to confirm; anything else (or no body) answers confirmation_mismatch (422) and nothing changes.",
+            "maxLength": 63,
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "DeletedProject": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/DeletedProject.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deleted_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "purge_after": {
+            "description": "When the project and its data are removed for good; it can be restored until then.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "slug": {
+            "description": "The project's slug; reserved until the purge.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "description",
+          "created_at",
+          "deleted_at",
+          "purge_after"
+        ],
+        "type": "object"
+      },
       "DeployChange": {
         "additionalProperties": false,
         "properties": {
@@ -20133,6 +20207,234 @@
         ]
       }
     },
+    "/api/v1/orgs/{slug}/projects/deleted": {
+      "get": {
+        "description": "Lists the organization's deleted projects that can still be restored, most recently deleted first, with when each will be purged. Needs `manage` on the organization (owners and admins; 403 `forbidden` for members and viewers). An organization that does not exist or the user is not a member of answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
+        "operationId": "list-deleted-projects",
+        "parameters": [
+          {
+            "description": "The organization's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The organization's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeletedProject"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`.",
+            "x-apilens-codes": [
+              "forbidden"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "List an organization's deleted projects",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/orgs/{slug}/projects/{id}/restore": {
+      "post": {
+        "description": "Restores a deleted project of the organization before its purge and returns it: its access (default access and people added directly), API keys, apps, environments and slug are back exactly as before the delete. A project that is not deleted, belongs to another organization or is past `purge_after` answers `not_found` (404). Needs `manage` on the organization (owners and admins; 403 `forbidden` for members and viewers). Emits `project.restored`; audited as `project.restored`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. An organization that does not exist or the user is not a member of answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
+        "operationId": "restore-project",
+        "parameters": [
+          {
+            "description": "The organization's slug.",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "The organization's slug.",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The deleted project's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The deleted project's id.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized. Codes: `unauthenticated`.",
+            "x-apilens-codes": [
+              "unauthenticated"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden. Codes: `forbidden`, `reauth_required`.",
+            "x-apilens-codes": [
+              "forbidden",
+              "reauth_required"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found. Codes: `not_found`.",
+            "x-apilens-codes": [
+              "not_found"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error. Codes: `internal_error`.",
+            "x-apilens-codes": [
+              "internal_error"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable. Codes: `authz_unavailable`.",
+            "x-apilens-codes": [
+              "authz_unavailable"
+            ]
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Restore a deleted project",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
     "/api/v1/orgs/{slug}/sso": {
       "delete": {
         "description": "Removes the organization's OIDC connection; its members sign in by email, social or passkey again. Owners only (403 `forbidden` otherwise, 404 `not_found` for an organization the user cannot view). Answers `sso_not_configured` (409) when there is no connection. Audited as `sso.deleted`.",
@@ -23591,7 +23893,7 @@
     },
     "/api/v1/projects/{slug}": {
       "delete": {
-        "description": "Soft-deletes the project; its slug becomes free. Needs `delete` on the project (project admins, organization owners and admins; 403 `forbidden` for editors and viewers). Emits `project.deleted`. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
+        "description": "Deletes the project and schedules its purge after `project.deletion_grace` (7 days by default); returns when it will be purged. `confirm` must be the project's slug, else `confirmation_mismatch` (422) and nothing changes. From that moment the project is gone from every project endpoint, nobody holds a permission on it, its API keys are refused by ingest with 403 `project_deleted`, and its slug stays reserved. Organization owners and admins can restore it until `purge_after` (`POST /orgs/{slug}/projects/{id}/restore`). Needs `delete` on the project (project admins, organization owners and admins; 403 `forbidden` for editors and viewers). Emits `project.deleted`; audited as `project.deleted` with the purge date. Needs a sign-in less than `identity.sensitive_action_max_age` (10 minutes) old: an older session answers `reauth_required` (403) and the user signs in again. A project that does not exist or the user cannot view answers `not_found` (404), so the cases cannot be told apart; `authz_unavailable` (503) when permissions cannot be checked.",
         "operationId": "delete-project",
         "parameters": [
           {
@@ -23606,9 +23908,25 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteProjectBody"
+              }
+            }
+          }
+        },
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedProject"
+                }
+              }
+            },
+            "description": "OK"
           },
           "401": {
             "content": {
@@ -23648,6 +23966,19 @@
             "description": "Not Found. Codes: `not_found`.",
             "x-apilens-codes": [
               "not_found"
+            ]
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity. Codes: `confirmation_mismatch`.",
+            "x-apilens-codes": [
+              "confirmation_mismatch"
             ]
           },
           "500": {

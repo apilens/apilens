@@ -112,12 +112,12 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 
 const getActiveAPIKeyByHash = `-- name: GetActiveAPIKeyByHash :one
 SELECT k.id, k.project_id, k.scopes, k.expires_at, k.app_ids, k.rate_limit_per_minute, k.environments, p.slug AS project_slug, p.org_id,
-       (p.paused_at IS NOT NULL)::bool AS project_paused
+       (p.paused_at IS NOT NULL)::bool AS project_paused,
+       (p.deleted_at IS NOT NULL)::bool AS project_deleted
 FROM api_keys k
 JOIN projects p ON p.id = k.project_id
 WHERE k.key_hash = $1
   AND k.revoked_at IS NULL
-  AND p.deleted_at IS NULL
   AND (k.expires_at IS NULL OR k.expires_at > now())
 `
 
@@ -132,11 +132,14 @@ type GetActiveAPIKeyByHashRow struct {
 	ProjectSlug        string
 	OrgID              uuid.UUID
 	ProjectPaused      bool
+	ProjectDeleted     bool
 }
 
-// Resolves an ingest key to its project. Revoked, expired and keys of
-// deleted projects never match. project_paused: ingest is paused for the
-// project (the edge refuses the key, the query role does not).
+// Resolves an ingest key to its project. Revoked and expired keys never
+// match; a key of a deleted project matches with project_deleted set, and
+// the verifier refuses it (ingest answers project_deleted). project_paused:
+// ingest is paused for the project (the edge refuses the key, the query
+// role does not).
 func (q *Queries) GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error) {
 	row := q.db.QueryRow(ctx, getActiveAPIKeyByHash, keyHash)
 	var i GetActiveAPIKeyByHashRow
@@ -151,6 +154,7 @@ func (q *Queries) GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (Ge
 		&i.ProjectSlug,
 		&i.OrgID,
 		&i.ProjectPaused,
+		&i.ProjectDeleted,
 	)
 	return i, err
 }

@@ -50,8 +50,8 @@ SELECT key_hash FROM api_keys
 WHERE project_id = $1 AND revoked_at IS NULL
 `
 
-// The hashes of the project's keys that are not revoked, so a pause or
-// resume can drop them from every verifier cache.
+// The hashes of the project's keys that are not revoked, so a pause,
+// resume, delete or restore can drop them from every verifier cache.
 func (q *Queries) ListProjectKeyHashes(ctx context.Context, projectID uuid.UUID) ([]string, error) {
 	rows, err := q.db.Query(ctx, listProjectKeyHashes, projectID)
 	if err != nil {

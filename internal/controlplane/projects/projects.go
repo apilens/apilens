@@ -2,14 +2,17 @@
 // organization and their environments, and answers whether a project slug is
 // free.
 //
-// Project slugs are globally unique among active projects (the SDK's
-// project_slug check relies on it); the partial unique index
-// projects_slug_active is the final arbiter, so two concurrent creates of one
-// slug end with exactly one winner. Creating and deleting a project write the
-// project.created / project.deleted outbox rows (ADR 0006) in the same
-// transaction as the change. With an auditor (WithAudit), creating and
-// renaming a project and adding or removing an environment record
-// project.created, project.updated, environment.added and
+// Project slugs are globally unique among active projects and projects
+// awaiting purge (the SDK's project_slug check relies on it); the partial
+// unique indexes projects_slug_active and projects_slug_reserved are the
+// final arbiters, so two concurrent creates of one slug end with exactly one
+// winner. Creating and deleting a project write the project.created /
+// project.deleted outbox rows (ADR 0006) in the same transaction as the
+// change; deleting schedules the purge after a grace period during which
+// Restore brings the project back (lifecycle.go). With an auditor
+// (WithAudit), creating, renaming, deleting and restoring a project and
+// adding or removing an environment record project.created,
+// project.updated, project.deleted, project.restored, environment.added and
 // environment.removed in the same transaction. Creating a project also registers its default
 // app (slug = project slug), which receives records that name no app; other
 // apps are created by ingest from the app names SDKs send.
@@ -23,6 +26,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"slices"
 	"strings"
@@ -147,13 +151,21 @@ type Service struct {
 	// retention is how long data seen for an environment keeps it in use
 	// (WithDataRetention); zero means DefaultDataRetention.
 	retention time.Duration
-	// invalidate drops a key hash from every verifier cache (pause and
-	// resume); nil: they take effect within the key cache TTL.
-	invalidate func(ctx context.Context, hash string) error
+	// grace is how long a deleted project stays restorable
+	// (project.deletion_grace); invalidate drops a key hash from every
+	// ingest key cache on pause, resume, delete and restore (nil: caches
+	// expire on their own, within the key cache TTL).
+	grace      time.Duration
+	invalidate KeyInvalidator
+	logger     *slog.Logger
+	notifier   Notifier // nil: no emails
 }
 
-// New returns a Service over pool.
-func New(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
+// New returns a Service over pool. Deleted projects stay restorable for
+// DefaultDeletionGrace until WithDeletion says otherwise.
+func New(pool *pgxpool.Pool) *Service {
+	return &Service{pool: pool, grace: DefaultDeletionGrace, logger: slog.Default()}
+}
 
 // WithAudit audits project and environment changes and the creation of each
 // new project's default app.
@@ -187,7 +199,7 @@ func (s *Service) Create(ctx context.Context, user uuid.UUID, orgSlug, name, slu
 		return Project{}, s.taken(ctx, slug)
 	}
 	p, err := s.create(ctx, user, orgSlug, name, slug, envs)
-	if isViolation(err, "23505", "projects_slug_active") {
+	if isViolation(err, "23505", "projects_slug_active") || isViolation(err, "23505", "projects_slug_reserved") {
 		return Project{}, s.taken(ctx, slug)
 	}
 	return p, err
@@ -461,32 +473,6 @@ func (s *Service) RemoveEnvironment(ctx context.Context, user, id uuid.UUID, nam
 			Changes: audit.Diff(map[string]any{"name": name}, nil),
 		}, nil
 	})
-}
-
-// Delete soft-deletes the project id. In the same transaction it emits the
-// project.deleted outbox row (the relay then drops the project's
-// relationships from SpiceDB). The slug becomes free for a new project.
-func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("projects: begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := db.New(tx)
-	cur, err := lock(ctx, q, id)
-	if err != nil {
-		return err
-	}
-	if _, err := q.SoftDeleteProject(ctx, cur.ID); err != nil {
-		return fmt.Errorf("projects: delete: %w", err)
-	}
-	if err := outbox.Emit(ctx, tx, outbox.ProjectDeleted, cur.ID, outbox.ProjectDeletedPayload{ProjectID: cur.ID}); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("projects: commit: %w", err)
-	}
-	return nil
 }
 
 // write runs fn in a transaction on the row-locked project id, records the

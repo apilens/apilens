@@ -81,6 +81,12 @@ func TestTranslateEveryTopic(t *testing.T) {
 			"TOUCH project:" + p + "#default_viewer@organization:" + o + "#member",
 			"TOUCH project:" + p + "#default_viewer@organization:" + o + "#viewer",
 		}, "", []string{o}},
+		{ProjectRestoredPayload{ProjectID: proj, OrgID: org, DefaultAccess: "org_role", Members: []ProjectMemberGrant{{UserID: user, Role: "admin"}}}, []string{
+			"TOUCH project:" + p + "#org@organization:" + o,
+			"TOUCH project:" + p + "#default_editor@organization:" + o + "#member",
+			"TOUCH project:" + p + "#default_viewer@organization:" + o + "#viewer",
+			"TOUCH project:" + p + "#admin@user:" + u,
+		}, "", []string{o}},
 	}
 	if len(cases) != len(Topics) {
 		t.Fatalf("%d cases for %d topics", len(cases), len(Topics))
@@ -138,6 +144,9 @@ func TestTranslateRejects(t *testing.T) {
 	badRole, _ := json.Marshal(MembershipUpsertedPayload{OrgID: org, UserID: user, Role: "superuser"})
 	badProjectRole, _ := json.Marshal(ProjectMemberUpsertedPayload{ProjectID: uuid.New(), OrgID: org, UserID: user, Role: "owner"})
 	badAccess, _ := json.Marshal(ProjectAccessChangedPayload{ProjectID: uuid.New(), OrgID: org, DefaultAccess: "everyone"})
+	badRestoreAccess, _ := json.Marshal(ProjectRestoredPayload{ProjectID: uuid.New(), OrgID: org, DefaultAccess: "everyone"})
+	badRestoreRole, _ := json.Marshal(ProjectRestoredPayload{ProjectID: uuid.New(), OrgID: org, DefaultAccess: "none",
+		Members: []ProjectMemberGrant{{UserID: user, Role: "owner"}}})
 	for _, c := range []struct {
 		name    string
 		topic   Topic
@@ -149,6 +158,8 @@ func TestTranslateRejects(t *testing.T) {
 		{"unknown role", MembershipUpserted, badRole, ErrInvalid},
 		{"unknown project role", ProjectMemberUpserted, badProjectRole, ErrInvalid},
 		{"unknown default access", ProjectAccessChanged, badAccess, ErrInvalid},
+		{"restore with unknown default access", ProjectRestored, badRestoreAccess, ErrInvalid},
+		{"restore with unknown project role", ProjectRestored, badRestoreRole, ErrInvalid},
 	} {
 		if _, err := Translate(c.topic, c.payload); !errors.Is(err, c.want) {
 			t.Errorf("%s: err = %v, want %v", c.name, err, c.want)

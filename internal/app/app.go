@@ -496,7 +496,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		AppRejections: appRejections,
 		Access:        access.New(a.pool).WithAudit(audit.New(a.pool)).WithMaxDirectMembers(a.cfg.Access.MaxDirectMembersPerProject).WithNotifier(notify.New(a.jobs)),
 		Audit:         auditlog.New(a.pool, a.checker()),
-		Projects:      projects.New(a.pool).WithAudit(audit.New(a.pool)).WithAnyRepositoryHost(a.cfg.Integrations.AllowAnyRepositoryHost).WithDataRetention(time.Duration(a.cfg.Retention.Longest()) * 24 * time.Hour).WithKeyInvalidation(a.invalidateAPIKey),
+		Projects:      projects.New(a.pool).WithAudit(audit.New(a.pool)).WithAnyRepositoryHost(a.cfg.Integrations.AllowAnyRepositoryHost).WithDataRetention(time.Duration(a.cfg.Retention.Longest())*24*time.Hour).WithDeletion(a.cfg.Project.DeletionGrace, a.invalidateAPIKey, a.logger).WithNotifier(notify.New(a.jobs)),
 		APIKeys:       apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger).WithMaxKeys(a.cfg.Ingest.MaxKeysPerProject),
 		Privacy:       privacy.NewService(a.pool).WithAudit(audit.New(a.pool)),
 		Capture:       capture.NewService(a.pool, audit.New(a.pool)),

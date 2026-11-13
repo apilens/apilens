@@ -230,6 +230,45 @@ func TestVerifyNegativeCacheAndInvalidate(t *testing.T) {
 	}
 }
 
+// A key of a deleted project answers ErrProjectDeleted (which is also
+// ErrInvalidKey), from the cache too; deleting and restoring the project
+// invalidates the key, so each takes effect at once.
+func TestVerifyDeletedProject(t *testing.T) {
+	raw, _, hash, _ := Generate()
+	row := db.GetActiveAPIKeyByHashRow{ID: uuid.New(), ProjectID: uuid.New(), Scopes: []string{"ingest"}}
+	f := &fakeLookup{keys: map[string]db.GetActiveAPIKeyByHashRow{hash: row}}
+	v := newVerifier(f)
+	if _, err := v.Verify(context.Background(), raw); err != nil {
+		t.Fatalf("active project: %v", err)
+	}
+
+	// Delete: the row now says so; the invalidation drops the cached key.
+	f.mu.Lock()
+	row.ProjectDeleted = true
+	f.keys[hash] = row
+	f.mu.Unlock()
+	v.Invalidate(hash)
+	for range 2 {
+		_, err := v.Verify(context.Background(), raw)
+		if !errors.Is(err, ErrProjectDeleted) || !errors.Is(err, ErrInvalidKey) {
+			t.Fatalf("deleted project: err = %v, want ErrProjectDeleted wrapping ErrInvalidKey", err)
+		}
+	}
+	if n := f.calls.Load(); n != 2 {
+		t.Fatalf("lookups = %d, want 2 (deleted answer cached)", n)
+	}
+
+	// Restore.
+	f.mu.Lock()
+	row.ProjectDeleted = false
+	f.keys[hash] = row
+	f.mu.Unlock()
+	v.Invalidate(hash)
+	if p, err := v.Verify(context.Background(), raw); err != nil || p.KeyID != row.ID {
+		t.Fatalf("restored project: %+v, %v", p, err)
+	}
+}
+
 func TestVerifyMalformedSkipsLookup(t *testing.T) {
 	f := &fakeLookup{}
 	v := newVerifier(f)

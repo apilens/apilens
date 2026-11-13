@@ -498,6 +498,30 @@ func Translate(topic Topic, payload []byte) (Change, error) {
 			}
 		}
 		return Change{Updates: updates, Orgs: []string{p.OrgID.String()}}, nil
+	case ProjectRestored:
+		p, err := decode[ProjectRestoredPayload](topic, payload)
+		if err != nil {
+			return Change{}, err
+		}
+		want, ok := defaultAccessRelations[p.DefaultAccess]
+		if !ok {
+			return Change{}, fmt.Errorf("%w: %s has unknown default access %q", ErrInvalid, topic, p.DefaultAccess)
+		}
+		// project.deleted removed every relationship of the project, so
+		// restoring writes them all back: the org link, the default access
+		// and each direct grant, exactly as Postgres holds them.
+		updates := make([]*v1.RelationshipUpdate, 0, 1+len(want)+len(p.Members))
+		updates = append(updates, touch(projectOrg(p.ProjectID, p.OrgID)))
+		for _, d := range want {
+			updates = append(updates, touch(defaultRel(p.ProjectID, p.OrgID, d)))
+		}
+		for _, m := range p.Members {
+			if !slices.Contains(projectRoles, m.Role) {
+				return Change{}, fmt.Errorf("%w: %s has unknown role %q", ErrInvalid, topic, m.Role)
+			}
+			updates = append(updates, touch(projectRel(p.ProjectID, m.Role, m.UserID)))
+		}
+		return Change{Updates: updates, Orgs: []string{p.OrgID.String()}}, nil
 	default:
 		return Change{}, fmt.Errorf("%w: %q", ErrUnknownTopic, topic)
 	}

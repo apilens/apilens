@@ -177,3 +177,17 @@ Everyone in the organization gets a project role from the project's **default ac
 | `PATCH /api/v1/projects/{slug}/access` with `{"default_access": "none"}` | Changes the default access. Add `?dry_run=true` to see how many people would lose access (`lose_access`) without changing anything. |
 
 These need a project admin who signed in less than 10 minutes ago. A project has at most **500 people added directly**; one more answers `409 member_limit_reached`. Self-hosted installs change the cap with `access.max_direct_members_per_project` (`APILENS_ACCESS__MAX_DIRECT_MEMBERS_PER_PROJECT`, default `500`, `0` for no cap).
+
+## Deleting and restoring a project
+
+Deleting a project does not remove its data straight away. It is scheduled for purge after a **7-day grace period**, and until then an organization owner or admin can restore it exactly as it was: its access (default access and people added directly), API keys, apps, environments and slug.
+
+From the moment of deletion the project disappears from the dashboard and the API, its API keys are refused by ingest with `403 project_deleted`, and its slug stays reserved, so no other project can take it.
+
+| Request | What it does |
+|---|---|
+| `DELETE /api/v1/projects/{slug}` with `{"confirm": "<slug>"}` | Deletes the project and answers when it will be purged (`purge_after`). A confirmation other than the slug answers `422 confirmation_mismatch` and changes nothing. Needs a project admin. |
+| `GET /api/v1/orgs/{slug}/projects/deleted` | Lists the organization's deleted projects that can still be restored. Needs an organization owner or admin. |
+| `POST /api/v1/orgs/{slug}/projects/{id}/restore` | Restores a deleted project before its purge. Needs an organization owner or admin. |
+
+Deleting and restoring need a sign-in less than 10 minutes old, and the project admins get an email about each. Self-hosted installs change the grace period with `project.deletion_grace` (`APILENS_PROJECT__DELETION_GRACE`, default `168h`; `0s` schedules the purge at once).
