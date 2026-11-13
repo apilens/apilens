@@ -63,6 +63,11 @@ type Principal struct {
 	// Environments limits the key to these environment names; nil allows
 	// every environment.
 	Environments []string
+	// ExpiresAt is when the key stops working; nil if never. The verifier
+	// checks it on every use, so a cached key (for example one rotated with
+	// an overlap window) is rejected from that moment, not a cache cycle
+	// later.
+	ExpiresAt *time.Time
 }
 
 // AllowsEnvironment reports whether the key may send data for env, the
@@ -207,6 +212,10 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 	hash := Hash(raw)
 	if e, ok := v.positive.Get(hash); ok {
 		v.hits.Inc()
+		if e.principal.expired(time.Now()) {
+			v.positive.Remove(hash)
+			return Principal{}, ErrInvalidKey
+		}
 		v.touch(ctx, e.principal.KeyID)
 		return e.principal, nil
 	}
@@ -227,7 +236,7 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 		}
 		e := entry{valid: true, principal: Principal{
 			KeyID: row.ID, ProjectID: row.ProjectID, ProjectSlug: row.ProjectSlug,
-			OrgID: row.OrgID, Scopes: row.Scopes, AppIDs: row.AppIds, Environments: row.Environments,
+			OrgID: row.OrgID, Scopes: row.Scopes, AppIDs: row.AppIds, Environments: row.Environments, ExpiresAt: row.ExpiresAt,
 		}}
 		if row.RateLimitPerMinute != nil {
 			e.principal.RateLimitPerMinute = int(*row.RateLimitPerMinute)
@@ -246,6 +255,11 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Principal, error) {
 	}
 	v.touch(ctx, e.principal.KeyID)
 	return e.principal, nil
+}
+
+// expired reports whether the key has stopped working at now.
+func (p Principal) expired(now time.Time) bool {
+	return p.ExpiresAt != nil && !p.ExpiresAt.After(now)
 }
 
 // Invalidate drops a key hash from both caches (called on revocation and

@@ -827,6 +827,7 @@ Rules:
 | `member_gone` | 410 Gone | This person is no longer a member. Refresh the page. |
 | `api_key_gone` | 410 Gone | This API key no longer exists. Refresh the page. |
 | `key_limit_reached` | 409 Conflict | This project has the most active API keys it can have. Revoke one you no longer use, then try again. |
+| `key_not_active` | 409 Conflict | This API key is revoked, expired or already rotated, so it can't be rotated. Refresh the page. |
 | `sso_required` | 403 Forbidden | Your organization requires single sign-on. Sign in through your company's identity provider. |
 | `sso_not_configured` | 409 Conflict | Single sign-on isn't set up for this organization yet. |
 | `sso_untested` | 409 Conflict | Sign in through single sign-on at least once before you enforce it, so nobody gets locked out. |

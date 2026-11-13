@@ -24,6 +24,8 @@ const (
 	APIKeyPath  = APIKeysPath + "/{id}"
 	// APIKeyAccessPath is what a key may do with apps.
 	APIKeyAccessPath = APIKeyPath + "/access"
+	// APIKeyRotatePath replaces a key with a successor.
+	APIKeyRotatePath = APIKeyPath + "/rotate"
 )
 
 // APIKeyService creates, lists and revokes project API keys;
@@ -33,6 +35,7 @@ type APIKeyService interface {
 	List(ctx context.Context, user uuid.UUID, slug string) ([]apikeys.Key, error)
 	UpdateAccess(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID, a apikeys.Access) (apikeys.Key, error)
 	Revoke(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID) error
+	Rotate(ctx context.Context, user uuid.UUID, slug string, id uuid.UUID, overlap string) (apikeys.Rotated, error)
 }
 
 // APIKey is a project API key as listed to members. The raw key is never
@@ -56,6 +59,9 @@ type APIKey struct {
 	RevokedAt     *time.Time  `json:"revoked_at" required:"true" nullable:"true" doc:"When the key was revoked; null while it is active."`
 	// RateLimitPerMinute is the per-key ingest rate limit.
 	RateLimitPerMinute *int `json:"rate_limit_per_minute" required:"true" nullable:"true" doc:"The most records (requests, logs, spans, deploys) the ingest edge accepts with this key per minute, on top of the project quota; over it ingest answers 429 quota_exceeded with Retry-After. Null: no per-key limit."`
+	// RotatedFrom and RotatedTo link the keys of a rotation.
+	RotatedFrom *string `json:"rotated_from" required:"true" nullable:"true" format:"uuid" doc:"The key this one replaced when it was created by a rotation; null otherwise."`
+	RotatedTo   *string `json:"rotated_to" required:"true" nullable:"true" format:"uuid" doc:"The key that replaced this one in a rotation; null while it has not been rotated. A rotated key works until expires_at (the end of the overlap window)."`
 }
 
 // KeyCreator is the user who created an API key.
@@ -109,6 +115,26 @@ type UpdateAPIKeyAccessInput struct {
 	}
 	// RawBody tells an omitted environments field from null.
 	RawBody []byte
+}
+
+// RotateAPIKeyInput is the request of POST /api/v1/projects/{slug}/api-keys/{id}/rotate.
+type RotateAPIKeyInput struct {
+	APIKeyInput
+	Body struct {
+		Overlap string `json:"overlap" enum:"none,24h,7d" doc:"How long the old key keeps working: none (stops at once), 24h or 7d. Never later than the expiry it already has."`
+	}
+}
+
+// RotatedAPIKey is the successor of a rotation with its raw value, and the
+// old key with its new expiry.
+type RotatedAPIKey struct {
+	CreatedAPIKey
+	Previous APIKey `json:"previous" doc:"The rotated key: rotated_to names the new key and expires_at is the end of the overlap window."`
+}
+
+// RotateAPIKeyOutput is the response of POST /api/v1/projects/{slug}/api-keys/{id}/rotate.
+type RotateAPIKeyOutput struct {
+	Body RotatedAPIKey
 }
 
 // APIKeyOutput is a single key.
@@ -200,6 +226,25 @@ func (k *APIKeys) Register(api huma.API) {
 	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeAPIKeyGone, identity.CodeInternal), k.updateAccess)
 
 	huma.Register(api, identity.Operation(api, huma.Operation{
+		OperationID:   "rotate-api-key",
+		Method:        http.MethodPost,
+		Path:          APIKeyRotatePath,
+		DefaultStatus: http.StatusCreated,
+		Summary:       "Rotate an API key",
+		Description: "Replaces the key with a new one that has the same name, scopes, app scope, environments and rate limit, and returns the new key in full, once. " +
+			"The old key keeps working for the `overlap` window (`none`, `24h` or `7d`, never later than the expiry it already had) so deploys can switch over, then stops: " +
+			"its `expires_at` is the end of the window and `rotated_to` names the new key (`rotated_from` on the new key names the old one). " +
+			"With `none` every process drops the old key from its cache at once; at worst it is rejected within `ingest.key_cache_ttl` (60 s). " +
+			"A revoked, expired or already rotated key answers `key_not_active` (409); an id the project does not have answers `api_key_gone` (410). " +
+			"With an overlap the project briefly holds one more active key, so `key_limit_reached` (409) applies as for create. Owners, admins and members only. " +
+			"Audited as `api_key.rotated` with both key ids. " + recentAuth + notMember,
+		Tags:        tags,
+		Security:    security,
+		Middlewares: huma.Middlewares{authz.RequireRecentAuth(api, k.recentAuth)},
+	}, identity.CodeInvalidRequest, identity.CodeUnauthenticated, identity.CodeForbidden, identity.CodeReauthRequired, identity.CodeAPIKeyGone,
+		identity.CodeKeyNotActive, identity.CodeKeyLimitReached, identity.CodeInternal), k.rotate)
+
+	huma.Register(api, identity.Operation(api, huma.Operation{
 		OperationID:   "revoke-api-key",
 		Method:        http.MethodDelete,
 		Path:          APIKeyPath,
@@ -256,7 +301,18 @@ func toAPIKey(key apikeys.Key) APIKey {
 		RevokedAt:     utc(key.RevokedAt),
 
 		RateLimitPerMinute: key.RateLimitPerMinute,
+		RotatedFrom:        idString(key.RotatedFrom),
+		RotatedTo:          idString(key.RotatedTo),
 	}
+}
+
+// idString renders an optional id; nil stays nil.
+func idString(id *uuid.UUID) *string {
+	if id == nil {
+		return nil
+	}
+	s := id.String()
+	return &s
 }
 
 func utc(t *time.Time) *time.Time {
@@ -274,6 +330,8 @@ func (k *APIKeys) problem(ctx context.Context, op string, err error) error {
 		return identity.Err(identity.CodeForbidden)
 	case errors.Is(err, apikeys.ErrKeyNotFound):
 		return identity.Err(identity.CodeAPIKeyGone)
+	case errors.Is(err, apikeys.ErrKeyNotActive):
+		return identity.Err(identity.CodeKeyNotActive)
 	case errors.Is(err, apikeys.ErrKeyLimit):
 		return identity.Err(identity.CodeKeyLimitReached)
 	case errors.Is(err, apikeys.ErrInvalid):
@@ -376,4 +434,23 @@ func (k *APIKeys) revoke(ctx context.Context, in *APIKeyInput) (*struct{}, error
 		return nil, k.problem(ctx, "revoke api key", err)
 	}
 	return nil, nil
+}
+
+func (k *APIKeys) rotate(ctx context.Context, in *RotateAPIKeyInput) (*RotateAPIKeyOutput, error) {
+	uid, err := signedInUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(in.ID)
+	if err != nil {
+		return nil, identity.Err(identity.CodeInvalidRequest)
+	}
+	r, err := k.svc.Rotate(ctx, uid, in.Slug, id, in.Body.Overlap)
+	if err != nil {
+		return nil, k.problem(ctx, "rotate api key", err)
+	}
+	return &RotateAPIKeyOutput{Body: RotatedAPIKey{
+		CreatedAPIKey: CreatedAPIKey{APIKey: toAPIKey(r.Key), Key: r.Raw},
+		Previous:      toAPIKey(r.Old),
+	}}, nil
 }

@@ -84,6 +84,9 @@ const (
 	SessionReauthenticated Kind = "session.reauthenticated"
 	// SessionReauthFailed: a re-authentication attempt failed.
 	SessionReauthFailed Kind = "session.reauth_failed"
+	// APIKeyRotated: a project API key was replaced by a successor; the
+	// old one keeps working until the end of the overlap window.
+	APIKeyRotated Kind = "api_key.rotated"
 )
 
 var kinds = []Kind{
@@ -94,6 +97,7 @@ var kinds = []Kind{
 	APIKeyCreated, APIKeyRevoked, SSOUpdated, SSODeleted, CapturePolicyUpdated,
 	APIKeyUpdated, AppCreated, AppArchived, AppRestored, AppRenamed, AppMerged, AppDeleted, AppAcknowledged,
 	SessionReauthenticated, SessionReauthFailed,
+	APIKeyRotated,
 }
 
 // Kinds returns every known event kind, in catalogue order.

@@ -136,6 +136,9 @@ const (
 	// CodeKeyLimitReached: the project already has as many active API keys
 	// as it may (ingest.max_keys_per_project); revoke one first.
 	CodeKeyLimitReached ErrCode = "key_limit_reached"
+	// CodeKeyNotActive: the API key is revoked, expired or already rotated,
+	// so it cannot be rotated.
+	CodeKeyNotActive ErrCode = "key_not_active"
 	// CodeForbidden: authenticated and able to see the resource, but not
 	// allowed to perform the action.
 	CodeForbidden ErrCode = "forbidden"
@@ -193,6 +196,7 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeMemberGone:            {http.StatusGone, "Member gone", "The user is not a member of this organization."},
 	CodeAPIKeyGone:            {http.StatusGone, "API key gone", "The project has no such API key."},
 	CodeKeyLimitReached:       {http.StatusConflict, "API key limit reached", "This project has as many active API keys as it may have. Revoke one first."},
+	CodeKeyNotActive:          {http.StatusConflict, "API key not active", "The API key is revoked, expired or already rotated."},
 	CodeSSORequired:           {http.StatusForbidden, "Single sign-on required", "This organization requires single sign-on. Sign in through its identity provider."},
 	CodeSSONotConfigured:      {http.StatusConflict, "Single sign-on not configured", "This organization has no single sign-on connection."},
 	CodeSSOUntested:           {http.StatusConflict, "Single sign-on untested", "Sign in through single sign-on at least once before enforcing it."},

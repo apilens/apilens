@@ -31,12 +31,12 @@ func (q *Queries) CountActiveProjectAPIKeys(ctx context.Context, projectID uuid.
 
 const createAPIKey = `-- name: CreateAPIKey :one
 WITH k AS (
-    INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at, app_ids, created_by, rate_limit_per_minute, environments)
+    INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at, app_ids, created_by, rate_limit_per_minute, environments, rotated_from)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::uuid[], $9::uuid,
-            $10::integer, $11::text[])
-    RETURNING id, project_id, name, prefix, scopes, created_at, expires_at, app_ids, created_by, rate_limit_per_minute, environments
+            $10::integer, $11::text[], $12::uuid)
+    RETURNING id, project_id, name, prefix, scopes, created_at, expires_at, app_ids, created_by, rate_limit_per_minute, environments, rotated_from
 )
-SELECT k.id, k.project_id, k.name, k.prefix, k.scopes, k.created_at, k.expires_at, k.app_ids, k.rate_limit_per_minute, k.environments,
+SELECT k.id, k.project_id, k.name, k.prefix, k.scopes, k.created_at, k.expires_at, k.app_ids, k.rate_limit_per_minute, k.environments, k.rotated_from,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
@@ -54,6 +54,7 @@ type CreateAPIKeyParams struct {
 	CreatedBy          *uuid.UUID
 	RateLimitPerMinute *int32
 	Environments       []string
+	RotatedFrom        *uuid.UUID
 }
 
 type CreateAPIKeyRow struct {
@@ -67,6 +68,7 @@ type CreateAPIKeyRow struct {
 	AppIds             []uuid.UUID
 	RateLimitPerMinute *int32
 	Environments       []string
+	RotatedFrom        *uuid.UUID
 	CreatorID          *uuid.UUID
 	CreatorName        *string
 	CreatorEmail       *string
@@ -86,6 +88,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 		arg.CreatedBy,
 		arg.RateLimitPerMinute,
 		arg.Environments,
+		arg.RotatedFrom,
 	)
 	var i CreateAPIKeyRow
 	err := row.Scan(
@@ -99,6 +102,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 		&i.AppIds,
 		&i.RateLimitPerMinute,
 		&i.Environments,
+		&i.RotatedFrom,
 		&i.CreatorID,
 		&i.CreatorName,
 		&i.CreatorEmail,
@@ -149,7 +153,7 @@ func (q *Queries) GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (Ge
 
 const listProjectAPIKeys = `-- name: ListProjectAPIKeys :many
 SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.environments, k.created_at, k.expires_at, k.revoked_at, k.last_used_at,
-       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute,
+       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute, k.rotated_from, k.rotated_to,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM api_keys k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
@@ -171,6 +175,8 @@ type ListProjectAPIKeysRow struct {
 	LastUsedSdk        *string
 	LastUsedIp         *netip.Addr
 	RateLimitPerMinute *int32
+	RotatedFrom        *uuid.UUID
+	RotatedTo          *uuid.UUID
 	CreatorID          *uuid.UUID
 	CreatorName        *string
 	CreatorEmail       *string
@@ -201,6 +207,8 @@ func (q *Queries) ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) (
 			&i.LastUsedSdk,
 			&i.LastUsedIp,
 			&i.RateLimitPerMinute,
+			&i.RotatedFrom,
+			&i.RotatedTo,
 			&i.CreatorID,
 			&i.CreatorName,
 			&i.CreatorEmail,
@@ -263,7 +271,7 @@ func (q *Queries) ListProjectKeyApps(ctx context.Context, projectID uuid.UUID) (
 
 const lockProjectAPIKey = `-- name: LockProjectAPIKey :one
 SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.environments, k.key_hash, k.revoked_at, k.created_at, k.expires_at, k.last_used_at,
-       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute,
+       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute, k.rotated_from, k.rotated_to,
        u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
 FROM api_keys k
 LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
@@ -291,6 +299,8 @@ type LockProjectAPIKeyRow struct {
 	LastUsedSdk        *string
 	LastUsedIp         *netip.Addr
 	RateLimitPerMinute *int32
+	RotatedFrom        *uuid.UUID
+	RotatedTo          *uuid.UUID
 	CreatorID          *uuid.UUID
 	CreatorName        *string
 	CreatorEmail       *string
@@ -316,11 +326,31 @@ func (q *Queries) LockProjectAPIKey(ctx context.Context, arg LockProjectAPIKeyPa
 		&i.LastUsedSdk,
 		&i.LastUsedIp,
 		&i.RateLimitPerMinute,
+		&i.RotatedFrom,
+		&i.RotatedTo,
 		&i.CreatorID,
 		&i.CreatorName,
 		&i.CreatorEmail,
 	)
 	return i, err
+}
+
+const markAPIKeyRotated = `-- name: MarkAPIKeyRotated :exec
+UPDATE api_keys SET rotated_to = $1, expires_at = $2
+WHERE id = $3 AND rotated_to IS NULL
+`
+
+type MarkAPIKeyRotatedParams struct {
+	RotatedTo *uuid.UUID
+	ExpiresAt *time.Time
+	ID        uuid.UUID
+}
+
+// Links a rotated key to its successor and sets when it stops working (the
+// end of the overlap window).
+func (q *Queries) MarkAPIKeyRotated(ctx context.Context, arg MarkAPIKeyRotatedParams) error {
+	_, err := q.db.Exec(ctx, markAPIKeyRotated, arg.RotatedTo, arg.ExpiresAt, arg.ID)
+	return err
 }
 
 const markAppFirstSeen = `-- name: MarkAppFirstSeen :exec

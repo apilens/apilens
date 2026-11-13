@@ -132,6 +132,27 @@ func TestVerifyCarriesEnvironments(t *testing.T) {
 	}
 }
 
+// A cached key stops working the moment it expires (the end of a rotation's
+// overlap window), not a cache cycle later.
+func TestVerifyRejectsCachedKeyOnceExpired(t *testing.T) {
+	raw, _, hash, _ := Generate()
+	expires := time.Now().Add(300 * time.Millisecond)
+	f := &fakeLookup{keys: map[string]db.GetActiveAPIKeyByHashRow{
+		hash: {ID: uuid.New(), ProjectID: uuid.New(), Scopes: []string{"ingest"}, ExpiresAt: &expires},
+	}}
+	v := newVerifier(f)
+	if p, err := v.Verify(context.Background(), raw); err != nil || p.ExpiresAt == nil || !p.ExpiresAt.Equal(expires) {
+		t.Fatalf("before expiry = %+v, %v", p, err)
+	}
+	time.Sleep(time.Until(expires) + 10*time.Millisecond)
+	if _, err := v.Verify(context.Background(), raw); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("after expiry = %v, want ErrInvalidKey", err)
+	}
+	if n := f.calls.Load(); n != 1 {
+		t.Fatalf("lookups = %d, want 1 (served from the cache)", n)
+	}
+}
+
 func TestGenerateAndHash(t *testing.T) {
 	raw, prefix, hash, err := Generate()
 	if err != nil {

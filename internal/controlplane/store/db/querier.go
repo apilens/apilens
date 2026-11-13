@@ -362,6 +362,9 @@ type Querier interface {
 	// Serializes the transactions that save an enforcing connection, so two
 	// organizations cannot both start enforcing one domain.
 	LockSSOEnforcement(ctx context.Context) error
+	// Links a rotated key to its successor and sets when it stops working (the
+	// end of the overlap window).
+	MarkAPIKeyRotated(ctx context.Context, arg MarkAPIKeyRotatedParams) error
 	// Records the first notification of an event; later calls change nothing.
 	MarkAlertEventNotified(ctx context.Context, arg MarkAlertEventNotifiedParams) (int64, error)
 	MarkAppFirstSeen(ctx context.Context, arg MarkAppFirstSeenParams) error

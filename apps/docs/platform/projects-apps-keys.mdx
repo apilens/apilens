@@ -90,6 +90,15 @@ A key can also be pinned to some of the project's environments (`environments` w
 
 Permission and scope changes apply to the next request: every ingest process drops the cached key.
 
+### Rotate a key
+
+`POST /api/v1/projects/{slug}/api-keys/{id}/rotate` with `{"overlap": "none" | "24h" | "7d"}` replaces a key with a new one that keeps its name, scopes, app limit, environments and rate limit. The new key is returned in full, once. The old key keeps working for the overlap window so you can roll the new one out without dropping data, then stops: its `expires_at` is the end of the window (never later than the expiry it already had) and `rotated_to` names the new key; the new key's `rotated_from` names the old one.
+
+- `24h` or `7d`: both keys ingest until the window ends; the old key is rejected from that moment on.
+- `none`: the old key stops at once. Every ingest replica drops it from its key cache straight away; if that message is lost it is rejected at the latest after `ingest.key_cache_ttl` (default 60 s).
+
+A key that is revoked, expired or already rotated answers `409 key_not_active`. Rotation needs a recent sign-in, like creating a key, and is recorded in the audit log as `api_key.rotated`.
+
 ### Key limits
 
 A project has at most **50 active keys** (not revoked, not expired). Creating one more answers `409 key_limit_reached`; revoke a key you no longer use first. Self-hosted installs change the cap with `ingest.max_keys_per_project` (`APILENS_INGEST__MAX_KEYS_PER_PROJECT`, default `50`, `0` for no cap).
