@@ -506,6 +506,7 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 		Logger:        a.logger,
 
 		SensitiveActionMaxAge: a.cfg.Identity.SensitiveActionMaxAge,
+		AuditRetentionDays:    a.cfg.Audit.Retention,
 
 		// Invitation emails are enqueued here and sent by the role that
 		// runs the email worker (identity).
@@ -698,6 +699,9 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	// Deleted accounts are purged hourly once their grace period has passed.
 	jobs.Register(a.workers, account.NewPurgeWorker(a.pool, a.logger))
 	a.workers.Periodic(account.PurgeInterval, account.PurgeArgs{})
+	// Audit events older than audit.retention are deleted daily.
+	jobs.Register(a.workers, audit.NewRetentionWorker(audit.NewPruner(a.pool, audit.RetentionOptions{Days: a.cfg.Audit.Retention}), a.logger))
+	a.workers.Periodic(audit.RetentionInterval, audit.RetentionArgs{})
 	return modules.ServiceFunc(signingKeys.Run), nil
 }
 

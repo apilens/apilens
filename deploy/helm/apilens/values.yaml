@@ -107,6 +107,9 @@ config:
   APILENS_LOG__FORMAT: json
   APILENS_SINK__MODE: direct
   APILENS_SINK__ACK: flush
+  # Days audit events are kept (audit.retention); a daily job deletes older
+  # ones. At least 30, or 0 to keep them forever.
+  APILENS_AUDIT__RETENTION: 400
 
 # Connection settings for externally operated datastores.
 externalPostgres:

@@ -19,8 +19,9 @@ import (
 )
 
 type auditList struct {
-	Events     []AuditEvent `json:"events"`
-	NextCursor string       `json:"next_cursor"`
+	Events        []AuditEvent `json:"events"`
+	NextCursor    string       `json:"next_cursor"`
+	RetentionDays int          `json:"retention_days"`
 }
 
 type auditFixture struct {
@@ -39,7 +40,7 @@ func setupAuditEvents(t *testing.T) *auditFixture {
 	f := &auditFixture{accessFixture: setupAccess(t), hidden: uuid.New()}
 	logger := testutil.Logger(t)
 	guard := authz.NewGuard(f.authz, authz.NewPGResolver(f.pool), authz.GuardOptions{}, logger)
-	NewAuditEvents(auditlog.New(f.pool, f.authz), guard, guard, logger).Register(f.api)
+	NewAuditEvents(auditlog.New(f.pool, f.authz), guard, guard, logger).WithRetention(400).Register(f.api)
 
 	tx, err := f.pool.Begin(f.ctx)
 	if err != nil {
@@ -97,6 +98,9 @@ func TestProjectAuditEvents(t *testing.T) {
 	want := f.count(t, `SELECT count(*) FROM audit_events WHERE project_id = $1`, f.project)
 	if len(all.Events) != want || want < 6 || all.NextCursor != "" {
 		t.Fatalf("events = %d (want %d), next %q", len(all.Events), want, all.NextCursor)
+	}
+	if all.RetentionDays != 400 {
+		t.Fatalf("retention_days = %d, want 400", all.RetentionDays)
 	}
 	for _, e := range all.Events {
 		if e.Action == "api_key.created" && e.Target.Label == "Hidden" {
@@ -215,6 +219,9 @@ func TestOrgAuditEvents(t *testing.T) {
 	path := OrgsPath + "/acme/audit-events"
 
 	l := f.listAudit(t, "owner", path, nil)
+	if l.RetentionDays != 400 {
+		t.Fatalf("retention_days = %d, want 400", l.RetentionDays)
+	}
 	var orgWide, shop int
 	for _, e := range l.Events {
 		switch {

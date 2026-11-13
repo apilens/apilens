@@ -6893,11 +6893,18 @@
           "next_cursor": {
             "description": "Pass as cursor for the next page; empty on the last page.",
             "type": "string"
+          },
+          "retention_days": {
+            "description": "How many days audit events are kept (the install's audit.retention); older ones are deleted daily. 0 means they are kept forever.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [
           "events",
-          "next_cursor"
+          "next_cursor",
+          "retention_days"
         ],
         "type": "object"
       },
