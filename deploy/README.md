@@ -46,6 +46,7 @@ apilens user promote -email=teammate@example.com -org=acme -role=admin
 | Command | Does |
 |---|---|
 | `apilens seed` | creates or reuses the dev org/project/app, issues new keys, makes `dev@example.com` (or `-user-email`) an owner and prints its `magic_link` |
+| `apilens seed -with-team` | the same, plus demo members, a restricted project with direct grants, environment settings and API keys in every state (see `CONTRIBUTING.md`); re-running changes none of that data |
 | `apilens user create -email -org [-role=member]` | creates the user if no account has the address (its email counts as verified) and adds it to the organization, or changes its role |
 | `apilens user promote -email -org [-role=owner]` | the same for an existing user only; the last owner of an organization cannot be demoted |
 | `apilens user magic-link -email` | prints a sign-in link for an existing user without sending email |
