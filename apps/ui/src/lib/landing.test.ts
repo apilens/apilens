@@ -30,8 +30,8 @@ const ACME: ContextOrg = {
   name: "Acme",
   role: "owner",
   projects: [
-    { id: "p1", slug: "shop", name: "shop", environments: ["production"], app_count: 1 },
-    { id: "p2", slug: "billing", name: "billing", environments: ["production"], app_count: 1 },
+    { id: "p1", slug: "shop", name: "shop", environments: ["production"], app_count: 1, role: "admin" as const },
+    { id: "p2", slug: "billing", name: "billing", environments: ["production"], app_count: 1, role: "admin" as const },
   ],
 };
 

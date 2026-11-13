@@ -41,7 +41,7 @@ const ACME: ContextOrg = {
   slug: "acme",
   name: "Acme",
   role: "owner",
-  projects: [{ id: "p1", slug: "shop", name: "shop", environments: ["production"], app_count: 1 }],
+  projects: [{ id: "p1", slug: "shop", name: "shop", environments: ["production"], app_count: 1, role: "admin" as const }],
 };
 
 const INITECH = { id: "o3", slug: "initech", name: "Initech", member_count: 3, project_count: 0, member_initials: ["PG"] };

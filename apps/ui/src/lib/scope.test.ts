@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UserContext } from "./identity";
-import { findOrg, findProject, orgHome, orgMark, plural, roleLabel, userLabel } from "./scope";
+import { findOrg, findProject, orgHome, orgMark, plural, projectRoleLabel, roleLabel, userLabel } from "./scope";
 
 const CTX = {
   orgs: [
@@ -10,8 +10,8 @@ const CTX = {
       name: "Acme Retail",
       role: "owner",
       projects: [
-        { id: "p1", slug: "shop", name: "shop", environments: ["production", "staging"], app_count: 1 },
-        { id: "p2", slug: "billing", name: "billing", environments: ["production"], app_count: 1 },
+        { id: "p1", slug: "shop", name: "shop", environments: ["production", "staging"], app_count: 1, role: "admin" as const },
+        { id: "p2", slug: "billing", name: "billing", environments: ["production"], app_count: 1, role: "admin" as const },
       ],
     },
     { id: "o2", slug: "labs", name: "labs", role: "viewer", projects: [] },
@@ -43,6 +43,8 @@ describe("labels", () => {
   it("formats marks, roles and counts", () => {
     expect(orgMark(CTX.orgs[1])).toBe("L");
     expect(roleLabel("admin")).toBe("Admin");
+    expect(projectRoleLabel("editor")).toBe("Editor");
+    expect(projectRoleLabel("viewer")).toBe("Viewer");
     expect(plural(1, "project")).toBe("1 project");
     expect(plural(0, "project")).toBe("0 projects");
   });

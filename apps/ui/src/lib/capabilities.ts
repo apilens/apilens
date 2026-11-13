@@ -22,6 +22,10 @@ export const ACTIONS = [
   "capture.manage",
   /** `project#manage_alerts`: alert rules, notification channels and test notifications. */
   "alerts.manage",
+  /** `project#manage_access`: grant, change and remove project roles and the default access. */
+  "access.manage",
+  /** `project#view_audit`: the project's activity log. */
+  "audit.read",
   /** `organization#invite`: the invite dialog and Invitations page. */
   "members.invite",
   /** `organization#manage_members`: role changes and removal on Members. */
