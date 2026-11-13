@@ -803,6 +803,10 @@ export interface Project {
 /** `PATCH /projects/{slug}`: only the fields sent change; `repository_url: ""` removes the link. */
 export interface UpdateProjectRequest {
   repository_url?: string;
+  /** Trimmed; 1 to 100 characters (#805). */
+  name?: string;
+  /** Trimmed; at most 280 characters, "" clears it (#805). */
+  description?: string;
 }
 
 export interface CreateProjectRequest {
@@ -1802,6 +1806,109 @@ export interface ProjectUsage {
   quota: QuotaUsage;
 }
 
+// Project settings (#805): general, danger zone (#753 D8, D9), environments (D11) and retention
+// (D10). Shapes as in api/openapi/apilens.v1.json.
+
+/** A project with every field the spec's `Project` has, as the settings operations return it. */
+export interface ProjectDetail extends Project {
+  /** Empty when the project has none; at most 280 characters. */
+  description: string;
+  org_id: string;
+  org_slug: string;
+  /** The signed-in user's effective project role. */
+  role: ProjectRole;
+  created_at: string;
+  /** When the name, description or repository link last changed. */
+  updated_at: string;
+  /** Null when unknown (older projects, deleted user). */
+  created_by: string | null;
+  /** The https URL of the source repository; null when none is set. */
+  repository_url: string | null;
+  /** Commit URL with `{commit}`; null without a repository or on an unknown host. */
+  commit_url_template: string | null;
+  /** Release URL with `{release}`; null under the same conditions. */
+  release_url_template: string | null;
+  /** While set, ingest answers 403 `project_paused` to the project's keys. */
+  paused_at: string | null;
+  paused_by: string | null;
+  /** The current slug: differs from the one asked for when that one was retired by a rename (#794). */
+  canonical_slug: string;
+}
+
+/** A deleted project, restorable until `purge_after` (`DeletedProject`, #753 D8). */
+export interface DeletedProject {
+  id: string;
+  /** Reserved until the purge. */
+  slug: string;
+  name: string;
+  description: string;
+  created_at: string;
+  deleted_at: string;
+  purge_after: string;
+}
+
+/** The fixed environment palette (`Environment.color`). */
+export type EnvironmentColor = "gray" | "red" | "orange" | "yellow" | "green" | "teal" | "blue" | "purple";
+
+/** One environment of a project with its settings (`Environment`, #753 D11). */
+export interface Environment {
+  name: string;
+  is_production: boolean;
+  color: EnvironmentColor | null;
+  /** Index in the project's order, 0 first. */
+  position: number;
+  /** Hidden environments still ingest; pickers leave them out by default. */
+  hidden: boolean;
+  hidden_at: string | null;
+  /** `sdk` when ingest registered it, `dashboard` when someone added it. */
+  source: "sdk" | "dashboard";
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+  /** Data seen within the install's telemetry retention. */
+  has_data: boolean;
+  /** Active API keys pinned to it. */
+  api_keys: number;
+  /** Health checks that use it. */
+  health_checks: number;
+  /** False when it has data, a pinned key or a health check: hide it instead. */
+  deletable: boolean;
+}
+
+/** `GET /projects/{slug}/environments` and `PUT .../environments/order`: hidden ones included, in order. */
+export interface EnvironmentsList {
+  environments: Environment[] | null;
+  max_environments: number;
+}
+
+/** `PATCH /projects/{slug}/environments/{name}`: an omitted field is unchanged; color `none` clears it. */
+export interface UpdateEnvironmentRequest {
+  is_production?: boolean;
+  color?: EnvironmentColor | "none";
+  hidden?: boolean;
+  /** Past the end moves it last. */
+  position?: number;
+}
+
+/** A telemetry signal with its own retention (`RetentionSignal.key`). */
+export type RetentionSignalKey = "requests" | "logs" | "spans" | "rollups_1m" | "rollups_1h" | "deploys";
+
+/** How long one signal is kept (`RetentionSignal`, #753 D10); read-only in the UI. */
+export interface RetentionSignal {
+  key: RetentionSignalKey;
+  label: string;
+  period_days: number;
+  /** What the signal holds and which screens read it. */
+  covers: string;
+  /** Whether the install may change it (`retention.<key>`); never per project. */
+  configurable: boolean;
+}
+
+/** `GET /projects/{slug}/retention`: one entry per signal, in display order. */
+export interface Retention {
+  signals: RetentionSignal[] | null;
+}
+
 /** SDK delivery counters summed over the instances seen in the last hour. */
 export interface AppSdkStats {
   instances: number;
@@ -2438,7 +2545,7 @@ export function createClient(config: ClientConfig) {
       request<Project>("POST", `/orgs/${seg(orgSlug)}/projects`, { ...o, body }),
     getProject: (slug: string, o: Authed) => request<Project>("GET", `/projects/${seg(slug)}`, o),
     updateProject: (slug: string, body: UpdateProjectRequest, o: Authed) =>
-      request<Project>("PATCH", `/projects/${seg(slug)}`, { ...o, body }),
+      request<ProjectDetail>("PATCH", `/projects/${seg(slug)}`, { ...o, body }),
     projectSlugAvailable: (slug: string, o: Authed) =>
       request<SlugAvailability>("GET", "/projects/slug-available", { ...o, query: { slug } }),
     ingestStatus: (projectSlug: string, o: Authed) =>
@@ -2647,6 +2754,36 @@ export function createClient(config: ClientConfig) {
       request<void>("DELETE", `/projects/${seg(projectSlug)}/apps/${seg(id)}`, o),
     appRejections: (projectSlug: string, days: number, o: Authed) =>
       request<AppRejections>("GET", `/projects/${seg(projectSlug)}/app-rejections`, { ...o, query: { days } }),
+
+    // api: project settings (#805): danger zone, environments, retention (updateProject above) --
+    /** `confirm` is the slug the user typed; anything else answers `confirmation_mismatch`. */
+    deleteProject: (projectSlug: string, confirm: string, o: Authed) =>
+      request<DeletedProject>("DELETE", `/projects/${seg(projectSlug)}`, { ...o, body: { confirm } }),
+    /** The slug rename of #794 (D9): the old slug redirects and stays reserved for 30 days. */
+    renameProject: (projectSlug: string, slug: string, o: Authed) =>
+      request<ProjectDetail>("POST", `/projects/${seg(projectSlug)}/rename`, { ...o, body: { slug } }),
+    pauseProject: (projectSlug: string, o: Authed) =>
+      request<ProjectDetail>("POST", `/projects/${seg(projectSlug)}/pause`, o),
+    resumeProject: (projectSlug: string, o: Authed) =>
+      request<ProjectDetail>("POST", `/projects/${seg(projectSlug)}/resume`, o),
+    listDeletedProjects: (orgSlug: string, o: Authed) =>
+      request<DeletedProject[] | null>("GET", `/orgs/${seg(orgSlug)}/projects/deleted`, o),
+    restoreProject: (orgSlug: string, id: string, o: Authed) =>
+      request<ProjectDetail>("POST", `/orgs/${seg(orgSlug)}/projects/${seg(id)}/restore`, o),
+    listEnvironments: (projectSlug: string, o: Authed) =>
+      request<EnvironmentsList>("GET", `/projects/${seg(projectSlug)}/environments`, o),
+    addEnvironment: (projectSlug: string, name: string, o: Authed) =>
+      request<ProjectDetail>("POST", `/projects/${seg(projectSlug)}/environments`, { ...o, body: { name } }),
+    updateEnvironment: (projectSlug: string, name: string, body: UpdateEnvironmentRequest, o: Authed) =>
+      request<Environment>("PATCH", `/projects/${seg(projectSlug)}/environments/${seg(name)}`, { ...o, body }),
+    /** The named environments go first in this order; the others follow in their current order. */
+    reorderEnvironments: (projectSlug: string, names: string[], o: Authed) =>
+      request<EnvironmentsList>("PUT", `/projects/${seg(projectSlug)}/environments/order`, { ...o, body: { names } }),
+    /** `environment_in_use` (409) when it has data, a pinned key or a health check: hide it instead. */
+    removeEnvironment: (projectSlug: string, name: string, o: Authed) =>
+      request<ProjectDetail>("DELETE", `/projects/${seg(projectSlug)}/environments/${seg(name)}`, o),
+    projectRetention: (projectSlug: string, o: Authed) =>
+      request<Retention>("GET", `/projects/${seg(projectSlug)}/retention`, o),
   };
 }
 

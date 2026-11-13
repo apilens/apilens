@@ -415,6 +415,20 @@ describe("operations", () => {
     ["POST", "/projects/{slug}/apps/{id}/merge", (c) => c.mergeApp("a/b?c", "a/b?c", "b1", authed)],
     ["DELETE", "/projects/{slug}/apps/{id}", (c) => c.deleteApp("a/b?c", "a/b?c", authed)],
     ["GET", "/projects/{slug}/app-rejections", (c) => c.appRejections("a/b?c", 7, authed)],
+    ["PATCH", "/projects/{slug}", (c) => c.updateProject("a/b?c", { name: "Shop" }, authed)],
+    ["DELETE", "/projects/{slug}", (c) => c.deleteProject("a/b?c", "a/b?c", authed)],
+    ["POST", "/projects/{slug}/rename", (c) => c.renameProject("a/b?c", "shop-api", authed)],
+    ["POST", "/projects/{slug}/pause", (c) => c.pauseProject("a/b?c", authed)],
+    ["POST", "/projects/{slug}/resume", (c) => c.resumeProject("a/b?c", authed)],
+    ["GET", "/orgs/{slug}/projects/deleted", (c) => c.listDeletedProjects("a/b?c", authed)],
+    ["POST", "/orgs/{slug}/projects/{id}/restore", (c) => c.restoreProject("a/b?c", "a/b?c", authed)],
+    ["GET", "/projects/{slug}/environments", (c) => c.listEnvironments("a/b?c", authed)],
+    ["POST", "/projects/{slug}/environments", (c) => c.addEnvironment("a/b?c", "canary", authed)],
+    ["PUT", "/projects/{slug}/environments/order", (c) => c.reorderEnvironments("a/b?c", ["staging"], authed)],
+    ["PATCH", "/projects/{slug}/environments/{name}", (c) => c.updateEnvironment("a/b?c", "a/b?c", { hidden: true }, authed)],
+    ["DELETE", "/projects/{slug}/environments/{name}", (c) => c.removeEnvironment("a/b?c", "a/b?c", authed)],
+    ["GET", "/projects/{project}/retention", (c) => c.projectRetention("a/b?c", authed)],
+    ["GET", "/projects/{project}/usage", (c) => c.projectUsage("a/b?c", 30, authed)],
     ["GET", "/projects/{slug}/privacy-policy", (c) => c.getPrivacyPolicy("a/b?c", authed)],
     [
       "PUT",
@@ -695,5 +709,47 @@ describe("access, audit and key rotation operations (#804)", () => {
     expect(url.pathname).toBe("/api/v1/projects/a%2Fb/audit-events/export");
     expect(Object.fromEntries(url.searchParams)).toEqual({ action: "project_member.", to: "2026-11-13T00:00:00Z", format: "csv" });
     expect(client.auditExportUrl({ org: "acme" })).toBe(`${BASE}/api/v1/orgs/acme/audit-events/export?format=csv`);
+  });
+});
+
+describe("project settings operations (#805)", () => {
+  const authed = { accessToken: "jwt" };
+
+  it("sends each change as the body the spec names", async () => {
+    const { client, calls } = recordingClient(() => json({}));
+    await client.updateProject("shop", { description: "", repository_url: "https://github.com/acme/shop" }, authed);
+    await client.deleteProject("shop", "shop", authed);
+    await client.renameProject("shop", "shop-api", authed);
+    await client.addEnvironment("shop", "canary", authed);
+    await client.updateEnvironment("shop", "qa legacy", { color: "none", position: 0 }, authed);
+    await client.reorderEnvironments("shop", ["staging", "production"], authed);
+    await client.projectUsage("shop", 30, authed);
+    expect(calls.map((c) => [c.method, new URL(c.url).pathname + new URL(c.url).search, c.body])).toEqual([
+      ["PATCH", "/api/v1/projects/shop", { description: "", repository_url: "https://github.com/acme/shop" }],
+      ["DELETE", "/api/v1/projects/shop", { confirm: "shop" }],
+      ["POST", "/api/v1/projects/shop/rename", { slug: "shop-api" }],
+      ["POST", "/api/v1/projects/shop/environments", { name: "canary" }],
+      ["PATCH", "/api/v1/projects/shop/environments/qa%20legacy", { color: "none", position: 0 }],
+      ["PUT", "/api/v1/projects/shop/environments/order", { names: ["staging", "production"] }],
+      ["GET", "/api/v1/projects/shop/usage?days=30", undefined],
+    ]);
+    expect(calls.every((c) => c.headers.get("authorization") === "Bearer jwt")).toBe(true);
+  });
+
+  it("sends no body to pause, resume, restore and remove", async () => {
+    const { client, calls } = recordingClient(() => json({}));
+    await client.pauseProject("shop", authed);
+    await client.resumeProject("shop", authed);
+    await client.restoreProject("acme", "p1", authed);
+    await client.removeEnvironment("shop", "preview", authed);
+    expect(calls.map((c) => c.body)).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it("surfaces environment_in_use and confirmation_mismatch as ApiErrors", async () => {
+    const { client } = recordingClient((req) =>
+      req.method === "DELETE" && req.url.includes("/environments/") ? problem(409, { code: "environment_in_use" }) : problem(422, { code: "confirmation_mismatch" }),
+    );
+    await expect(client.removeEnvironment("shop", "production", authed)).rejects.toMatchObject({ status: 409, code: "environment_in_use" });
+    await expect(client.deleteProject("shop", "shp", authed)).rejects.toMatchObject({ status: 422, code: "confirmation_mismatch" });
   });
 });
