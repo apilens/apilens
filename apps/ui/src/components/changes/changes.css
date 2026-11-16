@@ -177,3 +177,12 @@ a.chd-code:focus-visible { outline: 2px solid var(--accent-ink); outline-offset:
   .chd-ep tr.ch-row { padding-left: 0; padding-right: 0; }
   .chd-facts { gap: var(--space-3) var(--space-6); }
 }
+
+/* No deploys yet (#997): how to record them, tabbed per SDK (.sdk-tabs, .ins-* code blocks). */
+.ch-notice + .ch-setup { margin-top: var(--space-4); }
+.ch-setup { padding: var(--space-4) var(--space-4) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
+.ch-setup h2 { margin: 0; font: 600 15px/22px var(--font-sans); color: var(--ink); }
+.ch-setup__lead { margin: var(--space-2) 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.ch-setup__lead code { font: 400 12px/18px var(--font-mono); color: var(--ink); }
+.ch-setup .sdk-tabs { margin-top: var(--space-3); }
+.ch-setup__links { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: var(--space-3) 0 0; font: 400 13px/20px var(--font-sans); }

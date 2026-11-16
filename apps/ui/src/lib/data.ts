@@ -46,7 +46,7 @@ export const VIEWS = [
   { slug: "performance", label: "Performance", section: "Monitor" },
   { slug: "consumers", label: "Consumers", section: "Monitor" },
   { slug: "apps", label: "Apps", section: "Catalog" },
-  { slug: "changes", label: "Changes", section: "Catalog" },
+  { slug: "changes", label: "Deploys", section: "Catalog" },
   { slug: "access", label: "Access", section: "Configure" },
 ] as const;
 /** Where a project opens. */
