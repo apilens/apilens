@@ -9986,7 +9986,7 @@
             "type": "string"
           },
           "logs": {
-            "description": "Logs of the request's trace, oldest first (at most 500); empty without a trace id.",
+            "description": "Logs of the request's trace, oldest first (at most 2000); empty without a trace id.",
             "items": {
               "$ref": "#/components/schemas/TraceLog"
             },
@@ -10000,7 +10000,7 @@
             "description": "The request record."
           },
           "spans": {
-            "description": "Spans of the request's trace, oldest first (at most 2000); empty without a trace id.",
+            "description": "Spans of the request's trace, oldest first (at most 10000); empty without a trace id.",
             "items": {
               "$ref": "#/components/schemas/SpanOut"
             },
@@ -10008,12 +10008,17 @@
               "array",
               "null"
             ]
+          },
+          "trace_truncated": {
+            "description": "True when the trace had more than 10000 spans or 2000 logs and the rest were left out.",
+            "type": "boolean"
           }
         },
         "required": [
           "request",
           "spans",
-          "logs"
+          "logs",
+          "trace_truncated"
         ],
         "type": "object"
       },
@@ -11352,6 +11357,51 @@
         ],
         "type": "object"
       },
+      "SpanEventOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attributes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Event attributes, as strings.",
+            "type": "object"
+          },
+          "name": {
+            "description": "Event name, e.g. exception.",
+            "type": "string"
+          },
+          "time": {
+            "description": "When the event happened (nanosecond precision).",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "time",
+          "name",
+          "attributes"
+        ],
+        "type": "object"
+      },
+      "SpanLinkOut": {
+        "additionalProperties": false,
+        "properties": {
+          "span_id": {
+            "description": "Span id of the linked span.",
+            "type": "string"
+          },
+          "trace_id": {
+            "description": "Trace id of the linked span.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "span_id"
+        ],
+        "type": "object"
+      },
       "SpanOut": {
         "additionalProperties": false,
         "properties": {
@@ -11367,9 +11417,29 @@
             "format": "double",
             "type": "number"
           },
+          "events": {
+            "description": "Timestamped span events, oldest first, e.g. an exception event with exception.type, exception.message and exception.stacktrace attributes.",
+            "items": {
+              "$ref": "#/components/schemas/SpanEventOut"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "kind": {
             "description": "OpenTelemetry span kind: server, client, internal, producer or consumer.",
             "type": "string"
+          },
+          "links": {
+            "description": "Spans this span links to.",
+            "items": {
+              "$ref": "#/components/schemas/SpanLinkOut"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "name": {
             "description": "Span name, e.g. GET /orders/{id} or SELECT orders.",
@@ -11401,6 +11471,10 @@
             "format": "int32",
             "minimum": 0,
             "type": "integer"
+          },
+          "status_message": {
+            "description": "Status description, e.g. why the span failed; empty when none was reported.",
+            "type": "string"
           }
         },
         "required": [
@@ -11413,7 +11487,10 @@
           "duration_ms",
           "status",
           "status_code",
-          "attributes"
+          "status_message",
+          "attributes",
+          "events",
+          "links"
         ],
         "type": "object"
       },
@@ -11711,12 +11788,27 @@
       "TraceLog": {
         "additionalProperties": false,
         "properties": {
+          "attributes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Log attributes, as strings, e.g. exception.type, exception.message, exception.chain_depth.",
+            "type": "object"
+          },
           "level": {
             "description": "Log level, e.g. INFO, WARNING, ERROR.",
             "type": "string"
           },
+          "logger_name": {
+            "description": "Logger that emitted the record, e.g. apilens.exception; empty when not reported.",
+            "type": "string"
+          },
           "message": {
             "description": "Log message.",
+            "type": "string"
+          },
+          "payload": {
+            "description": "Structured payload of the record; for an apilens.exception log, the full exception (type, message, frames and chained causes), at most 64 KiB with head and tail kept.",
             "type": "string"
           },
           "span_id": {
@@ -11733,7 +11825,10 @@
           "timestamp",
           "level",
           "message",
-          "span_id"
+          "logger_name",
+          "span_id",
+          "payload",
+          "attributes"
         ],
         "type": "object"
       },
@@ -11750,7 +11845,7 @@
             "type": "string"
           },
           "logs": {
-            "description": "Log records correlated with the trace, oldest first (at most 500).",
+            "description": "Log records correlated with the trace, oldest first (at most 2000).",
             "items": {
               "$ref": "#/components/schemas/TraceLog"
             },
@@ -11760,7 +11855,7 @@
             ]
           },
           "spans": {
-            "description": "Spans of the trace in the project, oldest first (at most 2000).",
+            "description": "Spans of the trace in the project, oldest first (at most 10000).",
             "items": {
               "$ref": "#/components/schemas/SpanOut"
             },
@@ -11772,12 +11867,17 @@
           "trace_id": {
             "description": "The trace id asked for.",
             "type": "string"
+          },
+          "truncated": {
+            "description": "True when the trace had more than 10000 spans or 2000 logs and the rest were left out.",
+            "type": "boolean"
           }
         },
         "required": [
           "trace_id",
           "spans",
-          "logs"
+          "logs",
+          "truncated"
         ],
         "type": "object"
       },

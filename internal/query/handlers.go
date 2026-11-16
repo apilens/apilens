@@ -545,30 +545,55 @@ type traceInput struct {
 }
 
 type spanOut struct {
-	SpanID       string            `json:"span_id" doc:"Span id (16 lowercase hex characters)."`
-	ParentSpanID string            `json:"parent_span_id" doc:"Parent span id; empty for a root span."`
-	Name         string            `json:"name" doc:"Span name, e.g. GET /orders/{id} or SELECT orders."`
-	Kind         string            `json:"kind" doc:"OpenTelemetry span kind: server, client, internal, producer or consumer."`
-	ServiceName  string            `json:"service_name" doc:"Service that recorded the span."`
-	Start        time.Time         `json:"start" doc:"Start time of the span."`
-	DurationMs   float64           `json:"duration_ms" doc:"Duration, in milliseconds."`
-	Status       string            `json:"status" doc:"Span status: ok, error or unset."`
-	StatusCode   uint16            `json:"status_code" doc:"HTTP status code of an HTTP span; 0 otherwise."`
-	Attributes   map[string]string `json:"attributes" doc:"Span attributes, as strings."`
+	SpanID        string            `json:"span_id" doc:"Span id (16 lowercase hex characters)."`
+	ParentSpanID  string            `json:"parent_span_id" doc:"Parent span id; empty for a root span."`
+	Name          string            `json:"name" doc:"Span name, e.g. GET /orders/{id} or SELECT orders."`
+	Kind          string            `json:"kind" doc:"OpenTelemetry span kind: server, client, internal, producer or consumer."`
+	ServiceName   string            `json:"service_name" doc:"Service that recorded the span."`
+	Start         time.Time         `json:"start" doc:"Start time of the span."`
+	DurationMs    float64           `json:"duration_ms" doc:"Duration, in milliseconds."`
+	Status        string            `json:"status" doc:"Span status: ok, error or unset."`
+	StatusCode    uint16            `json:"status_code" doc:"HTTP status code of an HTTP span; 0 otherwise."`
+	StatusMessage string            `json:"status_message" doc:"Status description, e.g. why the span failed; empty when none was reported."`
+	Attributes    map[string]string `json:"attributes" doc:"Span attributes, as strings."`
+	Events        []spanEventOut    `json:"events" doc:"Timestamped span events, oldest first, e.g. an exception event with exception.type, exception.message and exception.stacktrace attributes."`
+	Links         []spanLinkOut     `json:"links" doc:"Spans this span links to."`
+}
+
+type spanEventOut struct {
+	Time       time.Time         `json:"time" doc:"When the event happened (nanosecond precision)."`
+	Name       string            `json:"name" doc:"Event name, e.g. exception."`
+	Attributes map[string]string `json:"attributes" doc:"Event attributes, as strings."`
+}
+
+type spanLinkOut struct {
+	TraceID string `json:"trace_id" doc:"Trace id of the linked span."`
+	SpanID  string `json:"span_id" doc:"Span id of the linked span."`
 }
 
 type traceLog struct {
-	Timestamp time.Time `json:"timestamp" doc:"When the log record was emitted."`
-	Level     string    `json:"level" doc:"Log level, e.g. INFO, WARNING, ERROR."`
-	Message   string    `json:"message" doc:"Log message."`
-	SpanID    string    `json:"span_id" doc:"Span the record was emitted in; empty when none."`
+	Timestamp  time.Time         `json:"timestamp" doc:"When the log record was emitted."`
+	Level      string            `json:"level" doc:"Log level, e.g. INFO, WARNING, ERROR."`
+	Message    string            `json:"message" doc:"Log message."`
+	LoggerName string            `json:"logger_name" doc:"Logger that emitted the record, e.g. apilens.exception; empty when not reported."`
+	SpanID     string            `json:"span_id" doc:"Span the record was emitted in; empty when none."`
+	Payload    string            `json:"payload" doc:"Structured payload of the record; for an apilens.exception log, the full exception (type, message, frames and chained causes), at most 64 KiB with head and tail kept."`
+	Attributes map[string]string `json:"attributes" doc:"Log attributes, as strings, e.g. exception.type, exception.message, exception.chain_depth."`
 }
+
+// Trace read limits: a trace answers at most this many spans and logs, and
+// sets truncated when either was cut.
+const (
+	maxTraceSpans = 10000
+	maxTraceLogs  = 2000
+)
 
 type traceOutput struct {
 	Body struct {
-		TraceID string     `json:"trace_id" doc:"The trace id asked for."`
-		Spans   []spanOut  `json:"spans" doc:"Spans of the trace in the project, oldest first (at most 2000)."`
-		Logs    []traceLog `json:"logs" doc:"Log records correlated with the trace, oldest first (at most 500)."`
+		TraceID   string     `json:"trace_id" doc:"The trace id asked for."`
+		Spans     []spanOut  `json:"spans" doc:"Spans of the trace in the project, oldest first (at most 10000)."`
+		Logs      []traceLog `json:"logs" doc:"Log records correlated with the trace, oldest first (at most 2000)."`
+		Truncated bool       `json:"truncated" doc:"True when the trace had more than 10000 spans or 2000 logs and the rest were left out."`
 	}
 }
 
@@ -581,7 +606,7 @@ func (s *Service) trace(ctx context.Context, in *traceInput) (*traceOutput, erro
 	defer cancel()
 	out := &traceOutput{}
 	out.Body.TraceID = in.TraceID
-	out.Body.Spans, out.Body.Logs, err = s.traceSpansAndLogs(qctx, p.ProjectID, in.TraceID)
+	out.Body.Spans, out.Body.Logs, out.Body.Truncated, err = s.traceSpansAndLogs(qctx, p.ProjectID, in.TraceID)
 	if err != nil {
 		return nil, err
 	}
@@ -591,48 +616,103 @@ func (s *Service) trace(ctx context.Context, in *traceInput) (*traceOutput, erro
 	return out, nil
 }
 
-// traceSpansAndLogs reads the spans (at most 2000) and correlated logs (at
-// most 500) of one trace of a project, oldest first.
-func (s *Service) traceSpansAndLogs(ctx context.Context, project uuid.UUID, traceID string) ([]spanOut, []traceLog, error) {
-	spans, logs := []spanOut{}, []traceLog{}
+// traceSpansAndLogs reads the spans (at most maxTraceSpans) and correlated
+// logs (at most maxTraceLogs) of one trace of a project, oldest first, with
+// span status messages, events and links and log payloads and attributes.
+// truncated reports that either list was cut at its limit.
+func (s *Service) traceSpansAndLogs(ctx context.Context, project uuid.UUID, traceID string) (spans []spanOut, logs []traceLog, truncated bool, err error) {
+	spans, logs = []spanOut{}, []traceLog{}
+	// One row past the limit tells a full trace from a cut one.
 	rows, err := s.ch.Query(ctx, `
-		SELECT span_id, parent_span_id, name, kind, service_name, timestamp, duration_ms, status, status_code, attributes
-		FROM api_spans WHERE project_id = ? AND trace_id = ? ORDER BY timestamp, span_id LIMIT 2000`, project, traceID)
+		SELECT span_id, parent_span_id, name, kind, service_name, timestamp, duration_ms, status, status_code,
+		       status_message, attributes, events.time, events.name, events.attributes, links.trace_id, links.span_id
+		FROM api_spans WHERE project_id = ? AND trace_id = ? ORDER BY timestamp, span_id LIMIT ?`,
+		project, traceID, maxTraceSpans+1)
 	if err != nil {
-		return nil, nil, internalError("trace spans", err)
+		return nil, nil, false, internalError("trace spans", err)
 	}
 	for rows.Next() {
-		var sp spanOut
+		var (
+			sp                    spanOut
+			eventTimes            []time.Time
+			eventNames            []string
+			eventAttrs            []map[string]string
+			linkTraces, linkSpans []string
+		)
 		if err := rows.Scan(&sp.SpanID, &sp.ParentSpanID, &sp.Name, &sp.Kind, &sp.ServiceName, &sp.Start, &sp.DurationMs,
-			&sp.Status, &sp.StatusCode, &sp.Attributes); err != nil {
+			&sp.Status, &sp.StatusCode, &sp.StatusMessage, &sp.Attributes, &eventTimes, &eventNames, &eventAttrs,
+			&linkTraces, &linkSpans); err != nil {
 			_ = rows.Close()
-			return nil, nil, internalError("trace spans", err)
+			return nil, nil, false, internalError("trace spans", err)
 		}
+		sp.Attributes = nonNilAttrs(sp.Attributes)
+		sp.Events = zipSpanEvents(eventTimes, eventNames, eventAttrs)
+		sp.Links = zipSpanLinks(linkTraces, linkSpans)
 		spans = append(spans, sp)
 	}
 	_ = rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, nil, internalError("trace spans", err)
+		return nil, nil, false, internalError("trace spans", err)
 	}
+	spans, spansCut := capTrace(spans, maxTraceSpans)
 
 	lrows, err := s.ch.Query(ctx, `
-		SELECT timestamp, level, message, span_id
-		FROM api_logs WHERE project_id = ? AND trace_id = ? ORDER BY timestamp LIMIT 500`, project, traceID)
+		SELECT timestamp, level, message, logger_name, span_id, payload, attributes
+		FROM api_logs WHERE project_id = ? AND trace_id = ? ORDER BY timestamp LIMIT ?`,
+		project, traceID, maxTraceLogs+1)
 	if err != nil {
-		return nil, nil, internalError("trace logs", err)
+		return nil, nil, false, internalError("trace logs", err)
 	}
 	defer func() { _ = lrows.Close() }()
 	for lrows.Next() {
 		var l traceLog
-		if err := lrows.Scan(&l.Timestamp, &l.Level, &l.Message, &l.SpanID); err != nil {
-			return nil, nil, internalError("trace logs", err)
+		if err := lrows.Scan(&l.Timestamp, &l.Level, &l.Message, &l.LoggerName, &l.SpanID, &l.Payload, &l.Attributes); err != nil {
+			return nil, nil, false, internalError("trace logs", err)
 		}
+		l.Attributes = nonNilAttrs(l.Attributes)
 		logs = append(logs, l)
 	}
 	if err := lrows.Err(); err != nil {
-		return nil, nil, internalError("trace logs", err)
+		return nil, nil, false, internalError("trace logs", err)
 	}
-	return spans, logs, nil
+	logs, logsCut := capTrace(logs, maxTraceLogs)
+	return spans, logs, spansCut || logsCut, nil
+}
+
+// capTrace cuts rows to limit and reports whether anything was cut.
+func capTrace[T any](rows []T, limit int) ([]T, bool) {
+	if len(rows) > limit {
+		return rows[:limit], true
+	}
+	return rows, false
+}
+
+// zipSpanEvents joins the parallel arrays of the Nested events column into
+// events; a ragged row keeps only the complete events.
+func zipSpanEvents(times []time.Time, names []string, attrs []map[string]string) []spanEventOut {
+	n := min(len(times), len(names), len(attrs))
+	out := make([]spanEventOut, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, spanEventOut{Time: times[i].In(time.UTC), Name: names[i], Attributes: nonNilAttrs(attrs[i])})
+	}
+	return out
+}
+
+// zipSpanLinks joins the element arrays of the links tuple column.
+func zipSpanLinks(traces, spans []string) []spanLinkOut {
+	n := min(len(traces), len(spans))
+	out := make([]spanLinkOut, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, spanLinkOut{TraceID: traces[i], SpanID: spans[i]})
+	}
+	return out
+}
+
+func nonNilAttrs(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
+	}
+	return m
 }
 
 // ---------------------------------------------------------------- deploys
