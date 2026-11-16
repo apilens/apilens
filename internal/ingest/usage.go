@@ -28,8 +28,8 @@ const (
 	// UsageKeyPrefix prefixes the per project and day usage hash:
 	// UsageKeyPrefix + "<project id>:<YYYY-MM-DD>".
 	UsageKeyPrefix = "apilens:ingest:usage:"
-	// ReasonInvalid is the rejection reason of OTLP records dropped as
-	// invalid (missing ids, out-of-range timestamps).
+	// ReasonInvalid is the rejection reason of batch and OTLP records dropped as
+	// invalid (bad ids, out-of-range timestamps, malformed fields).
 	ReasonInvalid = "invalid"
 
 	statRejectedPrefix = "rejected:"
