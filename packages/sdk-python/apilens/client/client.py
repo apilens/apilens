@@ -37,6 +37,7 @@ DROP_NON_RETRYABLE = "non_retryable"  # ingest rejected the batch with a 4xx
 DROP_RETRIES_EXHAUSTED = "retries_exhausted"  # still failing after max_retry_seconds
 DROP_INVALID = "invalid"  # ingest accepted the batch but refused these records
 DROP_SHUTDOWN = "shutdown"  # still queued when the client shut down
+DROP_SPAN_CAP = "span_cap"  # child span over the per-request cap (MAX_SPANS_PER_REQUEST)
 DROP_REASONS = (
     DROP_QUEUE_FULL,
     DROP_QUEUE_BYTES,
@@ -44,6 +45,7 @@ DROP_REASONS = (
     DROP_RETRIES_EXHAUSTED,
     DROP_INVALID,
     DROP_SHUTDOWN,
+    DROP_SPAN_CAP,
 )
 # Not a drop: a single record over ``max_batch_bytes`` was cut down (payloads
 # first) and still delivered. Reported by ``drop_counts()`` but not counted in
@@ -927,7 +929,8 @@ class ApiLensClient:
     def drop_counts(self) -> dict[str, int]:
         """Records dropped so far, by reason: ``queue_full``, ``queue_bytes``,
         ``non_retryable``, ``retries_exhausted``, ``invalid`` (refused by a
-        partial accept) and ``shutdown`` (still queued at shutdown); plus
+        partial accept), ``shutdown`` (still queued at shutdown) and
+        ``span_cap`` (child spans over the per-request cap); plus
         ``truncated``, the records cut down to fit ``max_batch_bytes`` (sent,
         not dropped). Drops other than ``truncated`` and ``invalid`` are also
         reported to ingest in the next heartbeat's ``dropped`` field."""
@@ -1144,6 +1147,17 @@ class ApiLensClient:
 
         if queue_size >= self.config.batch_size:
             self._wakeup.set()
+
+    def count_span_cap_drops(self, app_id: str, count: int = 1) -> None:
+        """Count ``count`` spans of ``app_id`` recorded past a request's span
+        cap as ``span_cap`` (in ``drop_counts()`` and the next heartbeat's
+        ``dropped.spans``)."""
+        if count <= 0:
+            return
+        key = ((app_id or "").strip(), SIGNAL_SPANS, DROP_SPAN_CAP)
+        with self._lock:
+            self._drops[DROP_SPAN_CAP] += count
+            self._unreported_drops[key] = self._unreported_drops.get(key, 0) + count
 
     def _count_drops_locked(self, reason: str, queue: deque, records: list) -> None:
         """Count dropped ``records`` of ``queue``: in ``drop_counts()`` and,

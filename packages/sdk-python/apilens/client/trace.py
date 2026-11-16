@@ -11,10 +11,35 @@ from __future__ import annotations
 import contextvars
 import re
 import secrets
+import threading
 
 _TRACEPARENT_RE = re.compile(r"^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$")
 
-_trace_ctx: contextvars.ContextVar[tuple[str, str] | None] = contextvars.ContextVar(
+# Most child spans one request may record (D8); the rest are dropped and
+# counted as ``span_cap``. The request's own server span is never capped.
+MAX_SPANS_PER_REQUEST = 2000
+
+
+class SpanBudget:
+    """Child spans recorded so far by one request (shared by the tasks and
+    copied contexts of that request)."""
+
+    __slots__ = ("used", "lock")
+
+    def __init__(self) -> None:
+        self.used = 0
+        self.lock = threading.Lock()
+
+    def take(self) -> bool:
+        """Claim one span slot; False once :data:`MAX_SPANS_PER_REQUEST` are used."""
+        with self.lock:
+            if self.used >= MAX_SPANS_PER_REQUEST:
+                return False
+            self.used += 1
+            return True
+
+
+_trace_ctx: contextvars.ContextVar[tuple[str, str, SpanBudget] | None] = contextvars.ContextVar(
     "apilens_trace_ctx",
     default=None,
 )
@@ -67,7 +92,7 @@ def begin_request_trace(traceparent: str | None) -> tuple[str, str, str, context
     trace_id = parsed[0] if parsed else generate_trace_id()
     parent_span_id = parsed[1] if parsed else ""
     span_id = generate_span_id()
-    token = _trace_ctx.set((trace_id, span_id))
+    token = _trace_ctx.set((trace_id, span_id, SpanBudget()))
     return trace_id, span_id, parent_span_id, token
 
 
@@ -87,6 +112,12 @@ def reset_detail_sampled(token: contextvars.Token) -> None:
 def detail_sampled() -> bool:
     """False while handling a request whose detail was sampled out."""
     return _detail_sampled_ctx.get()
+
+
+def current_span_budget() -> SpanBudget | None:
+    """Span budget of the request currently being handled (None outside one)."""
+    ctx = _trace_ctx.get()
+    return ctx[2] if ctx else None
 
 
 def current_trace_id() -> str:
