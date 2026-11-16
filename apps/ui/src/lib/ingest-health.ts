@@ -4,6 +4,7 @@
 // shares the panel shows. Pure; safe in Client and Server Components alike.
 import type { AppIngestStats, AppSdkStats, IngestCounts } from "./identity";
 import { LINKS } from "./links";
+import { formatPercent } from "./format";
 
 /** The section of project settings that shows an app's ingest health. */
 export const INGEST_SECTION = "ingest";
@@ -41,9 +42,7 @@ export function plural(n: number, one: string, many: string): string {
 /** `n` as a share of `of`: `0.4%`, `<0.1%` for a tiny non-zero share, null when `of` is 0. */
 export function share(n: number, of: number): string | null {
   if (of <= 0) return null;
-  const pct = (n / of) * 100;
-  if (n > 0 && pct < 0.1) return "<0.1%";
-  return `${Math.round(pct * 10) / 10}%`;
+  return formatPercent(n / of);
 }
 
 /** The sub-line of an edge counter: rejected as a share of what arrived, the others of what was stored. */

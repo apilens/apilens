@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { RANGE_LABEL, consumerLabel, formatCount, formatRate } from "@/lib/consumers";
-import { endpointPageHref, formatPercent, formatShare } from "@/lib/endpoint-detail";
+import { formatPercent, ratio } from "@/lib/format";
+import { RANGE_LABEL, consumerLabel, formatCount } from "@/lib/consumers";
+import { endpointPageHref } from "@/lib/endpoint-detail";
 import {
   DETAIL_LOAD_FAILED,
   DETAIL_PAGING,
@@ -198,9 +199,9 @@ function StatusTab({ project, q, data }: { project: string; q: ErrorsState; data
       <Tiles
         tiles={[
           { label: "Requests", value: formatCount(s.requests), sub: `in ${errorsScopeText(q)}` },
-          { label: "Error rate", value: formatRate(s.client_errors + s.server_errors, s.requests), sub: `${formatCount(s.client_errors + s.server_errors)} errors` },
-          { label: "Client errors (4xx)", value: formatCount(s.client_errors), sub: `${formatPercent(s.client_error_rate * 100)} of requests` },
-          { label: "Server errors (5xx)", value: formatCount(s.server_errors), sub: `${formatPercent(s.server_error_rate * 100)} of requests` },
+          { label: "Error rate", value: formatPercent(ratio(s.client_errors + s.server_errors, s.requests)), sub: `${formatCount(s.client_errors + s.server_errors)} errors` },
+          { label: "Client errors (4xx)", value: formatCount(s.client_errors), sub: `${formatPercent(s.client_error_rate)} of requests` },
+          { label: "Server errors (5xx)", value: formatCount(s.server_errors), sub: `${formatPercent(s.server_error_rate)} of requests` },
         ]}
       />
       <Card id="er-time" title="Errors over time">
@@ -277,7 +278,7 @@ function StatusTable({
                 {formatCount(r.count)}
               </td>
               <td className="tr-num" data-label="Share of requests">
-                {formatShare(r.share)}
+                {formatPercent(r.share)}
               </td>
               <td className="tr-num" data-label="Endpoints">
                 {formatCount(r.endpoints)}
@@ -349,7 +350,7 @@ function SummaryView({ q, d }: { q: ErrorsState; d: ErrorStatusDetail }) {
     <>
       <Tiles
         tiles={[
-          { label: "Responses", value: formatCount(d.occurrences), sub: `${formatShare(d.share)} of requests` },
+          { label: "Responses", value: formatCount(d.occurrences), sub: `${formatPercent(d.share)} of requests` },
           { label: "Frequency", value: `${formatPerHour(d.per_hour)}/h`, sub: `over ${RANGE_LABEL[q.range]}` },
           { label: "Affected consumers", value: formatCount(d.consumers), sub: `${formatCount(identified)} responses to identified consumers` },
           { label: "Endpoints", value: formatCount(d.endpoints), sub: `answered with ${d.status_code}` },
@@ -417,7 +418,7 @@ function ConsumersView({ project, q, d }: { project: string; q: ErrorsState; d: 
                     <span className="er-meter" aria-hidden="true">
                       <span className={`er-c-${statusClass(d.status_code)}`} style={{ width: `${Math.min(100, Math.max(0, c.share * 100))}%` }} />
                     </span>
-                    {formatShare(c.share)}
+                    {formatPercent(c.share)}
                   </td>
                   <td data-label="Last seen">
                     <When iso={c.last_seen} />

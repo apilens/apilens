@@ -1,4 +1,5 @@
 import { type ConsumerSdk, exploreIpHref } from "@/lib/consumer-setup";
+import { formatPercent, ratio } from "@/lib/format";
 import {
   ANONYMOUS_LOAD_FAILED,
   CONSUMERS_LOAD_FAILED,
@@ -15,7 +16,6 @@ import {
   errorsOf,
   formatCount,
   formatPerMinute,
-  formatRate,
   groupHref,
 } from "@/lib/consumers";
 import { exploreHref } from "@/lib/explore";
@@ -377,7 +377,7 @@ function AnonymousTraffic({ project, q, anonymous, now }: { project: string; q: 
               <div>
                 <dt>Errors</dt>
                 <dd>
-                  {formatCount(errorsOf(a.totals))} <span className="cs-tiles__sub">{formatRate(errorsOf(a.totals), count)}</span>
+                  {formatCount(errorsOf(a.totals))} <span className="cs-tiles__sub">{formatPercent(ratio(errorsOf(a.totals), count))}</span>
                 </dd>
               </div>
             </dl>
@@ -463,7 +463,7 @@ function GroupHeader({ project, q, list }: { project: string; q: ConsumersQuery;
         <div>
           <dt>Errors</dt>
           <dd>
-            {formatCount(errors)} <span className="cs-tiles__sub">{formatRate(errors, t.requests)}</span>
+            {formatCount(errors)} <span className="cs-tiles__sub">{formatPercent(ratio(errors, t.requests))}</span>
           </dd>
         </div>
       </dl>
@@ -517,7 +517,7 @@ function ErrorCount({ s }: { s: { requests: number; client_errors: number; serve
   if (errors === 0) return <span className="cs-muted">0</span>;
   return (
     <span title={`${formatCount(s.client_errors)} 4xx, ${formatCount(s.server_errors)} 5xx`}>
-      {formatCount(errors)} <span className="cs-muted">({formatRate(errors, s.requests)})</span>
+      {formatCount(errors)} <span className="cs-muted">({formatPercent(ratio(errors, s.requests))})</span>
     </span>
   );
 }
@@ -672,7 +672,7 @@ function ConsumerPanel({ project, q, params, detail, now }: { project: string; q
         <div>
           <dt>Errors</dt>
           <dd>
-            {formatCount(errors)} <span className="cs-tiles__sub">{formatRate(errors, s.requests)}</span>
+            {formatCount(errors)} <span className="cs-tiles__sub">{formatPercent(ratio(errors, s.requests))}</span>
           </dd>
         </div>
         <div>

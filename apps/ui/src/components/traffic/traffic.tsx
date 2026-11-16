@@ -1,4 +1,5 @@
-import { RANGE_LABEL, formatCount, formatPerMinute, formatRate } from "@/lib/consumers";
+import { RANGE_LABEL, formatCount, formatPerMinute } from "@/lib/consumers";
+import { formatPercent, ratio } from "@/lib/format";
 import type { EndpointTraffic, NamedApp, QueryRange, TrafficPoint, TrafficSummary } from "@/lib/identity";
 import {
   ENDPOINTS_LIMIT,
@@ -186,7 +187,7 @@ function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points:
         <dt>Error rate</dt>
         <dd>
           <span className="tr-tile__value">
-            <LiveNumber text={formatRate(errors, s.requests)} />
+            <LiveNumber text={formatPercent(ratio(errors, s.requests))} />
           </span>
           <span className="tr-tile__sub">
             {formatCount(s.client_errors)} 4xx, {formatCount(s.server_errors)} 5xx
@@ -196,7 +197,7 @@ function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points:
             hover={{
               label: "Error rate",
               range,
-              points: points.map((p) => ({ ts: p.ts, text: `${formatRate(p.client_errors + p.server_errors, p.requests)} (${formatCount(p.client_errors)} 4xx, ${formatCount(p.server_errors)} 5xx)` })),
+              points: points.map((p) => ({ ts: p.ts, text: `${formatPercent(ratio(p.client_errors + p.server_errors, p.requests))} (${formatCount(p.client_errors)} 4xx, ${formatCount(p.server_errors)} 5xx)` })),
             }}
           />
         </dd>
@@ -319,7 +320,7 @@ function Errors({ n, requests }: { n: number; requests: number }) {
   if (n <= 0) return <span className="tr-muted">0</span>;
   return (
     <>
-      {formatCount(n)} <span className="tr-muted">({formatRate(n, requests)})</span>
+      {formatCount(n)} <span className="tr-muted">({formatPercent(ratio(n, requests))})</span>
     </>
   );
 }

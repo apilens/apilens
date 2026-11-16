@@ -1,8 +1,9 @@
 "use client";
 
 import { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { formatPercent, ratio } from "@/lib/format";
 import { pointX, tooltipText } from "@/lib/chart-hover";
-import { RANGE_LABEL, formatBucket, formatCount, formatRate, sparklinePoints, stackBars } from "@/lib/consumers";
+import { RANGE_LABEL, formatBucket, formatCount, sparklinePoints, stackBars } from "@/lib/consumers";
 import type { QueryRange } from "@/lib/identity";
 import { type StatusRow, formatLatency, latencyTop, lineY, linePath, plotWidth } from "@/lib/traffic";
 import { ChartAnnounce, ChartTooltip, Crosshair, type TooltipRow } from "../charts/chart-tooltip";
@@ -150,7 +151,7 @@ export function statusTipRows(r: StatusRow): TooltipRow[] {
   const total = r.successful + r.client_errors + r.server_errors;
   return [
     { label: "Requests", value: formatCount(total) },
-    ...STATUS.map((s) => ({ label: s.label, value: total > 0 ? `${formatCount(r[s.key])} (${formatRate(r[s.key], total)})` : "0", swatch: s.className })),
+    ...STATUS.map((s) => ({ label: s.label, value: total > 0 ? `${formatCount(r[s.key])} (${formatPercent(ratio(r[s.key], total))})` : "0", swatch: s.className })),
   ];
 }
 

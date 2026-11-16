@@ -5,6 +5,7 @@
 import { formatBytes } from "./explore";
 import type { QuotaUsage, RejectedRecords, UsageDay } from "./identity";
 import { formatCount, plural } from "./ingest-health";
+import { formatPercent } from "./format";
 
 /** UTC days the section covers, today included (`days` of `GET /projects/{slug}/usage`, at most 30). */
 export const USAGE_DAYS = 30;
@@ -77,7 +78,7 @@ export function quotaMeter(q: QuotaUsage): { percent: number; label: string; ton
   if (q.bytes_per_day <= 0 || q.bytes_today_ratio === null) return null;
   const ratio = Math.max(0, q.bytes_today_ratio);
   const percent = Math.min(100, Math.round(ratio * 1000) / 10);
-  const label = `${formatBytes(q.bytes_today)} of ${formatBytes(q.bytes_per_day)} today (${percent}%)`;
+  const label = `${formatBytes(q.bytes_today)} of ${formatBytes(q.bytes_per_day)} today (${formatPercent(Math.min(1, ratio))})`;
   return { percent, label, tone: ratio >= 1 ? "over" : ratio >= 0.8 ? "warn" : "ok" };
 }
 

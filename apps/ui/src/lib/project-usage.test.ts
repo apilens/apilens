@@ -75,7 +75,7 @@ describe("quotaMeter", () => {
   it("reads today's share, clamped, with a tone", () => {
     expect(quotaMeter(quota({ bytes_per_day: 10_000_000, bytes_today: 3_100_000, bytes_today_ratio: 0.31 }))).toEqual({
       percent: 31,
-      label: "3.1 MB of 10 MB today (31%)",
+      label: "3.1 MB of 10 MB today (31.0%)",
       tone: "ok",
     });
     expect(quotaMeter(quota({ bytes_per_day: 1000, bytes_today: 850, bytes_today_ratio: 0.85 }))?.tone).toBe("warn");

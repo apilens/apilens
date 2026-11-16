@@ -49,7 +49,7 @@ describe("numbers", () => {
   });
 
   it("gives shares with one decimal, <0.1% for a tiny one and null without a base", () => {
-    expect(share(1, 4)).toBe("25%");
+    expect(share(1, 4)).toBe("25.0%");
     expect(share(1, 3)).toBe("33.3%");
     expect(share(1, 10_000)).toBe("<0.1%");
     expect(share(0, 10)).toBe("0%");
@@ -59,9 +59,9 @@ describe("numbers", () => {
   it("shares rejected of what arrived and the others of what was stored", () => {
     const c = { accepted: 900, rejected: 100, truncated: 9, masked: 90 };
     expect(counterShare("accepted", c)).toBeNull();
-    expect(counterShare("rejected", c)).toBe("10% of received");
-    expect(counterShare("truncated", c)).toBe("1% of accepted");
-    expect(counterShare("masked", c)).toBe("10% of accepted");
+    expect(counterShare("rejected", c)).toBe("10.0% of received");
+    expect(counterShare("truncated", c)).toBe("1.0% of accepted");
+    expect(counterShare("masked", c)).toBe("10.0% of accepted");
     expect(counterShare("masked", { accepted: 0, rejected: 0, truncated: 0, masked: 0 })).toBeNull();
   });
 });

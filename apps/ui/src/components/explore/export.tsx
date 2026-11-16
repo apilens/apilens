@@ -23,6 +23,7 @@ import {
   rememberExport,
 } from "@/lib/explore-export";
 import { filterQuery } from "@/lib/explore-filters";
+import { formatPercent } from "@/lib/format";
 import type { RequestExport } from "@/lib/identity";
 import { PopMenu } from "../pop-menu";
 
@@ -216,7 +217,7 @@ export function ExportMenu({ project, query: q }: { project: string; query: Expl
                       <span className="ex-exports__title">{x ? filterText(x.filter) : r?.kind === "error" ? "Couldn’t read this export" : "Reading…"}</span>
                       {x && s ? (
                         <span className={`ex-exports__meta${s === "failed" ? " is-err" : ""}`}>
-                          {createdText(x.created_at)} · {s === "running" ? `${percent(x)}%` : exportTitle(s).replace(/^Export /, "")}
+                          {createdText(x.created_at)} · {s === "running" ? formatPercent(percent(x) / 100, { digits: 0 }) : exportTitle(s).replace(/^Export /, "")}
                         </span>
                       ) : null}
                     </div>

@@ -320,7 +320,7 @@ test("Alerts: a rule on GET /boom opens an incident once the evaluator sees the 
   await form.getByRole("button", { name: "Create rule" }).click();
   await at(page, `/${PROJECT}/incidents/rules`);
   const rule = page.getByRole("table", { name: "Alert rules" }).locator("tbody tr").filter({ hasText: name });
-  await expect(rule).toContainText("Error rate > 50% over 5 min");
+  await expect(rule).toContainText("Error rate > 50.0% over 5 min");
   await expect(rule).toContainText("GET /boom");
 
   // Every /boom in the window failed: 100% > 50%. Send a few more so the window surely holds some.
@@ -334,7 +334,7 @@ test("Alerts: a rule on GET /boom opens an incident once the evaluator sees the 
   }).toPass({ timeout: 180_000, intervals: [5_000] });
   await expect(incident).toContainText("Triggered");
   await expect(incident).toContainText("100%");
-  await expect(incident).toContainText("threshold > 50%");
+  await expect(incident).toContainText("threshold > 50.0%");
 
   // Its timeline opens from the incident.
   await incident.getByRole("link", { name }).click();
