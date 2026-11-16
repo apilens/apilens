@@ -12,6 +12,8 @@ import {
   type JsonLine,
   MARKER_TITLE,
   allContainers,
+  type StreamEvent,
+  contentTypeOf,
   curlCommand,
   defaultExpanded,
   detailRead,
@@ -211,9 +213,9 @@ function Panel({ tab, data }: { tab: DrawerTab; data: RequestDetailRead }) {
         </>
       );
     case "request":
-      return isSampledOut(r) ? <Notice>{SAMPLED_OUT}</Notice> : <BodyView text={r.request_body} size={r.request_size} what="request" />;
+      return isSampledOut(r) ? <Notice>{SAMPLED_OUT}</Notice> : <BodyView text={r.request_body} size={r.request_size} headers={r.request_headers} what="request" />;
     case "response":
-      return isSampledOut(r) ? <Notice>{SAMPLED_OUT}</Notice> : <BodyView text={r.response_body} size={r.response_size} what="response" />;
+      return isSampledOut(r) ? <Notice>{SAMPLED_OUT}</Notice> : <BodyView text={r.response_body} size={r.response_size} headers={r.response_headers} what="response" />;
     case "validation":
       return <ValidationTable errors={r.validation_errors ?? []} />;
     case "trace":
@@ -325,8 +327,8 @@ function HeaderTable({ title, text }: { title: string; text: string }) {
 
 // ---------------------------------------------------------------- bodies
 
-function BodyView({ text, size, what }: { text: string; size: number | undefined; what: "request" | "response" }) {
-  const body = useMemo(() => parseBody(text), [text]);
+function BodyView({ text, size, headers, what }: { text: string; size: number | undefined; headers: string; what: "request" | "response" }) {
+  const body = useMemo(() => parseBody(text, contentTypeOf(headers)), [text, headers]);
   if (body.kind === "empty") {
     return <p className="rd-empty">{size ? `The ${what} body (${formatBytes(size)}) was not captured.` : `No ${what} body.`}</p>;
   }
@@ -338,12 +340,69 @@ function BodyView({ text, size, what }: { text: string; size: number | undefined
       </p>
       {body.kind === "json" ? (
         <JsonView value={body.value} />
+      ) : body.kind === "form" ? (
+        <table className="rd-table rd-table--kv" aria-label="Form fields">
+          <tbody>
+            {body.fields.map(([k, v], i) => (
+              <tr key={`${k}#${i}`}>
+                <th scope="row">{k}</th>
+                <td>
+                  <Marked text={v} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : body.kind === "events" ? (
+        <EventStream events={body.events} />
       ) : (
         <pre className="rd-pre">
           <Marked text={body.text} />
         </pre>
       )}
     </section>
+  );
+}
+
+/** The text a stream event's row previews: its `content` when it has one. */
+function eventPreview(e: StreamEvent): string {
+  const content = e.data !== null && typeof e.data === "object" ? (e.data as Record<string, unknown>).content : undefined;
+  if (typeof content === "string") return content;
+  return typeof e.data === "string" ? e.data : "";
+}
+
+/** A server-sent event stream: one row per event, its data opening as a JSON tree. */
+function EventStream({ events }: { events: StreamEvent[] }) {
+  return (
+    <>
+      <p className="rd-meta">
+        {events.length} {events.length === 1 ? "event" : "events"}
+      </p>
+      <ol className="rd-events">
+        {events.map((e, i) => {
+          const preview = eventPreview(e);
+          return (
+            <li key={i}>
+              <details>
+                <summary>
+                  <span className="rd-events__n">{i + 1}</span>
+                  <code className="rd-events__name">{e.event}</code>
+                  {preview ? <span className="rd-events__preview">{preview}</span> : null}
+                  {e.partial ? <span className="rd-events__cut">cut at the capture limit</span> : null}
+                </summary>
+                {e.data !== null && typeof e.data === "object" ? (
+                  <JsonView value={e.data} />
+                ) : (
+                  <pre className="rd-pre">
+                    <Marked text={e.text} />
+                  </pre>
+                )}
+              </details>
+            </li>
+          );
+        })}
+      </ol>
+    </>
   );
 }
 

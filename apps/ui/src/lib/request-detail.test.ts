@@ -11,7 +11,9 @@ import {
   markerSegments,
   moveTab,
   offsetMs,
+  contentTypeOf,
   parseBody,
+  parseEventStream,
   parseHeaders,
   requestDetailPath,
   shellQuote,
@@ -60,6 +62,39 @@ describe("parseBody", () => {
     expect(parseBody("[masked]")).toEqual({ kind: "text", text: "[masked]" });
     expect(parseBody("42")).toEqual({ kind: "text", text: "42" });
     expect(parseBody('{"a": "xx...[truncated]')).toEqual({ kind: "text", text: '{"a": "xx...[truncated]' });
+  });
+
+  it("reads a form body as its decoded fields", () => {
+    expect(parseBody("message=Show+me+all+alerts.&stream=true&q=a%26b", "application/x-www-form-urlencoded")).toEqual({
+      kind: "form",
+      fields: [
+        ["message", "Show me all alerts."],
+        ["stream", "true"],
+        ["q", "a&b"],
+      ],
+    });
+    expect(parseBody("message=hi")).toEqual({ kind: "text", text: "message=hi" });
+  });
+
+  it("reads an event stream as its events, the last one partial when the body was cut", () => {
+    const stream = 'event: RunStarted\ndata: {"run_id":"r1"}\n\n: keep-alive\n\ndata: plain\n\nevent: RunContent\ndata: {"content":"Hel';
+    expect(parseBody(stream, "text/event-stream")).toEqual({
+      kind: "events",
+      events: [
+        { event: "RunStarted", data: { run_id: "r1" }, text: '{"run_id":"r1"}', partial: false },
+        { event: "message", data: "plain", text: "plain", partial: false },
+        { event: "RunContent", data: '{"content":"Hel', text: '{"content":"Hel', partial: true },
+      ],
+    });
+    expect(parseEventStream('event: a\ndata: 1\ndata: 2\n\n')).toEqual([{ event: "a", data: "1\n2", text: "1\n2", partial: false }]);
+  });
+});
+
+describe("contentTypeOf", () => {
+  it("is the content-type media type, lower case without parameters", () => {
+    expect(contentTypeOf('{"Content-Type":"text/event-stream; charset=utf-8"}')).toBe("text/event-stream");
+    expect(contentTypeOf('{"host":"x"}')).toBe("");
+    expect(contentTypeOf("")).toBe("");
   });
 });
 

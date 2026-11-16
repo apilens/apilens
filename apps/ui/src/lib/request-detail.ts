@@ -87,11 +87,70 @@ export function parseHeaders(text: string): [string, string][] | null {
   return [["", text]];
 }
 
-/** A body as the drawer shows it: nothing captured, a JSON value (tree), or text as stored. */
-export type Body = { kind: "empty" } | { kind: "json"; value: unknown } | { kind: "text"; text: string };
+/** One server-sent event of a stored `text/event-stream` body. */
+export interface StreamEvent {
+  /** The `event:` name, `message` when the event names none. */
+  event: string;
+  /** The `data:` lines joined, parsed when they are JSON. */
+  data: unknown;
+  /** The data as stored. */
+  text: string;
+  /** The last event of a body cut at the capture limit: its data may be incomplete. */
+  partial: boolean;
+}
 
-/** Reads a stored body: JSON objects and arrays become a tree; anything else (a truncated JSON body too) stays text. */
-export function parseBody(text: string): Body {
+/**
+ * A body as the drawer shows it: nothing captured, a JSON value (tree), form fields, a stream of
+ * server-sent events, or text as stored.
+ */
+export type Body =
+  | { kind: "empty" }
+  | { kind: "json"; value: unknown }
+  | { kind: "form"; fields: [string, string][] }
+  | { kind: "events"; events: StreamEvent[] }
+  | { kind: "text"; text: string };
+
+/** The media type a stored headers text names (`content-type`), lower case without parameters; "" when none. */
+export function contentTypeOf(headersText: string): string {
+  const pair = parseHeaders(headersText)?.find(([k]) => k.toLowerCase() === "content-type");
+  return pair ? pair[1].split(";")[0].trim().toLowerCase() : "";
+}
+
+/** A `text/event-stream` body as its events; a block with no `data:` line (a comment, a retry) is skipped. */
+export function parseEventStream(text: string): StreamEvent[] {
+  const blocks = text.replaceAll("\r\n", "\n").split("\n\n");
+  // Complete bodies end with a blank line, so the split leaves an empty last block.
+  const cut = blocks.at(-1)?.trim() !== "";
+  const out: StreamEvent[] = [];
+  blocks.forEach((block, i) => {
+    let event = "";
+    const data: string[] = [];
+    for (const line of block.split("\n")) {
+      const colon = line.indexOf(":");
+      if (colon === 0 || !line) continue;
+      const field = colon < 0 ? line : line.slice(0, colon);
+      const value = colon < 0 ? "" : line.slice(colon + 1).replace(/^ /, "");
+      if (field === "event") event = value;
+      else if (field === "data") data.push(value);
+    }
+    if (data.length === 0) return;
+    const joined = data.join("\n");
+    let parsed: unknown = joined;
+    try {
+      parsed = JSON.parse(joined);
+    } catch {
+      // Plain-text data, or JSON cut at the capture limit: shown as stored.
+    }
+    out.push({ event: event || "message", data: parsed, text: joined, partial: cut && i === blocks.length - 1 });
+  });
+  return out;
+}
+
+/**
+ * Reads a stored body: JSON objects and arrays become a tree; a form body (by `contentType`) its
+ * fields; an event stream its events; anything else (a truncated JSON body too) stays text.
+ */
+export function parseBody(text: string, contentType = ""): Body {
   if (!text) return { kind: "empty" };
   const t = text.trimStart();
   if (t.startsWith("{") || t.startsWith("[")) {
@@ -100,6 +159,14 @@ export function parseBody(text: string): Body {
     } catch {
       // A body cut at the capture limit is not valid JSON any more.
     }
+  }
+  if (contentType === "application/x-www-form-urlencoded") {
+    const fields = [...new URLSearchParams(text)];
+    if (fields.length > 0) return { kind: "form", fields };
+  }
+  if (contentType === "text/event-stream") {
+    const events = parseEventStream(text);
+    if (events.length > 0) return { kind: "events", events };
   }
   return { kind: "text", text };
 }
