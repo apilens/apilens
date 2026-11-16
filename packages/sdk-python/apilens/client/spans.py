@@ -21,6 +21,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from ._exception import MAX_EXCEPTION_MESSAGE, MAX_EXCEPTION_PAYLOAD, truncate_head_tail
 from .models import LogRecord, SpanRecord
 from .trace import current_span_id, current_trace_id, detail_sampled, generate_span_id
 
@@ -203,6 +204,7 @@ def record_error_log(
     status_code: int = 0,
     consumer: dict[str, str] | None = None,
     payload: str = "",
+    attributes: dict[str, str] | None = None,
     logger_name: str = "apilens",
     client: "ApiLensClient | None" = None,
     app_id: str = "",
@@ -230,7 +232,7 @@ def record_error_log(
             timestamp=datetime.now(tz=timezone.utc),
             environment=environment or client.config.environment,
             level=(level or "ERROR").upper(),
-            message=(message or "")[:4000],
+            message=truncate_head_tail(message or "", MAX_EXCEPTION_MESSAGE),
             logger_name=logger_name or "apilens",
             endpoint_method=(method or "").upper(),
             endpoint_path=path or "",
@@ -242,7 +244,8 @@ def record_error_log(
             span_id=span_id,
             project_slug=client.config.project_slug,
             app_id=app_id,
-            payload=(payload or "")[:8000],
+            payload=truncate_head_tail(payload or "", MAX_EXCEPTION_PAYLOAD),
+            attributes=dict(attributes) if attributes else None,
         )
     )
 

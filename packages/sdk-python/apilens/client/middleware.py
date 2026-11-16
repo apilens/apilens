@@ -4,7 +4,6 @@ import asyncio
 import contextvars
 import logging
 import time
-import traceback
 from collections.abc import Awaitable, Callable
 from types import MappingProxyType
 from typing import Any
@@ -29,6 +28,7 @@ from ._capture import (
 )
 from ._app import resolve_and_log_app_id
 from ._env import env_defaults
+from ._exception import describe_exception
 from ._profile import CaptureProfile, normalize_profile
 from ._exclusions import RequestExcluder
 from ._metadata import start_asgi_metadata, start_wsgi_metadata
@@ -100,17 +100,20 @@ async def _flush_inline_async(client: ApiLensClient) -> None:
         logger.debug("API Lens inline flush failed", exc_info=True)
 
 
-def _error_message(exc: BaseException | None, status_code: int, method: str, path: str) -> tuple[str, str]:
-    """Build (message, payload) for the auto error log.
+def _error_message(
+    exc: BaseException | None, status_code: int, method: str, path: str
+) -> tuple[str, str, dict[str, str] | None]:
+    """Build (message, payload, attributes) for the auto error log.
 
-    ``payload`` carries the full traceback for exceptions; it is empty for a
-    plain 5xx response that didn't raise.
+    For an exception the message is ``module.QualName: msg`` and ``payload``
+    the full traceback with every chained cause and ``ExceptionGroup``
+    sub-exception (head+tail capped, see :mod:`._exception`); attributes carry
+    ``exception.type``, ``exception.message`` and ``exception.chain_depth``.
+    ``payload`` is empty for a plain 5xx response that didn't raise.
     """
     if exc is not None:
-        message = f"{type(exc).__name__}: {exc}".strip()
-        payload = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-        return message, payload
-    return f"HTTP {status_code} on {method} {path}", ""
+        return describe_exception(exc)
+    return f"HTTP {status_code} on {method} {path}", "", None
 
 
 def _maybe_record_error(
@@ -135,7 +138,7 @@ def _maybe_record_error(
     """
     if not _is_error(exc, status_code):
         return
-    message, payload = _error_message(exc, status_code, method, path)
+    message, payload, attributes = _error_message(exc, status_code, method, path)
     record_error_log(
         trace_id=trace_id,
         span_id=span_id,
@@ -146,6 +149,7 @@ def _maybe_record_error(
         status_code=status_code,
         consumer=consumer,
         payload=payload,
+        attributes=attributes,
         logger_name="apilens.exception" if exc is not None else "apilens.http",
         client=client,
         app_id=app_id,
