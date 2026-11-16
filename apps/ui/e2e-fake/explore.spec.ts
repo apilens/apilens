@@ -39,12 +39,18 @@ const ROWS = [
   row(2, { status_code: 404, response_time_ms: 640, sampled: false, response_size: 0, consumer_name: "", consumer_id: "c_beta" }),
 ];
 
-async function seed(rows: Row[] | null) {
+async function seed(rows: Row[] | null, environments?: string[]) {
   const res = await fetch(`${IDENTITY}/__fake/requests`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ project: "shop", rows }),
+    body: JSON.stringify({ project: "shop", rows, environments }),
   });
+  expect(res.status).toBe(204);
+}
+
+/** shop's apps (#975); [] puts back the one default app. */
+async function seedApps(apps: { id: string; slug: string; name: string }[]) {
+  const res = await fetch(`${IDENTITY}/__fake/apps`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apps }) });
   expect(res.status).toBe(204);
 }
 
@@ -74,6 +80,7 @@ const rowAt = (page: Page, i: number) => grid(page).locator(`[data-index="${i}"]
 test.afterEach(async () => {
   await queryDown(false);
   await seed(null);
+  await seedApps([]);
 });
 
 test("shows each request's time, method, path, status, latency, consumer and size", async ({ page }) => {
@@ -82,11 +89,11 @@ test("shows each request's time, method, path, status, latency, consumer and siz
   await expect(page.getByRole("heading", { level: 1, name: "Explore" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Views" }).getByRole("link", { name: "Explore" })).toHaveAttribute("aria-current", "page");
 
-  await expect(grid(page).getByRole("columnheader")).toHaveText(["Time (UTC)", "Method", "Path", "Status", "Latency", "Consumer", "Size"]);
+  await expect(grid(page).getByRole("columnheader")).toHaveText(["Time (UTC)", "App", "Method", "Path", "Status", "Latency", "Consumer", "Size"]);
   await expect(bodyRows(page)).toHaveCount(3);
-  await expect(rowAt(page, 0).getByRole("gridcell")).toHaveText([/^\d\d:\d\d:\d\d\.\d{3}$/, "GET", "/orders/1000", "200", "42 ms", "Acme Corp", "1.2 KB"]);
-  await expect(rowAt(page, 1).getByRole("gridcell")).toHaveText([/^\d\d:\d\d:\d\d\.\d{3}$/, "POST", "/charge", "502", "2.48 s", "–", "88 B"]);
-  await expect(rowAt(page, 2).getByRole("gridcell")).toHaveText([/^\d\d:\d\d:\d\d\.\d{3}$/, "GET", "/orders/1002Sampled out", "404", "640 ms", "c_beta", "0 B"]);
+  await expect(rowAt(page, 0).getByRole("gridcell")).toHaveText([/^\d\d:\d\d:\d\d\.\d{3}$/, "Shop", "GET", "/orders/1000", "200", "42 ms", "Acme Corp", "1.2 KB"]);
+  await expect(rowAt(page, 1).getByRole("gridcell")).toHaveText([/^\d\d:\d\d:\d\d\.\d{3}$/, "Shop", "POST", "/charge", "502", "2.48 s", "–", "88 B"]);
+  await expect(rowAt(page, 2).getByRole("gridcell")).toHaveText([/^\d\d:\d\d:\d\d\.\d{3}$/, "Shop", "GET", "/orders/1002Sampled out", "404", "640 ms", "c_beta", "0 B"]);
 
   // Status and latency carry meaning in color: 4xx and 5xx differ, slow and frustrated differ.
   const color = (sel: string) => grid(page).locator(sel).first().evaluate((el) => getComputedStyle(el).color);
@@ -185,7 +192,7 @@ test("reads the log again every 5 s while live, and not while paused", async ({ 
 
   await seed([row(9, { timestamp: ago(1), raw_path: "/orders/new", trace_id: "tnew" }), ...ROWS]);
   await expect(bodyRows(page)).toHaveCount(4, { timeout: 8_000 });
-  await expect(rowAt(page, 0).getByRole("gridcell").nth(2)).toHaveText("/orders/new");
+  await expect(rowAt(page, 0).getByRole("gridcell").nth(3)).toHaveText("/orders/new");
 
   await page.getByRole("button", { name: "Pause" }).click();
   await expect(page.locator(".ex-live__state")).toHaveText("Paused");
@@ -250,7 +257,7 @@ test("filters from a deep link, edits them in the bar and keeps them in the URL"
   const chips = page.getByRole("list", { name: "Active filters" });
   await expect(chips.getByRole("listitem").filter({ hasNot: page.getByRole("button", { name: "Clear all" }) })).toHaveText(["Method POST", "Status 5xx"]);
   await expect(bodyRows(page)).toHaveCount(1);
-  await expect(rowAt(page, 0).getByRole("gridcell").nth(2)).toHaveText("/charge");
+  await expect(rowAt(page, 0).getByRole("gridcell").nth(3)).toHaveText("/charge");
   await expect(page.getByText("The newest request in the last 6 hours matching the filters, newest first.")).toBeVisible();
 
   const toggle = page.getByRole("button", { name: "Filters (2)" });
@@ -278,7 +285,7 @@ test("filters from a deep link, edits them in the bar and keeps them in the URL"
   await page.getByLabel("Method", { exact: true }).selectOption("GET");
   await page.waitForURL((u) => u.searchParams.get("method") === "GET");
   await expect(bodyRows(page)).toHaveCount(1);
-  await expect(rowAt(page, 0).getByRole("gridcell").nth(3)).toHaveText("404");
+  await expect(rowAt(page, 0).getByRole("gridcell").nth(4)).toHaveText("404");
 
   // Back and forward move through the filtered views, and the form follows.
   await page.goBack();
@@ -335,7 +342,7 @@ test("Path and Consumer take what the log shows and suggest endpoints and consum
     await path.fill("/orders/1002");
     await page.waitForURL((u) => u.searchParams.get("path") === "/orders/1002");
     await expect(bodyRows(page)).toHaveCount(1);
-    await expect(rowAt(page, 0).getByRole("gridcell").nth(2)).toHaveText("/orders/1002Sampled out");
+    await expect(rowAt(page, 0).getByRole("gridcell").nth(3)).toHaveText("/orders/1002Sampled out");
     await path.press("Escape");
     await path.fill("");
     await page.waitForURL((u) => !u.searchParams.has("path"));
@@ -344,7 +351,7 @@ test("Path and Consumer take what the log shows and suggest endpoints and consum
     await consumer.fill("Acme Corp");
     await page.waitForURL((u) => u.searchParams.get("consumer_id") === "Acme Corp");
     await expect(bodyRows(page)).toHaveCount(1);
-    await expect(rowAt(page, 0).getByRole("gridcell").nth(5)).toHaveText("Acme Corp");
+    await expect(rowAt(page, 0).getByRole("gridcell").nth(6)).toHaveText("Acme Corp");
     await consumer.press("Escape");
     await expect(consumer).toHaveAttribute("aria-expanded", "false");
 
@@ -393,4 +400,64 @@ test("says so when no request matches the filters, with a way to clear them", as
   await status.getByRole("link", { name: "Clear all filters" }).click();
   await page.waitForURL((u) => u.search === "");
   await expect(bodyRows(page)).toHaveCount(3);
+});
+
+test("filters by app, names each row's app and keeps the app in the URL", async ({ page }) => {
+  const SHOP = "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d";
+  const BILLING = "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b";
+  await seedApps([
+    { id: SHOP, slug: "shop", name: "Shop" },
+    { id: BILLING, slug: "billing", name: "Billing" },
+  ]);
+  await seed(
+    [
+      row(0),
+      row(1, { id: "req-billing", app_id: BILLING, method: "POST", path: "/invoices", raw_path: "/invoices", environment: "staging" }),
+      row(2, { app_id: "00000000-0000-4000-8000-000000000000" }),
+    ],
+    ["production", "staging"],
+  );
+  await signIn(page);
+
+  // The App column names the app (never its id); with two environments the Env column shows too.
+  await expect(grid(page).getByRole("columnheader")).toHaveText(["Time (UTC)", "App", "Env", "Method", "Path", "Status", "Latency", "Consumer", "Size"]);
+  await expect(bodyRows(page)).toHaveCount(3);
+  await expect(rowAt(page, 0).getByRole("gridcell").nth(1)).toHaveText("Shop");
+  await expect(rowAt(page, 1).getByRole("gridcell").nth(1)).toHaveText("Billing");
+  await expect(rowAt(page, 1).getByRole("gridcell").nth(2)).toHaveText("staging");
+  // An app the project no longer lists is a dash, not an id.
+  await expect(rowAt(page, 2).getByRole("gridcell").nth(1)).toHaveText("–");
+  await expect(grid(page)).not.toContainText(BILLING);
+
+  // The picker lists the project's apps and applies at once.
+  await page.getByRole("button", { name: "Filters" }).click();
+  const picker = page.getByLabel("App", { exact: true });
+  await expect(picker.locator("option")).toHaveText(["All apps", "Shop", "Billing"]);
+  await picker.selectOption({ label: "Billing" });
+  await page.waitForURL((u) => u.searchParams.get("app") === BILLING);
+  await expect(bodyRows(page)).toHaveCount(1);
+  await expect(rowAt(page, 0).getByRole("gridcell").nth(4)).toHaveText("/invoices");
+  const chips = page.getByRole("list", { name: "Active filters" });
+  await expect(chips.getByRole("listitem").filter({ hasNot: page.getByRole("button", { name: "Clear all" }) })).toHaveText(["App Billing"]);
+
+  // The request drawer names the app too.
+  await rowAt(page, 0).click();
+  await expect(page.getByRole("dialog").locator(".rd-dl")).toContainText("AppBilling");
+  await page.keyboard.press("Escape");
+
+  // The URL round-trips the filter: a fresh load of the link reproduces it.
+  const link = page.url();
+  await page.goto(link);
+  await expect(bodyRows(page)).toHaveCount(1);
+  await expect(chips.getByRole("listitem").filter({ hasNot: page.getByRole("button", { name: "Clear all" }) })).toHaveText(["App Billing"]);
+  await page.getByRole("button", { name: "Filters (1)" }).click();
+  await expect(page.getByLabel("App", { exact: true })).toHaveValue(BILLING);
+
+  // Removing the chip shows every app again.
+  await chips.getByRole("button", { name: "Remove filter: App Billing" }).click();
+  await page.waitForURL((u) => !u.searchParams.has("app"));
+  await expect(bodyRows(page)).toHaveCount(3);
+
+  const a11y = await new AxeBuilder({ page }).include(".ex").analyze();
+  expect(a11y.violations).toEqual([]);
 });

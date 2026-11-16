@@ -44,12 +44,14 @@
 .ex-spacer { position: relative; }
 .ex-row {
   display: grid;
-  grid-template-columns: 128px 76px minmax(0, 1fr) 64px 80px minmax(0, 180px) 72px;
+  /* Time, App, Method, Path, Status, Latency, Consumer, Size; .has-env adds Env after App (#975). */
+  grid-template-columns: 128px minmax(0, 120px) 76px minmax(0, 1fr) 64px 80px minmax(0, 180px) 72px;
   align-items: center;
   height: 32px;
   border-bottom: 1px solid var(--border);
   box-sizing: border-box;
 }
+.ex-grid.has-env .ex-row { grid-template-columns: 128px minmax(0, 120px) minmax(0, 104px) 76px minmax(0, 1fr) 64px 80px minmax(0, 180px) 72px; }
 .ex-spacer > .ex-row { position: absolute; top: 0; left: 0; right: 0; contain: layout paint; }
 .ex-spacer > .ex-row:hover { background: var(--surface-2); }
 .ex-spacer > .ex-row:focus { outline: none; }
@@ -274,12 +276,12 @@ span.rd-j-tog { cursor: default; }
 }
 
 @media (max-width: 760px) {
-  .ex-row { grid-template-columns: 76px 60px minmax(0, 1fr) 52px 64px; }
+  .ex-row, .ex-grid.has-env .ex-row { grid-template-columns: 76px 60px minmax(0, 1fr) 52px 64px; }
   .ex-tools__end { margin-left: 0; }
   .ex-time__ms, .ex-time__day { display: none; }
   .ex-cell { padding: 0 6px; }
   .ex-cell--method { font-size: 11px; }
-  .ex-cell--consumer, .ex-cell--size { display: none; }
+  .ex-cell--app, .ex-cell--env, .ex-cell--consumer, .ex-cell--size { display: none; }
   .ex-sampled { display: none; }
   .ex-chip > span { max-width: 220px; }
 }

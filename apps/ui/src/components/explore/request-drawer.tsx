@@ -32,6 +32,7 @@ import {
 import { EXCEPTION_LOGGER, type ExceptionBlock, type StackFrame, exceptionLog, frameLocation, parseException } from "@/lib/stack-trace";
 import { formatLatency } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
+import { useAppName } from "./app-names";
 
 /** Height of one JSON line in px; the viewer's virtual window depends on it, so the CSS uses the same number. */
 const LINE_HEIGHT = 20;
@@ -277,6 +278,7 @@ function Overview({ r }: { r: RequestDetail }) {
     ["Response time", formatLatency(r.response_time_ms)],
     ["Request size", formatBytes(r.request_size)],
     ["Response size", formatBytes(r.response_size)],
+    ["App", useAppName(r.app_id) ?? r.app_id],
     ["Environment", r.environment],
     ["Consumer", consumer ?? <span className="ex-muted">Anonymous</span>],
     ["Consumer group", r.consumer_group],

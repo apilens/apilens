@@ -20,6 +20,8 @@ import {
   toDraft,
   withoutChip,
 } from "@/lib/explore-filters";
+import type { NamedApp } from "@/lib/identity";
+import { useAppNames } from "./app-names";
 import { Combobox } from "./combobox";
 import { SaveView } from "./saved-views";
 
@@ -38,12 +40,15 @@ export function FilterBar({
   project,
   environments,
   suggestions = NO_SUGGESTIONS,
+  apps,
   query: q,
   navigate,
 }: {
   project: string;
   environments: readonly string[];
   suggestions?: FilterSuggestions;
+  /** The project's apps the App picker offers (#975); null when they could not be read. */
+  apps: readonly NamedApp[] | null;
   query: ExploreState;
   navigate: (href: string, replace: boolean) => void;
 }) {
@@ -84,7 +89,8 @@ export function FilterBar({
 
   const check = fromDraft(draft);
   const errors = check.ok ? {} : check.errors;
-  const chips = filterChips(q.filters, suggestions.consumers);
+  const appName = useAppNames();
+  const chips = filterChips(q.filters, suggestions.consumers, appName);
 
   const type = (k: FilterKey, v: string) => setDraft((d) => ({ ...d, [k]: v }));
   const pick = (k: FilterKey, v: string) => pickAll({ [k]: v });
@@ -159,6 +165,11 @@ export function FilterBar({
 
   // A shared link may name an environment or method the pickers do not list; keep it selectable.
   const envOptions = draft.env && !environments.includes(draft.env) ? [...environments, draft.env] : environments;
+  // So may an app: one the project no longer lists shows by the start of its id.
+  const appOptions = [
+    ...(apps ?? []).map((a) => ({ value: a.id.toLowerCase(), label: a.name })),
+    ...(draft.app && !(apps ?? []).some((a) => a.id.toLowerCase() === draft.app) ? [{ value: draft.app, label: `Unknown app ${draft.app.slice(0, 8)}` }] : []),
+  ];
   const methodOptions: readonly string[] = draft.method && !(METHODS as readonly string[]).includes(draft.method) ? [...METHODS, draft.method] : METHODS;
 
   return (
@@ -203,6 +214,20 @@ export function FilterBar({
             </select>
           )}
         </Field>
+        {appOptions.length ? (
+          <Field id={`${formId}-app`} label="App">
+            {(props) => (
+              <select {...props} className="ex-input" value={draft.app} onChange={(e) => pick("app", e.target.value)}>
+                <option value="">All apps</option>
+                {appOptions.map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+        ) : null}
         <Field id={`${formId}-method`} label="Method">
           {(props) => (
             <select {...props} className="ex-input" value={draft.method} onChange={(e) => pick("method", e.target.value)}>
