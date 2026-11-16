@@ -31,7 +31,7 @@ func TestDirectSinkWritesAllTablesAndRollups(t *testing.T) {
 
 	sink := pipeline.NewDirectSink(config.SinkConfig{
 		Ack: "flush", BatchSize: 1000, FlushInterval: 50 * time.Millisecond, QueueSize: 64,
-		InsertTimeout: 10 * time.Second, MaxRetries: 1,
+		InsertTimeout: 10 * time.Second, RetryWindow: time.Second,
 	}, pipeline.ClickHouseInserters(conn), logger, pipeline.NewMetrics(nil))
 	runCtx, stop := context.WithCancel(ctx)
 	done := make(chan struct{})

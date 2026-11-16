@@ -14,6 +14,7 @@ const REJECT_REASONS: Record<string, string> = {
   records_per_minute: "Over the records-per-minute quota",
   bytes_per_day: "Over the bytes-per-day quota",
   invalid: "Invalid record",
+  storage_unavailable: "Storage unavailable, the SDK retries",
   app_create_forbidden: "Unknown app, the key may not create apps",
   app_not_allowed: "App not allowed for the key",
   app_deleted: "App deleted",

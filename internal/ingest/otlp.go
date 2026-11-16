@@ -288,6 +288,10 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(rows) > 0 {
 		if err := e.sink.SubmitSpans(r.Context(), rows); err != nil {
+			e.records.WithLabelValues(signal, "failed").Add(float64(len(rows)))
+			for _, row := range rows {
+				t.reject(row.AppID, ReasonStorageUnavailable, 1)
+			}
 			e.otlpFail(w, c, signal, e.submitError(err))
 			return
 		}
@@ -577,6 +581,10 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(rows) > 0 {
 		if err := e.sink.SubmitLogs(r.Context(), rows); err != nil {
+			e.records.WithLabelValues(signal, "failed").Add(float64(len(rows)))
+			for _, row := range rows {
+				t.reject(row.AppID, ReasonStorageUnavailable, 1)
+			}
 			e.otlpFail(w, c, signal, e.submitError(err))
 			return
 		}

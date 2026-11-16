@@ -216,6 +216,9 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := e.sink.SubmitRequests(r.Context(), rows); err != nil {
 		e.records.WithLabelValues(signal, "failed").Add(float64(len(rows)))
+		for _, row := range rows {
+			t.reject(row.AppID, ReasonStorageUnavailable, 1)
+		}
 		e.fail(w, signal, e.submitError(err))
 		return
 	}
@@ -305,6 +308,9 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := e.sink.SubmitLogs(r.Context(), rows); err != nil {
 		e.records.WithLabelValues(signal, "failed").Add(float64(len(rows)))
+		for _, row := range rows {
+			t.reject(row.AppID, ReasonStorageUnavailable, 1)
+		}
 		e.fail(w, signal, e.submitError(err))
 		return
 	}
@@ -410,6 +416,9 @@ func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := e.sink.SubmitSpans(r.Context(), rows); err != nil {
 		e.records.WithLabelValues(signal, "failed").Add(float64(len(rows)))
+		for _, row := range rows {
+			t.reject(row.AppID, ReasonStorageUnavailable, 1)
+		}
 		e.fail(w, signal, e.submitError(err))
 		return
 	}
@@ -496,6 +505,9 @@ func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := e.sink.SubmitDeploys(r.Context(), rows); err != nil {
 		e.records.WithLabelValues(signal, "failed").Add(float64(len(rows)))
+		for _, row := range rows {
+			t.reject(row.AppID, ReasonStorageUnavailable, 1)
+		}
 		e.fail(w, signal, e.submitError(err))
 		return
 	}

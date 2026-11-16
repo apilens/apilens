@@ -169,8 +169,10 @@ type SinkConfig struct {
 	BatchSize     int           `koanf:"batch_size"`
 	FlushInterval time.Duration `koanf:"flush_interval"`
 	QueueSize     int           `koanf:"queue_size"`
-	InsertTimeout time.Duration `koanf:"insert_timeout"`
-	MaxRetries    int           `koanf:"max_retries"`
+	InsertTimeout time.Duration `koanf:"insert_timeout"` // bound of one insert attempt
+	// RetryWindow is how long a failing insert is retried with exponential
+	// backoff before its submitters get 503 (D7: never drop silently).
+	RetryWindow time.Duration `koanf:"retry_window"`
 }
 
 // OTelConfig configures APILens's own tracing. An empty Endpoint disables it.
@@ -462,7 +464,7 @@ func Defaults() map[string]any {
 		"server.admin_addr":                "",
 		"server.read_header_timeout":       "5s",
 		"server.read_timeout":              "30s",
-		"server.write_timeout":             "30s",
+		"server.write_timeout":             "45s", // outlasts sink.retry_window so ack=flush can still answer 503
 		"server.idle_timeout":              "120s",
 		"server.shutdown_timeout":          "30s",
 		"log.level":                        "info",
@@ -494,9 +496,9 @@ func Defaults() map[string]any {
 		"sink.ack":                         "flush",
 		"sink.batch_size":                  10_000,
 		"sink.flush_interval":              "250ms",
-		"sink.queue_size":                  1024,
+		"sink.queue_size":                  4096,
 		"sink.insert_timeout":              "10s",
-		"sink.max_retries":                 3,
+		"sink.retry_window":                "30s",
 		"otel.endpoint":                    "",
 		"otel.insecure":                    false,
 		"otel.service_name":                "apilens",
@@ -711,6 +713,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Sink.BatchSize <= 0 || c.Sink.QueueSize <= 0 || c.Sink.FlushInterval <= 0 {
 		errs = append(errs, errors.New("sink.batch_size, sink.queue_size and sink.flush_interval must be > 0"))
+	}
+	if c.Sink.RetryWindow < 0 {
+		errs = append(errs, errors.New("sink.retry_window must be >= 0"))
+	}
+	if c.Sink.Ack == "flush" && c.Server.WriteTimeout > 0 && c.Sink.RetryWindow+c.Sink.FlushInterval >= c.Server.WriteTimeout {
+		errs = append(errs, errors.New("sink.retry_window + sink.flush_interval must be < server.write_timeout with sink.ack=flush, or a failed insert cannot be answered with 503"))
 	}
 	if c.OTel.SampleRatio < 0 || c.OTel.SampleRatio > 1 {
 		errs = append(errs, errors.New("otel.sample_ratio must be within [0,1]"))
