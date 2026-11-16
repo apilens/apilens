@@ -1,0 +1,52 @@
+# Nightly lossless-exceptions e2e (test/e2e/exceptions_e2e_test.go,
+# `task test:e2e:exceptions`).
+#
+# Brings up the compose CI stack and the FastAPI, Express and Spring example
+# apps at sample rate 0, hits every /boom/* endpoint and checks in ClickHouse
+# and through /api/v1/traces that each failing request kept its trace and its
+# full exception (raised exception, root cause, every frame), and that the
+# exception /boom/logged logs was shipped too.
+name: Exceptions e2e
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+
+permissions: {}
+
+concurrency:
+  group: e2e-exceptions-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GOTOOLCHAIN: auto
+  # Keep in step with ci.yml.
+  TASK_VERSION: v3.54.0
+
+jobs:
+  exceptions:
+    name: Full exceptions and traces are never lost
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      COMPOSE: docker compose --env-file deploy/compose/ci.env -f deploy/compose/compose.yaml -f deploy/compose/compose.ci.yaml -f deploy/compose/compose.examples.yaml --profile examples
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install Task
+        run: go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
+      - name: Run the exceptions e2e
+        run: task test:e2e:exceptions
+      - name: Dump logs on failure
+        if: failure()
+        run: APILENS_EXAMPLES_API_KEY=unused $COMPOSE logs --no-color --timestamps
+      - name: Tear down
+        if: always()
+        run: APILENS_EXAMPLES_API_KEY=unused $COMPOSE down -v --remove-orphans

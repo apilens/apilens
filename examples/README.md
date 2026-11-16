@@ -22,7 +22,7 @@ Every app serves the same endpoints:
 | `GET /boom/chained` | unhandled exception with a 3-level cause chain (Python `raise ... from`, JS `Error.cause`, Java `getCause`), 500 |
 | `GET /boom/deep` | unhandled exception raised 60 frames deep (recursion), 500 |
 | `GET /boom/handled` | exception the framework's own handler turns into a 500 (FastAPI `exception_handler`, Express error middleware, Spring `@ControllerAdvice`) |
-| `GET /boom/logged` | exception (3-level chain) caught and logged (`logger.exception`, `console.error`, SLF4J `log.error`), 200 |
+| `GET /boom/logged` | exception (3-level chain) caught and logged (`logger.exception`, `console.error` plus `captureException`, SLF4J `log.error`), 200 |
 | `GET /outbound` | outbound HTTP call (FastAPI → Express → Spring → FastAPI `/orders/7`) |
 
 ## Run
