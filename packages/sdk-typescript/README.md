@@ -596,6 +596,7 @@ options.
 | `requestLogging.logRequestBody` / `requestLogging.logResponseBody` | `true` | Toggle each body independently. |
 | `requestLogging.maxPayloadBytes` | `8192` | Per-body capture cap; set `0` to disable body capture. |
 | `captureValidationErrors` | — | **Not in the JS SDK**: validation responses are captured as ordinary bodies. |
+| `captureLocals` | — | **Not in the JS SDK**: frame locals are a Python-only option; JS stack traces carry no local variables. |
 | `captureContentTypes` | `DEFAULT_CAPTURE_CONTENT_TYPES` | Media-type globs whose bodies are captured (default `application/json`, `application/*+json`, `text/*`, `application/x-www-form-urlencoded`); replaces the defaults. Other bodies are never buffered and are stored as `[<content-type>, N bytes omitted]`. |
 | `captureSpans` | `true` | Emit trace ids, spans and the error log for this app. |
 | `captureLogs` | — | **Not in the JS SDK**: there is no logging-library handler; use `captureException(err)` to ship an error the app caught. |
@@ -750,6 +751,7 @@ the parsed values and `resolveConfig(config)` the effective config.
 | `APILENS_LOG_RESPONSE_BODY` | `requestLogging.logResponseBody` | bool | `true` |
 | `APILENS_MAX_PAYLOAD_BYTES` | `requestLogging.maxPayloadBytes` | int | `8192` |
 | `APILENS_CAPTURE_VALIDATION_ERRORS` | — | not read by the JS SDK | — |
+| `APILENS_CAPTURE_LOCALS` | — | not read by the JS SDK (Python only) | — |
 | `APILENS_CAPTURE_CONTENT_TYPES` | `captureContentTypes` | list | JSON, `+json`, `text/*`, form-encoded |
 | `APILENS_REDACT_QUERY_PARAMS` | `redactQueryParams` | list | none (built-ins always apply) |
 | `APILENS_REDACT_HEADERS` | `redactHeaders` | list | none (built-ins always apply) |
