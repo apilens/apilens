@@ -139,6 +139,19 @@ type resourceInfo struct {
 	records                                    int // spans or log records under the resource
 }
 
+// resourceEnvs lists the normalised environment of every record of an
+// export, in the order of resourceIdents.
+func resourceEnvs(resources []resourceInfo) []string {
+	var envs []string
+	for _, ri := range resources {
+		env := environment(ri.environment)
+		for range ri.records {
+			envs = append(envs, env)
+		}
+	}
+	return envs
+}
+
 // resourceIdents lists the app identifier of every record of an export.
 func resourceIdents(resources []resourceInfo) []string {
 	var idents []string
@@ -177,41 +190,21 @@ func readResource(attrs []*commonpb.KeyValue) resourceInfo {
 	return ri
 }
 
-func (e *Edge) resolveResourceApps(r *http.Request, p apikeys.Principal, resources []resourceInfo) (map[string]uuid.UUID, []string, *apiError) {
-	var idents []string
-	seen := map[string]bool{}
-	for _, ri := range resources {
-		if ri.app != "" && !seen[ri.app] {
-			seen[ri.app] = true
-			idents = append(idents, ri.app)
-		}
+// resolveResourceApps resolves the app of every resource (apilens.app, else
+// service.name; neither is the default app). Resources whose app is refused,
+// or whose environment the key may not send for, are reported in rejected;
+// their records count as rejected in a partial success, so one bad service
+// does not fail the whole export.
+func (e *Edge) resolveResourceApps(r *http.Request, signal string, p apikeys.Principal, resources []resourceInfo, t tally) (map[string]uuid.UUID, []string, int64, *apiError) {
+	b, aerr := e.resolveBatch(r.Context(), signal, p, nil, resourceIdents(resources), resourceEnvs(resources), false, t)
+	if b == nil {
+		return nil, nil, 0, aerr
 	}
-	found := map[string]uuid.UUID{}
-	var unknown []string
-	if len(idents) == 0 {
-		return found, nil, nil
+	var rejected []string
+	for _, rep := range b.report {
+		rejected = append(rejected, rep.Detail)
 	}
-	// Resolve one at a time only when the batch resolution fails, so a single
-	// unknown service does not reject the whole export.
-	m, aerr := e.resolveApps(r.Context(), p, nil, idents, false)
-	if aerr == nil {
-		return m, nil, nil
-	}
-	if aerr.status != http.StatusUnprocessableEntity {
-		return nil, nil, aerr
-	}
-	for _, id := range idents {
-		one, aerr := e.resolveApps(r.Context(), p, nil, []string{id}, false)
-		switch {
-		case aerr == nil:
-			found[id] = one[id]
-		case aerr.status == http.StatusUnprocessableEntity:
-			unknown = append(unknown, id)
-		default:
-			return nil, nil, aerr
-		}
-	}
-	return found, unknown, nil
+	return b.apps, rejected, int64(b.dropped), nil
 }
 
 func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
@@ -236,12 +229,12 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 	}
 	t := tally{}
 	defer e.flushStats(r.Context(), t)
-	if aerr := e.admit(r.Context(), p.ProjectID, total, size); aerr != nil {
+	if aerr := e.admit(r.Context(), p, total, size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, resourceIdents(resources), t)
 		e.otlpFail(w, c, signal, aerr)
 		return
 	}
-	apps, unknown, aerr := e.resolveResourceApps(r, p, resources)
+	apps, unknown, counted, aerr := e.resolveResourceApps(r, signal, p, resources, t)
 	if aerr != nil {
 		e.otlpFail(w, c, signal, aerr)
 		return
@@ -253,13 +246,14 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 	for i, rs := range req.GetResourceSpans() {
 		ri := resources[i]
 		appID, known := apps[ri.app]
+		known = known && p.AllowsEnvironment(environment(ri.environment))
 		for _, ss := range rs.GetScopeSpans() {
 			for _, sp := range ss.GetSpans() {
 				row, valid := spanRow(sp, ri, now)
 				if !known || !valid {
 					rejected++
 					if known {
-						t.app(appID).Rejected++
+						t.reject(appID, ReasonInvalid, 1)
 					}
 					continue
 				}
@@ -275,10 +269,10 @@ func (e *Edge) handleOTLPTraces(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, row := range rows {
-		t.app(row.AppID).Accepted++
+		t.accept(row.AppID, row.Environment)
 	}
 	e.records.WithLabelValues(signal, "accepted").Add(float64(len(rows)))
-	e.records.WithLabelValues(signal, "rejected").Add(float64(rejected))
+	e.records.WithLabelValues(signal, "rejected").Add(float64(rejected - counted)) // app rejections are counted by resolveBatch
 	e.batches.WithLabelValues(signal, "200").Inc()
 	resp := &coltrace.ExportTraceServiceResponse{}
 	if rejected > 0 {
@@ -367,12 +361,12 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	t := tally{}
 	defer e.flushStats(r.Context(), t)
-	if aerr := e.admit(r.Context(), p.ProjectID, total, size); aerr != nil {
+	if aerr := e.admit(r.Context(), p, total, size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, resourceIdents(resources), t)
 		e.otlpFail(w, c, signal, aerr)
 		return
 	}
-	apps, unknown, aerr := e.resolveResourceApps(r, p, resources)
+	apps, unknown, counted, aerr := e.resolveResourceApps(r, signal, p, resources, t)
 	if aerr != nil {
 		e.otlpFail(w, c, signal, aerr)
 		return
@@ -384,6 +378,7 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 	for i, rl := range req.GetResourceLogs() {
 		ri := resources[i]
 		appID, known := apps[ri.app]
+		known = known && p.AllowsEnvironment(environment(ri.environment))
 		for _, sl := range rl.GetScopeLogs() {
 			scope := sl.GetScope().GetName()
 			for _, lr := range sl.GetLogRecords() {
@@ -391,7 +386,7 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 				if !known || !valid {
 					rejected++
 					if known {
-						t.app(appID).Rejected++
+						t.reject(appID, ReasonInvalid, 1)
 					}
 					continue
 				}
@@ -407,10 +402,10 @@ func (e *Edge) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, row := range rows {
-		t.app(row.AppID).Accepted++
+		t.accept(row.AppID, row.Environment)
 	}
 	e.records.WithLabelValues(signal, "accepted").Add(float64(len(rows)))
-	e.records.WithLabelValues(signal, "rejected").Add(float64(rejected))
+	e.records.WithLabelValues(signal, "rejected").Add(float64(rejected - counted)) // app rejections are counted by resolveBatch
 	e.batches.WithLabelValues(signal, "200").Inc()
 	resp := &collogs.ExportLogsServiceResponse{}
 	if rejected > 0 {
@@ -530,11 +525,11 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-func rejectionMessage(unknown []string) string {
-	if len(unknown) == 0 {
+func rejectionMessage(rejected []string) string {
+	if len(rejected) == 0 {
 		return "some records had invalid ids or timestamps"
 	}
-	return "unknown app (set resource attribute apilens.app or service.name to an app slug): " + strings.Join(unknown, ", ")
+	return strings.Join(rejected, "; ")
 }
 
 // hexIDsToBase64 rewrites traceId/spanId/parentSpanId hex strings in an

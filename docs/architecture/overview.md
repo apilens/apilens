@@ -65,7 +65,9 @@ packages never import feature modules, and only `cmd/` imports `internal/app`.
 1. **Auth**: `X-API-Key` or `Authorization: Bearer`. Keys are project-scoped,
    stored as SHA-256, and verified from an in-process LRU (positive and
    negative). Revocations reach every process through Valkey pub/sub. Nothing
-   on this path calls another service per request.
+   on this path calls another service per request. Keys of a paused project
+   get 403 `project_paused` and keys of a deleted one 403 `project_deleted`
+   ([`project-lifecycle.md`](project-lifecycle.md)).
 2. **Decode**: gzip or zstd; size is limited both on the wire and after
    decompression (zip-bomb guard).
 3. **Validate and normalise**: the same limits as v1 (payload 64 KiB, log
@@ -95,8 +97,10 @@ read another organization's project.
 ## Data model
 
 - **Postgres** (control plane): organizations → projects → apps and
-  environments, API keys, and a transactional outbox (relayed to SpiceDB in
-  M2).
+  environments, API keys, project roles (`project_members`,
+  `projects.default_access`), the audit log, and a transactional outbox
+  (relayed to SpiceDB). Projects are soft-deleted and purged after a grace
+  period ([`project-lifecycle.md`](project-lifecycle.md)).
 - **ClickHouse** (telemetry): `api_requests`, `api_logs`, `api_spans`,
   `api_deploys`, plus `api_requests_1m` / `_1h` rollups maintained by
   materialized views. The tenant comes first in every `ORDER BY`, tables use
@@ -124,6 +128,7 @@ against the published JWKS; identity uses `token.Issuer.Verify`.
 | payload | `exp` | `iat` + `identity.access_token_ttl` |
 | payload | `sid` | session id (UUID) the token was issued for; authz uses it to tie a request to a revocable session |
 | payload | `amr` | how the user authenticated (RFC 8176 style), one or more of `email`, `google`, `github`, `passkey`, `totp`, `sso` |
+| payload | `auth_time` | when the user signed in to the session (seconds; unchanged by refreshes); sensitive operations need it within `identity.sensitive_action_max_age` (see identity.md) |
 
 Tokens carry no email, name or role: authorization looks those up by `sub`.
 Verification tolerates 30 s of clock skew on `exp` and `iat`.
@@ -165,9 +170,10 @@ vocabulary and the error catalogue are documented in
 
 ## Audit events (M2)
 
-Security-relevant account actions are written to the Postgres `audit_events`
-table by `audit.Recorder.Record` (`internal/identity/audit`), for users (and
-later admins) to inspect. Each row holds whose account it is about
+Security-relevant account, organization and project actions are written to
+the Postgres `audit_events` table by `audit.Recorder.Record`
+(`internal/identity/audit`): one append-only store (D7 in #753), read as a
+project's Access › Activity tab and as the organization's audit log. Each row holds whose account it is about
 (`user_id`), who did it (`actor_user_id`, NULL for the system or an anonymous
 caller), the event kind, event-specific metadata (never secrets), and the
 client IP and user agent. The IP and user agent come from the request
@@ -176,6 +182,43 @@ and `User-Agent` header; forwarding headers are not trusted. When the caller
 runs in a transaction (`audit.WithTx`), the event is written in it, so it
 commits or rolls back with the change it describes. Kinds are stable once
 shipped; a test checks that this table lists every one.
+
+Organization and project events also carry their scope (`org_id`,
+`project_id`), the target acted on (`target_type`, `target_id`,
+`target_label`, for example `api_key` / its id / its name) and, for a change,
+`changes` as `{"previous": ..., "next": ...}`. The recorder fills
+`request_id` from the request context (`audit.Middleware` assigns a fresh id
+per request and returns it as the `X-Request-Id` response header; an incoming
+one is ignored) and `actor_label` from the actor's name, or email, at the
+time. `changes` never holds secrets: `Record` refuses a change whose secret
+fields (`client_secret`, `key_hash`, `*_token`, ...) carry a value or that
+contains API key material, and `audit.Redact` masks secret fields as
+`[redacted]` so a change can still say that a secret changed.
+
+**Scope and access (M4).** An event's scope decides who can read it:
+
+| Scope | Columns | Read through | Who |
+|---|---|---|---|
+| personal | `org_id` and `project_id` NULL (sign-in, sessions, passkeys, 2FA, profile) | not listed by the API; deleted with the account by the user purge | |
+| organization | `org_id` set, `project_id` NULL (org settings, members, invitations, SSO, `project.purged`) | `GET /api/v1/orgs/{slug}/audit-events` | org owners and admins (`organization#manage`) |
+| project | `org_id` and `project_id` set (projects, access, keys, apps, environments, privacy, alerts, health checks, lifecycle) | `GET /api/v1/projects/{slug}/audit-events`, and the org log for the projects the caller can view | project admins (`project#view_audit`: project Admin, org owners and admins) |
+
+Both listings filter by `actor`, `action` (exact, or a prefix such as
+`api_key.`), `target_type`, `from`/`to` and `q` (target label), newest first
+with cursor pagination; `…/audit-events/actions` lists the actions with
+display labels for the filter, and `…/audit-events/export` streams the same
+filters as CSV (at most 100 000 rows, `X-Truncated: true` beyond; audited as
+`audit_log.exported`). The org log never shows another project's events: it
+asks SpiceDB which of the organization's projects the caller can `view`
+(`internal/controlplane/api/audit_events.go`,
+`internal/controlplane/auditlog`).
+
+Events are kept `audit.retention` days (400 by default, at least 30, `0`
+keeps them forever) and every listing reports it; the daily River job
+`identity.audit_retention` deletes older events in batches of 1 000. When a
+user is purged, their personal events go and the org and project events they
+appear in are anonymised (see [`identity.md`](identity.md)); a purged
+project's events stay ([`project-lifecycle.md`](project-lifecycle.md)).
 
 | Kind | Recorded when |
 |---|---|
@@ -210,9 +253,49 @@ shipped; a test checks that this table lists every one.
 | `invitation.accepted` | an organization invitation is accepted |
 | `api_key.created` | a project API key is created (metadata has the project, key id, name, display prefix and scopes; never the key) |
 | `api_key.revoked` | a project API key is revoked |
+| `api_key.updated` | a project API key's permissions or app scope change (metadata has `can_create_apps` and `app_ids`) |
+| `api_key.rotated` | a project API key is rotated: a successor with the same name and permissions replaces it and the old key expires at the end of the overlap window (metadata has the old and new key ids and prefixes, `overlap` and `old_expires_at`; never either key) |
 | `sso.updated` | an organization's SSO connection is created or changed (metadata has `created`, `enforce`, `secret_changed` and the changed `fields`; never the secret) |
 | `sso.deleted` | an organization's SSO connection is removed |
 | `capture_policy.updated` | an app's remote capture policy is saved (metadata has the app, its project and the new values) |
+| `app.created` | an app is created: with its project (`created_by` dashboard) or by ingest from the app name an SDK sent (`created_by` sdk, with the key id; no actor) |
+| `app.archived` | an app is archived from the Apps page |
+| `app.restored` | an archived or deleted app is restored; `by` is `dashboard`, or `sdk` when data naming an archived app un-archived it |
+| `app.renamed` | an app's display name changes (the slug never does) |
+| `app.merged` | an app is merged into another (metadata has both apps); its slug becomes an alias |
+| `app.deleted` | an app is deleted; its slug stays reserved for 30 days |
+| `app.acknowledged` | a new app the SDK created is kept from the "New app detected" notice |
+| `session.reauthenticated` | the user confirms who they are again without signing out (passkey, authenticator code, email code or SSO with `prompt=login`); metadata has `method` and `session_id`. The session's authentication time moves to now |
+| `session.reauth_failed` | a re-authentication attempt fails (metadata has `method` and `reason`) |
+| `project.created` | a project is created (changes: `name`, `slug`, `environments`) |
+| `project.updated` | a project's settings change (changes: the changed fields, such as `name` or `description`) |
+| `environment.added` | an environment is added to a project by hand (target: the environment) |
+| `environment.updated` | an environment's settings change (changes: the changed fields) |
+| `environment.removed` | an environment is removed from a project |
+| `privacy_policy.updated` | a project's or app's privacy policy is saved (changes: the masked `query_params`, `headers` and `body_fields` patterns) |
+| `invitation.revoked` | a pending organization invitation is revoked; its link stops working |
+| `alert_rule.created` | an alert rule is created (changes: its settings) |
+| `alert_rule.updated` | an alert rule is changed (changes: the changed settings) |
+| `alert_rule.deleted` | an alert rule is deleted |
+| `alert_channel.created` | a notification channel is created (changes: `type` and `name`; never its config, which holds secrets) |
+| `alert_channel.updated` | a notification channel is renamed or its config replaced (`config_replaced`; never the config) |
+| `alert_channel.deleted` | a notification channel is deleted and removed from the rules that used it |
+| `health_check.created` | a health check is created (changes: its URL, environment, expected status and state) |
+| `health_check.deleted` | a health check is deleted |
+| `app_settings.updated` | an app's settings change (changes: `latency_threshold_ms`) |
+| `endpoint_settings.updated` | an endpoint's settings are saved (changes: `expected_status_codes`, `latency_threshold_ms`, `excluded`) |
+| `project_member.added` | a direct project role is granted to an organization member (metadata has the project and `role`) |
+| `project_member.role_changed` | a direct project role changes (metadata has `from` and `to`) |
+| `project_member.removed` | a direct project role is removed (metadata has `role` and `self` when people removed their own grant) |
+| `project.access_changed` | a project's default access for organization members changes (metadata has `from`, `to` and `lose_access`, how many people lost access) |
+| `audit_log.exported` | an organization's or project's audit events are exported as CSV (metadata has `format`, the `filters`, the `rows` exported and `truncated`) |
+| `api_key.expired` | a project API key passed its `expires_at` (written once by the hourly expiry job, with no actor; metadata has the key id, name, prefix, scopes and `expires_at`; never the key). Revoked and rotated keys get none: `api_key.revoked` and `api_key.rotated` already say when they stop working |
+| `project.paused` | ingest for a project is paused: the ingest edge answers 403 `project_paused` to its keys (changes: `paused`) |
+| `project.resumed` | ingest for a paused project is resumed (changes: `paused`) |
+| `project.deleted` | a project is deleted and scheduled for purge (changes: `purge_after`, when the purge job may remove it; the slug stays reserved until then) |
+| `project.restored` | a deleted project is restored before its purge; its access, API keys and slug come back as they were |
+| `project.slug_changed` | a project's slug is renamed (changes: `slug`); the old slug keeps leading to the project until another project takes it and is reserved for it for 30 days |
+| `project.purged` | the purge job removed a deleted project's data (ClickHouse telemetry, Postgres rows, SpiceDB relationships, Valkey keys, export files) after its grace period; org-scoped, the system is the actor; the slug is reserved for 30 days |
 
 ## Delivery
 

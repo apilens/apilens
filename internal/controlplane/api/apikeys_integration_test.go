@@ -36,6 +36,13 @@ const keyCacheTTL = time.Minute
 
 func setupKeys(t *testing.T) *keysFixture {
 	t.Helper()
+	return setupKeysWith(t, 0)
+}
+
+// setupKeysWith is setupKeys with ingest.max_keys_per_project = maxKeys (0:
+// no cap).
+func setupKeysWith(t *testing.T, maxKeys int) *keysFixture {
+	t.Helper()
 	f := setupProjects(t)
 	logger := testutil.Logger(t)
 	vcfg := testutil.Valkey(t)
@@ -47,7 +54,7 @@ func setupKeys(t *testing.T) *keysFixture {
 	publish := func(ctx context.Context, hash string) error {
 		return cache.Publish(ctx, vk, apikeys.InvalidateChannel, hash)
 	}
-	NewAPIKeys(apikeys.NewService(f.pool, audit.New(f.pool), publish, logger), logger).Register(f.api)
+	NewAPIKeys(apikeys.NewService(f.pool, audit.New(f.pool), publish, logger).WithMaxKeys(maxKeys), f.projectGuard(t), logger).Register(f.api)
 
 	// The edge: its own verifier and its own subscription.
 	v := apikeys.NewVerifier(db.New(f.pool), apikeys.Options{Size: 100, TTL: keyCacheTTL, NegativeTTL: keyCacheTTL}, logger, nil)
@@ -107,7 +114,7 @@ func TestCreateAndListAPIKeys(t *testing.T) {
 	}
 	c := decode[CreatedAPIKey](t, resp)
 	if !strings.HasPrefix(c.Key, apikeys.Prefix) || c.Prefix != c.Key[:apikeys.DisplayPrefixLen] || c.Name != "CI ingest" ||
-		!slices.Equal(c.Scopes, []string{"ingest", "read"}) || c.ExpiresAt == nil || !c.ExpiresAt.Equal(expires) ||
+		!slices.Equal(c.Scopes, []string{"ingest", "apps:create", "read"}) || c.ExpiresAt == nil || !c.ExpiresAt.Equal(expires) ||
 		c.RevokedAt != nil || c.LastUsedAt != nil || c.CreatedAt.IsZero() {
 		t.Fatalf("created = %+v", c)
 	}
@@ -138,6 +145,23 @@ func TestCreateAndListAPIKeys(t *testing.T) {
 	if strings.Contains(raw, c.Key) || strings.Contains(raw, apikeys.Hash(c.Key)) {
 		t.Fatalf("audit metadata leaks the key: %s", raw)
 	}
+	// Scoped to the org and project, with the key as target, the member's name as
+	// actor_label and the new settings as changes, never the key itself.
+	var orgID, projectID uuid.UUID
+	var targetType, targetID, targetLabel, actorLabel, changes string
+	if err := f.pool.QueryRow(f.ctx, `SELECT org_id, project_id, target_type, target_id, target_label, actor_label, changes::text
+		FROM audit_events WHERE event = 'api_key.created'`).Scan(&orgID, &projectID, &targetType, &targetID, &targetLabel, &actorLabel, &changes); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count(t, `SELECT count(*) FROM projects WHERE id = $1 AND org_id = $2`, p.ID, orgID); n != 1 || projectID.String() != p.ID {
+		t.Fatalf("audit scope = org %s project %s, want project %s", orgID, projectID, p.ID)
+	}
+	if targetType != "api_key" || targetID != c.ID || targetLabel != "CI ingest" || actorLabel != "Ada" {
+		t.Fatalf("audit target = %s/%s/%s actor_label = %s", targetType, targetID, targetLabel, actorLabel)
+	}
+	if !strings.Contains(changes, `"prefix": "`+c.Prefix+`"`) || strings.Contains(changes, c.Key) || strings.Contains(changes, apikeys.Hash(c.Key)) {
+		t.Fatalf("audit changes = %s", changes)
+	}
 
 	second := f.mustCreateKey(t, owner, "shop", "Prod", "ingest")
 
@@ -145,7 +169,7 @@ func TestCreateAndListAPIKeys(t *testing.T) {
 	for _, u := range []uuid.UUID{owner, viewer} {
 		list := f.listKeys(t, u, "shop")
 		if len(list) != 2 || list[0].ID != second.ID || list[1].ID != c.ID || list[1].Name != "CI ingest" ||
-			!slices.Equal(list[0].Scopes, []string{"ingest"}) || list[0].ExpiresAt != nil {
+			!slices.Equal(list[0].Scopes, []string{"ingest", "apps:create"}) || list[0].ExpiresAt != nil {
 			t.Fatalf("list = %+v", list)
 		}
 	}
@@ -175,8 +199,8 @@ func TestCreateAndListAPIKeys(t *testing.T) {
 		code   string
 	}{
 		{"viewer", viewer, "shop", map[string]any{"name": "x", "scopes": []string{"ingest"}}, http.StatusForbidden, "forbidden"},
-		{"stranger", stranger, "shop", map[string]any{"name": "x", "scopes": []string{"ingest"}}, http.StatusForbidden, "forbidden"},
-		{"missing project", owner, "missing", map[string]any{"name": "x", "scopes": []string{"ingest"}}, http.StatusForbidden, "forbidden"},
+		{"stranger", stranger, "shop", map[string]any{"name": "x", "scopes": []string{"ingest"}}, http.StatusNotFound, "not_found"},
+		{"missing project", owner, "missing", map[string]any{"name": "x", "scopes": []string{"ingest"}}, http.StatusNotFound, "not_found"},
 		{"blank name", owner, "shop", map[string]any{"name": "   ", "scopes": []string{"ingest"}}, http.StatusBadRequest, "invalid_request"},
 		{"past expiry", owner, "shop", map[string]any{"name": "x", "scopes": []string{"ingest"}, "expires_at": time.Now().Add(-time.Hour)}, http.StatusBadRequest, "invalid_request"},
 	} {
@@ -194,7 +218,7 @@ func TestCreateAndListAPIKeys(t *testing.T) {
 			t.Errorf("create %v: %d %s", body, resp.Code, resp.Body)
 		}
 	}
-	if resp := f.api.Get(ProjectsPath+"/shop/api-keys", as(stranger)); resp.Code != http.StatusForbidden {
+	if resp := f.api.Get(ProjectsPath+"/shop/api-keys", as(stranger)); resp.Code != http.StatusNotFound {
 		t.Errorf("stranger list: %d %s", resp.Code, resp.Body)
 	}
 	if n := f.count(t, `SELECT count(*) FROM api_keys`); n != 2 {
@@ -236,7 +260,7 @@ func TestRevokeAPIKeyInvalidatesEdgeCache(t *testing.T) {
 		code   string
 	}{
 		{"viewer", viewer, "shop", k.ID, http.StatusForbidden, "forbidden"},
-		{"stranger", other, "shop", k.ID, http.StatusForbidden, "forbidden"},
+		{"stranger", other, "shop", k.ID, http.StatusNotFound, "not_found"},
 		{"key of another project", owner, "shop", foreign.ID, http.StatusGone, "api_key_gone"},
 		{"unknown key", owner, "shop", uuid.NewString(), http.StatusGone, "api_key_gone"},
 	} {

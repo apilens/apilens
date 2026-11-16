@@ -1,0 +1,92 @@
+---
+title: "API keys"
+description: "Create project API keys, store them once, rotate them without downtime, let them expire, limit them to environments, and what to do when one leaks."
+---
+
+An API key lets a service send data to **one project**. Keys belong to the project, not to an app or a person: the app name the SDK sends decides which app the data is for (see [Projects, apps & API keys](/platform/projects-apps-keys)).
+
+Keys live on the project's **Access** page, in the **API keys** tab (`/<project>/access/keys`). The old address `/<project>/settings/keys` redirects there.
+
+Everyone who can see the project sees each key's name, prefix and details. Project **Editors** and **Admins** (and organization owners and admins) can create, edit, rotate and revoke keys; see the [role matrix](/platform/project-access#role-matrix).
+
+## What each key shows
+
+| Column | What it means |
+|---|---|
+| **Name** and prefix | The name you gave it and the first characters of the key. The full key is never shown again after creation. |
+| **Scopes** | **Ingest** (send requests, traces and logs from your SDK) and **Read** (query this project's data from scripts and the API). |
+| **State** | **Active**, **Expires in N days** (within 7 days of its expiry), **Rotating until *date*** (replaced, still working during the overlap), **Expired** or **Revoked**. |
+| **Created** | When, and by whom. |
+| **Last used** | When ingest last accepted it, with the SDK name and version of that request. Recorded at most once every few minutes per key. |
+| **Expires** | The expiry date, or **Never**. |
+
+Expired and revoked keys are hidden until you turn on **Show inactive**. The state filter narrows the list to one state.
+
+Ingest also records the client IP of the last use (`last_used_ip` in the API). Self-hosted installs that do not want it stored set `ingest.record_key_ip: false` (`APILENS_INGEST__RECORD_KEY_IP=false`, default `true`).
+
+## Create a key
+
+**Create API key** asks for:
+
+- **Name**, so you can tell keys apart (`prod-backend`, `team-payments`, `deploy-pipeline`).
+- **Scopes**: Ingest, Read, or both.
+- **Expires**: Never, in 30 days, in 90 days, in 1 year, or on a date you pick.
+- **Apps it may send data for**: all apps, or only the apps you pick, and whether it **can create apps** (see [Can create apps](/platform/projects-apps-keys#can-create-apps)).
+- **Environments it may send data for**: all environments (including new ones), or only the ones you pick (see [below](#limit-a-key-to-environments)).
+
+### The key is shown once
+
+Right after you create it, the full key is shown in a dialog **once**. Store it somewhere safe, such as your secret manager, before you close it: tick **I have stored this key** to close the dialog. APILens keeps only a hash and the prefix, so nobody can show the key again. If you lose it, rotate the key.
+
+Creating a key needs a sign-in less than 10 minutes old (the dashboard asks you to confirm who you are if it is older) and emails the project admins.
+
+## Rotate a key
+
+**Rotate** replaces a key with a new one that keeps its name, scopes, app limit, environments and rate limit, and lets the old key keep working for an **overlap window** so you can roll the new one out without dropping data:
+
+| Overlap | When to use it |
+|---|---|
+| **Stop now** | The old key is rejected as soon as the new one exists. Use it for a leaked key. |
+| **24 hours** (the default) | Enough to redeploy your services with the new key. |
+| **7 days** | For keys used in many places or by other teams. |
+
+The old key never works past its own expiry, even if the overlap would run longer; the dialog shows the exact end time. The new key is then shown once, like a new key. During the overlap the old key is listed as **Rotating until *date***.
+
+With **Stop now**, every ingest replica drops the old key from its cache at once; if that message is lost it is rejected at the latest after `ingest.key_cache_ttl` (default 60 s).
+
+Rotating needs a recent sign-in and emails the project admins. Only an active key can be rotated: a key that is revoked, expired or already rotated answers `409 key_not_active`.
+
+```http
+POST /api/v1/projects/{slug}/api-keys/{id}/rotate
+{"overlap": "none" | "24h" | "7d"}
+```
+
+The response holds the new key in full, once. The old key's `rotated_to` names the new key and its `expires_at` is the end of the overlap; the new key's `rotated_from` names the old one.
+
+## Expiry
+
+A key with an expiry stops working at that moment. An hourly job emails the project admins once when a key will expire within 7 days, so there is time to rotate it (admins who turned off security emails are skipped). Keys in a rotation overlap get no reminder. When a key passes its expiry, the [activity log](/platform/activity-log) records `api_key.expired`.
+
+## Limit a key to environments
+
+A key can be pinned to some of the project's [environments](/platform/project-settings#environments). Records for any other environment are rejected per record with `environment_not_allowed`, and the rest of the batch is stored; heartbeats and metadata reports follow the same rule. A record without an environment counts as `production`. Use it so a leaked staging key cannot write production data.
+
+Environments are picked when you create the key. To change them later, use `PUT /api/v1/projects/{slug}/api-keys/{id}/access` with `environments` (`null` for every environment); **Edit access** in the dashboard changes the apps a key may send for. Changes apply to the next request. An environment that an active key is pinned to cannot be removed; hide it instead.
+
+## Limits
+
+- A project has at most **50 active keys**. One more answers `409 key_limit_reached`; revoke a key you no longer use first. Self-hosted installs change the cap with `ingest.max_keys_per_project` (`APILENS_INGEST__MAX_KEYS_PER_PROJECT`, `0` for no cap).
+- A key can have its own **rate limit** in records per minute (`rate_limit_per_minute`, `0` removes it), on top of the project quota. Over it, ingest answers `429 quota_exceeded` with `Retry-After`, which every SDK honours. See [Key limits](/platform/projects-apps-keys#key-limits).
+
+## Revoke a key
+
+**Revoke** stops a key at once: requests using it are rejected from then on. Revoking cannot be undone and emails the project admins. The key stays listed under **Show inactive**.
+
+## When a key leaks
+
+1. **Rotate it with Stop now** (or revoke it if nothing should use it any more). The leaked key stops working within seconds.
+2. **Deploy the new key** to the services that used the old one. Until they have it, their data is rejected with `401`.
+3. **Check the [activity log](/platform/activity-log)** (**API keys** filter) for keys created or changed by someone you don't expect, and the key's **Last used** for an SDK or IP you don't recognise.
+4. **Limit the new key** to the apps and environments it needs, so a future leak does less harm.
+
+Data a leaked key already sent stays stored until its [retention](/getting-started/data-privacy#retention) runs out.

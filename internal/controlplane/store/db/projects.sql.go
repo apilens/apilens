@@ -13,8 +13,12 @@ import (
 )
 
 const createEnvironment = `-- name: CreateEnvironment :execrows
-INSERT INTO environments (id, project_id, name)
-VALUES ($1, $2, $3)
+INSERT INTO environments (id, project_id, name, is_production, position, source)
+VALUES (
+    $1, $2, $3, $3::text IN ('production', 'prod'),
+    (SELECT COALESCE(max(position) + 1, 0) FROM environments WHERE project_id = $2),
+    'dashboard'
+)
 ON CONFLICT (project_id, name) DO NOTHING
 `
 
@@ -24,7 +28,9 @@ type CreateEnvironmentParams struct {
 	Name      string
 }
 
-// Adds the environment unless the project already has one of that name.
+// Adds the environment unless the project already has one of that name. It
+// goes last in the project's order; production and prod are marked as
+// production.
 func (q *Queries) CreateEnvironment(ctx context.Context, arg CreateEnvironmentParams) (int64, error) {
 	result, err := q.db.Exec(ctx, createEnvironment, arg.ID, arg.ProjectID, arg.Name)
 	if err != nil {
@@ -35,35 +41,44 @@ func (q *Queries) CreateEnvironment(ctx context.Context, arg CreateEnvironmentPa
 
 const createProject = `-- name: CreateProject :one
 
-INSERT INTO projects (id, org_id, slug, name)
-VALUES ($1, $2, $3, $4)
-RETURNING id, org_id, slug, name, created_at
+INSERT INTO projects (id, org_id, slug, name, description, created_by)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, org_id, slug, name, description, created_at, updated_at, created_by, repository_url
 `
 
 type CreateProjectParams struct {
-	ID    uuid.UUID
-	OrgID uuid.UUID
-	Slug  string
-	Name  string
+	ID          uuid.UUID
+	OrgID       uuid.UUID
+	Slug        string
+	Name        string
+	Description string
+	CreatedBy   *uuid.UUID
 }
 
 type CreateProjectRow struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	Slug      string
-	Name      string
-	CreatedAt time.Time
+	ID            uuid.UUID
+	OrgID         uuid.UUID
+	Slug          string
+	Name          string
+	Description   string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	CreatedBy     *uuid.UUID
+	RepositoryUrl *string
 }
 
 // Explicit project and environment queries of the projects API. The
 // Upsert* queries in catalog.sql stay for the idempotent dev seed.
-// Fails on projects_slug_active when an active project uses the slug.
+// Fails on projects_slug_active or projects_slug_reserved when an active
+// project or one awaiting purge holds the slug.
 func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (CreateProjectRow, error) {
 	row := q.db.QueryRow(ctx, createProject,
 		arg.ID,
 		arg.OrgID,
 		arg.Slug,
 		arg.Name,
+		arg.Description,
+		arg.CreatedBy,
 	)
 	var i CreateProjectRow
 	err := row.Scan(
@@ -71,7 +86,11 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (C
 		&i.OrgID,
 		&i.Slug,
 		&i.Name,
+		&i.Description,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
+		&i.RepositoryUrl,
 	)
 	return i, err
 }
@@ -94,8 +113,48 @@ func (q *Queries) DeleteEnvironment(ctx context.Context, arg DeleteEnvironmentPa
 	return result.RowsAffected(), nil
 }
 
+const getActiveProject = `-- name: GetActiveProject :one
+SELECT p.id, p.slug, p.name, p.description, p.created_at, p.updated_at, p.created_by, p.repository_url, o.id AS org_id, o.slug AS org_slug
+FROM projects p
+JOIN organizations o ON o.id = p.org_id AND o.deleted_at IS NULL
+WHERE p.id = $1 AND p.deleted_at IS NULL
+`
+
+type GetActiveProjectRow struct {
+	ID            uuid.UUID
+	Slug          string
+	Name          string
+	Description   string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	CreatedBy     *uuid.UUID
+	RepositoryUrl *string
+	OrgID         uuid.UUID
+	OrgSlug       string
+}
+
+// An active project of an active organization by id; no row when either is
+// missing. Callers have authorized the user on it (authz guard).
+func (q *Queries) GetActiveProject(ctx context.Context, id uuid.UUID) (GetActiveProjectRow, error) {
+	row := q.db.QueryRow(ctx, getActiveProject, id)
+	var i GetActiveProjectRow
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
+		&i.RepositoryUrl,
+		&i.OrgID,
+		&i.OrgSlug,
+	)
+	return i, err
+}
+
 const getMemberProject = `-- name: GetMemberProject :one
-SELECT p.id, p.slug, p.name, p.created_at, o.id AS org_id, o.slug AS org_slug, m.role
+SELECT p.id, p.slug, p.name, p.description, p.created_at, p.updated_at, p.created_by, o.id AS org_id, o.slug AS org_slug, m.role
 FROM projects p
 JOIN organizations o ON o.id = p.org_id AND o.deleted_at IS NULL
 JOIN memberships m ON m.org_id = o.id AND m.user_id = $1
@@ -108,13 +167,16 @@ type GetMemberProjectParams struct {
 }
 
 type GetMemberProjectRow struct {
-	ID        uuid.UUID
-	Slug      string
-	Name      string
-	CreatedAt time.Time
-	OrgID     uuid.UUID
-	OrgSlug   string
-	Role      string
+	ID          uuid.UUID
+	Slug        string
+	Name        string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CreatedBy   *uuid.UUID
+	OrgID       uuid.UUID
+	OrgSlug     string
+	Role        string
 }
 
 // An active project of an active organization by slug, with the user's role
@@ -127,7 +189,10 @@ func (q *Queries) GetMemberProject(ctx context.Context, arg GetMemberProjectPara
 		&i.ID,
 		&i.Slug,
 		&i.Name,
+		&i.Description,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
 		&i.OrgID,
 		&i.OrgSlug,
 		&i.Role,
@@ -136,18 +201,22 @@ func (q *Queries) GetMemberProject(ctx context.Context, arg GetMemberProjectPara
 }
 
 const listOrgProjects = `-- name: ListOrgProjects :many
-SELECT id, org_id, slug, name, created_at
+SELECT id, org_id, slug, name, description, created_at, updated_at, created_by, repository_url
 FROM projects
 WHERE org_id = $1 AND deleted_at IS NULL
 ORDER BY name, slug
 `
 
 type ListOrgProjectsRow struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	Slug      string
-	Name      string
-	CreatedAt time.Time
+	ID            uuid.UUID
+	OrgID         uuid.UUID
+	Slug          string
+	Name          string
+	Description   string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	CreatedBy     *uuid.UUID
+	RepositoryUrl *string
 }
 
 func (q *Queries) ListOrgProjects(ctx context.Context, orgID uuid.UUID) ([]ListOrgProjectsRow, error) {
@@ -164,8 +233,105 @@ func (q *Queries) ListOrgProjects(ctx context.Context, orgID uuid.UUID) ([]ListO
 			&i.OrgID,
 			&i.Slug,
 			&i.Name,
+			&i.Description,
 			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CreatedBy,
+			&i.RepositoryUrl,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectEnvironmentDetails = `-- name: ListProjectEnvironmentDetails :many
+SELECT e.name, e.is_production, e.color, e.position, e.hidden_at, e.source,
+       e.first_seen_at, e.last_seen_at, e.created_at,
+       (SELECT count(*) FROM api_keys k
+        WHERE k.project_id = e.project_id AND e.name = ANY(k.environments)
+          AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at > now()))::int AS api_keys,
+       (SELECT count(*) FROM health_checks h
+        WHERE h.project_id = e.project_id AND h.environment = e.name)::int AS health_checks
+FROM environments e
+WHERE e.project_id = $1
+ORDER BY e.position, e.name
+`
+
+type ListProjectEnvironmentDetailsRow struct {
+	Name         string
+	IsProduction bool
+	Color        *string
+	Position     int32
+	HiddenAt     *time.Time
+	Source       string
+	FirstSeenAt  *time.Time
+	LastSeenAt   *time.Time
+	CreatedAt    time.Time
+	ApiKeys      int32
+	HealthChecks int32
+}
+
+// The environments of one project in display order, with the active API
+// keys pinned to each and the health checks that use each.
+func (q *Queries) ListProjectEnvironmentDetails(ctx context.Context, projectID uuid.UUID) ([]ListProjectEnvironmentDetailsRow, error) {
+	rows, err := q.db.Query(ctx, listProjectEnvironmentDetails, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectEnvironmentDetailsRow{}
+	for rows.Next() {
+		var i ListProjectEnvironmentDetailsRow
+		if err := rows.Scan(
+			&i.Name,
+			&i.IsProduction,
+			&i.Color,
+			&i.Position,
+			&i.HiddenAt,
+			&i.Source,
+			&i.FirstSeenAt,
+			&i.LastSeenAt,
+			&i.CreatedAt,
+			&i.ApiKeys,
+			&i.HealthChecks,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectMemberRoles = `-- name: ListProjectMemberRoles :many
+SELECT user_id, role FROM project_members
+WHERE project_id = $1
+ORDER BY user_id
+`
+
+type ListProjectMemberRolesRow struct {
+	UserID uuid.UUID
+	Role   string
+}
+
+// The direct grants of a project, to rebuild its relationships on restore.
+func (q *Queries) ListProjectMemberRoles(ctx context.Context, projectID uuid.UUID) ([]ListProjectMemberRolesRow, error) {
+	rows, err := q.db.Query(ctx, listProjectMemberRoles, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectMemberRolesRow{}
+	for rows.Next() {
+		var i ListProjectMemberRolesRow
+		if err := rows.Scan(&i.UserID, &i.Role); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -209,8 +375,95 @@ func (q *Queries) ListProjectsEnvironments(ctx context.Context, projectIds []uui
 	return items, nil
 }
 
+const listScheduledProjects = `-- name: ListScheduledProjects :many
+SELECT id, slug, name, description, created_at, deleted_at::timestamptz AS deleted_at, purge_after::timestamptz AS purge_after
+FROM projects
+WHERE org_id = $1 AND deleted_at IS NOT NULL AND purge_after > now()
+ORDER BY deleted_at DESC, id
+`
+
+type ListScheduledProjectsRow struct {
+	ID          uuid.UUID
+	Slug        string
+	Name        string
+	Description string
+	CreatedAt   time.Time
+	DeletedAt   time.Time
+	PurgeAfter  time.Time
+}
+
+// The organization's deleted projects that can still be restored (purge
+// not yet due), most recently deleted first.
+func (q *Queries) ListScheduledProjects(ctx context.Context, orgID uuid.UUID) ([]ListScheduledProjectsRow, error) {
+	rows, err := q.db.Query(ctx, listScheduledProjects, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListScheduledProjectsRow{}
+	for rows.Next() {
+		var i ListScheduledProjectsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.Description,
+			&i.CreatedAt,
+			&i.DeletedAt,
+			&i.PurgeAfter,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockActiveProject = `-- name: LockActiveProject :one
+SELECT p.id, p.slug, p.name, p.description, p.created_at, p.updated_at, p.created_by, p.repository_url, o.id AS org_id, o.slug AS org_slug
+FROM projects p
+JOIN organizations o ON o.id = p.org_id AND o.deleted_at IS NULL
+WHERE p.id = $1 AND p.deleted_at IS NULL
+FOR UPDATE OF p
+`
+
+type LockActiveProjectRow struct {
+	ID            uuid.UUID
+	Slug          string
+	Name          string
+	Description   string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	CreatedBy     *uuid.UUID
+	RepositoryUrl *string
+	OrgID         uuid.UUID
+	OrgSlug       string
+}
+
+// GetActiveProject, row-locking the project for the rest of the transaction.
+func (q *Queries) LockActiveProject(ctx context.Context, id uuid.UUID) (LockActiveProjectRow, error) {
+	row := q.db.QueryRow(ctx, lockActiveProject, id)
+	var i LockActiveProjectRow
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
+		&i.RepositoryUrl,
+		&i.OrgID,
+		&i.OrgSlug,
+	)
+	return i, err
+}
+
 const lockMemberProject = `-- name: LockMemberProject :one
-SELECT p.id, p.slug, p.name, p.created_at, o.id AS org_id, o.slug AS org_slug, m.role
+SELECT p.id, p.slug, p.name, p.description, p.created_at, p.updated_at, p.created_by, o.id AS org_id, o.slug AS org_slug, m.role
 FROM projects p
 JOIN organizations o ON o.id = p.org_id AND o.deleted_at IS NULL
 JOIN memberships m ON m.org_id = o.id AND m.user_id = $1
@@ -224,13 +477,16 @@ type LockMemberProjectParams struct {
 }
 
 type LockMemberProjectRow struct {
-	ID        uuid.UUID
-	Slug      string
-	Name      string
-	CreatedAt time.Time
-	OrgID     uuid.UUID
-	OrgSlug   string
-	Role      string
+	ID          uuid.UUID
+	Slug        string
+	Name        string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	CreatedBy   *uuid.UUID
+	OrgID       uuid.UUID
+	OrgSlug     string
+	Role        string
 }
 
 // GetMemberProject, row-locking the project for the rest of the transaction.
@@ -241,7 +497,10 @@ func (q *Queries) LockMemberProject(ctx context.Context, arg LockMemberProjectPa
 		&i.ID,
 		&i.Slug,
 		&i.Name,
+		&i.Description,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
 		&i.OrgID,
 		&i.OrgSlug,
 		&i.Role,
@@ -249,40 +508,156 @@ func (q *Queries) LockMemberProject(ctx context.Context, arg LockMemberProjectPa
 	return i, err
 }
 
+const lockScheduledProject = `-- name: LockScheduledProject :one
+SELECT p.id, p.slug, p.name, p.description, p.default_access, p.created_at, p.updated_at, p.created_by, p.repository_url,
+       o.id AS org_id, o.slug AS org_slug, p.purge_after::timestamptz AS purge_after
+FROM projects p
+JOIN organizations o ON o.id = p.org_id AND o.deleted_at IS NULL
+WHERE p.id = $1 AND o.id = $2 AND p.deleted_at IS NOT NULL AND p.purge_after > now()
+FOR UPDATE OF p
+`
+
+type LockScheduledProjectParams struct {
+	ID    uuid.UUID
+	OrgID uuid.UUID
+}
+
+type LockScheduledProjectRow struct {
+	ID            uuid.UUID
+	Slug          string
+	Name          string
+	Description   string
+	DefaultAccess string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	CreatedBy     *uuid.UUID
+	RepositoryUrl *string
+	OrgID         uuid.UUID
+	OrgSlug       string
+	PurgeAfter    time.Time
+}
+
+// A deleted project of the active organization org_id that can still be
+// restored, row-locked for the rest of the transaction.
+func (q *Queries) LockScheduledProject(ctx context.Context, arg LockScheduledProjectParams) (LockScheduledProjectRow, error) {
+	row := q.db.QueryRow(ctx, lockScheduledProject, arg.ID, arg.OrgID)
+	var i LockScheduledProjectRow
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.Description,
+		&i.DefaultAccess,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
+		&i.RepositoryUrl,
+		&i.OrgID,
+		&i.OrgSlug,
+		&i.PurgeAfter,
+	)
+	return i, err
+}
+
 const projectSlugTaken = `-- name: ProjectSlugTaken :one
 SELECT EXISTS (
-    SELECT 1 FROM projects WHERE slug = $1 AND deleted_at IS NULL
+    SELECT 1 FROM projects p
+    WHERE p.slug = $1::text AND (p.deleted_at IS NULL OR p.purge_after IS NOT NULL)
+    UNION ALL
+    SELECT 1 FROM project_slug_history h
+    WHERE h.slug = $1::text AND h.retired_at > $2::timestamptz
 )
 `
 
-func (q *Queries) ProjectSlugTaken(ctx context.Context, slug string) (bool, error) {
-	row := q.db.QueryRow(ctx, projectSlugTaken, slug)
+type ProjectSlugTakenParams struct {
+	Slug          string
+	ReservedAfter time.Time
+}
+
+// Whether an active project or one awaiting purge holds the slug, or a
+// rename retired it after reserved_after (project_slug_history keeps it for
+// its project).
+func (q *Queries) ProjectSlugTaken(ctx context.Context, arg ProjectSlugTakenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, projectSlugTaken, arg.Slug, arg.ReservedAfter)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
 }
 
-const softDeleteProject = `-- name: SoftDeleteProject :execrows
-UPDATE projects SET deleted_at = now()
-WHERE id = $1 AND deleted_at IS NULL
+const restoreProject = `-- name: RestoreProject :execrows
+UPDATE projects SET deleted_at = NULL, purge_after = NULL
+WHERE id = $1 AND deleted_at IS NOT NULL
 `
 
-func (q *Queries) SoftDeleteProject(ctx context.Context, id uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, softDeleteProject, id)
+func (q *Queries) RestoreProject(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, restoreProject, id)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
 }
 
-const takenProjectSlugs = `-- name: TakenProjectSlugs :many
-SELECT slug FROM projects
-WHERE slug = ANY($1::text[]) AND deleted_at IS NULL
+const scheduleProjectDeletion = `-- name: ScheduleProjectDeletion :one
+UPDATE projects
+SET deleted_at = now(), purge_after = now() + make_interval(secs => $1::bigint)
+WHERE id = $2 AND deleted_at IS NULL
+RETURNING deleted_at::timestamptz AS deleted_at, purge_after::timestamptz AS purge_after
 `
 
-// Which of the given slugs active projects already use.
-func (q *Queries) TakenProjectSlugs(ctx context.Context, slugs []string) ([]string, error) {
-	rows, err := q.db.Query(ctx, takenProjectSlugs, slugs)
+type ScheduleProjectDeletionParams struct {
+	GraceSeconds int64
+	ID           uuid.UUID
+}
+
+type ScheduleProjectDeletionRow struct {
+	DeletedAt  time.Time
+	PurgeAfter time.Time
+}
+
+// Soft-deletes the project and schedules its purge grace_seconds from now
+// (0: at once). The slug stays reserved until the purge (projects_slug_reserved).
+func (q *Queries) ScheduleProjectDeletion(ctx context.Context, arg ScheduleProjectDeletionParams) (ScheduleProjectDeletionRow, error) {
+	row := q.db.QueryRow(ctx, scheduleProjectDeletion, arg.GraceSeconds, arg.ID)
+	var i ScheduleProjectDeletionRow
+	err := row.Scan(&i.DeletedAt, &i.PurgeAfter)
+	return i, err
+}
+
+const setEnvironmentPositions = `-- name: SetEnvironmentPositions :exec
+UPDATE environments e
+SET position = o.ord - 1
+FROM unnest($2::text[]) WITH ORDINALITY AS o(name, ord)
+WHERE e.project_id = $1 AND e.name = o.name
+`
+
+type SetEnvironmentPositionsParams struct {
+	ProjectID uuid.UUID
+	Names     []string
+}
+
+// Gives each named environment its index in names as its position.
+func (q *Queries) SetEnvironmentPositions(ctx context.Context, arg SetEnvironmentPositionsParams) error {
+	_, err := q.db.Exec(ctx, setEnvironmentPositions, arg.ProjectID, arg.Names)
+	return err
+}
+
+const takenProjectSlugs = `-- name: TakenProjectSlugs :many
+SELECT p.slug FROM projects p
+WHERE p.slug = ANY($1::text[]) AND (p.deleted_at IS NULL OR p.purge_after IS NOT NULL)
+UNION
+SELECT h.slug FROM project_slug_history h
+WHERE h.slug = ANY($1::text[]) AND h.retired_at > $2::timestamptz
+`
+
+type TakenProjectSlugsParams struct {
+	Slugs         []string
+	ReservedAfter time.Time
+}
+
+// Which of the given slugs active projects or projects awaiting purge hold,
+// or a rename retired after reserved_after.
+func (q *Queries) TakenProjectSlugs(ctx context.Context, arg TakenProjectSlugsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, takenProjectSlugs, arg.Slugs, arg.ReservedAfter)
 	if err != nil {
 		return nil, err
 	}
@@ -301,34 +676,78 @@ func (q *Queries) TakenProjectSlugs(ctx context.Context, slugs []string) ([]stri
 	return items, nil
 }
 
-const updateProjectName = `-- name: UpdateProjectName :one
-UPDATE projects SET name = $1
-WHERE id = $2 AND deleted_at IS NULL
-RETURNING id, org_id, slug, name, created_at
+const updateEnvironmentSettings = `-- name: UpdateEnvironmentSettings :execrows
+UPDATE environments
+SET is_production = $1, color = $2, hidden_at = $3
+WHERE project_id = $4 AND name = $5
 `
 
-type UpdateProjectNameParams struct {
-	Name string
-	ID   uuid.UUID
+type UpdateEnvironmentSettingsParams struct {
+	IsProduction bool
+	Color        *string
+	HiddenAt     *time.Time
+	ProjectID    uuid.UUID
+	Name         string
 }
 
-type UpdateProjectNameRow struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	Slug      string
-	Name      string
-	CreatedAt time.Time
+func (q *Queries) UpdateEnvironmentSettings(ctx context.Context, arg UpdateEnvironmentSettingsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateEnvironmentSettings,
+		arg.IsProduction,
+		arg.Color,
+		arg.HiddenAt,
+		arg.ProjectID,
+		arg.Name,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-func (q *Queries) UpdateProjectName(ctx context.Context, arg UpdateProjectNameParams) (UpdateProjectNameRow, error) {
-	row := q.db.QueryRow(ctx, updateProjectName, arg.Name, arg.ID)
-	var i UpdateProjectNameRow
+const updateProjectDetails = `-- name: UpdateProjectDetails :one
+UPDATE projects SET name = $1, description = $2, repository_url = $3, updated_at = now()
+WHERE id = $4 AND deleted_at IS NULL
+RETURNING id, org_id, slug, name, description, created_at, updated_at, created_by, repository_url
+`
+
+type UpdateProjectDetailsParams struct {
+	Name          string
+	Description   string
+	RepositoryUrl *string
+	ID            uuid.UUID
+}
+
+type UpdateProjectDetailsRow struct {
+	ID            uuid.UUID
+	OrgID         uuid.UUID
+	Slug          string
+	Name          string
+	Description   string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	CreatedBy     *uuid.UUID
+	RepositoryUrl *string
+}
+
+// Sets the name, description and repository link and moves updated_at to now.
+func (q *Queries) UpdateProjectDetails(ctx context.Context, arg UpdateProjectDetailsParams) (UpdateProjectDetailsRow, error) {
+	row := q.db.QueryRow(ctx, updateProjectDetails,
+		arg.Name,
+		arg.Description,
+		arg.RepositoryUrl,
+		arg.ID,
+	)
+	var i UpdateProjectDetailsRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
 		&i.Slug,
 		&i.Name,
+		&i.Description,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedBy,
+		&i.RepositoryUrl,
 	)
 	return i, err
 }

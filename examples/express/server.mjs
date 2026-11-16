@@ -34,27 +34,37 @@ const port = Number(process.env.PORT || 3000);
 
 const app = express();
 
-// Consumer attribution, the way a real API does it: callers send an API key in
-// X-API-Key, the app looks the key up, and the SDK records who called (id, name,
-// group). The key value itself never reaches APILens: the SDKs redact x-api-key
-// by default. A missing or unknown key is an anonymous caller. The same registry
-// exists in examples/fastapi and examples/spring.
-const API_CLIENTS = {
-  demo_key_acme: { id: "acme-corp", name: "Acme Corp", group: "enterprise" },
-  demo_key_globex: { id: "globex", name: "Globex Logistics", group: "enterprise" },
-  demo_key_umbrella: { id: "umbrella-health", name: "Umbrella Health", group: "enterprise" },
-  demo_key_initech: { id: "initech", name: "Initech", group: "growth" },
-  demo_key_stark: { id: "stark-industries", name: "Stark Industries", group: "growth" },
-  demo_key_piedpiper: { id: "pied-piper", name: "Pied Piper", group: "startup" },
-  demo_key_hooli: { id: "hooli-mobile", name: "Hooli Mobile App", group: "internal" },
+// Consumer attribution, the way a real API does it: each caller is a user who
+// sends a personal access token as `Authorization: Bearer <token>`. The app looks
+// the token up and hands the SDK who called: the user (id, name) and, as the
+// group, the company the user belongs to. The token itself never reaches APILens:
+// the SDKs redact `authorization` by default. A missing or unknown token is an
+// anonymous caller. The same users exist in examples/fastapi, examples/express
+// and examples/spring.
+const USERS = {
+  demo_tok_priya: { id: "usr_1f3a9c", name: "Priya Shah", group: "Acme Corp" },
+  demo_tok_daniel: { id: "usr_2b7e41", name: "Daniel Okafor", group: "Acme Corp" },
+  demo_tok_mei: { id: "usr_3c9d02", name: "Mei Lin", group: "Acme Corp" },
+  demo_tok_lucas: { id: "usr_4a1f77", name: "Lucas Moreau", group: "Acme Corp" },
+  demo_tok_sofia: { id: "usr_5e6b13", name: "Sofia Rossi", group: "Globex Logistics" },
+  demo_tok_arjun: { id: "usr_6d2c58", name: "Arjun Mehta", group: "Globex Logistics" },
+  demo_tok_hana: { id: "usr_7f8a90", name: "Hana Kim", group: "Globex Logistics" },
+  demo_tok_omar: { id: "usr_8b3e26", name: "Omar Haddad", group: "Initech" },
+  demo_tok_emma: { id: "usr_9c4f31", name: "Emma Schulz", group: "Initech" },
+  demo_tok_kenji: { id: "usr_a15d84", name: "Kenji Watanabe", group: "Umbrella Health" },
+  demo_tok_ana: { id: "usr_b26e95", name: "Ana Silva", group: "Umbrella Health" },
+  demo_tok_noah: { id: "usr_c37fa6", name: "Noah Williams", group: "Umbrella Health" },
 };
-const consumerFromApiKey = (req) => API_CLIENTS[String(req.headers?.["x-api-key"] ?? "").trim()] ?? null;
+const consumerFromToken = (req) => {
+  const [scheme, token] = String(req.headers?.authorization ?? "").split(" ");
+  return scheme?.toLowerCase() === "bearer" ? (USERS[(token ?? "").trim()] ?? null) : null;
+};
 
 if (posture !== "off") {
   const { useApiLens } = await import("apilens-js-sdk/express");
   // apiKey, appId, baseUrl, environment and every capture option come from
   // APILENS_* env vars; the posture picks the capture profile.
-  useApiLens(app, { captureProfile: posture, getConsumer: consumerFromApiKey });
+  useApiLens(app, { captureProfile: posture, getConsumer: consumerFromToken });
 }
 
 app.use(express.json());

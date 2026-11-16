@@ -30,10 +30,13 @@ type ContextService interface {
 
 // ContextProject is a project in the user context.
 type ContextProject struct {
-	ID           string   `json:"id" format:"uuid"`
-	Slug         string   `json:"slug"`
-	Name         string   `json:"name"`
-	Environments []string `json:"environments" doc:"The project's environment names, sorted."`
+	ID           string     `json:"id" format:"uuid"`
+	Slug         string     `json:"slug"`
+	Name         string     `json:"name"`
+	Environments []string   `json:"environments" doc:"The project's environment names, sorted."`
+	AppCount     int        `json:"app_count" minimum:"0" doc:"The number of the project's active (not deleted) apps."`
+	Role         string     `json:"role" enum:"admin,editor,viewer" doc:"The signed-in user's effective project role: the highest one any source grants (organization role, project default access, direct grant)."`
+	PausedAt     *time.Time `json:"paused_at" nullable:"true" doc:"When ingest was paused for the project (the ingest edge answers 403 project_paused to its keys); null while ingest is accepted."`
 }
 
 // ContextOrg is an organization in the user context.
@@ -42,7 +45,7 @@ type ContextOrg struct {
 	Slug     string           `json:"slug"`
 	Name     string           `json:"name"`
 	Role     string           `json:"role" enum:"owner,admin,member,viewer" doc:"The signed-in user's role in the organization."`
-	Projects []ContextProject `json:"projects" doc:"The organization's active projects, ordered by name."`
+	Projects []ContextProject `json:"projects" doc:"The organization's active projects the user can view, ordered by name. A restricted project appears only for org owners and admins and people granted a project role."`
 }
 
 // OnboardingState is where the user stands in onboarding.
@@ -57,7 +60,7 @@ type UserContext struct {
 	Orgs            []ContextOrg        `json:"orgs" doc:"The organizations the user belongs to, ordered by name."`
 	LastProjectSlug *string             `json:"last_project_slug" doc:"The project the user last opened (preferences.last_project_slug, set with PATCH /api/v1/users/me); null when unset or no longer visible to the user."`
 	Onboarding      OnboardingState     `json:"onboarding"`
-	Capabilities    map[string][]string `json:"capabilities" doc:"Per project slug, the actions the user may perform there (project.read, project.update, project.delete, api_keys.create, api_keys.revoke, capture.manage, alerts.manage, members.invite, members.remove, billing.manage). Every project in orgs has an entry, listing actions in this order. Computed from SpiceDB; the UI gates on these, the server still checks every request."`
+	Capabilities    map[string][]string `json:"capabilities" doc:"Per project slug, the actions the user may perform there (project.read, project.update, project.delete, api_keys.create, api_keys.revoke, capture.manage, alerts.manage, access.manage, audit.read, members.invite, members.remove, billing.manage). Every project in orgs has an entry, listing actions in this order. Computed from SpiceDB; the UI gates on these, the server still checks every request."`
 }
 
 // UserContextOutput is the response of GET /api/v1/users/me/context.
@@ -136,7 +139,7 @@ func toUserContext(uc usercontext.Context, amr []string) UserContext {
 			if envs == nil {
 				envs = []string{}
 			}
-			org.Projects = append(org.Projects, ContextProject{ID: pr.ID.String(), Slug: pr.Slug, Name: pr.Name, Environments: envs})
+			org.Projects = append(org.Projects, ContextProject{ID: pr.ID.String(), Slug: pr.Slug, Name: pr.Name, Environments: envs, AppCount: pr.AppCount, Role: pr.Role, PausedAt: utcPtr(pr.PausedAt)})
 		}
 		out.Orgs = append(out.Orgs, org)
 	}

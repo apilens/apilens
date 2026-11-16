@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { EndpointTraffic } from "./identity";
 import {
   APDEX_BANDS,
+  apdexBandAt,
+  apdexBandRange,
   apdexExplanation,
   apdexPosition,
   byP95,
@@ -109,5 +111,26 @@ describe("app threshold input", () => {
     expect(thresholdError("forbidden")).toBe("Only project admins can change the response time threshold.");
     expect(thresholdError("timeout")).toMatch(/couldn’t reach APILens/);
     expect(thresholdError("weird")).toBe("Something went wrong. Try again in a moment.");
+  });
+});
+
+describe("Apdex gauge hover", () => {
+  it("finds the band under a point of the gauge, a band's upper edge belonging to the next", () => {
+    expect(apdexBandAt(0).label).toBe("Unacceptable");
+    expect(apdexBandAt(0.49).label).toBe("Unacceptable");
+    expect(apdexBandAt(0.5).label).toBe("Poor");
+    expect(apdexBandAt(0.7).label).toBe("Fair");
+    expect(apdexBandAt(0.85).label).toBe("Good");
+    expect(apdexBandAt(0.94).label).toBe("Excellent");
+    expect(apdexBandAt(1).label).toBe("Excellent");
+  });
+  it("clamps what is off the gauge", () => {
+    expect(apdexBandAt(-1).label).toBe("Unacceptable");
+    expect(apdexBandAt(3).label).toBe("Excellent");
+    expect(apdexBandAt(Number.NaN).label).toBe("Unacceptable");
+  });
+  it("writes a band's span with two decimals", () => {
+    expect(apdexBandRange(APDEX_BANDS[3])).toBe("0.85–0.94");
+    expect(apdexBandRange(APDEX_BANDS[0])).toBe("0.00–0.50");
   });
 });

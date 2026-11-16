@@ -3,7 +3,10 @@
 import { useState, useTransition } from "react";
 import { type SessionsActionResult, revokeSession, signOutOtherSessions } from "@/app/settings/actions";
 import type { SessionInfo } from "@/lib/identity";
-import { deviceLabel, formatDateTime, hasOtherSessions, lastActive, orderSessions, signInMethod } from "@/lib/sessions";
+import { useCanonicalPage } from "@/components/list-search/list-search";
+import { Pagination } from "@/components/pagination/pagination";
+import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
+import { SESSIONS_PATH, deviceLabel, formatDateTime, hasOtherSessions, lastActive, orderSessions, signInMethod } from "@/lib/sessions";
 import "./sessions.css";
 
 type Status = { tone: "ok" | "err"; text: string } | null;
@@ -14,11 +17,14 @@ const plural = (n: number) => `${n} other session${n === 1 ? "" : "s"}`;
  * `/settings/sessions` (#343): every device signed in to the account, the current one pinned
  * first with a badge and the rest newest first. Each row can be revoked; revoking the current one
  * signs this browser out. The rows come from the server: after an action the page is
- * revalidated and re-rendered with the new list.
+ * revalidated and re-rendered with the new list. The API returns every session, so they are paged
+ * here (`?page=&per=`, `search` is the page's searchParams); the current one leads page 1.
  */
-export function SessionsSettings({ sessions, now }: { sessions: SessionInfo[]; now: number }) {
-  const rows = orderSessions(sessions);
-  const others = hasOtherSessions(rows);
+export function SessionsSettings({ sessions, now, search = {} }: { sessions: SessionInfo[]; now: number; search?: SearchParams }) {
+  const ordered = orderSessions(sessions);
+  const others = hasOtherSessions(ordered);
+  const { rows, window } = slicePage(ordered, parsePage(search));
+  useCanonicalPage(SESSIONS_PATH, search, window);
   const [status, setStatus] = useState<Status>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -42,7 +48,7 @@ export function SessionsSettings({ sessions, now }: { sessions: SessionInfo[]; n
     <div className="ss">
       <div className="ss-bar">
         <p className="ss-count">
-          {rows.length === 1 ? "1 active session" : `${rows.length} active sessions`}
+          {ordered.length === 1 ? "1 active session" : `${ordered.length.toLocaleString("en-US")} active sessions`}
         </p>
         <span className={`ss-status${status ? ` ${status.tone}` : ""}`} role="status" aria-live="polite">
           {status?.text ?? ""}
@@ -58,7 +64,7 @@ export function SessionsSettings({ sessions, now }: { sessions: SessionInfo[]; n
         </button>
       </div>
 
-      {rows.length === 0 ? (
+      {ordered.length === 0 ? (
         <p className="ss-empty">No active sessions.</p>
       ) : (
         <div className="ss-wrap">
@@ -115,6 +121,7 @@ export function SessionsSettings({ sessions, now }: { sessions: SessionInfo[]; n
               })}
             </tbody>
           </table>
+          <Pagination pathname={SESSIONS_PATH} params={search} total={window.total} label="Sessions pages" className="ss-pages" />
         </div>
       )}
       {others ? null : (

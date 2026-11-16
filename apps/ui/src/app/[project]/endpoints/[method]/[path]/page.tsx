@@ -63,7 +63,8 @@ export default async function EndpointPage({ params, searchParams }: { params: P
   const { project, method, path } = await params;
   const ep = parseEndpointRef(method, path);
   if (!ep) notFound();
-  const q = parseEndpointQuery(await searchParams);
+  const sp = await searchParams;
+  const q = parseEndpointQuery(sp);
   const next = endpointPageHref(project, ep, q);
   const context = await getContext(next);
   const found = findProject(context, project);
@@ -81,6 +82,7 @@ export default async function EndpointPage({ params, searchParams }: { params: P
         query={q}
         tab={tab}
         settings={settings}
+        params={sp}
       />
     </AppShell>
   );

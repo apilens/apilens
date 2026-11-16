@@ -16,8 +16,11 @@ import (
 	"syscall"
 	"time"
 
+	authzed "github.com/authzed/authzed-go/v1"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/valkey-io/valkey-go"
 
 	"github.com/apilens/apilens/authz"
 	authzclient "github.com/apilens/apilens/internal/authz"
@@ -32,6 +35,7 @@ import (
 	"github.com/apilens/apilens/internal/migrations"
 	"github.com/apilens/apilens/internal/platform/buildinfo"
 	"github.com/apilens/apilens/internal/platform/cache"
+	"github.com/apilens/apilens/internal/platform/ch"
 	"github.com/apilens/apilens/internal/platform/config"
 	applog "github.com/apilens/apilens/internal/platform/log"
 	"github.com/apilens/apilens/internal/platform/pg"
@@ -45,12 +49,16 @@ const usage = `apilens — API observability platform (one binary, many roles)
 
 Usage:
   apilens [-target=all] [-config.file=path]   run roles (comma-separated targets)
-  apilens migrate [-only=postgres,clickhouse,authz]
+  apilens migrate [-only=postgres,clickhouse,authz] [-confirm-retention-change]
                                               apply Postgres (incl. River jobs) and ClickHouse
-                                              migrations and the SpiceDB schema (when
-                                              authz.endpoint is set)
+                                              migrations and the SpiceDB schema, then reconcile
+                                              relationships (when authz.endpoint is set); set
+                                              ClickHouse TTLs from retention.* (shortening
+                                              needs the confirm flag)
   apilens seed [flags]                        create a dev org/project/app and print an ingest key,
-                                              plus a dev owner (dev@example.com) and its magic link
+                                              plus a dev owner (dev@example.com) and its magic link;
+                                              -with-team adds demo members, a restricted project,
+                                              environments and keys in every state (idempotent)
   apilens user create -email=... -org=... [-role=member]
                                               create a user (if needed) and add it to an organization
   apilens user promote -email=... -org=... [-role=owner]
@@ -60,6 +68,9 @@ Usage:
                                               one stays published until its tokens expire
   apilens authz reconcile [-dry-run]          repair drift between Postgres and SpiceDB now
                                               (the identity role also runs it hourly)
+  apilens project purge <project id>          remove a deleted project's data now (ClickHouse,
+                                              Postgres, SpiceDB, Valkey, export files), even
+                                              inside its grace period; resumes a stopped purge
   apilens identity create-client [flags]      register a client of the built-in OIDC provider
                                               and print its id and secret
   apilens pii-audit -project=... [-since=1h] | -csv=file
@@ -99,6 +110,8 @@ func Main(args []string, stdout, stderr io.Writer, environ []string) int {
 		err = runIdentity(ctx, args, stdout, stderr, environ)
 	case "authz":
 		err = runAuthz(ctx, args, stdout, stderr, environ)
+	case "project":
+		err = runProject(ctx, args, stdout, stderr, environ)
 	case "pii-audit":
 		err = runPIIAudit(ctx, args, stdout, stderr, environ)
 	case "healthcheck":
@@ -163,7 +176,7 @@ func runServe(ctx context.Context, args []string, stderr io.Writer, environ []st
 	}
 	// `-target=migrate` is accepted for parity with the other one-shot roles.
 	if len(cfg.Target) == 1 && cfg.Target[0] == "migrate" {
-		return migrate(ctx, cfg, logger, nil)
+		return migrate(ctx, cfg, logger, nil, false)
 	}
 	logger.Info("apilens starting", "version", buildinfo.Get().Version, "targets", cfg.Target)
 	return New(cfg, logger).Run(ctx)
@@ -173,6 +186,7 @@ func runMigrate(ctx context.Context, args []string, stderr io.Writer, environ []
 	fs := flag.NewFlagSet("apilens migrate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	only := fs.String("only", "", "comma-separated subset to apply: "+strings.Join(migrateSteps, ", ")+" (default: all)")
+	confirmRetention := fs.Bool("confirm-retention-change", false, "allow retention.* to shorten a ClickHouse TTL (deletes data older than the new period)")
 	cfg, logger, err := loadConfig(fs, args, environ, stderr)
 	if err != nil {
 		return err
@@ -183,15 +197,18 @@ func runMigrate(ctx context.Context, args []string, stderr io.Writer, environ []
 			return fmt.Errorf("migrate: unknown -only step %q (want %s)", s, strings.Join(migrateSteps, ", "))
 		}
 	}
-	return migrate(ctx, cfg, logger, steps)
+	return migrate(ctx, cfg, logger, steps, *confirmRetention)
 }
 
 // migrateSteps are the parts of `apilens migrate`, in the order they run.
 var migrateSteps = []string{"postgres", "clickhouse", "authz"}
 
-// migrate applies the selected steps (all when steps is empty). The authz
-// step writes the SpiceDB schema and is skipped when authz.endpoint is unset.
-func migrate(ctx context.Context, cfg *config.Config, logger *slog.Logger, steps []string) error {
+// migrate applies the selected steps (all when steps is empty). The
+// clickhouse step also sets the table TTLs from retention.*; shortening one
+// needs confirmRetention. The authz step writes the SpiceDB schema and
+// reconciles the relationships (migrateAuthz); it is skipped when
+// authz.endpoint is unset.
+func migrate(ctx context.Context, cfg *config.Config, logger *slog.Logger, steps []string, confirmRetention bool) error {
 	want := func(step string) bool { return len(steps) == 0 || slices.Contains(steps, step) }
 	if want("postgres") {
 		pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-migrate")
@@ -211,17 +228,62 @@ func migrate(ctx context.Context, cfg *config.Config, logger *slog.Logger, steps
 		if err := migrations.UpClickHouse(ctx, cfg.ClickHouse, logger); err != nil {
 			return err
 		}
+		if err := migrations.ApplyRetention(ctx, cfg.ClickHouse, cfg.Retention, confirmRetention, logger); err != nil {
+			return err
+		}
 	}
 	if want("authz") {
 		if !cfg.Authz.Enabled() {
 			logger.Info("authz.endpoint not set; skipping the SpiceDB schema")
 			return nil
 		}
-		client, err := spicedb.Connect(cfg.Authz)
-		if err != nil {
+		return migrateAuthz(ctx, cfg, logger)
+	}
+	return nil
+}
+
+// migrateAuthz writes the SpiceDB schema and runs the reconciler once, so
+// relationships a new schema version expects (the default-access relations
+// of every existing project, ADR 0009) exist when the step returns.
+//
+// Upgrading from a schema in which project access still flows down from the
+// organization, it first writes authz.BridgeSchema (the new relations, the
+// old permission terms kept), backfills, and only then writes the final
+// schema: no org member is locked out in between (authz/README.md).
+func migrateAuthz(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	client, err := spicedb.Connect(cfg.Authz)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close() }()
+	current, err := spicedb.ReadSchema(ctx, client, logger)
+	if err != nil {
+		return err
+	}
+	bridge := authz.InheritsOrgAccess(current)
+	if bridge {
+		schema, ok := authz.BridgeSchema()
+		if !ok {
+			return errors.New("migrate: authz.BridgeSchema no longer matches schema.zed")
+		}
+		logger.Info("upgrading the authz schema through the bridge schema; backfilling default access before switching permissions")
+		if err := spicedb.ApplySchema(ctx, client, schema, logger); err != nil {
 			return err
 		}
-		defer func() { _ = client.Close() }()
+	} else if err := spicedb.ApplySchema(ctx, client, authz.Schema, logger); err != nil {
+		return err
+	}
+	pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-migrate")
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	res, err := reconcileOnce(ctx, cfg, logger, pool, client, false)
+	if err != nil {
+		return err
+	}
+	logger.Info("authz relationships reconciled", "missing", res.Missing, "extra", res.Extra)
+	if bridge {
 		return spicedb.ApplySchema(ctx, client, authz.Schema, logger)
 	}
 	return nil
@@ -237,9 +299,13 @@ func runSeed(ctx context.Context, args []string, stdout, stderr io.Writer, envir
 	fs.StringVar(&o.Environment, "environment", "production", "environment name")
 	fs.StringVar(&o.KeyName, "key-name", "seed", "name of the issued API key")
 	userEmail := fs.String("user-email", bootstrap.DevUserEmail, "email of the dev user made owner of the organization (empty: none)")
-	cfg, _, err := loadConfig(fs, args, environ, stderr)
+	withTeam := fs.Bool("with-team", false, "also seed demo members, a restricted project, environments and API keys in every state (needs -user-email)")
+	cfg, logger, err := loadConfig(fs, args, environ, stderr)
 	if err != nil {
 		return err
+	}
+	if *withTeam && *userEmail == "" {
+		return errors.New("seed: -with-team needs -user-email (the owner who makes the changes)")
 	}
 	pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-seed")
 	if err != nil {
@@ -264,17 +330,28 @@ func runSeed(ctx context.Context, args []string, stdout, stderr io.Writer, envir
 		}
 		out.UserID, out.UserEmail, out.MagicLink = &m.UserID, m.Email, link.MagicLink
 	}
+	if *withTeam {
+		team, err := bootstrap.SeedTeam(ctx, pool, bootstrap.TeamOptions{
+			OrgSlug: o.OrgSlug, ProjectID: res.ProjectID, OwnerEmail: *userEmail, Logger: logger,
+		})
+		if err != nil {
+			return fmt.Errorf("seed: team: %w", err)
+		}
+		out.Team = &team
+	}
 	return json.NewEncoder(stdout).Encode(out) //nolint:gosec // G117: printing the new key once is the point of seed
 }
 
 // seedOutput is the line `apilens seed` prints: the seeded resources and
 // keys and, unless -user-email is empty, the dev owner and a one-time link
-// to sign in as them.
+// to sign in as them; with -with-team, the demo data.
 type seedOutput struct {
 	bootstrap.Result
 	UserID    *uuid.UUID `json:"user_id,omitempty"`
 	UserEmail string     `json:"user_email,omitempty"`
 	MagicLink string     `json:"magic_link,omitempty"`
+	// Team is the demo data of -with-team.
+	Team *bootstrap.TeamResult `json:"team,omitempty"`
 }
 
 // runUser runs the `apilens user <command>` operator commands, for
@@ -441,6 +518,63 @@ func runAuthz(ctx context.Context, args []string, stdout, stderr io.Writer, envi
 	}
 }
 
+// runProject runs the `apilens project <command>` operator commands.
+func runProject(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) error {
+	sub := ""
+	if len(args) > 0 {
+		sub, args = args[0], args[1:]
+	}
+	switch sub {
+	case "purge":
+		return runProjectPurge(ctx, args, stdout, stderr, environ)
+	default:
+		return fmt.Errorf("project: unknown command %q (want purge)", sub)
+	}
+}
+
+// runProjectPurge purges one deleted project now, the work the hourly purge
+// job does once the grace period has passed (#796).
+func runProjectPurge(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) error {
+	fs := flag.NewFlagSet("apilens project purge", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfg, logger, err := loadConfig(fs, args, environ, stderr)
+	if err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("project purge: want exactly one project id")
+	}
+	id, err := uuid.Parse(fs.Arg(0))
+	if err != nil {
+		return fmt.Errorf("project purge: %q is not a project id", fs.Arg(0))
+	}
+	pool, err := pg.Connect(ctx, cfg.Postgres, "apilens-purge")
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	conn, err := ch.Connect(ctx, cfg.ClickHouse)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	var vk valkey.Client
+	if cfg.Valkey.Enabled() {
+		if vk, err = cache.Connect(ctx, cfg.Valkey); err != nil {
+			return err
+		}
+		defer vk.Close()
+	}
+	store, err := query.NewLocalExportStore(cfg.Exports.Dir)
+	if err != nil {
+		return err
+	}
+	if err := newPurger(pool, conn, vk, store, cfg, logger).Purge(ctx, id); err != nil {
+		return err
+	}
+	return json.NewEncoder(stdout).Encode(map[string]any{"project_id": id, "purged": true})
+}
+
 // runReconcile runs the authz reconciler once (the job the identity role
 // runs hourly) and prints how much drift it found.
 func runReconcile(ctx context.Context, args []string, stdout, stderr io.Writer, environ []string) error {
@@ -464,22 +598,27 @@ func runReconcile(ctx context.Context, args []string, stdout, stderr io.Writer, 
 		return err
 	}
 	defer func() { _ = client.Close() }()
+	res, err := reconcileOnce(ctx, cfg, logger, pool, client, *dryRun)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(stdout).Encode(res)
+}
+
+// reconcileOnce runs the authz reconciler once over pool and client.
+func reconcileOnce(ctx context.Context, cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, client *authzed.Client, dryRun bool) (outbox.ReconcileResult, error) {
 	// Record ZedTokens like the job does, so checks see the repair at once.
 	var tokens authzclient.TokenStore
 	if cfg.Valkey.Enabled() {
 		vk, err := cache.Connect(ctx, cfg.Valkey)
 		if err != nil {
-			return err
+			return outbox.ReconcileResult{}, err
 		}
 		defer vk.Close()
 		tokens = authzclient.NewValkeyTokens(vk)
 	}
 	recorder := authzclient.New(client, tokens, authzclient.Options{}, logger, nil)
-	res, err := outbox.NewReconciler(pool, client, recorder, outbox.ReconcileOptions{}, logger, nil).Reconcile(ctx, *dryRun)
-	if err != nil {
-		return err
-	}
-	return json.NewEncoder(stdout).Encode(res)
+	return outbox.NewReconciler(pool, client, recorder, outbox.ReconcileOptions{}, logger, nil).Reconcile(ctx, dryRun)
 }
 
 func runHealthcheck(ctx context.Context, args []string, stderr io.Writer) error {
@@ -530,6 +669,7 @@ func runOpenAPI(stdout io.Writer) error {
 	identity.NewPasskeys(identity.PasskeysDeps{}, nil).Register(srv.API())
 	identity.NewConnectedAccounts(identity.ConnectedAccountsDeps{}, nil).Register(srv.API())
 	identity.NewPasskeyLogin(config.IdentityConfig{}, identity.PasskeyLoginDeps{}, nil, nil).Register(srv.API())
+	identity.NewReauth(config.IdentityConfig{}, identity.ReauthDeps{}, nil, nil).Register(srv.API())
 	identity.NewRestore(config.IdentityConfig{}, nil, nil, nil, nil).Register(srv.API())
 	controlplaneapi.Register(srv.API(), controlplaneapi.Deps{})
 	identity.NewRecovery(config.IdentityConfig{}, nil, nil, nil, nil).Register(srv.API())

@@ -133,6 +133,26 @@ const (
 	// CodeAPIKeyGone: the project has no API key with that id. Only
 	// answered to members of the project's organization.
 	CodeAPIKeyGone ErrCode = "api_key_gone"
+	// CodeKeyLimitReached: the project already has as many active API keys
+	// as it may (ingest.max_keys_per_project); revoke one first.
+	CodeKeyLimitReached ErrCode = "key_limit_reached"
+	// CodeKeyNotActive: the API key is revoked, expired or already rotated,
+	// so it cannot be rotated.
+	CodeKeyNotActive ErrCode = "key_not_active"
+	// CodeNotOrgMember: a project role can only be granted to a member of
+	// the project's organization; invite the person to the organization
+	// first.
+	CodeNotOrgMember ErrCode = "not_org_member"
+	// CodeMemberLimitReached: the project already has as many people added
+	// directly as it may (access.max_direct_members_per_project).
+	CodeMemberLimitReached ErrCode = "member_limit_reached"
+	// CodeEnvironmentInUse: the environment has data within retention, or
+	// an active API key or a health check refers to it, so it cannot be
+	// deleted; hide it instead.
+	CodeEnvironmentInUse ErrCode = "environment_in_use"
+	// CodeConfirmationMismatch: a destructive action's confirmation (the
+	// project slug for a project delete) does not match; nothing changed.
+	CodeConfirmationMismatch ErrCode = "confirmation_mismatch"
 	// CodeForbidden: authenticated and able to see the resource, but not
 	// allowed to perform the action.
 	CodeForbidden ErrCode = "forbidden"
@@ -189,6 +209,12 @@ var catalogue = map[ErrCode]catalogueEntry{
 	CodeLastOwner:             {http.StatusConflict, "Last owner", "An organization must keep at least one owner."},
 	CodeMemberGone:            {http.StatusGone, "Member gone", "The user is not a member of this organization."},
 	CodeAPIKeyGone:            {http.StatusGone, "API key gone", "The project has no such API key."},
+	CodeKeyLimitReached:       {http.StatusConflict, "API key limit reached", "This project has as many active API keys as it may have. Revoke one first."},
+	CodeKeyNotActive:          {http.StatusConflict, "API key not active", "The API key is revoked, expired or already rotated."},
+	CodeNotOrgMember:          {http.StatusConflict, "Not an organization member", "Only members of the project's organization can be added to it."},
+	CodeMemberLimitReached:    {http.StatusConflict, "Member limit reached", "This project has as many people added directly as it may have. Remove someone first."},
+	CodeEnvironmentInUse:      {http.StatusConflict, "Environment in use", "This environment has data or is used by an API key or a health check. Hide it instead."},
+	CodeConfirmationMismatch:  {http.StatusUnprocessableEntity, "Confirmation mismatch", "The confirmation does not match. Type it exactly as shown."},
 	CodeSSORequired:           {http.StatusForbidden, "Single sign-on required", "This organization requires single sign-on. Sign in through its identity provider."},
 	CodeSSONotConfigured:      {http.StatusConflict, "Single sign-on not configured", "This organization has no single sign-on connection."},
 	CodeSSOUntested:           {http.StatusConflict, "Single sign-on untested", "Sign in through single sign-on at least once before enforcing it."},

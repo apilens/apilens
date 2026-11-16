@@ -1,0 +1,29 @@
+/* Project settings → General (#815). Tokens from tokens.css only; cards and notes reuse .os-*
+   (org settings), inputs .ob-in, errors .ob-err, the copy control .cv. */
+
+/* Paused notice at the top, with Resume. */
+.pgen-notice { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-3); margin-bottom: var(--space-6); padding: var(--space-3) var(--space-4); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border)); border-radius: var(--radius-md); background: var(--warn-soft); }
+.pgen-notice > .ob-ic { margin-top: 3px; color: var(--warn); }
+.pgen-notice .t { flex: 1; min-width: 220px; }
+.pgen-notice h2 { margin: 0; font: 600 14px/20px var(--font-sans); color: var(--ink); }
+.pgen-notice p { margin: 2px 0 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+
+/* Description: a textarea with its character count under it, the error on the left. */
+.pgen-textarea { display: block; width: 100%; min-height: 84px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-1); color: var(--ink); font: 400 14px/20px var(--font-sans); resize: vertical; }
+.pgen-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ok-soft); }
+.pgen-textarea:disabled { background: var(--surface-2); color: var(--ink-muted); cursor: not-allowed; }
+.pgen-textarea.bad { border-color: var(--error); }
+.pgen-under { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.pgen-under .ob-err { margin-top: 6px; }
+.pgen-count { flex: none; margin-top: 6px; font: 400 12px/18px var(--font-sans); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.pgen-count.bad { color: var(--error); }
+.pgen-empty { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+
+/* Identifiers: label left, value right; stacked on narrow screens. */
+.pgen-ids { display: grid; gap: var(--space-3); margin: var(--space-4) 0 0; }
+.pgen-ids > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; gap: var(--space-3); }
+.pgen-ids dt { font: 500 13px/20px var(--font-sans); color: var(--ink-muted); }
+.pgen-ids dd { margin: 0; min-width: 0; font: 400 13px/20px var(--font-sans); color: var(--ink); }
+@media (max-width: 560px) {
+  .pgen-ids > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}

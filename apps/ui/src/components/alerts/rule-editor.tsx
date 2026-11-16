@@ -20,7 +20,7 @@ import {
   rulesHref,
   thresholdUnit,
 } from "@/lib/alerts";
-import type { AlertRule, ConsumerGroup, NamedApp, NotificationChannel } from "@/lib/identity";
+import type { AlertRule, NamedApp, NotificationChannel } from "@/lib/identity";
 import { useCan } from "@/lib/permissions";
 import { ObIcon } from "../onboarding/ob";
 import "../org-settings/members.css";
@@ -34,8 +34,10 @@ type Status = { tone: "ok" | "err"; text: string } | null;
  * filters), the condition (metric, comparison, threshold, window), the timing (a fixed frequency
  * or a cron schedule, and how long a breach must hold before it notifies or clear before it
  * resolves) and the channels to notify. Project admins (`alerts.manage`) save and delete; everyone
- * else sees the same form read-only. `channels` and `groups` are null when they could not be
- * loaded (the form says so and keeps working without them).
+ * else sees the same form read-only. The consumer group is the name the SDK reports
+ * (`consumer_group`); `groups` are the names seen lately, which the field suggests, and any other
+ * name can be typed for a group not seen yet. `channels` and `groups` are null when they could not
+ * be loaded (the form says so and keeps working without them).
  */
 export function RuleEditor({
   project,
@@ -52,7 +54,7 @@ export function RuleEditor({
   apps: NamedApp[];
   environments: string[];
   channels: NotificationChannel[] | null;
-  groups: ConsumerGroup[] | null;
+  groups: string[] | null;
 }) {
   const manage = useCan("alerts.manage").allowed;
   const router = useRouter();
@@ -160,7 +162,7 @@ export function RuleEditor({
   if (editing && !apps.some((a) => a.id === draft.app_id)) appOptions.unshift({ value: draft.app_id, label: "Unknown app" });
 
   return (
-    <div className="al al--narrow">
+    <div className="page page--measure al">
       <AlertsHeader project={project} projectName={projectName} tab="rules" title={editing ? rule.name : "New alert rule"}>
         {editing ? (
           <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={incidentHref(project, rule.id)}>
@@ -206,9 +208,19 @@ export function RuleEditor({
               {field(
                 "group",
                 "Consumer group",
-                select("group", [{ value: "", label: groups === null ? "Couldn’t load groups" : "Any group" }, ...(groups ?? []).map((g) => ({ value: g.id, label: g.name }))], locked || (groups === null && draft.group === "")),
+                text("group", { placeholder: groups?.[0] ?? "Acme Corp", hint: true, list: `${id}-groups` }),
+                groups === null
+                  ? "Optional. We couldn’t load the groups seen; type the group name the SDK reports."
+                  : groups.length === 0
+                    ? "Optional. No groups seen in the last 7 days; type the group name the SDK reports."
+                    : "Optional. A group the SDK reports, or a name it has not reported yet.",
               )}
             </div>
+            <datalist id={`${id}-groups`}>
+              {(groups ?? []).map((g) => (
+                <option key={g} value={g} />
+              ))}
+            </datalist>
           </div>
         </section>
 

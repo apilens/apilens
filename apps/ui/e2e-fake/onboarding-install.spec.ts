@@ -68,8 +68,8 @@ test("install: one key shown once, snippets with it, masked after navigation", a
   await expect(keyField(page)).toHaveValue(/^apl_live_[\w-]+$/);
   expect(await keyField(page).inputValue()).not.toBe(raw);
 
-  // Both are in project settings as "Onboarding" ingest keys: the first visit made exactly one.
-  await page.goto("/kramerica-oil/settings/keys");
+  // Both are in Access › API keys as "Onboarding" ingest keys: the first visit made exactly one.
+  await page.goto("/kramerica-oil/access/keys");
   await expect(page.getByRole("row").filter({ hasText: "Onboarding" })).toHaveCount(2);
 });
 
@@ -85,7 +85,7 @@ test("install: Java gets the SDK snippets; later finishes onboarding with a remi
   const reminder = page.getByRole("status").filter({ hasText: "Finish setting up" });
   await expect(reminder).toBeVisible();
   await expect(reminder).toContainText("add the APILens SDK");
-  await expect(reminder.getByRole("link", { name: "API keys" })).toHaveAttribute("href", "/pendant-books/settings/keys");
+  await expect(reminder.getByRole("link", { name: "API keys" })).toHaveAttribute("href", "/pendant-books/access/keys");
   // Onboarding is finished: its pages send the user to a project (the fake's last one).
   await page.goto("/onboarding/install");
   await page.waitForURL((url) => !url.pathname.startsWith("/onboarding/"));

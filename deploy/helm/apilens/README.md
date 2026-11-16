@@ -59,6 +59,11 @@ helm install apilens oci://ghcr.io/apilens/charts/apilens --version <x.y.z>
 | `roles.<role>.autoscaling` | disabled | Creates a CPU-based HPA |
 | `roles.identity` / `roles.api` | disabled | Split sign-in (`/api/v1/auth/*`, OAuth, email worker) and the control-plane API out of `all`. Disable `all` and enable `edge`, `identity` and `api` together |
 | `config` | log, sink settings | Extra `APILENS_*` env vars (`__` = nesting); these override chart-managed keys |
+| `config.APILENS_IDENTITY__SENSITIVE_ACTION_MAX_AGE` / `APILENS_PROJECT__DELETION_GRACE` | `10m` / `168h` | Sign-in age allowed for sensitive actions; restore window of a deleted project |
+| `config.APILENS_ACCESS__MAX_DIRECT_MEMBERS_PER_PROJECT` / `APILENS_INGEST__MAX_KEYS_PER_PROJECT` | `500` / `50` | People added to a project directly; active API keys per project (`0` = no limit) |
+| `config.APILENS_INGEST__RECORD_KEY_IP` | `true` | Record the client IP of an API key's last ingest request |
+| `config.APILENS_AUDIT__RETENTION` | `400` | Days audit events are kept (at least 30, or 0 = forever) |
+| `config.APILENS_RETENTION__*` | requests `90`, logs `30`, spans `30`, rollups_1m `30`, rollups_1h `400` | Telemetry retention in days, applied to the ClickHouse TTLs by the migrations Job; shortening one needs `apilens migrate -confirm-retention-change` once. See `deploy/README.md` |
 | `externalClickHouse.*` | `clickhouse:9000`, db `apilens` | Native protocol addresses, user, TLS, cluster name |
 | `externalValkey.addr` | `[]` (disabled) | API-key cache invalidation; when empty, falls back to TTL |
 | `identity.issuer` | from `ingress.ingestHost` | Token `iss` and OAuth callback base: the public URL browsers reach `/api/v1/auth/*` at |

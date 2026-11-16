@@ -77,6 +77,7 @@ func TestIssueAndVerify(t *testing.T) {
 	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 	iss := newIssuer(t, keySet{key}, now)
 	user, session := fixtures()
+	session.CreatedAt = now.Add(-7*time.Minute - 300*time.Millisecond)
 
 	raw, exp, err := iss.Issue(user, session, []string{AMREmail, AMRTOTP})
 	if err != nil {
@@ -91,7 +92,7 @@ func TestIssueAndVerify(t *testing.T) {
 		t.Errorf("header = %v", header)
 	}
 	payload := decodeSegment(t, raw, 1)
-	for _, name := range []string{"iss", "sub", "aud", "iat", "exp", "sid", "amr"} {
+	for _, name := range []string{"iss", "sub", "aud", "iat", "exp", "sid", "amr", "auth_time"} {
 		if _, ok := payload[name]; !ok {
 			t.Errorf("payload is missing %q: %v", name, payload)
 		}
@@ -115,6 +116,10 @@ func TestIssueAndVerify(t *testing.T) {
 	}
 	if !claims.IssuedAt.Equal(now) || !claims.ExpiresAt.Equal(exp) {
 		t.Errorf("iat/exp = %v %v", claims.IssuedAt, claims.ExpiresAt)
+	}
+	// auth_time is the session's sign-in time, in whole seconds.
+	if want := now.Add(-7*time.Minute - time.Second); claims.AuthTime == nil || !claims.AuthTime.Equal(want) {
+		t.Errorf("auth_time = %v, want %v", claims.AuthTime, want)
 	}
 }
 

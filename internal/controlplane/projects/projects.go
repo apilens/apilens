@@ -2,38 +2,54 @@
 // organization and their environments, and answers whether a project slug is
 // free.
 //
-// Project slugs are globally unique among active projects (the SDK's
-// project_slug check relies on it); the partial unique index
-// projects_slug_active is the final arbiter, so two concurrent creates of one
-// slug end with exactly one winner. Creating and deleting a project write the
-// project.created / project.deleted outbox rows (ADR 0006) in the same
-// transaction as the change. Creating a project also registers its default
-// app, whose identifier is the project slug, so SDKs can send events with
-// app_id = <project slug> straight away.
+// Project slugs are globally unique among active projects and projects
+// awaiting purge (the SDK's project_slug check relies on it); the partial
+// unique indexes projects_slug_active and projects_slug_reserved are the
+// final arbiters, so two concurrent creates of one slug end with exactly one
+// winner. Creating and deleting a project write the project.created /
+// project.deleted outbox rows (ADR 0006) in the same transaction as the
+// change; deleting schedules the purge after a grace period during which
+// Restore brings the project back (lifecycle.go). With an auditor
+// (WithAudit), creating, renaming, deleting and restoring a project and
+// adding or removing an environment record project.created,
+// project.updated, project.deleted, project.restored, environment.added and
+// environment.removed in the same transaction.
 //
-// Role checks read memberships until the authz middleware lands; they follow
-// authz/schema.zed: any member may read, owners, admins and members may
-// create and edit projects (create_project, edit), and only owners and admins
-// may delete them (org->manage).
+// A project's slug can be renamed (Rename). The old slug goes to
+// project_slug_history: path resolution falls back to it, so the old slug
+// keeps leading to the project until another project takes it, and for
+// SlugReservation only the same project may take it (back). Creates and
+// renames serialize on a per-slug advisory lock so the reservation check
+// and the write it allows cannot interleave. Creating a project also registers its default
+// app (slug = project slug), which receives records that name no app; other
+// apps are created by ingest from the app names SDKs send.
+//
+// The service does not authorize: callers check the SpiceDB permission
+// first with the authz guard (create_project on the organization; view,
+// edit or delete on the project) and pass the project id it resolved.
 package projects
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/apilens/apilens/internal/controlplane/apps"
 	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
+	"github.com/apilens/apilens/internal/identity/audit"
 )
 
 // EnvironmentPattern is the rule for environment names: letters, digits,
@@ -41,8 +57,16 @@ import (
 // (environments.name allows 1..64).
 const EnvironmentPattern = `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`
 
+// MaxDescription bounds a project's description, in characters
+// (projects.description allows 0..280).
+const MaxDescription = 280
+
 // MaxEnvironments bounds the environments of one project.
 const MaxEnvironments = 20
+
+// SlugReservation is how long a slug a rename retired stays reserved for
+// the project that used it (D9: the same window as app slugs).
+const SlugReservation = 30 * 24 * time.Hour
 
 // DefaultEnvironments are created when a create request names none.
 var DefaultEnvironments = []string{"production"}
@@ -54,20 +78,21 @@ func ValidEnvironment(name string) bool { return envRE.MatchString(name) }
 
 // Errors returned by Service.
 var (
-	// ErrInvalid: the name, slug or an environment name is unusable.
-	ErrInvalid = errors.New("projects: invalid name, slug or environment")
-	// ErrNotFound: no active project (or organization) has the slug, or the
-	// user is not a member of its organization. The cases are deliberately
-	// indistinguishable.
+	// ErrInvalid: the name, description, slug or an environment name is
+	// unusable.
+	ErrInvalid = errors.New("projects: invalid name, description, slug or environment")
+	// ErrNotFound: no active project (or organization) has the id or slug,
+	// or the user is not a member of the organization.
 	ErrNotFound = errors.New("projects: not found")
-	// ErrForbidden: the user is a member but their role does not allow the
-	// change.
-	ErrForbidden = errors.New("projects: forbidden")
 	// ErrSlugImmutable: the update asks for a different slug.
 	ErrSlugImmutable = errors.New("projects: slug cannot be changed")
 	// ErrTooManyEnvironments: the project would have more than
 	// MaxEnvironments environments.
 	ErrTooManyEnvironments = errors.New("projects: too many environments")
+
+	// errSlugReserved: a rename of another project retired the slug less
+	// than SlugReservation ago; callers turn it into a SlugTakenError.
+	errSlugReserved = errors.New("projects: slug reserved")
 )
 
 // SlugTakenError is returned by Create when the slug is reserved or used by
@@ -78,43 +103,102 @@ type SlugTakenError struct {
 
 func (e *SlugTakenError) Error() string { return "projects: slug taken" }
 
+// Project roles (authz/schema.zed project#admin/editor/viewer).
+const (
+	RoleAdmin  = "admin"
+	RoleEditor = "editor"
+	RoleViewer = "viewer"
+)
+
 // Project is a project as seen by a member of its organization.
 type Project struct {
-	ID           uuid.UUID
-	Slug         string
-	Name         string
-	OrgID        uuid.UUID
-	OrgSlug      string
-	Role         string // the user's role in the organization
+	ID          uuid.UUID
+	Slug        string
+	Name        string
+	Description string
+	OrgID       uuid.UUID
+	OrgSlug     string
+	// Role is the creator's effective project role on a project Create
+	// returns; the other methods leave it empty for the caller to fill
+	// from SpiceDB.
+	Role         string
 	Environments []string
 	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	CreatedBy    *uuid.UUID // nil when unknown (older or seeded projects, purged user)
+	// RepositoryURL is the project's source repository link (see
+	// NormalizeRepositoryURL); nil when none is set.
+	RepositoryURL *string
+	// PausedAt is when ingest was paused for the project (see Pause); nil
+	// while ingest is accepted. PausedBy is who paused it; nil when not
+	// paused or the user is gone.
+	PausedAt *time.Time
+	PausedBy *uuid.UUID
 }
 
 // Update is a partial update of a project; nil fields are left unchanged.
 type Update struct {
-	Name *string
-	Slug *string
+	Name        *string
+	Description *string
+	Slug        *string
+	// RepositoryURL sets the repository link; "" removes it.
+	RepositoryURL *string
 }
 
-// CanWrite reports whether an organization role may create and edit
-// projects and their environments.
-func CanWrite(role string) bool {
-	return role == orgs.RoleOwner || role == orgs.RoleAdmin || role == "member"
+// creatorRole is the effective project role of a new project's creator:
+// organization owners and admins are admin on every project; anyone else
+// allowed to create projects (members) edits it through the default access
+// org_role every new project starts with.
+func creatorRole(orgRole string) string {
+	if orgs.CanManage(orgRole) {
+		return RoleAdmin
+	}
+	return RoleEditor
 }
-
-// CanDelete reports whether an organization role may delete projects.
-func CanDelete(role string) bool { return orgs.CanManage(role) }
 
 // Service manages projects and environments.
 type Service struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	audit apps.Auditor // nil: nothing is audited
+	// anyRepositoryHost lets a repository link name any https host
+	// (integrations.allow_any_repository_host), not only RepositoryHosts.
+	anyRepositoryHost bool
+	// retention is how long data seen for an environment keeps it in use
+	// (WithDataRetention); zero means DefaultDataRetention.
+	retention time.Duration
+	// grace is how long a deleted project stays restorable
+	// (project.deletion_grace); invalidate drops a key hash from every
+	// ingest key cache on pause, resume, delete and restore (nil: caches
+	// expire on their own, within the key cache TTL).
+	grace      time.Duration
+	invalidate KeyInvalidator
+	logger     *slog.Logger
+	notifier   Notifier // nil: no emails
 }
 
-// New returns a Service over pool.
-func New(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
+// New returns a Service over pool. Deleted projects stay restorable for
+// DefaultDeletionGrace until WithDeletion says otherwise.
+func New(pool *pgxpool.Pool) *Service {
+	return &Service{pool: pool, grace: DefaultDeletionGrace, logger: slog.Default()}
+}
+
+// WithAudit audits project and environment changes and the creation of each
+// new project's default app.
+func (s *Service) WithAudit(a apps.Auditor) *Service {
+	s.audit = a
+	return s
+}
+
+// WithAnyRepositoryHost lets repository links name any https host, not only
+// RepositoryHosts, and returns s.
+func (s *Service) WithAnyRepositoryHost(allow bool) *Service {
+	s.anyRepositoryHost = allow
+	return s
+}
 
 // Create creates the project slug named name in the organization orgSlug on
-// behalf of user, with the given environments (DefaultEnvironments when
+// behalf of user (whom the caller authorized with create_project; a user who
+// is not a member is ErrNotFound), with the given environments (DefaultEnvironments when
 // empty; duplicates are dropped). name is trimmed. A reserved or taken slug
 // returns *SlugTakenError.
 func (s *Service) Create(ctx context.Context, user uuid.UUID, orgSlug, name, slug string, envs []string) (Project, error) {
@@ -130,7 +214,7 @@ func (s *Service) Create(ctx context.Context, user uuid.UUID, orgSlug, name, slu
 		return Project{}, s.taken(ctx, slug)
 	}
 	p, err := s.create(ctx, user, orgSlug, name, slug, envs)
-	if isViolation(err, "23505", "projects_slug_active") {
+	if errors.Is(err, errSlugReserved) || isViolation(err, "23505", "projects_slug_active") || isViolation(err, "23505", "projects_slug_reserved") {
 		return Project{}, s.taken(ctx, slug)
 	}
 	return p, err
@@ -151,17 +235,20 @@ func (s *Service) create(ctx context.Context, user uuid.UUID, orgSlug, name, slu
 	if err != nil {
 		return Project{}, fmt.Errorf("projects: lock organization: %w", err)
 	}
-	if !CanWrite(org.Role) {
-		return Project{}, ErrForbidden
+	id := uuid.New()
+	if err := claimSlug(ctx, q, id, slug); err != nil {
+		return Project{}, err
 	}
-	p, err := q.CreateProject(ctx, db.CreateProjectParams{ID: uuid.New(), OrgID: org.ID, Slug: slug, Name: name})
+	p, err := q.CreateProject(ctx, db.CreateProjectParams{ID: id, OrgID: org.ID, Slug: slug, Name: name, Description: "", CreatedBy: &user})
 	if err != nil {
 		return Project{}, fmt.Errorf("projects: create project: %w", err)
 	}
-	// The default app: ingest only accepts app identifiers registered on the
-	// project, and the install instructions tell SDKs to send app_id = the
-	// project slug. Without it a new project's first events are rejected.
-	if _, err := q.UpsertApp(ctx, db.UpsertAppParams{ID: uuid.New(), ProjectID: p.ID, Slug: p.Slug, Name: p.Name}); err != nil {
+	// The default app receives records that name no app; its slug is the
+	// project slug, which older install instructions told SDKs to send. It
+	// goes through apps.Insert, the code path ingest creates apps through.
+	if _, _, err := apps.Insert(ctx, tx, s.audit, apps.NewApp{
+		ProjectID: p.ID, OrgID: org.ID, Slug: p.Slug, Name: p.Name, Origin: apps.OriginDashboard, Default: true, Actor: &user,
+	}); err != nil {
 		return Project{}, fmt.Errorf("projects: create default app: %w", err)
 	}
 	for _, e := range envs {
@@ -172,13 +259,20 @@ func (s *Service) create(ctx context.Context, user uuid.UUID, orgSlug, name, slu
 	if err := outbox.Emit(ctx, tx, outbox.ProjectCreated, p.ID, outbox.ProjectCreatedPayload{ProjectID: p.ID, OrgID: org.ID}); err != nil {
 		return Project{}, err
 	}
+	slices.Sort(envs)
+	if err := s.record(ctx, tx, user, org.ID, p.ID, audit.Event{
+		Kind:    audit.ProjectCreated,
+		Target:  projectTarget(p.ID, p.Name),
+		Changes: audit.Diff(nil, map[string]any{"name": p.Name, "slug": p.Slug, "environments": envs}),
+	}); err != nil {
+		return Project{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Project{}, fmt.Errorf("projects: commit: %w", err)
 	}
-	slices.Sort(envs)
 	return Project{
-		ID: p.ID, Slug: p.Slug, Name: p.Name, OrgID: org.ID, OrgSlug: org.Slug, Role: org.Role,
-		Environments: envs, CreatedAt: p.CreatedAt,
+		ID: p.ID, Slug: p.Slug, Name: p.Name, Description: p.Description, OrgID: org.ID, OrgSlug: org.Slug, Role: creatorRole(org.Role),
+		Environments: envs, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, CreatedBy: p.CreatedBy, RepositoryURL: p.RepositoryUrl,
 	}, nil
 }
 
@@ -199,7 +293,7 @@ func (s *Service) Available(ctx context.Context, slug string) (bool, []string, e
 		return false, nil, ErrInvalid
 	}
 	if !orgs.Reserved(slug) {
-		taken, err := db.New(s.pool).ProjectSlugTaken(ctx, slug)
+		taken, err := db.New(s.pool).ProjectSlugTaken(ctx, db.ProjectSlugTakenParams{Slug: slug, ReservedAfter: reservedAfter()})
 		if err != nil {
 			return false, nil, fmt.Errorf("projects: check slug: %w", err)
 		}
@@ -212,9 +306,12 @@ func (s *Service) Available(ctx context.Context, slug string) (bool, []string, e
 }
 
 // Suggest returns up to orgs.MaxSuggestions valid, unreserved slugs derived
-// from slug that no active project uses.
+// from slug that no active project uses and no rename reserves.
 func (s *Service) Suggest(ctx context.Context, slug string) ([]string, error) {
-	out, err := orgs.SuggestSlugs(ctx, slug, db.New(s.pool).TakenProjectSlugs)
+	q := db.New(s.pool)
+	out, err := orgs.SuggestSlugs(ctx, slug, func(ctx context.Context, slugs []string) ([]string, error) {
+		return q.TakenProjectSlugs(ctx, db.TakenProjectSlugsParams{Slugs: slugs, ReservedAfter: reservedAfter()})
+	})
 	if err != nil {
 		return nil, fmt.Errorf("projects: suggest slugs: %w", err)
 	}
@@ -222,7 +319,8 @@ func (s *Service) Suggest(ctx context.Context, slug string) ([]string, error) {
 }
 
 // List returns the active projects of the organization orgSlug, which user
-// must be a member of (ErrNotFound otherwise), ordered by name.
+// must be a member of (ErrNotFound otherwise), ordered by name. It does not
+// filter by project access: the caller keeps the projects user can view.
 func (s *Service) List(ctx context.Context, user uuid.UUID, orgSlug string) ([]Project, error) {
 	q := db.New(s.pool)
 	org, err := q.GetMemberOrganization(ctx, db.GetMemberOrganizationParams{UserID: user, Slug: orgSlug})
@@ -240,8 +338,8 @@ func (s *Service) List(ctx context.Context, user uuid.UUID, orgSlug string) ([]P
 	ids := make([]uuid.UUID, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, Project{
-			ID: r.ID, Slug: r.Slug, Name: r.Name, OrgID: org.ID, OrgSlug: org.Slug, Role: org.Role,
-			Environments: []string{}, CreatedAt: r.CreatedAt,
+			ID: r.ID, Slug: r.Slug, Name: r.Name, Description: r.Description, OrgID: org.ID, OrgSlug: org.Slug,
+			Environments: []string{}, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, CreatedBy: r.CreatedBy, RepositoryURL: r.RepositoryUrl,
 		})
 		ids = append(ids, r.ID)
 	}
@@ -254,122 +352,233 @@ func (s *Service) List(ctx context.Context, user uuid.UUID, orgSlug string) ([]P
 			out[i].Environments = e
 		}
 	}
+	if err := withPauses(ctx, q, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
-// Get returns the active project slug as seen by user, who must be a member
-// of its organization (ErrNotFound otherwise).
-func (s *Service) Get(ctx context.Context, user uuid.UUID, slug string) (Project, error) {
+// Get returns the active project id (ErrNotFound when it is gone).
+func (s *Service) Get(ctx context.Context, id uuid.UUID) (Project, error) {
 	q := db.New(s.pool)
-	r, err := q.GetMemberProject(ctx, db.GetMemberProjectParams{UserID: user, Slug: slug})
+	r, err := q.GetActiveProject(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Project{}, ErrNotFound
 	}
 	if err != nil {
 		return Project{}, fmt.Errorf("projects: get: %w", err)
 	}
-	return withEnvironments(ctx, q, db.LockMemberProjectRow(r))
+	return withEnvironments(ctx, q, db.LockActiveProjectRow(r))
 }
 
-// Update applies u to the project slug on behalf of user, who must be an
-// owner, admin or member of its organization. The name is trimmed; a slug
-// different from the current one is ErrSlugImmutable.
-func (s *Service) Update(ctx context.Context, user uuid.UUID, slug string, u Update) (Project, error) {
-	var name string
+// Update applies u to the project id on behalf of user. The name and
+// description are trimmed; an empty name, a description over MaxDescription
+// characters or a repository link NormalizeRepositoryURL rejects is
+// ErrInvalid, and a slug different from the current one is
+// ErrSlugImmutable. An empty repository link removes it. A change moves
+// updated_at and, in the same transaction, records project.updated with the
+// previous and next values of the changed fields; an update that changes
+// nothing writes nothing.
+func (s *Service) Update(ctx context.Context, user, id uuid.UUID, u Update) (Project, error) {
+	var name, desc string
 	if u.Name != nil {
 		name = strings.TrimSpace(*u.Name)
 		if name == "" {
 			return Project{}, ErrInvalid
 		}
 	}
+	if u.Description != nil {
+		desc = strings.TrimSpace(*u.Description)
+		if utf8.RuneCountInString(desc) > MaxDescription {
+			return Project{}, ErrInvalid
+		}
+	}
+	var repo *string
+	if u.RepositoryURL != nil {
+		r, err := NormalizeRepositoryURL(*u.RepositoryURL, s.anyRepositoryHost)
+		if err != nil {
+			return Project{}, err
+		}
+		if r != "" {
+			repo = &r
+		}
+	}
 	if u.Slug != nil && !orgs.ValidSlug(*u.Slug) {
 		return Project{}, ErrInvalid
 	}
-	return s.write(ctx, user, slug, CanWrite, func(q *db.Queries, cur *db.LockMemberProjectRow) error {
+	return s.write(ctx, user, id, func(q *db.Queries, cur *db.LockActiveProjectRow) (*audit.Event, error) {
 		if u.Slug != nil && *u.Slug != cur.Slug {
-			return ErrSlugImmutable
+			return nil, ErrSlugImmutable
 		}
-		if u.Name == nil {
-			return nil
+		prev, next := map[string]any{}, map[string]any{}
+		if u.Name != nil && name != cur.Name {
+			prev["name"], next["name"] = cur.Name, name
+		} else {
+			name = cur.Name
 		}
-		p, err := q.UpdateProjectName(ctx, db.UpdateProjectNameParams{ID: cur.ID, Name: name})
+		if u.Description != nil && desc != cur.Description {
+			prev["description"], next["description"] = cur.Description, desc
+		} else {
+			desc = cur.Description
+		}
+		if u.RepositoryURL != nil && !equalPtr(repo, cur.RepositoryUrl) {
+			prev["repository_url"], next["repository_url"] = ptrValue(cur.RepositoryUrl), ptrValue(repo)
+		} else {
+			repo = cur.RepositoryUrl
+		}
+		if len(next) == 0 {
+			return nil, nil
+		}
+		p, err := q.UpdateProjectDetails(ctx, db.UpdateProjectDetailsParams{ID: cur.ID, Name: name, Description: desc, RepositoryUrl: repo})
 		if err != nil {
-			return fmt.Errorf("projects: update: %w", err)
+			return nil, fmt.Errorf("projects: update: %w", err)
 		}
-		cur.Name = p.Name
-		return nil
+		cur.Name, cur.Description, cur.RepositoryUrl, cur.UpdatedAt = p.Name, p.Description, p.RepositoryUrl, p.UpdatedAt
+		changes := audit.Diff(prev, next)
+		if changes == nil {
+			return nil, nil
+		}
+		return &audit.Event{Kind: audit.ProjectUpdated, Target: projectTarget(cur.ID, cur.Name), Changes: changes}, nil
 	})
 }
 
-// AddEnvironment adds the environment name to the project slug on behalf of
-// user, who must be an owner, admin or member of its organization. Adding an
-// environment the project already has changes nothing.
-func (s *Service) AddEnvironment(ctx context.Context, user uuid.UUID, slug, name string) (Project, error) {
-	if !ValidEnvironment(name) {
+// Rename changes the slug of the project id to slug on behalf of user, with
+// the rules of Create: an invalid slug is ErrInvalid; a reserved slug, one
+// another project uses (active or awaiting purge) or one a rename of another project retired
+// less than SlugReservation ago returns *SlugTakenError. The project may
+// take back a slug it used before. The old slug moves to
+// project_slug_history (it keeps resolving to the project and is reserved
+// for it), updated_at moves, and project.slug_changed is recorded in the
+// same transaction. Renaming to the current slug changes nothing.
+// Telemetry, keys and relationships are keyed by the project id: nothing
+// else moves.
+func (s *Service) Rename(ctx context.Context, user, id uuid.UUID, slug string) (Project, error) {
+	if !orgs.ValidSlug(slug) {
 		return Project{}, ErrInvalid
 	}
-	return s.write(ctx, user, slug, CanWrite, func(q *db.Queries, cur *db.LockMemberProjectRow) error {
-		envs, err := listEnvironments(ctx, q, []uuid.UUID{cur.ID})
+	if orgs.Reserved(slug) {
+		return Project{}, s.taken(ctx, slug)
+	}
+	p, err := s.write(ctx, user, id, func(q *db.Queries, cur *db.LockActiveProjectRow) (*audit.Event, error) {
+		old := cur.Slug
+		if slug == old {
+			return nil, nil
+		}
+		// Both slugs change hands: lock them in a fixed order so two
+		// renames cannot deadlock (claimSlug's own lock then re-enters).
+		for _, l := range []string{min(old, slug), max(old, slug)} {
+			if err := q.LockProjectSlug(ctx, l); err != nil {
+				return nil, fmt.Errorf("projects: lock slug: %w", err)
+			}
+		}
+		if err := claimSlug(ctx, q, cur.ID, slug); err != nil {
+			return nil, err
+		}
+		r, err := q.SetProjectSlug(ctx, db.SetProjectSlugParams{ID: cur.ID, Slug: slug})
 		if err != nil {
-			return err
+			return nil, fmt.Errorf("projects: rename: %w", err)
 		}
-		if slices.Contains(envs[cur.ID], name) {
-			return nil
+		if err := q.RetireProjectSlug(ctx, db.RetireProjectSlugParams{Slug: old, ProjectID: cur.ID}); err != nil {
+			return nil, fmt.Errorf("projects: retire slug: %w", err)
 		}
-		if len(envs[cur.ID]) >= MaxEnvironments {
-			return ErrTooManyEnvironments
-		}
-		if _, err := q.CreateEnvironment(ctx, db.CreateEnvironmentParams{ID: uuid.New(), ProjectID: cur.ID, Name: name}); err != nil {
-			return fmt.Errorf("projects: create environment: %w", err)
-		}
-		return nil
+		cur.Slug, cur.UpdatedAt = r.Slug, r.UpdatedAt
+		return &audit.Event{
+			Kind:    audit.ProjectSlugChanged,
+			Target:  projectTarget(cur.ID, cur.Name),
+			Changes: audit.Diff(map[string]any{"slug": old}, map[string]any{"slug": slug}),
+		}, nil
 	})
+	if errors.Is(err, errSlugReserved) || isViolation(err, "23505", "projects_slug_active") || isViolation(err, "23505", "projects_slug_reserved") {
+		return Project{}, s.taken(ctx, slug)
+	}
+	return p, err
 }
 
-// RemoveEnvironment removes the environment name from the project slug on
-// behalf of user, who must be an owner, admin or member of its organization.
-// Removing an environment the project does not have changes nothing.
-// Telemetry already recorded for the environment is kept.
-func (s *Service) RemoveEnvironment(ctx context.Context, user uuid.UUID, slug, name string) (Project, error) {
-	return s.write(ctx, user, slug, CanWrite, func(q *db.Queries, cur *db.LockMemberProjectRow) error {
-		if _, err := q.DeleteEnvironment(ctx, db.DeleteEnvironmentParams{ProjectID: cur.ID, Name: name}); err != nil {
-			return fmt.Errorf("projects: delete environment: %w", err)
-		}
-		return nil
-	})
-}
-
-// Delete soft-deletes the project slug on behalf of user, who must be an
-// owner or admin of its organization. In the same transaction it emits the
-// project.deleted outbox row (the relay then drops the project's
-// relationships from SpiceDB). The slug becomes free for a new project.
-func (s *Service) Delete(ctx context.Context, user uuid.UUID, slug string) error {
-	tx, err := s.pool.Begin(ctx)
+// claimSlug prepares slug for use by the project id in the transaction of
+// q: it takes the slug's advisory lock, answers errSlugReserved when
+// another project uses it (active or awaiting purge) or a rename of another
+// project retired it less than SlugReservation ago, and forgets the retired
+// slug so it stops resolving to its old project.
+func claimSlug(ctx context.Context, q *db.Queries, id uuid.UUID, slug string) error {
+	if err := q.LockProjectSlug(ctx, slug); err != nil {
+		return fmt.Errorf("projects: lock slug: %w", err)
+	}
+	reserved, err := q.ProjectSlugReservedFor(ctx, db.ProjectSlugReservedForParams{Slug: slug, ProjectID: id, ReservedAfter: reservedAfter()})
 	if err != nil {
-		return fmt.Errorf("projects: begin: %w", err)
+		return fmt.Errorf("projects: check slug: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := db.New(tx)
-	cur, err := lock(ctx, q, user, slug, CanDelete)
-	if err != nil {
-		return err
+	if reserved {
+		return errSlugReserved
 	}
-	if _, err := q.SoftDeleteProject(ctx, cur.ID); err != nil {
-		return fmt.Errorf("projects: delete: %w", err)
-	}
-	if err := outbox.Emit(ctx, tx, outbox.ProjectDeleted, cur.ID, outbox.ProjectDeletedPayload{ProjectID: cur.ID}); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("projects: commit: %w", err)
+	if err := q.DeleteProjectSlugHistory(ctx, slug); err != nil {
+		return fmt.Errorf("projects: forget retired slug: %w", err)
 	}
 	return nil
 }
 
-// write runs fn in a transaction on the row-locked project slug after
-// checking user's role with allowed, then returns the project as fn left it.
-func (s *Service) write(ctx context.Context, user uuid.UUID, slug string, allowed func(string) bool,
-	fn func(q *db.Queries, cur *db.LockMemberProjectRow) error,
+// reservedAfter is the earliest retirement time that still reserves a slug.
+func reservedAfter() time.Time { return time.Now().Add(-SlugReservation) }
+
+// AddEnvironment adds the environment name to the project id on behalf of
+// user. Adding an environment the project already has changes nothing.
+func (s *Service) AddEnvironment(ctx context.Context, user, id uuid.UUID, name string) (Project, error) {
+	if !ValidEnvironment(name) {
+		return Project{}, ErrInvalid
+	}
+	return s.write(ctx, user, id, func(q *db.Queries, cur *db.LockActiveProjectRow) (*audit.Event, error) {
+		envs, err := listEnvironments(ctx, q, []uuid.UUID{cur.ID})
+		if err != nil {
+			return nil, err
+		}
+		if slices.Contains(envs[cur.ID], name) {
+			return nil, nil
+		}
+		if len(envs[cur.ID]) >= MaxEnvironments {
+			return nil, ErrTooManyEnvironments
+		}
+		if _, err := q.CreateEnvironment(ctx, db.CreateEnvironmentParams{ID: uuid.New(), ProjectID: cur.ID, Name: name}); err != nil {
+			return nil, fmt.Errorf("projects: create environment: %w", err)
+		}
+		return &audit.Event{
+			Kind: audit.EnvironmentAdded, Target: environmentTarget(name),
+			Changes: audit.Diff(nil, map[string]any{"name": name}),
+		}, nil
+	})
+}
+
+// RemoveEnvironment removes the environment name from the project id on
+// behalf of user. Removing an environment the project does not have changes
+// nothing. An environment in use (data within retention, an active API key
+// pinned to it or a health check using it) is ErrEnvironmentInUse: hide it
+// instead. Telemetry already recorded for the environment is kept.
+func (s *Service) RemoveEnvironment(ctx context.Context, user, id uuid.UUID, name string) (Project, error) {
+	return s.write(ctx, user, id, func(q *db.Queries, cur *db.LockActiveProjectRow) (*audit.Event, error) {
+		envs, err := s.environmentDetails(ctx, q, cur.ID)
+		if err != nil {
+			return nil, err
+		}
+		i := slices.IndexFunc(envs, func(e Environment) bool { return e.Name == name })
+		if i < 0 {
+			return nil, nil
+		}
+		if envs[i].InUse() {
+			return nil, ErrEnvironmentInUse
+		}
+		if _, err := q.DeleteEnvironment(ctx, db.DeleteEnvironmentParams{ProjectID: cur.ID, Name: name}); err != nil {
+			return nil, fmt.Errorf("projects: delete environment: %w", err)
+		}
+		return &audit.Event{
+			Kind: audit.EnvironmentRemoved, Target: environmentTarget(name),
+			Changes: audit.Diff(map[string]any{"name": name}, nil),
+		}, nil
+	})
+}
+
+// write runs fn in a transaction on the row-locked project id, records the
+// event fn returns (nil: no change) as done by user in the same transaction,
+// then returns the project as fn left it.
+func (s *Service) write(ctx context.Context, user, id uuid.UUID,
+	fn func(q *db.Queries, cur *db.LockActiveProjectRow) (*audit.Event, error),
 ) (Project, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -377,12 +586,18 @@ func (s *Service) write(ctx context.Context, user uuid.UUID, slug string, allowe
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := db.New(tx)
-	cur, err := lock(ctx, q, user, slug, allowed)
+	cur, err := lock(ctx, q, id)
 	if err != nil {
 		return Project{}, err
 	}
-	if err := fn(q, &cur); err != nil {
+	ev, err := fn(q, &cur)
+	if err != nil {
 		return Project{}, err
+	}
+	if ev != nil {
+		if err := s.record(ctx, tx, user, cur.OrgID, cur.ID, *ev); err != nil {
+			return Project{}, err
+		}
 	}
 	out, err := withEnvironments(ctx, q, cur)
 	if err != nil {
@@ -394,23 +609,39 @@ func (s *Service) write(ctx context.Context, user uuid.UUID, slug string, allowe
 	return out, nil
 }
 
-// lock row-locks the project slug for user's membership in its organization
-// and checks the role with allowed.
-func lock(ctx context.Context, q *db.Queries, user uuid.UUID, slug string, allowed func(string) bool) (db.LockMemberProjectRow, error) {
-	cur, err := q.LockMemberProject(ctx, db.LockMemberProjectParams{UserID: user, Slug: slug})
+// record writes e, done by user to the project projectID of the
+// organization orgID, in tx; a Service without an auditor records nothing.
+func (s *Service) record(ctx context.Context, tx pgx.Tx, user, orgID, projectID uuid.UUID, e audit.Event) error {
+	if s.audit == nil {
+		return nil
+	}
+	e.User, e.Actor, e.Org, e.Project = &user, &user, &orgID, &projectID
+	return s.audit.Record(audit.WithTx(ctx, tx), e)
+}
+
+func projectTarget(id uuid.UUID, name string) audit.Target {
+	return audit.Target{Type: "project", ID: id.String(), Label: name}
+}
+
+// environmentTarget names an environment by its name, the key the API and
+// the SDK use for it.
+func environmentTarget(name string) audit.Target {
+	return audit.Target{Type: "environment", ID: name, Label: name}
+}
+
+// lock row-locks the active project id.
+func lock(ctx context.Context, q *db.Queries, id uuid.UUID) (db.LockActiveProjectRow, error) {
+	cur, err := q.LockActiveProject(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return cur, ErrNotFound
 	}
 	if err != nil {
 		return cur, fmt.Errorf("projects: lock project: %w", err)
 	}
-	if !allowed(cur.Role) {
-		return cur, ErrForbidden
-	}
 	return cur, nil
 }
 
-func withEnvironments(ctx context.Context, q *db.Queries, r db.LockMemberProjectRow) (Project, error) {
+func withEnvironments(ctx context.Context, q *db.Queries, r db.LockActiveProjectRow) (Project, error) {
 	envs, err := listEnvironments(ctx, q, []uuid.UUID{r.ID})
 	if err != nil {
 		return Project{}, err
@@ -419,10 +650,14 @@ func withEnvironments(ctx context.Context, q *db.Queries, r db.LockMemberProject
 	if e == nil {
 		e = []string{}
 	}
-	return Project{
-		ID: r.ID, Slug: r.Slug, Name: r.Name, OrgID: r.OrgID, OrgSlug: r.OrgSlug, Role: r.Role,
-		Environments: e, CreatedAt: r.CreatedAt,
-	}, nil
+	out := []Project{{
+		ID: r.ID, Slug: r.Slug, Name: r.Name, Description: r.Description, OrgID: r.OrgID, OrgSlug: r.OrgSlug,
+		Environments: e, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, CreatedBy: r.CreatedBy, RepositoryURL: r.RepositoryUrl,
+	}}
+	if err := withPauses(ctx, q, out); err != nil {
+		return Project{}, err
+	}
+	return out[0], nil
 }
 
 // listEnvironments returns the environment names of each project, sorted.
@@ -460,6 +695,19 @@ func environments(in []string) ([]string, error) {
 		return nil, ErrTooManyEnvironments
 	}
 	return out, nil
+}
+
+// equalPtr reports whether a and b are both nil or point to equal strings.
+func equalPtr(a, b *string) bool {
+	return (a == nil) == (b == nil) && (a == nil || *a == *b)
+}
+
+// ptrValue is *p, or nil (JSON null in an audit diff) when p is nil.
+func ptrValue(p *string) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
 
 // isViolation reports whether err is the Postgres error code, on constraint

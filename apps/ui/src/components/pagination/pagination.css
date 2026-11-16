@@ -1,0 +1,35 @@
+/* Pagination (components/pagination). Tokens from tokens.css only; no color carries meaning here,
+   the current page is marked by aria-current and a filled surface plus weight, not by hue alone. */
+.pg { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); padding: var(--space-3) var(--space-4); font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+.pg-range { margin: 0; margin-right: auto; font-variant-numeric: tabular-nums; }
+.pg-size { display: inline-flex; align-items: center; gap: var(--space-2); margin: 0; }
+.pg-size label { color: var(--ink-muted); }
+.pg-select { height: 30px; padding: 0 var(--space-2); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-1); color: var(--ink); font: 400 13px/1 var(--font-sans); font-variant-numeric: tabular-nums; cursor: pointer; }
+.pg-select:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+
+.pg-pages { display: flex; align-items: center; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.pg-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 32px; height: 32px; padding: 0 var(--space-2); border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: var(--ink); font: 500 13px/1 var(--font-sans); font-variant-numeric: tabular-nums; text-decoration: none; cursor: pointer; }
+.pg-btn:hover { background: var(--surface-2); }
+.pg-btn:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.pg-btn[aria-current="page"] { border-color: var(--border-strong); background: var(--surface-2); font-weight: 600; }
+.pg-btn[aria-disabled="true"] { color: var(--ink-muted); opacity: .5; cursor: default; }
+.pg-btn[aria-disabled="true"]:hover { background: none; }
+.pg-chev { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.pg-gap { min-width: 24px; text-align: center; color: var(--ink-muted); }
+.pg-of { display: none; padding: 0 var(--space-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.pg--cursor { justify-content: flex-end; }
+
+/* Phone width (and `compact`): previous, "Page 3 of 13", next. The numbers would not fit. */
+.pg--compact .pg-num, .pg--compact .pg-gap { display: none; }
+.pg--compact .pg-of { display: list-item; list-style: none; }
+@media (max-width: 560px) {
+  .pg { padding: var(--space-3); }
+  .pg-range { flex-basis: 100%; }
+  .pg-num, .pg-gap { display: none; }
+  .pg-of { display: list-item; list-style: none; }
+  .pg-pages { margin-left: auto; }
+}
+@media (max-width: 380px) {
+  .pg-step__txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}

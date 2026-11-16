@@ -31,11 +31,3 @@ func TestNormalizeScopes(t *testing.T) {
 		}
 	}
 }
-
-func TestCanManage(t *testing.T) {
-	for role, want := range map[string]bool{"owner": true, "admin": true, "member": true, "viewer": false, "": false} {
-		if got := CanManage(role); got != want {
-			t.Errorf("CanManage(%q) = %v, want %v", role, got, want)
-		}
-	}
-}

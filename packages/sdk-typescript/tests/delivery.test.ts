@@ -419,7 +419,8 @@ describe("stats", () => {
     client.captureRecord(record());
     client.captureRecord(record());
     await client.flushOnce();
-    const infos = logs.filter(([level]) => level === "info");
+    // The startup "APILens: app ..." line is info too; count only drop lines.
+    const infos = logs.filter(([level, args]) => level === "info" && !String(args[0]).startsWith("APILens: "));
     expect(infos).toHaveLength(1);
     expect(String(infos[0][1][0])).toMatch(/dropped 1 records/);
   });

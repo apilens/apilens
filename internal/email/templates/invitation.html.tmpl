@@ -1,6 +1,6 @@
 {{template "layout" .}}
 {{- define "content" -}}
-<p style="margin:0 0 24px 0;"><strong>{{.inviter}}</strong> invited you to join the <strong>{{.org}}</strong> organization on APILens with the {{.role}} role.</p>
+<p style="margin:0 0 24px 0;"><strong>{{.inviter}}</strong> invited you to join the <strong>{{.org}}</strong> organization on APILens with the {{.role}} role{{if .project}}, and the <strong>{{.project}}</strong> project with the {{.project_role}} role{{end}}.</p>
 <p style="margin:0 0 24px 0;"><a class="button" href="{{link (print "/invite/" (seg .token))}}" style="display:inline-block;padding:10px 20px;border-radius:6px;background:#5b4bff;color:#ffffff;font-weight:600;text-decoration:none;">Accept invitation</a></p>
 <p class="muted" style="margin:0 0 8px 0;color:#556070;">The invitation expires on {{date .expires_at}}.</p>
 <p class="muted" style="margin:0;color:#556070;">If you were not expecting this invitation, you can ignore this email.</p>

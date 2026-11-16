@@ -67,6 +67,18 @@ test("shows the edge counters, the SDK drops by reason and links to the runbook"
   await expect(rows.nth(2).getByRole("cell")).toHaveText(["1,000", "0", "0", "10"]);
   await expect(rows.nth(3).getByRole("cell")).toHaveText(["0", "0", "0", "0"]);
 
+  // The per-day chart: hovering a day (or arrowing to it) shows its exact counters.
+  const chart = edge(page).getByRole("group", { name: /^Records received per day, last 7 days \(UTC\)\. Busiest day .*: 1,000 records received\. 100 records rejected/ });
+  await chart.focus();
+  const tip = chart.locator(".ct-tip");
+  await expect(tip.locator("dd")).toHaveText(["900", "100", "9", "90"]);
+  await chart.press("ArrowLeft");
+  await expect(tip.locator("dd")).toHaveText(["1,000", "0", "0", "10"]);
+  const box = await chart.boundingBox();
+  if (!box) throw new Error("chart not laid out");
+  await page.mouse.move(box.x + 5, box.y + box.height / 2);
+  await expect(tip.locator("dd")).toHaveText(["0", "0", "0", "0"]);
+
   // What the SDKs lost before sending.
   await expect(sdks(page)).toContainText("3 batches failed · 15 records dropped");
   await expect(sdks(page)).toContainText("Summed over the 2 instances seen in the last hour, since each process started.");

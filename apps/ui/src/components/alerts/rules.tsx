@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { READ_ONLY, RULES_LOAD_FAILED, channelsHref, formatMetric, newRuleHref, ruleHref, ruleSummary, rulesHref, scheduleText } from "@/lib/alerts";
+import { useSearchParams } from "next/navigation";
+import { READ_ONLY, RULES_LOAD_FAILED, channelsHref, filterParts, formatMetric, newRuleHref, ruleHref, ruleSummary, rulesHref, scheduleText } from "@/lib/alerts";
 import type { AlertRule } from "@/lib/identity";
+import { parsePage, slicePage } from "@/lib/pagination";
 import { useCan } from "@/lib/permissions";
 import { ObIcon } from "../onboarding/ob";
+import { Pagination } from "../pagination/pagination";
 import { AlertsHeader, Empty, LoadFailed, StatusBadge } from "./common";
 
 /**
@@ -28,8 +31,10 @@ export function RulesView({
   channels: Record<string, string>;
 }) {
   const manage = useCan("alerts.manage").allowed;
+  const params = useSearchParams();
+  const { rows: shown, window } = slicePage(rules ?? [], parsePage(params));
   return (
-    <div className="al">
+    <div className="page al">
       <AlertsHeader project={project} projectName={projectName} tab="rules" title="Alert rules" lead="Each rule watches one metric of one app and environment and opens an incident when it breaches its threshold.">
         {manage && rules !== null ? (
           <Link className="ah-btn ah-btn--primary ah-btn--sm" href={newRuleHref(project)}>
@@ -74,11 +79,12 @@ export function RulesView({
               </tr>
             </thead>
             <tbody>
-              {rules.map((r) => (
+              {shown.map((r) => (
                 <RuleRow key={r.id} project={project} rule={r} app={apps[r.app_id]} channels={channels} />
               ))}
             </tbody>
           </table>
+          <Pagination pathname={rulesHref(project)} params={params} total={window.total} label="Alert rule pages" />
         </div>
       )}
     </div>
@@ -86,7 +92,7 @@ export function RulesView({
 }
 
 function RuleRow({ project, rule: r, app, channels }: { project: string; rule: AlertRule; app: string | undefined; channels: Record<string, string> }) {
-  const filters = [r.filters?.endpoint, r.filters?.consumer ? `consumer ${r.filters.consumer}` : "", r.filters?.group ? "one consumer group" : ""].filter(Boolean);
+  const filters = filterParts(r);
   const names = (r.channel_ids ?? []).map((id) => channels[id] ?? "Unknown channel");
   return (
     <tr>

@@ -1,0 +1,70 @@
+---
+title: "Project settings"
+description: "Every section of a project's settings: general, environments, SDK setup, capture, privacy, retention, ingest health, usage, alerting, integrations and the danger zone."
+---
+
+Open a project's settings from the sidebar (`/<project>/settings`). The sections are listed on the left in four groups: **Project**, **Data**, **Alerting** and **More**. Everyone who can see the project can open every section and read it; viewers get read-only forms with the reason next to them. Who may change what is in the [role matrix](/platform/project-access#role-matrix).
+
+API keys and the people with access are not here: they are on the project's [Access](/platform/project-access) page.
+
+## Project
+
+### General
+
+The project's **name** and **description**, as they appear in the sidebar, in lists and to the people who can see the project. Under **Identifiers** are the **slug** and the **project ID**, to use in SDK configuration, the CLI and API calls; the project ID never changes, and the slug is changed in the [danger zone](#danger-zone). The section also shows when the project was created and by whom, and whether ingest is paused. Editors and admins can change the name and description.
+
+### Environments
+
+The environments your SDKs report from (`production`, `staging`, ...). SDKs register an environment the first time they send data from it; you can also **add an environment** by hand before its SDK reports it, for example to [limit an API key](/platform/api-keys#limit-a-key-to-environments) to it. Each environment has an order, an optional colour and a **production** label, which apply wherever environments are listed. An environment that has data, or that an active key or a health check uses, cannot be removed: **hide** it instead. Hidden environments still receive data; pickers and filters leave them out. Names use letters, digits, `.`, `_` and `-`, up to 64 characters, and a project holds at most 20 environments.
+
+### SDK setup
+
+How to install and configure an SDK for this project. **Install an SDK** shows the app name, the project's ingest URL and a placeholder for the API key, and per SDK language the install command and code; the full key is shown only once, when it is created on the [API keys](/platform/api-keys) tab. **Status** lists what each app's SDKs reported per environment (SDK and version, when it last reported), or **Waiting for the first request** until an SDK sends data.
+
+## Data
+
+### Capture
+
+What each app's SDKs capture and send, changed remotely without a deploy: whether requests are captured at all, request and response bodies, headers, a sample rate and a body size cap; each app has its own policy. **What the SDKs run with** shows the config each environment's SDK reported when it started; the SDK applies the narrower of it and the policy. Project admins can change it. See [Data privacy](/getting-started/data-privacy#remote-capture-policy).
+
+### Privacy
+
+Fields masked at the ingest edge before anything is stored: query parameter, header and body field patterns, for the whole project or one app. Editors and admins can change it. See [Masking](/sdk-reference/masking).
+
+### Retention
+
+How long each signal is kept: requests, logs, spans, per-minute and hourly metrics, and deploys, each with what it covers and whether the install can change it. The table is read-only: retention is set per install, not per project. Data older than its period is deleted automatically and can't be recovered. See [Retention](/getting-started/data-privacy#retention).
+
+### Ingest health
+
+What reaches the ingest edge per app and what it rejects, truncates or masks, and what the SDKs could not deliver. See [Ingest health](/ingest/ingest-health).
+
+### Usage
+
+The records this project has sent: records accepted per day as a chart, bytes per day, accepted and rejected records by app and by environment, and records rejected by reason. **Quota** lists the ingest limits of this install; records over a limit are rejected at the edge. The counters need the Valkey store; an install without it says so.
+
+## Alerting
+
+### Alert channels
+
+Where alert notifications go: Slack, Microsoft Teams, webhooks and email. Project admins can add, change and test channels. Alert rules themselves are under **Incidents → Rules**.
+
+### Health checks
+
+Scheduled `GET` checks of an app's health endpoint (http or https, a public address; redirects are not followed), with each check's latest result, latency and recent failures. APILens starts probing a new check within a minute. Project admins can add and delete them.
+
+## More
+
+### Integrations
+
+**Source repository**: link the GitHub, GitLab or Bitbucket repository the project deploys from, and commit and release ids on the **Changes** page open there. It is only a link: APILens never reads the repository. Editors and admins can set or remove it.
+
+### Danger zone
+
+Only project admins (and organization owners and admins) see this section's actions enabled.
+
+- **Pause data collection.** The ingest edge refuses data sent with this project's keys (`403 project_paused`) until someone resumes it. Data sent while paused is not stored; stored data and the dashboard stay as they are. You confirm by typing the project name. **Resume data collection** needs no confirmation.
+- **Change project slug.** The project moves to the new slug. Links to the old slug redirect, and the old slug stays reserved for this project for 30 days. SDKs use API keys, so they keep working unchanged. Slugs are unique across APILens; a taken one shows suggestions.
+- **Delete project.** See [Deleting and restoring a project](/platform/deleting-a-project).
+
+Changing the slug and deleting need a sign-in less than 10 minutes old. Pausing, resuming and deleting email the project's admins.

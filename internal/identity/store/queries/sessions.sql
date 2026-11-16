@@ -118,3 +118,21 @@ WHERE user_id = @user_id
   AND (revoked_at IS NULL OR revoked_at > @since::timestamptz)
   AND expires_at > @since::timestamptz
 ORDER BY id;
+
+-- name: ReauthenticateSession :one
+-- Moves the authentication time of a live session forward after the user
+-- proved who they are again (re-authentication, no new sign-in). created_at
+-- is the session's sign-in time, the access token's auth_time, and every
+-- refresh inherits it. The row updated is the live row of the family of @id,
+-- which may be an access token's sid that a refresh has since rotated.
+-- Scoped by user_id. Returns pgx.ErrNoRows when the family has no live row.
+UPDATE sessions AS live
+SET created_at   = now(),
+    last_seen_at = now()
+FROM sessions AS cur
+WHERE cur.id = @id
+  AND cur.user_id = @user_id
+  AND live.family_id = cur.family_id
+  AND live.revoked_at IS NULL
+  AND live.expires_at > now()
+RETURNING live.*;

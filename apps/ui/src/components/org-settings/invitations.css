@@ -13,3 +13,4 @@
   .oi-act { position: static; display: flex !important; justify-content: flex-end; gap: var(--space-1); padding-top: 8px !important; }
   .oi-act > * + * { margin-left: 0; }
 }
+.oi-empty__btn { margin-top: var(--space-4); }

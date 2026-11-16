@@ -78,7 +78,7 @@ async function sectionContent(section: AccountSection, context: UserContext, sea
   if (section.slug === "sessions") {
     const sessions = await loadSessions(next);
     // `now` is taken here so server and browser render the same "last active" text.
-    return <SessionsSettings sessions={sessions} now={Date.now()} />;
+    return <SessionsSettings sessions={sessions} now={Date.now()} search={search} />;
   }
   if (section.slug === "security") {
     // One after the other: each call may refresh the session, and refreshes must not race.

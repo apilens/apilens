@@ -126,6 +126,8 @@ func TestRequestExports(t *testing.T) {
 	client := authz.New(sdb, nil, authz.Options{}, logger, nil)
 	if _, err := client.WriteRelationships(ctx, mine.OrgID.String(), []*v1.RelationshipUpdate{
 		touch("project", mine.ProjectID.String(), "org", "organization", mine.OrgID.String()),
+		orgRoleDefault(mine.ProjectID.String(), "default_editor", mine.OrgID.String(), "member"),
+		orgRoleDefault(mine.ProjectID.String(), "default_viewer", mine.OrgID.String(), "viewer"),
 		touch("organization", mine.OrgID.String(), "member", "user", alice.String()),
 		touch("organization", mine.OrgID.String(), "member", "user", bob.String()),
 	}); err != nil {

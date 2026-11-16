@@ -32,6 +32,10 @@
 //   POST /api/v1/auth/2fa/verify                   internal/identity/twofactor.go
 //   POST /api/v1/auth/2fa/disable
 //   POST /api/v1/auth/2fa/backup-codes/regenerate
+//   POST /api/v1/auth/reauth/options              re-authentication (#803): passkey when the user has one, totp
+//   POST /api/v1/auth/reauth/verify               when two-factor is on, else email (code 123456 once sent);
+//                                                  verify answers a new access token for the same session and
+//                                                  clears `stale`
 //   GET|PATCH /api/v1/users/me                     the fake user; PATCH renames it and saves
 //                                                  preferences.home per user (#328)
 //   PATCH /api/v1/users/me/onboarding              saves the step, completed and merges the answers per user (#327);
@@ -41,6 +45,8 @@
 //                                                  taken (with free suggestions); `race-lost` is available
 //   POST /api/v1/orgs                              creates an org the user owns (in their context);
 //                                                  slug_taken + suggestions for taken slugs and `race-lost` (#330)
+//   GET|DELETE /api/v1/orgs/{slug}                 an org in the user's context (#802); only an org the user
+//                                                  owns and created (or seeded as `orgs`) can be deleted, else 403
 //   GET  /api/v1/projects/slug-available?slug=     shop, storefront, admin and created project slugs are
 //                                                  taken (with free suggestions); `race-lost` is available
 //   POST /api/v1/orgs/{slug}/projects              creates a project in an org the user belongs to (in their
@@ -64,8 +70,12 @@
 //   POST /api/v1/orgs/acme/invitations             records each new address, answers one result per address;
 //                                                  also on orgs the user created in onboarding (#336), where
 //                                                  they are the only member; down@example.com answers 503
+//                                                  `project_grants` [{project: "shop", role}] (#809) need
+//                                                  access.manage on shop (403 forbidden, nothing created) and
+//                                                  land in shop's pending invitations instead
 //   POST /api/v1/orgs/acme/invitations/{id}/resend 5-minute cooldown (429 rate_limited + retry_after)
-//   DELETE /api/v1/orgs/acme/invitations/{id}      revoke; 410 invite_expired when already gone
+//   DELETE /api/v1/orgs/acme/invitations/{id}      revoke; 410 invite_expired when already gone (both
+//                                                  also act on shop's pending invitations)
 //   GET|PUT|DELETE /api/v1/orgs/acme/sso           the signed-in user's own SSO connection (#348),
 //                                                  owners only; enforce needs `last_login_at` (sso_untested)
 //   POST /api/v1/orgs/acme/sso/test                discovery: an issuer containing "broken" is
@@ -74,6 +84,38 @@
 //                                                  on projects the user created in onboarding (#333);
 //   DELETE /api/v1/projects/shop/api-keys/{id}     revoke (204, or 410 api_key_gone). Creating and
 //                                                  revoking answer 403 without the capability
+//   PUT  /api/v1/projects/shop/api-keys/{id}/access an ingest key's app access: {can_create_apps, app_ids}
+//                                                  (null: every app; a limited key never creates apps)
+//   POST /api/v1/projects/shop/api-keys/{id}/rotate {overlap} (#804): a successor with the same name, scopes,
+//                                                  apps, environments and rate limit (raw key once) plus the
+//                                                  old key as `previous`, working until the overlap ends;
+//                                                  key_not_active (409) for a revoked, expired or rotated key
+//   GET|PATCH /api/v1/projects/shop/access         who has access and the default access (#804): q, role,
+//                                                  source, limit, cursor; PATCH {default_access} (?dry_run=true
+//                                                  changes nothing) counts who loses access; needs access.manage
+//   PUT|DELETE /api/v1/projects/shop/members/{id}  grant/change a direct role (not_org_member 409 for anyone
+//                                                  else) or remove it (204); need access.manage
+//   GET  /api/v1/projects/shop/invitations         pending org invitations carrying a shop role; needs access.manage
+//   POST /__fake/access {members?, default_access?, invitations?, down?}
+//                                                  test hook: replaces shop's people, default access and
+//                                                  invitations; an omitted field goes back to the measured
+//                                                  seed (9 people with mixed sources), so {} resets; `down`:
+//                                                  those reads answer 503. The person with email
+//                                                  you@example.com is the signed-in user
+//   GET  /api/v1/{projects|orgs}/{slug}/audit-events[/actions|/export]
+//                                                  shop's and acme's audit log (#804): newest first, filtered
+//                                                  by actor, action (prefix with a trailing dot), target_type,
+//                                                  from, to, q; paged by limit and cursor; the CSV export with
+//                                                  the API's columns. Project reads need audit.read, org reads
+//                                                  an org owner or admin
+//   POST /__fake/audit {events?, retention_days?, down?}
+//                                                  test hook: replaces the audit log; omitted, the measured
+//                                                  seed (40 events over three weeks) is back, so {} resets
+//   GET  /api/v1/projects/shop/apps                shop's apps with origin and lifecycle (the first is the
+//                                                  default unless seeded); PATCH/DELETE .../apps/{id} and
+//                                                  POST .../apps/{id}/{archive|restore|acknowledge|merge}
+//                                                  need capture.manage (403 otherwise)
+//   GET  /api/v1/projects/shop/app-rejections      records rejected for app names, as /__fake/apps seeded them
 //   GET  /api/v1/projects/{slug}/ingest-status     {received, first_at, last_at, count_1h} of shop or a
 //                                                  project the user created (#334); 403 otherwise
 //   POST /v1/requests                              the ingest edge's v1 endpoint (#334): an X-API-Key
@@ -115,18 +157,16 @@
 //                                                  saved; PUT answers 403 without capture.manage
 //   GET  /api/v1/deploys/changes?project=          deploys with before/after numbers (#597), as seeded
 //   POST /__fake/deploys {project, deploys}        test hook: what that answers for `project`
-//   GET  /api/v1/consumers?project=&group=         consumers of shop (#596) as seeded, each with the group the
-//   GET  /api/v1/consumers/{consumer_id}?project=  fake assigned it; `group` filters to its members; detail as seeded
-//   GET|POST /api/v1/projects/shop/consumer-groups shop's consumer groups (#596): list (by name) and create; a name
-//   PUT|DELETE /api/v1/projects/shop/consumer-groups/{id}  taken ignoring case answers 409 conflict
-//   PUT|DELETE /api/v1/projects/shop/consumers/{consumer_id}/group  assign (moves it out of its previous
-//                                                  group) and unassign; writes answer 403 without project.update
+//   GET  /api/v1/consumers?project=&group=&search=&sort=&limit=&offset=  consumers of shop (#596) as seeded,
+//                                                  each with its seeded SDK consumer_group; `group` filters by it
+//   GET  /api/v1/consumers/{consumer_id}?project=  detail as seeded, recent lists paged by limit/offset
+//   GET  /api/v1/consumer-groups?project=          the seeded consumers rolled up by consumer_group
 //   GET|POST /api/v1/projects/shop/views?surface=  shop's saved views (#578, #589): shared ones and the caller's
 //   GET|PUT|DELETE /api/v1/projects/shop/views/{id} own; the creator edits, capture.manage edits shared ones (else
 //                                                  403); a name the creator uses on the surface answers 409
 //   POST /__fake/views {views?, down?}             test hook: replaces shop's saved views; `down`: writes answer 503
-//   POST /__fake/consumers {project, summary, points, consumers, details, groups?, assignments?}
-//                                                  test hook: what those answer; resets shop's groups
+//   POST /__fake/consumers {project, summary, points, consumers, details}
+//                                                  test hook: what those answer
 //   POST /__fake/requests {project, rows}          test hook: `GET /api/v1/requests` answers `rows` for
 //                                                  `project` (narrowed by method, path and status,
 //                                                  #586) instead of what the edge stored (#585); rows null forgets it
@@ -147,7 +187,7 @@
 //   PUT|DELETE /api/v1/projects/shop/alerts/channels/{id}   taken ignoring case answers 409
 //   POST /api/v1/projects/shop/alerts/channels/{id}/test    a test send: 200 {sent}, or 502 for a channel
 //                                                  whose config URL contains "gone" (HTTP 410 in the detail)
-//   GET  /api/v1/projects/shop/alerts/events?rule_id=  events newest first
+//   GET  /api/v1/projects/shop/alerts/events?rule_id=&limit=&cursor=  events newest first, paged
 //   GET  /api/v1/projects/{slug}/incidents         events grouped by rule, open first (empty for created projects);
 //                                                  alert writes answer 403 without alerts.manage
 //   POST /__fake/alerts {trigger?: {rule, value}, resolve?: rule, reset?}
@@ -162,40 +202,86 @@
 //                                                  `status` (#591) overrides any field of the read
 //   GET  /api/v1/traffic/{summary|timeseries}?app= one app's traffic (#591): its `traffic` seed
 //                                                  ({summary, points}), else none
+//   GET  /api/v1/projects/shop/usage?days=         project usage (#819): the seeded ingest days summed over
+//                                                  shop's apps (a day may add rejected_by, environments,
+//                                                  bytes); 503 when an app's ingest is "off", 500 when
+//                                                  seeded usage: "error"; quota from /__fake/apps {quota}
 //   POST /__fake/apps {apps}                       test hook: replaces shop's apps [{id, slug, name,
 //                                                  policy?, environments?, ingest?, sdk_stats?, status?,
-//                                                  traffic?}], their policies, reports, health counters,
-//                                                  SDK status and traffic
+//                                                  traffic?, managed?}], their policies, reports, health
+//                                                  counters, SDK status, traffic and lifecycle (managed:
+//                                                  any ManagedApp field), plus {rejections?}
+//   POST /__fake/ingested {project?, last_at}      test hook (#817): when the edge last stored data for a
+//                                                  project (default shop); null forgets it
 //   GET|PUT /api/v1/projects/shop/privacy-policy   shop's server-side deny list (#599): only the defaults
 //                                                  until saved; PUT answers 403 without project.update and
 //                                                  invalid_request naming a pattern JavaScript cannot compile
 //   POST /__fake/privacy {}                        test hook: forgets shop's saved deny list
+//   GET|PATCH /api/v1/projects/shop                shop with its repository link and commit/release URL
+//                                                  templates (#820); PATCH {repository_url} answers 403
+//                                                  without project.update and invalid_request with the
+//                                                  API's reason (detail) for a link it refuses; "" removes it
+//   POST /__fake/repository {}                     test hook: forgets shop's repository link
 //   GET|POST /api/v1/projects/shop/alerts/health-checks, DELETE .../{id}, GET .../{id}/events
 //                                                  shop's health checks and their failures (#608): none
 //                                                  unless seeded; POST answers 422 for a private address
 //   POST /__fake/health-checks {checks, events?}   test hook: replaces shop's health checks and, by
 //                                                  check id, their failures
-//   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?}
+//   POST /__fake/handoff {next, role?, totp_secret?, backup_codes?, passkeys?, capabilities?, api_keys?, sso?, stale?, extra?}
+//                                                  `extra: {members?, invitations?, sessions?}` adds that many
+//                                                  numbered @example.com rows to each list (paging tests);
 //                                                  test hook: a code whose bundle carries any `next`;
 //                                                  `role` is the user's role in acme (default owner);
 //                                                  with `totp_secret` (base32) it answers 2fa_required;
 //                                                  `passkeys` seeds the new user's passkey list,
 //                                                  `capabilities` their actions on shop, `api_keys`
-//                                                  shop's keys as that user sees them;
+//                                                  shop's keys as that user sees them ("measured": four keys
+//                                                  in different states, #804);
 //                                                  `sso` seeds acme's SSO connection (fields of the read),
-//                                                  `stale` makes /2fa/enable answer reauth_required;
+//                                                  `stale` makes /2fa/enable and creating an API key
+//                                                  answer reauth_required until /auth/reauth/verify;
 //                                                  `joinable` [{slug, name, member_initials?, member_count?,
-//                                                  projects?: [slug]}] seeds the orgs they may join (#329)
+//                                                  projects?: [slug]}] seeds the orgs they may join (#329);
+//                                                  `orgs` [{slug, name}] seeds orgs they own (#802)
 //   POST /__fake/identities {identities}          test hook: replaces the connected accounts
 //   GET  /api/v1/auth/invitations/{token}          invitation landing (#337): inv_globex (for
 //                                                  you@example.com), inv_other (another address),
-//                                                  inv_expired (invite_expired); else invalid_token
-//   POST /api/v1/auth/invitations/{token}/accept   joins globex (project storefront) as a member;
+//                                                  inv_expired (invite_expired), inv_checkout (you@example.com,
+//                                                  carrying a Viewer role on Globex's Checkout, #809); else invalid_token
+//   POST /api/v1/auth/invitations/{token}/accept   joins globex (project storefront) as a member, plus
+//                                                  checkout as a viewer for inv_checkout;
 //                                                  invite_email_mismatch for inv_other
 //   GET  /api/v1/users/me/joinable-orgs            the organizations seeded as `joinable` for the user (#329),
 //                                                  minus those joined; none unless seeded
 //   POST /api/v1/orgs/{slug}/join                  joins a seeded joinable org as a member (it then shows in
 //                                                  the context with its projects); 403 forbidden otherwise
+//   GET|PATCH|DELETE /api/v1/projects/shop         project settings (#805): the project; PATCH {name,
+//                                                  description, repository_url} needs project.update
+//                                                  (slug_immutable for another slug, invalid_request 400
+//                                                  with the reason for a refused value, the link checked
+//                                                  as #820 above); DELETE {confirm}
+//                                                  needs project.delete and a recent sign-in, answers the
+//                                                  DeletedProject (confirmation_mismatch 422) and shop
+//                                                  answers 404 until restored
+//   POST /api/v1/projects/shop/{rename|pause|resume}  need project.delete; rename {slug} needs a recent
+//                                                  sign-in, answers slug_taken 409 for a taken slug, and
+//                                                  the old slug keeps resolving. The context lists shop
+//                                                  under its current slug and leaves it out once deleted
+//   GET  /api/v1/orgs/acme/projects/deleted        acme's deleted projects (one seeded, plus shop once
+//   POST /api/v1/orgs/acme/projects/{id}/restore   deleted); org owners and admins; restore needs a
+//                                                  recent sign-in
+//   GET|POST /api/v1/projects/shop/environments    shop's environments in order (five seeded: in use,
+//   PUT  .../environments/order                    new, empty and hidden); add {name}, reorder {names},
+//   PATCH|DELETE .../environments/{name}           patch {is_production, color, hidden, position};
+//                                                  DELETE answers environment_in_use 409 for one with
+//                                                  data, a pinned key or a health check. Changes need
+//                                                  project.update
+//   GET  /api/v1/projects/shop/retention           the retention per signal at the install defaults
+//   POST /__fake/project {project?, deleted?, down?}  test hooks: replace shop's fields, the deleted
+//   POST /__fake/environments {environments?}      projects, the environments, the retention signals;
+//   POST /__fake/retention {signals?, delay_ms?}   an omitted field goes back to the measured seed, so
+//                                                  {} resets; `down`: shop's settings reads answer 503;
+//                                                  `delay_ms`: the retention read waits that long
 //
 // Nothing here sends mail or talks to a real provider. Run with
 // `node --experimental-strip-types e2e-fake/fake-identity.ts` (Playwright starts it).
@@ -441,11 +527,12 @@ function seedMembers(id: string, role: Role) {
     joined_at: ago(days * 24 * 60),
     last_login_at: null,
   });
+  // The same ids as shop's access list (PEOPLE_IDS), so "Add people" (#807) grants the person listed there.
   const others = [
-    m(randomUUID(), "Olive Owner", "olive@example.com", "owner", 60),
-    m(randomUUID(), "Ada Admin", "ada@example.com", "admin", 20),
-    m(randomUUID(), "Max Member", "max@example.com", "member", 10),
-    m(randomUUID(), "Vera Viewer", "vera@example.com", "viewer", 2),
+    m(PEOPLE_IDS.olive, "Olive Owner", "olive@example.com", "owner", 60),
+    m(PEOPLE_IDS.ada, "Ada Admin", "ada@example.com", "admin", 20),
+    m(PEOPLE_IDS.max, "Max Member", "max@example.com", "member", 10),
+    m(PEOPLE_IDS.vera, "Vera Viewer", "vera@example.com", "viewer", 2),
   ].filter((o) => !(role === "owner" && o.role === "owner"));
   const all = [m(id, "Fake User", "you@example.com", role, 30), ...others];
   membersByUser.set(id, all.sort((a, b) => a.joined_at.localeCompare(b.joined_at)));
@@ -490,11 +577,18 @@ const roleOf = (id: string): Role => membersByUser.get(id)?.find((m) => m.user.i
 
 /** What `users/me/context` lists for the shop project, as SpiceDB would answer for `role`. */
 function capabilitiesFor(role: Role): string[] {
-  const all = ["project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage", "members.invite", "members.remove", "billing.manage"];
+  const all = ["project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage", "access.manage", "audit.read", "members.invite", "members.remove", "billing.manage"];
   if (role === "owner") return all;
   if (role === "admin") return all.filter((a) => a !== "project.delete" && a !== "billing.manage");
   if (role === "member") return ["project.read", "project.update", "api_keys.create", "api_keys.revoke"];
   return ["project.read"];
+}
+
+/** The effective project role `users/me/context` lists for a project with these actions. */
+function projectRoleOf(actions: readonly string[]): "admin" | "editor" | "viewer" {
+  if (actions.includes("access.manage")) return "admin";
+  if (actions.includes("project.update")) return "editor";
+  return "viewer";
 }
 
 /** A project API key as `GET /projects/{slug}/api-keys` lists it. */
@@ -503,10 +597,20 @@ interface FakeApiKey {
   name: string;
   prefix: string;
   scopes: string[];
+  can_create_apps: boolean;
+  app_ids: string[] | null;
+  apps_seen: { app_id: string; slug: string; name: string; first_seen_at: string; last_seen_at: string }[];
   created_at: string;
   expires_at: string | null;
   last_used_at: string | null;
   revoked_at: string | null;
+  created_by?: { id: string; name: string };
+  environments: string[] | null;
+  last_used_ip: string | null;
+  last_used_sdk: string | null;
+  rate_limit_per_minute: number | null;
+  rotated_from: string | null;
+  rotated_to: string | null;
 }
 
 /** The one project of the fake context. */
@@ -593,15 +697,6 @@ const consumersSeed = new Map<
   string,
   { summary: unknown; points: unknown[]; consumers: Record<string, unknown>[]; details: Record<string, Record<string, unknown>> }
 >();
-/** shop's consumer groups and which group each consumer is in (#596): a consumer is in at most one. */
-let consumerGroups: { id: string; name: string; created_at: string; updated_at: string }[] = [];
-const consumerAssignments = new Map<string, string>();
-const groupRef = (consumer: string) => {
-  const g = consumerGroups.find((x) => x.id === consumerAssignments.get(consumer));
-  return g ? { id: g.id, name: g.name } : undefined;
-};
-const groupOut = (g: (typeof consumerGroups)[number]) => ({ ...g, consumers: [...consumerAssignments.values()].filter((id) => id === g.id).length });
-
 /** shop's saved views (#578, #589): shared ones for everyone, private ones for their creator. */
 interface FakeView {
   id: string;
@@ -618,8 +713,44 @@ let savedViews: FakeView[] = [];
 let savedViewWritesDown = false;
 
 /** shop's apps (#598), their saved capture policies and what their SDKs reported, by app id. */
-const DEFAULT_APP = { id: "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d", slug: PROJECT, name: "Shop" };
-let shopApps: { id: string; slug: string; name: string }[] = [DEFAULT_APP];
+const DEFAULT_APP: FakeApp = { id: "5d0c1b2a-3e4f-4a5b-8c6d-7e8f9a0b1c2d", slug: PROJECT, name: "Shop" };
+/** An app of shop; the lifecycle fields (`GET /projects/shop/apps`) default to an active app a person added. */
+interface FakeApp {
+  id: string;
+  slug: string;
+  name: string;
+  managed?: Record<string, unknown>;
+}
+let shopApps: FakeApp[] = [DEFAULT_APP];
+/** Records the ingest edge rejected for app names (`GET /projects/shop/app-rejections`), seeded by `/__fake/apps`. */
+let appRejectionSeed: Record<string, unknown>[] = [];
+
+/** shop's app as `GET /projects/shop/apps` lists it. The first app is the default unless a seed says otherwise. */
+function managedApp(app: FakeApp, i: number): Record<string, unknown> {
+  const anyDefault = shopApps.some((a) => a.managed?.is_default === true);
+  return {
+    id: app.id,
+    slug: app.slug,
+    name: app.name,
+    state: "active",
+    created_by: "dashboard",
+    created_by_key_id: null,
+    created_by_key_name: null,
+    created_at: "2026-10-01T09:00:00Z",
+    first_seen_at: null,
+    last_seen_at: null,
+    archived_at: null,
+    deleted_at: null,
+    restorable_until: null,
+    acknowledged_at: null,
+    new: false,
+    is_default: !anyDefault && i === 0,
+    merged_into: null,
+    merged_into_slug: null,
+    ...app.managed,
+  };
+}
+const isActive = (app: FakeApp) => (app.managed?.state ?? "active") === "active";
 const capturePolicies = new Map<string, Record<string, unknown>>();
 const appReports = new Map<string, Record<string, unknown>[]>();
 /** Ingest health (#602): seeded edge counters per day, newest last ("off": 503), and SDK counters. */
@@ -628,6 +759,9 @@ const appSdkStats = new Map<string, Record<string, unknown>>();
 /** The Apps overview (#591): each app's SDK status and its traffic ({summary, points}), by app id. */
 const appStatuses = new Map<string, Record<string, unknown>>();
 const appTraffic = new Map<string, { summary?: Record<string, unknown>; points?: unknown[] }>();
+/** Project usage (#819): the install's ingest quota, seeded by `/__fake/apps` {quota}; `usage: "error"` answers 500. */
+let usageQuota = { records_per_minute: 0, bytes_per_day: 0 };
+let usageError = false;
 
 function capturePolicyOf(app: { id: string; slug: string }): Record<string, unknown> {
   return {
@@ -653,6 +787,43 @@ let healthCheckEvents: Record<string, Record<string, unknown>[]> = {};
 
 let privacyPolicy: { mask_query_params: string[]; mask_headers: string[]; mask_body_fields: string[]; updated_at: string } | null = null;
 
+/** shop's source repository link (#820); null until set. */
+let shopRepository: string | null = null;
+
+/** shop as `GET /projects/shop` answers it, with the templates the API derives for known hosts. */
+function shopProject(): Record<string, unknown> {
+  const layout: Record<string, [string, string]> = {
+    "github.com": ["/commit/", "/releases/tag/"],
+    "gitlab.com": ["/-/commit/", "/-/releases/"],
+    "bitbucket.org": ["/commits/", "/src/"],
+  };
+  const known = shopRepository ? layout[new URL(shopRepository).host] : undefined;
+  return {
+    id: "prj_shop", slug: PROJECT, name: "Shop", org_slug: "acme", environments: ["production"], role: "admin",
+    repository_url: shopRepository,
+    commit_url_template: known ? `${shopRepository}${known[0]}{commit}` : null,
+    release_url_template: known ? `${shopRepository}${known[1]}{release}` : null,
+  };
+}
+
+/** The API's check of a repository link (NormalizeRepositoryURL): its canonical form, or why not. */
+function fakeRepositoryUrl(raw: string): { ok: true; url: string } | { ok: false; reason: string } {
+  const s = raw.trim();
+  if (s === "") return { ok: true, url: "" };
+  let u: URL;
+  try {
+    u = new URL(s);
+  } catch {
+    return { ok: false, reason: "The repository link is not a URL." };
+  }
+  if (u.protocol !== "https:") return { ok: false, reason: "The repository link must start with https://." };
+  if (u.username || u.password || u.search || u.hash) return { ok: false, reason: "The repository link must not carry credentials, a query or a fragment." };
+  if (!["github.com", "gitlab.com", "bitbucket.org"].includes(u.host)) return { ok: false, reason: "The repository must be on github.com, gitlab.com or bitbucket.org." };
+  const path = u.pathname.replace(/\/+$/, "").replace(/\.git$/, "");
+  if (path.split("/").filter(Boolean).length < 2) return { ok: false, reason: "The repository link must name a repository, like https://github.com/acme/shop." };
+  return { ok: true, url: `https://${u.host}${path}` };
+}
+
 function privacyPolicyOf(): Record<string, unknown> {
   return {
     app: null,
@@ -670,24 +841,40 @@ function privacyPolicyOf(): Record<string, unknown> {
 }
 
 function seedApiKey(input: Record<string, unknown>): FakeApiKey {
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
   return {
-    id: randomUUID(),
+    id: str(input.id) ?? randomUUID(),
     name: String(input.name ?? "Key"),
     prefix: String(input.prefix ?? `apl_live_${token().slice(0, 7)}`),
     scopes: Array.isArray(input.scopes) ? input.scopes.map(String) : ["ingest"],
+    can_create_apps: Array.isArray(input.app_ids) ? false : input.can_create_apps !== false,
+    app_ids: Array.isArray(input.app_ids) ? input.app_ids.map(String) : null,
+    apps_seen: Array.isArray(input.apps_seen) ? (input.apps_seen as FakeApiKey["apps_seen"]) : [],
     created_at: String(input.created_at ?? new Date().toISOString()),
     expires_at: typeof input.expires_at === "string" ? input.expires_at : null,
     last_used_at: typeof input.last_used_at === "string" ? input.last_used_at : null,
     revoked_at: typeof input.revoked_at === "string" ? input.revoked_at : null,
+    created_by: typeof input.created_by === "object" && input.created_by !== null ? (input.created_by as FakeApiKey["created_by"]) : undefined,
+    environments: Array.isArray(input.environments) ? input.environments.map(String) : null,
+    last_used_ip: str(input.last_used_ip),
+    last_used_sdk: str(input.last_used_sdk),
+    rate_limit_per_minute: typeof input.rate_limit_per_minute === "number" ? input.rate_limit_per_minute : null,
+    rotated_from: str(input.rotated_from),
+    rotated_to: str(input.rotated_to),
   };
 }
 
 interface Seeds {
+  /** Extra rows for paging tests: that many more members, pending invitations and other sessions. */
+  extra?: { members?: number; invitations?: number; sessions?: number };
   passkeys?: Record<string, unknown>[];
   capabilities?: string[];
-  apiKeys?: Record<string, unknown>[];
+  /** "measured": the four keys of `measuredKeys` (#804). */
+  apiKeys?: Record<string, unknown>[] | "measured";
   sso?: Record<string, unknown>;
   joinable?: Record<string, unknown>[];
+  /** Organizations the user owns, as if created through `POST /orgs` (#802). */
+  orgs?: { slug: string; name: string }[];
 }
 
 /** An organization a fake user may join by verified email domain (#329). */
@@ -725,7 +912,7 @@ function joinedOrgs(id: string) {
       slug: o.slug,
       name: o.name,
       role: "member",
-      projects: o.projects.map((p) => ({ id: `prj_${p}`, slug: p, name: p, environments: ["production"] })),
+      projects: o.projects.map((p) => ({ id: `prj_${p}`, slug: p, name: p, environments: ["production"], app_count: 1, role: "editor" })),
     }));
 }
 
@@ -750,6 +937,28 @@ function ssoConnection(fields: Record<string, unknown>): Record<string, unknown>
   };
 }
 
+/** `extra` of the handoff: numbered @example.com members, invitations and older sessions (at most 500 each). */
+function seedExtra(id: string, extra: Seeds["extra"]) {
+  const n = (v: unknown) => (typeof v === "number" && Number.isInteger(v) && v > 0 ? Math.min(v, 500) : 0);
+  const pad = (i: number) => String(i).padStart(3, "0");
+  const members = membersByUser.get(id) ?? [];
+  for (let i = 1; i <= n(extra?.members); i++) {
+    members.push({ user: { id: randomUUID(), email: `teammate${pad(i)}@example.com`, name: `Teammate ${pad(i)}`, avatar_url: "" }, role: i % 5 === 0 ? "viewer" : "member", joined_at: ago(i), last_login_at: null });
+  }
+  membersByUser.set(id, members.sort((a, b) => a.joined_at.localeCompare(b.joined_at)));
+  const invitations = invitationsByUser.get(id) ?? [];
+  for (let i = 1; i <= n(extra?.invitations); i++) {
+    invitations.push({ id: randomUUID(), email: `invitee${pad(i)}@example.com`, role: "member", created_at: ago(60 + i), expires_at: new Date(Date.now() - (60 + i) * 60_000 + INVITE_TTL_MS).toISOString(), resent_at: null });
+  }
+  invitationsByUser.set(id, invitations);
+  const sessions = sessionsByUser.get(id) ?? [];
+  const expires = new Date(Date.now() + 30 * 24 * 3600_000).toISOString();
+  for (let i = 1; i <= n(extra?.sessions); i++) {
+    sessions.push({ id: randomUUID(), access: null, device_label: `Device ${pad(i)}`, user_agent: `Device ${pad(i)} (fake)`, ip: "192.0.2.1", amr: ["email"], created_at: ago(24 * 60 + i), last_seen_at: ago(60 + i), expires_at: expires });
+  }
+  sessionsByUser.set(id, sessions);
+}
+
 /** The user's actions on shop: seeded ones, else what their role allows. */
 const capabilitiesOf = (id: string): string[] => capabilities.get(id) ?? capabilitiesFor(roleOf(id));
 
@@ -759,11 +968,13 @@ function bundle(next: string, seeds: Seeds = {}, role: Role = "owner") {
   seedSessions(id, access);
   seedMembers(id, role);
   seedInvitations(id);
+  seedExtra(id, seeds.extra);
   passkeys.set(id, (seeds.passkeys ?? []).map(seedPasskey));
   if (seeds.capabilities) capabilities.set(id, seeds.capabilities);
-  apiKeys.set(id, (seeds.apiKeys ?? []).map(seedApiKey));
+  apiKeys.set(id, seeds.apiKeys === "measured" ? measuredKeys() : (seeds.apiKeys ?? []).map(seedApiKey));
   if (seeds.sso) ssoByUser.set(id, ssoConnection(seeds.sso));
   joinableByUser.set(id, (seeds.joinable ?? []).map(seedJoinable));
+  for (const o of seeds.orgs ?? []) createdOrgs.set(o.slug, { id: `org_${randomUUID()}`, slug: o.slug, name: o.name, role: "owner", owner: id });
   return {
     access_token: access,
     refresh_token: `rt_${token()}`,
@@ -800,10 +1011,11 @@ const ONBOARDING_ANSWERS: Record<string, RegExp | "count"> = {
 };
 
 /** Invitations by token (#337); every address is @example.com. */
-const INVITES: Record<string, { email: string; masked: string; expired?: boolean }> = {
+const INVITES: Record<string, { email: string; masked: string; expired?: boolean; project?: boolean }> = {
   inv_globex: { email: "you@example.com", masked: "y***@example.com" },
   inv_other: { email: "someone@example.com", masked: "s***@example.com" },
   inv_expired: { email: "you@example.com", masked: "y***@example.com", expired: true },
+  inv_checkout: { email: "you@example.com", masked: "y***@example.com", project: true },
 };
 /** The organization every fake invitation is to. */
 const GLOBEX = {
@@ -811,10 +1023,16 @@ const GLOBEX = {
   slug: "globex",
   name: "Globex",
   role: "member",
-  projects: [{ id: "prj_globex", slug: "storefront", name: "storefront", environments: ["production"] }],
+  projects: [{ id: "prj_globex", slug: "storefront", name: "storefront", environments: ["production"], app_count: 1, role: "editor" }],
 };
 /** Users who accepted an invitation. */
 const joinedGlobex = new Set<string>();
+/** Globex's restricted project an `inv_checkout` invitation gives a Viewer role on (#809). */
+const CHECKOUT = { id: "prj_checkout", slug: "checkout", name: "Checkout", environments: ["production"], app_count: 0, role: "viewer" };
+/** Users who accepted `inv_checkout`. */
+const joinedCheckout = new Set<string>();
+/** Globex as `users/me/context` lists it for `id`. */
+const globexOf = (id: string) => (joinedCheckout.has(id) ? { ...GLOBEX, projects: [...GLOBEX.projects, CHECKOUT] } : GLOBEX);
 
 /** Each fake user's preferences (#328): the home screen picked in onboarding. */
 const preferencesByUser = new Map<string, Record<string, unknown>>();
@@ -840,9 +1058,21 @@ const ENV_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const createdProjectsOf = (id: string, org: string) =>
   [...createdProjects.values()]
     .filter((p) => p.owner === id && p.org === org)
-    .map(({ id: pid, slug, name, environments }) => ({ id: pid, slug, name, environments }));
+    .map(({ id: pid, slug, name, environments }) => ({ id: pid, slug, name, environments, app_count: 1, role: "admin" }));
 const createdOrgsOf = (id: string) =>
   [...createdOrgs.values()].filter((o) => o.owner === id).map(({ owner: _owner, ...o }) => ({ ...o, projects: createdProjectsOf(id, o.slug) }));
+
+/** shop's name in the context: "shop" until General (#815) renames it, so the sidebar shows the new name. */
+function shopContextName(): string {
+  return projectState.project.name === measuredProject().name ? "shop" : projectState.project.name;
+}
+
+/** shop as the context lists it: under its current slug after a rename, gone once deleted (#821). */
+function shopInContext(id: string) {
+  const p = projectState.project;
+  if (p.deleted_at !== null) return [];
+  return [{ id: "prj_fake", slug: p.slug, name: shopContextName(), environments: ["production"], app_count: shopApps.length, role: projectRoleOf(capabilitiesOf(id)) }];
+}
 
 /** `GET /users/me/context` for a signed-in fake user: one org with one project (plus globex once invited). */
 function context(id: string) {
@@ -865,9 +1095,9 @@ function context(id: string) {
         slug: "acme",
         name: "Acme",
         role,
-        projects: [{ id: "prj_fake", slug: "shop", name: "shop", environments: ["production"] }, ...createdProjectsOf(id, "acme")],
+        projects: [...shopInContext(id), ...createdProjectsOf(id, "acme")],
       },
-      ...(joinedGlobex.has(id) ? [GLOBEX] : []),
+      ...(joinedGlobex.has(id) ? [globexOf(id)] : []),
       ...createdOrgsOf(id),
       ...joinedOrgs(id),
     ],
@@ -875,8 +1105,9 @@ function context(id: string) {
     // Every fake sign-in is a new user, so onboarding is still open: `/onboarding/*` shows (#326).
     onboarding: { step: progress.step, completed: progress.completed },
     capabilities: {
-      [PROJECT]: capabilitiesOf(id),
+      ...(projectState.project.deleted_at === null ? { [projectState.project.slug]: capabilitiesOf(id) } : {}),
       ...(joinedGlobex.has(id) ? { storefront: capabilitiesFor("member") } : {}),
+      ...(joinedCheckout.has(id) ? { checkout: capabilitiesFor("viewer") } : {}),
       ...Object.fromEntries(joinedOrgs(id).flatMap((o) => o.projects.map((p) => [p.slug, capabilitiesFor("member")]))),
     },
   };
@@ -1108,6 +1339,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (inv.email !== profile.email) return problem(res, 403, "invite_email_mismatch");
       const joined = !joinedGlobex.has(user);
       joinedGlobex.add(user);
+      if (inv.project) joinedCheckout.add(user);
       return send(res, 200, { org: { id: GLOBEX.id, slug: GLOBEX.slug, name: GLOBEX.name, role: GLOBEX.role }, joined });
     }
     if (!invite[2] && req.method === "GET") {
@@ -1119,6 +1351,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
         email_masked: inv.masked,
         role: "member",
         expires_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+        ...(inv.project ? { projects: [{ name: CHECKOUT.name, role: CHECKOUT.role }] } : {}),
       });
     }
   }
@@ -1290,10 +1523,31 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       created_at: new Date().toISOString(),
     });
   }
+  const orgOne = req.method === "GET" || req.method === "DELETE" ? path.match(/^\/api\/v1\/orgs\/([^/]+)$/) : null;
+  if (orgOne) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    const org = context(user).orgs.find((o) => o.slug === orgOne[1]);
+    if (!org) return problem(res, 404, "not_found");
+    if (req.method === "GET") {
+      return send(res, 200, { id: org.id, slug: org.slug, name: org.name, role: org.role, allowed_domains: [], domain_join: false });
+    }
+    const created = createdOrgs.get(org.slug);
+    if (!created || created.owner !== user) return problem(res, 403, "forbidden");
+    createdOrgs.delete(org.slug);
+    return send(res, 204);
+  }
   const ssoPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/sso(\/test)?$/);
   if (ssoPath) return orgSSO(req, res, ssoPath[1], ssoPath[2] !== undefined);
   const orgPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/(members|transfer-ownership|invitations)(?:\/([^/]+)(\/resend)?)?$/);
   if (orgPath) return orgs(req, res, orgPath[1], orgPath[2], orgPath[3], orgPath[4] !== undefined);
+  // shop itself (#820), for its repository link: `GET|PATCH|DELETE /projects/shop` are served with
+  // the rest of the project settings (#805, `projectSettings`). A change needs `project.update`,
+  // and a refused link answers invalid_request with the reason.
+  if (req.method === "POST" && path === "/__fake/repository") {
+    shopRepository = null;
+    return send(res, 204);
+  }
   // shop's deny list (#599). Like the API: another project answers forbidden, saving needs
   // `project.update`, and a pattern that does not compile answers invalid_request naming it.
   const privacyPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/privacy-policy$/);
@@ -1371,7 +1625,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     privacyPolicy = null;
     return send(res, 204);
   }
-  const keysPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/api-keys(?:\/([^/]+))?$/);
+  const keysPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/api-keys(?:\/([^/]+)(\/access|\/rotate)?)?$/);
   if (keysPath) {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
@@ -1385,28 +1639,85 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (req.method === "GET" && sub === undefined) return send(res, 200, list);
     if (req.method === "POST" && sub === undefined) {
       if (!allowed("api_keys.create")) return problem(res, 403, "forbidden");
-      const { name, scopes, expires_at: expires } = await readBody(req);
+      // A sensitive action (#793): a sign-in older than the window answers reauth_required.
+      if (totps.get(bearerOf(req))?.stale) return problem(res, 403, "reauth_required");
+      const { name, scopes, expires_at: expires, can_create_apps: canCreate, app_ids: appIds, environments: envs, rate_limit_per_minute: rate } = await readBody(req);
       const label = typeof name === "string" ? name.trim() : "";
       const picked = Array.isArray(scopes) ? scopes.map(String) : [];
       const valid = picked.length > 0 && picked.every((s) => s === "ingest" || s === "read") && new Set(picked).size === picked.length;
       const when = typeof expires === "string" ? Date.parse(expires) : undefined;
       if (!label || label.length > 100 || !valid || (when !== undefined && !(when > Date.now()))) return problem(res, 400, "invalid_request");
+      const limited = Array.isArray(appIds) ? appIds.map(String) : null;
+      if (limited && (limited.length === 0 || !limited.every((id) => shopApps.some((a) => a.id === id)))) return problem(res, 400, "invalid_request");
       const raw = `apl_live_${token()}`;
       const created: FakeApiKey = {
         id: randomUUID(),
         name: label,
         prefix: raw.slice(0, 16),
         scopes: ["ingest", "read"].filter((s) => picked.some((p) => p === s)),
+        can_create_apps: picked.includes("ingest") && !limited && canCreate !== false,
+        app_ids: picked.includes("ingest") ? limited : null,
+        apps_seen: [],
         created_at: new Date().toISOString(),
         expires_at: when === undefined ? null : new Date(when).toISOString(),
         last_used_at: null,
         revoked_at: null,
+        created_by: { id: user, name: "Fake User" },
+        environments: Array.isArray(envs) && envs.length > 0 ? envs.map(String) : null,
+        last_used_ip: null,
+        last_used_sdk: null,
+        rate_limit_per_minute: typeof rate === "number" ? rate : null,
+        rotated_from: null,
+        rotated_to: null,
       };
       apiKeys.set(user, [created, ...list]);
       rawKeys.set(raw, { project: keysProject, id: created.id, user });
       return send(res, 201, { ...created, key: raw });
     }
-    if (req.method === "DELETE" && sub !== undefined) {
+    if (req.method === "POST" && sub !== undefined && keysPath[3] === "/rotate") {
+      if (!allowed("api_keys.create")) return problem(res, 403, "forbidden");
+      if (totps.get(bearerOf(req))?.stale) return problem(res, 403, "reauth_required");
+      const { overlap } = await readBody(req);
+      const window = ROTATE_OVERLAP_MS[String(overlap)];
+      if (window === undefined) return problem(res, 400, "invalid_request");
+      const found = list.find((k) => k.id === decodeURIComponent(sub));
+      if (!found) return problem(res, 410, "api_key_gone");
+      const now = Date.now();
+      if (found.revoked_at || found.rotated_to || (found.expires_at && Date.parse(found.expires_at) <= now)) return problem(res, 409, "key_not_active");
+      const raw = `apl_live_${token()}`;
+      const next: FakeApiKey = {
+        ...found,
+        id: randomUUID(),
+        prefix: raw.slice(0, 16),
+        apps_seen: [],
+        created_at: new Date(now).toISOString(),
+        expires_at: null,
+        last_used_at: null,
+        last_used_ip: null,
+        last_used_sdk: null,
+        created_by: { id: user, name: "Fake User" },
+        rotated_from: found.id,
+        rotated_to: null,
+      };
+      const end = now + window;
+      found.expires_at = new Date(found.expires_at ? Math.min(end, Date.parse(found.expires_at)) : end).toISOString();
+      found.rotated_to = next.id;
+      apiKeys.set(user, [next, ...list]);
+      rawKeys.set(raw, { project: keysProject, id: next.id, user });
+      return send(res, 201, { ...next, key: raw, previous: found });
+    }
+    if (req.method === "PUT" && sub !== undefined && keysPath[3] === "/access") {
+      if (!allowed("api_keys.create")) return problem(res, 403, "forbidden");
+      const found = list.find((k) => k.id === decodeURIComponent(sub));
+      if (!found || found.revoked_at) return problem(res, 410, "api_key_gone");
+      const { can_create_apps: canCreate, app_ids: appIds } = await readBody(req);
+      const limited = Array.isArray(appIds) ? appIds.map(String) : null;
+      if (typeof canCreate !== "boolean" || (limited && (limited.length === 0 || !limited.every((id) => shopApps.some((a) => a.id === id))))) return problem(res, 400, "invalid_request");
+      found.app_ids = limited;
+      found.can_create_apps = limited ? false : canCreate;
+      return send(res, 200, found);
+    }
+    if (req.method === "DELETE" && sub !== undefined && !keysPath[3]) {
       if (!allowed("api_keys.revoke")) return problem(res, 403, "forbidden");
       const found = list.find((k) => k.id === decodeURIComponent(sub));
       if (!found) return problem(res, 410, "api_key_gone");
@@ -1456,13 +1767,76 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     ingestedRows.set(holder.project, rows);
     return send(res, 200, { accepted: list.length });
   }
+  // shop's apps with their origin and lifecycle (apps come from the SDK). Reads need a view of the
+  // project; writes need `capture.manage`, like the API.
+  const managedPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/(apps|app-rejections)(?:\/([^/]+)(?:\/(archive|restore|acknowledge|merge))?)?$/);
+  if (managedPath) {
+    const user = signedInUser(req);
+    if (!user) return problem(res, 401, "unauthenticated");
+    if (decodeURIComponent(managedPath[1]) !== PROJECT) return problem(res, 404, "not_found");
+    if (managedPath[2] === "app-rejections") {
+      if (req.method !== "GET") return problem(res, 404, "not_found");
+      return send(res, 200, { days: Number(url.searchParams.get("days") ?? 7), available: true, rejections: appRejectionSeed });
+    }
+    const [, , , rawId, verb] = managedPath;
+    if (rawId === undefined) {
+      if (req.method !== "GET") return problem(res, 404, "not_found");
+      return send(res, 200, { apps: shopApps.map(managedApp) });
+    }
+    if (!capabilitiesOf(user).includes("capture.manage")) return problem(res, 403, "forbidden");
+    const index = shopApps.findIndex((a) => a.id === decodeURIComponent(rawId));
+    if (index < 0) return problem(res, 404, "not_found");
+    const app = shopApps[index];
+    const now = managedApp(app, index);
+    const set = (patch: Record<string, unknown>) => {
+      app.managed = { ...app.managed, ...patch };
+    };
+    const refuse = (code: string, detail: string) => send(res, code === "slug_taken" ? 409 : 400, { status: 400, title: code, code, detail }, "application/problem+json");
+    const DEFAULT_REFUSED = "The default app receives records that name no app; it cannot be archived, merged or deleted.";
+    if (req.method === "PATCH" && !verb) {
+      const { name } = await readBody(req);
+      const label = typeof name === "string" ? name.trim() : "";
+      if (!label || label.length > 100) return problem(res, 400, "invalid_request");
+      app.name = label;
+      return send(res, 204);
+    }
+    if (req.method === "DELETE" && !verb) {
+      if (now.is_default) return refuse("invalid_request", DEFAULT_REFUSED);
+      const t = Date.now();
+      set({ state: "deleted", deleted_at: new Date(t).toISOString(), restorable_until: new Date(t + 30 * 86_400_000).toISOString() });
+      return send(res, 204);
+    }
+    if (req.method === "POST" && verb === "archive") {
+      if (now.is_default) return refuse("invalid_request", DEFAULT_REFUSED);
+      set({ state: "archived", archived_at: new Date().toISOString(), new: false });
+      return send(res, 204);
+    }
+    if (req.method === "POST" && verb === "restore") {
+      if (now.state === "active") return refuse("invalid_request", "The app is active; only archived, merged or deleted apps can be restored.");
+      set({ state: "active", archived_at: null, deleted_at: null, restorable_until: null, merged_into: null, merged_into_slug: null });
+      return send(res, 204);
+    }
+    if (req.method === "POST" && verb === "acknowledge") {
+      set({ new: false, acknowledged_at: new Date().toISOString() });
+      return send(res, 204);
+    }
+    if (req.method === "POST" && verb === "merge") {
+      if (now.is_default) return refuse("invalid_request", DEFAULT_REFUSED);
+      const { into } = await readBody(req);
+      const target = shopApps.find((a) => a.id === into);
+      if (!target || target.id === app.id || !isActive(target)) return refuse("invalid_request", "Pick an active app other than this one.");
+      set({ state: "merged", merged_into: target.id, merged_into_slug: target.slug, archived_at: new Date().toISOString(), new: false });
+      return send(res, 204);
+    }
+    return problem(res, 404, "not_found");
+  }
   // shop's apps and their capture policies (#598). Like the API, an app in a project the user
   // cannot view answers 404; saving needs `capture.manage`.
   if (req.method === "GET" && path === "/api/v1/project") {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
     if (url.searchParams.get("project") !== PROJECT) return problem(res, 404, "not_found");
-    return send(res, 200, { org: { id: "org_acme", slug: "acme", name: "Acme" }, project: { id: "prj_shop", slug: PROJECT, name: "Shop" }, apps: shopApps, environments: ["production"] });
+    return send(res, 200, { org: { id: "org_acme", slug: "acme", name: "Acme" }, project: { id: "prj_shop", slug: PROJECT, name: "Shop" }, apps: shopApps.filter(isActive).map(({ id, slug, name }) => ({ id, slug, name })), environments: ["production"] });
   }
   const appPath = path.match(/^\/api\/v1\/apps\/([^/]+)\/(capture-policy|metadata)$/);
   if (appPath) {
@@ -1496,6 +1870,82 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       return send(res, 200, capturePolicyOf(app));
     }
     return problem(res, 404, "not_found");
+  }
+  // Project usage (#819): the same seeded edge counters as ingest-stats, summed over shop's apps.
+  // A seeded day may carry `rejected_by` ({reason: n}), `environments` ({env: n}) and `bytes`.
+  if (req.method === "GET" && path === `/api/v1/projects/${PROJECT}/usage`) {
+    if (!signedInUser(req)) return problem(res, 401, "unauthenticated");
+    if (shopApps.some((a) => appIngest.get(a.id) === "off")) return problem(res, 503, "unavailable");
+    if (usageError) return problem(res, 500, "internal");
+    const days = Math.min(30, Math.max(1, Number(url.searchParams.get("days") ?? 30)));
+    const keys = ["accepted", "rejected", "truncated", "masked"] as const;
+    type Sum = Record<(typeof keys)[number], number> & { reasons: Record<string, number> };
+    const zero = (): Sum => ({ accepted: 0, rejected: 0, truncated: 0, masked: 0, reasons: {} });
+    const addDay = (s: Sum, d: Record<string, unknown>) => {
+      for (const k of keys) s[k] += Number(d[k] ?? 0);
+      const by = (d.rejected_by ?? {}) as Record<string, number>;
+      let named = 0;
+      for (const [r, n] of Object.entries(by)) {
+        s.reasons[r] = (s.reasons[r] ?? 0) + n;
+        named += n;
+      }
+      const rest = Number(d.rejected ?? 0) - named;
+      if (rest > 0) s.reasons.unspecified = (s.reasons.unspecified ?? 0) + rest;
+    };
+    const counts = (s: Sum) => ({
+      accepted: s.accepted,
+      rejected: s.rejected,
+      truncated: s.truncated,
+      masked: s.masked,
+      rejected_by_reason: Object.entries(s.reasons)
+        .map(([reason, records]) => ({ reason, records }))
+        .sort((a, b) => b.records - a.records || a.reason.localeCompare(b.reason)),
+    });
+    const daily = Array.from({ length: days }, zero);
+    const bytes = Array.from({ length: days }, () => 0);
+    const total = zero();
+    const envs: Record<string, number> = {};
+    let rejectedToday = 0;
+    const apps = shopApps.map((app) => {
+      const seeded = (appIngest.get(app.id) ?? []) as Record<string, unknown>[];
+      const sum = zero();
+      for (let i = 0; i < days; i++) {
+        const d = seeded[seeded.length - days + i] ?? {};
+        addDay(daily[i], d);
+        addDay(sum, d);
+        addDay(total, d);
+        bytes[i] += Number(d.bytes ?? 0);
+        for (const [env, n] of Object.entries((d.environments ?? {}) as Record<string, number>)) envs[env] = (envs[env] ?? 0) + n;
+        if (i === days - 1) {
+          const by = (d.rejected_by ?? {}) as Record<string, number>;
+          rejectedToday += (by.records_per_minute ?? 0) + (by.bytes_per_day ?? 0);
+        }
+      }
+      return { app_id: app.id, app: app.slug, ...counts(sum) };
+    });
+    apps.sort((a, b) => b.accepted - a.accepted);
+    const bytesToday = bytes[days - 1];
+    return send(res, 200, {
+      project: PROJECT,
+      days,
+      totals: counts(total),
+      bytes: bytes.reduce((n, b) => n + b, 0),
+      daily: daily.map((d, i) => ({
+        date: new Date(Date.now() - (days - 1 - i) * 86_400_000).toISOString().slice(0, 10),
+        ...counts(d),
+        bytes: bytes[i],
+      })),
+      apps,
+      environments: Object.entries(envs)
+        .map(([environment, accepted]) => ({ environment, accepted }))
+        .sort((a, b) => b.accepted - a.accepted || a.environment.localeCompare(b.environment)),
+      quota: {
+        ...usageQuota,
+        bytes_today: bytesToday,
+        bytes_today_ratio: usageQuota.bytes_per_day > 0 ? bytesToday / usageQuota.bytes_per_day : null,
+        rejected_today: rejectedToday,
+      },
+    });
   }
   // An app's ingest health (#602): the edge's counters per UTC day and its status's SDK counters.
   const healthPath = path.match(/^\/api\/v1\/apps\/([^/]+)\/(ingest-stats|status)$/);
@@ -1534,17 +1984,31 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       ...appStatuses.get(app.id),
     });
   }
+  if (req.method === "POST" && path === "/__fake/ingested") {
+    // Test hook (#817): sets when the edge last stored data for a project, or forgets it (null).
+    const { project, last_at } = await readBody(req);
+    const slug = String(project ?? PROJECT);
+    if (typeof last_at === "string") ingested.set(slug, { first_at: last_at, last_at, count: 1 });
+    else ingested.delete(slug);
+    return send(res, 204);
+  }
   if (req.method === "POST" && path === "/__fake/apps") {
     // Test hook: replaces shop's apps, their saved policies, their SDK reports and health counters.
-    const { apps } = await readBody(req);
+    const { apps, rejections, quota, usage } = await readBody(req);
     const list = Array.isArray(apps) ? (apps as Record<string, unknown>[]) : [];
+    appRejectionSeed = Array.isArray(rejections) ? (rejections as Record<string, unknown>[]) : [];
+    const q = (typeof quota === "object" && quota !== null ? quota : {}) as Record<string, unknown>;
+    usageQuota = { records_per_minute: Number(q.records_per_minute ?? 0), bytes_per_day: Number(q.bytes_per_day ?? 0) };
+    usageError = usage === "error";
     capturePolicies.clear();
     appReports.clear();
     appIngest.clear();
     appSdkStats.clear();
     appStatuses.clear();
     appTraffic.clear();
-    shopApps = list.length ? list.map((a) => ({ id: String(a.id ?? randomUUID()), slug: String(a.slug), name: String(a.name ?? a.slug) })) : [DEFAULT_APP];
+    shopApps = list.length
+      ? list.map((a) => ({ id: String(a.id ?? randomUUID()), slug: String(a.slug), name: String(a.name ?? a.slug), managed: typeof a.managed === "object" && a.managed !== null ? (a.managed as Record<string, unknown>) : undefined }))
+      : [DEFAULT_APP];
     list.forEach((a, i) => {
       const id = shopApps[i].id;
       if (typeof a.policy === "object" && a.policy !== null) capturePolicies.set(id, a.policy as Record<string, unknown>);
@@ -1979,7 +2443,12 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
           (!status.length || status.some((t) => (/^[1-5]xx$/.test(t) ? String(r.status_code)[0] === t[0] : String(r.status_code) === t)));
         // A row's `detail` seeds the request drawer (#588); the log does not carry it.
         const listed = seeded.filter(matches).map(({ detail: _detail, ...r }) => r);
-        return send(res, 200, { requests: listed.slice(0, limit), next_cursor: "" });
+        // Pages like the API: an opaque cursor (an offset here) and next_cursor while rows remain.
+        const cursor = url.searchParams.get("cursor") ?? "";
+        const offset = cursor ? Number(Buffer.from(cursor, "base64url").toString().replace(/^r/, "")) : 0;
+        if (cursor && !Number.isInteger(offset)) return problem(res, 422, "invalid_request");
+        const next = offset + limit < listed.length ? Buffer.from(`r${offset + limit}`).toString("base64url") : "";
+        return send(res, 200, { requests: listed.slice(offset, offset + limit), next_cursor: next });
       }
       return send(res, 200, { requests: rows.slice(0, limit) });
     }
@@ -2026,11 +2495,15 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const slug = url.searchParams.get("project") ?? "";
     if (slug !== PROJECT && createdProjects.get(slug)?.owner !== user) return problem(res, 404, "not_found");
     if (queryDown.has(slug)) return problem(res, 503, "unavailable");
-    return send(res, 200, { window_minutes: 60, deploys: deployChanges.get(slug) ?? [] });
+    const all = (deployChanges.get(slug) ?? []).map((d, i) => ({ id: (i + 1).toString(16).padStart(16, "a"), ...(d as object) }));
+    const offset = Number(url.searchParams.get("offset") ?? 0) || 0;
+    const limit = Number(url.searchParams.get("limit") ?? 25) || 25;
+    return send(res, 200, { window_minutes: 60, total: all.length, deploys: all.slice(offset, offset + limit) });
   }
-  // Consumers (#596), as seeded, with the groups this fake keeps; same access rules as above.
-  const consumerPath = path.match(/^\/api\/v1\/consumers(?:\/([^/]+))?$/);
-  if (req.method === "GET" && consumerPath) {
+  // Consumers (#596), as seeded, each with the SDK group it was seeded with (consumer_group); same
+  // access rules as above. The list and the group roll-up search, sort and page like the API.
+  const consumerPath = path.match(/^\/api\/v1\/(consumers|consumer-groups)(?:\/([^/]+))?$/);
+  if (req.method === "GET" && consumerPath && !(consumerPath[1] === "consumer-groups" && consumerPath[2] !== undefined)) {
     const user = signedInUser(req);
     if (!user) return problem(res, 401, "unauthenticated");
     const slug = url.searchParams.get("project") ?? "";
@@ -2038,20 +2511,55 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (queryDown.has(slug)) return problem(res, 503, "unavailable");
     const seed = consumersSeed.get(slug) ?? { summary: { consumers: 0, new: 0, returning: 0 }, points: [], consumers: [], details: {} };
     const range = url.searchParams.get("range") ?? "24h";
-    if (consumerPath[1] !== undefined) {
-      const id = decodeURIComponent(consumerPath[1]);
+    const num = (k: string, d: number) => Number(url.searchParams.get(k) ?? d);
+    const limit = num("limit", consumerPath[1] === "consumers" && consumerPath[2] !== undefined ? 50 : 100);
+    const offset = num("offset", 0);
+    const search = (url.searchParams.get("search") ?? "").toLowerCase();
+    const sort = url.searchParams.get("sort") ?? "requests";
+    const n = (r: Record<string, unknown>, k: string) => Number(r[k] ?? 0);
+    const order = (rows: Record<string, unknown>[]) =>
+      [...rows].sort((x, y) =>
+        sort === "errors"
+          ? n(y, "client_errors") + n(y, "server_errors") - (n(x, "client_errors") + n(x, "server_errors")) || n(y, "requests") - n(x, "requests")
+          : sort === "last_seen"
+            ? String(y.last_seen).localeCompare(String(x.last_seen))
+            : sort === "consumers"
+              ? n(y, "consumers") - n(x, "consumers") || n(y, "requests") - n(x, "requests")
+              : n(y, "requests") - n(x, "requests"),
+      );
+    const page = <T,>(rows: T[]) => rows.slice(offset, offset + limit);
+    if (consumerPath[1] === "consumer-groups") {
+      const by = new Map<string, Record<string, unknown>>();
+      for (const c of seed.consumers) {
+        const g = String(c.consumer_group ?? "");
+        if (!g || (search && !g.toLowerCase().includes(search))) continue;
+        const cur = by.get(g) ?? { group: g, consumers: 0, requests: 0, successful: 0, client_errors: 0, server_errors: 0, last_seen: "", sparkline: [] as number[] };
+        for (const k of ["requests", "successful", "client_errors", "server_errors"]) cur[k] = n(cur, k) + n(c, k);
+        cur.consumers = n(cur, "consumers") + 1;
+        if (String(c.last_seen) > String(cur.last_seen)) cur.last_seen = c.last_seen;
+        cur.sparkline = ((c.sparkline as number[]) ?? []).map((v, i) => v + ((cur.sparkline as number[])[i] ?? 0));
+        by.set(g, cur);
+      }
+      const all = order([...by.values()]);
+      return send(res, 200, { range, from: "2026-11-05T10:00:00Z", to: "", bucket_seconds: 900, total: all.length, groups: page(all) });
+    }
+    if (consumerPath[2] !== undefined) {
+      const id = decodeURIComponent(consumerPath[2]);
       const detail = seed.details[id];
       if (!detail) return problem(res, 404, "not_found");
-      return send(res, 200, { ...detail, consumer_id: id, range, group: groupRef(id) });
+      const recent = (k: string) => page((detail[k] as unknown[]) ?? []);
+      return send(res, 200, { top_endpoints: [], ...detail, consumer_id: id, range, recent_requests: recent("recent_requests"), recent_errors: recent("recent_errors") });
     }
     const group = url.searchParams.get("group");
-    const rows = seed.consumers
-      .filter((c) => !group || consumerAssignments.get(String(c.consumer_id)) === group)
-      .map((c) => ({ ...c, group: groupRef(String(c.consumer_id)) }));
-    return send(res, 200, { range, from: "", to: "", bucket_seconds: 900, summary: seed.summary, points: seed.points, consumers: rows });
+    const inGroup = seed.consumers.filter((c) => !group || c.consumer_group === group);
+    const matched = order(inGroup.filter((c) => !search || String(c.consumer_id).toLowerCase().includes(search) || String(c.consumer_name).toLowerCase().includes(search)));
+    const totals = { requests: 0, successful: 0, client_errors: 0, server_errors: 0 };
+    for (const c of inGroup) for (const k of Object.keys(totals) as (keyof typeof totals)[]) totals[k] += n(c, k);
+    const summary = group ? { consumers: inGroup.length, new: inGroup.filter((c) => c.new).length, returning: inGroup.filter((c) => !c.new).length } : seed.summary;
+    return send(res, 200, { range, from: "2026-11-05T10:00:00Z", to: "", bucket_seconds: 900, summary, totals, points: seed.points, total: matched.length, consumers: page(matched) });
   }
   if (req.method === "POST" && path === "/__fake/consumers") {
-    // Test hook: replaces what the consumers reads answer for `project`, and shop's groups.
+    // Test hook: replaces what the consumers reads answer for `project`.
     const b = await readBody(req);
     consumersSeed.set(String(b.project), {
       summary: b.summary ?? { consumers: 0, new: 0, returning: 0 },
@@ -2059,10 +2567,6 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       consumers: Array.isArray(b.consumers) ? (b.consumers as Record<string, unknown>[]) : [],
       details: (b.details as Record<string, Record<string, unknown>>) ?? {},
     });
-    const at = new Date().toISOString();
-    consumerGroups = Array.isArray(b.groups) ? (b.groups as { id: string; name: string }[]).map((g) => ({ id: g.id, name: g.name, created_at: at, updated_at: at })) : [];
-    consumerAssignments.clear();
-    for (const [c, g] of Object.entries((b.assignments as Record<string, string>) ?? {})) consumerAssignments.set(c, g);
     return send(res, 204);
   }
   if (req.method === "POST" && path === "/__fake/views") {
@@ -2129,56 +2633,6 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (taken(v.created_by, v.surface, v.id)) return problem(res, 409, "conflict");
     Object.assign(v, { name, filter, shared: body.shared === true, updated_at: new Date().toISOString() });
     return send(res, 200, v);
-  }
-  const groupsPath = path.match(/^\/api\/v1\/projects\/([^/]+)\/(?:consumer-groups(?:\/([^/]+))?|consumers\/([^/]+)\/group)$/);
-  if (groupsPath) {
-    const user = signedInUser(req);
-    if (!user) return problem(res, 401, "unauthenticated");
-    if (decodeURIComponent(groupsPath[1]) !== PROJECT) return problem(res, 404, "not_found");
-    const [, , groupId, consumerId] = groupsPath;
-    if (req.method === "GET" && groupId === undefined && consumerId === undefined) {
-      return send(res, 200, { groups: [...consumerGroups].sort((a, b) => a.name.localeCompare(b.name)).map(groupOut) });
-    }
-    if (!capabilitiesOf(user).includes("project.update")) return problem(res, 403, "forbidden");
-    const nameOf = async () => String((await readBody(req)).name ?? "").trim();
-    const taken = (name: string, except?: string) => consumerGroups.some((g) => g.id !== except && g.name.toLowerCase() === name.toLowerCase());
-    if (consumerId !== undefined) {
-      const consumer = decodeURIComponent(consumerId);
-      if (req.method === "DELETE") {
-        if (!consumerAssignments.delete(consumer)) return problem(res, 404, "not_found");
-        return send(res, 204);
-      }
-      if (req.method !== "PUT") return problem(res, 404, "not_found");
-      const target = String((await readBody(req)).group_id ?? "");
-      const g = consumerGroups.find((x) => x.id === target);
-      if (!g) return problem(res, 404, "not_found");
-      consumerAssignments.set(consumer, g.id);
-      return send(res, 200, { consumer_id: consumer, group: { id: g.id, name: g.name }, assigned_at: new Date().toISOString() });
-    }
-    if (groupId === undefined) {
-      if (req.method !== "POST") return problem(res, 404, "not_found");
-      const name = await nameOf();
-      if (name === "" || name.length > 128) return problem(res, 422, "validation_failed");
-      if (taken(name)) return problem(res, 409, "conflict");
-      const at = new Date().toISOString();
-      const g = { id: randomUUID(), name, created_at: at, updated_at: at };
-      consumerGroups.push(g);
-      return send(res, 201, groupOut(g));
-    }
-    const g = consumerGroups.find((x) => x.id === decodeURIComponent(groupId));
-    if (!g) return problem(res, 404, "not_found");
-    if (req.method === "DELETE") {
-      consumerGroups = consumerGroups.filter((x) => x !== g);
-      for (const [c, id] of consumerAssignments) if (id === g.id) consumerAssignments.delete(c);
-      return send(res, 204);
-    }
-    if (req.method !== "PUT") return problem(res, 404, "not_found");
-    const name = await nameOf();
-    if (name === "" || name.length > 128) return problem(res, 422, "validation_failed");
-    if (taken(name, g.id)) return problem(res, 409, "conflict");
-    g.name = name;
-    g.updated_at = new Date().toISOString();
-    return send(res, 200, groupOut(g));
   }
   if (req.method === "POST" && path === "/__fake/deploys") {
     // Test hook: replaces what `GET /deploys/changes` answers for `project`.
@@ -2326,6 +2780,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     return problem(res, 404, "not_found");
   }
 
+  if (req.method === "POST" && (path === "/api/v1/auth/reauth/options" || path === "/api/v1/auth/reauth/verify")) {
+    return reauth(req, res, path.slice("/api/v1/auth/reauth/".length));
+  }
   if (path.startsWith("/api/v1/auth/2fa/") && path !== "/api/v1/auth/2fa/exchange") {
     const t = totps.get(req.headers.authorization?.replace(/^Bearer /, "") ?? "");
     if (!t) return problem(res, 401, "unauthenticated");
@@ -2343,21 +2800,95 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       sso,
       stale,
       joinable,
+      extra,
+      orgs: seedOrgs,
     } = await readBody(req);
     const codes = Array.isArray(backups) ? backups.map(String) : [];
     const seeded: Seeds = {
       passkeys: Array.isArray(seeds) ? (seeds as Record<string, unknown>[]) : [],
       capabilities: Array.isArray(caps) ? caps.map(String) : undefined,
-      apiKeys: Array.isArray(keys) ? (keys as Record<string, unknown>[]) : [],
+      apiKeys: keys === "measured" ? "measured" : Array.isArray(keys) ? (keys as Record<string, unknown>[]) : [],
       sso: typeof sso === "object" && sso !== null && !Array.isArray(sso) ? (sso as Record<string, unknown>) : undefined,
       joinable: Array.isArray(joinable) ? (joinable as Record<string, unknown>[]) : [],
+      extra: typeof extra === "object" && extra !== null && !Array.isArray(extra) ? (extra as Seeds["extra"]) : undefined,
+      orgs: Array.isArray(seedOrgs) ? (seedOrgs as { slug: string; name: string }[]) : [],
     };
     const r = ROLES.has(role as Role) ? (role as Role) : "owner";
     const code = issueHandoff(String(next ?? "/"), typeof secret === "string" ? secret : undefined, codes, seeded, stale === true, r);
     return send(res, 200, { code });
   }
   if (await alerts(req, res, path, url)) return;
+  if (await accessAndAudit(req, res, path, url)) return;
+  if (await projectSettings(req, res, path)) return;
   return problem(res, 404, "not_found");
+}
+
+/** Re-authentication challenges (#803): challenge id → user and challenge (once, like identity). */
+const reauthChallenges = new Map<string, { user: string; challenge: string }>();
+/** Access tokens whose user asked for an emailed re-authentication code (never sent anywhere). */
+const reauthEmailed = new Set<string>();
+/** The emailed re-authentication code (the fake sends no mail). */
+const REAUTH_EMAIL_CODE = "123456";
+
+const bearerOf = (req: IncomingMessage) => req.headers.authorization?.replace(/^Bearer /, "") ?? "";
+
+/** `POST /auth/reauth/{options|verify}` as in internal/identity/reauth.go. */
+async function reauth(req: IncomingMessage, res: ServerResponse, route: string) {
+  const access = bearerOf(req);
+  const user = userByAccess.get(access);
+  const t = totps.get(access);
+  if (!user || !t) return problem(res, 401, "unauthenticated");
+  const keys = passkeys.get(user) ?? [];
+  const methods = [...(keys.length > 0 ? ["passkey"] : []), t.secret ? "totp" : "email"];
+  const body = await readBody(req);
+
+  if (route === "options") {
+    const sent = body.send_email_code === true && methods.includes("email");
+    if (sent) reauthEmailed.add(access);
+    let passkey: unknown;
+    if (methods.includes("passkey")) {
+      const id = token();
+      const challenge = b64u(randomBytes(32));
+      reauthChallenges.set(id, { user, challenge });
+      passkey = {
+        challenge_id: id,
+        options: {
+          publicKey: {
+            challenge,
+            rpId: "localhost",
+            timeout: 60000,
+            userVerification: "preferred",
+            allowCredentials: keys.map((k) => ({ type: "public-key", id: k.credential_id })),
+          },
+        },
+      };
+    }
+    return send(res, 200, { methods, ...(passkey ? { passkey } : {}), email_code_sent: sent });
+  }
+  if (route !== "verify") return problem(res, 404, "not_found");
+  const method = String(body.method ?? "");
+  if (!methods.includes(method)) return problem(res, 400, "invalid_request");
+  const code = typeof body.code === "string" ? body.code.replace(/[\s-]/g, "") : "";
+  if (method === "totp" && !totpValid(t.secret as Buffer, code)) return problem(res, 400, "invalid_code");
+  if (method === "email" && (!reauthEmailed.has(access) || code !== REAUTH_EMAIL_CODE)) return problem(res, 400, "invalid_code");
+  if (method === "passkey") {
+    const ch = reauthChallenges.get(String(body.challenge_id ?? ""));
+    reauthChallenges.delete(String(body.challenge_id ?? ""));
+    const credential = body.response as { rawId?: string; response?: { clientDataJSON?: string } } | undefined;
+    if (!ch || ch.user !== user || !credential?.rawId || !credential.response?.clientDataJSON) return problem(res, 401, "passkey_failed");
+    const client = JSON.parse(Buffer.from(credential.response.clientDataJSON, "base64url").toString("utf8"));
+    if (client.type !== "webauthn.get" || client.challenge !== ch.challenge || client.origin !== UI_URL) return problem(res, 401, "passkey_failed");
+    if (!keys.some((k) => k.credential_id === credential.rawId)) return problem(res, 401, "passkey_unknown");
+  }
+  // Same session, new access token whose auth_time is now; the refresh token does not change.
+  reauthEmailed.delete(access);
+  t.stale = false;
+  const fresh = `at_${token()}`;
+  userByAccess.set(fresh, user);
+  totps.set(fresh, t);
+  const mine = sessionsByUser.get(user)?.find((s) => s.access === access);
+  if (mine) mine.access = fresh;
+  return send(res, 200, { access_token: fresh, expires_in: 900, auth_time: new Date().toISOString() });
 }
 
 /** The two-factor settings endpoints, with identity's answers and status codes. */
@@ -2467,10 +2998,11 @@ async function orgs(req: IncomingMessage, res: ServerResponse, slug: string, wha
     return send(res, 200, [...invitations].sort((a, b) => b.created_at.localeCompare(a.created_at)));
   }
   if (what === "invitations" && sub === undefined && req.method === "POST") {
-    const { invites } = await readBody(req);
+    const { invites, project_grants: grants } = await readBody(req);
     if (!manage) return problem(res, 403, "forbidden");
     if (!Array.isArray(invites) || invites.length === 0 || invites.length > 50) return problem(res, 400, "invalid_request");
     const self = members.find((m) => m.user.id === user);
+    if (Array.isArray(grants) && grants.length > 0) return inviteWithGrants(res, user, invites, grants, members, self);
     const seen = new Set<string>();
     const results = invites.map((i: { email?: unknown; role?: unknown }) => {
       const email = String(i.email ?? "").toLowerCase();
@@ -2497,10 +3029,11 @@ async function orgs(req: IncomingMessage, res: ServerResponse, slug: string, wha
   }
   if (what === "invitations" && sub !== undefined && ((resend && req.method === "POST") || (!resend && req.method === "DELETE"))) {
     if (!manage) return problem(res, 403, "forbidden");
-    const inv = invitations.find((v) => v.id === sub);
+    const inv = (invitations.find((v) => v.id === sub) ?? (accessState.invitations.find((v) => v.id === sub) as FakeInvitation | undefined));
     if (!inv) return problem(res, 410, "invite_expired");
     if (!resend) {
       invitationsByUser.set(user, invitations.filter((v) => v !== inv));
+      accessState.invitations = accessState.invitations.filter((v) => v !== (inv as unknown));
       return send(res, 204);
     }
     const wait = Date.parse(inv.resent_at ?? inv.created_at) + RESEND_COOLDOWN_MS - Date.now();
@@ -2515,6 +3048,39 @@ async function orgs(req: IncomingMessage, res: ServerResponse, slug: string, wha
     return send(res, 200, inv);
   }
   return problem(res, 404, "not_found");
+}
+
+/**
+ * `POST /orgs/acme/invitations` with `project_grants` (#809): every grant must name shop and the
+ * caller needs access.manage on it (403 forbidden, nothing created). The invitations land in
+ * shop's pending invitations (`GET /projects/shop/invitations`), carrying the role.
+ */
+function inviteWithGrants(res: ServerResponse, user: string, invites: { email?: unknown; role?: unknown }[], grants: { project?: unknown; role?: unknown }[], members: { user: { email: string } }[], self: { user: { id: string; email: string; name: string } } | undefined) {
+  if (grants.length > 20 || !grants.every((g) => g.project === PROJECT && typeof g.role === "string" && g.role in PROJECT_RANK)) return problem(res, 400, "invalid_request");
+  if (!capabilitiesOf(user).includes("access.manage")) return problem(res, 403, "forbidden");
+  const project_grants = grants.map((g) => ({ project_id: "c3d4e5f6-a7b8-4c9d-8e0f-1a2b3c4d5e6f", project: PROJECT, project_name: shopContextName(), role: g.role }));
+  const seen = new Set<string>();
+  const results = invites.map((i) => {
+    const email = String(i.email ?? "").toLowerCase();
+    if (seen.has(email)) return { email, status: "duplicate" };
+    seen.add(email);
+    if (members.some((m) => m.user.email === email)) return { email, status: "already_member" };
+    const replaced = accessState.invitations.some((v) => v.email === email);
+    const now = Date.now();
+    const invitation = {
+      id: randomUUID(),
+      email,
+      role: String(i.role ?? "member"),
+      project_grants,
+      created_at: new Date(now).toISOString(),
+      expires_at: new Date(now + INVITE_TTL_MS).toISOString(),
+      resent_at: null,
+      ...(self ? { invited_by: { id: self.user.id, email: self.user.email, name: self.user.name } } : {}),
+    };
+    accessState.invitations = [...accessState.invitations.filter((v) => v.email !== email), invitation];
+    return { email, status: replaced ? "replaced" : "invited", invitation };
+  });
+  return send(res, 200, { results });
 }
 
 /** Invitations to the organizations users created in onboarding (#336), by org slug. */
@@ -2742,8 +3308,15 @@ async function alerts(req: IncomingMessage, res: ServerResponse, path: string, u
 
   if (kind === "events") {
     const rule = url.searchParams.get("rule_id");
-    const events = alertEvents.filter((e) => !rule || e.rule_id === rule).map(eventOut);
-    return send(res, 200, { events, next_cursor: "" }), true;
+    const all = alertEvents.filter((e) => !rule || e.rule_id === rule).map(eventOut);
+    // Pages like the API: `limit` (default 50) from the `cursor` on; the cursor is opaque (an offset here).
+    const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50));
+    const cursor = url.searchParams.get("cursor") ?? "";
+    const from = cursor ? Number(Buffer.from(cursor, "base64url").toString().replace(/^o/, "")) : 0;
+    if (cursor && !Number.isInteger(from)) return problem(res, 422, "invalid_request"), true;
+    const events = all.slice(from, from + limit);
+    const next = from + limit < all.length ? Buffer.from(`o${from + limit}`).toString("base64url") : "";
+    return send(res, 200, { events, next_cursor: next }), true;
   }
 
   if (req.method !== "GET" && !capabilitiesOf(user).includes("alerts.manage")) return problem(res, 403, "forbidden"), true;
@@ -2813,6 +3386,687 @@ async function alerts(req: IncomingMessage, res: ServerResponse, path: string, u
   if (typeof b.config === "object" && b.config !== null) c.config = b.config as Record<string, unknown>;
   c.updated_at = now;
   return send(res, 200, out(c)), true;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Project access, the audit log and key rotation (#804)
+
+/** How long a rotated key keeps working (`RotateAPIKeyInputBody.overlap`). */
+const ROTATE_OVERLAP_MS: Record<string, number> = { none: 0, "24h": 24 * 3600_000, "7d": 7 * 24 * 3600_000 };
+
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+const hoursAhead = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
+
+/** Fixed ids of the measured seed, so seeds, keys and audit events point at the same people. */
+const PEOPLE_IDS = {
+  you: "0c9d8e7f-6a5b-4c3d-8e2f-1a0b9c8d7e6f",
+  olive: "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  ada: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+  max: "3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f",
+  vera: "4d5e6f7a-8b9c-4d0e-9f2a-3b4c5d6e7f8a",
+  priya: "5e6f7a8b-9c0d-4e1f-8a3b-4c5d6e7f8a9b",
+  tom: "6f7a8b9c-0d1e-4f2a-9b4c-5d6e7f8a9b0c",
+  lena: "7a8b9c0d-1e2f-4a3b-8c5d-6e7f8a9b0c1d",
+  sam: "8b9c0d1e-2f3a-4b4c-9d6e-7f8a9b0c1d2e",
+} as const;
+
+/**
+ * Shop's four measured keys, newest first: the successor of a rotation in daily use, the rotated
+ * key in its overlap window, a staging key that expires in six days, and a revoked one.
+ */
+function measuredKeys(): FakeApiKey[] {
+  const successor = "9c0d1e2f-3a4b-4c5d-8e7f-8a9b0c1d2e3f";
+  const rotated = "a0b1c2d3-e4f5-4a6b-9c7d-8e9f0a1b2c3d";
+  return [
+    { id: successor, name: "Production backend", prefix: "apl_live_Hk27sQe", scopes: ["ingest", "apps:create"], created_at: hoursAgo(26), last_used_at: hoursAgo(0.05), last_used_ip: "203.0.113.24", last_used_sdk: "apilenss/0.5.0", environments: ["production"], rotated_from: rotated, created_by: { id: PEOPLE_IDS.ada, name: "Ada Admin" } },
+    { id: rotated, name: "Production backend", prefix: "apl_live_Q2x9aZ1", scopes: ["ingest", "apps:create"], created_at: hoursAgo(24 * 61), last_used_at: hoursAgo(3.2), last_used_ip: "203.0.113.24", last_used_sdk: "apilenss/0.4.2", environments: ["production"], expires_at: hoursAhead(22), rotated_to: successor, created_by: { id: PEOPLE_IDS.olive, name: "Olive Owner" } },
+    { name: "Staging worker", prefix: "apl_live_r8Lm0Pq", scopes: ["ingest", "read"], created_at: hoursAgo(24 * 19), last_used_at: hoursAgo(41), last_used_ip: "198.51.100.73", last_used_sdk: "apilens-node/0.3.1", environments: ["staging"], expires_at: hoursAhead(24 * 6), rate_limit_per_minute: 6000, created_by: { id: PEOPLE_IDS.priya, name: "Priya Patel" } },
+    { name: "Old analytics export", prefix: "apl_live_k3Vn7Ws", scopes: ["read"], created_at: hoursAgo(24 * 120), last_used_at: hoursAgo(24 * 14), last_used_ip: "192.0.2.15", revoked_at: hoursAgo(24 * 12) },
+  ].map((k) => seedApiKey({ can_create_apps: k.scopes.includes("apps:create"), ...k }));
+}
+
+/** A person of acme as the shop access list derives them: org role, direct grant, dates. */
+interface FakePerson {
+  user_id: string;
+  name: string;
+  email: string;
+  org_role: Role;
+  direct_role: "admin" | "editor" | "viewer" | null;
+  added_at: string;
+  added_by?: { id: string; name: string };
+  last_active_at: string | null;
+}
+
+/** Nine people with mixed sources: two org admins and owners, two by the default only, four with a grant, one never signed in. */
+function measuredPeople(): FakePerson[] {
+  const ada = { id: PEOPLE_IDS.ada, name: "Ada Admin" };
+  const p = (id: string, name: string, email: string, org_role: Role, direct: FakePerson["direct_role"], addedDays: number, activeHours: number | null, by?: FakePerson["added_by"]): FakePerson => ({
+    user_id: id, name, email, org_role, direct_role: direct, added_at: hoursAgo(addedDays * 24), added_by: direct ? by : undefined, last_active_at: activeHours === null ? null : hoursAgo(activeHours),
+  });
+  return [
+    p(PEOPLE_IDS.you, "Fake User", "you@example.com", "owner", null, 90, 0.1),
+    p(PEOPLE_IDS.olive, "Olive Owner", "olive@example.com", "owner", null, 120, 30),
+    p(PEOPLE_IDS.ada, "Ada Admin", "ada@example.com", "admin", null, 80, 2),
+    p(PEOPLE_IDS.max, "Max Member", "max@example.com", "member", null, 45, 5),
+    p(PEOPLE_IDS.vera, "Vera Viewer", "vera@example.com", "viewer", null, 12, 72),
+    p(PEOPLE_IDS.priya, "Priya Patel", "priya@example.com", "member", "admin", 20, 1, ada),
+    p(PEOPLE_IDS.tom, "Tom Becker", "tom@example.com", "viewer", "editor", 9, 26, ada),
+    p(PEOPLE_IDS.lena, "Lena Kovač", "lena@example.com", "member", "viewer", 4, 140, { id: PEOPLE_IDS.olive, name: "Olive Owner" }),
+    p(PEOPLE_IDS.sam, "Sam Okafor", "sam@example.com", "viewer", null, 2, null),
+  ];
+}
+
+/** Two pending org invitations that carry a shop role, one past its expiry. */
+function measuredProjectInvitations(): Record<string, unknown>[] {
+  const grant = (role: string) => [{ project_id: "c3d4e5f6-a7b8-4c9d-8e0f-1a2b3c4d5e6f", project: PROJECT, project_name: "Shop", role }];
+  return [
+    { id: "d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f7a", email: "new.dev@example.com", role: "member", project_grants: grant("editor"), created_at: hoursAgo(20), expires_at: hoursAhead(24 * 7 - 20), resent_at: null, invited_by: { id: PEOPLE_IDS.ada, email: "ada@example.com", name: "Ada Admin" } },
+    { id: "e5f6a7b8-c9d0-4e1f-8a2b-3c4d5e6f7a8b", email: "contractor@example.com", role: "viewer", project_grants: grant("viewer"), created_at: hoursAgo(24 * 9), expires_at: hoursAgo(24 * 2), resent_at: null, invited_by: { id: PEOPLE_IDS.olive, email: "olive@example.com", name: "Olive Owner" } },
+  ];
+}
+
+const accessState = {
+  defaultAccess: "org_role" as "org_role" | "viewer" | "none",
+  people: measuredPeople(),
+  invitations: measuredProjectInvitations(),
+  down: false,
+};
+
+const PROJECT_RANK = { viewer: 1, editor: 2, admin: 3 } as const;
+const PROJECT_ROLE_OF = ["", "viewer", "editor", "admin"] as const;
+
+/** A person's sources and effective role under `def`, as `ListProjectAccess` derives them; null without access. */
+function accessMember(p: FakePerson, def: string, caller: string) {
+  const sources: Record<string, unknown>[] = [];
+  if (p.org_role === "owner" || p.org_role === "admin") sources.push({ kind: "org_role", role: "admin", org_role: p.org_role });
+  const byDefault = def === "org_role" ? (p.org_role === "member" ? "editor" : p.org_role === "viewer" ? "viewer" : null) : def === "viewer" && (p.org_role === "member" || p.org_role === "viewer") ? "viewer" : null;
+  if (byDefault) sources.push({ kind: "default", role: byDefault, org_role: p.org_role });
+  if (p.direct_role) sources.push({ kind: "direct", role: p.direct_role });
+  if (sources.length === 0) return null;
+  const rank = Math.max(...sources.map((s) => PROJECT_RANK[s.role as keyof typeof PROJECT_RANK]));
+  const initials = (p.name || p.email.split("@")[0]).split(/\s+/).map((w) => w[0]?.toUpperCase() ?? "").join("").slice(0, 2);
+  return {
+    user_id: p.user_id === PEOPLE_IDS.you ? caller : p.user_id,
+    name: p.name,
+    email: p.email,
+    avatar_initials: initials,
+    effective_role: PROJECT_ROLE_OF[rank],
+    sources,
+    direct_role: p.direct_role,
+    added_at: p.added_at,
+    ...(p.added_by ? { added_by: p.added_by } : {}),
+    last_active_at: p.last_active_at,
+  };
+}
+
+const offsetCursor = (n: number) => Buffer.from(String(n)).toString("base64url");
+function offsetOf(cursor: string | null): number | null {
+  if (!cursor) return 0;
+  const n = Number(Buffer.from(cursor, "base64url").toString());
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+function limitOf(q: URLSearchParams): number | null {
+  const raw = q.get("limit");
+  if (raw === null) return 50;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 1 && n <= 200 ? n : null;
+}
+
+/** The labels of the org-scoped audit catalogue (internal/identity/audit/list.go), in catalogue order. */
+const AUDIT_ACTIONS: [string, string][] = [
+  ["org.created", "Organization created"], ["org.updated", "Organization updated"], ["org.deleted", "Organization deleted"],
+  ["member.added", "Member added"], ["member.role_changed", "Member role changed"], ["member.removed", "Member removed"],
+  ["member.joined", "Member joined"], ["invitation.sent", "Invitation sent"], ["invitation.accepted", "Invitation accepted"],
+  ["api_key.created", "API key created"], ["api_key.revoked", "API key revoked"], ["sso.updated", "SSO connection updated"],
+  ["sso.deleted", "SSO connection deleted"], ["capture_policy.updated", "Capture policy updated"], ["api_key.updated", "API key updated"],
+  ["app.created", "App created"], ["app.archived", "App archived"], ["app.restored", "App restored"], ["app.renamed", "App renamed"],
+  ["app.merged", "App merged"], ["app.deleted", "App deleted"], ["app.acknowledged", "App acknowledged"],
+  ["api_key.rotated", "Api key rotated"], ["project.created", "Project created"], ["project.updated", "Project updated"],
+  ["environment.added", "Environment added"], ["environment.updated", "Environment updated"], ["environment.removed", "Environment removed"],
+  ["privacy_policy.updated", "Privacy policy updated"], ["invitation.revoked", "Invitation revoked"],
+  ["alert_rule.created", "Alert rule created"], ["alert_rule.updated", "Alert rule updated"], ["alert_rule.deleted", "Alert rule deleted"],
+  ["alert_channel.created", "Alert channel created"], ["alert_channel.updated", "Alert channel updated"], ["alert_channel.deleted", "Alert channel deleted"],
+  ["health_check.created", "Health check created"], ["health_check.deleted", "Health check deleted"],
+  ["app_settings.updated", "App settings updated"], ["endpoint_settings.updated", "Endpoint settings updated"],
+  ["project_member.added", "Project member added"], ["project_member.role_changed", "Project member role changed"],
+  ["project_member.removed", "Project member removed"], ["project.access_changed", "Project access changed"],
+  ["audit_log.exported", "Audit log exported"], ["api_key.expired", "Api key expired"],
+];
+
+type FakeAuditEvent = Record<string, unknown> & { id: string; time: string; action: string; actor: { type: string; id?: string; label: string }; target?: { type: string; id: string; label: string }; project?: { slug: string; name: string } };
+
+/**
+ * Forty events over three weeks, newest first: key work, access changes, settings, apps and
+ * alerts on shop, plus a few org-wide ones (invitations, SSO). Ids count down from 40.
+ */
+function measuredAudit(): FakeAuditEvent[] {
+  const people: Record<string, { id: string; label: string; ip: string; ua: string }> = {
+    ada: { id: PEOPLE_IDS.ada, label: "Ada Admin", ip: "203.0.113.24", ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 Safari/17.6" },
+    olive: { id: PEOPLE_IDS.olive, label: "Olive Owner", ip: "198.51.100.12", ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0 Safari/537.36" },
+    priya: { id: PEOPLE_IDS.priya, label: "Priya Patel", ip: "203.0.113.88", ua: "Mozilla/5.0 (X11; Linux x86_64) Firefox/133.0" },
+    you: { id: PEOPLE_IDS.you, label: "Fake User", ip: "192.0.2.44", ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) Chrome/131.0 Safari/537.36" },
+  };
+  // [hours ago, action, actor (or "system"), target type, target label, previous, next, org-wide]
+  const rows: [number, string, string, string, string, Record<string, unknown>?, Record<string, unknown>?, boolean?][] = [
+    [0.6, "api_key.rotated", "ada", "api_key", "Production backend"],
+    [3, "project_member.role_changed", "ada", "member", "tom@example.com", { role: "viewer" }, { role: "editor" }],
+    [7, "alert_rule.updated", "priya", "alert_rule", "Checkout p95 over 800 ms", { threshold: 1000 }, { threshold: 800 }],
+    [19, "invitation.sent", "ada", "invitation", "new.dev@example.com", undefined, undefined, true],
+    [26, "api_key.created", "ada", "api_key", "Production backend"],
+    [31, "environment.added", "system", "environment", "canary"],
+    [44, "app.created", "system", "app", "billing-worker"],
+    [52, "project_member.added", "olive", "member", "lena@example.com", undefined, { role: "viewer" }],
+    [70, "privacy_policy.updated", "priya", "project", "shop", { mask_headers: ["authorization"] }, { mask_headers: ["authorization", "x-session"] }],
+    [81, "capture_policy.updated", "priya", "app", "Shop", { sample_rate: 1 }, { sample_rate: 0.5 }],
+    [96, "health_check.created", "priya", "health_check", "GET /healthz"],
+    [110, "audit_log.exported", "olive", "project", "shop"],
+    [130, "app.renamed", "ada", "app", "Storefront API", { name: "storefront" }, { name: "Storefront API" }],
+    [150, "project.access_changed", "olive", "project", "shop", { default_access: "viewer" }, { default_access: "org_role" }],
+    [171, "alert_channel.created", "priya", "alert_channel", "#payments-oncall"],
+    [190, "sso.updated", "olive", "sso_connection", "acme.example.com", undefined, undefined, true],
+    [205, "project_member.added", "ada", "member", "tom@example.com", undefined, { role: "viewer" }],
+    [216, "invitation.accepted", "system", "invitation", "tom@example.com", undefined, undefined, true],
+    [230, "api_key.updated", "priya", "api_key", "Staging worker", { environments: null }, { environments: ["staging"] }],
+    [262, "api_key.expired", "system", "api_key", "Load test"],
+    [288, "endpoint_settings.updated", "priya", "endpoint", "POST /charge", { expected_status_codes: [] }, { expected_status_codes: [402] }],
+    [300, "project.access_changed", "olive", "project", "shop", { default_access: "org_role" }, { default_access: "viewer" }],
+    [312, "environment.updated", "ada", "environment", "production", { color: "gray" }, { color: "red" }],
+    [330, "app.archived", "ada", "app", "legacy-cron"],
+    [345, "alert_rule.created", "priya", "alert_rule", "Checkout p95 over 800 ms"],
+    [360, "member.role_changed", "olive", "member", "ada@example.com", { role: "member" }, { role: "admin" }, true],
+    [372, "api_key.revoked", "ada", "api_key", "Old analytics export"],
+    [388, "app.merged", "ada", "app", "shop-web"],
+    [400, "project_member.removed", "ada", "member", "former@example.com", { role: "editor" }],
+    [418, "app_settings.updated", "priya", "app", "Shop", { latency_threshold_ms: null }, { latency_threshold_ms: 400 }],
+    [430, "project_member.added", "ada", "member", "priya@example.com", undefined, { role: "admin" }],
+    [441, "environment.added", "system", "environment", "staging"],
+    [455, "api_key.created", "priya", "api_key", "Staging worker"],
+    [468, "invitation.sent", "olive", "invitation", "priya@example.com", undefined, undefined, true],
+    [475, "project.updated", "olive", "project", "shop", { name: "shop" }, { name: "Shop" }],
+    [482, "alert_channel.updated", "priya", "alert_channel", "#payments-oncall", { name: "#payments" }, { name: "#payments-oncall" }],
+    [490, "health_check.deleted", "you", "health_check", "GET /status"],
+    [496, "app.created", "system", "app", "storefront"],
+    [500, "environment.added", "system", "environment", "production"],
+    [503, "project.created", "olive", "project", "shop"],
+  ];
+  return rows.map(([h, action, who, type, label, previous, next, orgWide], i) => {
+    const p = people[who];
+    return {
+      id: String(rows.length - i),
+      time: hoursAgo(h),
+      action,
+      actor: p ? { type: "user", id: p.id, label: p.label } : { type: "system", label: "System" },
+      ip: p?.ip ?? "",
+      user_agent: p?.ua ?? "",
+      request_id: p ? `req_${(rows.length - i).toString(36).padStart(4, "0")}f8a2c` : "",
+      target: { type, id: type === "project" ? "c3d4e5f6-a7b8-4c9d-8e0f-1a2b3c4d5e6f" : `${type}_${i + 1}`, label },
+      ...(orgWide ? {} : { project: { slug: PROJECT, name: "Shop" } }),
+      changes: previous || next ? { ...(previous ? { previous } : {}), ...(next ? { next } : {}) } : null,
+    };
+  });
+}
+
+const auditState = { events: measuredAudit(), retentionDays: 400, down: false };
+
+/** The audit events of a scope matching the API's filters; a string is an error code. */
+function auditMatches(q: URLSearchParams, projectOnly: boolean): FakeAuditEvent[] | string {
+  const from = q.get("from");
+  const to = q.get("to");
+  if ((from && Number.isNaN(Date.parse(from))) || (to && Number.isNaN(Date.parse(to)))) return "invalid_request";
+  const action = q.get("action") ?? "";
+  const actor = q.get("actor") ?? "";
+  const type = q.get("target_type") ?? "";
+  const text = (q.get("q") ?? "").toLowerCase();
+  return auditState.events.filter(
+    (e) =>
+      (!projectOnly || e.project) &&
+      (!action || (action.endsWith(".") ? e.action.startsWith(action) : e.action === action)) &&
+      (!actor || e.actor.id === actor) &&
+      (!type || e.target?.type === type) &&
+      (!from || Date.parse(e.time) >= Date.parse(from)) &&
+      (!to || Date.parse(e.time) < Date.parse(to)) &&
+      (!text || (e.target?.label ?? "").toLowerCase().includes(text)),
+  );
+}
+
+const csvCell = (v: unknown) => {
+  const s = v === undefined || v === null ? "" : typeof v === "string" ? v : JSON.stringify(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/** Shop's access, invitations and audit log, acme's audit log, and their test hooks. True when it answered. */
+async function accessAndAudit(req: IncomingMessage, res: ServerResponse, path: string, url: URL): Promise<boolean> {
+  const q = url.searchParams;
+  if (req.method === "POST" && path === "/__fake/access") {
+    const b = await readBody(req);
+    accessState.people = Array.isArray(b.members) ? (b.members as FakePerson[]) : measuredPeople();
+    accessState.defaultAccess = b.default_access === "viewer" || b.default_access === "none" ? b.default_access : "org_role";
+    accessState.invitations = Array.isArray(b.invitations) ? (b.invitations as Record<string, unknown>[]) : measuredProjectInvitations();
+    accessState.down = b.down === true;
+    return send(res, 204), true;
+  }
+  if (req.method === "POST" && path === "/__fake/audit") {
+    const b = await readBody(req);
+    auditState.events = Array.isArray(b.events) ? (b.events as FakeAuditEvent[]) : measuredAudit();
+    auditState.retentionDays = typeof b.retention_days === "number" ? b.retention_days : 400;
+    auditState.down = b.down === true;
+    return send(res, 204), true;
+  }
+
+  const audit = path.match(/^\/api\/v1\/(projects|orgs)\/([^/]+)\/audit-events(\/actions|\/export)?$/);
+  const access = path.match(/^\/api\/v1\/projects\/([^/]+)\/(access|invitations|members\/([^/]+))$/);
+  if (!audit && !access) return false;
+  const user = signedInUser(req);
+  if (!user) return problem(res, 401, "unauthenticated"), true;
+  const allowed = (action: string) => capabilitiesOf(user).includes(action);
+
+  if (audit) {
+    const [, kind, rawSlug, sub] = audit;
+    const slug = decodeURIComponent(rawSlug);
+    if (req.method !== "GET") return problem(res, 405, "method_not_allowed"), true;
+    if (kind === "projects" ? slug !== PROJECT : slug !== "acme") return problem(res, 404, "not_found"), true;
+    const may = kind === "projects" ? allowed("audit.read") : roleOf(user) === "owner" || roleOf(user) === "admin";
+    if (!may) return problem(res, 403, "forbidden"), true;
+    if (sub === "/actions") return send(res, 200, { actions: AUDIT_ACTIONS.map(([action, label]) => ({ action, label })) }), true;
+    if (auditState.down) return problem(res, 503, "unavailable"), true;
+    const matched = auditMatches(q, kind === "projects");
+    if (typeof matched === "string") return problem(res, 400, matched), true;
+    // The project list leaves the project out: it is the one asked for.
+    const shaped = matched.map((e) => (kind === "projects" ? { ...e, project: undefined } : e));
+    if (sub === "/export") {
+      const header = ["timestamp", "action", "actor_id", "actor_name", "actor_email", "ip", "user_agent", "request_id", "target_type", "target_id", "target_label", "project", "previous", "next"];
+      const lines = shaped.map((e) => {
+        const changes = (e.changes ?? {}) as { previous?: unknown; next?: unknown };
+        return [e.time, e.action, e.actor.id ?? "", e.actor.label, "", e.ip, e.user_agent, e.request_id, e.target?.type, e.target?.id, e.target?.label, e.project?.slug ?? "", changes.previous, changes.next].map(csvCell).join(",");
+      });
+      res.writeHead(200, {
+        "content-type": "text/csv; charset=utf-8",
+        "content-disposition": `attachment; filename="${kind === "projects" ? slug : "acme"}-audit-${new Date().toISOString().slice(0, 10)}.csv"`,
+        "cache-control": "no-store",
+      });
+      return res.end([header.join(","), ...lines].join("\n") + "\n"), true;
+    }
+    const limit = limitOf(q);
+    const offset = offsetOf(q.get("cursor"));
+    if (limit === null || offset === null) return problem(res, 400, "invalid_request"), true;
+    const page = shaped.slice(offset, offset + limit);
+    const next = offset + limit < shaped.length ? offsetCursor(offset + limit) : "";
+    return send(res, 200, { events: page, next_cursor: next, retention_days: auditState.retentionDays }), true;
+  }
+
+  const [, rawSlug, what, rawTarget] = access!;
+  if (decodeURIComponent(rawSlug) !== PROJECT) return problem(res, 404, "not_found"), true;
+  if (!allowed("project.read")) return problem(res, 404, "not_found"), true;
+  const listed = () =>
+    accessState.people
+      .map((p) => accessMember(p, accessState.defaultAccess, user))
+      .filter((m): m is NonNullable<typeof m> => m !== null)
+      .sort((a, b) => a.email.localeCompare(b.email));
+
+  if (what === "invitations") {
+    if (req.method !== "GET") return problem(res, 405, "method_not_allowed"), true;
+    if (!allowed("access.manage")) return problem(res, 403, "forbidden"), true;
+    return send(res, 200, [...accessState.invitations].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))), true;
+  }
+  if (what === "access" && req.method === "GET") {
+    if (accessState.down) return problem(res, 503, "unavailable"), true;
+    const role = q.get("role");
+    const source = q.get("source");
+    if ((role && !(role in PROJECT_RANK)) || (source && !["org_role", "default", "direct"].includes(source))) return problem(res, 400, "invalid_request"), true;
+    const limit = limitOf(q);
+    const offset = offsetOf(q.get("cursor"));
+    if (limit === null || offset === null) return problem(res, 400, "invalid_request"), true;
+    const text = (q.get("q") ?? "").toLowerCase();
+    const matched = listed().filter(
+      (m) =>
+        (!text || m.name.toLowerCase().includes(text) || m.email.toLowerCase().includes(text)) &&
+        (!role || m.effective_role === role) &&
+        (!source || m.sources.some((s) => s.kind === source)),
+    );
+    const next = offset + limit < matched.length ? offsetCursor(offset + limit) : "";
+    return send(res, 200, { default_access: accessState.defaultAccess, members: matched.slice(offset, offset + limit), next_cursor: next }), true;
+  }
+
+  // Writes: access.manage and a recent sign-in (#753 D12).
+  if (!allowed("access.manage")) return problem(res, 403, "forbidden"), true;
+  if (totps.get(bearerOf(req))?.stale) return problem(res, 403, "reauth_required"), true;
+
+  if (what === "access" && req.method === "PATCH") {
+    const { default_access: def } = await readBody(req);
+    if (def !== "org_role" && def !== "viewer" && def !== "none") return problem(res, 400, "invalid_request"), true;
+    const previous = accessState.defaultAccess;
+    const lose = def === "none" && previous !== "none" ? accessState.people.filter((p) => (p.org_role === "member" || p.org_role === "viewer") && !p.direct_role).length : 0;
+    const dry = q.get("dry_run") === "true";
+    if (!dry) accessState.defaultAccess = def;
+    return send(res, 200, { default_access: dry ? previous : def, previous_default_access: previous, lose_access: lose, dry_run: dry }), true;
+  }
+  if (rawTarget !== undefined && (req.method === "PUT" || req.method === "DELETE")) {
+    const target = decodeURIComponent(rawTarget);
+    let person = accessState.people.find((p) => (p.user_id === PEOPLE_IDS.you ? user : p.user_id) === target);
+    let role: unknown;
+    if (req.method === "PUT") {
+      role = (await readBody(req)).role;
+      if (role !== "admin" && role !== "editor" && role !== "viewer") return problem(res, 400, "invalid_request"), true;
+    }
+    // A member of acme the measured list leaves out (a numbered teammate): a grant adds them to it.
+    const joining = person || req.method !== "PUT" ? undefined : membersByUser.get(user)?.find((m) => m.user.id === target);
+    if (joining) {
+      person = { user_id: target, name: joining.user.name, email: joining.user.email, org_role: joining.role, direct_role: null, added_at: joining.joined_at, last_active_at: joining.last_login_at };
+      accessState.people.push(person);
+    }
+    if (!person) return problem(res, 409, "not_org_member"), true;
+    if (req.method === "DELETE") {
+      person.direct_role = null;
+      person.added_by = undefined;
+      return send(res, 204), true;
+    }
+    if (person.direct_role !== role) {
+      if (!person.direct_role) person.added_at = new Date().toISOString();
+      person.direct_role = role as FakePerson["direct_role"];
+      person.added_by = { id: user, name: "Fake User" };
+    }
+    return send(res, 200, accessMember(person, accessState.defaultAccess, user)), true;
+  }
+  return problem(res, 405, "method_not_allowed"), true;
+}
+
+// Project settings (#805): general, danger zone (#753 D8, D9), environments (D11), retention (D10).
+
+const SHOP_ID = "c3d4e5f6-a7b8-4c9d-8e0f-1a2b3c4d5e6f";
+const MAX_FAKE_ENVIRONMENTS = 20;
+const ENV_COLORS = new Set(["gray", "red", "orange", "yellow", "green", "teal", "blue", "purple"]);
+const DELETION_GRACE_MS = 7 * 24 * 3600_000;
+
+/** One environment of shop; its position is its index in `projectState.environments`. */
+interface FakeEnvironment {
+  name: string;
+  is_production: boolean;
+  color: string | null;
+  hidden_at: string | null;
+  source: "sdk" | "dashboard";
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+  has_data: boolean;
+  api_keys: number;
+  health_checks: number;
+}
+
+/** An environment someone just added: no data, nothing refers to it. */
+function newEnvironment(name: string, fields: Partial<FakeEnvironment> = {}): FakeEnvironment {
+  return {
+    name, is_production: false, color: null, hidden_at: null, source: "dashboard", first_seen_at: null, last_seen_at: null,
+    created_at: new Date().toISOString(), has_data: false, api_keys: 0, health_checks: 0, ...fields,
+  };
+}
+
+/** Five environments: production and staging in daily use, a new canary, an empty preview, a hidden old QA one. */
+function measuredEnvironments(): FakeEnvironment[] {
+  return [
+    newEnvironment("production", { source: "sdk", is_production: true, color: "green", created_at: hoursAgo(500), first_seen_at: hoursAgo(500), last_seen_at: hoursAgo(0.02), has_data: true, api_keys: 2, health_checks: 1 }),
+    newEnvironment("staging", { source: "sdk", color: "yellow", created_at: hoursAgo(441), first_seen_at: hoursAgo(441), last_seen_at: hoursAgo(41), has_data: true, api_keys: 1 }),
+    newEnvironment("canary", { source: "sdk", color: "orange", created_at: hoursAgo(31), first_seen_at: hoursAgo(31), last_seen_at: hoursAgo(0.5), has_data: true }),
+    newEnvironment("preview", { created_at: hoursAgo(72) }),
+    newEnvironment("qa-legacy", { source: "sdk", color: "gray", created_at: hoursAgo(24 * 90), first_seen_at: hoursAgo(24 * 90), last_seen_at: hoursAgo(24 * 40), hidden_at: hoursAgo(24 * 10), has_data: true }),
+  ];
+}
+
+/** One project of acme deleted two days ago, restorable for five more days. */
+function measuredDeletedProjects(): Record<string, unknown>[] {
+  return [
+    { id: "f6a7b8c9-d0e1-4f2a-9b3c-4d5e6f7a8b9c", slug: "legacy-checkout", name: "Legacy checkout", description: "The PHP checkout before the shop rewrite.", created_at: hoursAgo(24 * 400), deleted_at: hoursAgo(48), purge_after: hoursAhead(24 * 5) },
+  ];
+}
+
+/** The signals as internal/retention lists them, at the install defaults. */
+function measuredRetention(): Record<string, unknown>[] {
+  return [
+    { key: "requests", label: "Requests", period_days: 90, configurable: true, covers: "Individual requests: the request log, request detail with headers and bodies, consumers and exports." },
+    { key: "logs", label: "Logs", period_days: 30, configurable: true, covers: "Application log records sent by the SDK, shown with a request's trace." },
+    { key: "spans", label: "Spans", period_days: 30, configurable: true, covers: "Trace spans: the waterfall in request detail." },
+    { key: "rollups_1m", label: "Per-minute metrics", period_days: 30, configurable: true, covers: "Per-minute traffic, error and latency aggregates behind short-range charts." },
+    { key: "rollups_1h", label: "Hourly metrics", period_days: 400, configurable: true, covers: "Hourly traffic, error and latency aggregates behind long-range charts." },
+    { key: "deploys", label: "Deploys", period_days: 400, configurable: false, covers: "Deploy markers on charts and the deploy comparison." },
+  ];
+}
+
+/** shop's fields besides its repository link, which #820 keeps in `shopRepository`. */
+interface FakeProject {
+  slug: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  paused_at: string | null;
+  paused_by: string | null;
+  deleted_at: string | null;
+}
+
+function measuredProject(): FakeProject {
+  return {
+    slug: PROJECT, name: "Shop", description: "Storefront API: catalogue, cart and checkout.",
+    created_at: hoursAgo(503), updated_at: hoursAgo(475), created_by: PEOPLE_IDS.olive, paused_at: null, paused_by: null, deleted_at: null,
+  };
+}
+
+const projectState = {
+  project: measuredProject(),
+  environments: measuredEnvironments(),
+  deleted: measuredDeletedProjects(),
+  retention: measuredRetention(),
+  /** How long `GET .../retention` waits before answering (#818: the loading state). */
+  retentionDelayMs: 0,
+  down: false,
+};
+
+/** Shop as the settings operations return it (`Project`), for the signed-in user; the link and templates as #820 derives them. */
+function projectOut(user: string): Record<string, unknown> {
+  const p = projectState.project;
+  const { repository_url, commit_url_template, release_url_template } = shopProject();
+  return {
+    id: SHOP_ID, slug: p.slug, name: p.name, description: p.description, org_id: "org_fake", org_slug: "acme",
+    role: projectRoleOf(capabilitiesOf(user)), environments: projectState.environments.map((e) => e.name).toSorted(),
+    created_at: p.created_at, updated_at: p.updated_at, created_by: p.created_by,
+    repository_url, commit_url_template, release_url_template,
+    paused_at: p.paused_at, paused_by: p.paused_by, canonical_slug: p.slug,
+  };
+}
+
+function environmentOut(e: FakeEnvironment, position: number): Record<string, unknown> {
+  return { ...e, position, hidden: e.hidden_at !== null, deletable: !e.has_data && e.api_keys === 0 && e.health_checks === 0 };
+}
+
+const environmentsOut = () => ({ environments: projectState.environments.map(environmentOut), max_environments: MAX_FAKE_ENVIRONMENTS });
+
+/** Shop's general settings, danger zone, environments and retention, and their test hooks. True when it answered. */
+async function projectSettings(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
+  if (req.method === "POST" && path === "/__fake/project") {
+    const b = await readBody(req);
+    const fields = typeof b.project === "object" && b.project !== null ? (b.project as Partial<FakeProject>) : {};
+    projectState.project = { ...measuredProject(), ...fields };
+    shopRepository = null;
+    projectState.deleted = Array.isArray(b.deleted) ? (b.deleted as Record<string, unknown>[]) : measuredDeletedProjects();
+    projectState.down = b.down === true;
+    return send(res, 204), true;
+  }
+  if (req.method === "POST" && path === "/__fake/environments") {
+    const b = await readBody(req);
+    projectState.environments = Array.isArray(b.environments)
+      ? (b.environments as (Partial<FakeEnvironment> & { name: string })[]).map((e) => newEnvironment(e.name, e))
+      : measuredEnvironments();
+    return send(res, 204), true;
+  }
+  if (req.method === "POST" && path === "/__fake/retention") {
+    const b = await readBody(req);
+    projectState.retention = Array.isArray(b.signals) ? (b.signals as Record<string, unknown>[]) : measuredRetention();
+    projectState.retentionDelayMs = typeof b.delay_ms === "number" ? b.delay_ms : 0;
+    return send(res, 204), true;
+  }
+
+  const orgPath = path.match(/^\/api\/v1\/orgs\/([^/]+)\/projects\/(?:(deleted)|([^/]+)\/restore)$/);
+  const projPath = path.match(/^\/api\/v1\/projects\/([^/]+)(?:\/(rename|pause|resume|retention|environments)(?:\/([^/]+))?)?$/);
+  if (!orgPath && !projPath) return false;
+  if (projPath && projPath[3] !== undefined && projPath[2] !== "environments") return false;
+  const user = signedInUser(req);
+  if (!user) return problem(res, 401, "unauthenticated"), true;
+  const allowed = (action: string) => capabilitiesOf(user).includes(action);
+  const stale = () => totps.get(bearerOf(req))?.stale === true;
+
+  if (orgPath) {
+    if (decodeURIComponent(orgPath[1]) !== "acme") return problem(res, 404, "not_found"), true;
+    const manager = roleOf(user) === "owner" || roleOf(user) === "admin";
+    if (orgPath[2] === "deleted") {
+      if (req.method !== "GET") return problem(res, 405, "method_not_allowed"), true;
+      if (!manager) return problem(res, 403, "forbidden"), true;
+      return send(res, 200, projectState.deleted), true;
+    }
+    if (req.method !== "POST") return problem(res, 405, "method_not_allowed"), true;
+    if (!manager) return problem(res, 403, "forbidden"), true;
+    if (stale()) return problem(res, 403, "reauth_required"), true;
+    const id = decodeURIComponent(orgPath[3]);
+    const row = projectState.deleted.find((d) => d.id === id && Date.parse(String(d.purge_after)) > Date.now());
+    if (!row) return problem(res, 404, "not_found"), true;
+    projectState.deleted = projectState.deleted.filter((d) => d !== row);
+    if (id === SHOP_ID) {
+      projectState.project.deleted_at = null;
+      return send(res, 200, projectOut(user)), true;
+    }
+    const none = { environments: [], repository_url: null, commit_url_template: null, release_url_template: null, paused_at: null, paused_by: null };
+    return send(res, 200, { ...projectOut(user), ...none, id, slug: row.slug, canonical_slug: row.slug, name: row.name, description: row.description, created_at: row.created_at, updated_at: row.created_at }), true;
+  }
+
+  const [, rawSlug, sub, rawEnv] = projPath!;
+  const p = projectState.project;
+  const slug = decodeURIComponent(rawSlug);
+  // The old slug keeps resolving after a rename (#753 D9).
+  if ((slug !== p.slug && slug !== PROJECT) || p.deleted_at !== null || !allowed("project.read")) return problem(res, 404, "not_found"), true;
+  if (projectState.down) return problem(res, 503, "unavailable"), true;
+
+  if (sub === undefined) {
+    if (req.method === "GET") return send(res, 200, projectOut(user)), true;
+    if (req.method === "PATCH") {
+      if (!allowed("project.update")) return problem(res, 403, "forbidden"), true;
+      const b = await readBody(req);
+      if (b.slug !== undefined && b.slug !== p.slug) return problem(res, 422, "slug_immutable"), true;
+      const invalid = (detail: string) =>
+        send(res, 400, { status: 400, title: "Invalid request", code: "invalid_request", detail }, "application/problem+json");
+      const next = { name: p.name, description: p.description, repository: shopRepository };
+      if (b.name !== undefined) {
+        const name = typeof b.name === "string" ? b.name.trim() : "";
+        if (!name || [...name].length > 100) return invalid("The name must be 1 to 100 characters."), true;
+        next.name = name;
+      }
+      if (b.description !== undefined) {
+        const description = typeof b.description === "string" ? b.description.trim() : null;
+        if (description === null || [...description].length > 280) return invalid("The description must be at most 280 characters."), true;
+        next.description = description;
+      }
+      if (b.repository_url !== undefined) {
+        const checked = fakeRepositoryUrl(String(b.repository_url));
+        if (!checked.ok) return invalid(checked.reason), true;
+        next.repository = checked.url || null;
+      }
+      if (next.name !== p.name || next.description !== p.description || next.repository !== shopRepository) {
+        Object.assign(p, { name: next.name, description: next.description, updated_at: new Date().toISOString() });
+        shopRepository = next.repository;
+      }
+      return send(res, 200, projectOut(user)), true;
+    }
+    if (req.method === "DELETE") {
+      if (!allowed("project.delete")) return problem(res, 403, "forbidden"), true;
+      if (stale()) return problem(res, 403, "reauth_required"), true;
+      const { confirm } = await readBody(req);
+      if (confirm !== p.slug) return problem(res, 422, "confirmation_mismatch"), true;
+      const now = Date.now();
+      p.deleted_at = new Date(now).toISOString();
+      const row = { id: SHOP_ID, slug: p.slug, name: p.name, description: p.description, created_at: p.created_at, deleted_at: p.deleted_at, purge_after: new Date(now + DELETION_GRACE_MS).toISOString() };
+      projectState.deleted = [row, ...projectState.deleted];
+      return send(res, 200, row), true;
+    }
+    return problem(res, 405, "method_not_allowed"), true;
+  }
+
+  if (sub === "retention") {
+    if (req.method !== "GET") return problem(res, 405, "method_not_allowed"), true;
+    if (projectState.retentionDelayMs > 0) await new Promise((r) => setTimeout(r, projectState.retentionDelayMs));
+    return send(res, 200, { signals: projectState.retention }), true;
+  }
+
+  if (sub !== "environments") {
+    // rename, pause, resume: the danger zone needs `delete` on the project.
+    if (req.method !== "POST") return problem(res, 405, "method_not_allowed"), true;
+    if (!allowed("project.delete")) return problem(res, 403, "forbidden"), true;
+    if (sub === "rename") {
+      if (stale()) return problem(res, 403, "reauth_required"), true;
+      const { slug: next } = await readBody(req);
+      if (typeof next !== "string" || !ORG_SLUG.test(next)) return problem(res, 422, "invalid_request"), true;
+      // The same project may take its old slug back; any other taken or reserved slug is refused.
+      if (next !== p.slug && next !== PROJECT && projectSlugTaken(next)) {
+        return send(res, 409, { status: 409, title: "slug_taken", code: "slug_taken", suggestions: projectSlugSuggestions(next) }, "application/problem+json"), true;
+      }
+      if (next !== p.slug) Object.assign(p, { slug: next, updated_at: new Date().toISOString() });
+      return send(res, 200, projectOut(user)), true;
+    }
+    if (sub === "pause" && p.paused_at === null) Object.assign(p, { paused_at: new Date().toISOString(), paused_by: user });
+    if (sub === "resume") Object.assign(p, { paused_at: null, paused_by: null });
+    return send(res, 200, projectOut(user)), true;
+  }
+
+  // Environments: reads need project.read, changes project.update.
+  const envs = projectState.environments;
+  if (rawEnv === undefined) {
+    if (req.method === "GET") return send(res, 200, environmentsOut()), true;
+    if (req.method !== "POST") return problem(res, 405, "method_not_allowed"), true;
+    if (!allowed("project.update")) return problem(res, 403, "forbidden"), true;
+    const { name } = await readBody(req);
+    if (typeof name !== "string" || !ENV_NAME.test(name)) return problem(res, 422, "invalid_request"), true;
+    if (!envs.some((e) => e.name === name)) {
+      if (envs.length >= MAX_FAKE_ENVIRONMENTS) return problem(res, 422, "invalid_request"), true;
+      envs.push(newEnvironment(name));
+    }
+    return send(res, 200, projectOut(user)), true;
+  }
+  if (rawEnv === "order" && req.method === "PUT") {
+    if (!allowed("project.update")) return problem(res, 403, "forbidden"), true;
+    const { names } = await readBody(req);
+    const valid = Array.isArray(names) && names.length <= MAX_FAKE_ENVIRONMENTS && new Set(names).size === names.length && names.every((n) => envs.some((e) => e.name === n));
+    if (!valid) return problem(res, 422, "invalid_request"), true;
+    const listed = names as string[];
+    projectState.environments = [...listed.map((n) => envs.find((e) => e.name === n)!), ...envs.filter((e) => !listed.includes(e.name))];
+    return send(res, 200, environmentsOut()), true;
+  }
+  const name = decodeURIComponent(rawEnv);
+  const at = envs.findIndex((e) => e.name === name);
+  if (req.method === "PATCH") {
+    if (!allowed("project.update")) return problem(res, 403, "forbidden"), true;
+    if (at < 0) return problem(res, 404, "not_found"), true;
+    const b = await readBody(req);
+    const bad =
+      (b.is_production !== undefined && typeof b.is_production !== "boolean") ||
+      (b.hidden !== undefined && typeof b.hidden !== "boolean") ||
+      (b.color !== undefined && b.color !== "none" && !ENV_COLORS.has(String(b.color))) ||
+      (b.position !== undefined && !(Number.isInteger(b.position) && (b.position as number) >= 0));
+    if (bad) return problem(res, 422, "invalid_request"), true;
+    const env = envs[at];
+    if (typeof b.is_production === "boolean") env.is_production = b.is_production;
+    if (b.color !== undefined) env.color = b.color === "none" ? null : String(b.color);
+    if (typeof b.hidden === "boolean" && b.hidden !== (env.hidden_at !== null)) env.hidden_at = b.hidden ? new Date().toISOString() : null;
+    if (typeof b.position === "number") {
+      envs.splice(at, 1);
+      envs.splice(Math.min(b.position, envs.length), 0, env);
+    }
+    return send(res, 200, environmentOut(env, envs.indexOf(env))), true;
+  }
+  if (req.method === "DELETE") {
+    if (!allowed("project.update")) return problem(res, 403, "forbidden"), true;
+    if (at >= 0) {
+      if (!environmentOut(envs[at], at).deletable) return problem(res, 409, "environment_in_use"), true;
+      envs.splice(at, 1);
+    }
+    return send(res, 200, projectOut(user)), true;
+  }
+  return problem(res, 405, "method_not_allowed"), true;
 }
 
 createServer((req, res) => {

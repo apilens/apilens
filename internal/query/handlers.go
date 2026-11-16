@@ -59,7 +59,8 @@ const readAccess = " Callers authenticate with a project read key or a user sess
 
 // dashboardDescriptions documents the operations Register declares with op.
 var dashboardDescriptions = map[string]string{
-	"get-project": "The project the caller reads, its org, its active apps and the environments with traffic in the last 7 days.",
+	"get-project": "The project the caller reads, its org, its active apps and the environments for pickers: the project's visible environments in their set order, " +
+		"then environments with traffic in the last 7 days that are not registered yet (by name), and the hidden environments apart.",
 	"get-traffic-summary": "Totals of the range from the minute or hour rollups: requests, 4xx and 5xx errors (expected status codes " +
 		"of each endpoint left out), latency percentiles, requests per minute and Apdex. Endpoints excluded from metrics are left out; " +
 		"app narrows to one app.",
@@ -75,10 +76,12 @@ var dashboardDescriptions = map[string]string{
 		"and fixed 10-bucket size histograms for request and response bodies.",
 	"get-endpoint-errors": "The errors tab of an endpoint: the 4xx/5xx split per bucket, error status codes by count, validation errors " +
 		"grouped by field and server exceptions grouped by type and message. Expected status codes of the endpoint are left out.",
-	"list-consumers": "Consumers with requests in the range, most requests first, each with an outcome split and a sparkline; " +
-		"plus unique consumers per bucket split into new (first seen in the bucket) and returning. group narrows to one consumer group.",
-	"get-consumer": "One consumer: when it was first and last seen, its group, requests by outcome per bucket and its latest " +
-		"requests and errors. A consumer the project never saw answers 404.",
+	"list-consumers": "The users of the API (consumers the SDK identified) with requests in the range, one page in sort order, each with " +
+		"an outcome split, a sparkline and the latest consumer group the SDK reported; plus the total, request totals and unique consumers " +
+		"per bucket split into new (first seen in the bucket) and returning. group keeps the requests the SDK tagged with that group; " +
+		"search matches consumer ids and names.",
+	"get-consumer": "One consumer: when it was first and last seen, the latest group the SDK reported for it, requests by outcome per " +
+		"bucket, its top endpoints and a page of its latest requests and errors. A consumer the project never saw answers 404.",
 	"list-requests": "The raw request log of the range, newest first, narrowed by any combination of filters (consumer, group, IP, " +
 		"method, route, URL and payload substrings, sizes, status, latency, sampling, trace). Pages with next_cursor; from and to " +
 		"narrow the window inside the range. An invalid status filter or cursor answers 422.",
@@ -122,16 +125,19 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	registerErrorStatus(api, s)
 	registerTrafficLatency(api, s)
 	registerDeployChanges(api, s)
+	registerDeployDetail(api, s)
 	registerIngestStatus(api, s, guard)
 	registerAppStatus(api, s)
 	registerEndpointSettings(api, s, guard)
 	registerAppSettings(api, s, guard)
 	registerAppIngestStats(api, s)
 	registerSavedViews(api, s, guard)
-	registerConsumerGroups(api, s, guard)
+	registerConsumerGroupTraffic(api, s)
 	registerExports(api, s, guard)
 	registerAlerts(api, s, guard)
 	registerHealthChecks(api, s, guard)
+	registerRetention(api, s, guard)
+	registerProjectUsage(api, s, guard)
 }
 
 // ---------------------------------------------------------------- project
@@ -147,7 +153,8 @@ type projectOutput struct {
 		Org          named    `json:"org" doc:"The organization that owns the project."`
 		Project      named    `json:"project" doc:"The project."`
 		Apps         []named  `json:"apps" doc:"The project's active apps."`
-		Environments []string `json:"environments" doc:"Environments with traffic in the last 7 days."`
+		Environments []string `json:"environments" doc:"Visible environments in the project's order, then unregistered environments with traffic in the last 7 days, by name."`
+		Hidden       []string `json:"hidden" doc:"Hidden environments in the project's order; pickers leave them out by default."`
 	}
 }
 
@@ -175,6 +182,21 @@ func (s *Service) project(ctx context.Context, _ *ProjectInput) (*projectOutput,
 		out.Body.Apps = append(out.Body.Apps, named{ID: a.ID.String(), Slug: a.Slug, Name: a.Name})
 	}
 
+	registered, err := s.catalog.ListPickerEnvironments(ctx, p.ProjectID)
+	if err != nil {
+		return nil, internalError("environment lookup", err)
+	}
+	known := make(map[string]bool, len(registered))
+	out.Body.Environments, out.Body.Hidden = []string{}, []string{}
+	for _, e := range registered {
+		known[e.Name] = true
+		if e.Hidden {
+			out.Body.Hidden = append(out.Body.Hidden, e.Name)
+		} else {
+			out.Body.Environments = append(out.Body.Environments, e.Name)
+		}
+	}
+
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
 	rows, err := s.ch.Query(qctx, `SELECT DISTINCT environment FROM api_requests_1h
@@ -183,13 +205,14 @@ func (s *Service) project(ctx context.Context, _ *ProjectInput) (*projectOutput,
 		return nil, internalError("environments", err)
 	}
 	defer func() { _ = rows.Close() }()
-	out.Body.Environments = []string{}
 	for rows.Next() {
 		var env string
 		if err := rows.Scan(&env); err != nil {
 			return nil, internalError("environments", err)
 		}
-		out.Body.Environments = append(out.Body.Environments, env)
+		if !known[env] {
+			out.Body.Environments = append(out.Body.Environments, env)
+		}
 	}
 	return out, rows.Err()
 }

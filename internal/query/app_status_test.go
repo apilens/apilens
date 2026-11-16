@@ -33,6 +33,10 @@ func (f *fakeAppStatusCatalog) ListProjectApps(context.Context, uuid.UUID) ([]db
 	return nil, errors.New("unused")
 }
 
+func (f *fakeAppStatusCatalog) ListPickerEnvironments(context.Context, uuid.UUID) ([]db.ListPickerEnvironmentsRow, error) {
+	return nil, errors.New("unused")
+}
+
 func (f *fakeAppStatusCatalog) GetProjectApp(_ context.Context, arg db.GetProjectAppParams) (db.GetProjectAppRow, error) {
 	if arg.ID != f.app.ID || arg.ProjectID != f.project {
 		return db.GetProjectAppRow{}, pgx.ErrNoRows

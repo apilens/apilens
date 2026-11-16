@@ -353,3 +353,40 @@ describe("GET /api/auth/refresh", () => {
     expect(res.headers.getSetCookie()).toEqual([]);
   });
 });
+
+describe("POST /api/auth/reauth/verify (#803)", () => {
+  async function post(body: unknown): Promise<Response> {
+    const { POST } = await import("@/app/api/auth/reauth/verify/route");
+    const headers = new Headers({ "content-type": "application/json", origin: PUBLIC_URL });
+    headers.set("cookie", `${session.SESSION_COOKIE_NAME}=${await cookieFor(nowSeconds() + 600)}`);
+    return POST(new NextRequest(`${PUBLIC_URL}/api/auth/reauth/verify`, { method: "POST", headers, body: JSON.stringify(body) }));
+  }
+
+  it("writes the new access token into the cookie and keeps the refresh token", async () => {
+    replies["POST /api/v1/auth/reauth/verify"] = (req) =>
+      req.headers.authorization === `Bearer ${OLD_ACCESS}`
+        ? { status: 200, body: { access_token: NEW_ACCESS, expires_in: 900, auth_time: "2026-11-13T10:00:00Z" } }
+        : { status: 401, body: { status: 401, title: "Unauthorized", code: "token_expired" } };
+    const res = await post({ method: "email", code: "123456" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, auth_time: "2026-11-13T10:00:00Z" });
+    expect(seen.at(-1)?.body).toEqual({ method: "email", code: "123456" });
+    const sealed = await session.open(sessionCookie(res));
+    expect(sealed).toMatchObject({ access: NEW_ACCESS, refresh: refreshToken, remember: true });
+    expect(refreshCalls()).toHaveLength(0);
+  });
+
+  it("keeps the cookie and answers identity's code on a wrong code", async () => {
+    replies["POST /api/v1/auth/reauth/verify"] = () => ({ status: 400, body: { status: 400, title: "Invalid code", code: "invalid_code" } });
+    const res = await post({ method: "totp", code: "000000" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ ok: false, code: "invalid_code" });
+    expect(res.headers.getSetCookie()).toEqual([]);
+  });
+
+  it("rejects an unknown method without calling identity", async () => {
+    const res = await post({ method: "sms", code: "1" });
+    expect(res.status).toBe(422);
+    expect(seen).toHaveLength(0);
+  });
+});

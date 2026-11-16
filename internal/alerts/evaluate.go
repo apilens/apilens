@@ -35,7 +35,6 @@ const dueSlack = 10 * time.Second
 type Store interface {
 	ListAlertRulesToEvaluate(ctx context.Context) ([]db.ListAlertRulesToEvaluateRow, error)
 	UpsertAlertRuleState(ctx context.Context, arg db.UpsertAlertRuleStateParams) error
-	ListConsumerGroupMembers(ctx context.Context, arg db.ListConsumerGroupMembersParams) ([]string, error)
 	ListProjectEndpointLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]db.ListProjectEndpointLatencyThresholdsRow, error)
 	ListProjectAppLatencyThresholds(ctx context.Context, projectID uuid.UUID) ([]db.ListProjectAppLatencyThresholdsRow, error)
 }
@@ -199,17 +198,6 @@ func (e *Evaluator) Evaluate(ctx context.Context, r Rule, now time.Time) (Result
 	scope := queryScope{
 		project: r.ProjectID, app: r.AppID, environment: r.Environment,
 		window: WindowAt(now, r.WindowS), filters: r.Filters,
-	}
-	if r.Filters.Group != "" {
-		group, err := uuid.Parse(r.Filters.Group)
-		if err != nil {
-			return Result{}, fmt.Errorf("%w: group must be a consumer group id", ErrInvalidFilters)
-		}
-		members, err := e.store.ListConsumerGroupMembers(ctx, db.ListConsumerGroupMembersParams{ProjectID: r.ProjectID, GroupID: group})
-		if err != nil {
-			return Result{}, fmt.Errorf("alerts: consumer group members: %w", err)
-		}
-		scope.members = members
 	}
 	if r.Metric == MetricApdex {
 		t, err := e.apdexThresholds(ctx, r.ProjectID, r.AppID)

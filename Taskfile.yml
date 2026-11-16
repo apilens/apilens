@@ -232,10 +232,11 @@ tasks:
 
   # Failure drills (test/e2e/drills_e2e_test.go): the example apps send to a
   # fault proxy the test runs on the host (port 18090), which takes ingest
-  # down, answers 5xx, then 429 with Retry-After; the apps must stay fast,
-  # count the drops and flush without duplicates once ingest is back.
+  # down, answers 5xx, then 429 with Retry-After, then 403 project_paused;
+  # the apps must stay fast, count the drops (a paused project's batches are
+  # dropped, never retried) and flush without duplicates once ingest is back.
   test:e2e:drills:
-    desc: "e2e: failure drills (ingest down, 5xx, 429 with Retry-After) through the three SDKs' example apps"
+    desc: "e2e: failure drills (ingest down, 5xx, 429 with Retry-After, project paused) through the three SDKs' example apps"
     cmds:
       - |
         set -eu

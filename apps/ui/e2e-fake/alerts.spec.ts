@@ -187,6 +187,39 @@ test("says so when the alerts API cannot answer, with a way to try again", async
   await expect(page.getByRole("status").filter({ hasText: "No open incidents." })).toBeVisible();
 });
 
+test("a rule's timeline pages its incidents with Newer and Older, and charts their values", async ({ page }) => {
+  await signIn(page, "/shop/incidents/rules/new");
+  await page.getByLabel("Name").fill("Busy rule");
+  await page.getByRole("button", { name: "Create rule" }).click();
+  await page.waitForURL("**/shop/incidents/rules");
+  // 30 incidents, the newest still open: one page of 25 and one of 5.
+  for (let k = 29; k >= 0; k--) {
+    await fake({ trigger: { rule: "Busy rule", value: 0.1 + k / 100, minutes_ago: k * 10 + 1 } });
+    if (k > 0) await fake({ resolve: "Busy rule" });
+  }
+  await page.goto("/shop/incidents");
+  await page.getByRole("link", { name: "Busy rule" }).click();
+  const events = page.getByRole("list", { name: "Incidents of this rule" }).locator(":scope > li");
+  await expect(events).toHaveCount(25);
+  const pages = page.getByRole("navigation", { name: "Incident pages" });
+  await expect(pages.locator("[aria-disabled=true]", { hasText: "Newer" })).toHaveCount(1);
+
+  // The chart reads each incident's value to the keyboard: the newest is the last bar.
+  const chart = page.getByRole("group", { name: /^Value of each incident/ });
+  await chart.focus();
+  await chart.press("End");
+  await expect(page.locator(".al-chart .ct-sr")).toHaveText(/Value: 10%, Threshold: > 5%, Ongoing for/);
+
+  await pages.getByRole("link", { name: "Older" }).click();
+  await expect(page).toHaveURL(/cursor=/);
+  await expect(events).toHaveCount(5);
+  await expect(page.getByText("Page 2, newest first")).toBeVisible();
+  await expect(pages.locator("[aria-disabled=true]", { hasText: "Older" })).toHaveCount(1);
+  await pages.getByRole("link", { name: "Newer" }).click();
+  await expect(page).not.toHaveURL(/cursor=/);
+  await expect(events).toHaveCount(25);
+});
+
 test("stacks incidents at phone width without sideways scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page, "/shop/incidents/rules/new");
@@ -198,4 +231,65 @@ test("stacks incidents at phone width without sideways scrolling", async ({ page
   await expect(page.getByRole("table", { name: "Open incidents" }).locator("tbody tr")).toHaveCount(1);
   const overflow = await page.locator(".app-main").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+/** Seeds shop's consumers so `GET /consumer-groups` answers these SDK groups, busiest last. */
+async function seedGroups(groups: string[]) {
+  const consumers = groups.map((g, i) => ({
+    consumer_id: `usr_${i}`,
+    consumer_name: "",
+    consumer_group: g,
+    requests: 10 * (i + 1),
+    successful: 10 * (i + 1),
+    client_errors: 0,
+    server_errors: 0,
+    last_seen: new Date().toISOString(),
+    sparkline: [],
+  }));
+  const res = await fetch(`${IDENTITY}/__fake/consumers`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ project: "shop", summary: { consumers: consumers.length, new: 0, returning: consumers.length }, points: [], consumers, details: {} }),
+  });
+  expect(res.status).toBe(204);
+}
+
+test("a rule filters by an SDK consumer group, picked from those seen or typed", async ({ page }) => {
+  await seedGroups(["Initech", "Acme Corp"]);
+  try {
+    await signIn(page, "/shop/incidents/rules/new");
+    const form = page.getByRole("form", { name: "New alert rule" });
+    const group = form.getByLabel("Consumer group");
+    // The groups the SDK reported lately are suggested, by name.
+    const listId = await group.getAttribute("list");
+    expect(listId).toBeTruthy();
+    const options = page.locator(`datalist[id="${listId}"] option`);
+    await expect(options).toHaveCount(2);
+    await expect(options.first()).toHaveAttribute("value", "Acme Corp");
+    await expect(form.getByText("Optional. A group the SDK reports, or a name it has not reported yet.")).toBeVisible();
+
+    await form.getByLabel("Name").fill("Acme errors");
+    await group.fill("Acme Corp");
+    await form.getByRole("button", { name: "Create rule" }).click();
+    await page.waitForURL("**/shop/incidents/rules");
+    const row = page.getByRole("table", { name: "Alert rules" }).locator("tbody tr").filter({ hasText: "Acme errors" });
+    await expect(row).toContainText("Shop · production · group Acme Corp");
+
+    // A group the SDK has not reported yet is typed in.
+    await row.getByRole("link", { name: "Acme errors" }).click();
+    const edit = page.getByRole("form", { name: "Edit Acme errors" });
+    await expect(edit.getByLabel("Consumer group")).toHaveValue("Acme Corp");
+    await edit.getByLabel("Consumer group").fill("  Globex ");
+    await edit.getByRole("button", { name: "Save rule" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Saved Acme errors." })).toBeVisible();
+
+    // The incident's details name the group.
+    await fake({ trigger: { rule: "Acme errors", value: 0.2 } });
+    await page.goto("/shop/incidents");
+    await page.getByRole("table", { name: "Open incidents" }).getByRole("link", { name: "Acme errors" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Acme errors" })).toBeVisible();
+    await expect(page.locator(".al-summary")).toContainText("Shop · production · group Globex");
+  } finally {
+    await seedGroups([]);
+  }
 });

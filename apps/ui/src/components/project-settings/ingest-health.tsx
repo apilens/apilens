@@ -1,9 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import type { AppHealthStatus, AppIngestStats, IngestCounts, NamedApp } from "@/lib/identity";
+import { ChartAnnounce, ChartTooltip, type TooltipRow } from "@/components/charts/chart-tooltip";
+import { useChartHover } from "@/components/charts/use-chart-hover";
+import { pointX, tooltipText } from "@/lib/chart-hover";
+import type { AppHealthStatus, AppIngestStats, IngestCounts, IngestDay, NamedApp } from "@/lib/identity";
 import {
   EDGE_COUNTERS,
+  dayBars,
+  daysSummary,
   INGEST_DAYS,
   INGEST_RUNBOOK,
   counterShare,
@@ -40,7 +45,7 @@ export interface IngestLoad {
 export function IngestHealth({ project, projectName, load }: { project: string; projectName: string; load: IngestLoad }) {
   const { apps, app } = load;
   return (
-    <div className="os cps ih">
+    <div className="page page--measure os cps ih">
       <header className="os-head">
         <p className="cp-h">{projectName} · Settings</p>
         <h1 className="cp-lede">Ingest health</h1>
@@ -114,9 +119,77 @@ function Tiles({ counts, label }: { counts: IngestCounts; label: string }) {
   );
 }
 
+const CHART_W = 700;
+const CHART_H = 120;
+const dayTitle = (date: string) => formatDay(`${date}T00:00:00Z`);
+
+/**
+ * Records received per day, oldest left: accepted with rejected stacked on top. Hovering, tapping
+ * or arrowing through a day shows its four counters exactly (shared chart hover); the table below
+ * has the same numbers for reading and copying.
+ */
+function DaysChart({ days }: { days: IngestDay[] }) {
+  const n = days.length;
+  const hover = useChartHover<HTMLDivElement>(n, "slot");
+  const i = hover.index;
+  const { top, bars } = dayBars(days, CHART_W, CHART_H);
+  const title = i !== null ? dayTitle(days[i].date) : "";
+  const rows: TooltipRow[] =
+    i !== null
+      ? EDGE_COUNTERS.map((c) => ({ label: c.label, value: formatCount(days[i][c.key]), swatch: c.key === "accepted" ? "ih-fill-acc" : c.key === "rejected" ? "ih-fill-rej" : undefined }))
+      : [];
+  if (n === 0) return null;
+  return (
+    <figure className="ih-chart">
+      <figcaption className="ih-chart__head">
+        <span className="ih-chart__t">Records received per day</span>
+        <ul className="ih-legend" aria-label="Legend">
+          <li>
+            <span className="ih-swatch ih-fill-acc" aria-hidden="true" />
+            Accepted
+          </li>
+          <li>
+            <span className="ih-swatch ih-fill-rej" aria-hidden="true" />
+            Rejected
+          </li>
+        </ul>
+      </figcaption>
+      <div
+        ref={hover.ref}
+        className="ih-plot ct-box"
+        role="group"
+        aria-label={`Records received per day, last ${n} days (UTC). ${daysSummary(days, dayTitle)} Use the arrow keys to read each day.`}
+        {...hover.bind}
+      >
+        <span className="ih-axis-top" aria-hidden="true">
+          {formatCount(top)}
+        </span>
+        <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" aria-hidden="true" focusable="false">
+          <line className="ih-base" x1={0} x2={CHART_W} y1={CHART_H} y2={CHART_H} />
+          {i !== null ? <rect className="ct-bar-hover" x={(i * CHART_W) / n} y={0} width={CHART_W / n} height={CHART_H} /> : null}
+          {bars.map((b) => (
+            <g key={b.date}>
+              <rect className="ih-fill-acc" x={b.x} y={b.accepted.y} width={b.w} height={b.accepted.h} />
+              <rect className="ih-fill-rej" x={b.x} y={b.rejected.y} width={b.w} height={b.rejected.h} />
+            </g>
+          ))}
+        </svg>
+        {i !== null && hover.width > 0 ? <ChartTooltip x={pointX(i, hover.width, n, "slot")} boxWidth={hover.width} title={title} rows={rows} /> : null}
+      </div>
+      <div className="ih-axis-x" aria-hidden="true" style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }}>
+        {days.map((d) => (
+          <span key={d.date}>{dayTitle(d.date).replace(/, \d{4}$/, "")}</span>
+        ))}
+      </div>
+      <ChartAnnounce text={i !== null ? tooltipText(title, rows) : ""} />
+    </figure>
+  );
+}
+
 /** The ingest edge's counters: totals over the days, then one row per day, newest first. */
 function EdgeCard({ app, stats }: { app: NamedApp; stats: AppIngestStats | "off" | null }) {
-  const days = stats && stats !== "off" ? [...(stats.daily ?? [])].reverse() : [];
+  const oldestFirst = stats && stats !== "off" ? (stats.daily ?? []) : [];
+  const days = [...oldestFirst].reverse();
   return (
     <section className="os-card" aria-labelledby="ih-edge">
       <div className="os-card__head">
@@ -135,6 +208,7 @@ function EdgeCard({ app, stats }: { app: NamedApp; stats: AppIngestStats | "off"
         ) : (
           <>
             <Tiles counts={stats.totals} label={`Last ${INGEST_DAYS} days`} />
+            <DaysChart days={oldestFirst} />
             <table className="pk-table ih-table" aria-label="Ingest counters per day">
               <thead>
                 <tr>

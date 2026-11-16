@@ -116,7 +116,10 @@ func EnsureMember(ctx context.Context, pool *pgxpool.Pool, o MemberOptions) (Mem
 			if err := emitMembership(ctx, tx, org.ID, user.ID, o.Role); err != nil {
 				return err
 			}
-			return recorder.Record(actx, audit.Event{User: &user.ID, Kind: audit.MemberAdded, Meta: meta})
+			return recorder.Record(actx, audit.Event{
+				User: &user.ID, Kind: audit.MemberAdded, Org: &org.ID, Target: memberTarget(user.ID, user.Email),
+				Changes: &audit.Changes{Next: map[string]any{"role": o.Role}}, Meta: meta,
+			})
 		case err != nil:
 			return fmt.Errorf("membership: %w", err)
 		}
@@ -140,12 +143,20 @@ func EnsureMember(ctx context.Context, pool *pgxpool.Pool, o MemberOptions) (Mem
 			return err
 		}
 		meta["from"], meta["to"] = m.Role, o.Role
-		return recorder.Record(actx, audit.Event{User: &user.ID, Kind: audit.MemberRoleChanged, Meta: meta})
+		return recorder.Record(actx, audit.Event{
+			User: &user.ID, Kind: audit.MemberRoleChanged, Org: &org.ID, Target: memberTarget(user.ID, user.Email),
+			Changes: &audit.Changes{Previous: map[string]any{"role": m.Role}, Next: map[string]any{"role": o.Role}}, Meta: meta,
+		})
 	})
 	if err != nil {
 		return MemberResult{}, err
 	}
 	return res, nil
+}
+
+// memberTarget is the audit target of a membership event, as orgs records it.
+func memberTarget(user uuid.UUID, email string) audit.Target {
+	return audit.Target{Type: "member", ID: user.String(), Label: email}
 }
 
 func emitMembership(ctx context.Context, tx pgx.Tx, org, user uuid.UUID, role string) error {

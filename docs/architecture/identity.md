@@ -13,9 +13,10 @@ docs site (`apps/docs/self-host/*`).
 
 ## Status
 
-Identity lands over milestone M2. Sections below describe the M2 design; the
-table says what is on `v2` today. Rows marked *planned* name the issue that
-implements them, and that issue updates this page when it merges.
+Identity landed over milestone M2; M4 added project roles, default access,
+the scoped audit log, re-authentication and the project lifecycle. The table
+says what is on `v2` today and names the issues that built each piece; a
+change to one of them updates this page in the same pull request.
 
 | Piece | State |
 |---|---|
@@ -27,21 +28,28 @@ implements them, and that issue updates this page when it merges.
 | `GET /api/v1/auth/providers`, `GET /api/v1/auth/oauth/{provider}/start` | done |
 | SpiceDB schema, Go client (fail-closed, ZedTokens), SpiceDB in compose/Helm | done |
 | UI: encrypted session cookie, auth gate, `/api/auth/*` Route Handlers, refresh coalescing | done |
-| Key rotation and JWKS, access-token issuer, session verifier (#233–#236) | planned |
-| Refresh rotation and logout (#238) | planned |
-| Email code and magic link (#248–#254) | planned |
-| OAuth callback and handoff (#255, #258–#260) | planned |
-| Passkeys (#261–#265), TOTP and recovery (#266–#270) | planned |
-| `GET/PATCH/DELETE /api/v1/users/me` (#245); the sole-owner check reads memberships once #276 lands | done |
+| Key rotation and JWKS, access-token issuer, session verifier (#233–#236) | done |
+| Refresh rotation and logout (#238) | done |
+| Email code and magic link (#248–#254) | done |
+| OAuth callback and handoff (#255, #258–#260) | done |
+| Passkeys (#261–#265), TOTP and recovery (#266–#270) | done |
+| `GET/PATCH/DELETE /api/v1/users/me` (#245) | done |
 | Device labels, `GET /api/v1/users/me/sessions` (#271) | done |
 | Change email with verification of the new address (#274) | done |
 | Session revocation and the access-token `sid` denylist (#272) | done |
-| New-device alerts, purge (#273, #275) | planned |
-| Orgs, members, invitations, projects, API keys (#276–#287) | planned |
-| Outbox relay, reconciler, `authz.Require`, capabilities (#291–#296) | planned |
-| Per-org OIDC SSO (#297–#300) | planned |
+| New-device alerts, purge of deleted accounts (#273, #275) | done |
+| Orgs, members, invitations, projects, API keys (#276–#287) | done |
+| Outbox relay, reconciler, `authz.Require`, capabilities (#291–#296) | done |
+| Per-org OIDC SSO (#297–#300) | done |
 | OIDC provider skeleton: discovery, authorize, token, userinfo, client credentials (#301), behind `identity.oidc_provider.enabled` | done |
-| First-admin CLI `apilens user create` / `user magic-link` (#353) | planned |
+| First-admin CLI `apilens user create` / `user magic-link` (#353) | done |
+| M4: project roles and default access: ADR 0009 (#764), schema (#765), `project_members` and `projects.default_access` (#766), outbox topics and relay (#767), backfill and reconciler (#768) | done |
+| M4: `GET /projects/{slug}/access` (#769), SpiceDB guards on project handlers (#770), user context `access.manage`, `audit.read` and the effective role (#771), restricted projects in the query API (#772) | done |
+| M4: grant, change and remove a project role; set default access (#778); invitations carry project roles (#779) | done |
+| M4: audit scope, target, request id and changes (#776, #777), the missing project events (#782), list (#783) and CSV export (#784), retention job (#785) | done |
+| M4: `auth_time` and the recent sign-in rule (#793), re-authentication without signing out (#797) | done |
+| M4: emails to project admins about sensitive changes (#798) | done |
+| M4: project lifecycle: pause (#792), slug rename (#794), delete and restore (#795), purge (#796); see [`project-lifecycle.md`](project-lifecycle.md) | done |
 
 ## Components
 
@@ -428,6 +436,21 @@ to the org keeps their role. It is idempotent: accepting a used invitation
 again answers the org with `joined: false` while the user is still a member.
 Both live under `/api/v1/auth`, so the identity role serves them.
 
+An invitation can also carry project roles (D4 in #753):
+`POST …/invitations` takes `project_grants: [{project, role}]` (at most 20,
+`admin`/`editor`/`viewer`), stored in `invitation_project_grants` and applied
+to every invitation of the request. The inviter needs `manage_access` on each
+project (SpiceDB); a project they cannot manage, one of another org or one
+that does not exist answers `forbidden` and invites nobody. Lists answer
+`project_grants` per invitation, the public lookup only the project names
+and roles (`projects: [{name, role}]`), and the email names the project when
+there is exactly one. Accepting creates the membership and a direct project
+role for each grant in the same transaction (`membership.upserted` and
+`project_member.upserted`; a higher direct role the user already has is
+kept). Revoking or replacing an invitation deletes its grants.
+`GET /api/v1/projects/{slug}/invitations` (`manage_access`) lists the pending
+invitations that carry a role on the project.
+
 ## Tokens and sessions
 
 ### Access token
@@ -444,9 +467,56 @@ recently retired, so rotation never breaks live tokens).
 | `iat`, `exp` | issue time, issue time + `access_token_ttl` |
 | `sid` | session id (the `sessions` row) |
 | `amr` | how the session was authenticated: `email`, `google`, `github`, `passkey`, `totp`, `backup_code`, `sso` |
+| `auth_time` | when the user signed in to the session (OIDC Core `auth_time`, seconds): the session's `created_at`, unchanged by refreshes and moved to now by re-authentication |
 
 Verifiers (`api`, `query`, later `mcp`) accept only RS256 and only keys from
 JWKS, check `iss`, `aud` and `exp`, and consult the `sid` denylist.
+
+### Sensitive operations (recent sign-in)
+
+Some API operations need a sign-in less than
+`identity.sensitive_action_max_age` (10 min) old, like GitHub's sudo mode
+(D12 in #753): creating and rotating an API key, deleting and restoring a
+project, renaming its slug, granting, changing and removing a project role,
+and changing the default access. `authz.RequireRecentAuth(api, maxAge)` (beside
+`RequireProject` in `internal/authz/require.go`) compares the access token's
+`auth_time` with the clock and answers `reauth_required` (403) when the
+sign-in is older, or when the token has no `auth_time` (issued before the
+claim existed; the next refresh adds it). The project access writes call
+`authz.RecentAuth` in the handler after the `manage_access` check, so a
+caller without the permission gets `forbidden` before `reauth_required`. The user confirms who they are
+again without signing out (re-authentication, below) and retries. API keys and OAuth clients are refused with
+`forbidden`: these operations need a user session. Each such operation lists
+`reauth_required` in the OpenAPI document. 2FA setup applies the same
+10-minute rule inside identity, from the session row.
+
+### Re-authentication (`/api/v1/auth/reauth`)
+
+A signed-in user who hits `reauth_required` confirms who they are again
+without signing out:
+
+1. `POST /api/v1/auth/reauth/options` lists the methods the user has, strongest
+   first: `passkey` (the answer carries WebAuthn options limited to their
+   passkeys), `totp` when two-factor authentication is on, and `email` (a
+   6-digit code to the account address) when it is off, since an emailed code
+   alone would be weaker than signing in. `send_email_code: true` emails the
+   code (`reauth_code` template, 15 minutes, 5 wrong guesses, 30 s resend
+   cooldown, `email_start_per_email` limit). A user whose organization
+   enforces SSO gets only `sso` and an `sso_url`: the SSO start with
+   `reauth=true`, which asks the identity provider for `prompt=login` and
+   `max_age=0`, requires a recent `auth_time` in the id_token and ends in a
+   new session.
+2. `POST /api/v1/auth/reauth/verify` checks the passkey assertion (it must be
+   one of the user's own passkeys), the authenticator code or the emailed
+   code. On success the live row of the session's family gets `created_at =
+   now()` (refreshes inherit it) and the answer carries a new access token
+   whose `auth_time` is now; the refresh token does not change. Verify is
+   limited per user by `second_factor_per_user` (10 per 15 minutes, 429
+   `rate_limited`), so repeated failures lock re-authentication out for a
+   while. A method the user does not have answers `invalid_request`.
+
+Success is audited as `session.reauthenticated` (`method`, `session_id`),
+failures as `session.reauth_failed` (`method`, `reason`).
 
 ### Refresh token and session
 
@@ -485,6 +555,7 @@ SHA-256 is stored. Lifetime is `identity.refresh_token_ttl` (30 days) with
 | `identity.dev_email_code` | empty. Six digits that every sign-in email uses instead of a random code, for local development. Refused unless `public_ui_url` is on localhost |
 | `identity.pre_auth_ttl` | `5m` |
 | `identity.recovery_delay` | `24h` |
+| `identity.sensitive_action_max_age` | `10m` |
 | OAuth state / handoff code | 10 min / 60 s |
 | Email start per email / per IP | 5 / 20 per 15 min |
 | Code verify per email | 10 per 15 min |
@@ -510,7 +581,11 @@ Served by the identity role and authenticated with the session scheme
   the stored object; `preferences.home` is one of `endpoints`, `requests`,
   `exceptions`, and `preferences.last_project_slug` is a project slug (or
   empty to clear it) that `/users/me/context` returns as
-  `last_project_slug`. Unknown fields fail validation (`422`). Audited as
+  `last_project_slug`. `preferences.security_emails` (a boolean, on unless
+  set to `false`) turns off the project change emails sent to project
+  admins (`internal/controlplane/notify`: API key created, rotated or
+  revoked, default access changed, project paused, resumed or restored);
+  the deletion email is always sent. Unknown fields fail validation (`422`). Audited as
   `user.updated` with the changed field names, never their values.
 - `PATCH /api/v1/users/me/onboarding` (`internal/identity/onboarding.go`)
   saves onboarding progress so a refresh resumes: `step` replaces the stored
@@ -541,10 +616,12 @@ Served by the identity role and authenticated with the session scheme
 - The purge job (`identity.purge_deleted_users`, a River periodic job, hourly
   and on start, run by the identity role) hard-deletes users whose
   `delete_after` has passed, 500 per transaction. Their sessions, email
-  tokens, OAuth identities, passkeys and TOTP rows cascade. Audit events are
-  kept but anonymised first: events about the user lose `user_id` and
-  `metadata`, events they acted in lose `actor_user_id`, and both lose the IP
-  and user agent.
+  tokens, OAuth identities, passkeys and TOTP rows cascade. Their personal
+  audit events (no `org_id`) are deleted. Org and project events outlive
+  them (`audit_events.user_id` is `ON DELETE SET NULL`) but are anonymised
+  first: events about the user lose `user_id` and `metadata`, events they
+  acted in lose `actor_user_id`, and both lose the IP and user agent;
+  `actor_label` (the name at the time) keeps the history readable.
 
 ### Changing the email (`/api/v1/users/me/email`)
 
@@ -567,6 +644,50 @@ Implemented by `internal/identity/email_change.go` and
    audits `email.changed`. It returns the updated user like `GET`. It answers
    `email_taken` if the address was taken since the code was sent.
 
+## Project roles and default access
+
+Who can do what on one project ([ADR 0009](../adr/0009-project-access.md),
+D1 to D4 in #753). Postgres holds the source of truth; SpiceDB holds the
+relationships (outbox topics below); the role and permission tables are in
+[`authz/README.md`](../../authz/README.md).
+
+- **Roles.** A project has three roles: Admin, Editor, Viewer
+  (`project#admin|editor|viewer`). Org owners and org admins are Admin on
+  every project. Direct grants live in `project_members` (one row per
+  person and project, migration 00032) and go only to members of the
+  project's organization (`not_org_member` otherwise); a project holds at
+  most `access.max_direct_members_per_project` (500) of them
+  (`member_limit_reached`). Leaving or being removed from the organization
+  deletes the person's grants on its projects in the same transaction.
+- **Default access.** `projects.default_access` says what org members get
+  without a direct grant: `org_role` (the default: org members are Editor,
+  org viewers Viewer), `viewer` (both are Viewer) or `none` (restricted:
+  only org owners and admins and people added directly). It is written to
+  SpiceDB as the `default_editor` / `default_viewer` relations.
+- **Highest grant wins.** The effective role is the highest of the
+  organization role, the default access and a direct grant.
+  `GET /api/v1/projects/{slug}/access` (`project#view`) lists everyone who
+  can view the project with the effective role and each source of it
+  (`org_role`, `default`, `direct`); on a restricted project org members
+  without a grant are not listed. The user context and project responses
+  carry the caller's effective role (`admin` ⇔ `manage_access`, `editor` ⇔
+  `edit`, `viewer` ⇔ `view`).
+- **Changing access.** `PUT /api/v1/projects/{slug}/members/{user_id}`
+  `{role}` grants or changes a direct role (`project_member.upserted`;
+  audited `project_member.added` or `project_member.role_changed`),
+  `DELETE` the same path removes it (`project_member.deleted`;
+  `project_member.removed`; anyone may remove their own grant), and
+  `PATCH /api/v1/projects/{slug}/access` `{default_access, dry_run?}` changes
+  the default (`project.access_changed`, audited and emailed to the project
+  admins); the answer's `lose_access` counts who loses access, so the UI can
+  confirm with `dry_run=true` first. All three need `project#manage_access`
+  and a recent sign-in (`reauth_required`), and write the outbox row in the
+  same transaction (`internal/controlplane/api/access.go`,
+  `internal/controlplane/access`).
+- **Invitations** can carry project roles that apply on accept (see
+  [Invitations](#invitations)); `GET /api/v1/projects/{slug}/invitations`
+  lists the pending ones for a project.
+
 ## Authorization: outbox and SpiceDB sync
 
 Postgres is the source of truth for organizations, memberships and projects;
@@ -586,17 +707,22 @@ SpiceDB holds the derived relationships that permission checks read
 3. **Reconcile.** An hourly River job (`authz.reconcile`, run by the
    `identity` role, which the M4 `worker` role will take over) repairs drift:
    relationships lost or left behind by a manual edit, a restored backup or a
-   relay bug. It reads every membership of an active organization and every
-   active project of an active organization from Postgres, reads the
-   relationships it owns from SpiceDB (`organization#{owner,admin,member,viewer}`
-   and `project#org`; project-level roles are left alone), `TOUCH`es what is
-   missing and `DELETE`s what Postgres has no source for, and counts each
+   relay bug. It reads every membership of an active organization, every
+   active project of an active organization (with its `default_access`) and
+   every `project_members` row of such a project from Postgres, reads the
+   relationships it owns from SpiceDB (`organization#{owner,admin,member,viewer}`,
+   `project#org`, `project#{admin,editor,viewer}` and the default relations
+   `project#default_editor|default_viewer`), `TOUCH`es what is missing and
+   `DELETE`s what Postgres has no source for, and counts each
    repair in `apilens_authz_drift_total{kind="missing"|"extra"}`. It holds the
    relay's advisory lock for the whole run, so the relay cannot apply a row in
    between and have it undone by a stale snapshot; rows committed during the
    run are relayed after it. Operators can run it at once with
    `apilens authz reconcile` (`-dry-run` only reports), which prints
-   `{"missing":n,"extra":n,"dry_run":false}`.
+   `{"missing":n,"extra":n,"dry_run":false}`. `apilens migrate` runs it
+   once right after writing the schema, so an upgrade that adds
+   relationships (the default relations of existing projects, #768) is one
+   step; see `authz/README.md` for the upgrade order.
 4. **Read.** Checks go through `internal/authz.Client` with
    `at_least_as_fresh` the org's last ZedToken, so a user sees their own
    writes immediately. When SpiceDB cannot answer, the check **fails closed**
@@ -608,9 +734,20 @@ SpiceDB holds the derived relationships that permission checks read
 | `org.deleted` | org id | `{org_id}` | `DELETE` every relationship of `organization:{org}` |
 | `membership.upserted` | org id | `{org_id, user_id, role}` | `DELETE` the user's other org roles, `TOUCH organization:{org}#{role}@user:{user}` |
 | `membership.deleted` | org id | `{org_id, user_id}` | `DELETE organization:{org}#{owner,admin,member,viewer}@user:{user}` |
-| `project.created` | project id | `{project_id, org_id}` | `TOUCH project:{project}#org@organization:{org}` |
-| `project.deleted` | project id | `{project_id}` | `DELETE` every relationship of `project:{project}` |
-| `project.moved` | project id | `{project_id, from_org_id, to_org_id}` | `DELETE …#org@organization:{from}`, `TOUCH …#org@organization:{to}` |
+| `project.created` | project id | `{project_id, org_id}` | `TOUCH project:{project}#org@organization:{org}`, and the `org_role` default access: `TOUCH …#default_editor@organization:{org}#member`, `TOUCH …#default_viewer@organization:{org}#viewer` |
+| `project.deleted` | project id | `{project_id}` | `DELETE` every relationship of `project:{project}`. The project is scheduled for purge (`purge_after`); Postgres keeps its default access and `project_members` rows so a restore can write them back. Nobody, org owners and admins included, holds a permission on a deleted project: listing and restoring deleted projects need `manage` on the organization |
+| `project.moved` | project id | `{project_id, from_org_id, to_org_id}` | `DELETE …#org@organization:{from}`, `TOUCH …#org@organization:{to}`; across orgs the `org_role` default relations move the same way |
+| `project_member.upserted` | project id | `{project_id, org_id, user_id, role}` (`admin`, `editor`, `viewer`) | `DELETE` the user's other project roles and `TOUCH project:{project}#{role}@user:{user}` in one write, so a role change never leaves two roles |
+| `project_member.deleted` | project id | `{project_id, org_id, user_id}` | `DELETE project:{project}#{admin,editor,viewer}@user:{user}`. Leaving an organization (`membership.deleted`) deletes the person's `project_members` rows on its projects in the same transaction and emits one of these per removed grant |
+| `project.access_changed` | project id | `{project_id, org_id, default_access}` (`org_role`, `viewer`, `none`) | `TOUCH` the relations of the new default and `DELETE` the rest of `…#default_editor@organization:{org}#member`, `…#default_viewer@organization:{org}#member`, `…#default_viewer@organization:{org}#viewer`. `org_role`: editor from member, viewer from viewer; `viewer`: both viewer relations; `none`: none of them |
+| `project.restored` | project id | `{project_id, org_id, default_access, members: [{user_id, role}]}` | A deleted project restored before its purge: `TOUCH project:{project}#org@organization:{org}`, the relations of `default_access` (as `project.access_changed`) and `TOUCH project:{project}#{role}@user:{user}` per direct grant, all read from Postgres at restore time |
+
+M2 shipped the organization, membership and project topics; M4 added
+`project_member.upserted`, `project_member.deleted` and
+`project.access_changed` (#767) and `project.restored` (#795). The purge job
+(#796) emits `project.deleted` once more when it removes a project, so any
+relationship written since the delete is dropped too
+([`project-lifecycle.md`](project-lifecycle.md)).
 
 The topics and payloads above are the contract the outbox helper (#277) and
 the relay (#291) implement. The helper is
@@ -629,12 +766,18 @@ once shipped; a new shape gets a new topic.
 `GET /api/v1/users/me/context` (api role, `internal/controlplane/api/context.go`,
 `internal/controlplane/usercontext`) returns in one call what the app shell
 needs: `user` (the `/users/me` body), `orgs` (each with the user's `role` and
-its projects with their environments), `last_project_slug` (the preference,
+the projects they can view, each with its environments and the user's
+effective project `role`), `last_project_slug` (the preference,
 or null when the user can no longer see that project), `onboarding`
 (`{step, completed}` read from the stored onboarding object) and
 `capabilities`. It is four indexed queries in one read-only snapshot plus one
 SpiceDB `CheckBulkPermissions` call whatever the number of organizations and
 projects (under 50 ms for 10 × 10, asserted by an integration test).
+A project the user cannot view (`project#view`, e.g. a restricted project
+without a grant) is left out of `orgs` and `capabilities`; the effective
+role is read from the same answers (`access.manage` → admin,
+`project.update` → editor, `project.read` → viewer), so neither costs an
+extra SpiceDB call.
 
 The UI never derives permissions from a role. `GET /api/v1/users/me/context`
 returns, per project, the list of **actions** the user may perform, in the
@@ -664,6 +807,8 @@ the UI shows.
 | `api_keys.revoke` | `project#manage_keys` | revoking keys |
 | `capture.manage` | `project#manage_capture` | editing an app's remote capture policy |
 | `alerts.manage` | `project#manage_alerts` | creating, changing and deleting alert rules and notification channels, sending test notifications |
+| `access.manage` | `project#manage_access` | granting, changing and removing project roles and changing the default access on Access › Members |
+| `audit.read` | `project#view_audit` | the project's activity log (Access › Activity) |
 | `members.invite` | `organization#invite` | the invite dialog and Invitations page |
 | `members.remove` | `organization#manage_members` | role changes and removal on Members |
 | `billing.manage` | `organization#manage_billing` | billing (SaaS) |
@@ -759,6 +904,12 @@ Rules:
 | `last_owner` | 409 Conflict | An organization needs at least one owner. Make someone else an owner first. |
 | `member_gone` | 410 Gone | This person is no longer a member. Refresh the page. |
 | `api_key_gone` | 410 Gone | This API key no longer exists. Refresh the page. |
+| `key_limit_reached` | 409 Conflict | This project has the most active API keys it can have. Revoke one you no longer use, then try again. |
+| `key_not_active` | 409 Conflict | This API key is revoked, expired or already rotated, so it can't be rotated. Refresh the page. |
+| `not_org_member` | 409 Conflict | Only members of this organization can be added to the project. Invite them to the organization first. |
+| `member_limit_reached` | 409 Conflict | This project has the most people added directly it can have. Remove someone, or give everyone access through the default access. |
+| `environment_in_use` | 409 Conflict | This environment has data, or an API key or health check uses it, so it can't be deleted. Hide it instead. |
+| `confirmation_mismatch` | 422 Unprocessable Entity | That doesn't match. Type the project's slug exactly as shown to confirm. |
 | `sso_required` | 403 Forbidden | Your organization requires single sign-on. Sign in through your company's identity provider. |
 | `sso_not_configured` | 409 Conflict | Single sign-on isn't set up for this organization yet. |
 | `sso_untested` | 409 Conflict | Sign in through single sign-on at least once before you enforce it, so nobody gets locked out. |

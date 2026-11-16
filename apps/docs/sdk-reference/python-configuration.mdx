@@ -59,7 +59,7 @@ Accepted by `ApiLensMiddleware` (FastAPI), `instrument_app`/`instrument_flask`, 
 
 | Option | Default | Description |
 |---|---|---|
-| `app_id` | `""` | App slug — attributes traffic to an app in the project. **Required for tracing.** |
+| `app_id` | `APILENS_APP_ID`, else `OTEL_SERVICE_NAME`, else none | The service's app name. An unknown name creates the app on first data; none sends to the project's default app. See [Projects, apps & API keys](/platform/projects-apps-keys). |
 | `environment` | client's value | Per-app override of the environment label. |
 | `capture_profile` | `None` (= `full`) | `"metadata"`, `"redacted"` or `"full"`: sets the defaults of the capture flags below; an explicit flag wins. See [Capture profiles](/getting-started/data-privacy#capture-profiles). |
 | `enable_request_logging` | `True` | Master switch for header + body capture. |

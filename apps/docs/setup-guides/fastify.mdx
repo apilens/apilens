@@ -23,7 +23,7 @@ const app = Fastify();
 
 await app.register(apiLensFastify, {
   apiKey: process.env.APILENS_API_KEY,
-  appId: "storefront-api",        // the app's slug from your APILens project
+  appId: "storefront-api",        // your service's name; the app appears on first data
   environment: "production",
 });
 

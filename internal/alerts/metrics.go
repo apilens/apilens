@@ -100,8 +100,8 @@ func (c Condition) Breached(value *float64, threshold float64) bool {
 // Every key is optional.
 //
 //   - consumer: a consumer id, as the SDK reports it.
-//   - group: a consumer group id (consumer_groups.id); its members at
-//     evaluation time are counted.
+//   - group: a consumer group name, as the SDK reports it (consumer_group
+//     on each request); the requests tagged with it are counted.
 //   - endpoint: "METHOD /route/{template}" or just "/route/{template}" for
 //     every method, matching the endpoint path the dashboard shows.
 type Filters struct {
@@ -138,8 +138,8 @@ func (f Filters) endpoint() (method, path string) {
 	return "", e
 }
 
-// byConsumer reports whether f narrows by consumer, which the per-minute
-// rollup cannot answer.
+// byConsumer reports whether f narrows by consumer or consumer group,
+// which the per-minute rollup cannot answer.
 func (f Filters) byConsumer() bool { return f.Consumer != "" || f.Group != "" }
 
 // Window is the minute-aligned span a rule aggregates over: [Start, End).

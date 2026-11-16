@@ -1,0 +1,8 @@
+/* Access › Members invitations (#809): the invite option of "Add people" and the pending invitations under the members table. Tokens from tokens.css only. */
+.am-invite-opt { margin-top: var(--space-3); }
+.am-invite-opt .ah-btn { max-width: 100%; white-space: normal; text-align: left; }
+.am-dialog .ob-f + .ob-f { margin-top: var(--space-4); }
+
+.am-inv { margin-top: var(--space-6); }
+.am-inv__h { margin: 0 0 var(--space-3); font: 600 15px/22px var(--font-sans); color: var(--ink); }
+.am-inv__none { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }

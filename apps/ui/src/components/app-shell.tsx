@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { CapabilitiesProvider } from "@/lib/permissions";
 import { type UserContext, findOrg, findProject } from "@/lib/scope";
 import { Icon } from "./icons";
+import { PausedBanner } from "./paused-banner";
 import { ScopeSwitcher } from "./scope-switcher";
 import { Sidebar } from "./sidebar";
 
@@ -72,6 +73,7 @@ export function AppShell({ context, project: projectSlug, org: orgSlug, account 
         </div>
         <main className="app-main">
           <CapabilitiesProvider capabilities={context.capabilities} project={account ? undefined : navProject?.slug}>
+            {project ? <PausedBanner project={project.slug} /> : null}
             {children}
           </CapabilitiesProvider>
         </main>

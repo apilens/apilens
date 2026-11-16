@@ -29,7 +29,7 @@ Requires Java 17+ and Spring Boot 3 (Jakarta Servlet). The only hard dependency 
 
 ## Configure
 
-Set the project API key and the app's slug in `application.properties`:
+Set the project API key and the service's app name (the app is created on first data) in `application.properties`:
 
 ```properties
 apilens.api-key=${APILENS_API_KEY}
@@ -37,7 +37,7 @@ apilens.app-id=orders-api
 apilens.environment=production
 ```
 
-That's it. When `apilens.api-key` is set, the auto-configuration builds the client from the `apilens.*` properties and registers `ApiLensSpringFilter`. `api-key` is your **project-level** key (Settings → API keys); `app-id` attributes this service's traffic to the right app in the project. The client is flushed when the application context closes.
+That's it. When `apilens.api-key` is set, the auto-configuration builds the client from the `apilens.*` properties and registers `ApiLensSpringFilter`. `api-key` is your **project-level** key (Access → API keys); `app-id` attributes this service's traffic to the right app in the project. The client is flushed when the application context closes.
 
 ## How it captures
 

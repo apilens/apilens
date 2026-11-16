@@ -1,0 +1,20 @@
+Subject: An API key in Shop <EU> expires on 11 November 2026
+
+APILens
+
+The API key "checkout <prod>" in the project Shop <EU> stops working on Wed, 11 Nov 2026 09:30 UTC. SDKs that still use it can no longer send data after that.
+
+Project: Shop <EU>
+Key: checkout <prod> (apl_live_a1b2)
+Expires: Wed, 11 Nov 2026 09:30 UTC
+
+To keep data flowing, rotate the key and deploy the new secret before then. If nothing uses the key any more, there is nothing to do.
+
+Review API keys:
+https://app.example.com/shop-eu/access
+
+You get this email because you are an admin of Shop <EU>. You can turn off these emails in your account settings:
+https://app.example.com/settings
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.

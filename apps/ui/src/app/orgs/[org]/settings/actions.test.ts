@@ -120,7 +120,7 @@ describe("deleteOrganization", () => {
         slug,
         name: slug,
         role: "owner",
-        projects: [{ id: "p", slug: "web", name: "Web", environments: [] }],
+        projects: [{ id: "p", slug: "web", name: "Web", environments: [], app_count: 1 }],
       })),
     }) as unknown as UserContext;
 

@@ -24,12 +24,12 @@ app = FastAPI()
 app.add_middleware(
     ApiLensMiddleware,
     api_key=os.environ["APILENS_API_KEY"],
-    app_id="orders-api",          # the app's slug from your APILens project
+    app_id="orders-api",          # your service's name; the app appears on first data
     env="production",             # default; use "staging", "development", ...
 )
 ```
 
-That's it for metrics, request logs, and traces. `api_key` is your **project-level** key (Settings → API keys); `app_id` attributes this service's traffic to the right app in the project.
+That's it for metrics, request logs, and traces. `api_key` is your **project-level** key (Access → API keys); `app_id` attributes this service's traffic to the right app in the project.
 
 <Tip>
 When stacking multiple middlewares, add `ApiLensMiddleware` **last** so it wraps the full request lifecycle and its timings include your other middleware.

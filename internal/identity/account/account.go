@@ -47,6 +47,10 @@ const (
 	// opened; GET /api/v1/users/me/context returns it as
 	// last_project_slug. Empty clears it.
 	PreferenceLastProject = "last_project_slug"
+	// PreferenceSecurityEmails turns the project change emails sent to
+	// project admins (internal/controlplane/notify) on or off. A missing
+	// key means on; deletion emails ignore it.
+	PreferenceSecurityEmails = "security_emails"
 )
 
 // lastProjectRE is the project slug rule (projects.slug), or empty.
@@ -267,13 +271,19 @@ func (s *Service) Restore(ctx context.Context, email string) (db.User, error) {
 }
 
 // ValidatePreferences checks the known preference keys of a patch: `home`
-// must be one of Homes and `last_project_slug` a project slug or empty.
+// must be one of Homes, `last_project_slug` a project slug or empty, and
+// `security_emails` a boolean.
 // Unknown keys are the caller's schema's concern.
 func ValidatePreferences(p map[string]any) error {
 	if v, ok := p[PreferenceLastProject]; ok {
 		s, isString := v.(string)
 		if !isString || !lastProjectRE.MatchString(s) {
 			return fmt.Errorf("%w: last_project_slug must be a project slug or empty", ErrInvalidPreference)
+		}
+	}
+	if v, ok := p[PreferenceSecurityEmails]; ok {
+		if _, isBool := v.(bool); !isBool {
+			return fmt.Errorf("%w: security_emails must be true or false", ErrInvalidPreference)
 		}
 	}
 	if v, ok := p[PreferenceHome]; ok {

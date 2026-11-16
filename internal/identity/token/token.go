@@ -68,6 +68,10 @@ type Claims struct {
 	SessionID string `json:"sid"`
 	// AMR (`amr`, RFC 8176) lists how the user authenticated.
 	AMR []string `json:"amr"`
+	// AuthTime (`auth_time`, OIDC Core) is when the user signed in to the
+	// session: its created_at, kept across refreshes. The API compares it
+	// with identity.sensitive_action_max_age (authz.RequireRecentAuth).
+	AuthTime *jwt.NumericDate `json:"auth_time,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -128,6 +132,7 @@ func (i *Issuer) Issue(user db.User, session db.Session, amr []string) (string, 
 	claims := Claims{
 		SessionID: session.ID.String(),
 		AMR:       slices.Clone(amr),
+		AuthTime:  jwt.NewNumericDate(session.CreatedAt.Truncate(time.Second)),
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    i.issuer,
 			Subject:   user.ID.String(),

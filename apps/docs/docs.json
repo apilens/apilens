@@ -82,6 +82,11 @@
             "group": "Platform",
             "pages": [
               "platform/projects-apps-keys",
+              "platform/project-access",
+              "platform/api-keys",
+              "platform/activity-log",
+              "platform/project-settings",
+              "platform/deleting-a-project",
               "auth/authentication-flow",
               "auth/passwordless-and-password"
             ]
@@ -99,7 +104,8 @@
               "self-host/first-admin",
               "self-host/email",
               "self-host/google-and-github",
-              "self-host/sso-oidc"
+              "self-host/sso-oidc",
+              "self-host/audit-log"
             ]
           },
           {

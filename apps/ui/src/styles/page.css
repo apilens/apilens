@@ -1,0 +1,38 @@
+/* The one page-width standard. Every signed-in page (project views, project settings, org
+   settings, account settings) wraps its content in `.page`, so content starts at the same x and
+   ends at the same right edge everywhere. Do not give a page wrapper its own max-width or
+   horizontal padding: change these tokens instead.
+
+   --page-max      the widest the content box gets (the padding sits outside it)
+   --page-pad-x    horizontal gutter: 32px on desktop, 16px at 760px and below
+   --page-measure  reading width for form pages (`.page--measure`), left-aligned, so a form
+                   starts at the same x as a dashboard and only its right edge is shorter
+
+   Not on this standard, on purpose: the auth and onboarding flows (centred single-column
+   `.ob-col` / `.au-col` layouts) and the internal /design playground. */
+:root {
+  --page-max: 1200px;
+  --page-pad-x: var(--space-8);
+  --page-pad-top: var(--space-8);
+  --page-pad-bottom: var(--space-16);
+  --page-measure: 760px;
+}
+@media (max-width: 760px) {
+  :root {
+    --page-pad-x: var(--space-4);
+    --page-pad-top: var(--space-4);
+    --page-pad-bottom: var(--space-12);
+  }
+}
+
+.page {
+  width: 100%;
+  max-width: calc(var(--page-max) + 2 * var(--page-pad-x));
+  margin-inline: auto;
+  padding: var(--page-pad-top) var(--page-pad-x) var(--page-pad-bottom);
+}
+
+/* Form pages: each block is capped at the reading width, left-aligned in the standard box. */
+.page--measure > * {
+  max-width: var(--page-measure);
+}

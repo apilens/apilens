@@ -165,6 +165,7 @@ type SSOStartInput struct {
 	Next      string `query:"next" maxLength:"2048" doc:"Relative path (starting with a single /) to open after sign-in. Defaults to /."`
 	Remember  bool   `query:"remember" doc:"Keep the session for the long refresh-token lifetime."`
 	LoginHint string `query:"login_hint" maxLength:"254" doc:"Email typed on the sign-in page, passed to the identity provider as login_hint."`
+	Reauth    bool   `query:"reauth" doc:"Re-authentication of a signed-in user (the sso_url of POST /api/v1/auth/reauth/options): the identity provider is asked to authenticate the user again (prompt=login, max_age=0), and the id_token's auth_time must be recent."`
 }
 
 // SSOCallbackInput is the request of GET /api/v1/auth/sso/{org}/callback.
@@ -184,6 +185,7 @@ func (s *SSO) Register(api huma.API) {
 		Summary:     "Start organization single sign-on",
 		Description: "Public browser navigation; `start_url` of the SSO lookup points here. Starts an authorization-code flow with PKCE and an OIDC nonce against the identity provider of the organization's connection " +
 			"(endpoints from its OIDC discovery), keeps the attempt server-side for 10 minutes keyed by a random state, and redirects (302) to the provider. " +
+			"With `reauth=true` (re-authentication before a sensitive action) the provider is asked for a fresh login (`prompt=login`, `max_age=0`), the callback requires an `auth_time` in the id_token no older than the attempt, and the new session is audited as `session.reauthenticated`. " +
 			"Rate-limited per client IP. An organization that does not exist or has no SSO connection answers 404.",
 		Tags:          []string{server.TagAuth},
 		DefaultStatus: http.StatusFound,
@@ -268,6 +270,7 @@ func (s *SSO) start(ctx context.Context, in *SSOStartInput) (*OAuthStartOutput, 
 		Intent:   OAuthIntentLogin,
 		Remember: in.Remember,
 		Verifier: oauth2.GenerateVerifier(),
+		Reauth:   in.Reauth,
 	}
 	if st.Nonce, err = randomToken(); err != nil {
 		return nil, Err(CodeInternal)
@@ -275,6 +278,11 @@ func (s *SSO) start(ctx context.Context, in *SSOStartInput) (*OAuthStartOutput, 
 	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(st.Verifier), oidc.Nonce(st.Nonce)}
 	if hint, ok := NormalizeEmail(in.LoginHint); ok {
 		opts = append(opts, oauth2.SetAuthURLParam("login_hint", hint))
+	}
+	if in.Reauth {
+		// OIDC Core §3.1.2.1: authenticate again even with a live session at
+		// the provider; max_age makes it return auth_time.
+		opts = append(opts, oauth2.SetAuthURLParam("prompt", "login"), oauth2.SetAuthURLParam("max_age", "0"))
 	}
 	if err := s.states.Put(ctx, state, st, OAuthStateTTL); err != nil {
 		s.logger.ErrorContext(ctx, "sso start: store state", "org", conn.Slug, "error", err)
@@ -316,6 +324,9 @@ type ssoClaims struct {
 	// refused.
 	EmailVerified *bool  `json:"email_verified"`
 	Name          string `json:"name"`
+	// AuthTime is when the provider authenticated the user (seconds since
+	// the epoch); required for a re-authentication.
+	AuthTime *int64 `json:"auth_time"`
 }
 
 // finish runs the callback up to the sign-in answer to hand off.
@@ -401,6 +412,10 @@ func (s *SSO) identify(ctx context.Context, conn db.GetOrgSSOConnectionBySlugRow
 	if c.EmailVerified != nil && !*c.EmailVerified {
 		return "", failure(CodeOAuthEmailUnverified, "email_unverified", nil)
 	}
+	if st.Reauth && (c.AuthTime == nil || s.now().Sub(time.Unix(*c.AuthTime, 0)) > OAuthStateTTL+reauthClockSkew) {
+		// The provider did not authenticate the user during this attempt.
+		return "", failure(CodeOAuthStateMismatch, "stale_auth_time", nil)
+	}
 	addr, ok := NormalizeEmail(c.Email)
 	if !ok {
 		return "", failure(CodeOAuthEmailUnverified, "invalid_email", nil)
@@ -477,9 +492,23 @@ func (s *SSO) signInUser(ctx context.Context, conn db.GetOrgSSOConnectionBySlugR
 	}); err != nil {
 		s.logger.ErrorContext(ctx, "sso callback: audit", "error", err, "user_id", user.ID)
 	}
+	if st.Reauth {
+		if err := d.Audit.Record(ctx, audit.Event{
+			User:  &user.ID,
+			Actor: &user.ID,
+			Kind:  audit.SessionReauthenticated,
+			Meta:  map[string]any{"method": SSOProvider, "session_id": t.Session.ID.String(), "org_id": conn.OrgID.String()},
+		}); err != nil {
+			s.logger.ErrorContext(ctx, "sso callback: audit", "error", err, "user_id", user.ID)
+		}
+	}
 	res := NewSignInSession(t, next, s.now())
 	return &res, nil
 }
+
+// reauthClockSkew is how far the identity provider's clock may be off when
+// a re-authentication's auth_time is checked.
+const reauthClockSkew = time.Minute
 
 // touchConnection records the sign-in on the connection; a failure is
 // logged only.

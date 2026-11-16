@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -119,13 +120,22 @@ func TestDashboardQueriesAreTenantScoped(t *testing.T) {
 		t.Fatalf("ingest key read = %d, want 403", code)
 	}
 
+	// Registered environments come in their order, hidden ones apart.
+	if _, err := pool.Exec(ctx, `INSERT INTO environments (id, project_id, name, position, hidden_at) VALUES
+		(gen_random_uuid(), $1, 'staging', 1, NULL), (gen_random_uuid(), $1, 'alpha', 2, NULL), (gen_random_uuid(), $1, 'legacy', 3, now())`, mine.ProjectID); err != nil {
+		t.Fatal(err)
+	}
 	var project struct {
 		Project      struct{ Slug string }
 		Apps         []struct{ Slug string }
 		Environments []string
+		Hidden       []string
 	}
 	if code := get(mine.ReadKey, "/api/v1/project", &project); code != 200 || project.Project.Slug != "shop" || len(project.Apps) != 1 || project.Apps[0].Slug != "storefront" {
 		t.Fatalf("project = %d %+v", code, project)
+	}
+	if !slices.Equal(project.Environments, []string{"production", "staging", "alpha"}) || !slices.Equal(project.Hidden, []string{"legacy"}) {
+		t.Fatalf("project environments = %v hidden %v", project.Environments, project.Hidden)
 	}
 
 	var summary struct {
@@ -276,6 +286,8 @@ func TestDashboardQueriesAcceptSessions(t *testing.T) {
 	}{
 		{a.OrgID, []*v1.RelationshipUpdate{
 			touch("project", a.ProjectID.String(), "org", "organization", a.OrgID.String()),
+			orgRoleDefault(a.ProjectID.String(), "default_editor", a.OrgID.String(), "member"),
+			orgRoleDefault(a.ProjectID.String(), "default_viewer", a.OrgID.String(), "viewer"),
 			touch("organization", a.OrgID.String(), "member", "user", alice.String()),
 		}},
 		{b.OrgID, []*v1.RelationshipUpdate{touch("project", b.ProjectID.String(), "org", "organization", b.OrgID.String())}},
@@ -369,6 +381,19 @@ func TestDashboardQueriesAcceptSessions(t *testing.T) {
 	if code, _ := summary(user, "/api/v1/traffic/summary?range=1h&project=shop-a"); code != http.StatusServiceUnavailable {
 		t.Fatalf("spicedb down = %d, want 503", code)
 	}
+}
+
+// orgRoleDefault writes one relation of the `org_role` default access (ADR
+// 0009): default_editor@org#member or default_viewer@org#viewer.
+func orgRoleDefault(projectID, relation, orgID, orgRole string) *v1.RelationshipUpdate {
+	return &v1.RelationshipUpdate{Operation: v1.RelationshipUpdate_OPERATION_TOUCH, Relationship: &v1.Relationship{
+		Resource: &v1.ObjectReference{ObjectType: "project", ObjectId: projectID},
+		Relation: relation,
+		Subject: &v1.SubjectReference{
+			Object:           &v1.ObjectReference{ObjectType: "organization", ObjectId: orgID},
+			OptionalRelation: orgRole,
+		},
+	}}
 }
 
 func touch(resType, resID, relation, subjType, subjID string) *v1.RelationshipUpdate {

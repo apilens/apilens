@@ -97,6 +97,43 @@ export function dropSummary(stats: AppSdkStats): string | null {
   return parts.length ? parts.join(" · ") : null;
 }
 
+/** One day's bar in the records-per-day chart: accepted at the bottom, rejected stacked on top. */
+export interface DayBar {
+  date: string;
+  x: number;
+  w: number;
+  accepted: { y: number; h: number };
+  rejected: { y: number; h: number };
+}
+
+/**
+ * The records-per-day chart: one bar per day in `days` order (oldest first, as the API sends
+ * them), `width` × `height` in viewBox units, a 25% gap between bars. The scale's top is the
+ * busiest day's received records (accepted + rejected), at least 1 so an empty week draws flat.
+ */
+export function dayBars(days: readonly (IngestCounts & { date: string })[], width: number, height: number): { top: number; bars: DayBar[] } {
+  const received = (d: IngestCounts) => Math.max(0, d.accepted) + Math.max(0, d.rejected);
+  const top = Math.max(1, ...days.map(received));
+  const slot = days.length ? width / days.length : width;
+  const w = slot * 0.75;
+  const bars = days.map((d, i) => {
+    const ah = (Math.max(0, d.accepted) / top) * height;
+    const rh = (Math.max(0, d.rejected) / top) * height;
+    return { date: d.date, x: i * slot + (slot - w) / 2, w, accepted: { y: height - ah, h: ah }, rejected: { y: height - ah - rh, h: rh } };
+  });
+  return { top, bars };
+}
+
+/** What the chart says to a screen reader before any day is read: the busiest day and the rejections. */
+export function daysSummary(days: readonly (IngestCounts & { date: string })[], dayLabel: (date: string) => string): string {
+  if (days.length === 0) return "No days to show.";
+  const received = (d: IngestCounts) => Math.max(0, d.accepted) + Math.max(0, d.rejected);
+  const busiest = days.reduce((a, b) => (received(b) > received(a) ? b : a));
+  const rejected = days.reduce((n, d) => n + Math.max(0, d.rejected), 0);
+  const most = `Busiest day ${dayLabel(busiest.date)}: ${plural(received(busiest), "record", "records")} received.`;
+  return rejected > 0 ? `${most} ${plural(rejected, "record", "records")} rejected over the ${days.length} days.` : `${most} None rejected.`;
+}
+
 /** What the SDK card says under its heading. */
 export function sdkLine(stats: AppSdkStats): string {
   if (stats.instances <= 0) return "No SDK instance sent a heartbeat in the last hour, so there are no SDK counters to show.";

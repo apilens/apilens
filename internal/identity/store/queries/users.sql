@@ -139,11 +139,20 @@ ORDER BY delete_after, id
 LIMIT @batch_size
 FOR UPDATE SKIP LOCKED;
 
+-- name: DeletePersonalAuditEventsForUsers :execrows
+-- Deletes the personal account events (no org_id) about purged users. Run
+-- before PurgeUsers: user_id is ON DELETE SET NULL so that org and project
+-- events outlive the person.
+DELETE FROM audit_events
+WHERE user_id = ANY(@ids::uuid[]) AND org_id IS NULL;
+
 -- name: AnonymizeAuditEventsForUsers :execrows
--- Keeps the audit trail of purged users but strips what identifies them:
--- events about them lose user_id and metadata, events they acted in lose
--- actor_user_id, and both lose the client IP and user agent. Run before
--- PurgeUsers, whose cascade would otherwise delete the events.
+-- Keeps the rest of the audit trail of purged users (org and project events,
+-- and events they acted in on other accounts) but strips what identifies
+-- them: events about them lose user_id and metadata, events they acted in
+-- lose actor_user_id, and both lose the client IP and user agent. actor_label
+-- (the name at the time) stays so org and project history stays readable.
+-- Run after DeletePersonalAuditEventsForUsers and before PurgeUsers.
 UPDATE audit_events
 SET user_id       = CASE WHEN user_id = ANY(@ids::uuid[]) THEN NULL ELSE user_id END,
     actor_user_id = CASE WHEN actor_user_id = ANY(@ids::uuid[]) THEN NULL ELSE actor_user_id END,

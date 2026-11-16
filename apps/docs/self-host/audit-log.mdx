@@ -1,0 +1,34 @@
+---
+title: "Self-host: audit log retention"
+description: "Choose how long the audit trail of organizations and projects is kept."
+---
+
+APILens records who did what in each organization and project: sign-ins, role changes, API keys, project and privacy settings. The events live in Postgres, in the `audit_events` table. A daily background job deletes the events older than the retention period.
+
+## Configure retention
+
+Set the period in days in the config file (`audit.retention`) or as an environment variable:
+
+```bash
+APILENS_AUDIT__RETENTION=400
+```
+
+| Variable | Default | Description |
+|---|---|---|
+| `APILENS_AUDIT__RETENTION` | `400` | Days audit events are kept. At least `30`, or `0` to keep them forever. Any other value stops APILens at start-up. |
+
+On Kubernetes, set it under `config` in the Helm values:
+
+```yaml
+config:
+  APILENS_AUDIT__RETENTION: 400
+```
+
+## How it works
+
+- The job runs on the processes that run the identity role, once at start-up and then every 24 hours. When several replicas run, only one of them runs it.
+- It deletes events recorded before *now minus the retention period*, in batches of 1000 rows, so a first run over a large table never holds one long transaction.
+- Shortening the period deletes the older events at the next run. Lengthening it does not bring back events already deleted.
+- The audit event lists (`GET /api/v1/projects/{project}/audit-events` and `GET /api/v1/orgs/{org}/audit-events`) return the period as `retention_days`, so the dashboard can say how far back the log goes. `0` means the events are kept forever.
+
+Telemetry retention (requests, logs, spans and rollups in ClickHouse) is configured separately: see [Retention](/getting-started/data-privacy#retention).

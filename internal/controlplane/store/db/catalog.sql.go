@@ -42,6 +42,40 @@ func (q *Queries) GetProjectWithOrg(ctx context.Context, id uuid.UUID) (GetProje
 	return i, err
 }
 
+const listPickerEnvironments = `-- name: ListPickerEnvironments :many
+SELECT name, (hidden_at IS NOT NULL)::bool AS hidden
+FROM environments
+WHERE project_id = $1
+ORDER BY position, name
+`
+
+type ListPickerEnvironmentsRow struct {
+	Name   string
+	Hidden bool
+}
+
+// The environments of one project in display order and whether each is
+// hidden, for the environment pickers.
+func (q *Queries) ListPickerEnvironments(ctx context.Context, projectID uuid.UUID) ([]ListPickerEnvironmentsRow, error) {
+	rows, err := q.db.Query(ctx, listPickerEnvironments, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPickerEnvironmentsRow{}
+	for rows.Next() {
+		var i ListPickerEnvironmentsRow
+		if err := rows.Scan(&i.Name, &i.Hidden); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjectApps = `-- name: ListProjectApps :many
 SELECT id, slug, name
 FROM apps
@@ -76,23 +110,38 @@ func (q *Queries) ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]L
 }
 
 const resolveProjectSlug = `-- name: ResolveProjectSlug :one
-SELECT p.id, p.org_id
-FROM projects p
-JOIN organizations o ON o.id = p.org_id
-WHERE p.slug = $1 AND p.deleted_at IS NULL AND o.deleted_at IS NULL
+SELECT r.id, r.org_id, r.slug
+FROM (
+    SELECT p.id, p.org_id, p.slug, 0 AS rank
+    FROM projects p
+    JOIN organizations o ON o.id = p.org_id
+    WHERE p.slug = $1 AND p.deleted_at IS NULL AND o.deleted_at IS NULL
+    UNION ALL
+    SELECT p.id, p.org_id, p.slug, 1 AS rank
+    FROM project_slug_history h
+    JOIN projects p ON p.id = h.project_id
+    JOIN organizations o ON o.id = p.org_id
+    WHERE h.slug = $1 AND p.deleted_at IS NULL AND o.deleted_at IS NULL
+) r
+ORDER BY r.rank
+LIMIT 1
 `
 
 type ResolveProjectSlugRow struct {
 	ID    uuid.UUID
 	OrgID uuid.UUID
+	Slug  string
 }
 
-// Resolves an active project slug (globally unique) to its id and its
-// active organization, for authorization of /…/{project} paths.
+// Resolves a project slug (globally unique among active projects) to its
+// id, its active organization and its current (canonical) slug, for
+// authorization of /…/{project} paths. A slug no active project uses falls
+// back to project_slug_history: a renamed project's old slug resolves to it
+// until another project takes the slug.
 func (q *Queries) ResolveProjectSlug(ctx context.Context, slug string) (ResolveProjectSlugRow, error) {
 	row := q.db.QueryRow(ctx, resolveProjectSlug, slug)
 	var i ResolveProjectSlugRow
-	err := row.Scan(&i.ID, &i.OrgID)
+	err := row.Scan(&i.ID, &i.OrgID, &i.Slug)
 	return i, err
 }
 
@@ -121,6 +170,7 @@ type UpsertAppRow struct {
 	CreatedAt time.Time
 }
 
+// Registers an app (seed, tests); never changes an existing one.
 func (q *Queries) UpsertApp(ctx context.Context, arg UpsertAppParams) (UpsertAppRow, error) {
 	row := q.db.QueryRow(ctx, upsertApp,
 		arg.ID,
@@ -155,9 +205,16 @@ type UpsertEnvironmentParams struct {
 	Name      string
 }
 
-func (q *Queries) UpsertEnvironment(ctx context.Context, arg UpsertEnvironmentParams) (Environment, error) {
+type UpsertEnvironmentRow struct {
+	ID        uuid.UUID
+	ProjectID uuid.UUID
+	Name      string
+	CreatedAt time.Time
+}
+
+func (q *Queries) UpsertEnvironment(ctx context.Context, arg UpsertEnvironmentParams) (UpsertEnvironmentRow, error) {
 	row := q.db.QueryRow(ctx, upsertEnvironment, arg.ID, arg.ProjectID, arg.Name)
-	var i Environment
+	var i UpsertEnvironmentRow
 	err := row.Scan(
 		&i.ID,
 		&i.ProjectID,

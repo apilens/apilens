@@ -16,6 +16,7 @@ package authn
 import (
 	"context"
 	"slices"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
@@ -42,6 +43,9 @@ type Principal struct {
 	UserID    uuid.UUID
 	SessionID uuid.UUID
 	AMR       []string
+	// AuthTime is the token's `auth_time`: when the user signed in to the
+	// session. Zero for a token issued before the claim existed.
+	AuthTime time.Time
 
 	// OAuth client fields (KindClient): the token's `client_id` (= `sub`).
 	ClientID string

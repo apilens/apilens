@@ -13,6 +13,7 @@ import type {
   Incident,
   IncidentsRange,
 } from "./identity";
+import type { PageOptions } from "./pagination";
 
 // ---------------------------------------------------------------- routes
 
@@ -29,6 +30,16 @@ export const ruleHref = (project: string, id: string) => `${base(project)}/incid
 export const channelsHref = (project: string) => `${base(project)}/settings/${CHANNELS_SECTION}`;
 
 // ---------------------------------------------------------------- incidents
+
+/**
+ * The incidents page pages its two lists apart: open incidents under `?opage=&oper=`, resolved
+ * ones under `?page=&per=`. Another range starts both again at page 1 (incidentsHref keeps only
+ * the range).
+ */
+export const OPEN_PAGING: PageOptions = { keys: { page: "opage", per: "oper" } };
+export const RESOLVED_PAGING: PageOptions = {};
+/** How many of a rule's incidents one page of its timeline shows. */
+export const EVENTS_PAGE = 25;
 
 export const INCIDENTS_RANGE: IncidentsRange = "7d";
 export const INCIDENTS_RANGES: { value: IncidentsRange; label: string }[] = [
@@ -162,6 +173,12 @@ export function scheduleText(rule: Pick<AlertRule, "every_s" | "cron">): string 
 /** The one-line summary of a rule: `Error rate > 2% over 5 min`. */
 export function ruleSummary(rule: Pick<AlertRule, "metric" | "condition" | "threshold" | "window_s">): string {
   return `${metricLabel(rule.metric)} ${conditionText(rule.metric, rule.condition, rule.threshold)} over ${formatSpan(rule.window_s)}`;
+}
+
+/** A rule's filters as short labels, endpoint first: "POST /checkout", "consumer alice", "group Acme Corp". */
+export function filterParts(rule: Pick<AlertRule, "filters">): string[] {
+  const f = rule.filters ?? {};
+  return [f.endpoint ?? "", f.consumer ? `consumer ${f.consumer}` : "", f.group ? `group ${f.group}` : ""].filter(Boolean);
 }
 
 // ---------------------------------------------------------------- rule form
@@ -319,12 +336,14 @@ export function checkRuleDraft(d: RuleDraft): RuleCheck {
 
   const consumer = d.consumer.trim();
   if (consumer.length > 256) errors.consumer = "Use a consumer id of at most 256 characters.";
+  const group = d.group.trim();
+  if (group.length > 256) errors.group = "Use a group name of at most 256 characters.";
   const endpoint = d.endpoint.trim();
   if (endpoint !== "" && (endpoint.length > 512 || !ENDPOINT.test(endpoint))) errors.endpoint = "Use a route such as GET /orders/{id}, or /orders/{id} for every method.";
   if (d.channel_ids.length > MAX_RULE_CHANNELS) errors.channel_ids = `Pick at most ${MAX_RULE_CHANNELS} channels.`;
 
   if (Object.keys(errors).length > 0) return { ok: false, errors };
-  const filters = { ...(consumer ? { consumer } : {}), ...(d.group ? { group: d.group } : {}), ...(endpoint ? { endpoint } : {}) };
+  const filters = { ...(consumer ? { consumer } : {}), ...(group ? { group } : {}), ...(endpoint ? { endpoint } : {}) };
   const body: AlertRuleBody = {
     environment,
     name,

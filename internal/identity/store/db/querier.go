@@ -6,16 +6,22 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 type Querier interface {
-	// Keeps the audit trail of purged users but strips what identifies them:
-	// events about them lose user_id and metadata, events they acted in lose
-	// actor_user_id, and both lose the client IP and user agent. Run before
-	// PurgeUsers, whose cascade would otherwise delete the events.
+	// Keeps the rest of the audit trail of purged users (org and project events,
+	// and events they acted in on other accounts) but strips what identifies
+	// them: events about them lose user_id and metadata, events they acted in
+	// lose actor_user_id, and both lose the client IP and user agent. actor_label
+	// (the name at the time) stays so org and project history stays readable.
+	// Run after DeletePersonalAuditEventsForUsers and before PurgeUsers.
 	AnonymizeAuditEventsForUsers(ctx context.Context, ids []uuid.UUID) (int64, error)
+	// The database's current time: an export ends there, on the clock that
+	// stamps created_at, so a skewed app clock cannot cut or extend it.
+	AuditClock(ctx context.Context) (time.Time, error)
 	// Cancels every pending request of a user, e.g. before a new request or
 	// once 2FA has been turned off another way.
 	CancelPendingRecoveryRequestsForUser(ctx context.Context, arg CancelPendingRecoveryRequestsForUserParams) (int64, error)
@@ -41,6 +47,12 @@ type Querier interface {
 	// is accepted at most once even under concurrent redemption. Returns
 	// pgx.ErrNoRows for an unknown, used or expired code.
 	ConsumeOAuthAuthCode(ctx context.Context, codeHash *string) (OauthAuthRequest, error)
+	// How many events an export of ListAuditEventsForOrg (same filters, no
+	// cursor) would hold, counting at most max_rows: an export compares it with
+	// its cap to say whether it was truncated without reading every row.
+	CountAuditEventsForOrg(ctx context.Context, arg CountAuditEventsForOrgParams) (int64, error)
+	// Like CountAuditEventsForOrg, for ListAuditEventsForProject.
+	CountAuditEventsForProject(ctx context.Context, arg CountAuditEventsForProjectParams) (int64, error)
 	// Number of providers linked to a user.
 	CountOAuthIdentitiesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	// Number of passkeys registered to a user.
@@ -90,6 +102,11 @@ type Querier interface {
 	// Only the identity module reads or writes users (ADR 0005); every lookup
 	// and update below ignores soft-deleted rows.
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	// Deletes up to batch_size events recorded before cutoff, oldest first (the
+	// audit retention job, audit.retention). It walks the primary key: ids grow
+	// with created_at, so the old rows are found at the start of the index and a
+	// batch stops as soon as it has batch_size of them.
+	DeleteAuditEventsBefore(ctx context.Context, arg DeleteAuditEventsBeforeParams) (int64, error)
 	// Removes all of a user's backup codes, used or not (regenerate, disable).
 	DeleteBackupCodesForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	DeleteOAuthAuthRequest(ctx context.Context, id uuid.UUID) error
@@ -100,6 +117,10 @@ type Querier interface {
 	// Removes one passkey of a user; scoped by user_id so a caller cannot remove
 	// another user's passkey. Returns 0 when nothing matched.
 	DeletePasskeyCredential(ctx context.Context, arg DeletePasskeyCredentialParams) (int64, error)
+	// Deletes the personal account events (no org_id) about purged users. Run
+	// before PurgeUsers: user_id is ON DELETE SET NULL so that org and project
+	// events outlive the person.
+	DeletePersonalAuditEventsForUsers(ctx context.Context, ids []uuid.UUID) (int64, error)
 	// Turns 2FA off for a user (disable, recovery). Delete the user's backup
 	// codes in the same transaction. Returns 0 when the user had no secret.
 	DeleteTOTP(ctx context.Context, userID uuid.UUID) (int64, error)
@@ -179,7 +200,9 @@ type Querier interface {
 	// Counts one wrong code guess on a live row and returns the new count.
 	// Returns pgx.ErrNoRows when the row is no longer live.
 	IncrementEmailTokenAttempts(ctx context.Context, id uuid.UUID) (int32, error)
-	// Records a security-relevant event about a user's account.
+	// Records a security-relevant event, scoped to an organization and project
+	// when it belongs to one. actor_label is the actor's name (or email) now, so
+	// the row stays readable after the actor is purged.
 	InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) (AuditEvent, error)
 	// Only identity reads or writes signing keys (ADR 0005). Pass
 	// activated_at = NULL to publish a key in JWKS before it signs.
@@ -193,6 +216,16 @@ type Querier interface {
 	// The settings "Sessions" list: live rows only (one per family), most
 	// recently used first.
 	ListActiveSessionsForUser(ctx context.Context, userID uuid.UUID) ([]Session, error)
+	// An organization's events, newest first, keyset-paginated like
+	// ListAuditEventsForUser. Org-wide events (no project) are always included;
+	// project events only for the projects in visible_projects (the ones the
+	// caller can view). Optional filters: actor, exact event or event prefix
+	// ('api_key.'), target type, a [from, to) time range, and text the target
+	// label contains (case-insensitive). Served by audit_events_org_created.
+	ListAuditEventsForOrg(ctx context.Context, arg ListAuditEventsForOrgParams) ([]AuditEvent, error)
+	// A project's events, newest first, keyset-paginated and filtered like
+	// ListAuditEventsForOrg. Served by audit_events_project_created.
+	ListAuditEventsForProject(ctx context.Context, arg ListAuditEventsForProjectParams) ([]AuditEvent, error)
 	// Newest first, keyset-paginated: pass the last row's (created_at, id) as the
 	// cursor for the next page, or NULLs for the first page.
 	ListAuditEventsForUser(ctx context.Context, arg ListAuditEventsForUserParams) ([]AuditEvent, error)
@@ -215,6 +248,9 @@ type Querier interface {
 	// family but one. Revocation pushes these ids into the access-token
 	// denylist.
 	ListTokenSessionIDs(ctx context.Context, arg ListTokenSessionIDsParams) ([]uuid.UUID, error)
+	// The current emails of users, for the actor_email column of an audit
+	// export. A purged user has no row.
+	ListUserEmails(ctx context.Context, ids []uuid.UUID) ([]ListUserEmailsRow, error)
 	// A user's confirmed TOTP row, locked until the transaction ends, so that
 	// disabling 2FA and regenerating backup codes do not interleave. Returns
 	// pgx.ErrNoRows when 2FA is not on (no row, or only a pending secret).
@@ -236,6 +272,13 @@ type Querier interface {
 	// Hard-deletes soft-deleted users whose grace period has passed. Sessions,
 	// email tokens, OAuth identities, passkeys and TOTP rows cascade.
 	PurgeUsers(ctx context.Context, ids []uuid.UUID) (int64, error)
+	// Moves the authentication time of a live session forward after the user
+	// proved who they are again (re-authentication, no new sign-in). created_at
+	// is the session's sign-in time, the access token's auth_time, and every
+	// refresh inherits it. The row updated is the live row of the family of @id,
+	// which may be an access token's sid that a refresh has since rotated.
+	// Scoped by user_id. Returns pgx.ErrNoRows when the family has no live row.
+	ReauthenticateSession(ctx context.Context, arg ReauthenticateSessionParams) (Session, error)
 	// Renames one passkey of a user; scoped by user_id so a caller cannot rename
 	// another user's passkey. Returns 0 when nothing matched.
 	RenamePasskeyCredential(ctx context.Context, arg RenamePasskeyCredentialParams) (int64, error)

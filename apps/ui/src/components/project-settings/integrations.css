@@ -1,0 +1,5 @@
+/* Project settings → Integrations (#820). Tokens from tokens.css only; cards reuse .os-* (org settings). */
+.int .os-card { margin-top: var(--space-6); }
+.int-preview { margin: var(--space-2) 0 0; font: 400 13px/18px var(--font-sans); color: var(--ink-muted); overflow-wrap: anywhere; }
+.int-preview code { font: 400 12px/18px var(--font-mono); color: var(--ink); }
+.int-line { margin: var(--space-4) 0 0; font: 400 14px/20px var(--font-sans); }

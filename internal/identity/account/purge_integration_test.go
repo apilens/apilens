@@ -74,7 +74,17 @@ func TestPurgeJob(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE users SET delete_after = now() - interval '1 hour' WHERE id = $1`, expired); err != nil {
 		t.Fatal(err)
 	}
-	expiredEvents := count(t, ctx, pool, `SELECT count(*) FROM audit_events WHERE user_id = $1`, expired)
+	// An org-scoped event about expired, acted in by them: org history that
+	// must outlive the person.
+	orgID := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO audit_events (user_id, actor_user_id, event, ip, user_agent, org_id, actor_label, target_type, target_id, target_label)
+		VALUES ($1, $1, $2, '203.0.113.9', 'itest', $3, 'Ada', 'member', $4, 'expired@example.com')`, expired, string(audit.MemberJoined), orgID, expired.String()); err != nil {
+		t.Fatal(err)
+	}
+	personalEvents := count(t, ctx, pool, `SELECT count(*) FROM audit_events WHERE user_id = $1 AND org_id IS NULL`, expired)
+	if personalEvents == 0 {
+		t.Fatal("expired has no personal events to purge")
+	}
 
 	// The hourly periodic job runs on start and purges.
 	reg := jobs.NewRegistry()
@@ -112,12 +122,16 @@ func TestPurgeJob(t *testing.T) {
 			t.Errorf("%s left: %d", tc.name, n)
 		}
 	}
-	// Audit rows are kept, anonymised: the events about the purged user lose
-	// their subject, metadata and client; the one they acted in on keep's
-	// account keeps its subject but loses actor and client.
-	if n := count(t, ctx, pool, `SELECT count(*) FROM audit_events WHERE user_id IS NULL AND actor_user_id IS NULL
-		AND ip IS NULL AND user_agent = '' AND metadata = '{}'::jsonb`); n != expiredEvents {
-		t.Errorf("anonymised events = %d, want %d", n, expiredEvents)
+	// The purged user's personal events (no org) are deleted.
+	if n := count(t, ctx, pool, `SELECT count(*) FROM audit_events WHERE user_id IS NULL AND org_id IS NULL`); n != 0 {
+		t.Errorf("personal events left = %d, want 0", n)
+	}
+	// Org-scoped events are kept, anonymised, with the actor's name at the
+	// time; the one they acted in on keep's account keeps its subject but
+	// loses actor and client.
+	if n := count(t, ctx, pool, `SELECT count(*) FROM audit_events WHERE org_id = $1 AND user_id IS NULL AND actor_user_id IS NULL
+		AND ip IS NULL AND user_agent = '' AND actor_label = 'Ada' AND target_label = 'expired@example.com'`, orgID); n != 1 {
+		t.Errorf("kept org events = %d, want 1", n)
 	}
 	if n := count(t, ctx, pool, `SELECT count(*) FROM audit_events WHERE user_id = $1 AND event = $2
 		AND actor_user_id IS NULL AND ip IS NULL AND user_agent = '' AND metadata->>'role' = 'admin'`, keep, string(audit.MemberRoleChanged)); n != 1 {

@@ -97,7 +97,8 @@ type deployRecord struct {
 }
 
 type accepted struct {
-	Accepted int `json:"accepted"`
+	Accepted int           `json:"accepted"`
+	Rejected []rejectedApp `json:"rejected,omitempty"`
 }
 
 func (e *Edge) checkCount(n int) *apiError {
@@ -134,19 +135,22 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 	for i, rec := range body.Requests {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
-	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Requests), size); aerr != nil {
+	if aerr := e.admit(r.Context(), p, len(body.Requests), size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
 		e.fail(w, signal, aerr)
 		return
 	}
-	apps, aerr := e.resolveApps(r.Context(), p, slugs, idents, false)
+	envs := recordEnvs(body.Requests, func(rec requestRecord) string { return rec.Environment })
+	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, envs, false, t)
 	if aerr == nil {
-		aerr = e.redactRequests(r.Context(), p.ProjectID, apps, body.Requests, t)
+		body.Requests = filterRecords(body.Requests, func(rec requestRecord) string { return rec.AppID }, batch)
+		aerr = e.redactRequests(r.Context(), p.ProjectID, batch.apps, body.Requests, t)
 	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}
+	apps := batch.apps
 	e.capRequests(r.Context(), apps, body.Requests, t)
 
 	now := e.now()
@@ -199,9 +203,9 @@ func (e *Edge) handleRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, row := range rows {
-		t.app(row.AppID).Accepted++
+		t.accept(row.AppID, row.Environment)
 	}
-	e.ok(w, signal, len(rows))
+	e.ok(w, signal, len(rows), batch)
 }
 
 func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
@@ -228,19 +232,22 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 	for i, rec := range body.Logs {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
-	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Logs), size); aerr != nil {
+	if aerr := e.admit(r.Context(), p, len(body.Logs), size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
 		e.fail(w, signal, aerr)
 		return
 	}
-	apps, aerr := e.resolveApps(r.Context(), p, slugs, idents, false)
+	envs := recordEnvs(body.Logs, func(rec logRecord) string { return rec.Environment })
+	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, envs, false, t)
 	if aerr == nil {
-		aerr = e.redactLogs(r.Context(), p.ProjectID, apps, body.Logs, t)
+		body.Logs = filterRecords(body.Logs, func(rec logRecord) string { return rec.AppID }, batch)
+		aerr = e.redactLogs(r.Context(), p.ProjectID, batch.apps, body.Logs, t)
 	}
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}
+	apps := batch.apps
 
 	now := e.now()
 	rows := make([]pipeline.LogRow, 0, len(body.Logs))
@@ -277,9 +284,9 @@ func (e *Edge) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, row := range rows {
-		t.app(row.AppID).Accepted++
+		t.accept(row.AppID, row.Environment)
 	}
-	e.ok(w, signal, len(rows))
+	e.ok(w, signal, len(rows), batch)
 }
 
 func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
@@ -306,16 +313,19 @@ func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
 	for i, rec := range body.Spans {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
-	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Spans), size); aerr != nil {
+	if aerr := e.admit(r.Context(), p, len(body.Spans), size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
 		e.fail(w, signal, aerr)
 		return
 	}
-	apps, aerr := e.resolveApps(r.Context(), p, slugs, idents, false)
+	envs := recordEnvs(body.Spans, func(rec spanRecord) string { return rec.Environment })
+	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, envs, false, t)
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}
+	body.Spans = filterRecords(body.Spans, func(rec spanRecord) string { return rec.AppID }, batch)
+	apps := batch.apps
 
 	now := e.now()
 	rows := make([]pipeline.SpanRow, 0, len(body.Spans))
@@ -362,9 +372,9 @@ func (e *Edge) handleSpans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, row := range rows {
-		t.app(row.AppID).Accepted++
+		t.accept(row.AppID, row.Environment)
 	}
-	e.ok(w, signal, len(rows))
+	e.ok(w, signal, len(rows), batch)
 }
 
 func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
@@ -391,16 +401,19 @@ func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
 	for i, rec := range body.Deploys {
 		slugs[i], idents[i] = rec.ProjectSlug, rec.AppID
 	}
-	if aerr := e.admit(r.Context(), p.ProjectID, len(body.Deploys), size); aerr != nil {
+	if aerr := e.admit(r.Context(), p, len(body.Deploys), size, t); aerr != nil {
 		e.rejectRecords(r.Context(), p.ProjectID, signal, idents, t)
 		e.fail(w, signal, aerr)
 		return
 	}
-	apps, aerr := e.resolveApps(r.Context(), p, slugs, idents, true)
+	envs := recordEnvs(body.Deploys, func(rec deployRecord) string { return rec.Environment })
+	batch, aerr := e.resolveBatch(r.Context(), signal, p, slugs, idents, envs, true, t)
 	if aerr != nil {
 		e.fail(w, signal, aerr)
 		return
 	}
+	body.Deploys = filterRecords(body.Deploys, func(rec deployRecord) string { return rec.AppID }, batch)
+	apps := batch.apps
 
 	now := e.now()
 	rows := make([]pipeline.DeployRow, 0, len(body.Deploys))
@@ -437,13 +450,19 @@ func (e *Edge) handleDeploys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, row := range rows {
-		t.app(row.AppID).Accepted++
+		t.accept(row.AppID, row.Environment)
 	}
-	e.ok(w, signal, len(rows))
+	e.ok(w, signal, len(rows), batch)
 }
 
-func (e *Edge) ok(w http.ResponseWriter, signal string, n int) {
+// ok answers 200 with the stored count and, when the records of some apps
+// were refused, which and why.
+func (e *Edge) ok(w http.ResponseWriter, signal string, n int, b *appBatch) {
 	e.records.WithLabelValues(signal, "accepted").Add(float64(n))
 	e.batches.WithLabelValues(signal, "200").Inc()
-	writeJSON(w, http.StatusOK, accepted{Accepted: n})
+	out := accepted{Accepted: n}
+	if b != nil {
+		out.Rejected = b.report
+	}
+	writeJSON(w, http.StatusOK, out)
 }

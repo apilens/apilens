@@ -53,6 +53,13 @@ const (
 	argIP
 	argUserAgent
 	argMeta
+	argOrg
+	argProject
+	argTargetType
+	argTargetID
+	argTargetLabel
+	argRequestID
+	argChanges
 )
 
 func TestRecordTakesIPAndUserAgentFromRequestContext(t *testing.T) {
@@ -159,6 +166,18 @@ func TestCatalogue(t *testing.T) {
 		"recovery.requested", "recovery.confirmed", "recovery.cancelled", "oauth.linked", "oauth.unlinked",
 		"org.created", "org.updated", "org.deleted", "member.added", "member.role_changed", "member.removed", "member.joined", "invitation.sent", "invitation.accepted",
 		"api_key.created", "api_key.revoked", "sso.updated", "sso.deleted", "capture_policy.updated",
+		"api_key.updated", "app.created", "app.archived", "app.restored", "app.renamed", "app.merged", "app.deleted", "app.acknowledged",
+		"session.reauthenticated", "session.reauth_failed",
+		"api_key.rotated",
+		"project.created", "project.updated", "environment.added", "environment.updated", "environment.removed", "privacy_policy.updated",
+		"invitation.revoked", "alert_rule.created", "alert_rule.updated", "alert_rule.deleted", "alert_channel.created", "alert_channel.updated",
+		"alert_channel.deleted", "health_check.created", "health_check.deleted", "app_settings.updated", "endpoint_settings.updated",
+		"project_member.added", "project_member.role_changed", "project_member.removed", "project.access_changed",
+		"audit_log.exported", "api_key.expired",
+		"project.paused", "project.resumed",
+		"project.deleted", "project.restored",
+		"project.slug_changed",
+		"project.purged",
 	}
 	got := Kinds()
 	if len(got) != len(want) {
@@ -189,5 +208,23 @@ func TestCatalogueDocumented(t *testing.T) {
 		if !rows[string(k)] {
 			t.Errorf("%s missing from docs/architecture/overview.md", k)
 		}
+	}
+}
+
+func TestDiff(t *testing.T) {
+	if c := Diff(map[string]any{"name": "a", "n": 1}, map[string]any{"name": "a", "n": 1}); c != nil {
+		t.Fatalf("unchanged = %+v, want nil", c)
+	}
+	c := Diff(map[string]any{"name": "a", "n": 1}, map[string]any{"name": "b", "n": 1})
+	if c == nil || len(c.Previous.(map[string]any)) != 1 || c.Previous.(map[string]any)["name"] != "a" || c.Next.(map[string]any)["name"] != "b" {
+		t.Fatalf("changed = %+v, want only name", c)
+	}
+	c = Diff(nil, map[string]any{"name": "a", "client_secret": "s3cret"})
+	if c.Previous != nil || c.Next.(map[string]any)["client_secret"] != Redacted {
+		t.Fatalf("created = %+v, want next with the secret redacted", c)
+	}
+	c = Diff(map[string]any{"name": "a"}, nil)
+	if c.Next != nil || c.Previous.(map[string]any)["name"] != "a" {
+		t.Fatalf("deleted = %+v", c)
 	}
 }

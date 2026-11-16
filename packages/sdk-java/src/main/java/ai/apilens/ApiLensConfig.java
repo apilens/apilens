@@ -19,10 +19,17 @@ public final class ApiLensConfig {
   public static final String ENV_SEND_HEARTBEAT = "APILENS_SEND_HEARTBEAT";
   /** Env kill switch: {@code APILENS_SEND_METADATA=false} never sends the app metadata report. */
   public static final String ENV_SEND_METADATA = "APILENS_SEND_METADATA";
+  /** First app-name fallback when {@code appId} is not set in code. */
+  public static final String ENV_APP_ID = "APILENS_APP_ID";
+  /** Second app-name fallback: the OpenTelemetry service name. */
+  public static final String ENV_OTEL_SERVICE_NAME = "OTEL_SERVICE_NAME";
+  /** {@link #appIdSource()} of a value set with {@link Builder#appId}. */
+  public static final String APP_ID_SOURCE_CONFIG = "appId";
 
   private final String apiKey;
   private final String projectSlug;
   private final String appId;
+  private final String appIdSource;
   private final String baseUrl;
   private final String ingestPath;
   private final String spansPath;
@@ -53,7 +60,11 @@ public final class ApiLensConfig {
   private ApiLensConfig(Builder builder) {
     this.apiKey = Strings.clean(builder.apiKey);
     this.projectSlug = Strings.clean(builder.projectSlug);
-    this.appId = Strings.clean(builder.appId);
+    // Optional app name: code > APILENS_APP_ID > OTEL_SERVICE_NAME > "" (the project's default
+    // app). Free-form ("Orders API" is fine); the server normalizes it to a slug.
+    String[] app = resolveAppId(builder.appId, builder.env);
+    this.appId = app[0];
+    this.appIdSource = app[1];
     this.baseUrl = Strings.firstNonBlank(builder.baseUrl, "https://ingest.apilens.ai/v1");
     this.ingestPath = Strings.firstNonBlank(builder.ingestPath, "requests");
     this.spansPath = Strings.firstNonBlank(builder.spansPath, "traces");
@@ -117,7 +128,8 @@ public final class ApiLensConfig {
     Builder builder = builder();
     set(env.string("APILENS_API_KEY"), builder::apiKey);
     set(env.string("APILENS_PROJECT_SLUG"), builder::projectSlug);
-    set(env.string("APILENS_APP_ID"), builder::appId);
+    // APILENS_APP_ID (then OTEL_SERVICE_NAME) is the appId fallback, resolved in build().
+    builder.env = env;
     set(env.string("APILENS_BASE_URL"), builder::baseUrl);
     set(env.string("APILENS_ENVIRONMENT"), builder::environment);
     set(env.bool("APILENS_ENABLED"), builder::enabled);
@@ -148,8 +160,47 @@ public final class ApiLensConfig {
     return projectSlug;
   }
 
+  /**
+   * The app the records belong to: the {@code appId} set in code, else {@code APILENS_APP_ID},
+   * else {@code OTEL_SERVICE_NAME}, else {@code ""} (the server uses the project's default app).
+   */
   public String appId() {
     return appId;
+  }
+
+  /**
+   * Where {@link #appId()} came from: {@code "appId"}, {@code "APILENS_APP_ID"}, {@code
+   * "OTEL_SERVICE_NAME"}, or {@code ""} when no app name is configured.
+   */
+  public String appIdSource() {
+    return appIdSource;
+  }
+
+  /** {@code {appId, source}} for an explicit value over the given environment. */
+  static String[] resolveAppId(String explicit, ApiLensEnv env) {
+    String fromEnv = env.string(ENV_APP_ID);
+    String fromCode = Strings.clean(explicit);
+    if (!fromCode.isEmpty()) {
+      // Spring Boot binds APILENS_APP_ID to apilens.app-id itself; report it as the env var.
+      return new String[] {fromCode, fromCode.equals(fromEnv) ? ENV_APP_ID : APP_ID_SOURCE_CONFIG};
+    }
+    if (fromEnv != null) {
+      return new String[] {fromEnv, ENV_APP_ID};
+    }
+    String otel = env.string(ENV_OTEL_SERVICE_NAME);
+    if (otel != null) {
+      return new String[] {otel, ENV_OTEL_SERVICE_NAME};
+    }
+    return new String[] {"", ""};
+  }
+
+  /** The startup log line describing {@link #appId()} and {@link #appIdSource()}. */
+  public String describeAppChoice() {
+    if (appId.isEmpty()) {
+      return "APILens: no app name configured; data goes to the project's default app"
+          + " (set app_id, APILENS_APP_ID or OTEL_SERVICE_NAME)";
+    }
+    return "APILens: app \"" + appId + "\" (from " + appIdSource + ")";
   }
 
   public String baseUrl() {
@@ -318,6 +369,8 @@ public final class ApiLensConfig {
     private Duration heartbeatInterval = Duration.ofSeconds(60);
     private boolean sendMetadata = true;
     private String metadataPath = "";
+    /** Where the appId fallbacks are read from. */
+    private ApiLensEnv env = ApiLensEnv.system();
 
     private Builder() {}
 
@@ -331,6 +384,11 @@ public final class ApiLensConfig {
       return this;
     }
 
+    /**
+     * App name, free-form (e.g. {@code "Orders API"}; the server slugifies it). Optional: blank
+     * falls back to {@code APILENS_APP_ID}, then {@code OTEL_SERVICE_NAME}, then the project's
+     * default app.
+     */
     public Builder appId(String appId) {
       this.appId = appId;
       return this;

@@ -46,6 +46,30 @@ type Config struct {
 	Email      EmailConfig      `koanf:"email"`
 	Exports    ExportsConfig    `koanf:"exports"`
 	Alerts     AlertsConfig     `koanf:"alerts"`
+	Retention  RetentionConfig  `koanf:"retention"`
+	Access     AccessConfig     `koanf:"access"`
+	Audit      AuditConfig      `koanf:"audit"`
+	// Integrations configures links to outside tools.
+	Integrations IntegrationsConfig `koanf:"integrations"`
+	Project      ProjectConfig      `koanf:"project"`
+}
+
+// AccessConfig configures project access management.
+type AccessConfig struct {
+	// MaxDirectMembersPerProject bounds the people added to one project
+	// directly (project_members rows); granting one more answers
+	// member_limit_reached. Org owners and admins and people with access
+	// through the default access do not count. 0 disables it.
+	MaxDirectMembersPerProject int `koanf:"max_direct_members_per_project"`
+}
+
+// IntegrationsConfig configures links to outside tools.
+type IntegrationsConfig struct {
+	// AllowAnyRepositoryHost lets a project's repository link name any
+	// https host (self-hosted GitLab, Gitea, ...), not only github.com,
+	// gitlab.com and bitbucket.org. Commit and release links are derived
+	// for those three hosts only.
+	AllowAnyRepositoryHost bool `koanf:"allow_any_repository_host"`
 }
 
 // ServerConfig configures the shared HTTP server.
@@ -104,7 +128,22 @@ type IngestConfig struct {
 	KeyCacheTTL          time.Duration `koanf:"key_cache_ttl"`
 	KeyNegativeTTL       time.Duration `koanf:"key_negative_ttl"`
 	AppCacheTTL          time.Duration `koanf:"app_cache_ttl"`
-	Quota                QuotaConfig   `koanf:"quota"`
+	// MaxAppsPerProject bounds the apps (archived ones included) ingest may
+	// grow a project to by creating apps from SDK app names; 0 disables it.
+	MaxAppsPerProject int `koanf:"max_apps_per_project"`
+	// MaxNewAppsPerHour bounds the apps ingest creates in one project per
+	// rolling hour (a guard against app names that change per process); 0
+	// disables it.
+	MaxNewAppsPerHour int         `koanf:"max_new_apps_per_hour"`
+	Quota             QuotaConfig `koanf:"quota"`
+	// RecordKeyIP stores the client IP of an API key's last ingest request
+	// (api_keys.last_used_ip, personal data) for access reviews. When false
+	// the IP is not recorded and a recorded one is cleared on next use.
+	RecordKeyIP bool `koanf:"record_key_ip"`
+	// MaxKeysPerProject bounds the active (not revoked, not expired) API
+	// keys of a project; creating one more answers key_limit_reached. 0
+	// disables it.
+	MaxKeysPerProject int `koanf:"max_keys_per_project"`
 }
 
 // QuotaConfig caps how much one project may ingest. Each limit is a token
@@ -200,6 +239,10 @@ type IdentityConfig struct {
 	// RecoveryDelay is the cooling-off period between requesting account
 	// recovery (2FA device lost) and being allowed to confirm it.
 	RecoveryDelay time.Duration `koanf:"recovery_delay"`
+	// SensitiveActionMaxAge is how old a sign-in may be for sensitive API
+	// operations (project delete, API key create, ...); older sessions are
+	// answered reauth_required.
+	SensitiveActionMaxAge time.Duration `koanf:"sensitive_action_max_age"`
 	// KeyEncryptionKey is 32 bytes, base64-encoded. It encrypts signing keys
 	// and TOTP secrets at rest. Required when the identity role runs.
 	KeyEncryptionKey string           `koanf:"key_encryption_key"`
@@ -417,7 +460,7 @@ func (e EmailConfig) LogOnly() bool { return e.Provider == EmailProviderLog }
 // Defaults returns the built-in configuration. These are suitable for the
 // docker-compose all-in-one deployment.
 func Defaults() map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"target":                           []string{"all"},
 		"server.addr":                      ":8080",
 		"server.admin_addr":                "",
@@ -445,6 +488,10 @@ func Defaults() map[string]any {
 		"ingest.key_cache_ttl":             "60s",
 		"ingest.key_negative_ttl":          "10s",
 		"ingest.app_cache_ttl":             "60s",
+		"ingest.max_apps_per_project":      50,
+		"ingest.max_new_apps_per_hour":     10,
+		"ingest.record_key_ip":             true,
+		"ingest.max_keys_per_project":      50,
 		"ingest.quota.records_per_minute":  0,
 		"ingest.quota.bytes_per_day":       0,
 		"sink.mode":                        "direct",
@@ -480,6 +527,12 @@ func Defaults() map[string]any {
 		"exports.dir":                      "",
 
 		"alerts.health_checks_allow_private": false,
+
+		"identity.sensitive_action_max_age": "10m",
+
+		"access.max_direct_members_per_project": 500,
+
+		"integrations.allow_any_repository_host": false,
 
 		"identity.oauth.google.client_id":     "",
 		"identity.oauth.google.client_secret": "",
@@ -527,6 +580,10 @@ func Defaults() map[string]any {
 		"email.tls":           EmailTLSStartTLS,
 		"email.timeout":       "10s",
 	}
+	retentionDefaults(m)
+	auditDefaults(m)
+	projectDefaults(m)
+	return m
 }
 
 // Load builds the configuration from defaults, an optional YAML file, the
@@ -631,6 +688,15 @@ func (c *Config) Validate() error {
 	if c.Ingest.MaxBodyBytes <= 0 || c.Ingest.MaxRecordsPerRequest <= 0 {
 		errs = append(errs, errors.New("ingest.max_body_bytes and ingest.max_records_per_request must be > 0"))
 	}
+	if c.Ingest.MaxAppsPerProject < 0 || c.Ingest.MaxNewAppsPerHour < 0 {
+		errs = append(errs, errors.New("ingest.max_apps_per_project and ingest.max_new_apps_per_hour must be >= 0 (0 disables)"))
+	}
+	if c.Ingest.MaxKeysPerProject < 0 {
+		errs = append(errs, errors.New("ingest.max_keys_per_project must be >= 0 (0 disables)"))
+	}
+	if c.Access.MaxDirectMembersPerProject < 0 {
+		errs = append(errs, errors.New("access.max_direct_members_per_project must be >= 0 (0 disables)"))
+	}
 	if c.Ingest.KeyCacheSize <= 0 {
 		errs = append(errs, errors.New("ingest.key_cache_size must be > 0"))
 	}
@@ -662,6 +728,9 @@ func (c *Config) Validate() error {
 	errs = append(errs, c.validateIdentity()...)
 	errs = append(errs, c.validateAuthz()...)
 	errs = append(errs, c.validateEmail()...)
+	errs = append(errs, c.validateRetention()...)
+	errs = append(errs, c.validateAudit()...)
+	errs = append(errs, c.validateProject()...)
 	if len(errs) > 0 {
 		return fmt.Errorf("config: %w", errors.Join(errs...))
 	}
@@ -731,8 +800,8 @@ func (c *Config) validateIdentity() []error {
 		errs = append(errs, id.WebAuthn.Validate()...)
 	}
 	if id.AccessTokenTTL <= 0 || id.RefreshTokenTTL <= 0 || id.RefreshTokenTTLShort <= 0 ||
-		id.EmailCodeTTL <= 0 || id.PreAuthTTL <= 0 || id.RecoveryDelay <= 0 {
-		errs = append(errs, errors.New("identity.access_token_ttl, refresh_token_ttl, refresh_token_ttl_short, email_code_ttl, pre_auth_ttl and recovery_delay must be > 0"))
+		id.EmailCodeTTL <= 0 || id.PreAuthTTL <= 0 || id.RecoveryDelay <= 0 || id.SensitiveActionMaxAge <= 0 {
+		errs = append(errs, errors.New("identity.access_token_ttl, refresh_token_ttl, refresh_token_ttl_short, email_code_ttl, pre_auth_ttl, recovery_delay and sensitive_action_max_age must be > 0"))
 	}
 	if id.RefreshTokenTTLShort > id.RefreshTokenTTL {
 		errs = append(errs, errors.New("identity.refresh_token_ttl_short must not exceed identity.refresh_token_ttl"))

@@ -1,0 +1,12 @@
+{{- /* Data: code (6 digits), expires_in ("15 minutes"). */ -}}
+{{define "subject"}}Your APILens confirmation code is {{.code}}{{end -}}
+{{template "layout" .}}
+{{- define "content" -}}
+Enter this code in APILens to confirm it is you before a sensitive change:
+
+    {{.code}}
+
+The code expires in {{.expires_in}} and works once.
+
+If you did not ask for this code, someone may be using your signed-in session. Sign out of your other sessions from the Security page.
+{{- end}}

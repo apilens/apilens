@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,7 @@ type fakeLookup struct {
 	keys    map[string]db.GetActiveAPIKeyByHashRow
 	calls   atomic.Int32
 	touched atomic.Int32
+	touches []db.TouchAPIKeyParams
 	err     error
 }
 
@@ -40,14 +42,115 @@ func (f *fakeLookup) GetActiveAPIKeyByHash(_ context.Context, h string) (db.GetA
 	return row, nil
 }
 
-func (f *fakeLookup) TouchAPIKey(context.Context, uuid.UUID) error {
+func (f *fakeLookup) TouchAPIKey(_ context.Context, arg db.TouchAPIKeyParams) error {
+	f.mu.Lock()
+	f.touches = append(f.touches, arg)
+	f.mu.Unlock()
 	f.touched.Add(1)
 	return nil
+}
+
+func (f *fakeLookup) lastTouches() []db.TouchAPIKeyParams {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]db.TouchAPIKeyParams(nil), f.touches...)
+}
+
+// The ingest request's SDK and IP are recorded with the first use in a
+// throttle window; later uses in the window write nothing.
+func TestVerifyRecordsUseOncePerWindow(t *testing.T) {
+	raw, _, hash, _ := Generate()
+	id := uuid.New()
+	f := &fakeLookup{keys: map[string]db.GetActiveAPIKeyByHashRow{hash: {ID: id, Scopes: []string{"ingest"}}}}
+	v := newVerifier(f)
+
+	ip := netip.MustParseAddr("203.0.113.7")
+	if _, err := v.Verify(WithUse(context.Background(), Use{SDK: " apilenss/0.5.0 ", IP: ip}), raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.Verify(WithUse(context.Background(), Use{SDK: "other/9.9", IP: netip.MustParseAddr("198.51.100.1")}), raw); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	got := f.lastTouches()
+	if len(got) != 1 {
+		t.Fatalf("touches = %d, want 1 (throttled)", len(got))
+	}
+	if a := got[0]; a.ID != id || !a.RecordUse || a.Sdk == nil || *a.Sdk != "apilenss/0.5.0" || a.Ip == nil || *a.Ip != ip {
+		t.Fatalf("touch = %+v", a)
+	}
+
+	// Without a Use (the query role) only last_used_at is written; without
+	// an IP (ingest.record_key_ip false) the IP is cleared.
+	for _, tc := range []struct {
+		ctx    context.Context
+		record bool
+	}{
+		{context.Background(), false},
+		{WithUse(context.Background(), Use{SDK: strings.Repeat("x", 300)}), true},
+	} {
+		raw, _, hash, _ := Generate()
+		f := &fakeLookup{keys: map[string]db.GetActiveAPIKeyByHashRow{hash: {ID: uuid.New()}}}
+		if _, err := newVerifier(f).Verify(tc.ctx, raw); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond)
+		a := f.lastTouches()[0]
+		if a.RecordUse != tc.record || a.Ip != nil || (tc.record && (a.Sdk == nil || len(*a.Sdk) != MaxSDKLen)) || (!tc.record && a.Sdk != nil) {
+			t.Fatalf("touch = %+v", a)
+		}
+	}
 }
 
 func newVerifier(f *fakeLookup) *Verifier {
 	return NewVerifier(f, Options{Size: 100, TTL: time.Minute, NegativeTTL: time.Minute, TouchInterval: time.Hour},
 		slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+}
+
+// The key cache carries the environment pin: a cached principal allows only
+// its environments, and an unpinned key allows every one.
+func TestVerifyCarriesEnvironments(t *testing.T) {
+	pinned, _, pinnedHash, _ := Generate()
+	anyEnv, _, anyHash, _ := Generate()
+	f := &fakeLookup{keys: map[string]db.GetActiveAPIKeyByHashRow{
+		pinnedHash: {ID: uuid.New(), ProjectID: uuid.New(), Scopes: []string{"ingest"}, Environments: []string{"staging"}},
+		anyHash:    {ID: uuid.New(), ProjectID: uuid.New(), Scopes: []string{"ingest"}},
+	}}
+	v := newVerifier(f)
+	for range 2 { // the second round is served from the cache
+		p, err := v.Verify(context.Background(), pinned)
+		if err != nil || !p.AllowsEnvironment("staging") || p.AllowsEnvironment("production") {
+			t.Fatalf("pinned principal = %+v, %v", p, err)
+		}
+		p, err = v.Verify(context.Background(), anyEnv)
+		if err != nil || p.Environments != nil || !p.AllowsEnvironment("production") {
+			t.Fatalf("unpinned principal = %+v, %v", p, err)
+		}
+	}
+	if n := f.calls.Load(); n != 2 {
+		t.Fatalf("lookups = %d, want 2", n)
+	}
+}
+
+// A cached key stops working the moment it expires (the end of a rotation's
+// overlap window), not a cache cycle later.
+func TestVerifyRejectsCachedKeyOnceExpired(t *testing.T) {
+	raw, _, hash, _ := Generate()
+	expires := time.Now().Add(300 * time.Millisecond)
+	f := &fakeLookup{keys: map[string]db.GetActiveAPIKeyByHashRow{
+		hash: {ID: uuid.New(), ProjectID: uuid.New(), Scopes: []string{"ingest"}, ExpiresAt: &expires},
+	}}
+	v := newVerifier(f)
+	if p, err := v.Verify(context.Background(), raw); err != nil || p.ExpiresAt == nil || !p.ExpiresAt.Equal(expires) {
+		t.Fatalf("before expiry = %+v, %v", p, err)
+	}
+	time.Sleep(time.Until(expires) + 10*time.Millisecond)
+	if _, err := v.Verify(context.Background(), raw); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("after expiry = %v, want ErrInvalidKey", err)
+	}
+	if n := f.calls.Load(); n != 1 {
+		t.Fatalf("lookups = %d, want 1 (served from the cache)", n)
+	}
 }
 
 func TestGenerateAndHash(t *testing.T) {
@@ -124,6 +227,45 @@ func TestVerifyNegativeCacheAndInvalidate(t *testing.T) {
 	v.Invalidate(hash)
 	if _, err := v.Verify(context.Background(), raw); err != nil {
 		t.Fatalf("after invalidate: %v", err)
+	}
+}
+
+// A key of a deleted project answers ErrProjectDeleted (which is also
+// ErrInvalidKey), from the cache too; deleting and restoring the project
+// invalidates the key, so each takes effect at once.
+func TestVerifyDeletedProject(t *testing.T) {
+	raw, _, hash, _ := Generate()
+	row := db.GetActiveAPIKeyByHashRow{ID: uuid.New(), ProjectID: uuid.New(), Scopes: []string{"ingest"}}
+	f := &fakeLookup{keys: map[string]db.GetActiveAPIKeyByHashRow{hash: row}}
+	v := newVerifier(f)
+	if _, err := v.Verify(context.Background(), raw); err != nil {
+		t.Fatalf("active project: %v", err)
+	}
+
+	// Delete: the row now says so; the invalidation drops the cached key.
+	f.mu.Lock()
+	row.ProjectDeleted = true
+	f.keys[hash] = row
+	f.mu.Unlock()
+	v.Invalidate(hash)
+	for range 2 {
+		_, err := v.Verify(context.Background(), raw)
+		if !errors.Is(err, ErrProjectDeleted) || !errors.Is(err, ErrInvalidKey) {
+			t.Fatalf("deleted project: err = %v, want ErrProjectDeleted wrapping ErrInvalidKey", err)
+		}
+	}
+	if n := f.calls.Load(); n != 2 {
+		t.Fatalf("lookups = %d, want 2 (deleted answer cached)", n)
+	}
+
+	// Restore.
+	f.mu.Lock()
+	row.ProjectDeleted = false
+	f.keys[hash] = row
+	f.mu.Unlock()
+	v.Invalidate(hash)
+	if p, err := v.Verify(context.Background(), raw); err != nil || p.KeyID != row.ID {
+		t.Fatalf("restored project: %+v, %v", p, err)
 	}
 }
 

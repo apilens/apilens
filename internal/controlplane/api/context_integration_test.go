@@ -68,7 +68,7 @@ func TestUserContext(t *testing.T) {
 	f.mustCreateProject(t, ada, "acme", "Web", "web")
 	f.mustCreateProject(t, ada, "acme", "Checkout", "checkout", "staging", "production")
 	f.mustCreateProject(t, ada, "acme", "Retired", "retired")
-	if resp := f.api.Delete(ProjectsPath+"/retired", as(ada)); resp.Code != http.StatusNoContent {
+	if resp := f.api.Delete(ProjectsPath+"/retired", as(ada), map[string]any{"confirm": "retired"}); resp.Code != http.StatusOK {
 		t.Fatalf("delete project: %d %s", resp.Code, resp.Body)
 	}
 	f.mustCreate(t, grace, "Globex", "globex")
@@ -82,6 +82,15 @@ func TestUserContext(t *testing.T) {
 	f.mustCreate(t, ada, "Gone", "gone")
 	f.mustCreateProject(t, ada, "gone", "Ghost", "ghost")
 	f.exec(t, `UPDATE organizations SET deleted_at = now() WHERE slug = 'gone'`)
+
+	// Every project gets a default app on create; checkout also gets two
+	// more active apps and a deleted one.
+	f.exec(t, `INSERT INTO apps (id, project_id, slug, name, deleted_at)
+		SELECT v.id, p.id, v.slug, v.slug, v.deleted_at
+		FROM projects p
+		JOIN organizations o ON o.id = p.org_id AND o.slug = 'acme'
+		CROSS JOIN (VALUES ($1::uuid, 'api', NULL::timestamptz), ($2::uuid, 'worker', NULL::timestamptz), ($3::uuid, 'old', now())) AS v(id, slug, deleted_at)
+		WHERE p.slug = 'checkout'`, uuid.New(), uuid.New(), uuid.New())
 
 	f.exec(t, `UPDATE users SET preferences = '{"home":"requests","last_project_slug":"checkout"}', onboarding = '{"step":"install"}' WHERE id = $1`, ada)
 
@@ -121,11 +130,17 @@ func TestUserContext(t *testing.T) {
 		t.Fatalf("orgs = %+v, want %+v", got, want)
 	}
 	checkout := c.Orgs[0].Projects[0]
-	if checkout.Name != "Checkout" || !slices.Equal(checkout.Environments, []string{"production", "staging"}) {
+	if checkout.Name != "Checkout" || !slices.Equal(checkout.Environments, []string{"production", "staging"}) || checkout.AppCount != 3 {
 		t.Fatalf("checkout = %+v", checkout)
 	}
-	if web := c.Orgs[0].Projects[1]; !slices.Equal(web.Environments, []string{"production"}) {
+	if web := c.Orgs[0].Projects[1]; !slices.Equal(web.Environments, []string{"production"}) || web.AppCount != 1 {
 		t.Fatalf("web = %+v", web)
+	}
+	// Effective project roles: owner → admin, member → editor, viewer → viewer.
+	for i, w := range []string{"admin", "editor", "viewer"} {
+		if r := c.Orgs[i].Projects[0].Role; r != w {
+			t.Errorf("%s role = %q, want %q", c.Orgs[i].Projects[0].Slug, r, w)
+		}
 	}
 	if c.LastProjectSlug == nil || *c.LastProjectSlug != "checkout" {
 		t.Fatalf("last_project_slug = %v", c.LastProjectSlug)
@@ -136,7 +151,7 @@ func TestUserContext(t *testing.T) {
 	// Answered by SpiceDB from the relayed memberships: owner gets every
 	// action, member the project writes, viewer only project.read.
 	owner := []string{
-		"project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage",
+		"project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage", "access.manage", "audit.read",
 		"members.invite", "members.remove", "billing.manage",
 	}
 	wantCaps := map[string][]string{
@@ -231,13 +246,69 @@ func TestUserContextViewer(t *testing.T) {
 		t.Fatalf("promote: %d %s", resp.Code, resp.Body)
 	}
 	admin := []string{
-		"project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage",
+		"project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage", "access.manage", "audit.read",
 		"members.invite", "members.remove",
 	}
 	c = f.userContext(t, viewer)
 	for slug := range want {
 		if !slices.Equal(c.Capabilities[slug], admin) {
 			t.Errorf("admin capabilities[%s] = %v, want %v", slug, c.Capabilities[slug], admin)
+		}
+	}
+}
+
+// A restricted project (default access none) is absent from the context of
+// an org member without a grant and present, with the granted role, for one
+// with a grant; org owners and admins keep it as admin. Still one CheckBulk.
+func TestUserContextRestrictedProject(t *testing.T) {
+	f := setupAccess(t)
+	checker := &countingChecker{Client: f.authz}
+	NewContext(usercontext.New(f.pool, checker), testutil.Logger(t)).Register(f.api)
+	f.setDefault(t, "none")
+	f.grant(t, "member2", "viewer")
+	f.exec(t, `UPDATE users SET preferences = '{"last_project_slug":"shop"}' WHERE id = $1`, f.users["member"])
+
+	shop := func(c UserContext) *ContextProject {
+		for _, o := range c.Orgs {
+			for i := range o.Projects {
+				if o.Projects[i].Slug == "shop" {
+					return &o.Projects[i]
+				}
+			}
+		}
+		return nil
+	}
+	before := checker.calls.Load()
+	c := f.userContext(t, f.users["member"])
+	if n := checker.calls.Load() - before; n != 1 {
+		t.Fatalf("CheckBulk calls per context = %d, want 1", n)
+	}
+	if len(c.Orgs) != 1 || c.Orgs[0].Slug != "acme" || len(c.Orgs[0].Projects) != 0 || shop(c) != nil {
+		t.Fatalf("member without a grant sees %+v", c.Orgs)
+	}
+	if _, ok := c.Capabilities["shop"]; ok || len(c.Capabilities) != 0 {
+		t.Fatalf("member without a grant capabilities = %v", c.Capabilities)
+	}
+	if c.LastProjectSlug != nil {
+		t.Fatalf("member without a grant last_project_slug = %q", *c.LastProjectSlug)
+	}
+
+	for user, want := range map[string]struct {
+		role string
+		caps []string
+	}{
+		"member2": {"viewer", []string{"project.read"}},
+		"admin": {"admin", []string{
+			"project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage", "access.manage", "audit.read",
+			"members.invite", "members.remove",
+		}},
+	} {
+		c := f.userContext(t, f.users[user])
+		if p := shop(c); p == nil || p.Role != want.role {
+			t.Errorf("%s shop = %+v, want role %s", user, p, want.role)
+		}
+		if !slices.Equal(c.Capabilities["shop"], want.caps) {
+			t.Errorf("%s capabilities = %v, want %v", user, c.Capabilities["shop"], want.caps)
 		}
 	}
 }
@@ -287,7 +358,7 @@ func TestUserContextLatency(t *testing.T) {
 		t.Fatalf("orgs = %d, capabilities = %d", len(c.Orgs), len(c.Capabilities))
 	}
 	admin := []string{
-		"project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage",
+		"project.read", "project.update", "project.delete", "api_keys.create", "api_keys.revoke", "capture.manage", "alerts.manage", "access.manage", "audit.read",
 		"members.invite", "members.remove",
 	}
 	for slug, caps := range c.Capabilities {

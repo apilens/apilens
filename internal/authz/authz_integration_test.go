@@ -35,6 +35,19 @@ func orgOf(projectID, orgID string) *v1.RelationshipUpdate {
 	}}
 }
 
+// orgDefault writes one default-access relation (subject organization#role),
+// e.g. the `org_role` default: default_editor@org#member, default_viewer@org#viewer.
+func orgDefault(projectID, relation, orgID, orgRole string) *v1.RelationshipUpdate {
+	return &v1.RelationshipUpdate{Operation: v1.RelationshipUpdate_OPERATION_TOUCH, Relationship: &v1.Relationship{
+		Resource: &v1.ObjectReference{ObjectType: "project", ObjectId: projectID},
+		Relation: relation,
+		Subject: &v1.SubjectReference{
+			Object:           &v1.ObjectReference{ObjectType: "organization", ObjectId: orgID},
+			OptionalRelation: orgRole,
+		},
+	}}
+}
+
 func TestClientAgainstSpiceDB(t *testing.T) {
 	ctx := context.Background()
 	cfg := testutil.SpiceDB(t)
@@ -56,6 +69,8 @@ func TestClientAgainstSpiceDB(t *testing.T) {
 
 	token, err := c.WriteRelationships(ctx, "acme", []*v1.RelationshipUpdate{
 		orgOf("p1", "acme"), orgOf("p2", "acme"),
+		orgDefault("p1", "default_editor", "acme", "member"), orgDefault("p1", "default_viewer", "acme", "viewer"),
+		orgDefault("p2", "default_editor", "acme", "member"), orgDefault("p2", "default_viewer", "acme", "viewer"),
 		rel(v1.RelationshipUpdate_OPERATION_TOUCH, "organization", "acme", "member", "alice"),
 		rel(v1.RelationshipUpdate_OPERATION_TOUCH, "organization", "acme", "viewer", "bob"),
 	})

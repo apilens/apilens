@@ -142,7 +142,7 @@ function isRejected(err: unknown): boolean {
 /** What happened to the cookie during this request. */
 export type CookieChange = { kind: "none" } | { kind: "set"; value: string; remember: boolean } | { kind: "clear" };
 
-type Authed = CallOptions & { accessToken: string };
+export type Authed = CallOptions & { accessToken: string };
 
 export interface ServerSessionInit {
   /** The decrypted session cookie, or null. */
@@ -233,6 +233,23 @@ export class ServerSession {
     this.session = next;
     this.refreshed = true;
     this.hinted = false;
+    await this.record({ kind: "set", value: await seal(next), remember: next.remember });
+    return next;
+  }
+
+  /**
+   * Adopts a new access token for the same session (re-authentication, #803): the refresh token
+   * does not change, so this is not a refresh and nothing is coalesced. Rewrites the cookie.
+   */
+  async replaceAccess(accessToken: string, expiresIn: number): Promise<SessionPayload> {
+    const current = this.session;
+    if (!current) return this.expire();
+    const next: SessionPayload = {
+      ...current,
+      access: accessToken,
+      exp: this.nowSeconds() + Math.max(0, Math.floor(expiresIn)),
+    };
+    this.session = next;
     await this.record({ kind: "set", value: await seal(next), remember: next.remember });
     return next;
   }

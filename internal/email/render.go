@@ -201,6 +201,7 @@ func (r *Renderer) funcs() map[string]any {
 		"datetime": func(v any) (string, error) { return formatTime(v, "Mon, 2 Jan 2006 15:04 MST") },
 		"date":     func(v any) (string, error) { return formatTime(v, "2 January 2006") },
 		"security": securityChangeCopy,
+		"project":  projectChangeCopy,
 	}
 }
 

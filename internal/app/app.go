@@ -11,9 +11,11 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	authzed "github.com/authzed/authzed-go/v1"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -21,14 +23,19 @@ import (
 
 	"github.com/apilens/apilens/internal/alerts"
 	"github.com/apilens/apilens/internal/authz"
+	"github.com/apilens/apilens/internal/controlplane/access"
 	controlplaneapi "github.com/apilens/apilens/internal/controlplane/api"
 	"github.com/apilens/apilens/internal/controlplane/apikeys"
+	appsvc "github.com/apilens/apilens/internal/controlplane/apps"
+	"github.com/apilens/apilens/internal/controlplane/auditlog"
 	"github.com/apilens/apilens/internal/controlplane/capture"
 	"github.com/apilens/apilens/internal/controlplane/catalog"
+	"github.com/apilens/apilens/internal/controlplane/notify"
 	"github.com/apilens/apilens/internal/controlplane/orgs"
 	"github.com/apilens/apilens/internal/controlplane/outbox"
 	"github.com/apilens/apilens/internal/controlplane/privacy"
 	"github.com/apilens/apilens/internal/controlplane/projects"
+	"github.com/apilens/apilens/internal/controlplane/purge"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/controlplane/usercontext"
 	"github.com/apilens/apilens/internal/email"
@@ -82,6 +89,7 @@ const (
 	modRelay      = "outbox-relay"
 	modAlerts     = "alerts"
 	modExports    = "exports"
+	modPurge      = "purge"
 )
 
 // PlannedTargets are roles of the target architecture that later milestones
@@ -172,8 +180,13 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	// like alerts they are worked by the all-in-one process until the M4
 	// worker role exists. query only enqueues them and serves the files.
 	m.Register(modExports, a.initExports, modules.Invisible(), modules.DependsOn(modPostgres, modClickHouse, modJobs))
+	// The project purge job removes deleted projects' data from Postgres,
+	// ClickHouse, Valkey, the export store and (through the outbox)
+	// SpiceDB; like exports it runs in the all-in-one process until the M4
+	// worker role exists.
+	m.Register(modPurge, a.initPurge, modules.Invisible(), modules.DependsOn(modPostgres, modClickHouse, modValkey, modJobs))
 	m.Register(TargetAll, func(context.Context) (modules.Service, error) { return nil, nil },
-		modules.DependsOn(TargetEdge, TargetQuery, TargetAPI, TargetIdentity, modAlerts, modExports))
+		modules.DependsOn(TargetEdge, TargetQuery, TargetAPI, TargetIdentity, modAlerts, modExports, modPurge))
 	return a
 }
 
@@ -269,7 +282,11 @@ func (a *App) initCatalog(context.Context) (modules.Service, error) {
 	a.verifier = apikeys.NewVerifier(a.queries, apikeys.Options{
 		Size: a.cfg.Ingest.KeyCacheSize, TTL: a.cfg.Ingest.KeyCacheTTL, NegativeTTL: a.cfg.Ingest.KeyNegativeTTL,
 	}, a.logger, a.registry)
-	a.apps = catalog.NewAppResolver(a.queries, a.cfg.Ingest.AppCacheTTL)
+	// Apps come from the SDK: the resolver creates the apps SDKs name,
+	// through the same code path as a project's default app.
+	a.apps = catalog.NewAppResolver(a.queries, a.cfg.Ingest.AppCacheTTL).WithProvisioner(appsvc.NewProvisioner(
+		a.pool, audit.New(a.pool), appsvc.Limits{MaxApps: a.cfg.Ingest.MaxAppsPerProject, MaxNewPerHour: a.cfg.Ingest.MaxNewAppsPerHour},
+	))
 	a.privacy = privacy.NewResolver(a.queries, a.cfg.Ingest.AppCacheTTL)
 	if a.valkey == nil {
 		return nil, nil
@@ -378,11 +395,35 @@ func (a *App) initExports(context.Context) (modules.Service, error) {
 	return nil, nil
 }
 
+// initPurge registers the hourly job that purges deleted projects once their
+// grace period has passed (#796).
+func (a *App) initPurge(context.Context) (modules.Service, error) {
+	store, err := query.NewLocalExportStore(a.cfg.Exports.Dir)
+	if err != nil {
+		return nil, err
+	}
+	purger := newPurger(a.pool, a.chConn, a.valkey, store, a.cfg, a.logger)
+	jobs.Register(a.workers, purge.NewWorker(purger, a.logger))
+	a.workers.Periodic(purge.Interval, purge.Args{})
+	return nil, nil
+}
+
+// newPurger builds the project purger over the given stores (valkey may be
+// nil).
+func newPurger(pool *pgxpool.Pool, conn driver.Conn, vk valkey.Client, files purge.FileRemover, cfg *config.Config, logger *slog.Logger) *purge.Purger {
+	return purge.New(pool, conn, purge.Options{
+		Valkey: vk, Files: files, Audit: audit.New(pool), OrgGrace: cfg.Project.DeletionGrace,
+	}, logger)
+}
+
 func (a *App) initEdge(context.Context) (modules.Service, error) {
 	edge := ingest.New(a.verifier, a.apps, a.sink, a.cfg.Ingest, a.logger, a.registry).WithPrivacy(a.privacy).WithMetadata(a.queries).
 		WithCapture(capture.NewResolver(a.queries, a.cfg.Ingest.AppCacheTTL))
-	// Config validation guarantees Valkey when a quota is set.
-	if a.cfg.Ingest.Quota.Enabled() && a.valkey != nil {
+	// Config validation guarantees Valkey when a project quota is set.
+	// Per-key rate limits (api_keys.rate_limit_per_minute) share the same
+	// buckets, so the quota is installed whenever Valkey is; without Valkey
+	// they are not enforced.
+	if a.valkey != nil {
 		edge.WithQuota(ingest.NewValkeyQuota(a.valkey, a.cfg.Ingest.Quota))
 	}
 	// Without Valkey heartbeats are neither rate-limited nor mirrored to
@@ -392,10 +433,17 @@ func (a *App) initEdge(context.Context) (modules.Service, error) {
 		heartbeats = ingest.NewValkeyHeartbeats(a.valkey)
 	}
 	edge.WithHeartbeat(a.queries, heartbeats)
+	edge.WithKeyApps(a.queries)
+	// Environments come from the SDK as well: unknown names are registered
+	// (bounded per project) and last seen moves forward, off the request
+	// path.
+	edge.WithEnvironments(catalog.NewEnvironmentRegistry(a.queries,
+		projects.NewEnvironmentProvisioner(a.pool, audit.New(a.pool)), a.cfg.Ingest.AppCacheTTL, a.logger, a.registry))
 	// Without Valkey the per-app health counters are not kept; Prometheus
 	// still has the totals.
 	if a.valkey != nil {
-		edge.WithStats(ingest.NewValkeyStats(a.valkey))
+		stats := ingest.NewValkeyStats(a.valkey)
+		edge.WithStats(stats).WithAppRejections(stats)
 	}
 	edge.Register(a.server.Mux())
 	ingest.RegisterOpenAPI(a.server.API())
@@ -434,6 +482,7 @@ func (a *App) initQuery(context.Context) (modules.Service, error) {
 	}
 	svc.WithAlerts(a.pool, sealer, query.NewTestSender(a.pool, a.jobs, nil, a.cfg.Identity.PublicUIURL))
 	svc.WithHealthCheckPrivateNetworks(a.cfg.Alerts.HealthChecksAllowPrivate)
+	svc.WithAudit(a.pool, audit.New(a.pool))
 	query.Register(api, svc, guard)
 	return nil, nil
 }
@@ -462,18 +511,37 @@ func (a *App) initAPI(context.Context) (modules.Service, error) {
 			return nil, err
 		}
 	}
+	appService := appsvc.NewService(a.pool, audit.New(a.pool)).OnChange(func(projectID uuid.UUID) {
+		// This process sees the change at once; other edges within the app
+		// cache TTL.
+		if a.apps != nil {
+			a.apps.Forget(projectID)
+		}
+	})
+	var appRejections controlplaneapi.AppRejectionReader
+	if a.valkey != nil {
+		appRejections = ingest.NewValkeyStats(a.valkey)
+	}
 	controlplaneapi.Register(a.server.API(), controlplaneapi.Deps{
-		Orgs:     orgService,
-		Members:  orgService,
-		Projects: projects.New(a.pool),
-		APIKeys:  apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger),
-		Privacy:  privacy.NewService(a.pool),
-		Capture:  capture.NewService(a.pool, audit.New(a.pool)),
-		Context:  usercontext.New(a.pool, a.checker()),
-		Guard:    a.guard(),
-		Limiter:  limiter,
-		Limits:   a.cfg.Identity.RateLimits,
-		Logger:   a.logger,
+		Orgs:          orgService,
+		Members:       orgService,
+		Apps:          appService,
+		AppRejections: appRejections,
+		Access:        access.New(a.pool).WithAudit(audit.New(a.pool)).WithMaxDirectMembers(a.cfg.Access.MaxDirectMembersPerProject).WithNotifier(notify.New(a.jobs)),
+		Audit:         auditlog.New(a.pool, a.checker()),
+		Projects:      projects.New(a.pool).WithAudit(audit.New(a.pool)).WithAnyRepositoryHost(a.cfg.Integrations.AllowAnyRepositoryHost).WithDataRetention(time.Duration(a.cfg.Retention.Longest())*24*time.Hour).WithDeletion(a.cfg.Project.DeletionGrace, a.invalidateAPIKey, a.logger).WithNotifier(notify.New(a.jobs)),
+		APIKeys:       apikeys.NewService(a.pool, audit.New(a.pool), a.invalidateAPIKey, a.logger).WithMaxKeys(a.cfg.Ingest.MaxKeysPerProject),
+		Privacy:       privacy.NewService(a.pool).WithAudit(audit.New(a.pool)),
+		Capture:       capture.NewService(a.pool, audit.New(a.pool)),
+		Context:       usercontext.New(a.pool, a.checker()),
+		Guard:         a.guard(),
+		Roles:         a.checker(),
+		Limiter:       limiter,
+		Limits:        a.cfg.Identity.RateLimits,
+		Logger:        a.logger,
+
+		SensitiveActionMaxAge: a.cfg.Identity.SensitiveActionMaxAge,
+		AuditRetentionDays:    a.cfg.Audit.Retention,
 
 		// Invitation emails are enqueued here and sent by the role that
 		// runs the email worker (identity).
@@ -645,6 +713,16 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		Sessions: sessions,
 		Audit:    audit.New(a.pool),
 	}, limiter, a.logger).Register(a.server.API())
+	identity.NewReauth(a.cfg.Identity, identity.ReauthDeps{
+		Users:     identitydb.New(a.pool),
+		Sessions:  sessions,
+		Passkeys:  passkey.NewLogin(rp, passkey.NewValkeyChallengeStore(a.valkey), a.pool),
+		TwoFactor: twoFactor,
+		Codes:     codes,
+		Jobs:      a.jobs,
+		Audit:     audit.New(a.pool),
+		SSO:       ssoEnforcement,
+	}, limiter, a.logger).Register(a.server.API())
 	identity.NewRestore(a.cfg.Identity, accounts, codes, limiter, a.logger).Register(a.server.API())
 	recoverySvc := recovery.New(a.pool, a.jobs, recovery.Options{Delay: a.cfg.Identity.RecoveryDelay})
 	identity.NewRecovery(a.cfg.Identity, recoverySvc, sessions, limiter, a.logger).Register(a.server.API())
@@ -656,6 +734,13 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	// Deleted accounts are purged hourly once their grace period has passed.
 	jobs.Register(a.workers, account.NewPurgeWorker(a.pool, a.logger))
 	a.workers.Periodic(account.PurgeInterval, account.PurgeArgs{})
+	// Audit events older than audit.retention are deleted daily.
+	jobs.Register(a.workers, audit.NewRetentionWorker(audit.NewPruner(a.pool, audit.RetentionOptions{Days: a.cfg.Audit.Retention}), a.logger))
+	a.workers.Periodic(audit.RetentionInterval, audit.RetentionArgs{})
+	// API keys about to expire are reminded to project admins and expired
+	// ones audited (api_key.expired), hourly, once per key (#799).
+	jobs.Register(a.workers, apikeys.NewExpiryWorker(apikeys.NewExpiry(a.pool, audit.New(a.pool), a.jobs, a.logger)))
+	a.workers.Periodic(apikeys.ExpiryInterval, apikeys.ExpiryArgs{})
 	return modules.ServiceFunc(signingKeys.Run), nil
 }
 
@@ -719,6 +804,9 @@ func (a *App) useSessionAuth() {
 		api := a.server.API()
 		verifier := authn.NewSessionVerifier(src, a.cfg.Identity.Issuer, nil).WithDenylist(a.denylist)
 		api.UseMiddleware(authn.Middleware(api, verifier))
+		// Before every authorizing middleware (query's included): a request
+		// naming a project by a renamed slug answers Content-Location.
+		api.UseMiddleware(authz.ContentLocation)
 	})
 }
 

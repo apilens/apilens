@@ -34,6 +34,15 @@ type AccountService interface {
 type Preferences struct {
 	Home            string `json:"home,omitempty" enum:"endpoints,requests,exceptions" doc:"Screen a project opens on, chosen during onboarding."`
 	LastProjectSlug string `json:"last_project_slug,omitempty" doc:"Slug of the project the user last opened."`
+	SecurityEmails  bool   `json:"security_emails" doc:"Whether the user gets an email when a project they administer changes (API keys, default access, pause, restore). On unless turned off; deletion emails are always sent."`
+}
+
+// storedPreferences is the stored form of Preferences; a missing
+// security_emails means on.
+type storedPreferences struct {
+	Home            string `json:"home"`
+	LastProjectSlug string `json:"last_project_slug"`
+	SecurityEmails  *bool  `json:"security_emails"`
 }
 
 // PreferencesPatch is merged into the stored preferences; omitted keys stay
@@ -41,6 +50,7 @@ type Preferences struct {
 type PreferencesPatch struct {
 	Home            *string `json:"home,omitempty" enum:"endpoints,requests,exceptions" doc:"Screen a project opens on."`
 	LastProjectSlug *string `json:"last_project_slug,omitempty" pattern:"^([a-z0-9][a-z0-9-]{0,62})?$" doc:"Slug of the project the user last opened, or empty to clear it. It is not checked against the user's projects; /users/me/context drops one they cannot see."`
+	SecurityEmails  *bool   `json:"security_emails,omitempty" doc:"Turn the project change emails sent to project admins on or off. Deletion emails are always sent."`
 }
 
 // Me is the signed-in user as returned by /api/v1/users/me.
@@ -153,6 +163,9 @@ func (a *Account) update(ctx context.Context, in *MePatchInput) (*MeOutput, erro
 		if pp.LastProjectSlug != nil {
 			patch.Preferences[account.PreferenceLastProject] = *pp.LastProjectSlug
 		}
+		if pp.SecurityEmails != nil {
+			patch.Preferences[account.PreferenceSecurityEmails] = *pp.SecurityEmails
+		}
 	}
 	u, err := a.svc.Update(ctx, p.UserID, patch)
 	if err != nil {
@@ -203,12 +216,16 @@ func NewMe(u db.User, amr []string) Me {
 	if m.AMR == nil {
 		m.AMR = []string{}
 	}
-	var prefs Preferences
-	if json.Unmarshal(u.Preferences, &prefs) == nil {
-		if !slices.Contains(account.Homes, prefs.Home) {
-			prefs.Home = ""
+	m.Preferences.SecurityEmails = true
+	var stored storedPreferences
+	if json.Unmarshal(u.Preferences, &stored) == nil {
+		m.Preferences.LastProjectSlug = stored.LastProjectSlug
+		if slices.Contains(account.Homes, stored.Home) {
+			m.Preferences.Home = stored.Home
 		}
-		m.Preferences = prefs
+		if stored.SecurityEmails != nil {
+			m.Preferences.SecurityEmails = *stored.SecurityEmails
+		}
 	}
 	_ = json.Unmarshal(u.Onboarding, &m.Onboarding)
 	if m.Onboarding == nil {

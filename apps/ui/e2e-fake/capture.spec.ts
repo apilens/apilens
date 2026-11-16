@@ -25,7 +25,7 @@ async function signIn(page: Page, capabilities: string[] = ADMIN, next = CAPTURE
   await page.waitForURL((url) => url.pathname === CAPTURE);
 }
 
-const policy = (page: Page) => page.locator("form").filter({ has: page.getByRole("heading", { name: "Capture", exact: true }) });
+const policy = (page: Page) => page.locator("form").filter({ has: page.getByRole("heading", { name: "Capture policy", exact: true }) });
 const sdk = (page: Page) => page.getByRole("region", { name: "What the SDKs run with" });
 const toggle = (page: Page, name: string) => policy(page).getByRole("switch", { name });
 const rate = (page: Page) => policy(page).getByRole("textbox", { name: /Sample rate/ });
@@ -39,7 +39,7 @@ test.beforeEach(async () => {
 
 test("an admin edits the policy and sees it apply within 60 s", async ({ page }) => {
   await signIn(page);
-  await expect(page.getByRole("heading", { name: "Capture policy" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Capture", exact: true })).toBeVisible();
   await expect(policy(page)).toContainText("Saved changes apply within 60 s, on the SDKs’ next heartbeat.");
   await expect(policy(page)).toContainText("Never changed: the app captures everything.");
   await expect(toggle(page, "Capture requests")).toHaveAttribute("aria-checked", "true");

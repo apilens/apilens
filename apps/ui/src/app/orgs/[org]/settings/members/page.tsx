@@ -6,6 +6,7 @@ import { getContext, getSession } from "@/lib/auth/server";
 import { ORG_SETTINGS } from "@/lib/data";
 import { type Member, identity, isApiError } from "@/lib/identity";
 import { type Viewer, orgCan } from "@/lib/org-members";
+import type { SearchParams } from "@/lib/pagination";
 import { findOrg } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 
@@ -25,7 +26,7 @@ async function loadMembers(slug: string, next: string): Promise<Member[]> {
 
 // Organization scope: the members table (#345). What the signed-in user may do comes from the
 // context's capabilities (`members.invite`, `members.remove`); the API checks every change again.
-export default async function OrgMembersPage({ params }: { params: Promise<{ org: string }> }) {
+export default async function OrgMembersPage({ params, searchParams }: { params: Promise<{ org: string }>; searchParams: Promise<SearchParams> }) {
   const { org: slug } = await params;
   const next = `/orgs/${slug}/settings/members`;
   const context = await getContext(next);
@@ -40,7 +41,7 @@ export default async function OrgMembersPage({ params }: { params: Promise<{ org
   };
   return (
     <AppShell context={context} org={slug} view="settings">
-      <OrgMembersSettings org={{ slug: org.slug, name: org.name }} members={members} viewer={viewer} />
+      <OrgMembersSettings org={{ slug: org.slug, name: org.name }} members={members} viewer={viewer} search={await searchParams} />
     </AppShell>
   );
 }

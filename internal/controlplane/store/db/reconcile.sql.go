@@ -28,8 +28,10 @@ type ListReconcileMembershipsRow struct {
 
 // The authz reconciler (ADR 0006) compares these with SpiceDB. They describe
 // the relationships the outbox relay leaves behind once it has applied every
-// row: one org role per membership of an active organization, and one
-// project#org per active project of an active organization.
+// row: one org role per membership of an active organization; per active
+// project of an active organization one project#org, the default relations
+// its default_access implies (ADR 0009) and one direct role per
+// project_members row.
 func (q *Queries) ListReconcileMemberships(ctx context.Context) ([]ListReconcileMembershipsRow, error) {
 	rows, err := q.db.Query(ctx, listReconcileMemberships)
 	if err != nil {
@@ -50,8 +52,49 @@ func (q *Queries) ListReconcileMemberships(ctx context.Context) ([]ListReconcile
 	return items, nil
 }
 
+const listReconcileProjectMembers = `-- name: ListReconcileProjectMembers :many
+SELECT pm.project_id, p.org_id, pm.user_id, pm.role
+FROM project_members pm
+JOIN projects p ON p.id = pm.project_id
+JOIN organizations o ON o.id = p.org_id
+WHERE p.deleted_at IS NULL AND o.deleted_at IS NULL
+ORDER BY pm.project_id, pm.user_id
+`
+
+type ListReconcileProjectMembersRow struct {
+	ProjectID uuid.UUID
+	OrgID     uuid.UUID
+	UserID    uuid.UUID
+	Role      string
+}
+
+func (q *Queries) ListReconcileProjectMembers(ctx context.Context) ([]ListReconcileProjectMembersRow, error) {
+	rows, err := q.db.Query(ctx, listReconcileProjectMembers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListReconcileProjectMembersRow{}
+	for rows.Next() {
+		var i ListReconcileProjectMembersRow
+		if err := rows.Scan(
+			&i.ProjectID,
+			&i.OrgID,
+			&i.UserID,
+			&i.Role,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReconcileProjects = `-- name: ListReconcileProjects :many
-SELECT p.id, p.org_id
+SELECT p.id, p.org_id, p.default_access
 FROM projects p
 JOIN organizations o ON o.id = p.org_id
 WHERE p.deleted_at IS NULL AND o.deleted_at IS NULL
@@ -59,8 +102,9 @@ ORDER BY p.id
 `
 
 type ListReconcileProjectsRow struct {
-	ID    uuid.UUID
-	OrgID uuid.UUID
+	ID            uuid.UUID
+	OrgID         uuid.UUID
+	DefaultAccess string
 }
 
 func (q *Queries) ListReconcileProjects(ctx context.Context) ([]ListReconcileProjectsRow, error) {
@@ -72,7 +116,7 @@ func (q *Queries) ListReconcileProjects(ctx context.Context) ([]ListReconcilePro
 	items := []ListReconcileProjectsRow{}
 	for rows.Next() {
 		var i ListReconcileProjectsRow
-		if err := rows.Scan(&i.ID, &i.OrgID); err != nil {
+		if err := rows.Scan(&i.ID, &i.OrgID, &i.DefaultAccess); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

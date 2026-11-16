@@ -334,6 +334,8 @@ describe("operations", () => {
       "/auth/passkeys/register/verify",
       (c) => c.passkeyRegisterVerify({ challenge_id: "c", response: {}, name: "Laptop" }, authed),
     ],
+    ["POST", "/auth/reauth/options", (c) => c.reauthOptions({ send_email_code: true }, authed)],
+    ["POST", "/auth/reauth/verify", (c) => c.reauthVerify({ method: "email", code: "123456" }, authed)],
     ["GET", "/auth/oidc/requests/{id}", (c) => c.oidcRequest("a/b?c")],
     ["POST", "/auth/oidc/requests/{id}/complete", (c) => c.oidcComplete("a/b?c", authed)],
     ["POST", "/auth/refresh", (c) => c.refresh({ refresh_token: "r" })],
@@ -394,6 +396,39 @@ describe("operations", () => {
       (c) => c.createApiKey("a/b?c", { name: "ingest", scopes: ["ingest"] }, authed),
     ],
     ["DELETE", "/projects/{slug}/api-keys/{id}", (c) => c.revokeApiKey("a/b?c", "a/b?c", authed)],
+    ["PUT", "/projects/{slug}/api-keys/{id}/access", (c) => c.updateApiKeyAccess("a/b?c", "a/b?c", { can_create_apps: false, app_ids: ["a1"] }, authed)],
+    ["POST", "/projects/{slug}/api-keys/{id}/rotate", (c) => c.rotateApiKey("a/b?c", "a/b?c", "24h", authed)],
+    ["GET", "/projects/{slug}/access", (c) => c.projectAccess("a/b?c", {}, authed)],
+    ["PATCH", "/projects/{slug}/access", (c) => c.setDefaultAccess("a/b?c", "none", {}, authed)],
+    ["PUT", "/projects/{slug}/members/{user_id}", (c) => c.setProjectMember("a/b?c", "a/b?c", "editor", authed)],
+    ["DELETE", "/projects/{slug}/members/{user_id}", (c) => c.removeProjectMember("a/b?c", "a/b?c", authed)],
+    ["GET", "/projects/{slug}/invitations", (c) => c.projectInvitations("a/b?c", authed)],
+    ["GET", "/projects/{slug}/audit-events", (c) => c.listAuditEvents({ project: "a/b?c" }, {}, authed)],
+    ["GET", "/orgs/{slug}/audit-events", (c) => c.listAuditEvents({ org: "a/b?c" }, {}, authed)],
+    ["GET", "/projects/{slug}/audit-events/actions", (c) => c.auditActions({ project: "a/b?c" }, authed)],
+    ["GET", "/orgs/{slug}/audit-events/actions", (c) => c.auditActions({ org: "a/b?c" }, authed)],
+    ["GET", "/projects/{slug}/apps", (c) => c.listManagedApps("a/b?c", authed)],
+    ["PATCH", "/projects/{slug}/apps/{id}", (c) => c.renameApp("a/b?c", "a/b?c", "Orders", authed)],
+    ["POST", "/projects/{slug}/apps/{id}/archive", (c) => c.archiveApp("a/b?c", "a/b?c", authed)],
+    ["POST", "/projects/{slug}/apps/{id}/restore", (c) => c.restoreApp("a/b?c", "a/b?c", authed)],
+    ["POST", "/projects/{slug}/apps/{id}/acknowledge", (c) => c.acknowledgeApp("a/b?c", "a/b?c", authed)],
+    ["POST", "/projects/{slug}/apps/{id}/merge", (c) => c.mergeApp("a/b?c", "a/b?c", "b1", authed)],
+    ["DELETE", "/projects/{slug}/apps/{id}", (c) => c.deleteApp("a/b?c", "a/b?c", authed)],
+    ["GET", "/projects/{slug}/app-rejections", (c) => c.appRejections("a/b?c", 7, authed)],
+    ["PATCH", "/projects/{slug}", (c) => c.updateProject("a/b?c", { name: "Shop" }, authed)],
+    ["DELETE", "/projects/{slug}", (c) => c.deleteProject("a/b?c", "a/b?c", authed)],
+    ["POST", "/projects/{slug}/rename", (c) => c.renameProject("a/b?c", "shop-api", authed)],
+    ["POST", "/projects/{slug}/pause", (c) => c.pauseProject("a/b?c", authed)],
+    ["POST", "/projects/{slug}/resume", (c) => c.resumeProject("a/b?c", authed)],
+    ["GET", "/orgs/{slug}/projects/deleted", (c) => c.listDeletedProjects("a/b?c", authed)],
+    ["POST", "/orgs/{slug}/projects/{id}/restore", (c) => c.restoreProject("a/b?c", "a/b?c", authed)],
+    ["GET", "/projects/{slug}/environments", (c) => c.listEnvironments("a/b?c", authed)],
+    ["POST", "/projects/{slug}/environments", (c) => c.addEnvironment("a/b?c", "canary", authed)],
+    ["PUT", "/projects/{slug}/environments/order", (c) => c.reorderEnvironments("a/b?c", ["staging"], authed)],
+    ["PATCH", "/projects/{slug}/environments/{name}", (c) => c.updateEnvironment("a/b?c", "a/b?c", { hidden: true }, authed)],
+    ["DELETE", "/projects/{slug}/environments/{name}", (c) => c.removeEnvironment("a/b?c", "a/b?c", authed)],
+    ["GET", "/projects/{project}/retention", (c) => c.projectRetention("a/b?c", authed)],
+    ["GET", "/projects/{project}/usage", (c) => c.projectUsage("a/b?c", 30, authed)],
     ["GET", "/projects/{slug}/privacy-policy", (c) => c.getPrivacyPolicy("a/b?c", authed)],
     [
       "PUT",
@@ -414,14 +449,11 @@ describe("operations", () => {
     ["GET", "/traffic/timeseries", (c) => c.trafficTimeseries("web", { range: "7d" }, authed)],
     ["GET", "/traffic/latency", (c) => c.trafficLatency("web", { range: "7d" }, authed)],
     ["GET", "/deploys/changes", (c) => c.deployChanges("web", { range: "7d" }, authed)],
+    ["GET", "/deploys/{id}", (c) => c.getDeploy("web", "a/b?c", authed)],
+    ["GET", "/deploys/{id}/comparison", (c) => c.deployComparison("web", "a/b?c", authed)],
     ["GET", "/consumers", (c) => c.listConsumers("web", { range: "7d" }, authed)],
     ["GET", "/consumers/{consumer_id}", (c) => c.getConsumer("web", "a/b?c", { range: "7d" }, authed)],
-    ["GET", "/projects/{slug}/consumer-groups", (c) => c.listConsumerGroups("a/b?c", authed)],
-    ["POST", "/projects/{slug}/consumer-groups", (c) => c.createConsumerGroup("a/b?c", "Partners", authed)],
-    ["PUT", "/projects/{slug}/consumer-groups/{id}", (c) => c.renameConsumerGroup("a/b?c", "a/b?c", "Partners", authed)],
-    ["DELETE", "/projects/{slug}/consumer-groups/{id}", (c) => c.deleteConsumerGroup("a/b?c", "a/b?c", authed)],
-    ["PUT", "/projects/{slug}/consumers/{consumer_id}/group", (c) => c.assignConsumerGroup("a/b?c", "a/b?c", "g1", authed)],
-    ["DELETE", "/projects/{slug}/consumers/{consumer_id}/group", (c) => c.unassignConsumerGroup("a/b?c", "a/b?c", authed)],
+    ["GET", "/consumer-groups", (c) => c.listConsumerGroupTraffic("web", { range: "7d", sort: "consumers" }, authed)],
     ["GET", "/projects/{slug}/views", (c) => c.listSavedViews("a/b?c", "explore", authed)],
     ["POST", "/projects/{slug}/views", (c) => c.createSavedView("a/b?c", { name: "5xx", surface: "explore", filter: {}, shared: false }, authed)],
     ["PUT", "/projects/{slug}/views/{id}", (c) => c.updateSavedView("a/b?c", "a/b?c", { name: "5xx", filter: {}, shared: true }, authed)],
@@ -459,7 +491,7 @@ describe("operations", () => {
     await client.trafficSummary("my-api", "24h", authed);
     await client.listEndpoints("my-api", { range: "7d", limit: 500 }, authed);
     await client.deployChanges("my-api", { range: "7d", limit: 25 }, authed);
-    await client.listConsumers("my-api", { range: "6h", group: "g1", limit: 100 }, authed);
+    await client.listConsumers("my-api", { range: "6h", group: "Acme Corp", search: "priya", sort: "errors", limit: 25, offset: 50 }, authed);
     await client.getConsumer("my-api", "acme", { range: "1h" }, authed);
     await client.trafficSummary("my-api", { range: "6h", env: "production" }, authed);
     await client.trafficTimeseries("my-api", { range: "1h", env: "" }, authed);
@@ -469,7 +501,7 @@ describe("operations", () => {
       { project: "my-api", range: "24h" },
       { project: "my-api", range: "7d", limit: "500" },
       { project: "my-api", range: "7d", limit: "25" },
-      { project: "my-api", range: "6h", group: "g1", limit: "100" },
+      { project: "my-api", range: "6h", group: "Acme Corp", search: "priya", sort: "errors", limit: "25", offset: "50" },
       { project: "my-api", range: "1h" },
       { project: "my-api", range: "6h", env: "production" },
       { project: "my-api", range: "1h" },
@@ -626,5 +658,98 @@ describe("endpoint detail operations (#593)", () => {
       ["PUT", "/api/v1/apps/a%2Fb%3Fc/settings", ""],
     ]);
     expect(calls[2].body).toEqual({ latency_threshold_ms: 250 });
+  });
+});
+
+describe("access, audit and key rotation operations (#804)", () => {
+  const authed = { accessToken: "jwt" };
+
+  it("sends the access filters and page as query parameters, leaving empty ones out", async () => {
+    const { client, calls } = recordingClient(() => json({ default_access: "org_role", members: [], next_cursor: "" }));
+    await client.projectAccess("shop", { q: "ada", role: "editor", source: "direct", limit: 25, cursor: "c1" }, authed);
+    await client.projectAccess("shop", { q: "", role: undefined }, authed);
+    expect(calls.map((c) => Object.fromEntries(new URL(c.url).searchParams))).toEqual([
+      { q: "ada", role: "editor", source: "direct", limit: "25", cursor: "c1" },
+      {},
+    ]);
+    expect(calls.every((c) => c.headers.get("authorization") === "Bearer jwt")).toBe(true);
+  });
+
+  it("sets a direct role, removes it, and changes the default access with an optional dry run", async () => {
+    const { client, calls } = recordingClient((req) => (req.method === "DELETE" ? new Response(null, { status: 204 }) : json({})));
+    await client.setProjectMember("shop", "u1", "viewer", authed);
+    await expect(client.removeProjectMember("shop", "u1", authed)).resolves.toBeUndefined();
+    await client.setDefaultAccess("shop", "none", { dryRun: true }, authed);
+    await client.setDefaultAccess("shop", "viewer", {}, authed);
+    expect(calls.map((c) => [c.method, new URL(c.url).pathname, new URL(c.url).search, c.body])).toEqual([
+      ["PUT", "/api/v1/projects/shop/members/u1", "", { role: "viewer" }],
+      ["DELETE", "/api/v1/projects/shop/members/u1", "", undefined],
+      ["PATCH", "/api/v1/projects/shop/access", "?dry_run=true", { default_access: "none" }],
+      ["PATCH", "/api/v1/projects/shop/access", "", { default_access: "viewer" }],
+    ]);
+  });
+
+  it("rotates a key with its overlap window", async () => {
+    const { client, calls } = recordingClient(() => json({ id: "k2", key: "apl_live_x", previous: { id: "k1", rotated_to: "k2" } }, 201));
+    const rotated = await client.rotateApiKey("shop", "k1", "7d", authed);
+    expect(rotated.previous.rotated_to).toBe("k2");
+    expect(calls[0].body).toEqual({ overlap: "7d" });
+  });
+
+  it("reads the org and project audit log with its filters, and builds the CSV export URL", async () => {
+    const { client, calls } = recordingClient(() => json({ events: [], next_cursor: "", retention_days: 400 }));
+    await client.listAuditEvents({ project: "shop" }, { action: "api_key.", from: "2026-11-01T00:00:00Z", q: "", limit: 50 }, authed);
+    await client.listAuditEvents({ org: "acme" }, { actor: "u1", target_type: "member", cursor: "c2" }, authed);
+    expect(calls.map((c) => [new URL(c.url).pathname, Object.fromEntries(new URL(c.url).searchParams)])).toEqual([
+      ["/api/v1/projects/shop/audit-events", { action: "api_key.", from: "2026-11-01T00:00:00Z", limit: "50" }],
+      ["/api/v1/orgs/acme/audit-events", { actor: "u1", target_type: "member", cursor: "c2" }],
+    ]);
+    const url = new URL(client.auditExportUrl({ project: "a/b" }, { action: "project_member.", to: "2026-11-13T00:00:00Z", q: "" }));
+    expect(url.origin).toBe(BASE);
+    expect(url.pathname).toBe("/api/v1/projects/a%2Fb/audit-events/export");
+    expect(Object.fromEntries(url.searchParams)).toEqual({ action: "project_member.", to: "2026-11-13T00:00:00Z", format: "csv" });
+    expect(client.auditExportUrl({ org: "acme" })).toBe(`${BASE}/api/v1/orgs/acme/audit-events/export?format=csv`);
+  });
+});
+
+describe("project settings operations (#805)", () => {
+  const authed = { accessToken: "jwt" };
+
+  it("sends each change as the body the spec names", async () => {
+    const { client, calls } = recordingClient(() => json({}));
+    await client.updateProject("shop", { description: "", repository_url: "https://github.com/acme/shop" }, authed);
+    await client.deleteProject("shop", "shop", authed);
+    await client.renameProject("shop", "shop-api", authed);
+    await client.addEnvironment("shop", "canary", authed);
+    await client.updateEnvironment("shop", "qa legacy", { color: "none", position: 0 }, authed);
+    await client.reorderEnvironments("shop", ["staging", "production"], authed);
+    await client.projectUsage("shop", 30, authed);
+    expect(calls.map((c) => [c.method, new URL(c.url).pathname + new URL(c.url).search, c.body])).toEqual([
+      ["PATCH", "/api/v1/projects/shop", { description: "", repository_url: "https://github.com/acme/shop" }],
+      ["DELETE", "/api/v1/projects/shop", { confirm: "shop" }],
+      ["POST", "/api/v1/projects/shop/rename", { slug: "shop-api" }],
+      ["POST", "/api/v1/projects/shop/environments", { name: "canary" }],
+      ["PATCH", "/api/v1/projects/shop/environments/qa%20legacy", { color: "none", position: 0 }],
+      ["PUT", "/api/v1/projects/shop/environments/order", { names: ["staging", "production"] }],
+      ["GET", "/api/v1/projects/shop/usage?days=30", undefined],
+    ]);
+    expect(calls.every((c) => c.headers.get("authorization") === "Bearer jwt")).toBe(true);
+  });
+
+  it("sends no body to pause, resume, restore and remove", async () => {
+    const { client, calls } = recordingClient(() => json({}));
+    await client.pauseProject("shop", authed);
+    await client.resumeProject("shop", authed);
+    await client.restoreProject("acme", "p1", authed);
+    await client.removeEnvironment("shop", "preview", authed);
+    expect(calls.map((c) => c.body)).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it("surfaces environment_in_use and confirmation_mismatch as ApiErrors", async () => {
+    const { client } = recordingClient((req) =>
+      req.method === "DELETE" && req.url.includes("/environments/") ? problem(409, { code: "environment_in_use" }) : problem(422, { code: "confirmation_mismatch" }),
+    );
+    await expect(client.removeEnvironment("shop", "production", authed)).rejects.toMatchObject({ status: 409, code: "environment_in_use" });
+    await expect(client.deleteProject("shop", "shp", authed)).rejects.toMatchObject({ status: 422, code: "confirmation_mismatch" });
   });
 });

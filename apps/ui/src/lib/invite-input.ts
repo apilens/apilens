@@ -18,6 +18,8 @@ export interface InviteChip {
   role: InviteRole;
   /** Whether `email` looks like an address. */
   valid: boolean;
+  /** Why the server refused this address ("already in Acme"), shown on the chip; unset when none. */
+  problem?: string;
 }
 
 // A pragmatic address check: something@label.tld, no spaces. The API validates for real.
@@ -60,6 +62,8 @@ export function addInviteChips(chips: readonly InviteChip[], text: string, role:
 export function inviteChipsError(chips: readonly InviteChip[]): string | null {
   const bad = chips.find((c) => !c.valid);
   if (bad) return `“${bad.email}” isn’t an email address. Remove it or fix it.`;
+  const refused = chips.find((c) => c.problem);
+  if (refused) return `“${refused.email}” can’t be invited: ${refused.problem}. Remove it to send the rest.`;
   if (chips.length === 0) return "Enter at least one email address.";
   if (chips.length > MAX_INVITES) return `Invite at most ${MAX_INVITES} people at a time.`;
   return null;

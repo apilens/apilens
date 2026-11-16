@@ -4,12 +4,16 @@
 // body masked by the privacy policy). The input checks, labels and sentences the panel shows.
 // Pure; safe in Client and Server Components and in Server Actions alike.
 import type { CreateHealthCheckRequest, HealthCheckProbe } from "./identity";
+import type { PageOptions } from "./pagination";
 
 /** The section of project settings that lists the health checks. */
 export const HEALTH_CHECKS_SECTION = "health-checks";
 
 /** Failures shown per check, newest first (`limit` of `GET .../health-checks/{id}/events`). */
 export const EVENTS_SHOWN = 5;
+
+/** Checks per page: each one is a card with its latest failures, so pages are short. */
+export const CHECKS_PAGE: PageOptions = { sizes: [10, 25, 50], defaultPer: 10 };
 
 /** How often and how patiently a check is probed, as the panel explains it. */
 export const PROBE_POLICY = "Every minute, APILens sends GET to the URL with a 5 second timeout and retries once before the check counts as failing.";

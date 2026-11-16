@@ -17,7 +17,7 @@ import (
 
 func TestPrivacyPolicy(t *testing.T) {
 	f := setupProjects(t)
-	NewPrivacy(privacy.NewService(f.pool), testutil.Logger(t)).Register(f.api)
+	NewPrivacy(privacy.NewService(f.pool), f.projectGuard(t), testutil.Logger(t)).Register(f.api)
 	owner := f.user(t, "pp-owner@example.com")
 	member := f.user(t, "pp-member@example.com")
 	viewer := f.user(t, "pp-viewer@example.com")
@@ -91,8 +91,8 @@ func TestPrivacyPolicy(t *testing.T) {
 
 	// Refusals.
 	expectProblem(t, "viewer put", f.api.Put(path, as(viewer), map[string]any{}), http.StatusForbidden, "forbidden")
-	expectProblem(t, "stranger get", f.api.Get(path, as(stranger)), http.StatusForbidden, "forbidden")
-	expectProblem(t, "unknown project", f.api.Get(ProjectsPath+"/nope/privacy-policy", as(owner)), http.StatusForbidden, "forbidden")
+	expectProblem(t, "stranger get", f.api.Get(path, as(stranger)), http.StatusNotFound, "not_found")
+	expectProblem(t, "unknown project", f.api.Get(ProjectsPath+"/nope/privacy-policy", as(owner)), http.StatusNotFound, "not_found")
 	expectProblem(t, "unknown app", f.api.Get(path+"?app=ghost", as(owner)), http.StatusBadRequest, "invalid_request")
 	expectProblem(t, "bad pattern", f.api.Put(path, as(owner), map[string]any{"mask_body_fields": []string{"ok", "pass(?=word)"}}), http.StatusBadRequest, "invalid_request")
 	if resp := f.api.Get(path); resp.Code != http.StatusUnauthorized {

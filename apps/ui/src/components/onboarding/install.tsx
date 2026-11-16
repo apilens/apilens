@@ -4,7 +4,7 @@ import { unstable_rethrow } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { type InstallKey, createInstallKey, finishInstallLater } from "@/app/(auth)/onboarding/install/actions";
 import { maskedKey } from "@/lib/api-keys";
-import { DEFAULT_POSTURE, POSTURES, POSTURE_PARAM, type Posture, type SavedKey, type Snippet, privacyDocsUrl, snippetsFor } from "@/lib/install";
+import { DEFAULT_POSTURE, POSTURES, POSTURE_PARAM, type Posture, type SavedKey, type Snippet, appNameNote, privacyDocsUrl, snippetsFor } from "@/lib/install";
 import { languageOf } from "@/lib/instrument";
 import { LINKS, extLink } from "@/lib/links";
 import { BackNext, ObIcon, ObShell, type StepProps } from "./ob";
@@ -240,11 +240,12 @@ export function Install({
       <div className="ob-f ins-snippets">
         <p className="ob-l">
           Add the SDK
-          <small>app id {appId}</small>
+          <small>app name {appId}</small>
         </p>
         {snippets.map((s) => (
           <CodeBlock key={s.id} snippet={s} />
         ))}
+        {snippets.length > 0 ? <p className="ins-status">{appNameNote(appId)}</p> : null}
         <p className="ins-status">
           Capture posture: <b>{POSTURES.find((p) => p.id === posture)?.label}</b>, plus a starter redaction list on top of the built-in masking.{" "}
           <a className="cp-link" {...extLink(privacyDocsUrl(LINKS.docs))}>

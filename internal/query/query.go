@@ -41,6 +41,7 @@ type Verifier interface {
 type Catalog interface {
 	GetProjectWithOrg(ctx context.Context, id uuid.UUID) (db.GetProjectWithOrgRow, error)
 	ListProjectApps(ctx context.Context, projectID uuid.UUID) ([]db.ListProjectAppsRow, error)
+	ListPickerEnvironments(ctx context.Context, projectID uuid.UUID) ([]db.ListPickerEnvironmentsRow, error)
 }
 
 // Service holds the dependencies of the query handlers.
@@ -55,6 +56,8 @@ type Service struct {
 	alerts      *alertDeps        // nil: the alert operations answer 503
 
 	healthChecksPrivate bool // health check URLs may point to private addresses
+
+	audit *auditDeps // nil: changes are not audited
 }
 
 // NewService builds a Service.

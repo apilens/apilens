@@ -171,8 +171,10 @@ func TestAuthEndToEnd(t *testing.T) {
 		Slug    string `json:"slug"`
 		OrgSlug string `json:"org_slug"`
 	}
-	c.mustJSON(http.MethodPost, "/api/v1/orgs/"+run+"/projects", tok,
-		map[string]any{"name": "E2E " + run, "slug": run, "environments": []string{"e2e"}}, http.StatusCreated, &project)
+	// The owner's roles reach SpiceDB through the relay, so the creates
+	// below may answer 403/404 for a moment.
+	createWhenGranted(t, c, "/api/v1/orgs/"+run+"/projects", tok,
+		map[string]any{"name": "E2E " + run, "slug": run, "environments": []string{"e2e"}}, &project)
 	if project.Slug != run || project.OrgSlug != run {
 		t.Fatalf("create project = %+v", project)
 	}
@@ -180,8 +182,8 @@ func TestAuthEndToEnd(t *testing.T) {
 		Key    string   `json:"key"`
 		Scopes []string `json:"scopes"`
 	}
-	c.mustJSON(http.MethodPost, "/api/v1/projects/"+run+"/api-keys", tok,
-		map[string]any{"name": "e2e", "scopes": []string{"ingest"}}, http.StatusCreated, &key)
+	createWhenGranted(t, c, "/api/v1/projects/"+run+"/api-keys", tok,
+		map[string]any{"name": "e2e", "scopes": []string{"ingest"}}, &key)
 	if key.Key == "" {
 		t.Fatal("create api key: no key in response")
 	}

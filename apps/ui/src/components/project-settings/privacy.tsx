@@ -41,7 +41,7 @@ type Status = { tone: "ok" | "err"; text: string } | null;
 export function PrivacySettings({ projectName, project, policy }: { project: string; projectName: string; policy: PrivacyPolicy | null }) {
   const manage = useCan("project.update").allowed;
   return (
-    <div className="os prv">
+    <div className="page page--measure os prv">
       <header className="os-head">
         <p className="cp-h">{projectName} · Settings</p>
         <h1 className="cp-lede">Privacy</h1>

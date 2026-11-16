@@ -41,6 +41,11 @@ describe("addInviteChips", () => {
 });
 
 describe("inviteChipsError", () => {
+  it("names a chip the server refused, with its reason", () => {
+    const chips = addInviteChips([], "ada@example.com max@example.com", "member").map((c) => (c.email === "max@example.com" ? { ...c, problem: "already in Acme" } : c));
+    expect(inviteChipsError(chips)).toBe("“max@example.com” can’t be invited: already in Acme. Remove it to send the rest.");
+  });
+
   it("names the first invalid chip", () => {
     const chips = addInviteChips([], "ada@example.com not-an-address", "member");
     expect(inviteChipsError(chips)).toBe("“not-an-address” isn’t an email address. Remove it or fix it.");

@@ -1,0 +1,14 @@
+Subject: Your APILens confirmation code is 590214
+
+APILens
+
+Enter this code in APILens to confirm it is you before a sensitive change:
+
+    590214
+
+The code expires in 15 minutes and works once.
+
+If you did not ask for this code, someone may be using your signed-in session. Sign out of your other sessions from the Security page.
+
+--
+This is an automated message from APILens (https://app.example.com/). Replies are not read.

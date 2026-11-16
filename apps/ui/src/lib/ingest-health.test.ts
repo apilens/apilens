@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppSdkStats } from "./identity";
-import { INGEST_RUNBOOK, counterShare, dropReasons, dropSummary, formatCount, ingestPath, plural, sdkLine, share, shortenedRecords } from "./ingest-health";
+import { INGEST_RUNBOOK, counterShare, dayBars, daysSummary, dropReasons, dropSummary, formatCount, ingestPath, plural, sdkLine, share, shortenedRecords } from "./ingest-health";
 
 const sdk = (over: Partial<AppSdkStats> = {}): AppSdkStats => ({
   instances: 2,
@@ -75,5 +75,32 @@ describe("SDK drops", () => {
     expect(sdkLine(sdk({ instances: 0 }))).toMatch(/^No SDK instance sent a heartbeat in the last hour/);
     expect(sdkLine(sdk())).toBe("Nothing dropped by the 2 instances seen in the last hour.");
     expect(sdkLine(sdk({ instances: 1, dropped_records: 2 }))).toBe("Summed over the 1 instance seen in the last hour, since each process started.");
+  });
+});
+
+const day = (date: string, accepted: number, rejected = 0) => ({ date, accepted, rejected, truncated: 0, masked: 0 });
+
+describe("dayBars", () => {
+  it("stacks rejected on accepted, scaled to the busiest day", () => {
+    const { top, bars } = dayBars([day("2026-11-01", 50, 50), day("2026-11-02", 25)], 200, 100);
+    expect(top).toBe(100);
+    expect(bars[0]).toMatchObject({ x: 12.5, w: 75, accepted: { y: 50, h: 50 }, rejected: { y: 0, h: 50 } });
+    expect(bars[1]).toMatchObject({ x: 112.5, accepted: { y: 75, h: 25 }, rejected: { y: 75, h: 0 } });
+  });
+  it("draws an empty week flat", () => {
+    const { top, bars } = dayBars([day("2026-11-01", 0)], 100, 100);
+    expect(top).toBe(1);
+    expect(bars[0].accepted.h).toBe(0);
+  });
+  it("ignores negative counts", () => {
+    expect(dayBars([day("2026-11-01", -5, -1)], 100, 100).bars[0].accepted.h).toBe(0);
+  });
+});
+
+describe("daysSummary", () => {
+  it("names the busiest day and the rejections", () => {
+    expect(daysSummary([day("a", 10, 2), day("b", 30)], (d) => d)).toBe("Busiest day b: 30 records received. 2 records rejected over the 2 days.");
+    expect(daysSummary([day("a", 1)], (d) => d)).toBe("Busiest day a: 1 record received. None rejected.");
+    expect(daysSummary([], (d) => d)).toBe("No days to show.");
   });
 });

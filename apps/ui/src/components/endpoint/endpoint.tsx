@@ -16,9 +16,11 @@ import {
   tabTakesStatus,
 } from "@/lib/endpoint-detail";
 import type { EndpointErrors, EndpointLatency, EndpointRequests, EndpointSettings, EndpointTransfer, NamedApp } from "@/lib/identity";
+import { type PageKeys, type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { formatExact } from "@/lib/passkey-settings";
 import { TRAFFIC_RANGES, apdexRating, formatApdex, formatLatency, trafficHref } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
+import { Pagination } from "../pagination/pagination";
 import { StatusChart } from "../traffic/charts";
 import { Histogram, LinesChart, StackedChart } from "./charts";
 import { ScopeSelect } from "./filters";
@@ -55,6 +57,7 @@ export function EndpointView({
   query: q,
   tab,
   settings,
+  params = {},
 }: {
   project: string;
   projectName: string;
@@ -63,6 +66,8 @@ export function EndpointView({
   query: EndpointState;
   tab: TabLoad;
   settings: SettingsLoad;
+  /** The page's search params as read, for the tables' paging (`?page=`, `?vpage=`, `?xpage=`). */
+  params?: SearchParams;
 }) {
   const href = (patch: Partial<EndpointState>) => endpointPageHref(project, ep, { ...q, ...patch });
   // A shared link may name an environment the project no longer lists; keep it selectable.
@@ -70,7 +75,7 @@ export function EndpointView({
   const saved = settings.settings;
 
   return (
-    <div className="tr ep">
+    <div className="page tr ep">
       <header className="pagehead ep-head">
         <p className="cp-h">
           {projectName} ·{" "}
@@ -152,13 +157,13 @@ export function EndpointView({
       </nav>
 
       <section className="ep-panel" aria-label={ENDPOINT_TABS.find((t) => t.slug === q.tab)?.label} data-tab={q.tab}>
-        <Panel tab={tab} project={project} endpoint={ep} q={q} settings={saved} />
+        <Panel tab={tab} project={project} endpoint={ep} q={q} settings={saved} pager={{ pathname: endpointPageHref(project, ep, {}), params }} />
       </section>
     </div>
   );
 }
 
-function Panel({ tab, project, endpoint, q, settings }: { tab: TabLoad; project: string; endpoint: EndpointRef; q: EndpointState; settings: EndpointSettings | null }) {
+function Panel({ tab, project, endpoint, q, settings, pager }: { tab: TabLoad; project: string; endpoint: EndpointRef; q: EndpointState; settings: EndpointSettings | null; pager: Pager }) {
   const retry = endpointPageHref(project, endpoint, q);
   if (tab.data === null) return <LoadFailed text={tabLoadFailed(tab.tab)} href={retry} />;
   const requests = tab.data.summary.requests;
@@ -174,9 +179,9 @@ function Panel({ tab, project, endpoint, q, settings }: { tab: TabLoad; project:
   }
   switch (tab.tab) {
     case "requests":
-      return <RequestsTab data={tab.data} project={project} endpoint={endpoint} q={q} />;
+      return <RequestsTab data={tab.data} project={project} endpoint={endpoint} q={q} pager={pager} />;
     case "errors":
-      return <ErrorsTab data={tab.data} q={q} settings={settings} />;
+      return <ErrorsTab data={tab.data} q={q} settings={settings} pager={pager} />;
     case "latency":
       return <LatencyTab data={tab.data} q={q} settings={settings} />;
     case "transfer":
@@ -231,12 +236,37 @@ const Empty = ({ children }: { children: ReactNode }) => (
 
 const When = ({ iso }: { iso: string }) => <time dateTime={iso}>{formatExact(iso)}</time>;
 
+/** Where the tables' paging links go: the endpoint page without its query, and the query as read. */
+interface Pager {
+  pathname: string;
+  params: SearchParams;
+}
+
+/**
+ * The URL keys of each paged table. The Errors tab shows three lists at once, so each keeps its own
+ * position; every filter, range, tab or consumer link is built by endpointPageHref, which leaves
+ * all of them out, so a changed scope starts every table at page 1.
+ */
+const PAGE_KEYS = {
+  consumers: { page: "page", per: "per" },
+  statuses: { page: "page", per: "per" },
+  validation: { page: "vpage", per: "vper" },
+  exceptions: { page: "xpage", per: "xper" },
+} as const;
+
+/** One table's rows on the reader's page (clamped), with its paging controls. */
+function paged<T>(rows: readonly T[], pager: Pager, keys: PageKeys, label: string): { rows: T[]; controls: ReactNode } {
+  const { rows: slice, window } = slicePage(rows, parsePage(pager.params, { keys }));
+  return { rows: slice, controls: <Pagination pathname={pager.pathname} params={pager.params} total={window.total} keys={keys} label={label} /> };
+}
+
 // Requests -------------------------------------------------------------------------------
 
-function RequestsTab({ data, project, endpoint, q }: { data: EndpointRequests; project: string; endpoint: EndpointRef; q: EndpointState }) {
+function RequestsTab({ data, project, endpoint, q, pager }: { data: EndpointRequests; project: string; endpoint: EndpointRef; q: EndpointState; pager: Pager }) {
   const s = data.summary;
   const points = data.points ?? [];
-  const consumers = data.consumers ?? [];
+  const all = data.consumers ?? [];
+  const { rows: consumers, controls } = paged(all, pager, PAGE_KEYS.consumers, "Top consumers pages");
   return (
     <>
       <Tiles
@@ -256,51 +286,54 @@ function RequestsTab({ data, project, endpoint, q }: { data: EndpointRequests; p
         />
       </Card>
       <Card id="ep-consumers" title="Top consumers" table>
-        {consumers.length === 0 ? (
+        {all.length === 0 ? (
           <Empty>No requests from identified consumers in {endpointScopeText(q)}.</Empty>
         ) : (
-          <table className="tr-table" aria-label="Top consumers">
-            <thead>
-              <tr>
-                <th scope="col">Consumer</th>
-                <th scope="col" className="tr-num">
-                  Requests
-                </th>
-                <th scope="col" className="tr-num">
-                  Successful
-                </th>
-                <th scope="col" className="tr-num">
-                  4xx
-                </th>
-                <th scope="col" className="tr-num">
-                  5xx
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {consumers.map((c) => (
-                <tr key={c.consumer_id} className="tr-row">
-                  <td className="tr-ep" data-label="Consumer">
-                    <a className="tr-ep__link" href={endpointPageHref(project, endpoint, { ...q, consumer: c.consumer_id })} title={`Only requests from ${consumerLabel(c)}`}>
-                      {consumerLabel(c)}
-                    </a>
-                  </td>
-                  <td className="tr-num" data-label="Requests">
-                    {formatCount(c.requests)}
-                  </td>
-                  <td className="tr-num" data-label="Successful">
-                    {formatCount(c.successful)}
-                  </td>
-                  <td className="tr-num" data-label="4xx">
-                    {formatCount(c.client_errors)}
-                  </td>
-                  <td className="tr-num" data-label="5xx">
-                    {formatCount(c.server_errors)}
-                  </td>
+          <>
+            <table className="tr-table" aria-label="Top consumers">
+              <thead>
+                <tr>
+                  <th scope="col">Consumer</th>
+                  <th scope="col" className="tr-num">
+                    Requests
+                  </th>
+                  <th scope="col" className="tr-num">
+                    Successful
+                  </th>
+                  <th scope="col" className="tr-num">
+                    4xx
+                  </th>
+                  <th scope="col" className="tr-num">
+                    5xx
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {consumers.map((c) => (
+                  <tr key={c.consumer_id} className="tr-row">
+                    <td className="tr-ep" data-label="Consumer">
+                      <a className="tr-ep__link" href={endpointPageHref(project, endpoint, { ...q, consumer: c.consumer_id })} title={`Only requests from ${consumerLabel(c)}`}>
+                        {consumerLabel(c)}
+                      </a>
+                    </td>
+                    <td className="tr-num" data-label="Requests">
+                      {formatCount(c.requests)}
+                    </td>
+                    <td className="tr-num" data-label="Successful">
+                      {formatCount(c.successful)}
+                    </td>
+                    <td className="tr-num" data-label="4xx">
+                      {formatCount(c.client_errors)}
+                    </td>
+                    <td className="tr-num" data-label="5xx">
+                      {formatCount(c.server_errors)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {controls}
+          </>
         )}
       </Card>
     </>
@@ -310,11 +343,14 @@ function RequestsTab({ data, project, endpoint, q }: { data: EndpointRequests; p
 // Errors ---------------------------------------------------------------------------------
 
 
-function ErrorsTab({ data, q, settings }: { data: EndpointErrors; q: EndpointState; settings: EndpointSettings | null }) {
+function ErrorsTab({ data, q, settings, pager }: { data: EndpointErrors; q: EndpointState; settings: EndpointSettings | null; pager: Pager }) {
   const s = data.summary;
-  const statuses = data.statuses ?? [];
-  const validation = data.validation_errors ?? [];
-  const exceptions = data.exceptions ?? [];
+  const allStatuses = data.statuses ?? [];
+  const allValidation = data.validation_errors ?? [];
+  const allExceptions = data.exceptions ?? [];
+  const { rows: statuses, controls: statusPages } = paged(allStatuses, pager, PAGE_KEYS.statuses, "Error status codes pages");
+  const { rows: validation, controls: validationPages } = paged(allValidation, pager, PAGE_KEYS.validation, "Validation errors pages");
+  const { rows: exceptions, controls: exceptionPages } = paged(allExceptions, pager, PAGE_KEYS.exceptions, "Server exceptions pages");
   const expected = settings?.expected_status_codes ?? [];
   const rows = (data.points ?? []).map((p) => ({ ts: p.ts, client: p.client_error_rate * 100, server: p.server_error_rate * 100 }));
   return (
@@ -341,112 +377,121 @@ function ErrorsTab({ data, q, settings }: { data: EndpointErrors; q: EndpointSta
         />
       </Card>
       <Card id="ep-statuses" title="Error status codes" table>
-        {statuses.length === 0 ? (
+        {allStatuses.length === 0 ? (
           <Empty>No error responses in {endpointScopeText(q)}.</Empty>
         ) : (
-          <table className="tr-table" aria-label="Error status codes">
-            <thead>
-              <tr>
-                <th scope="col">Status</th>
-                <th scope="col" className="tr-num">
-                  Responses
-                </th>
-                <th scope="col" className="tr-num">
-                  Share
-                </th>
-                <th scope="col" className="tr-num">
-                  Consumers
-                </th>
-                <th scope="col">Last seen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {statuses.map((r) => (
-                <tr key={r.status_code}>
-                  <td data-label="Status">
-                    <span className={`ep-status ep-status--${r.status_code >= 500 ? "5xx" : "4xx"}`}>{r.status_code}</span>
-                  </td>
-                  <td className="tr-num" data-label="Responses">
-                    {formatCount(r.count)}
-                  </td>
-                  <td className="tr-num" data-label="Share">
-                    {formatShare(r.share)}
-                  </td>
-                  <td className="tr-num" data-label="Consumers">
-                    {formatCount(r.consumers)}
-                  </td>
-                  <td data-label="Last seen">
-                    <When iso={r.last_seen} />
-                  </td>
+          <>
+            <table className="tr-table" aria-label="Error status codes">
+              <thead>
+                <tr>
+                  <th scope="col">Status</th>
+                  <th scope="col" className="tr-num">
+                    Responses
+                  </th>
+                  <th scope="col" className="tr-num">
+                    Share
+                  </th>
+                  <th scope="col" className="tr-num">
+                    Consumers
+                  </th>
+                  <th scope="col">Last seen</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {statuses.map((r) => (
+                  <tr key={r.status_code}>
+                    <td data-label="Status">
+                      <span className={`ep-status ep-status--${r.status_code >= 500 ? "5xx" : "4xx"}`}>{r.status_code}</span>
+                    </td>
+                    <td className="tr-num" data-label="Responses">
+                      {formatCount(r.count)}
+                    </td>
+                    <td className="tr-num" data-label="Share">
+                      {formatShare(r.share)}
+                    </td>
+                    <td className="tr-num" data-label="Consumers">
+                      {formatCount(r.consumers)}
+                    </td>
+                    <td data-label="Last seen">
+                      <When iso={r.last_seen} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {statusPages}
+          </>
         )}
       </Card>
       <Card id="ep-validation" title="Validation errors" table>
-        {validation.length === 0 ? (
+        {allValidation.length === 0 ? (
           <Empty>No rejected fields in {endpointScopeText(q)}.</Empty>
         ) : (
-          <table className="tr-table" aria-label="Validation errors">
-            <thead>
-              <tr>
-                <th scope="col">Field</th>
-                <th scope="col">Message</th>
-                <th scope="col" className="tr-num">
-                  Count
-                </th>
-                <th scope="col" className="tr-num">
-                  Consumers
-                </th>
-                <th scope="col">Last seen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {validation.map((v) => (
-                <tr key={`${v.loc} ${v.msg} ${v.type}`}>
-                  <td data-label="Field">
-                    <code className="ep-code">{v.loc}</code>
-                  </td>
-                  <td data-label="Message">
-                    {v.msg} {v.type ? <span className="tr-muted">({v.type})</span> : null}
-                  </td>
-                  <td className="tr-num" data-label="Count">
-                    {formatCount(v.count)}
-                  </td>
-                  <td className="tr-num" data-label="Consumers">
-                    {formatCount(v.consumers)}
-                  </td>
-                  <td data-label="Last seen">
-                    <When iso={v.last_seen} />
-                  </td>
+          <>
+            <table className="tr-table" aria-label="Validation errors">
+              <thead>
+                <tr>
+                  <th scope="col">Field</th>
+                  <th scope="col">Message</th>
+                  <th scope="col" className="tr-num">
+                    Count
+                  </th>
+                  <th scope="col" className="tr-num">
+                    Consumers
+                  </th>
+                  <th scope="col">Last seen</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {validation.map((v) => (
+                  <tr key={`${v.loc} ${v.msg} ${v.type}`}>
+                    <td data-label="Field">
+                      <code className="ep-code">{v.loc}</code>
+                    </td>
+                    <td data-label="Message">
+                      {v.msg} {v.type ? <span className="tr-muted">({v.type})</span> : null}
+                    </td>
+                    <td className="tr-num" data-label="Count">
+                      {formatCount(v.count)}
+                    </td>
+                    <td className="tr-num" data-label="Consumers">
+                      {formatCount(v.consumers)}
+                    </td>
+                    <td data-label="Last seen">
+                      <When iso={v.last_seen} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {validationPages}
+          </>
         )}
       </Card>
       <Card id="ep-exceptions" title="Server exceptions" table>
-        {exceptions.length === 0 ? (
+        {allExceptions.length === 0 ? (
           <Empty>No exceptions reported in {endpointScopeText(q)}.</Empty>
         ) : (
-          <ul className="ep-exc" aria-label="Server exceptions">
-            {exceptions.map((x) => (
-              <li key={`${x.exception_type} ${x.message}`}>
-                <details>
-                  <summary>
-                    <span className="ep-exc__name">
-                      <b>{x.exception_type || "Exception"}</b> <span className="ep-exc__msg">{x.message}</span>
-                    </span>
-                    <span className="ep-exc__meta">
-                      {formatCount(x.count)} times, {formatCount(x.consumers)} consumers, last <When iso={x.last_seen} />
-                    </span>
-                  </summary>
-                  {x.stack_trace ? <pre className="ep-stack">{x.stack_trace}</pre> : <p className="tr-empty">The SDK sent no stack trace for this exception.</p>}
-                </details>
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className="ep-exc" aria-label="Server exceptions">
+              {exceptions.map((x) => (
+                <li key={`${x.exception_type} ${x.message}`}>
+                  <details>
+                    <summary>
+                      <span className="ep-exc__name">
+                        <b>{x.exception_type || "Exception"}</b> <span className="ep-exc__msg">{x.message}</span>
+                      </span>
+                      <span className="ep-exc__meta">
+                        {formatCount(x.count)} times, {formatCount(x.consumers)} consumers, last <When iso={x.last_seen} />
+                      </span>
+                    </summary>
+                    {x.stack_trace ? <pre className="ep-stack">{x.stack_trace}</pre> : <p className="tr-empty">The SDK sent no stack trace for this exception.</p>}
+                  </details>
+                </li>
+              ))}
+            </ul>
+            {exceptionPages}
+          </>
         )}
       </Card>
     </>

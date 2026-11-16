@@ -23,7 +23,7 @@ const app = new Hono();
 
 instrumentHono(app, {
   apiKey: "<your API key>",      // e.g. from a Workers secret or process.env.APILENS_API_KEY
-  appId: "storefront-api",       // the app's slug from your APILens project
+  appId: "storefront-api",       // your service's name; the app appears on first data
   environment: "production",
 });
 

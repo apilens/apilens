@@ -179,8 +179,9 @@ def start_metadata(mw: Any, discover: Callable[[], tuple[str, list[dict[str, str
     returns ``(framework, routes)``. Never raises."""
     client = getattr(mw, "client", None)
     report = getattr(client, "report_metadata", None)
-    app_id = getattr(mw, "app_id", "")
-    if not callable(report) or not app_id:
+    # An empty app_id is sent as-is: the server files it under the default app.
+    app_id = getattr(mw, "app_id", "") or ""
+    if not callable(report):
         return False
     try:
         config = effective_config(mw)

@@ -52,6 +52,9 @@ type OAuthState struct {
 	// OrgID is the organization whose SSO connection the sign-in runs
 	// through (Provider SSOProvider only).
 	OrgID string `json:"org_id,omitempty"`
+	// Reauth marks an SSO re-authentication of a signed-in user (prompt=login,
+	// max_age=0): the id_token's auth_time must be recent.
+	Reauth bool `json:"reauth,omitempty"`
 }
 
 // OAuthStateStore keeps pending OAuth sign-ins for OAuthStateTTL.

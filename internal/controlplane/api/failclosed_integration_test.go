@@ -112,7 +112,7 @@ func setupLive(t *testing.T) *liveFixture {
 	svc := orgs.New(pool, audit.New(pool))
 	NewOrgs(svc, guard, limiter, ratelimit.Rate{}, logger).Register(api)
 	NewMembers(svc, guard, logger).Register(api)
-	NewProjects(projects.New(pool), nil, ratelimit.Rate{}, logger).Register(api)
+	NewProjects(projects.New(pool), guard, checker, nil, ratelimit.Rate{}, logger).Register(api)
 	huma.Register(api, huma.Operation{
 		OperationID: "probe-project-update",
 		Method:      http.MethodPatch,
@@ -185,6 +185,7 @@ func TestAuthzFailsClosedWhileSpiceDBIsDown(t *testing.T) {
 		f.join(t, "acme", users[r], r)
 	}
 	f.join(t, "acme", users["target"], "member")
+	f.settle(t) // create_project is checked in SpiceDB
 	f.mustCreateProject(t, users["owner"], "acme", "Web", "web")
 	f.settle(t)
 
@@ -259,6 +260,7 @@ func TestRoleChangePropagatesWithinTwoSeconds(t *testing.T) {
 	bob := f.user(t, "rp-bob@example.com")
 	f.mustCreate(t, alice, "Acme", "acme")
 	f.join(t, "acme", bob, "owner")
+	f.settle(t) // create_project is checked in SpiceDB
 	f.mustCreateProject(t, alice, "acme", "Web", "web")
 	f.settle(t)
 

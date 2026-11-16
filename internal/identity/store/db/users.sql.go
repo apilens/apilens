@@ -22,10 +22,12 @@ SET user_id       = CASE WHEN user_id = ANY($1::uuid[]) THEN NULL ELSE user_id E
 WHERE user_id = ANY($1::uuid[]) OR actor_user_id = ANY($1::uuid[])
 `
 
-// Keeps the audit trail of purged users but strips what identifies them:
-// events about them lose user_id and metadata, events they acted in lose
-// actor_user_id, and both lose the client IP and user agent. Run before
-// PurgeUsers, whose cascade would otherwise delete the events.
+// Keeps the rest of the audit trail of purged users (org and project events,
+// and events they acted in on other accounts) but strips what identifies
+// them: events about them lose user_id and metadata, events they acted in
+// lose actor_user_id, and both lose the client IP and user agent. actor_label
+// (the name at the time) stays so org and project history stays readable.
+// Run after DeletePersonalAuditEventsForUsers and before PurgeUsers.
 func (q *Queries) AnonymizeAuditEventsForUsers(ctx context.Context, ids []uuid.UUID) (int64, error) {
 	result, err := q.db.Exec(ctx, anonymizeAuditEventsForUsers, ids)
 	if err != nil {
@@ -119,6 +121,22 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.DeleteAfter,
 	)
 	return i, err
+}
+
+const deletePersonalAuditEventsForUsers = `-- name: DeletePersonalAuditEventsForUsers :execrows
+DELETE FROM audit_events
+WHERE user_id = ANY($1::uuid[]) AND org_id IS NULL
+`
+
+// Deletes the personal account events (no org_id) about purged users. Run
+// before PurgeUsers: user_id is ON DELETE SET NULL so that org and project
+// events outlive the person.
+func (q *Queries) DeletePersonalAuditEventsForUsers(ctx context.Context, ids []uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePersonalAuditEventsForUsers, ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getPendingDeletionUserByEmail = `-- name: GetPendingDeletionUserByEmail :one

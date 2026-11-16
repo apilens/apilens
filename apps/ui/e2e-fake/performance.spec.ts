@@ -59,6 +59,15 @@ async function signIn(page: Page, next = PAGE, seeds: Record<string, unknown> = 
 const tiles = (page: Page) => page.locator("dl.pf-tiles");
 const apdexValue = (page: Page) => tiles(page).locator(".pf-apdex .tr-tile__value");
 
+/** The hover tooltip of chart `name` at bucket `i` (0-based), reached with the keyboard. */
+async function tipAt(page: Page, name: RegExp, i: number) {
+  const box = page.getByRole("group", { name });
+  await box.focus();
+  await page.keyboard.press("Home");
+  for (let k = 0; k < i; k++) await page.keyboard.press("ArrowRight");
+  return box.locator(".ct-tip");
+}
+
 test.afterEach(async () => {
   await seed(false);
 });
@@ -72,7 +81,10 @@ test("shows percentile tiles and trend, the Apdex gauge, the histogram and the e
   await expect(tiles(page).locator("dt")).toHaveText(["p50 response time", "p75 response time", "p95 response time", /^Apdex/]);
   await expect(tiles(page).locator(".tr-tile__value")).toHaveText(["31 ms", "64 ms", "413 ms", "0.63"]);
   await expect(tiles(page).locator(".tr-tile__sub")).toHaveText(["average 48 ms", "p90 140 ms", "p99 1.24 s, slowest 2.31 s", "Poor"]);
-  await expect(tiles(page).locator("svg.tr-spark polyline")).toHaveCount(3);
+  await expect(tiles(page).locator(".tr-spark polyline")).toHaveCount(3);
+  // Each tile sparkline reads its points on hover or with the arrow keys.
+  const spark = await tipAt(page, /^p95 in the last 24 hours/, 2);
+  await expect(spark.locator("dd")).toHaveText(["610 ms"]);
 
   // The gauge is a meter with a text value; the marker sits at the score.
   const gauge = page.getByRole("meter", { name: "Apdex" });
@@ -95,11 +107,15 @@ test("shows percentile tiles and trend, the Apdex gauge, the histogram and the e
   await expect(trend).toHaveAttribute("aria-label", /p50 31 ms, p75 64 ms and p95 413 ms in the last 24 hours/);
   await expect(page.getByRole("list", { name: "Response time percentiles legend" }).getByRole("listitem")).toHaveText(["p50", "p75", "p95"]);
   await expect(trend.locator("path[data-series]")).toHaveCount(3);
-  await expect(trend.locator(".tr-hit title").nth(2)).toHaveText(/p50: 29 ms\np75: 58 ms\np95: 610 ms/);
+  const point = await tipAt(page, /^Response time percentiles\. Use the arrow keys/, 2);
+  await expect(point.locator("dt")).toHaveText(["p50", "p75", "p95"]);
+  await expect(point.locator("dd")).toHaveText(["29 ms", "58 ms", "610 ms"]);
 
   const hist = page.getByRole("img", { name: /Response time histogram/ });
   await expect(hist.locator(".tr-hit")).toHaveCount(14);
-  await expect(hist.locator(".tr-hit title").nth(5)).toHaveText("20–50 ms: 4,600");
+  const bar = await tipAt(page, /^Response time histogram\. Use the arrow keys/, 5);
+  await expect(bar.locator(".ct-tip__title")).toHaveText("20–50 ms");
+  await expect(bar.locator("dd").first()).toHaveText("4,600");
 
   // Slowest p95 first; routes without traffic have no response times to rank.
   const table = page.getByRole("table", { name: "Endpoints by p95 response time" });

@@ -3,6 +3,7 @@
 // error codes. The server stays the authority (public email domains answer `domain_not_allowed`
 // and only it knows that list); these checks only spare a round trip. Pure; safe in Client
 // Components and Server Actions alike.
+import { confirmMatches } from "./confirm";
 import type { OrgRole } from "./identity";
 
 /** Longest organization name the API accepts (`maxLength` of `name`). */
@@ -16,6 +17,11 @@ const HOSTNAME = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[
 
 /** Owners and admins change the settings (`org.manage`); members and viewers only read them. */
 export function canManageOrg(role: OrgRole): boolean {
+  return role === "owner" || role === "admin";
+}
+
+/** Owners and admins read the organization's audit log (#813); the API answers 403 to anyone else. */
+export function canReadOrgAudit(role: OrgRole): boolean {
   return role === "owner" || role === "admin";
 }
 
@@ -89,7 +95,7 @@ export function checkDomains(list: unknown): { ok: true; domains: string[] } | {
 
 /** Whether the delete confirmation matches: the slug exactly, ignoring surrounding spaces. */
 export function deleteConfirmed(slug: string, typed: string): boolean {
-  return typed.trim() === slug;
+  return confirmMatches(slug, typed);
 }
 
 /** The sentence the settings page shows for an API error `code`. */
@@ -123,6 +129,8 @@ export interface OrgSettingsSection {
   /** URL segment under `/orgs/<org>/settings`; empty for General. */
   slug: string;
   label: string;
+  /** Shown only to the roles this allows; every role sees a section without it. */
+  visible?: (role: OrgRole) => boolean;
 }
 
 export const ORG_SETTINGS_SECTIONS: readonly OrgSettingsSection[] = [
@@ -130,7 +138,13 @@ export const ORG_SETTINGS_SECTIONS: readonly OrgSettingsSection[] = [
   { slug: "members", label: "Members" },
   { slug: "invitations", label: "Invitations" },
   { slug: "sso", label: "Single sign-on" },
+  { slug: "audit", label: "Audit log", visible: canReadOrgAudit },
 ];
+
+/** The sections someone with `role` sees as tabs. */
+export function orgSettingsSections(role: OrgRole): OrgSettingsSection[] {
+  return ORG_SETTINGS_SECTIONS.filter((s) => !s.visible || s.visible(role));
+}
 
 /** `/orgs/<org>/settings` or `/orgs/<org>/settings/<slug>`. */
 export function orgSettingsHref(org: string, section: Pick<OrgSettingsSection, "slug">): string {

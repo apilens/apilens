@@ -40,7 +40,8 @@ async function readThreshold(project: string, q: PerformanceState, next: string)
 // environment in the URL. Saving a threshold refreshes the page, so the Apdex is read again.
 export default async function PerformancePage({ params, searchParams }: { params: Promise<{ project: string }>; searchParams: Promise<SearchParams> }) {
   const { project } = await params;
-  const q = parsePerformanceQuery(await searchParams);
+  const sp = await searchParams;
+  const q = parsePerformanceQuery(sp);
   const next = performanceHref(project, q);
   const context = await getContext(next);
   const found = findProject(context, project);
@@ -63,6 +64,7 @@ export default async function PerformancePage({ params, searchParams }: { params
         latency={latency}
         endpoints={endpoints === null ? null : (endpoints.endpoints ?? [])}
         threshold={threshold}
+        params={sp}
       />
     </AppShell>
   );

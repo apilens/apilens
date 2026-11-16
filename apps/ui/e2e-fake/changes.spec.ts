@@ -92,7 +92,7 @@ test("lists deploys with before → after error rate and p95, colored by the cha
   await expect(rows(page)).toHaveCount(3);
 
   const recent = rows(page).nth(0);
-  await expect(recent.getByRole("cell").nth(0)).toHaveText("v2.5.04bf92f3production");
+  await expect(recent.getByRole("cell").nth(0)).toHaveText("v2.5.04bf92f3All appsproduction");
   await expect(recent.getByRole("cell").nth(1)).toContainText("10m ago");
   await expect(recent.getByRole("cell").nth(1)).toContainText(/After: (9|10) min so far/);
   await expect(recent.getByRole("cell").nth(2)).toContainText("0.4%→3.4%");
@@ -113,9 +113,11 @@ test("lists deploys with before → after error rate and p95, colored by the cha
   await expect(staging.getByRole("cell").nth(2)).toContainText("–→0%");
   await expect(staging.getByRole("cell").nth(2)).toContainText("No traffic to compare");
 
-  // Explore, filtered by the release and its environment.
-  await expect(recent.getByRole("link", { name: "Explore requests of v2.5.0" })).toHaveAttribute("href", "/shop/explore?release=v2.5.0&env=production");
-  await expect(staging.getByRole("link", { name: "Explore requests of v2.4.0-rc.1" })).toHaveAttribute("href", "/shop/explore?release=v2.4.0-rc.1&env=staging");
+  // Explore over the hour after the deploy, in its environment (Explore has no release filter).
+  await expect(recent.getByRole("link", { name: "Explore requests after v2.5.0" })).toHaveAttribute("href", /^\/shop\/explore\?range=1h&from=[^&]+&to=[^&]+&env=production$/);
+  await expect(staging.getByRole("link", { name: "Explore requests after v2.4.0-rc.1" })).toHaveAttribute("href", /&env=staging$/);
+  // The release is the row's link to the deploy's own page.
+  await expect(recent.getByRole("link", { name: "v2.5.0", exact: true })).toHaveAttribute("href", /^\/shop\/changes\/[0-9a-f]+$/);
 
   const a11y = await new AxeBuilder({ page }).include(".ch").analyze();
   expect(a11y.violations).toEqual([]);

@@ -6,6 +6,7 @@ import {
   checkRuleDraft,
   conditionText,
   eventDuration,
+  filterParts,
   formatMetric,
   formatSpan,
   incidentsHref,
@@ -143,6 +144,23 @@ describe("rule form", () => {
       ["app_id", "endpoint", "environment", "every_min", "name", "notify_after_min", "resolve_after_min", "threshold", "window_min"].sort(),
     );
     expect(checked.errors.threshold).toBe("Enter a percentage from 0 to 100.");
+  });
+
+  it("sends the SDK consumer group by name, trimmed", () => {
+    const d = { ...ruleDraftOf({ ...RULE, filters: { endpoint: "POST /checkout", group: "Acme Corp" } }) };
+    expect(d.group).toBe("Acme Corp");
+    const checked = checkRuleDraft({ ...d, group: "  Not seen yet " });
+    expect(checked.ok && checked.body.filters).toEqual({ endpoint: "POST /checkout", group: "Not seen yet" });
+    const blank = checkRuleDraft({ ...d, group: "   " });
+    expect(blank.ok && blank.body.filters).toEqual({ endpoint: "POST /checkout" });
+    const long = checkRuleDraft({ ...d, group: "g".repeat(257) });
+    expect(!long.ok && long.errors.group).toBe("Use a group name of at most 256 characters.");
+  });
+
+  it("labels a rule's filters", () => {
+    expect(filterParts(RULE)).toEqual(["POST /checkout"]);
+    expect(filterParts({ filters: { consumer: "alice", group: "Acme Corp", endpoint: "GET /a" } })).toEqual(["GET /a", "consumer alice", "group Acme Corp"]);
+    expect(filterParts({ filters: {} })).toEqual([]);
   });
 
   it("bounds apdex to 0..1", () => {

@@ -13,7 +13,9 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -32,14 +34,22 @@ import (
 // Scope required on API keys used for ingestion.
 const Scope = "ingest"
 
+// CodeProjectPaused is the error code (403) of every ingest call made with a
+// key of a project whose ingest is paused; it is also the reason label those
+// calls count under in apilens_ingest_rejected_total. SDKs drop the batch
+// without retrying, as for any other 403.
+const CodeProjectPaused = "project_paused"
+
 // Verifier resolves API keys.
 type Verifier interface {
 	Verify(ctx context.Context, raw string) (apikeys.Principal, error)
 }
 
-// AppResolver maps SDK app identifiers (UUID or slug) to app IDs.
+// AppResolver maps the app identifiers of one call (UUID, slug or app
+// name; "" for records naming no app) to app IDs, creating apps the key may
+// create; *catalog.AppResolver satisfies it.
 type AppResolver interface {
-	Resolve(ctx context.Context, projectID uuid.UUID, identifiers []string) (map[string]uuid.UUID, error)
+	ResolveFor(ctx context.Context, projectID uuid.UUID, c catalog.Caller, identifiers []string) (catalog.Result, error)
 }
 
 // Edge serves the ingest endpoints.
@@ -59,13 +69,21 @@ type Edge struct {
 	heartbeats     HeartbeatStore // nil: /v1/heartbeat answers 503
 	heartbeatCache HeartbeatCache // nil: no heartbeat rate limit or last-seen key
 
+	keyApps       KeyAppStore         // nil: which apps a key sends for is not recorded
+	keySeen       keyAppSeen          // throttles keyApps writes
+	appRejections AppRejectionStore   // nil: app rejections count in Prometheus only
+	envs          EnvironmentRegistry // nil: environments are not registered from ingest
+
 	records   *prometheus.CounterVec
 	batches   *prometheus.CounterVec
 	rejected  *prometheus.CounterVec
 	truncated *prometheus.CounterVec
 	masked    *prometheus.CounterVec
-	quotaLog  atomic.Int64 // unix nanos of the last "quota unavailable" log line
-	statsLog  atomic.Int64 // unix nanos of the last "stats unavailable" log line
+	// appRejected counts records refused because of their app, by reason.
+	appRejected *prometheus.CounterVec
+	appsCreated prometheus.Counter
+	quotaLog    atomic.Int64 // unix nanos of the last "quota unavailable" log line
+	statsLog    atomic.Int64 // unix nanos of the last "stats unavailable" log line
 }
 
 // New builds the edge. reg may be nil.
@@ -79,7 +97,7 @@ func New(verifier Verifier, apps AppResolver, sink pipeline.Sink, cfg config.Ing
 			Name: "apilens_ingest_batches_total", Help: "Ingest calls by signal and HTTP status.",
 		}, []string{"signal", "code"}),
 		rejected: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "apilens_ingest_rejected_total", Help: "Ingest calls refused by a per-project quota, by limit.",
+			Name: "apilens_ingest_rejected_total", Help: "Ingest calls refused by a per-project quota (by limit) or because ingest is paused for the project (project_paused).",
 		}, []string{"reason"}),
 		truncated: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "apilens_ingest_truncated_total", Help: "Request record fields cut to the server-side cap, by field.",
@@ -87,7 +105,18 @@ func New(verifier Verifier, apps AppResolver, sink pipeline.Sink, cfg config.Ing
 		masked: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "apilens_ingest_masked_total", Help: "Records in which the server-side privacy policy masked at least one value, by signal.",
 		}, []string{"signal"}),
+		appRejected: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "apilens_ingest_app_rejected_records_total", Help: "Records refused because of the app they name (key may not create it, app scope, app limits, deleted app) or an environment the key is not pinned to, by reason.",
+		}, []string{"reason"}),
+		appsCreated: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "apilens_ingest_apps_created_total", Help: "Apps created by ingest from an app name it had not seen.",
+		}),
 	}
+	for _, r := range catalog.Reasons {
+		e.appRejected.WithLabelValues(r)
+	}
+	e.appRejected.WithLabelValues(ReasonEnvironmentNotAllowed)
+	e.rejected.WithLabelValues(CodeProjectPaused)
 	for _, f := range truncatedFields {
 		e.truncated.WithLabelValues(f)
 	}
@@ -95,7 +124,7 @@ func New(verifier Verifier, apps AppResolver, sink pipeline.Sink, cfg config.Ing
 		e.masked.WithLabelValues(s)
 	}
 	if reg != nil {
-		reg.MustRegister(e.records, e.batches, e.rejected, e.truncated, e.masked)
+		reg.MustRegister(e.records, e.batches, e.rejected, e.truncated, e.masked, e.appRejected, e.appsCreated)
 	}
 	return e
 }
@@ -163,8 +192,10 @@ func (e *Edge) authenticate(r *http.Request) (apikeys.Principal, *apiError) {
 	if raw == "" {
 		return apikeys.Principal{}, errAuth()
 	}
-	p, err := e.verifier.Verify(r.Context(), raw)
+	p, err := e.verifier.Verify(apikeys.WithUse(r.Context(), e.keyUse(r)), raw)
 	switch {
+	case errors.Is(err, apikeys.ErrProjectDeleted):
+		return apikeys.Principal{}, &apiError{status: http.StatusForbidden, Code: "project_deleted", Detail: "The key's project was deleted"}
 	case errors.Is(err, apikeys.ErrInvalidKey):
 		return apikeys.Principal{}, errAuth()
 	case err != nil:
@@ -172,8 +203,39 @@ func (e *Edge) authenticate(r *http.Request) (apikeys.Principal, *apiError) {
 		return apikeys.Principal{}, errUnavailable("Authentication backend unavailable, retry later")
 	case !p.HasScope(Scope):
 		return apikeys.Principal{}, &apiError{status: http.StatusForbidden, Code: "permission_denied", Detail: "API key is not allowed to ingest"}
+	case p.ProjectPaused:
+		e.rejected.WithLabelValues(CodeProjectPaused).Inc()
+		return apikeys.Principal{}, &apiError{status: http.StatusForbidden, Code: CodeProjectPaused, Detail: "Ingest is paused for this project; resume it in the project settings"}
 	}
 	return p, nil
+}
+
+// keyUse is what the key's last use records about r: the SDK (the first
+// User-Agent product, e.g. "apilenss/0.5.0") and, when ingest.record_key_ip
+// is on, the peer address of the connection. Forwarding headers are not
+// believed: they are client-controlled.
+func (e *Edge) keyUse(r *http.Request) apikeys.Use {
+	u := apikeys.Use{}
+	if f := strings.Fields(r.UserAgent()); len(f) > 0 {
+		u.SDK = f[0]
+	}
+	if e.cfg.RecordKeyIP {
+		u.IP = peerIP(r.RemoteAddr)
+	}
+	return u
+}
+
+// peerIP parses "ip:port", "[ipv6]:port" or a bare IP; the zero Addr when
+// it cannot.
+func peerIP(addr string) netip.Addr {
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		addr = host
+	}
+	ip, err := netip.ParseAddr(addr)
+	if err != nil {
+		return netip.Addr{}
+	}
+	return ip.Unmap().WithZone("")
 }
 
 // readBody returns the decompressed request body, enforcing the size limit
@@ -247,40 +309,6 @@ func (e *Edge) submitError(err error) *apiError {
 		e.logger.Error("sink rejected batch", "error", err)
 		return errUnavailable("Could not store records, retry later")
 	}
-}
-
-// resolveApps validates project_slug and maps app identifiers. allowEmpty
-// lets deploys omit app_id (project-wide).
-func (e *Edge) resolveApps(ctx context.Context, p apikeys.Principal, slugs, idents []string, allowEmpty bool) (map[string]uuid.UUID, *apiError) {
-	for _, s := range slugs {
-		if s = strings.TrimSpace(s); s != "" && s != p.ProjectSlug {
-			return nil, errValidation("project_slug must match the API key project '%s'", p.ProjectSlug)
-		}
-	}
-	var lookup []string
-	for _, id := range idents {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			if allowEmpty {
-				continue
-			}
-			return nil, errValidation("app_id is required for every record")
-		}
-		lookup = append(lookup, id)
-	}
-	if len(lookup) == 0 {
-		return map[string]uuid.UUID{}, nil
-	}
-	m, err := e.apps.Resolve(ctx, p.ProjectID, lookup)
-	var unknown *catalog.UnknownAppsError
-	switch {
-	case errors.As(err, &unknown):
-		return nil, errValidation("Invalid app identifiers: %s", strings.Join(unknown.Identifiers, ", "))
-	case err != nil:
-		e.logger.Error("app resolution unavailable", "error", err)
-		return nil, errUnavailable("Catalog unavailable, retry later")
-	}
-	return m, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -1,0 +1,81 @@
+---
+title: "Project access"
+description: "Project roles, the project's default access, who can do what, and adding or inviting people to one project."
+---
+
+Everyone who can open a project has one of three **project roles**: **Admin**, **Editor** or **Viewer**. You manage them on the project's **Access** page (sidebar section **Configure**), in the **Members** tab.
+
+## Where a role comes from
+
+A person can get a project role from three sources. The **highest role from any source applies**.
+
+| Source | Shown as | What it gives |
+|---|---|---|
+| **Organization role** | Organization owner, Organization admin | Organization owners and admins are **Admin on every project**. Nothing on the project can lower that. |
+| **Project default** | Organization member (project default) | What the project's [default access](#default-access) gives organization members and viewers. |
+| **Added to this project** | Added to this project | A role a project admin gave this person on this project only. |
+
+The Members tab lists every person with access, their effective role and each source. When a person has several sources, each line also names the role it gives. You can search by name or email and filter by role (the effective role) or by source; the filters stay in the URL.
+
+## Default access
+
+Each project has a **default access** that decides what organization members get without being added directly.
+
+| Choice | In the dashboard | Organization members | Organization viewers |
+|---|---|---|---|
+| `org_role` (the default) | **Follow organization role** | Editor | Viewer |
+| `viewer` | **Everyone in *organization* can view** | Viewer | Viewer |
+| `none` | **Restricted: only people added here and organization admins** | No access | No access |
+
+People added directly keep their role whatever the default is. On a restricted project, organization members and viewers who were not added cannot open the project at all: it is not listed for them.
+
+Narrowing the default (towards **Restricted**) first shows who would lose access and who would drop to a lower role, with up to five names and the total, and asks you to confirm. The count of people who lose access comes from the server (`?dry_run=true`), so it is exact. Widening it applies straight away.
+
+## Role matrix
+
+| Action | Viewer | Editor | Admin |
+|---|:-:|:-:|:-:|
+| See data, settings, members, key names and prefixes | ✓ | ✓ | ✓ |
+| Edit general settings, environments, privacy policy, integrations | | ✓ | ✓ |
+| Create, rotate and revoke API keys | | ✓ | ✓ |
+| Capture policy, alert rules and channels, health checks | | | ✓ |
+| Manage access (add, change role, remove, default access) | | | ✓ |
+| Read the [activity log](/platform/activity-log) | | | ✓ |
+| [Danger zone](/platform/deleting-a-project): pause, rename slug, delete | | | ✓ |
+
+Restoring a deleted project needs an organization owner or admin. Controls you are not allowed to use are shown disabled with the reason; the server checks every action as well.
+
+## Add people to a project
+
+Project admins (and organization owners and admins) use **Add people** on the Members tab:
+
+1. Pick one or more organization members (up to 50 at a time) and a role.
+2. Confirm. The role applies within seconds.
+
+Only people who are already in the organization can be added. To change a role or remove someone, open the menu on their row. Removing a direct role removes only that source: someone who is also an organization member keeps whatever the default access gives them, and the dialog says so before you confirm. Organization owners and admins show a locked role.
+
+### Invite someone new
+
+Type an email address in **Add people** that does not belong to an organization member and choose **Invite to *organization* and this project**. The invitation carries two roles:
+
+- **Organization role**: Member (the default) or Viewer. An invitation from a project never makes someone an organization admin.
+- **Role on *project***: Admin, Editor or Viewer, applied when they accept.
+
+The email link works for 7 days. Only organization owners and admins can invite new people. Pending invitations for the project are listed under the members, where owners and admins can resend (once every 5 minutes) or revoke them.
+
+## Confirm it's you
+
+Changing access (adding, changing or removing a role, changing the default access) needs a sign-in less than 10 minutes old. With an older session the dashboard asks you to confirm who you are with a passkey, a code from your authenticator app or a code emailed to you; you stay signed in. Changing the default access also emails the project's admins.
+
+## Through the API
+
+| Request | What it does |
+|---|---|
+| `GET /api/v1/projects/{slug}/access` | Every person with access, their effective role and its sources, and the default access. |
+| `PUT /api/v1/projects/{slug}/members/{user_id}` with `{"role": "editor"}` | Grants or changes a direct role. The person must already be in the organization (`409 not_org_member`). |
+| `DELETE /api/v1/projects/{slug}/members/{user_id}` | Removes a direct role; you can remove your own. |
+| `PATCH /api/v1/projects/{slug}/access` with `{"default_access": "none"}` | Changes the default access. Add `?dry_run=true` to get how many people would lose access (`lose_access`) without changing anything. |
+
+The changes need a project admin with a recent sign-in; an older session answers `403 reauth_required`. A project has at most **500 people added directly**; one more answers `409 member_limit_reached`. Self-hosted installs change the cap with `access.max_direct_members_per_project` (`APILENS_ACCESS__MAX_DIRECT_MEMBERS_PER_PROJECT`, default `500`, `0` for no cap).
+
+Organization roles and organization invitations are described in [Members and invitations](/account/members-and-invitations).

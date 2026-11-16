@@ -6,8 +6,8 @@ import type { EndpointTraffic, QueryRange, TrafficPoint } from "./identity";
 
 export const TRAFFIC_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
 export const DEFAULT_RANGE: QueryRange = "24h";
-/** How many endpoints the table asks for (the API's default). */
-export const ENDPOINTS_LIMIT = 100;
+/** How many endpoints the table asks for (the API's largest page); the table pages them. */
+export const ENDPOINTS_LIMIT = 500;
 /** How often the page reads again while live. */
 export const LIVE_INTERVAL_MS = 30_000;
 /** The longest environment name the API takes. */
@@ -115,9 +115,14 @@ export function plotWidth(measured: number | null | undefined): number | null {
 export function linePath(values: readonly number[], width: number, height: number, top: number): string {
   if (values.length === 0) return "";
   const slot = width / values.length;
+  return values.map((v, i) => `${i === 0 ? "M" : "L"}${round(i * slot + slot / 2)},${round(lineY(v, height, top))}`).join("");
+}
+
+/** The y where linePath draws `v` in a box `height` tall scaled against `top` (clamped to the box). */
+export function lineY(v: number, height: number, top: number): number {
   const max = top > 0 ? top : 1;
-  const y = (v: number) => height - (Math.max(0, Math.min(v, max)) / max) * height;
-  return values.map((v, i) => `${i === 0 ? "M" : "L"}${round(i * slot + slot / 2)},${round(y(v))}`).join("");
+  const n = Number.isFinite(v) ? v : 0;
+  return height - (Math.max(0, Math.min(n, max)) / max) * height;
 }
 
 /** A round axis top for latencies in ms. */

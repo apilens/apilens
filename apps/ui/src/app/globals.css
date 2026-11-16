@@ -1,6 +1,7 @@
 @import "../styles/tokens.css";
 @import "../styles/bundle.css";
 @import "./app.css";
+@import "../styles/page.css";
 
 html {
   background: var(--bg);

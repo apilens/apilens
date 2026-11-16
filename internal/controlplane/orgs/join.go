@@ -163,10 +163,13 @@ func (s *Service) Join(ctx context.Context, user uuid.UUID, slug string) (org Or
 		return Org{}, false, err
 	}
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
-		User:  &user,
-		Actor: &user,
-		Kind:  audit.MemberJoined,
-		Meta:  map[string]any{"org_id": o.ID.String(), "slug": o.Slug, "role": RoleMember, "domain": domain},
+		User:    &user,
+		Actor:   &user,
+		Kind:    audit.MemberJoined,
+		Org:     &o.ID,
+		Target:  memberTarget(user, ""),
+		Changes: &audit.Changes{Next: map[string]any{"role": RoleMember}},
+		Meta:    map[string]any{"org_id": o.ID.String(), "slug": o.Slug, "role": RoleMember, "domain": domain},
 	}); err != nil {
 		return Org{}, false, err
 	}

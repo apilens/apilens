@@ -3,7 +3,7 @@ import { errorsHref, errorsScopeText, formatPerHour, isErrorCode, markExpectedEr
 
 describe("parseErrorsQuery", () => {
   it("reads the defaults from an empty query", () => {
-    expect(parseErrorsQuery({})).toEqual({ tab: "status", range: "24h", env: "", code: null, view: "summary" });
+    expect(parseErrorsQuery({})).toEqual({ tab: "status", range: "24h", env: "", code: null, view: "summary", page: 1, per: 25, dpage: 1, dper: 10 });
   });
 
   it("reads every known value", () => {
@@ -13,11 +13,20 @@ describe("parseErrorsQuery", () => {
       env: "production",
       code: 404,
       view: "details",
+      page: 1,
+      per: 25,
+      dpage: 1,
+      dper: 10,
     });
   });
 
+  it("reads the table's and the modal's page", () => {
+    expect(parseErrorsQuery({ page: "3", per: "50", dpage: "2", dper: "25" })).toMatchObject({ page: 3, per: 50, dpage: 2, dper: 25 });
+    expect(parseErrorsQuery({ page: "0", per: "7", dpage: "x", dper: "100" })).toMatchObject({ page: 1, per: 25, dpage: 1, dper: 10 });
+  });
+
   it("falls back on anything unknown", () => {
-    expect(parseErrorsQuery({ tab: "x", range: "30d", env: "e".repeat(65), code: "200", view: "x" })).toEqual({ tab: "status", range: "24h", env: "", code: null, view: "summary" });
+    expect(parseErrorsQuery({ tab: "x", range: "30d", env: "e".repeat(65), code: "200", view: "x" })).toEqual({ tab: "status", range: "24h", env: "", code: null, view: "summary", page: 1, per: 25, dpage: 1, dper: 10 });
     expect(parseErrorsQuery({ code: "4041" }).code).toBeNull();
     expect(parseErrorsQuery({ code: "6xx" }).code).toBeNull();
     expect(parseErrorsQuery({ code: ["503", "404"] }).code).toBe(503);
@@ -40,8 +49,13 @@ describe("errorsHref", () => {
     expect(errorsHref("shop", { view: "details" })).toBe("/shop/errors");
   });
 
+  it("keeps the pages, the modal's only with the modal", () => {
+    expect(errorsHref("shop", { page: 2, per: 50, code: 404, dpage: 3, dper: 25 })).toBe("/shop/errors?page=2&per=50&code=404&dpage=3&dper=25");
+    expect(errorsHref("shop", { page: 1, per: 25, dpage: 3 })).toBe("/shop/errors");
+  });
+
   it("round-trips through parseErrorsQuery", () => {
-    const q = { tab: "status" as const, range: "6h" as const, env: "prod eu", code: 422, view: "details" as const };
+    const q = { tab: "status" as const, range: "6h" as const, env: "prod eu", code: 422, view: "details" as const, page: 2, per: 50, dpage: 3, dper: 25 };
     const url = new URL(errorsHref("shop", q), "http://x");
     expect(parseErrorsQuery(Object.fromEntries(url.searchParams))).toEqual(q);
   });

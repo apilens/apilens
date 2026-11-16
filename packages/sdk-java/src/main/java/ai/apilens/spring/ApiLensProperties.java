@@ -13,7 +13,10 @@ public class ApiLensProperties {
   private String apiKey = "";
   /** Optional project slug assertion; the key already identifies the project. */
   private String projectSlug = "";
-  /** App slug the captured traffic belongs to. */
+  /**
+   * App name the captured traffic belongs to (free-form; the server slugifies it). Optional:
+   * blank falls back to APILENS_APP_ID, then OTEL_SERVICE_NAME, then the project's default app.
+   */
   private String appId = "";
   /** Ingest base URL. */
   private String baseUrl = "https://ingest.apilens.ai/v1";

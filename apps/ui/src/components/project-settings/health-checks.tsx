@@ -3,7 +3,10 @@
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
 import { createHealthCheck, deleteHealthCheck } from "@/app/[project]/settings/health-check-actions";
-import { EVENTS_SHOWN, type HealthCheckField, PROBE_POLICY, attemptsLabel, formatLatency, probeOutcome } from "@/lib/health-checks";
+import { useCanonicalPage } from "@/components/list-search/list-search";
+import { Pagination } from "@/components/pagination/pagination";
+import { CHECKS_PAGE, EVENTS_SHOWN, type HealthCheckField, PROBE_POLICY, attemptsLabel, formatLatency, healthChecksPath, probeOutcome } from "@/lib/health-checks";
+import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import type { HealthCheck, HealthCheckEvent, HealthCheckProbe, NamedApp } from "@/lib/identity";
 import { formatExact } from "@/lib/passkey-settings";
 import "../org-settings/org-settings.css";
@@ -17,7 +20,7 @@ export interface HealthChecksLoad {
   /** The project's recent environments, offered when typing one. */
   environments: string[];
   checks: HealthCheck[] | null;
-  /** Each check's latest failures, newest first; null when they could not be loaded. */
+  /** The latest failures of each check on the page shown, newest first; null when they could not be loaded. */
   events: Record<string, HealthCheckEvent[] | null>;
 }
 
@@ -26,12 +29,16 @@ export interface HealthChecksLoad {
  * its status and latest probe, and its latest failures with the failed request (status, latency,
  * error, attempts and the start of the response body, masked by the privacy policy). Project
  * admins add and delete checks; the API refuses anyone else (403) and the form says so.
+ * The checks are paged (`?page=&per=`, 10 a page); deleting the last one of a page goes back one.
  */
-export function HealthChecks({ project, projectName, load }: { project: string; projectName: string; load: HealthChecksLoad }) {
+export function HealthChecks({ project, projectName, load, search = {} }: { project: string; projectName: string; load: HealthChecksLoad; search?: SearchParams }) {
   const { apps, checks } = load;
+  const pathname = healthChecksPath(project);
+  const { rows, window } = slicePage(checks ?? [], parsePage(search, CHECKS_PAGE));
+  useCanonicalPage(pathname, search, checks ? window : null, CHECKS_PAGE);
   const appName = (id: string) => apps?.find((a) => a.id === id)?.name ?? "Unknown app";
   return (
-    <div className="os cps hc">
+    <div className="page page--measure os cps hc">
       <header className="os-head">
         <p className="cp-h">{projectName} · Settings</p>
         <h1 className="cp-lede">Health checks</h1>
@@ -51,11 +58,14 @@ export function HealthChecks({ project, projectName, load }: { project: string; 
           ) : checks.length === 0 ? (
             <p className="cps-empty">No health checks yet. Add the health endpoint of an app below and APILens starts probing it within a minute.</p>
           ) : (
-            <ul className="hc-checks">
-              {checks.map((c) => (
-                <CheckItem key={c.id} project={project} check={c} app={appName(c.app_id)} events={load.events[c.id] ?? null} />
-              ))}
-            </ul>
+            <>
+              <ul className="hc-checks">
+                {rows.map((c) => (
+                  <CheckItem key={c.id} project={project} check={c} app={appName(c.app_id)} events={load.events[c.id] ?? null} />
+                ))}
+              </ul>
+              <Pagination pathname={pathname} params={search} total={window.total} {...CHECKS_PAGE} label="Health checks pages" scroll className="hc-pages" />
+            </>
           )}
         </div>
       </section>

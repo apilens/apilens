@@ -157,6 +157,26 @@ test("moves between rows with the keyboard and leaves ⌘K to the switcher", asy
   await expect(page.getByRole("dialog", { name: "Switch scope" })).toBeVisible();
 });
 
+test("walks back past the newest 200 with Older, live only on the newest page", async ({ page }) => {
+  await seed(Array.from({ length: 230 }, (_, i) => row(i, { trace_id: `t${i}`, timestamp: ago(i + 1) })));
+  await signIn(page);
+  await expect(grid(page)).toHaveAttribute("aria-rowcount", "201");
+  await expect(page.locator(".ex-foot p")).toHaveText(/^The newest 200 requests/);
+  const pages = page.getByRole("navigation", { name: "Request log pages" });
+  await pages.getByRole("link", { name: "Older" }).click();
+  await expect(page).toHaveURL(/cursor=/);
+  await expect(grid(page)).toHaveAttribute("aria-rowcount", "31");
+  await expect(page.locator(".ex-foot p")).toHaveText(/^Requests 201–230 from the newest .* Live updates run on the newest page only\.$/);
+  await expect(page.locator(".ex-live__state")).toHaveText("Older page, not live");
+  await expect(page.getByRole("button", { name: "Pause" })).toHaveCount(0);
+  await expect(pages.locator("[aria-disabled=true]", { hasText: "Older" })).toHaveCount(1);
+
+  await page.getByRole("link", { name: "Back to newest" }).click();
+  await expect(page).not.toHaveURL(/cursor=/);
+  await expect(grid(page)).toHaveAttribute("aria-rowcount", "201");
+  await expect(page.locator(".ex-live__state")).toHaveText("Live");
+});
+
 test("reads the log again every 5 s while live, and not while paused", async ({ page }) => {
   await seed(ROWS);
   await signIn(page);

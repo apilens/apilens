@@ -13,10 +13,153 @@ import (
 	"github.com/google/uuid"
 )
 
+const auditClock = `-- name: AuditClock :one
+SELECT clock_timestamp()::timestamptz AS now
+`
+
+// The database's current time: an export ends there, on the clock that
+// stamps created_at, so a skewed app clock cannot cut or extend it.
+func (q *Queries) AuditClock(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRow(ctx, auditClock)
+	var now time.Time
+	err := row.Scan(&now)
+	return now, err
+}
+
+const countAuditEventsForOrg = `-- name: CountAuditEventsForOrg :one
+SELECT count(*) FROM (
+    SELECT 1 FROM audit_events
+    WHERE org_id = $1::uuid
+      AND (project_id IS NULL OR project_id = ANY($2::uuid[]))
+      AND ($3::uuid IS NULL OR actor_user_id = $3::uuid)
+      AND ($4::text IS NULL OR event = $4::text)
+      AND ($5::text IS NULL OR starts_with(event, $5::text))
+      AND ($6::text IS NULL OR target_type = $6::text)
+      AND ($7::text IS NULL OR strpos(lower(target_label), lower($7::text)) > 0)
+      AND ($8::timestamptz IS NULL OR created_at >= $8::timestamptz)
+      AND ($9::timestamptz IS NULL OR created_at < $9::timestamptz)
+    LIMIT $10
+) capped
+`
+
+type CountAuditEventsForOrgParams struct {
+	OrgID           uuid.UUID
+	VisibleProjects []uuid.UUID
+	ActorUserID     *uuid.UUID
+	Event           *string
+	EventPrefix     *string
+	TargetType      *string
+	TargetLabel     *string
+	FromTime        *time.Time
+	ToTime          *time.Time
+	MaxRows         int32
+}
+
+// How many events an export of ListAuditEventsForOrg (same filters, no
+// cursor) would hold, counting at most max_rows: an export compares it with
+// its cap to say whether it was truncated without reading every row.
+func (q *Queries) CountAuditEventsForOrg(ctx context.Context, arg CountAuditEventsForOrgParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditEventsForOrg,
+		arg.OrgID,
+		arg.VisibleProjects,
+		arg.ActorUserID,
+		arg.Event,
+		arg.EventPrefix,
+		arg.TargetType,
+		arg.TargetLabel,
+		arg.FromTime,
+		arg.ToTime,
+		arg.MaxRows,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countAuditEventsForProject = `-- name: CountAuditEventsForProject :one
+SELECT count(*) FROM (
+    SELECT 1 FROM audit_events
+    WHERE project_id = $1::uuid
+      AND ($2::uuid IS NULL OR actor_user_id = $2::uuid)
+      AND ($3::text IS NULL OR event = $3::text)
+      AND ($4::text IS NULL OR starts_with(event, $4::text))
+      AND ($5::text IS NULL OR target_type = $5::text)
+      AND ($6::text IS NULL OR strpos(lower(target_label), lower($6::text)) > 0)
+      AND ($7::timestamptz IS NULL OR created_at >= $7::timestamptz)
+      AND ($8::timestamptz IS NULL OR created_at < $8::timestamptz)
+    LIMIT $9
+) capped
+`
+
+type CountAuditEventsForProjectParams struct {
+	ProjectID   uuid.UUID
+	ActorUserID *uuid.UUID
+	Event       *string
+	EventPrefix *string
+	TargetType  *string
+	TargetLabel *string
+	FromTime    *time.Time
+	ToTime      *time.Time
+	MaxRows     int32
+}
+
+// Like CountAuditEventsForOrg, for ListAuditEventsForProject.
+func (q *Queries) CountAuditEventsForProject(ctx context.Context, arg CountAuditEventsForProjectParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditEventsForProject,
+		arg.ProjectID,
+		arg.ActorUserID,
+		arg.Event,
+		arg.EventPrefix,
+		arg.TargetType,
+		arg.TargetLabel,
+		arg.FromTime,
+		arg.ToTime,
+		arg.MaxRows,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const deleteAuditEventsBefore = `-- name: DeleteAuditEventsBefore :execrows
+DELETE FROM audit_events
+WHERE id IN (
+    SELECT id FROM audit_events
+    WHERE created_at < $1::timestamptz
+    ORDER BY id
+    LIMIT $2
+)
+`
+
+type DeleteAuditEventsBeforeParams struct {
+	Cutoff    time.Time
+	BatchSize int32
+}
+
+// Deletes up to batch_size events recorded before cutoff, oldest first (the
+// audit retention job, audit.retention). It walks the primary key: ids grow
+// with created_at, so the old rows are found at the start of the index and a
+// batch stops as soon as it has batch_size of them.
+func (q *Queries) DeleteAuditEventsBefore(ctx context.Context, arg DeleteAuditEventsBeforeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAuditEventsBefore, arg.Cutoff, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertAuditEvent = `-- name: InsertAuditEvent :one
-INSERT INTO audit_events (user_id, actor_user_id, event, ip, user_agent, metadata)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at
+INSERT INTO audit_events (
+    user_id, actor_user_id, event, ip, user_agent, metadata,
+    org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label
+)
+VALUES (
+    $1, $2, $3, $4, $5, $6,
+    $7, $8, $9, $10,
+    $11, $12, $13,
+    (SELECT COALESCE(NULLIF(u.name, ''), u.email::text) FROM users u WHERE u.id = $2)
+)
+RETURNING id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at, org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label
 `
 
 type InsertAuditEventParams struct {
@@ -26,9 +169,18 @@ type InsertAuditEventParams struct {
 	Ip          *netip.Addr
 	UserAgent   string
 	Metadata    []byte
+	OrgID       *uuid.UUID
+	ProjectID   *uuid.UUID
+	TargetType  *string
+	TargetID    *string
+	TargetLabel *string
+	RequestID   *string
+	Changes     []byte
 }
 
-// Records a security-relevant event about a user's account.
+// Records a security-relevant event, scoped to an organization and project
+// when it belongs to one. actor_label is the actor's name (or email) now, so
+// the row stays readable after the actor is purged.
 func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) (AuditEvent, error) {
 	row := q.db.QueryRow(ctx, insertAuditEvent,
 		arg.UserID,
@@ -37,6 +189,13 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventPara
 		arg.Ip,
 		arg.UserAgent,
 		arg.Metadata,
+		arg.OrgID,
+		arg.ProjectID,
+		arg.TargetType,
+		arg.TargetID,
+		arg.TargetLabel,
+		arg.RequestID,
+		arg.Changes,
 	)
 	var i AuditEvent
 	err := row.Scan(
@@ -48,12 +207,189 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventPara
 		&i.UserAgent,
 		&i.Metadata,
 		&i.CreatedAt,
+		&i.OrgID,
+		&i.ProjectID,
+		&i.TargetType,
+		&i.TargetID,
+		&i.TargetLabel,
+		&i.RequestID,
+		&i.Changes,
+		&i.ActorLabel,
 	)
 	return i, err
 }
 
+const listAuditEventsForOrg = `-- name: ListAuditEventsForOrg :many
+SELECT id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at, org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label FROM audit_events
+WHERE org_id = $1::uuid
+  AND (project_id IS NULL OR project_id = ANY($2::uuid[]))
+  AND ($3::uuid IS NULL OR actor_user_id = $3::uuid)
+  AND ($4::text IS NULL OR event = $4::text)
+  AND ($5::text IS NULL OR starts_with(event, $5::text))
+  AND ($6::text IS NULL OR target_type = $6::text)
+  AND ($7::text IS NULL OR strpos(lower(target_label), lower($7::text)) > 0)
+  AND ($8::timestamptz IS NULL OR created_at >= $8::timestamptz)
+  AND ($9::timestamptz IS NULL OR created_at < $9::timestamptz)
+  AND ($10::timestamptz IS NULL
+       OR (created_at, id) < ($10::timestamptz, $11::bigint))
+ORDER BY created_at DESC, id DESC
+LIMIT $12
+`
+
+type ListAuditEventsForOrgParams struct {
+	OrgID           uuid.UUID
+	VisibleProjects []uuid.UUID
+	ActorUserID     *uuid.UUID
+	Event           *string
+	EventPrefix     *string
+	TargetType      *string
+	TargetLabel     *string
+	FromTime        *time.Time
+	ToTime          *time.Time
+	BeforeCreatedAt *time.Time
+	BeforeID        *int64
+	PageSize        int32
+}
+
+// An organization's events, newest first, keyset-paginated like
+// ListAuditEventsForUser. Org-wide events (no project) are always included;
+// project events only for the projects in visible_projects (the ones the
+// caller can view). Optional filters: actor, exact event or event prefix
+// ('api_key.'), target type, a [from, to) time range, and text the target
+// label contains (case-insensitive). Served by audit_events_org_created.
+func (q *Queries) ListAuditEventsForOrg(ctx context.Context, arg ListAuditEventsForOrgParams) ([]AuditEvent, error) {
+	rows, err := q.db.Query(ctx, listAuditEventsForOrg,
+		arg.OrgID,
+		arg.VisibleProjects,
+		arg.ActorUserID,
+		arg.Event,
+		arg.EventPrefix,
+		arg.TargetType,
+		arg.TargetLabel,
+		arg.FromTime,
+		arg.ToTime,
+		arg.BeforeCreatedAt,
+		arg.BeforeID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditEvent{}
+	for rows.Next() {
+		var i AuditEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.ActorUserID,
+			&i.Event,
+			&i.Ip,
+			&i.UserAgent,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.TargetLabel,
+			&i.RequestID,
+			&i.Changes,
+			&i.ActorLabel,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAuditEventsForProject = `-- name: ListAuditEventsForProject :many
+SELECT id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at, org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label FROM audit_events
+WHERE project_id = $1::uuid
+  AND ($2::uuid IS NULL OR actor_user_id = $2::uuid)
+  AND ($3::text IS NULL OR event = $3::text)
+  AND ($4::text IS NULL OR starts_with(event, $4::text))
+  AND ($5::text IS NULL OR target_type = $5::text)
+  AND ($6::text IS NULL OR strpos(lower(target_label), lower($6::text)) > 0)
+  AND ($7::timestamptz IS NULL OR created_at >= $7::timestamptz)
+  AND ($8::timestamptz IS NULL OR created_at < $8::timestamptz)
+  AND ($9::timestamptz IS NULL
+       OR (created_at, id) < ($9::timestamptz, $10::bigint))
+ORDER BY created_at DESC, id DESC
+LIMIT $11
+`
+
+type ListAuditEventsForProjectParams struct {
+	ProjectID       uuid.UUID
+	ActorUserID     *uuid.UUID
+	Event           *string
+	EventPrefix     *string
+	TargetType      *string
+	TargetLabel     *string
+	FromTime        *time.Time
+	ToTime          *time.Time
+	BeforeCreatedAt *time.Time
+	BeforeID        *int64
+	PageSize        int32
+}
+
+// A project's events, newest first, keyset-paginated and filtered like
+// ListAuditEventsForOrg. Served by audit_events_project_created.
+func (q *Queries) ListAuditEventsForProject(ctx context.Context, arg ListAuditEventsForProjectParams) ([]AuditEvent, error) {
+	rows, err := q.db.Query(ctx, listAuditEventsForProject,
+		arg.ProjectID,
+		arg.ActorUserID,
+		arg.Event,
+		arg.EventPrefix,
+		arg.TargetType,
+		arg.TargetLabel,
+		arg.FromTime,
+		arg.ToTime,
+		arg.BeforeCreatedAt,
+		arg.BeforeID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditEvent{}
+	for rows.Next() {
+		var i AuditEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.ActorUserID,
+			&i.Event,
+			&i.Ip,
+			&i.UserAgent,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.TargetLabel,
+			&i.RequestID,
+			&i.Changes,
+			&i.ActorLabel,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAuditEventsForUser = `-- name: ListAuditEventsForUser :many
-SELECT id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at FROM audit_events
+SELECT id, user_id, actor_user_id, event, ip, user_agent, metadata, created_at, org_id, project_id, target_type, target_id, target_label, request_id, changes, actor_label FROM audit_events
 WHERE user_id = $1::uuid
   AND ($2::timestamptz IS NULL
        OR (created_at, id) < ($2::timestamptz, $3::bigint))
@@ -93,7 +429,46 @@ func (q *Queries) ListAuditEventsForUser(ctx context.Context, arg ListAuditEvent
 			&i.UserAgent,
 			&i.Metadata,
 			&i.CreatedAt,
+			&i.OrgID,
+			&i.ProjectID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.TargetLabel,
+			&i.RequestID,
+			&i.Changes,
+			&i.ActorLabel,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserEmails = `-- name: ListUserEmails :many
+SELECT id, email::text AS email FROM users WHERE id = ANY($1::uuid[])
+`
+
+type ListUserEmailsRow struct {
+	ID    uuid.UUID
+	Email string
+}
+
+// The current emails of users, for the actor_email column of an audit
+// export. A purged user has no row.
+func (q *Queries) ListUserEmails(ctx context.Context, ids []uuid.UUID) ([]ListUserEmailsRow, error) {
+	rows, err := q.db.Query(ctx, listUserEmails, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserEmailsRow{}
+	for rows.Next() {
+		var i ListUserEmailsRow
+		if err := rows.Scan(&i.ID, &i.Email); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

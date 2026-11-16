@@ -147,6 +147,7 @@ func TestIdentityDefaults(t *testing.T) {
 		{"email_code_ttl", id.EmailCodeTTL, 15 * time.Minute},
 		{"pre_auth_ttl", id.PreAuthTTL, 5 * time.Minute},
 		{"recovery_delay", id.RecoveryDelay, 24 * time.Hour},
+		{"sensitive_action_max_age", id.SensitiveActionMaxAge, 10 * time.Minute},
 	}
 	for _, c := range checks {
 		if c.got != c.want {

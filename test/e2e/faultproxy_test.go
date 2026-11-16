@@ -35,6 +35,10 @@ const (
 	faultServerError faultMode = "5xx"
 	// faultRateLimited answers 429 with Retry-After without forwarding.
 	faultRateLimited faultMode = "429"
+	// faultPaused answers what the edge answers for a project whose ingest
+	// is paused (403 project_paused, internal/ingest.CodeProjectPaused)
+	// without forwarding.
+	faultPaused faultMode = "paused"
 )
 
 // maxProxyBody bounds a request body the proxy reads (ingest takes at most a
@@ -180,6 +184,11 @@ func (p *faultProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case faultRateLimited:
 		a.Status = http.StatusTooManyRequests
 		writeProxyError(w, a.Status, http.Header{"Retry-After": {strconv.Itoa(retryAfter)}})
+	case faultPaused:
+		a.Status = http.StatusForbidden
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(a.Status)
+		_, _ = io.WriteString(w, `{"error":"project_paused","detail":"Ingest is paused for this project; resume it in the project settings"}`)
 	default:
 		a.Status, a.Forwarded = p.forward(w, r, body), true
 	}
@@ -273,6 +282,25 @@ func duplicateDeliveries(attempts []proxyAttempt) map[string]int {
 		}
 	}
 	return delivered
+}
+
+// retriedAfter returns, for app, the batches (by body hash) the SDK sent
+// again after the proxy answered status to them, with how often.
+func retriedAfter(attempts []proxyAttempt, app string, status int) map[string]int {
+	refused := map[string]bool{}
+	out := map[string]int{}
+	for _, a := range attempts {
+		if !a.isBatch() || a.App != app {
+			continue
+		}
+		if refused[a.Body] {
+			out[a.Body]++
+		}
+		if a.Status == status {
+			refused[a.Body] = true
+		}
+	}
+	return out
 }
 
 // retryGapsAfter429 returns, for app, the time between a batch attempt the

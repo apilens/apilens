@@ -63,16 +63,33 @@ type AlertRuleState struct {
 }
 
 type ApiKey struct {
-	ID         uuid.UUID
-	ProjectID  uuid.UUID
-	Name       string
-	Prefix     string
-	KeyHash    string
-	Scopes     []string
-	CreatedAt  time.Time
-	ExpiresAt  *time.Time
-	RevokedAt  *time.Time
-	LastUsedAt *time.Time
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	Name               string
+	Prefix             string
+	KeyHash            string
+	Scopes             []string
+	CreatedAt          time.Time
+	ExpiresAt          *time.Time
+	RevokedAt          *time.Time
+	LastUsedAt         *time.Time
+	AppIds             []uuid.UUID
+	CreatedBy          *uuid.UUID
+	LastUsedSdk        *string
+	LastUsedIp         *netip.Addr
+	RateLimitPerMinute *int32
+	Environments       []string
+	RotatedFrom        *uuid.UUID
+	RotatedTo          *uuid.UUID
+	ExpiryNotifiedAt   *time.Time
+	ExpiredRecordedAt  *time.Time
+}
+
+type ApiKeyApp struct {
+	KeyID       uuid.UUID
+	AppID       uuid.UUID
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
 }
 
 type App struct {
@@ -84,6 +101,20 @@ type App struct {
 	CreatedAt          time.Time
 	DeletedAt          *time.Time
 	LatencyThresholdMs *int32
+	CreatedBy          string
+	CreatedByKeyID     *uuid.UUID
+	FirstSeenAt        *time.Time
+	ArchivedAt         *time.Time
+	AcknowledgedAt     *time.Time
+	MergedInto         *uuid.UUID
+	IsDefault          bool
+}
+
+type AppAlias struct {
+	ProjectID uuid.UUID
+	AliasSlug string
+	AppID     uuid.UUID
+	CreatedAt time.Time
 }
 
 type AppInstance struct {
@@ -124,6 +155,14 @@ type AuditEvent struct {
 	UserAgent   string
 	Metadata    []byte
 	CreatedAt   time.Time
+	OrgID       *uuid.UUID
+	ProjectID   *uuid.UUID
+	TargetType  *string
+	TargetID    *string
+	TargetLabel *string
+	RequestID   *string
+	Changes     []byte
+	ActorLabel  *string
 }
 
 type AuthEmailToken struct {
@@ -162,21 +201,6 @@ type CapturePolicy struct {
 	UpdatedBy           *uuid.UUID
 }
 
-type ConsumerGroup struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
-	Name      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type ConsumerGroupMember struct {
-	ProjectID  uuid.UUID
-	ConsumerID string
-	GroupID    uuid.UUID
-	AssignedAt time.Time
-}
-
 type EndpointSetting struct {
 	AppID               uuid.UUID
 	Method              string
@@ -189,10 +213,17 @@ type EndpointSetting struct {
 }
 
 type Environment struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
-	Name      string
-	CreatedAt time.Time
+	ID           uuid.UUID
+	ProjectID    uuid.UUID
+	Name         string
+	CreatedAt    time.Time
+	IsProduction bool
+	Color        *string
+	Position     int32
+	HiddenAt     *time.Time
+	Source       string
+	FirstSeenAt  *time.Time
+	LastSeenAt   *time.Time
 }
 
 type HealthCheck struct {
@@ -224,6 +255,12 @@ type Invitation struct {
 	AcceptedAt *time.Time
 	RevokedAt  *time.Time
 	ResentAt   *time.Time
+}
+
+type InvitationProjectGrant struct {
+	InvitationID uuid.UUID
+	ProjectID    uuid.UUID
+	Role         string
 }
 
 type Membership struct {
@@ -366,12 +403,45 @@ type PrivacyPolicy struct {
 }
 
 type Project struct {
-	ID        uuid.UUID
-	OrgID     uuid.UUID
-	Slug      string
-	Name      string
+	ID            uuid.UUID
+	OrgID         uuid.UUID
+	Slug          string
+	Name          string
+	CreatedAt     time.Time
+	DeletedAt     *time.Time
+	DefaultAccess string
+	Description   string
+	UpdatedAt     time.Time
+	CreatedBy     *uuid.UUID
+	RepositoryUrl *string
+	PausedAt      *time.Time
+	PausedBy      *uuid.UUID
+	PurgeAfter    *time.Time
+}
+
+type ProjectMember struct {
+	ProjectID uuid.UUID
+	UserID    uuid.UUID
+	Role      string
+	AddedBy   *uuid.UUID
 	CreatedAt time.Time
-	DeletedAt *time.Time
+	UpdatedAt time.Time
+}
+
+type ProjectPurge struct {
+	ProjectID  uuid.UUID
+	Step       string
+	Attempts   int32
+	LastError  *string
+	StartedAt  time.Time
+	UpdatedAt  time.Time
+	FinishedAt *time.Time
+}
+
+type ProjectSlugHistory struct {
+	Slug      string
+	ProjectID uuid.UUID
+	RetiredAt time.Time
 }
 
 type RecoveryRequest struct {

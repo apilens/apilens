@@ -1,0 +1,47 @@
+---
+title: "Deleting and restoring a project"
+description: "A deleted project can be restored for 7 days; then its data is purged everywhere."
+---
+
+Deleting a project does not remove its data straight away. It is scheduled for purge after a **7-day grace period**, and until then an organization owner or admin can restore it exactly as it was.
+
+## Delete a project
+
+In **Project settings → Danger zone**, choose **Delete project** and type the project's slug to confirm. Only project admins (and organization owners and admins) can delete a project, and it needs a sign-in less than 10 minutes old.
+
+From that moment:
+
+- The project disappears from the dashboard and the API for everyone.
+- Ingest refuses its API keys with `403 project_deleted`.
+- Its slug stays reserved, so no other project can take it.
+- The project's admins get an email saying when it will be purged.
+
+## Restore a project
+
+Organization owners and admins find deleted projects in **Organization settings → General**, under **Deleted projects**, until they are purged. **Restore** brings a project back with its access (default access and people added directly), API keys, apps, environments, settings and slug. Restoring needs a recent sign-in and emails the project's admins. Data sent while the project was deleted was refused and is not recovered.
+
+## What the purge removes
+
+An hourly job purges every deleted project whose grace period has passed. It removes:
+
+- **Telemetry** in ClickHouse: requests, logs, spans, rollups, deploys and consumers.
+- **Counters** in Valkey and the project's **request export files**.
+- **Settings** in Postgres: apps, environments, API keys, privacy and capture policies, alert rules and channels, health checks, uptime monitors, saved views, exports, people added directly and pending invitation grants.
+- **Relationships** in SpiceDB.
+
+The project's own [activity log](/platform/activity-log) entries are kept, and the purge is recorded in the organization's log as `project.purged`. The slug then stays reserved for **30 days** before another project can take it. A purged project cannot be restored.
+
+A purge that stops half-way (a restart, an unavailable store) resumes where it stopped on the next run. Deleting an organization cannot be undone; its projects are purged by the same job once the grace period has passed.
+
+## Through the API
+
+| Request | What it does |
+|---|---|
+| `DELETE /api/v1/projects/{slug}` with `{"confirm": "<slug>"}` | Deletes the project and answers when it will be purged (`purge_after`). A confirmation other than the slug answers `422 confirmation_mismatch` and changes nothing. |
+| `GET /api/v1/orgs/{slug}/projects/deleted` | Lists the organization's deleted projects that can still be restored. |
+| `POST /api/v1/orgs/{slug}/projects/{id}/restore` | Restores a deleted project before its purge. |
+
+## Self-hosted
+
+- `project.deletion_grace` (`APILENS_PROJECT__DELETION_GRACE`, default `168h`) sets the grace period; `0s` schedules the purge at once.
+- `apilens project purge <project id>` purges a deleted project at once, inside its grace period, with the server's configuration.

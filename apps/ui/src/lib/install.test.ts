@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { ApiKey } from "./identity";
 import {
+  APP_NAME_COMMENT,
   DEFAULT_POSTURE,
   KEY_PLACEHOLDER,
   POSTURES,
   type Posture,
   appIdFor,
+  appNameNote,
   installKeyError,
   postureOf,
   privacyDocsUrl,
@@ -63,6 +65,16 @@ describe("snippetsFor: SDK", () => {
     expect(out).toContain("apilens.base-url=https://ingest.example.com/v1");
   });
 
+  it("names the app in every SDK snippet, with the APILENS_APP_ID alternative and that it appears on first data", () => {
+    expect(code("python")).toContain(`app_id="checkout",  # ${APP_NAME_COMMENT}`);
+    expect(code("node")).toContain(`appId: "checkout", // ${APP_NAME_COMMENT}`);
+    expect(code("java")).toContain(`# ${APP_NAME_COMMENT}\napilens.app-id=checkout`);
+    expect(APP_NAME_COMMENT).toContain("APILENS_APP_ID");
+    expect(appNameNote("checkout")).toBe(
+      "The app name (checkout here) picks the app. It appears in Apps automatically when its first data arrives; name each service differently. Without a name, data goes to the project’s default app.",
+    );
+  });
+
   it("is empty for a language without an SDK", () => {
     expect(snippetsFor({ ...base, language: "go" })).toEqual([]);
   });
@@ -90,9 +102,19 @@ describe("savedKeyState", () => {
     name: "Onboarding",
     prefix: "apl_live_0123",
     scopes: ["ingest"],
+    can_create_apps: true,
+    app_ids: null,
+    apps_seen: [],
     last_used_at: null,
     created_at: "2026-11-04T11:00:00Z",
+    expires_at: null,
     revoked_at: null,
+    environments: null,
+    last_used_ip: null,
+    last_used_sdk: null,
+    rate_limit_per_minute: null,
+    rotated_from: null,
+    rotated_to: null,
     ...over,
   });
 

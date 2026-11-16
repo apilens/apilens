@@ -50,7 +50,7 @@ Create the APILens side before the code change, so the pull request can be teste
 
 - **Project.** One project per product. If the service joins a product that is already in APILens, use that project. See [Projects, apps & API keys](/platform/projects-apps-keys).
 - **App.** One app per deployable service, **not** per environment. Its slug is the SDK's `app_id`. Environments are a label on the telemetry (`APILENS_ENVIRONMENT`).
-- **API key.** Keys are per project. Create one key per deployment environment with only the **Ingest** scope in **Project settings → API keys**, so a staging key can be revoked without touching production. A key without the ingest scope is refused with `403`.
+- **API key.** Keys are per project. Create one key per deployment environment with only the **Ingest** scope in **Access → API keys**, so a staging key can be revoked without touching production. A key without the ingest scope is refused with `403`.
 - **Secret.** Store the key in the service's secret manager and expose it as `APILENS_API_KEY`. The full key is shown once.
 - **Network.** The SDK only makes outbound HTTPS calls to `base_url` on port 443. Check the path from the service's own network, not from your laptop.
 
@@ -67,7 +67,7 @@ The onboarding flow's **Instrument** step does the project, app, key and snippet
 
 - [ ] Project exists, or the service's app was added to the product's existing project ([Projects](/platform/projects-apps-keys#projects)).
 - [ ] App created with a slug that will be the `app_id` ([Apps](/platform/projects-apps-keys#apps)).
-- [ ] One **Ingest**-scoped key per environment, named after it, stored as `APILENS_API_KEY` in the service's secret manager ([API keys](/platform/projects-apps-keys#api-keys)).
+- [ ] One **Ingest**-scoped key per environment, named after it, stored as `APILENS_API_KEY` in the service's secret manager ([API keys](/platform/api-keys)).
 - [ ] `GET /v1/health` returns `200` from the service's network in every environment to instrument ([Ingest API](/ingest/ingest-api)).
 - [ ] Proxy and custom CA settled, if the intake lists either ([Proxies and custom CAs](/sdk-reference/delivery#proxies-and-custom-cas)).
 - [ ] Intake fields "APILens project" and "APILens app ID(s)" filled in ([intake §1](/guides/rollout-intake#1-service)).

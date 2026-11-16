@@ -54,7 +54,7 @@ var quantileLevel = map[Metric]string{MetricP50: "0.5", MetricP75: "0.75", Metri
 
 // usesRollup reports whether a rule's value can be read from the
 // api_requests_1m rollup. Apdex and unique consumers need raw rows, as does
-// any consumer or group filter (the rollup has no consumer column).
+// any consumer or group filter (the rollup has no consumer columns).
 func usesRollup(m Metric, f Filters) bool {
 	switch m {
 	case MetricApdex, MetricUniqueConsumers:
@@ -77,9 +77,7 @@ type queryScope struct {
 	environment  string
 	window       Window
 	filters      Filters
-	// members are the consumer ids of filters.Group, resolved by the caller.
-	members []string
-	apdex   apdexThresholds
+	apdex        apdexThresholds
 }
 
 // buildQuery builds the query of metric m over s.
@@ -126,11 +124,7 @@ func buildQuery(m Metric, s queryScope) (evalQuery, error) {
 		where, args = append(where, "consumer_id = ?"), append(args, s.filters.Consumer)
 	}
 	if s.filters.Group != "" {
-		members := s.members
-		if members == nil {
-			members = []string{}
-		}
-		where, args = append(where, "has(?, consumer_id)"), append(args, members)
+		where, args = append(where, "consumer_group = ?"), append(args, s.filters.Group)
 	}
 	var (
 		with   string

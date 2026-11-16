@@ -47,7 +47,22 @@ describe("can", () => {
     expect(actionsFor(caps, "other")).toEqual([]);
   });
 
+  it("gates access management and the activity log on their own actions", () => {
+    const projectCaps = { shop: ["project.read", "access.manage", "audit.read"], docs: ["project.read", "project.update"] };
+    expect(can(projectCaps, "shop", "access.manage")).toBe(true);
+    expect(can(projectCaps, "shop", "audit.read")).toBe(true);
+    expect(can(projectCaps, "docs", "access.manage")).toBe(false);
+    expect(can(projectCaps, "docs", "audit.read")).toBe(false);
+    expect(actionsFor({ shop: ["audit.read", "access.manage", "alerts.manage"] }, "shop")).toEqual([
+      "alerts.manage",
+      "access.manage",
+      "audit.read",
+    ]);
+  });
+
   it("recognizes vocabulary actions", () => {
+    expect(isAction("access.manage")).toBe(true);
+    expect(isAction("audit.read")).toBe(true);
     expect(isAction("members.invite")).toBe(true);
     expect(isAction("future.action")).toBe(false);
   });

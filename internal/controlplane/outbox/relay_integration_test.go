@@ -145,6 +145,85 @@ func TestRelayAppliesMembershipChangesWithinASecond(t *testing.T) {
 	eventually(t, time.Second, "lag is 0", func() bool { return gauge(t, reg, "apilens_outbox_lag_seconds") == 0 })
 }
 
+func TestRelayAppliesProjectRolesAndDefaultAccess(t *testing.T) {
+	env := newRelayEnv(t)
+	ctx := context.Background()
+	relay := outbox.NewRelay(env.pool, env.sdb, env.authz, outbox.RelayOptions{}, tu.Logger(t), nil)
+	drain := func() {
+		t.Helper()
+		if _, err := relay.Drain(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(u uuid.UUID, perm authz.Permission, res authz.Resource) bool {
+		t.Helper()
+		ok, err := env.authz.Check(ctx, authz.User(u.String()), perm, res)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+
+	org, owner, member, viewer, guest, proj := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	project := authz.Project(org.String(), proj.String())
+	emit(t, env.pool, outbox.OrgCreated, org, outbox.OrgCreatedPayload{OrgID: org, OwnerUserID: owner})
+	emit(t, env.pool, outbox.MembershipUpserted, org, outbox.MembershipUpsertedPayload{OrgID: org, UserID: member, Role: "member"})
+	emit(t, env.pool, outbox.MembershipUpserted, org, outbox.MembershipUpsertedPayload{OrgID: org, UserID: viewer, Role: "viewer"})
+	emit(t, env.pool, outbox.MembershipUpserted, org, outbox.MembershipUpsertedPayload{OrgID: org, UserID: guest, Role: "viewer"})
+	emit(t, env.pool, outbox.ProjectCreated, proj, outbox.ProjectCreatedPayload{ProjectID: proj, OrgID: org})
+	drain()
+	// project.created writes the org_role default.
+	if !check(member, authz.ProjectEdit, project) || check(viewer, authz.ProjectEdit, project) || !check(viewer, authz.ProjectView, project) {
+		t.Fatal("org_role default: member edits, viewer views")
+	}
+
+	// Direct grant: an org viewer becomes project admin.
+	emit(t, env.pool, outbox.ProjectMemberUpserted, proj, outbox.ProjectMemberUpsertedPayload{ProjectID: proj, OrgID: org, UserID: guest, Role: "admin"})
+	drain()
+	if !check(guest, authz.ProjectManageAccess, project) {
+		t.Fatal("granted admin cannot manage access")
+	}
+	// Role change: admin → editor drops admin in the same write.
+	emit(t, env.pool, outbox.ProjectMemberUpserted, proj, outbox.ProjectMemberUpsertedPayload{ProjectID: proj, OrgID: org, UserID: guest, Role: "editor"})
+	drain()
+	if check(guest, authz.ProjectManageAccess, project) || !check(guest, authz.ProjectEdit, project) {
+		t.Fatal("role change to editor: wants edit without manage_access")
+	}
+
+	// Default access viewer: the member only views; none: restricted.
+	emit(t, env.pool, outbox.ProjectAccessChanged, proj, outbox.ProjectAccessChangedPayload{ProjectID: proj, OrgID: org, DefaultAccess: "viewer"})
+	drain()
+	if check(member, authz.ProjectEdit, project) || !check(member, authz.ProjectView, project) {
+		t.Fatal("viewer default: member views only")
+	}
+	emit(t, env.pool, outbox.ProjectAccessChanged, proj, outbox.ProjectAccessChangedPayload{ProjectID: proj, OrgID: org, DefaultAccess: "none"})
+	drain()
+	if check(member, authz.ProjectView, project) || check(viewer, authz.ProjectView, project) {
+		t.Fatal("restricted project is visible to org members without a grant")
+	}
+	if !check(owner, authz.ProjectManageAccess, project) || !check(guest, authz.ProjectEdit, project) {
+		t.Fatal("restricted project: owner and direct grants keep access")
+	}
+
+	// Revoke: the grant is gone and the restricted project is invisible.
+	emit(t, env.pool, outbox.ProjectMemberDeleted, proj, outbox.ProjectMemberDeletedPayload{ProjectID: proj, OrgID: org, UserID: guest})
+	drain()
+	if check(guest, authz.ProjectView, project) {
+		t.Fatal("removed project member can still view")
+	}
+
+	// Back to org_role, then replay every row: the final state is unchanged.
+	emit(t, env.pool, outbox.ProjectAccessChanged, proj, outbox.ProjectAccessChangedPayload{ProjectID: proj, OrgID: org, DefaultAccess: "org_role"})
+	drain()
+	if _, err := env.pool.Exec(ctx, `UPDATE outbox SET processed_at = NULL`); err != nil {
+		t.Fatal(err)
+	}
+	drain()
+	if !check(member, authz.ProjectEdit, project) || check(guest, authz.ProjectEdit, project) || !check(guest, authz.ProjectView, project) {
+		t.Fatal("after replay: org_role default with no direct grant for the org viewer")
+	}
+}
+
 // crashAfterWrite performs the SpiceDB write, then fails as if the process
 // died before marking the row processed.
 type crashAfterWrite struct {

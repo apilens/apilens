@@ -346,7 +346,7 @@ export interface User {
   email_verified: boolean;
   name: string | null;
   avatar_url: string | null;
-  preferences: { home?: HomeScreen; last_project_slug?: string } & Record<string, unknown>;
+  preferences: { home?: HomeScreen; last_project_slug?: string; security_emails?: boolean } & Record<string, unknown>;
   onboarding: OnboardingState;
   created_at: string;
   /** Authentication methods of the current session. */
@@ -487,6 +487,32 @@ export interface PasskeyLoginVerifyRequest {
   remember?: boolean;
 }
 
+/** How a signed-in user can confirm who they are again (#797), strongest first. */
+export type ReauthMethod = "passkey" | "totp" | "email" | "sso";
+
+/** `POST /auth/reauth/options` (#797). */
+export interface ReauthOptions {
+  methods: ReauthMethod[];
+  /** Present when `passkey` is a method: `options` feeds `navigator.credentials.get()`. */
+  passkey?: { challenge_id: string; options: { publicKey: Record<string, unknown> } & Record<string, unknown> };
+  /** Present when `sso` is the only method: re-authenticate at the identity provider. */
+  sso_url?: string;
+  email_code_sent: boolean;
+  /** With `send_email_code`: seconds before another code can be requested. */
+  retry_after?: number;
+}
+
+export type ReauthVerifyRequest =
+  | { method: "totp" | "email"; code: string }
+  | { method: "passkey"; challenge_id: string; response: Record<string, unknown> };
+
+/** `POST /auth/reauth/verify` (#797): a new access token whose `auth_time` is now. */
+export interface ReauthVerified {
+  access_token: string;
+  expires_in: number;
+  auth_time: string;
+}
+
 /** `POST /auth/passkeys/register/options` (#263). `options` is WebAuthn `PublicKeyCredentialCreationOptions` JSON. */
 export interface PasskeyRegisterOptions {
   challenge_id: string;
@@ -556,6 +582,8 @@ export interface InvitationPreview {
   email_masked: string;
   role: OrgRole;
   expires_at: string;
+  /** The project roles the invitee gets on accepting, by project name (#809); empty when none. */
+  projects?: { name: string; role: ProjectRole }[] | null;
 }
 
 /** `POST /auth/invitations/{token}/accept` (#282). */
@@ -571,7 +599,14 @@ export interface ContextProject {
   slug: string;
   name: string;
   environments: string[];
+  /** Active (not deleted) apps in the project. */
+  app_count: number;
+  /** The user's effective project role: the highest any source grants. */
+  role: ProjectRole;
 }
+
+/** A project role (#753 D1); org owners and admins are admin on every project. */
+export type ProjectRole = "admin" | "editor" | "viewer";
 
 export interface ContextOrg {
   id: string;
@@ -708,6 +743,24 @@ export interface Invitation {
   resent_at: string | null;
   /** Who sent it; absent once their account is gone. */
   invited_by?: { id: string; email: string; name: string };
+  /** The project roles the invitee gets on accepting (#753 D4); empty when none. */
+  project_grants: InvitationProjectGrant[] | null;
+}
+
+/** A project role an invitation carries (`InvitationProjectGrant`). */
+export interface InvitationProjectGrant {
+  project_id: string;
+  /** The project's slug. */
+  project: string;
+  project_name: string;
+  role: ProjectRole;
+}
+
+/** A project role every invitation of one `POST /orgs/{slug}/invitations` carries (`ProjectGrantEntry`, #809). */
+export interface ProjectGrantEntry {
+  /** The project's slug. */
+  project: string;
+  role: ProjectRole;
 }
 
 /** `POST /orgs/{slug}/invitations` result, one per requested address in request order. */
@@ -748,6 +801,21 @@ export interface Project {
   org_slug?: string;
   environments: string[];
   created_at?: string;
+  /** The project's source repository (https), null when none is set (#791). */
+  repository_url?: string | null;
+  /** A commit's URL with `{commit}` for the URL-encoded id; null when unset or the host's layout is unknown. */
+  commit_url_template?: string | null;
+  /** A release's URL with `{release}` for the URL-encoded name; null like `commit_url_template`. */
+  release_url_template?: string | null;
+}
+
+/** `PATCH /projects/{slug}`: only the fields sent change; `repository_url: ""` removes the link. */
+export interface UpdateProjectRequest {
+  repository_url?: string;
+  /** Trimmed; 1 to 100 characters (#805). */
+  name?: string;
+  /** Trimmed; at most 280 characters, "" clears it (#805). */
+  description?: string;
 }
 
 export interface CreateProjectRequest {
@@ -756,29 +824,88 @@ export interface CreateProjectRequest {
   environments?: string[];
 }
 
-export type ApiKeyScope = "ingest" | "read";
+/** `apps:create` is set by the server on an ingest key that may create apps (`can_create_apps`). */
+export type ApiKeyScope = "ingest" | "read" | "apps:create";
+
+/** An app a key has sent data for (`KeyApp`); `apps_seen` lists the most recent first. */
+export interface KeyApp {
+  app_id: string;
+  slug: string;
+  name: string;
+  first_seen_at: string;
+  last_seen_at: string;
+}
 
 /** `GET /projects/{slug}/api-keys` item (#285). */
 export interface ApiKey {
   id: string;
   name: string;
   prefix: string;
-  scopes: ApiKeyScope[];
+  scopes: ApiKeyScope[] | null;
+  /** Data with an app name the project does not have yet creates that app. */
+  can_create_apps: boolean;
+  /** The apps the key may send data for; null for every app. */
+  app_ids: string[] | null;
+  /** The apps the key has sent data for, most recent first. */
+  apps_seen: KeyApp[] | null;
   last_used_at: string | null;
   created_at: string;
-  expires_at?: string | null;
+  expires_at: string | null;
   revoked_at: string | null;
+  /** Who created the key; absent when unknown or once their account is deleted. */
+  created_by?: KeyCreator;
+  /** The environments the key may send data for; null for every environment. */
+  environments: string[] | null;
+  /** The client IP of the last ingest request; null if never used or not recorded. */
+  last_used_ip: string | null;
+  /** The SDK name and version of the last ingest request (`apilenss/0.5.0`); null if none. */
+  last_used_sdk: string | null;
+  /** Records per minute the ingest edge accepts with this key; null for no per-key limit. */
+  rate_limit_per_minute: number | null;
+  /** The key this one replaced in a rotation; null otherwise. */
+  rotated_from: string | null;
+  /** The key that replaced this one; it keeps working until `expires_at` (the overlap). */
+  rotated_to: string | null;
+}
+
+/** Who created a key (`KeyCreator`): their name, or their email when they have not set one. */
+export interface KeyCreator {
+  id: string;
+  name: string;
 }
 
 export interface CreateApiKeyRequest {
   name: string;
   scopes: ApiKeyScope[];
   expires_at?: string;
+  /** Default true for ingest keys; a key limited to apps never creates apps. */
+  can_create_apps?: boolean;
+  /** Omitted for every app. */
+  app_ids?: string[];
+  /** Pin the key to these environments of the project; omitted for every environment. */
+  environments?: string[];
+  /** Omitted for no per-key limit. */
+  rate_limit_per_minute?: number;
+}
+
+/** `PUT /projects/{slug}/api-keys/{id}/access`. */
+export interface UpdateApiKeyAccessRequest {
+  can_create_apps: boolean;
+  app_ids: string[] | null;
 }
 
 /** `POST /projects/{slug}/api-keys`: the raw `key` is returned exactly once. */
 export interface CreatedApiKey extends ApiKey {
   key: string;
+}
+
+/** How long a rotated key keeps working (`RotateAPIKeyInputBody.overlap`), never past its expiry. */
+export type RotateOverlap = "none" | "24h" | "7d";
+
+/** `POST /projects/{slug}/api-keys/{id}/rotate`: the new key (raw `key` once) and the rotated one. */
+export interface RotatedApiKey extends CreatedApiKey {
+  /** The rotated key: `rotated_to` names the new key, `expires_at` ends the overlap window. */
+  previous: ApiKey;
 }
 
 /** `GET /projects/{slug}/ingest-status` (#287). */
@@ -787,6 +914,150 @@ export interface IngestStatus {
   first_at: string | null;
   last_at: string | null;
   count_1h: number;
+}
+
+// Project access (#753 D1-D4) and the audit log (D7). Shapes as in api/openapi/apilens.v1.json.
+
+/** What org members get on a project without a direct grant (#753 D2). */
+export type DefaultAccess = "org_role" | "viewer" | "none";
+
+/** Where a person's project role comes from. */
+export type AccessSourceKind = "org_role" | "default" | "direct";
+
+/** One reason a person has a role on the project (`AccessSource`). */
+export interface AccessSource {
+  kind: AccessSourceKind;
+  /** The project role this source grants. */
+  role: ProjectRole;
+  /** The organization role it comes from; absent for `direct`. */
+  org_role?: OrgRole;
+}
+
+/** A person with access to a project (`AccessMember`), as `GET /projects/{slug}/access` lists them. */
+export interface AccessMember {
+  user_id: string;
+  name: string;
+  email: string;
+  avatar_initials: string;
+  /** The highest role any source grants (#753 D3). */
+  effective_role: ProjectRole;
+  /** Every source, in the order org_role, default, direct. */
+  sources: AccessSource[] | null;
+  /** The role granted directly on the project; null without a direct grant. */
+  direct_role: ProjectRole | null;
+  /** When the direct role was granted, or when the person joined the organization without one. */
+  added_at: string;
+  /** Who granted the direct role; absent without one or once their account is deleted. */
+  added_by?: { id: string; name: string };
+  /** When the person last signed in; null if never. */
+  last_active_at: string | null;
+}
+
+/** `GET /projects/{slug}/access`: one page of the people with access, by email. */
+export interface ProjectAccess {
+  default_access: DefaultAccess;
+  members: AccessMember[] | null;
+  /** Empty on the last page. */
+  next_cursor: string;
+}
+
+/** The filters and page of `GET /projects/{slug}/access`. */
+export interface ProjectAccessQuery {
+  /** Substring of name or email, case-insensitive. */
+  q?: string;
+  /** Effective role. */
+  role?: ProjectRole;
+  /** People with a source of this kind. */
+  source?: AccessSourceKind;
+  limit?: number;
+  cursor?: string;
+}
+
+/** `PATCH /projects/{slug}/access` (with or without `dry_run`). */
+export interface DefaultAccessChange {
+  /** The default access now; unchanged on a dry run. */
+  default_access: DefaultAccess;
+  previous_default_access: DefaultAccess;
+  /** How many people lose (or on a dry run would lose) access; 0 unless the default becomes none. */
+  lose_access: number;
+  dry_run: boolean;
+}
+
+/** Whose audit log a read covers: an organization's (every project) or one project's. */
+export type AuditScope = { org: string } | { project: string };
+
+/** Who did an audited action (`AuditActor`). */
+export interface AuditActor {
+  type: "user" | "system";
+  /** The user's id; absent for system. */
+  id?: string;
+  /** Their name (or email) when recorded; "System" for system; empty when unknown. */
+  label: string;
+}
+
+/** What an audited action acted on (`AuditTarget`). */
+export interface AuditTarget {
+  /** api_key, member, app, project, ... */
+  type: string;
+  id: string;
+  /** Its name when recorded, readable after it is gone. */
+  label: string;
+}
+
+/** One audit event (`AuditEvent`); `changes` never holds secrets. */
+export interface AuditEvent {
+  id: string;
+  time: string;
+  /** noun.verb, e.g. `api_key.created`. */
+  action: string;
+  actor: AuditActor;
+  /** Empty when unknown. */
+  ip: string;
+  user_agent: string;
+  /** Empty outside a request. */
+  request_id: string;
+  target?: AuditTarget;
+  /** On the organization list: the project of a project event; absent for an org-wide event. */
+  project?: { slug: string; name: string };
+  /** `{previous, next}` for a change; null otherwise. */
+  changes: { previous?: Record<string, unknown>; next?: Record<string, unknown> } | null;
+}
+
+/** `GET .../audit-events`: newest first. */
+export interface AuditEvents {
+  events: AuditEvent[] | null;
+  /** Empty on the last page. */
+  next_cursor: string;
+  /** How many days events are kept; 0 means forever. */
+  retention_days: number;
+}
+
+/** The filters of `GET .../audit-events` and its CSV export. */
+export interface AuditFilters {
+  /** Only events this user did. */
+  actor?: string;
+  /** One action, or every action with a prefix when it ends with a dot (`api_key.`). */
+  action?: string;
+  target_type?: string;
+  /** RFC 3339; at or after. */
+  from?: string;
+  /** RFC 3339; before. */
+  to?: string;
+  /** Substring of the target label, case-insensitive. */
+  q?: string;
+}
+
+/** The filters and page of `GET .../audit-events`. */
+export interface AuditQuery extends AuditFilters {
+  limit?: number;
+  cursor?: string;
+}
+
+/** `GET .../audit-events/actions` item: an action offered as a filter, in catalogue order. */
+export interface AuditAction {
+  action: string;
+  /** Its display name (`API key created`). */
+  label: string;
 }
 
 // Query role (internal/query, #295): with a session the project is the `project` query parameter
@@ -992,6 +1263,8 @@ export interface DeploySide {
 
 /** One deploy of `GET /deploys/changes` (#597), newest first. */
 export interface DeployChange {
+  /** A stable hash of the deploy's report: `GET /deploys/{id}`. */
+  id: string;
   deployed_at: string;
   release: string;
   commit: string;
@@ -1010,7 +1283,101 @@ export interface DeployChange {
 /** `GET /deploys/changes`. */
 export interface DeployChanges {
   window_minutes: number;
+  /** Deploys matching env and app on every page. */
+  total: number;
   deploys: DeployChange[] | null;
+}
+
+/** The scope and page of `GET /deploys/changes`. */
+export interface DeployChangesQuery {
+  range?: QueryRange;
+  limit?: number;
+  offset?: number;
+  env?: string;
+  /** An app's id; absent means every app, project-wide deploys included. */
+  app?: string;
+}
+
+/** The previous or next deploy of the same app and environment. */
+export interface DeployRef {
+  id: string;
+  release: string;
+  deployed_at: string;
+}
+
+/** One minute around a deploy in `GET /deploys/{id}`. */
+export interface DeployPoint {
+  ts: string;
+  requests: number;
+  client_errors: number;
+  server_errors: number;
+  p95_ms: number;
+}
+
+/** `GET /deploys/{id}`: one deploy, its windows, the minutes around it and its neighbours. */
+export interface DeployDetail {
+  deploy: DeployChange & { received_at: string };
+  window_minutes: number;
+  before_from: string;
+  /** The deploy's own minute: in the series, in neither side. */
+  deploy_minute: string;
+  after_from: string;
+  after_to: string;
+  /** Minutes the after window covers so far. */
+  after_minutes: number;
+  previous?: DeployRef;
+  next?: DeployRef;
+  series: DeployPoint[] | null;
+}
+
+/** One side of an endpoint in `GET /deploys/{id}/comparison`. */
+export interface DeploySplitSide extends DeploySide {
+  client_errors: number;
+  server_errors: number;
+}
+
+export interface DeployEndpoint {
+  method: string;
+  path: string;
+  /** compared: traffic on both sides; new: only after; gone: only before. */
+  change: "compared" | "new" | "gone";
+  before: DeploySplitSide;
+  after: DeploySplitSide;
+}
+
+export interface DeployStatusCount {
+  status_code: number;
+  before: number;
+  after: number;
+  new: boolean;
+}
+
+export interface DeployException {
+  exception_type: string;
+  message: string;
+  before: number;
+  after: number;
+  new: boolean;
+  method: string;
+  path: string;
+}
+
+export interface DeployConsumer {
+  consumer_id: string;
+  consumer_name: string;
+  before_requests: number;
+  before_errors: number;
+  after_requests: number;
+  after_errors: number;
+}
+
+/** `GET /deploys/{id}/comparison`: what changed with a deploy. */
+export interface DeployComparison {
+  endpoints: DeployEndpoint[] | null;
+  statuses: DeployStatusCount[] | null;
+  exceptions: DeployException[] | null;
+  consumers: DeployConsumer[] | null;
+  consumers_affected: number;
 }
 
 // Alerts (#609): threshold rules, notification channels, events and the incidents feed. -----
@@ -1022,9 +1389,10 @@ export type AlertCondition = "gt" | "gte" | "lt" | "lte";
 /** Where a rule stands after its latest evaluation. */
 export type AlertStatus = "ok" | "pending" | "triggered" | "resolving";
 
-/** The optional filters of a rule: one consumer, one consumer group (its id), one endpoint. */
+/** The optional filters of a rule: one consumer, one consumer group, one endpoint. */
 export interface AlertFilters {
   consumer?: string;
+  /** A consumer group by name, as the SDK reports it (`consumer_group` on a request). */
   group?: string;
   /** "METHOD /route/{template}", or "/route/{template}" for every method. */
   endpoint?: string;
@@ -1156,12 +1524,6 @@ export interface StatusSplit {
   server_errors: number;
 }
 
-/** The consumer group a consumer is in. */
-export interface ConsumerGroupRef {
-  id: string;
-  name: string;
-}
-
 /** Unique consumers in a period, split by whether they were first seen in it. */
 export interface ConsumerCounts {
   consumers: number;
@@ -1169,12 +1531,12 @@ export interface ConsumerCounts {
   returning: number;
 }
 
-/** One consumer of `GET /consumers` (#580), by requests. */
+/** One consumer (a user of the customer's API) of `GET /consumers` (#580). */
 export interface ConsumerRow extends StatusSplit {
   consumer_id: string;
   consumer_name: string;
-  /** Absent when the consumer is in no group. */
-  group?: ConsumerGroupRef | null;
+  /** The latest non-empty group the SDK reported for the consumer in the range; "" when none. */
+  consumer_group: string;
   first_seen: string;
   last_seen: string;
   /** First seen within the range. */
@@ -1183,23 +1545,35 @@ export interface ConsumerRow extends StatusSplit {
   sparkline: number[] | null;
 }
 
-/** `GET /consumers`. */
+export type ConsumerSortKey = "requests" | "errors" | "last_seen";
+
+/** `GET /consumers`: one page of consumers, plus the range's unique consumers. */
 export interface ConsumersList {
   range: string;
   from: string;
   to: string;
   bucket_seconds: number;
   summary: ConsumerCounts;
+  /** Requests of identified consumers in the range (group applied, search not). */
+  totals: StatusSplit;
   /** Unique consumers per bucket; new means first seen within that bucket. */
   points: (ConsumerCounts & { ts: string })[] | null;
+  /** Consumers matching group and search, across all pages. */
+  total: number;
   consumers: ConsumerRow[] | null;
+}
+
+/** One of the endpoints a consumer called most. */
+export interface ConsumerEndpoint extends StatusSplit {
+  method: string;
+  path: string;
 }
 
 /** `GET /consumers/{consumer_id}`. */
 export interface ConsumerDetail {
   consumer_id: string;
   consumer_name: string;
-  group?: ConsumerGroupRef | null;
+  consumer_group: string;
   first_seen: string;
   last_seen: string;
   new: boolean;
@@ -1209,18 +1583,31 @@ export interface ConsumerDetail {
   bucket_seconds: number;
   summary: StatusSplit & { requests_per_minute: number };
   points: (StatusSplit & { ts: string })[] | null;
+  top_endpoints: ConsumerEndpoint[] | null;
+  /** One page (limit, offset); the total is summary.requests. */
   recent_requests: RequestRow[] | null;
+  /** One page (limit, offset); the total is the 4xx plus 5xx count. */
   recent_errors: RequestRow[] | null;
 }
 
-/** One group of `GET /projects/{slug}/consumer-groups`. */
-export interface ConsumerGroup {
-  id: string;
-  name: string;
-  /** How many consumers are assigned to it. */
+/** One SDK-reported group of `GET /consumer-groups`. */
+export interface ConsumerGroupTraffic extends StatusSplit {
+  group: string;
   consumers: number;
-  created_at: string;
-  updated_at: string;
+  last_seen: string;
+  sparkline: number[] | null;
+}
+
+export type GroupSortKey = ConsumerSortKey | "consumers";
+
+/** `GET /consumer-groups`: one page of the groups the SDK reported in the range. */
+export interface ConsumerGroupsTraffic {
+  range: string;
+  from: string;
+  to: string;
+  bucket_seconds: number;
+  total: number;
+  groups: ConsumerGroupTraffic[] | null;
 }
 
 /** An app of a project, as `GET /project` lists it. */
@@ -1228,6 +1615,60 @@ export interface NamedApp {
   id: string;
   slug: string;
   name: string;
+}
+
+/** Where an app stands: in use, archived, merged into another, or deleted (restorable for 30 days). */
+export type AppState = "active" | "archived" | "merged" | "deleted";
+
+/** `GET /projects/{slug}/apps` item: an app with its origin and lifecycle. */
+export interface ManagedApp {
+  id: string;
+  slug: string;
+  name: string;
+  state: AppState;
+  /** `sdk`: created the first time an SDK sent its name; `dashboard`: created by a person. */
+  created_by: "sdk" | "dashboard";
+  created_by_key_id: string | null;
+  created_by_key_name: string | null;
+  created_at: string;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  archived_at: string | null;
+  deleted_at: string | null;
+  restorable_until: string | null;
+  acknowledged_at: string | null;
+  /** Created by an SDK in the last 7 days and not acknowledged yet. */
+  new: boolean;
+  /** Receives records that name no app; cannot be archived, merged or deleted. */
+  is_default: boolean;
+  merged_into: string | null;
+  merged_into_slug: string | null;
+}
+
+/** Why the ingest edge rejected records for an app name. */
+export type AppRejectionReason =
+  | "app_create_forbidden"
+  | "app_not_allowed"
+  | "app_deleted"
+  | "app_limit"
+  | "app_rate_limit"
+  | "invalid_app_name"
+  | "unknown_app";
+
+/** One app name and reason of `GET /projects/{slug}/app-rejections`. */
+export interface AppRejection {
+  app: string;
+  reason: AppRejectionReason;
+  records: number;
+  /** `YYYY-MM-DD` (UTC) of the last rejection. */
+  last_day: string;
+}
+
+export interface AppRejections {
+  days: number;
+  /** False when the install keeps no ingest counters. */
+  available: boolean;
+  rejections: AppRejection[] | null;
 }
 
 /** `GET /project?project=` (query role): the project, its apps and its recent environments. */
@@ -1323,6 +1764,158 @@ export interface AppIngestStats {
   days: number;
   totals: IngestCounts;
   daily: IngestDay[] | null;
+}
+
+// Project usage (#790, #819): the per-app edge counters summed over a project's apps, with the
+// rejections by reason, the bytes and the configured quota (`GET /projects/{slug}/usage`). Shapes
+// as in api/openapi/apilens.v1.json.
+
+/** Rejected records of one reason (`records_per_minute`, `bytes_per_day`, `invalid`, an app refusal code, `unspecified`). */
+export interface RejectedRecords {
+  reason: string;
+  records: number;
+}
+
+/** `IngestCounts` with `rejected` split by reason, most records first. */
+export interface UsageCounts extends IngestCounts {
+  rejected_by_reason: RejectedRecords[] | null;
+}
+
+/** One UTC day of usage; `date` is `YYYY-MM-DD`. */
+export interface UsageDay extends UsageCounts {
+  date: string;
+  bytes: number;
+}
+
+/** One app's usage over the period. */
+export interface AppUsageTotals extends UsageCounts {
+  app_id: string;
+  app: string;
+}
+
+/** The ingest limits (0 = unlimited) and today's use of them. */
+export interface QuotaUsage {
+  records_per_minute: number;
+  bytes_per_day: number;
+  bytes_today: number;
+  /** `bytes_today / bytes_per_day`; null when bytes are unlimited. */
+  bytes_today_ratio: number | null;
+  rejected_today: number;
+}
+
+/** `GET /projects/{slug}/usage?days=`: oldest day first; 503 when the install keeps no counters. */
+export interface ProjectUsage {
+  project: string;
+  days: number;
+  totals: UsageCounts;
+  bytes: number;
+  daily: UsageDay[] | null;
+  apps: AppUsageTotals[] | null;
+  environments: { environment: string; accepted: number }[] | null;
+  quota: QuotaUsage;
+}
+
+// Project settings (#805): general, danger zone (#753 D8, D9), environments (D11) and retention
+// (D10). Shapes as in api/openapi/apilens.v1.json.
+
+/** A project with every field the spec's `Project` has, as the settings operations return it. */
+export interface ProjectDetail extends Project {
+  /** Empty when the project has none; at most 280 characters. */
+  description: string;
+  org_id: string;
+  org_slug: string;
+  /** The signed-in user's effective project role. */
+  role: ProjectRole;
+  created_at: string;
+  /** When the name, description or repository link last changed. */
+  updated_at: string;
+  /** Null when unknown (older projects, deleted user). */
+  created_by: string | null;
+  /** The https URL of the source repository; null when none is set. */
+  repository_url: string | null;
+  /** Commit URL with `{commit}`; null without a repository or on an unknown host. */
+  commit_url_template: string | null;
+  /** Release URL with `{release}`; null under the same conditions. */
+  release_url_template: string | null;
+  /** While set, ingest answers 403 `project_paused` to the project's keys. */
+  paused_at: string | null;
+  paused_by: string | null;
+  /** The current slug: differs from the one asked for when that one was retired by a rename (#794). */
+  canonical_slug: string;
+}
+
+/** A deleted project, restorable until `purge_after` (`DeletedProject`, #753 D8). */
+export interface DeletedProject {
+  id: string;
+  /** Reserved until the purge. */
+  slug: string;
+  name: string;
+  description: string;
+  created_at: string;
+  deleted_at: string;
+  purge_after: string;
+}
+
+/** The fixed environment palette (`Environment.color`). */
+export type EnvironmentColor = "gray" | "red" | "orange" | "yellow" | "green" | "teal" | "blue" | "purple";
+
+/** One environment of a project with its settings (`Environment`, #753 D11). */
+export interface Environment {
+  name: string;
+  is_production: boolean;
+  color: EnvironmentColor | null;
+  /** Index in the project's order, 0 first. */
+  position: number;
+  /** Hidden environments still ingest; pickers leave them out by default. */
+  hidden: boolean;
+  hidden_at: string | null;
+  /** `sdk` when ingest registered it, `dashboard` when someone added it. */
+  source: "sdk" | "dashboard";
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+  /** Data seen within the install's telemetry retention. */
+  has_data: boolean;
+  /** Active API keys pinned to it. */
+  api_keys: number;
+  /** Health checks that use it. */
+  health_checks: number;
+  /** False when it has data, a pinned key or a health check: hide it instead. */
+  deletable: boolean;
+}
+
+/** `GET /projects/{slug}/environments` and `PUT .../environments/order`: hidden ones included, in order. */
+export interface EnvironmentsList {
+  environments: Environment[] | null;
+  max_environments: number;
+}
+
+/** `PATCH /projects/{slug}/environments/{name}`: an omitted field is unchanged; color `none` clears it. */
+export interface UpdateEnvironmentRequest {
+  is_production?: boolean;
+  color?: EnvironmentColor | "none";
+  hidden?: boolean;
+  /** Past the end moves it last. */
+  position?: number;
+}
+
+/** A telemetry signal with its own retention (`RetentionSignal.key`). */
+export type RetentionSignalKey = "requests" | "logs" | "spans" | "rollups_1m" | "rollups_1h" | "deploys";
+
+/** How long one signal is kept (`RetentionSignal`, #753 D10); read-only in the UI. */
+export interface RetentionSignal {
+  key: RetentionSignalKey;
+  label: string;
+  period_days: number;
+  /** What the signal holds and which screens read it. */
+  covers: string;
+  /** Whether the install may change it (`retention.<key>`); never per project. */
+  configurable: boolean;
+}
+
+/** `GET /projects/{slug}/retention`: one entry per signal, in display order. */
+export interface Retention {
+  signals: RetentionSignal[] | null;
 }
 
 /** SDK delivery counters summed over the instances seen in the last hour. */
@@ -1796,6 +2389,18 @@ function endpointScope(q: EndpointQuery): Query {
   };
 }
 
+/** `/orgs/{slug}` or `/projects/{slug}`: where an audit read lives. */
+function auditBase(scope: AuditScope): string {
+  return "org" in scope ? `/orgs/${seg(scope.org)}` : `/projects/${seg(scope.project)}`;
+}
+
+/** Query parameters without the empty ones. */
+function compact(q: object): Query {
+  const out: Query = {};
+  for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") out[k] = v as string | number | boolean;
+  return out;
+}
+
 export function createClient(config: ClientConfig) {
   const request = makeRequest(config);
   type Authed = CallOptions & { accessToken: string };
@@ -1823,6 +2428,10 @@ export function createClient(config: ClientConfig) {
       request<PasskeyRegisterOptions>("POST", "/auth/passkeys/register/options", o),
     passkeyRegisterVerify: (body: PasskeyRegisterVerifyRequest, o: Authed) =>
       request<Passkey>("POST", "/auth/passkeys/register/verify", { ...o, body }),
+    reauthOptions: (body: { send_email_code?: boolean; next?: string }, o: Authed) =>
+      request<ReauthOptions>("POST", "/auth/reauth/options", { ...o, body }),
+    reauthVerify: (body: ReauthVerifyRequest, o: Authed) =>
+      request<ReauthVerified>("POST", "/auth/reauth/verify", { ...o, body }),
 
     // identity: OpenID provider sign-in (#301) ---------------------------------------------
     oidcRequest: (id: string, o?: CallOptions) =>
@@ -1929,8 +2538,9 @@ export function createClient(config: ClientConfig) {
       request<void>("DELETE", `/orgs/${seg(slug)}/members/${seg(userId)}`, o),
     transferOwnership: (slug: string, userId: string, o: Authed) =>
       request<void>("POST", `/orgs/${seg(slug)}/transfer-ownership`, { ...o, body: { user_id: userId } }),
-    createInvitations: (slug: string, invites: InviteEntry[], o: Authed) =>
-      request<{ results: InviteResult[] | null }>("POST", `/orgs/${seg(slug)}/invitations`, { ...o, body: { invites } }),
+    /** `projectGrants` (#809): project roles every invitation carries and applies on accept. */
+    createInvitations: (slug: string, invites: InviteEntry[], o: Authed, projectGrants?: ProjectGrantEntry[]) =>
+      request<{ results: InviteResult[] | null }>("POST", `/orgs/${seg(slug)}/invitations`, { ...o, body: projectGrants?.length ? { invites, project_grants: projectGrants } : { invites } }),
     listInvitations: (slug: string, o: Authed) =>
       request<Invitation[] | null>("GET", `/orgs/${seg(slug)}/invitations`, o),
     resendInvitation: (slug: string, id: string, o: Authed) =>
@@ -1943,7 +2553,9 @@ export function createClient(config: ClientConfig) {
       request<Project[]>("GET", `/orgs/${seg(orgSlug)}/projects`, o),
     createProject: (orgSlug: string, body: CreateProjectRequest, o: Authed) =>
       request<Project>("POST", `/orgs/${seg(orgSlug)}/projects`, { ...o, body }),
-    getProject: (slug: string, o: Authed) => request<Project>("GET", `/projects/${seg(slug)}`, o),
+    getProject: (slug: string, o: Authed) => request<ProjectDetail>("GET", `/projects/${seg(slug)}`, o),
+    updateProject: (slug: string, body: UpdateProjectRequest, o: Authed) =>
+      request<ProjectDetail>("PATCH", `/projects/${seg(slug)}`, { ...o, body }),
     projectSlugAvailable: (slug: string, o: Authed) =>
       request<SlugAvailability>("GET", "/projects/slug-available", { ...o, query: { slug } }),
     ingestStatus: (projectSlug: string, o: Authed) =>
@@ -1965,8 +2577,15 @@ export function createClient(config: ClientConfig) {
         ...o,
         query: { project: projectSlug, ...trafficScope(q), ...(q.limit !== undefined ? { limit: q.limit } : {}) },
       }),
-    deployChanges: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
-      request<DeployChanges>("GET", "/deploys/changes", { ...o, query: { project: projectSlug, ...q } }),
+    deployChanges: (projectSlug: string, q: DeployChangesQuery, o: Authed) =>
+      request<DeployChanges>("GET", "/deploys/changes", {
+        ...o,
+        query: { project: projectSlug, range: q.range, limit: q.limit, offset: q.offset || undefined, env: q.env || undefined, app: q.app || undefined },
+      }),
+    getDeploy: (projectSlug: string, id: string, o: Authed) =>
+      request<DeployDetail>("GET", `/deploys/${seg(id)}`, { ...o, query: { project: projectSlug } }),
+    deployComparison: (projectSlug: string, id: string, o: Authed) =>
+      request<DeployComparison>("GET", `/deploys/${seg(id)}/comparison`, { ...o, query: { project: projectSlug } }),
 
     // api: alerts (#609) -------------------------------------------------------------------
     listAlertRules: (projectSlug: string, o: Authed) =>
@@ -1993,28 +2612,18 @@ export function createClient(config: ClientConfig) {
       request<{ events: AlertEvent[] | null; next_cursor: string }>("GET", `/projects/${seg(projectSlug)}/alerts/events`, { ...o, query: q }),
     incidents: (projectSlug: string, q: { range?: IncidentsRange; limit?: number }, o: Authed) =>
       request<Incidents>("GET", `/projects/${seg(projectSlug)}/incidents`, { ...o, query: q }),
-    listConsumers: (projectSlug: string, q: { range?: QueryRange; group?: string; limit?: number }, o: Authed) =>
-      request<ConsumersList>("GET", "/consumers", { ...o, query: { project: projectSlug, ...q } }),
-    getConsumer: (projectSlug: string, consumerId: string, q: { range?: QueryRange }, o: Authed) =>
+    listConsumers: (
+      projectSlug: string,
+      q: { range?: QueryRange; group?: string; search?: string; sort?: ConsumerSortKey; limit?: number; offset?: number },
+      o: Authed,
+    ) => request<ConsumersList>("GET", "/consumers", { ...o, query: { project: projectSlug, ...q } }),
+    getConsumer: (projectSlug: string, consumerId: string, q: { range?: QueryRange; limit?: number; offset?: number }, o: Authed) =>
       request<ConsumerDetail>("GET", `/consumers/${seg(consumerId)}`, { ...o, query: { project: projectSlug, ...q } }),
-
-    // api: consumer groups (#580) ----------------------------------------------------------
-    listConsumerGroups: (projectSlug: string, o: Authed) =>
-      request<{ groups: ConsumerGroup[] | null }>("GET", `/projects/${seg(projectSlug)}/consumer-groups`, o),
-    createConsumerGroup: (projectSlug: string, name: string, o: Authed) =>
-      request<ConsumerGroup>("POST", `/projects/${seg(projectSlug)}/consumer-groups`, { ...o, body: { name } }),
-    renameConsumerGroup: (projectSlug: string, id: string, name: string, o: Authed) =>
-      request<ConsumerGroup>("PUT", `/projects/${seg(projectSlug)}/consumer-groups/${seg(id)}`, { ...o, body: { name } }),
-    deleteConsumerGroup: (projectSlug: string, id: string, o: Authed) =>
-      request<void>("DELETE", `/projects/${seg(projectSlug)}/consumer-groups/${seg(id)}`, o),
-    assignConsumerGroup: (projectSlug: string, consumerId: string, groupId: string, o: Authed) =>
-      request<{ consumer_id: string; group: ConsumerGroupRef; assigned_at: string }>(
-        "PUT",
-        `/projects/${seg(projectSlug)}/consumers/${seg(consumerId)}/group`,
-        { ...o, body: { group_id: groupId } },
-      ),
-    unassignConsumerGroup: (projectSlug: string, consumerId: string, o: Authed) =>
-      request<void>("DELETE", `/projects/${seg(projectSlug)}/consumers/${seg(consumerId)}/group`, o),
+    listConsumerGroupTraffic: (
+      projectSlug: string,
+      q: { range?: QueryRange; search?: string; sort?: GroupSortKey; limit?: number; offset?: number },
+      o: Authed,
+    ) => request<ConsumerGroupsTraffic>("GET", "/consumer-groups", { ...o, query: { project: projectSlug, ...q } }),
 
     projectApps: (projectSlug: string, o: Authed) =>
       request<ProjectApps>("GET", "/project", { ...o, query: { project: projectSlug } }),
@@ -2031,6 +2640,8 @@ export function createClient(config: ClientConfig) {
       request<AppIngestStats>("GET", `/apps/${seg(appId)}/ingest-stats`, { ...o, query: { project: projectSlug, days } }),
     appHealthStatus: (projectSlug: string, appId: string, o: Authed) =>
       request<AppStatus>("GET", `/apps/${seg(appId)}/status`, { ...o, query: { project: projectSlug } }),
+    projectUsage: (projectSlug: string, days: number, o: Authed) =>
+      request<ProjectUsage>("GET", `/projects/${seg(projectSlug)}/usage`, { ...o, query: { days } }),
 
     // query: active HTTP health checks (#608), project settings → Health checks -------------
     listHealthChecks: (projectSlug: string, o: Authed) =>
@@ -2101,6 +2712,88 @@ export function createClient(config: ClientConfig) {
       request<CreatedApiKey>("POST", `/projects/${seg(projectSlug)}/api-keys`, { ...o, body }),
     revokeApiKey: (projectSlug: string, id: string, o: Authed) =>
       request<void>("DELETE", `/projects/${seg(projectSlug)}/api-keys/${seg(id)}`, o),
+    updateApiKeyAccess: (projectSlug: string, id: string, body: UpdateApiKeyAccessRequest, o: Authed) =>
+      request<ApiKey>("PUT", `/projects/${seg(projectSlug)}/api-keys/${seg(id)}/access`, { ...o, body }),
+    rotateApiKey: (projectSlug: string, id: string, overlap: RotateOverlap, o: Authed) =>
+      request<RotatedApiKey>("POST", `/projects/${seg(projectSlug)}/api-keys/${seg(id)}/rotate`, { ...o, body: { overlap } }),
+
+    // api: project access (#753 D1-D4) -------------------------------------------------------
+    projectAccess: (projectSlug: string, q: ProjectAccessQuery, o: Authed) =>
+      request<ProjectAccess>("GET", `/projects/${seg(projectSlug)}/access`, { ...o, query: compact(q) }),
+    setProjectMember: (projectSlug: string, userId: string, role: ProjectRole, o: Authed) =>
+      request<AccessMember>("PUT", `/projects/${seg(projectSlug)}/members/${seg(userId)}`, { ...o, body: { role } }),
+    removeProjectMember: (projectSlug: string, userId: string, o: Authed) =>
+      request<void>("DELETE", `/projects/${seg(projectSlug)}/members/${seg(userId)}`, o),
+    /** With `dryRun` it only reports how many people would lose access and changes nothing. */
+    setDefaultAccess: (projectSlug: string, defaultAccess: DefaultAccess, opts: { dryRun?: boolean }, o: Authed) =>
+      request<DefaultAccessChange>("PATCH", `/projects/${seg(projectSlug)}/access`, {
+        ...o,
+        body: { default_access: defaultAccess },
+        query: opts.dryRun ? { dry_run: true } : undefined,
+      }),
+    /** Pending org invitations that carry a role on the project. */
+    projectInvitations: (projectSlug: string, o: Authed) =>
+      request<Invitation[] | null>("GET", `/projects/${seg(projectSlug)}/invitations`, o),
+
+    // api: the audit log of an organization or a project (#753 D7) ----------------------------
+    listAuditEvents: (scope: AuditScope, q: AuditQuery, o: Authed) =>
+      request<AuditEvents>("GET", `${auditBase(scope)}/audit-events`, { ...o, query: compact(q) }),
+    auditActions: (scope: AuditScope, o: Authed) =>
+      request<{ actions: AuditAction[] | null }>("GET", `${auditBase(scope)}/audit-events/actions`, o),
+    /**
+     * The backend URL of the CSV export with these filters. It needs the user's Bearer token, so a
+     * server route fetches it and streams the file; the browser never sees this URL.
+     */
+    auditExportUrl: (scope: AuditScope, filters: AuditFilters = {}) =>
+      buildUrl(config.baseUrl, `${auditBase(scope)}/audit-events/export`, { ...compact(filters), format: "csv" }),
+
+    // api: the project's apps, created by SDKs or in the dashboard ---------------------------
+    listManagedApps: (projectSlug: string, o: Authed) =>
+      request<{ apps: ManagedApp[] | null }>("GET", `/projects/${seg(projectSlug)}/apps`, o),
+    renameApp: (projectSlug: string, id: string, name: string, o: Authed) =>
+      request<void>("PATCH", `/projects/${seg(projectSlug)}/apps/${seg(id)}`, { ...o, body: { name } }),
+    archiveApp: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("POST", `/projects/${seg(projectSlug)}/apps/${seg(id)}/archive`, o),
+    restoreApp: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("POST", `/projects/${seg(projectSlug)}/apps/${seg(id)}/restore`, o),
+    acknowledgeApp: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("POST", `/projects/${seg(projectSlug)}/apps/${seg(id)}/acknowledge`, o),
+    mergeApp: (projectSlug: string, id: string, into: string, o: Authed) =>
+      request<void>("POST", `/projects/${seg(projectSlug)}/apps/${seg(id)}/merge`, { ...o, body: { into } }),
+    deleteApp: (projectSlug: string, id: string, o: Authed) =>
+      request<void>("DELETE", `/projects/${seg(projectSlug)}/apps/${seg(id)}`, o),
+    appRejections: (projectSlug: string, days: number, o: Authed) =>
+      request<AppRejections>("GET", `/projects/${seg(projectSlug)}/app-rejections`, { ...o, query: { days } }),
+
+    // api: project settings (#805): danger zone, environments, retention (updateProject above) --
+    /** `confirm` is the slug the user typed; anything else answers `confirmation_mismatch`. */
+    deleteProject: (projectSlug: string, confirm: string, o: Authed) =>
+      request<DeletedProject>("DELETE", `/projects/${seg(projectSlug)}`, { ...o, body: { confirm } }),
+    /** The slug rename of #794 (D9): the old slug redirects and stays reserved for 30 days. */
+    renameProject: (projectSlug: string, slug: string, o: Authed) =>
+      request<ProjectDetail>("POST", `/projects/${seg(projectSlug)}/rename`, { ...o, body: { slug } }),
+    pauseProject: (projectSlug: string, o: Authed) =>
+      request<ProjectDetail>("POST", `/projects/${seg(projectSlug)}/pause`, o),
+    resumeProject: (projectSlug: string, o: Authed) =>
+      request<ProjectDetail>("POST", `/projects/${seg(projectSlug)}/resume`, o),
+    listDeletedProjects: (orgSlug: string, o: Authed) =>
+      request<DeletedProject[] | null>("GET", `/orgs/${seg(orgSlug)}/projects/deleted`, o),
+    restoreProject: (orgSlug: string, id: string, o: Authed) =>
+      request<ProjectDetail>("POST", `/orgs/${seg(orgSlug)}/projects/${seg(id)}/restore`, o),
+    listEnvironments: (projectSlug: string, o: Authed) =>
+      request<EnvironmentsList>("GET", `/projects/${seg(projectSlug)}/environments`, o),
+    addEnvironment: (projectSlug: string, name: string, o: Authed) =>
+      request<ProjectDetail>("POST", `/projects/${seg(projectSlug)}/environments`, { ...o, body: { name } }),
+    updateEnvironment: (projectSlug: string, name: string, body: UpdateEnvironmentRequest, o: Authed) =>
+      request<Environment>("PATCH", `/projects/${seg(projectSlug)}/environments/${seg(name)}`, { ...o, body }),
+    /** The named environments go first in this order; the others follow in their current order. */
+    reorderEnvironments: (projectSlug: string, names: string[], o: Authed) =>
+      request<EnvironmentsList>("PUT", `/projects/${seg(projectSlug)}/environments/order`, { ...o, body: { names } }),
+    /** `environment_in_use` (409) when it has data, a pinned key or a health check: hide it instead. */
+    removeEnvironment: (projectSlug: string, name: string, o: Authed) =>
+      request<ProjectDetail>("DELETE", `/projects/${seg(projectSlug)}/environments/${seg(name)}`, o),
+    projectRetention: (projectSlug: string, o: Authed) =>
+      request<Retention>("GET", `/projects/${seg(projectSlug)}/retention`, o),
   };
 }
 

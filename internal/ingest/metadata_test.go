@@ -151,8 +151,7 @@ func TestMetadataErrors(t *testing.T) {
 		code    int
 	}{
 		{"no key", `{"app_id":"storefront"}`, map[string]string{"X-API-Key": ""}, &fakeMetadata{}, http.StatusUnauthorized},
-		{"no app", `{"environment":"x"}`, nil, &fakeMetadata{}, http.StatusUnprocessableEntity},
-		{"unknown app", `{"app_id":"nope"}`, nil, &fakeMetadata{}, http.StatusUnprocessableEntity},
+		{"unknown app", `{"app_id":"nope"}`, nil, &fakeMetadata{}, http.StatusForbidden},
 		{"other project", `{"app_id":"storefront","project_slug":"other"}`, nil, &fakeMetadata{}, http.StatusUnprocessableEntity},
 		{"not an object", `[1]`, nil, &fakeMetadata{}, http.StatusUnprocessableEntity},
 		{"bad routes", `{"app_id":"storefront","routes":{"a":1}}`, nil, &fakeMetadata{}, http.StatusUnprocessableEntity},

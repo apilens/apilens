@@ -421,10 +421,11 @@ func Translate(topic Topic, payload []byte) (Change, error) {
 		if err != nil {
 			return Change{}, err
 		}
-		return Change{
-			Updates: []*v1.RelationshipUpdate{touch(projectOrg(p.ProjectID, p.OrgID))},
-			Orgs:    []string{p.OrgID.String()},
-		}, nil
+		updates := []*v1.RelationshipUpdate{touch(projectOrg(p.ProjectID, p.OrgID))}
+		for _, r := range orgRoleDefaults(p.ProjectID, p.OrgID) {
+			updates = append(updates, touch(r))
+		}
+		return Change{Updates: updates, Orgs: []string{p.OrgID.String()}}, nil
 	case ProjectDeleted:
 		p, err := decode[ProjectDeletedPayload](topic, payload)
 		if err != nil {
@@ -443,10 +444,84 @@ func Translate(topic Topic, payload []byte) (Change, error) {
 		if p.FromOrgID == p.ToOrgID {
 			return Change{Updates: []*v1.RelationshipUpdate{touch(projectOrg(p.ProjectID, p.ToOrgID))}, Orgs: []string{p.ToOrgID.String()}}, nil
 		}
-		return Change{
-			Updates: []*v1.RelationshipUpdate{del(projectOrg(p.ProjectID, p.FromOrgID)), touch(projectOrg(p.ProjectID, p.ToOrgID))},
-			Orgs:    []string{p.FromOrgID.String(), p.ToOrgID.String()},
-		}, nil
+		updates := []*v1.RelationshipUpdate{del(projectOrg(p.ProjectID, p.FromOrgID)), touch(projectOrg(p.ProjectID, p.ToOrgID))}
+		for _, r := range orgRoleDefaults(p.ProjectID, p.FromOrgID) {
+			updates = append(updates, del(r))
+		}
+		for _, r := range orgRoleDefaults(p.ProjectID, p.ToOrgID) {
+			updates = append(updates, touch(r))
+		}
+		return Change{Updates: updates, Orgs: []string{p.FromOrgID.String(), p.ToOrgID.String()}}, nil
+	case ProjectMemberUpserted:
+		p, err := decode[ProjectMemberUpsertedPayload](topic, payload)
+		if err != nil {
+			return Change{}, err
+		}
+		if !slices.Contains(projectRoles, p.Role) {
+			return Change{}, fmt.Errorf("%w: %s has unknown role %q", ErrInvalid, topic, p.Role)
+		}
+		// The previous role is deleted in the same write, so a role change
+		// never leaves the person holding two roles.
+		updates := make([]*v1.RelationshipUpdate, 0, len(projectRoles))
+		for _, role := range projectRoles {
+			if role != p.Role {
+				updates = append(updates, del(projectRel(p.ProjectID, role, p.UserID)))
+			}
+		}
+		updates = append(updates, touch(projectRel(p.ProjectID, p.Role, p.UserID)))
+		return Change{Updates: updates, Orgs: []string{p.OrgID.String()}}, nil
+	case ProjectMemberDeleted:
+		p, err := decode[ProjectMemberDeletedPayload](topic, payload)
+		if err != nil {
+			return Change{}, err
+		}
+		updates := make([]*v1.RelationshipUpdate, 0, len(projectRoles))
+		for _, role := range projectRoles {
+			updates = append(updates, del(projectRel(p.ProjectID, role, p.UserID)))
+		}
+		return Change{Updates: updates, Orgs: []string{p.OrgID.String()}}, nil
+	case ProjectAccessChanged:
+		p, err := decode[ProjectAccessChangedPayload](topic, payload)
+		if err != nil {
+			return Change{}, err
+		}
+		want, ok := defaultAccessRelations[p.DefaultAccess]
+		if !ok {
+			return Change{}, fmt.Errorf("%w: %s has unknown default access %q", ErrInvalid, topic, p.DefaultAccess)
+		}
+		updates := make([]*v1.RelationshipUpdate, 0, len(allDefaultRelations))
+		for _, d := range allDefaultRelations {
+			if slices.Contains(want, d) {
+				updates = append(updates, touch(defaultRel(p.ProjectID, p.OrgID, d)))
+			} else {
+				updates = append(updates, del(defaultRel(p.ProjectID, p.OrgID, d)))
+			}
+		}
+		return Change{Updates: updates, Orgs: []string{p.OrgID.String()}}, nil
+	case ProjectRestored:
+		p, err := decode[ProjectRestoredPayload](topic, payload)
+		if err != nil {
+			return Change{}, err
+		}
+		want, ok := defaultAccessRelations[p.DefaultAccess]
+		if !ok {
+			return Change{}, fmt.Errorf("%w: %s has unknown default access %q", ErrInvalid, topic, p.DefaultAccess)
+		}
+		// project.deleted removed every relationship of the project, so
+		// restoring writes them all back: the org link, the default access
+		// and each direct grant, exactly as Postgres holds them.
+		updates := make([]*v1.RelationshipUpdate, 0, 1+len(want)+len(p.Members))
+		updates = append(updates, touch(projectOrg(p.ProjectID, p.OrgID)))
+		for _, d := range want {
+			updates = append(updates, touch(defaultRel(p.ProjectID, p.OrgID, d)))
+		}
+		for _, m := range p.Members {
+			if !slices.Contains(projectRoles, m.Role) {
+				return Change{}, fmt.Errorf("%w: %s has unknown role %q", ErrInvalid, topic, m.Role)
+			}
+			updates = append(updates, touch(projectRel(p.ProjectID, m.Role, m.UserID)))
+		}
+		return Change{Updates: updates, Orgs: []string{p.OrgID.String()}}, nil
 	default:
 		return Change{}, fmt.Errorf("%w: %q", ErrUnknownTopic, topic)
 	}
@@ -474,6 +549,62 @@ func projectOrg(project, org uuid.UUID) *v1.Relationship {
 		Relation: "org",
 		Subject:  &v1.SubjectReference{Object: &v1.ObjectReference{ObjectType: authz.TypeOrganization, ObjectId: org.String()}},
 	}
+}
+
+// projectRoles are the direct project relations a project member can hold.
+var projectRoles = []string{"admin", "editor", "viewer"}
+
+func projectRel(project uuid.UUID, role string, user uuid.UUID) *v1.Relationship {
+	return &v1.Relationship{
+		Resource: &v1.ObjectReference{ObjectType: authz.TypeProject, ObjectId: project.String()},
+		Relation: role,
+		Subject:  &v1.SubjectReference{Object: &v1.ObjectReference{ObjectType: authz.TypeUser, ObjectId: user.String()}},
+	}
+}
+
+// defaultRelation is one default-access relation of a project: the project
+// relation and the organization relation whose subject set it names.
+type defaultRelation struct{ relation, orgRole string }
+
+var (
+	editorFromMember = defaultRelation{"default_editor", "member"}
+	viewerFromMember = defaultRelation{"default_viewer", "member"}
+	viewerFromViewer = defaultRelation{"default_viewer", "viewer"}
+)
+
+// allDefaultRelations are every default-access relation a project can hold.
+var allDefaultRelations = []defaultRelation{editorFromMember, viewerFromMember, viewerFromViewer}
+
+// defaultAccessRelations maps a project's default access (D2 in #753) to the
+// relations it holds: `org_role` lets org members edit and org viewers view,
+// `viewer` lets both view, `none` (restricted) holds none.
+var defaultAccessRelations = map[string][]defaultRelation{
+	"org_role": {editorFromMember, viewerFromViewer},
+	"viewer":   {viewerFromMember, viewerFromViewer},
+	"none":     {},
+}
+
+func defaultRel(project, org uuid.UUID, d defaultRelation) *v1.Relationship {
+	return &v1.Relationship{
+		Resource: &v1.ObjectReference{ObjectType: authz.TypeProject, ObjectId: project.String()},
+		Relation: d.relation,
+		Subject: &v1.SubjectReference{
+			Object:           &v1.ObjectReference{ObjectType: authz.TypeOrganization, ObjectId: org.String()},
+			OptionalRelation: d.orgRole,
+		},
+	}
+}
+
+// orgRoleDefaults are the default-access relations for `org_role` (ADR 0009),
+// the default every new project starts with: org members edit the project,
+// org viewers view it.
+func orgRoleDefaults(project, org uuid.UUID) []*v1.Relationship {
+	ds := defaultAccessRelations["org_role"]
+	rels := make([]*v1.Relationship, len(ds))
+	for i, d := range ds {
+		rels[i] = defaultRel(project, org, d)
+	}
+	return rels
 }
 
 func touch(r *v1.Relationship) *v1.RelationshipUpdate {

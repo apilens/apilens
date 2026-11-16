@@ -60,6 +60,19 @@
       "type": "object",
       "description": "Extra APILENS_* environment variables.",
       "propertyNames": { "pattern": "^APILENS_[A-Z0-9_]+$" },
+      "properties": {
+        "APILENS_AUDIT__RETENTION": { "type": "integer", "description": "audit.retention: days audit events are kept; at least 30, or 0 to keep them forever.", "anyOf": [{ "const": 0 }, { "minimum": 30 }] },
+        "APILENS_IDENTITY__SENSITIVE_ACTION_MAX_AGE": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$|^0$", "description": "identity.sensitive_action_max_age: how old a sign-in may be for sensitive actions (Go duration, > 0)." },
+        "APILENS_PROJECT__DELETION_GRACE": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$|^0$", "description": "project.deletion_grace: restore window of a deleted project (Go duration; 0s = none)." },
+        "APILENS_ACCESS__MAX_DIRECT_MEMBERS_PER_PROJECT": { "type": "integer", "minimum": 0, "description": "access.max_direct_members_per_project: people added to one project directly; 0 = no limit." },
+        "APILENS_INGEST__MAX_KEYS_PER_PROJECT": { "type": "integer", "minimum": 0, "description": "ingest.max_keys_per_project: active API keys per project; 0 = no limit." },
+        "APILENS_INGEST__RECORD_KEY_IP": { "type": "boolean", "description": "ingest.record_key_ip: record the client IP of an API key's last ingest request." },
+        "APILENS_RETENTION__REQUESTS": { "type": "integer", "minimum": 1, "maximum": 3650, "description": "retention.requests: days requests are kept." },
+        "APILENS_RETENTION__LOGS": { "type": "integer", "minimum": 1, "maximum": 3650, "description": "retention.logs: days logs are kept." },
+        "APILENS_RETENTION__SPANS": { "type": "integer", "minimum": 1, "maximum": 3650, "description": "retention.spans: days spans are kept." },
+        "APILENS_RETENTION__ROLLUPS_1M": { "type": "integer", "minimum": 1, "maximum": 400, "description": "retention.rollups_1m: days per-minute rollups are kept." },
+        "APILENS_RETENTION__ROLLUPS_1H": { "type": "integer", "minimum": 30, "maximum": 3650, "description": "retention.rollups_1h: days per-hour rollups are kept." }
+      },
       "additionalProperties": { "type": ["string", "number", "boolean"] }
     },
     "externalPostgres": {

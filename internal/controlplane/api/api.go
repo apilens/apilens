@@ -4,6 +4,7 @@ package api
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -22,12 +23,30 @@ type Deps struct {
 	Privacy  PrivacyService
 	Capture  CaptureService
 	Context  ContextService
+	// Apps manages a project's apps; AppRejections (nil without Valkey)
+	// reads the records ingest refused because of their app.
+	Apps          AppService
+	AppRejections AppRejectionReader
+	// Access reads who has access to a project and why.
+	Access AccessService
+	// Audit lists the audit events of organizations and projects.
+	Audit AuditService
 	// Guard authorizes every operation on an organization (authz.Require);
 	// nil refuses them with authz_unavailable (fail closed).
-	Guard   *authz.Guard
+	Guard *authz.Guard
+	// Roles answers the checks that give a user's effective project role;
+	// nil answers authz_unavailable where a role is returned.
+	Roles   RoleChecker
 	Limiter *ratelimit.Limiter
 	Limits  config.RateLimitsConfig
 	Logger  *slog.Logger
+	// SensitiveActionMaxAge is identity.sensitive_action_max_age: how old a
+	// sign-in may be for sensitive operations (authz.RequireRecentAuth).
+	// Zero means authz.DefaultRecentAuth.
+	SensitiveActionMaxAge time.Duration
+	// AuditRetentionDays is audit.retention: how many days audit events are
+	// kept (0 forever), reported with every audit event listing.
+	AuditRetentionDays int
 
 	// Invitations may be nil when only the OpenAPI document is read.
 	Invitations InvitationService
@@ -43,11 +62,18 @@ type Deps struct {
 func Register(api huma.API, d Deps) {
 	NewOrgs(d.Orgs, d.Guard, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
 	NewMembers(d.Members, d.Guard, d.Logger).Register(api)
-	NewProjects(d.Projects, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).Register(api)
-	NewAPIKeys(d.APIKeys, d.Logger).Register(api)
-	NewPrivacy(d.Privacy, d.Logger).Register(api)
+	var guard ProjectAuthorizer
+	if d.Guard != nil {
+		guard = d.Guard
+	}
+	NewProjects(d.Projects, d.Guard, d.Roles, d.Limiter, ratelimit.Rate(d.Limits.SlugCheckPerUser), d.Logger).WithRecentAuth(d.SensitiveActionMaxAge).Register(api)
+	NewAPIKeys(d.APIKeys, guard, d.Logger).WithRecentAuth(d.SensitiveActionMaxAge).Register(api)
+	NewPrivacy(d.Privacy, guard, d.Logger).Register(api)
 	NewCapturePolicies(d.Capture, d.Guard, d.Logger).Register(api)
+	NewApps(d.Apps, d.AppRejections, guard, d.Logger).Register(api)
+	NewAccess(d.Access, guard, d.Logger).WithRecentAuth(d.SensitiveActionMaxAge).Register(api)
+	NewAuditEvents(d.Audit, guard, d.Guard, d.Logger).WithRetention(d.AuditRetentionDays).Register(api)
 	NewContext(d.Context, d.Logger).Register(api)
-	NewInvitations(d.Invitations, d.Logger).Register(api)
+	NewInvitations(d.Invitations, d.Logger).WithAuthorizer(guard).Register(api)
 	NewSSOConnections(d.SSO, d.Guard, d.Issuer, d.Logger).Register(api)
 }

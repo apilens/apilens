@@ -22,6 +22,15 @@ class ApiLensPropertiesTest {
   }
 
   @Test
+  void appIdPropertyStillWinsAndIsFreeForm() {
+    ApiLensProperties properties = bind(Map.of(
+        "apilens.api-key", "apilens_test",
+        "apilens.app-id", "Orders API"));
+    ApiLensConfig config = properties.toClientConfig();
+    assertEquals("Orders API", config.appId());
+  }
+
+  @Test
   void bindsEveryNewProperty() {
     ApiLensProperties properties = bind(Map.ofEntries(
         Map.entry("apilens.api-key", "apilens_test"),

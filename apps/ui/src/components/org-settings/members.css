@@ -1,5 +1,4 @@
 /* Organization settings → Members (#345). Tokens from tokens.css only. */
-.om { max-width: 960px; }
 .om .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 .om-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
@@ -66,6 +65,8 @@
   .om-bar > .om-gate, .om-bar > .ah-btn { flex: 1; }
   .om-bar .ah-btn { width: 100%; }
   .om-status { order: 3; width: 100%; }
+  /* A hidden reason must not widen the page: anchor it to the control's left edge. */
+  .om-bar .om-tip { left: 0; right: auto; transform: none; }
   .om-table thead { display: none; }
   .om-table, .om-table tbody, .om-table tr { display: block; }
   .om-table tbody tr { position: relative; padding: 12px var(--space-4); border-top: 1px solid var(--border); }

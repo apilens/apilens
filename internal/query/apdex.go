@@ -13,6 +13,7 @@ import (
 
 	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
+	"github.com/apilens/apilens/internal/identity/audit"
 	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/server"
 )
@@ -278,15 +279,33 @@ func (s *Service) putAppSettings(ctx context.Context, projects ProjectAuthorizer
 	if err != nil {
 		return nil, internalError("app lookup", err)
 	}
-	if err := authorizeManage(ctx, projects, p, app); err != nil {
+	target, err := authorizeManage(ctx, projects, p, app)
+	if err != nil {
 		return nil, err
 	}
-	row, err := store.UpdateAppLatencyThreshold(ctx, db.UpdateAppLatencyThresholdParams{ID: app.ID, LatencyThresholdMs: threshold})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, huma.Error404NotFound("app not found")
-	}
-	if err != nil {
-		return nil, internalError("save app settings", err)
+	var row db.UpdateAppLatencyThresholdRow
+	if err := audited(ctx, s, target, store, func(q *db.Queries) AppSettingsStore { return q }, func(store AppSettingsStore) (*audit.Event, error) {
+		cur, err := store.GetAppSettings(ctx, db.GetAppSettingsParams{ID: app.ID, ProjectID: app.ProjectID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, huma.Error404NotFound("app not found")
+		}
+		if err != nil {
+			return nil, internalError("app settings", err)
+		}
+		row, err = store.UpdateAppLatencyThreshold(ctx, db.UpdateAppLatencyThresholdParams{ID: app.ID, LatencyThresholdMs: threshold})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, huma.Error404NotFound("app not found")
+		}
+		if err != nil {
+			return nil, internalError("save app settings", err)
+		}
+		changes := audit.Diff(map[string]any{"latency_threshold_ms": cur.LatencyThresholdMs}, map[string]any{"latency_threshold_ms": row.LatencyThresholdMs})
+		if changes == nil {
+			return nil, nil
+		}
+		return &audit.Event{Kind: audit.AppSettingsUpdated, Target: settingsAppTarget(app.ID, app.Slug), Changes: changes}, nil
+	}); err != nil {
+		return nil, err
 	}
 	return &appSettingsOutput{Body: toAppSettings(row.ID, row.LatencyThresholdMs)}, nil
 }

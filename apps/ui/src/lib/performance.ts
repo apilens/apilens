@@ -91,6 +91,15 @@ export const APDEX_BANDS: readonly { from: number; to: number; label: string }[]
   { from: 0.94, to: 1, label: "Excellent" },
 ];
 
+/** The band a score from 0 to 1 falls in (a band's `to` belongs to the next band; 1 is Excellent). */
+export function apdexBandAt(v: number): (typeof APDEX_BANDS)[number] {
+  const x = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+  return APDEX_BANDS.find((b) => x >= b.from && x < b.to) ?? APDEX_BANDS[APDEX_BANDS.length - 1];
+}
+
+/** A band's span as the gauge tooltip writes it: `0.85–0.94`. */
+export const apdexBandRange = (b: { from: number; to: number }) => `${b.from.toFixed(2)}–${b.to.toFixed(2)}`;
+
 /**
  * How Apdex is scored, for the explanation tooltip: the formula, then where T comes from, naming
  * the app in scope and its threshold when known.

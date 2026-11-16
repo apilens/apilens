@@ -1,0 +1,22 @@
+/* Project settings → Danger zone (#821). Tokens from tokens.css only; the card, rows and outline
+   buttons reuse .os-* (org settings), the slug field .ob-in, errors .ob-err. */
+
+.pdz-rows { display: grid; gap: 0; }
+.pdz-row { padding: var(--space-4) 0; }
+.pdz-row:first-child { padding-top: 0; }
+.pdz-row + .pdz-row { border-top: 1px solid var(--border); }
+.pdz-row:last-child { padding-bottom: 0; }
+
+/* Change slug: the explanation, then the field with its button on one line. */
+.pdz-slug { display: flex; align-items: flex-end; gap: var(--space-3); margin-top: var(--space-3); }
+.pdz-slug .ob-f { flex: 1; min-width: 0; margin: 0; }
+.pdz-slug > .ah-btn { flex: none; margin-bottom: 4px; }
+.pdz-muted { color: var(--ink-muted); }
+.pdz-bad { color: var(--error); }
+.pdz .ah-btn { min-height: 24px; }
+
+.pdz-foot { min-height: 44px; }
+
+@media (max-width: 560px) {
+  .pdz-slug { flex-direction: column; align-items: stretch; }
+}

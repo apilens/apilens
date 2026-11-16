@@ -147,10 +147,16 @@ func (s *Service) Update(ctx context.Context, user uuid.UUID, slug string, u Upd
 		return Detail{}, fmt.Errorf("orgs: update: %w", err)
 	}
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
-		User:  &user,
-		Actor: &user,
-		Kind:  audit.OrgUpdated,
-		Meta:  map[string]any{"org_id": o.ID.String(), "slug": o.Slug, "fields": changed(u)},
+		User:   &user,
+		Actor:  &user,
+		Kind:   audit.OrgUpdated,
+		Org:    &o.ID,
+		Target: orgTarget(o.ID, o.Name),
+		Changes: &audit.Changes{
+			Previous: orgValues(cur.Name, cur.AllowedDomains, cur.DomainJoin),
+			Next:     orgValues(o.Name, o.AllowedDomains, o.DomainJoin),
+		},
+		Meta: map[string]any{"org_id": o.ID.String(), "slug": o.Slug, "fields": changed(u)},
 	}); err != nil {
 		return Detail{}, err
 	}
@@ -188,10 +194,12 @@ func (s *Service) Delete(ctx context.Context, user uuid.UUID, slug string) error
 		return err
 	}
 	if err := s.audit.Record(audit.WithTx(ctx, tx), audit.Event{
-		User:  &user,
-		Actor: &user,
-		Kind:  audit.OrgDeleted,
-		Meta:  map[string]any{"org_id": cur.ID.String(), "slug": cur.Slug},
+		User:   &user,
+		Actor:  &user,
+		Kind:   audit.OrgDeleted,
+		Org:    &cur.ID,
+		Target: orgTarget(cur.ID, cur.Name),
+		Meta:   map[string]any{"org_id": cur.ID.String(), "slug": cur.Slug},
 	}); err != nil {
 		return err
 	}
@@ -250,6 +258,17 @@ func changed(u Update) []string {
 		out = append(out, "domain_join")
 	}
 	return out
+}
+
+// orgTarget is the audit target of an organization event.
+func orgTarget(id uuid.UUID, name string) audit.Target {
+	return audit.Target{Type: "organization", ID: id.String(), Label: name}
+}
+
+// orgValues are the editable settings of an organization as audit changes
+// record them.
+func orgValues(name string, domains []string, domainJoin bool) map[string]any {
+	return map[string]any{"name": name, "allowed_domains": domains, "domain_join": domainJoin}
 }
 
 // lockMember row-locks the organization slug for user's membership in it.

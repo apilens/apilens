@@ -16,6 +16,8 @@ export interface InviteSummary {
   emailMasked: string;
   roleLabel: string;
   expiresIn: string;
+  /** The project roles accepting gives (#809), by project name; empty when none. */
+  projects?: { name: string; roleLabel: string }[];
 }
 
 function InviteShell({ org, badge, title, lead, children, below }: { org?: string; badge: ObIconName; title: string; lead: ReactNode; children?: ReactNode; below?: ReactNode }) {
@@ -121,7 +123,17 @@ export function InviteLanding({ token, invite, signedInAs }: { token: string; in
   if (problem === "invite_expired" || problem === "invalid_token") return <InviteUnavailable problem={problem} />;
 
   const inviter = invite.inviterName.trim();
-  const a = /^[aeiou]/i.test(invite.roleLabel) ? "an" : "a";
+  const article = (label: string) => (/^[aeiou]/i.test(label) ? "an" : "a");
+  const a = article(invite.roleLabel);
+  const projects = invite.projects ?? [];
+  const only = projects.length === 1 ? projects[0] : undefined;
+  // "… and Checkout as a Viewer" when the invitation was sent from one project's Access page.
+  const andProject = only ? (
+    <>
+      {" "}
+      and <b>{only.name}</b> as {article(only.roleLabel)} <b>{only.roleLabel}</b>
+    </>
+  ) : null;
   const mismatch = problem === "invite_email_mismatch";
   return (
     <InviteShell
@@ -131,11 +143,13 @@ export function InviteLanding({ token, invite, signedInAs }: { token: string; in
       lead={
         inviter ? (
           <>
-            <b>{inviter}</b> invited you to join <b>{invite.orgName}</b> as {a} <b>{invite.roleLabel}</b>.
+            <b>{inviter}</b> invited you to join <b>{invite.orgName}</b> as {a} <b>{invite.roleLabel}</b>
+            {andProject}.
           </>
         ) : (
           <>
-            You’re invited to join <b>{invite.orgName}</b> as {a} <b>{invite.roleLabel}</b>.
+            You’re invited to join <b>{invite.orgName}</b> as {a} <b>{invite.roleLabel}</b>
+            {andProject}.
           </>
         )
       }
@@ -158,6 +172,15 @@ export function InviteLanding({ token, invite, signedInAs }: { token: string; in
               <small style={{ display: "block", font: "400 13px/18px var(--font-mono)", color: "var(--ink-muted)" }}>{invite.orgSlug}</small>
             </span>
           </div>
+          {projects.map((p) => (
+            <div key={p.name} className="ob-row" style={{ border: 0, borderTop: "1px solid var(--border)", borderRadius: 0 }} data-testid="invite-project">
+              <ObIcon name="folder" />
+              <span className="t">
+                <b>{p.name}</b>
+                <small>Project · {p.roleLabel}</small>
+              </span>
+            </div>
+          ))}
           <div className="ob-row" style={{ border: 0, borderTop: "1px solid var(--border)", borderRadius: 0 }}>
             <ObIcon name="mail" />
             <span className="t">

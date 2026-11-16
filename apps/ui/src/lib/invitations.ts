@@ -7,7 +7,7 @@
 //
 // Also the invitation landing (`/invite/{token}`, #337): who signs in where, what accepting does
 // and how the invited user's onboarding skips the organization and project steps.
-import type { ContextOrg, Invitation, InvitationAccepted, UpdateOnboardingRequest, UserContext } from "./identity";
+import type { ContextOrg, ContextProject, Invitation, InvitationAccepted, InvitationPreview, UpdateOnboardingRequest, UserContext } from "./identity";
 import { homeView } from "./landing";
 import { orgHome } from "./scope";
 
@@ -124,33 +124,56 @@ export function invitedOrg(ctx: UserContext): ContextOrg | undefined {
   return org && org.role !== "owner" ? org : undefined;
 }
 
-/** Where an invited user lands once onboarding is done: the organization's first project. */
+/**
+ * Where an invited user lands once onboarding is done: the project the invitation gave them a role
+ * on (#809, saved as `answers.project_slug` when it is a project of `org`), else the organization's
+ * first project.
+ */
 export function invitedLanding(ctx: UserContext, org: ContextOrg): string {
-  return orgHome(org, homeView(ctx));
+  const answers = ctx.onboarding?.answers ?? ctx.user.onboarding?.answers;
+  const slug = answers && typeof answers.project_slug === "string" ? answers.project_slug : "";
+  const project = slug ? org.projects.find((p) => p.slug === slug) : undefined;
+  return project ? `/${project.slug}/${homeView(ctx)}` : orgHome(org, homeView(ctx));
+}
+
+/** The project of `org` named `name` (an invitation's preview names its projects, #809). */
+export function projectNamed(org: ContextOrg, name: string | undefined): ContextProject | undefined {
+  return name ? org.projects.find((p) => p.name === name) : undefined;
+}
+
+/** The project an invitation names when it carries exactly one project role (#809); else undefined. */
+export function invitedProjectName(preview: Pick<InvitationPreview, "projects"> | null | undefined): string | undefined {
+  const projects = preview?.projects ?? [];
+  return projects.length === 1 ? projects[0].name : undefined;
 }
 
 export interface AcceptDeps {
   accept: () => Promise<InvitationAccepted>;
   context: () => Promise<UserContext>;
   updateOnboarding: (patch: UpdateOnboardingRequest) => Promise<unknown>;
+  /** The name of the one project the invitation gives a role on, read before accepting (#809). */
+  projectName?: string;
 }
 
 /**
  * Accepts the invitation and says where the browser goes next. A user still onboarding resumes
  * at the about step with the organization saved (`answers.org_slug`), which marks them as
- * invited: the about step then opens the organization's first project instead of the
- * organization and project steps. A user who finished onboarding goes straight to the
- * organization. Identity errors (`invite_email_mismatch`, `invite_expired`, …) propagate.
+ * invited: the about step then opens the invited project (`answers.project_slug`, #809) or the
+ * organization's first project instead of the organization and project steps. A user who finished
+ * onboarding goes straight to that project. Identity errors (`invite_email_mismatch`,
+ * `invite_expired`, …) propagate.
  */
 export async function acceptInvitation(deps: AcceptDeps): Promise<string> {
   const { org } = await deps.accept();
   const ctx = await deps.context();
+  const joined = ctx.orgs.find((o) => o.slug === org.slug);
+  const project = joined ? projectNamed(joined, deps.projectName) : undefined;
   if (!ctx.onboarding?.completed) {
-    await deps.updateOnboarding({ step: INVITED_STEP, answers: { org_slug: org.slug } });
+    await deps.updateOnboarding({ step: INVITED_STEP, answers: project ? { org_slug: org.slug, project_slug: project.slug } : { org_slug: org.slug } });
     return INVITED_ONBOARDING_PATH;
   }
-  const joined = ctx.orgs.find((o) => o.slug === org.slug);
-  return joined ? invitedLanding(ctx, joined) : "/";
+  if (!joined) return "/";
+  return project ? `/${project.slug}/${homeView(ctx)}` : invitedLanding(ctx, joined);
 }
 
 const HOUR_MS = 60 * 60 * 1000;

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,10 +70,10 @@ func TestQuotaLowLimitsInValkey(t *testing.T) {
 	t.Run("bytes per day", func(t *testing.T) {
 		q := NewValkeyQuota(client, config.QuotaConfig{BytesPerDay: 1000})
 		project := uuid.New()
-		if d, err := q.Admit(ctx, project, 1, 600); err != nil || !d.Allowed {
+		if d, err := q.Admit(ctx, Charge{ProjectID: project, Records: 1, Bytes: 600}); err != nil || !d.Allowed {
 			t.Fatalf("first = %+v, %v", d, err)
 		}
-		d, err := q.Admit(ctx, project, 1, 600)
+		d, err := q.Admit(ctx, Charge{ProjectID: project, Records: 1, Bytes: 600})
 		if err != nil || d.Allowed || d.Reason != ReasonBytesPerDay {
 			t.Fatalf("second = %+v, %v, want refused by bytes_per_day", d, err)
 		}
@@ -80,7 +81,7 @@ func TestQuotaLowLimitsInValkey(t *testing.T) {
 		if d.RetryAfter < 4*time.Hour || d.RetryAfter > 5*time.Hour {
 			t.Fatalf("RetryAfter = %v, want ~4.8h", d.RetryAfter)
 		}
-		if d, err := q.Admit(ctx, project, 1, 400); err != nil || !d.Allowed {
+		if d, err := q.Admit(ctx, Charge{ProjectID: project, Records: 1, Bytes: 400}); err != nil || !d.Allowed {
 			t.Fatalf("a batch that fits = %+v, %v", d, err)
 		}
 	})
@@ -88,21 +89,21 @@ func TestQuotaLowLimitsInValkey(t *testing.T) {
 	t.Run("all or nothing across limits; projects are separate", func(t *testing.T) {
 		q := NewValkeyQuota(client, config.QuotaConfig{RecordsPerMinute: 10, BytesPerDay: 1000})
 		project := uuid.New()
-		if d, err := q.Admit(ctx, project, 1, 900); err != nil || !d.Allowed {
+		if d, err := q.Admit(ctx, Charge{ProjectID: project, Records: 1, Bytes: 900}); err != nil || !d.Allowed {
 			t.Fatalf("first = %+v, %v", d, err)
 		}
 		// Refused by bytes: the 5 records must not be charged.
-		if d, err := q.Admit(ctx, project, 5, 200); err != nil || d.Allowed || d.Reason != ReasonBytesPerDay {
+		if d, err := q.Admit(ctx, Charge{ProjectID: project, Records: 5, Bytes: 200}); err != nil || d.Allowed || d.Reason != ReasonBytesPerDay {
 			t.Fatalf("over bytes = %+v, %v", d, err)
 		}
-		if d, err := q.Admit(ctx, project, 9, 10); err != nil || !d.Allowed {
+		if d, err := q.Admit(ctx, Charge{ProjectID: project, Records: 9, Bytes: 10}); err != nil || !d.Allowed {
 			t.Fatalf("full record budget after a refused batch = %+v, %v", d, err)
 		}
-		d, err := q.Admit(ctx, project, 1, 1)
+		d, err := q.Admit(ctx, Charge{ProjectID: project, Records: 1, Bytes: 1})
 		if err != nil || d.Allowed || d.Reason != ReasonRecordsPerMinute {
 			t.Fatalf("over records = %+v, %v", d, err)
 		}
-		if d, err := q.Admit(ctx, uuid.New(), 10, 10); err != nil || !d.Allowed {
+		if d, err := q.Admit(ctx, Charge{ProjectID: uuid.New(), Records: 10, Bytes: 10}); err != nil || !d.Allowed {
 			t.Fatalf("another project = %+v, %v", d, err)
 		}
 	})
@@ -110,12 +111,73 @@ func TestQuotaLowLimitsInValkey(t *testing.T) {
 	t.Run("a batch larger than the budget waits for a full refill", func(t *testing.T) {
 		q := NewValkeyQuota(client, config.QuotaConfig{RecordsPerMinute: 10})
 		project := uuid.New()
-		if d, err := q.Admit(ctx, project, 1, 1); err != nil || !d.Allowed {
+		if d, err := q.Admit(ctx, Charge{ProjectID: project, Records: 1, Bytes: 1}); err != nil || !d.Allowed {
 			t.Fatalf("first = %+v, %v", d, err)
 		}
-		d, err := q.Admit(ctx, project, 50, 1)
+		d, err := q.Admit(ctx, Charge{ProjectID: project, Records: 50, Bytes: 1})
 		if err != nil || d.Allowed || d.RetryAfter <= 0 || d.RetryAfter > 6*time.Second+time.Millisecond {
 			t.Fatalf("oversized = %+v, %v, want refused with a finite wait", d, err)
+		}
+	})
+
+	t.Run("per-key rate limit over HTTP, shared by replicas, separate per key", func(t *testing.T) {
+		// No project quota: the key's own limit (2 records a minute) applies.
+		quota := NewValkeyQuota(client, config.QuotaConfig{})
+		if err := client.Do(ctx, client.B().Del().Key(quotaKeyPrefix+ReasonKeyRecordsPerMinute+":"+testKeyID.String()).Build()).Error(); err != nil {
+			t.Fatal(err)
+		}
+		cfg := config.IngestConfig{MaxBodyBytes: 1 << 20, MaxRecordsPerRequest: 1000}
+		newReplica := func() (*Edge, http.Handler) {
+			e := New(limitedVerifier{perMinute: 2}, fakeApps{}, &fakeSink{}, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil).WithQuota(quota)
+			e.now = func() time.Time { return fixedNow }
+			mux := http.NewServeMux()
+			e.Register(mux)
+			return e, mux
+		}
+		_, a := newReplica()
+		eb, b := newReplica()
+		for i, h := range []http.Handler{a, b} {
+			if rec := post(t, h, "/v1/requests", validRequest, nil); rec.Code != http.StatusOK {
+				t.Fatalf("batch %d: got %d %s", i+1, rec.Code, rec.Body)
+			}
+		}
+		rec := post(t, b, "/v1/requests", validRequest, nil)
+		if rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), `"quota_exceeded"`) {
+			t.Fatalf("3rd batch: got %d %s, want 429 quota_exceeded", rec.Code, rec.Body)
+		}
+		// One record refills every 30s (2/min).
+		secs, err := strconv.Atoi(rec.Header().Get("Retry-After"))
+		if err != nil || secs < 1 || secs > 30 {
+			t.Fatalf("Retry-After = %q, want 1..30 seconds", rec.Header().Get("Retry-After"))
+		}
+		if got := promtest.ToFloat64(eb.rejected.WithLabelValues(ReasonKeyRecordsPerMinute)); got != 1 {
+			t.Fatalf("apilens_ingest_rejected_total{reason=key_records_per_minute} = %v, want 1", got)
+		}
+
+		// Another key of the same project has its own bucket, and a key
+		// without a limit is not charged to one.
+		other := Charge{ProjectID: testProject, KeyID: uuid.New(), KeyRecordsPerMinute: 2, Records: 2, Bytes: 1}
+		if d, err := quota.Admit(ctx, other); err != nil || !d.Allowed {
+			t.Fatalf("another key = %+v, %v", d, err)
+		}
+		if d, err := quota.Admit(ctx, Charge{ProjectID: testProject, KeyID: testKeyID, Records: 100, Bytes: 1}); err != nil || !d.Allowed {
+			t.Fatalf("key without a limit = %+v, %v", d, err)
+		}
+	})
+
+	t.Run("key limit and project quota are all or nothing", func(t *testing.T) {
+		q := NewValkeyQuota(client, config.QuotaConfig{RecordsPerMinute: 10})
+		project, key := uuid.New(), uuid.New()
+		c := Charge{ProjectID: project, KeyID: key, KeyRecordsPerMinute: 3, Records: 3, Bytes: 1}
+		if d, err := q.Admit(ctx, c); err != nil || !d.Allowed {
+			t.Fatalf("first = %+v, %v", d, err)
+		}
+		// Refused by the key: the project must not be charged.
+		if d, err := q.Admit(ctx, c); err != nil || d.Allowed || d.Reason != ReasonKeyRecordsPerMinute {
+			t.Fatalf("over the key limit = %+v, %v", d, err)
+		}
+		if d, err := q.Admit(ctx, Charge{ProjectID: project, KeyID: uuid.New(), Records: 7, Bytes: 1}); err != nil || !d.Allowed {
+			t.Fatalf("rest of the project budget = %+v, %v", d, err)
 		}
 	})
 }

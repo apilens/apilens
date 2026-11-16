@@ -46,6 +46,7 @@ apilens user promote -email=teammate@example.com -org=acme -role=admin
 | Command | Does |
 |---|---|
 | `apilens seed` | creates or reuses the dev org/project/app, issues new keys, makes `dev@example.com` (or `-user-email`) an owner and prints its `magic_link` |
+| `apilens seed -with-team` | the same, plus demo members, a restricted project with direct grants, environment settings and API keys in every state (see `CONTRIBUTING.md`); re-running changes none of that data |
 | `apilens user create -email -org [-role=member]` | creates the user if no account has the address (its email counts as verified) and adds it to the organization, or changes its role |
 | `apilens user promote -email -org [-role=owner]` | the same for an existing user only; the last owner of an organization cannot be demoted |
 | `apilens user magic-link -email` | prints a sign-in link for an existing user without sending email |
@@ -96,6 +97,26 @@ APILens sends sign-in codes, invitations and security alerts by email. Configure
 With the default `log` provider, the `all`, `api` and `identity` roles log a warning at startup. Users cannot receive sign-in codes until you switch to `smtp`. Read the codes from `docker compose logs apilens` while testing.
 
 Mail goes out from a background job (`email.send`) run by the `identity` role, never from the request itself. A failed send is retried 5 times with exponential backoff (30s up to 8m), and each failure is logged with its Message-ID but not the body. `apilens_email_sent_total{template,status}` counts attempts (`sent`, `failed`, `rejected`). With `tls: none`, SMTP credentials are only offered over challenge mechanisms (CRAM-MD5, SCRAM), never in clear text.
+
+### Project access, lifecycle and retention
+
+Limits and windows for project access, API keys, project deletion, the audit log and telemetry retention. The defaults are set in `compose.yaml` and listed in `compose/.env.example`; on Kubernetes set the same variables under `config` in the Helm values (`values.schema.json` checks their ranges).
+
+| Variable | Config key | Default | Meaning |
+|---|---|---|---|
+| `APILENS_IDENTITY__SENSITIVE_ACTION_MAX_AGE` | `identity.sensitive_action_max_age` | `10m` | How old a sign-in may be for sensitive actions (delete or restore a project, rename its slug, change access, create or rotate an API key). Older sessions get `reauth_required` and sign in again |
+| `APILENS_PROJECT__DELETION_GRACE` | `project.deletion_grace` | `168h` (7 days) | How long a deleted project can be restored before the purge job removes its data. `0s` purges at the next run |
+| `APILENS_ACCESS__MAX_DIRECT_MEMBERS_PER_PROJECT` | `access.max_direct_members_per_project` | `500` | People who can be added to one project directly (`member_limit_reached`). `0` = no limit |
+| `APILENS_INGEST__MAX_KEYS_PER_PROJECT` | `ingest.max_keys_per_project` | `50` | Active API keys per project (`key_limit_reached`). `0` = no limit |
+| `APILENS_INGEST__RECORD_KEY_IP` | `ingest.record_key_ip` | `true` | Record the client IP of each API key's last ingest request (personal data, for access reviews). `false` stops recording and clears it on next use |
+| `APILENS_AUDIT__RETENTION` | `audit.retention` | `400` | Days audit events are kept. At least `30`, or `0` to keep them forever |
+| `APILENS_RETENTION__REQUESTS` | `retention.requests` | `90` | Days requests are kept (1 to 3650) |
+| `APILENS_RETENTION__LOGS` | `retention.logs` | `30` | Days logs are kept (1 to 3650) |
+| `APILENS_RETENTION__SPANS` | `retention.spans` | `30` | Days spans are kept (1 to 3650) |
+| `APILENS_RETENTION__ROLLUPS_1M` | `retention.rollups_1m` | `30` | Days per-minute rollups are kept (1 to 400) |
+| `APILENS_RETENTION__ROLLUPS_1H` | `retention.rollups_1h` | `400` | Days per-hour rollups are kept (30 to 3650) |
+
+A value out of range stops APILens at start-up with a message naming the key. Retention is per install: every project shares it. `migrate` applies the `retention.*` periods to the ClickHouse table TTLs. Shortening one deletes the older data, so `migrate` refuses until you run it once with `-confirm-retention-change` (`docker compose run --rm migrate migrate -confirm-retention-change`).
 
 ### Token signing keys
 

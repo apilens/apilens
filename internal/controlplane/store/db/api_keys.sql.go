@@ -7,37 +7,74 @@ package db
 
 import (
 	"context"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
 )
 
+const countActiveProjectAPIKeys = `-- name: CountActiveProjectAPIKeys :one
+SELECT count(*)::integer FROM api_keys
+WHERE project_id = $1
+  AND revoked_at IS NULL
+  AND (expires_at IS NULL OR expires_at > now())
+`
+
+// The project's keys that still work: not revoked and not expired
+// (ingest.max_keys_per_project counts these).
+func (q *Queries) CountActiveProjectAPIKeys(ctx context.Context, projectID uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countActiveProjectAPIKeys, projectID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createAPIKey = `-- name: CreateAPIKey :one
-INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, project_id, name, prefix, scopes, created_at, expires_at
+WITH k AS (
+    INSERT INTO api_keys (id, project_id, name, prefix, key_hash, scopes, expires_at, app_ids, created_by, rate_limit_per_minute, environments, rotated_from)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::uuid[], $9::uuid,
+            $10::integer, $11::text[], $12::uuid)
+    RETURNING id, project_id, name, prefix, scopes, created_at, expires_at, app_ids, created_by, rate_limit_per_minute, environments, rotated_from
+)
+SELECT k.id, k.project_id, k.name, k.prefix, k.scopes, k.created_at, k.expires_at, k.app_ids, k.rate_limit_per_minute, k.environments, k.rotated_from,
+       u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
+FROM k
+LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
 `
 
 type CreateAPIKeyParams struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
-	Name      string
-	Prefix    string
-	KeyHash   string
-	Scopes    []string
-	ExpiresAt *time.Time
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	Name               string
+	Prefix             string
+	KeyHash            string
+	Scopes             []string
+	ExpiresAt          *time.Time
+	AppIds             []uuid.UUID
+	CreatedBy          *uuid.UUID
+	RateLimitPerMinute *int32
+	Environments       []string
+	RotatedFrom        *uuid.UUID
 }
 
 type CreateAPIKeyRow struct {
-	ID        uuid.UUID
-	ProjectID uuid.UUID
-	Name      string
-	Prefix    string
-	Scopes    []string
-	CreatedAt time.Time
-	ExpiresAt *time.Time
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	Name               string
+	Prefix             string
+	Scopes             []string
+	CreatedAt          time.Time
+	ExpiresAt          *time.Time
+	AppIds             []uuid.UUID
+	RateLimitPerMinute *int32
+	Environments       []string
+	RotatedFrom        *uuid.UUID
+	CreatorID          *uuid.UUID
+	CreatorName        *string
+	CreatorEmail       *string
 }
 
+// Inserts a key and returns it with its creator.
 func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (CreateAPIKeyRow, error) {
 	row := q.db.QueryRow(ctx, createAPIKey,
 		arg.ID,
@@ -47,6 +84,11 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 		arg.KeyHash,
 		arg.Scopes,
 		arg.ExpiresAt,
+		arg.AppIds,
+		arg.CreatedBy,
+		arg.RateLimitPerMinute,
+		arg.Environments,
+		arg.RotatedFrom,
 	)
 	var i CreateAPIKeyRow
 	err := row.Scan(
@@ -57,31 +99,47 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (Cre
 		&i.Scopes,
 		&i.CreatedAt,
 		&i.ExpiresAt,
+		&i.AppIds,
+		&i.RateLimitPerMinute,
+		&i.Environments,
+		&i.RotatedFrom,
+		&i.CreatorID,
+		&i.CreatorName,
+		&i.CreatorEmail,
 	)
 	return i, err
 }
 
 const getActiveAPIKeyByHash = `-- name: GetActiveAPIKeyByHash :one
-SELECT k.id, k.project_id, k.scopes, k.expires_at, p.slug AS project_slug, p.org_id
+SELECT k.id, k.project_id, k.scopes, k.expires_at, k.app_ids, k.rate_limit_per_minute, k.environments, p.slug AS project_slug, p.org_id,
+       (p.paused_at IS NOT NULL)::bool AS project_paused,
+       (p.deleted_at IS NOT NULL)::bool AS project_deleted
 FROM api_keys k
 JOIN projects p ON p.id = k.project_id
 WHERE k.key_hash = $1
   AND k.revoked_at IS NULL
-  AND p.deleted_at IS NULL
   AND (k.expires_at IS NULL OR k.expires_at > now())
 `
 
 type GetActiveAPIKeyByHashRow struct {
-	ID          uuid.UUID
-	ProjectID   uuid.UUID
-	Scopes      []string
-	ExpiresAt   *time.Time
-	ProjectSlug string
-	OrgID       uuid.UUID
+	ID                 uuid.UUID
+	ProjectID          uuid.UUID
+	Scopes             []string
+	ExpiresAt          *time.Time
+	AppIds             []uuid.UUID
+	RateLimitPerMinute *int32
+	Environments       []string
+	ProjectSlug        string
+	OrgID              uuid.UUID
+	ProjectPaused      bool
+	ProjectDeleted     bool
 }
 
-// Resolves an ingest key to its project. Revoked, expired and keys of
-// deleted projects never match.
+// Resolves an ingest key to its project. Revoked and expired keys never
+// match; a key of a deleted project matches with project_deleted set, and
+// the verifier refuses it (ingest answers project_deleted). project_paused:
+// ingest is paused for the project (the edge refuses the key, the query
+// role does not).
 func (q *Queries) GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (GetActiveAPIKeyByHashRow, error) {
 	row := q.db.QueryRow(ctx, getActiveAPIKeyByHash, keyHash)
 	var i GetActiveAPIKeyByHashRow
@@ -90,31 +148,50 @@ func (q *Queries) GetActiveAPIKeyByHash(ctx context.Context, keyHash string) (Ge
 		&i.ProjectID,
 		&i.Scopes,
 		&i.ExpiresAt,
+		&i.AppIds,
+		&i.RateLimitPerMinute,
+		&i.Environments,
 		&i.ProjectSlug,
 		&i.OrgID,
+		&i.ProjectPaused,
+		&i.ProjectDeleted,
 	)
 	return i, err
 }
 
 const listProjectAPIKeys = `-- name: ListProjectAPIKeys :many
-SELECT id, name, prefix, scopes, created_at, expires_at, revoked_at, last_used_at
-FROM api_keys
-WHERE project_id = $1
-ORDER BY created_at DESC, id
+SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.environments, k.created_at, k.expires_at, k.revoked_at, k.last_used_at,
+       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute, k.rotated_from, k.rotated_to,
+       u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
+FROM api_keys k
+LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
+WHERE k.project_id = $1
+ORDER BY k.created_at DESC, k.id
 `
 
 type ListProjectAPIKeysRow struct {
-	ID         uuid.UUID
-	Name       string
-	Prefix     string
-	Scopes     []string
-	CreatedAt  time.Time
-	ExpiresAt  *time.Time
-	RevokedAt  *time.Time
-	LastUsedAt *time.Time
+	ID                 uuid.UUID
+	Name               string
+	Prefix             string
+	Scopes             []string
+	AppIds             []uuid.UUID
+	Environments       []string
+	CreatedAt          time.Time
+	ExpiresAt          *time.Time
+	RevokedAt          *time.Time
+	LastUsedAt         *time.Time
+	LastUsedSdk        *string
+	LastUsedIp         *netip.Addr
+	RateLimitPerMinute *int32
+	RotatedFrom        *uuid.UUID
+	RotatedTo          *uuid.UUID
+	CreatorID          *uuid.UUID
+	CreatorName        *string
+	CreatorEmail       *string
 }
 
-// Every key of the project, revoked ones included, newest first.
+// Every key of the project, revoked ones included, newest first, with its
+// creator (NULL when unknown or the account is deleted).
 func (q *Queries) ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) ([]ListProjectAPIKeysRow, error) {
 	rows, err := q.db.Query(ctx, listProjectAPIKeys, projectID)
 	if err != nil {
@@ -129,10 +206,66 @@ func (q *Queries) ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) (
 			&i.Name,
 			&i.Prefix,
 			&i.Scopes,
+			&i.AppIds,
+			&i.Environments,
 			&i.CreatedAt,
 			&i.ExpiresAt,
 			&i.RevokedAt,
 			&i.LastUsedAt,
+			&i.LastUsedSdk,
+			&i.LastUsedIp,
+			&i.RateLimitPerMinute,
+			&i.RotatedFrom,
+			&i.RotatedTo,
+			&i.CreatorID,
+			&i.CreatorName,
+			&i.CreatorEmail,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectKeyApps = `-- name: ListProjectKeyApps :many
+SELECT ka.key_id, ka.app_id, a.slug AS app_slug, a.name AS app_name, ka.first_seen_at, ka.last_seen_at
+FROM api_key_apps ka
+JOIN api_keys k ON k.id = ka.key_id
+JOIN apps a ON a.id = ka.app_id
+WHERE k.project_id = $1
+ORDER BY ka.last_seen_at DESC, a.slug
+`
+
+type ListProjectKeyAppsRow struct {
+	KeyID       uuid.UUID
+	AppID       uuid.UUID
+	AppSlug     string
+	AppName     string
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
+}
+
+// The apps each key of the project sent records for, with when.
+func (q *Queries) ListProjectKeyApps(ctx context.Context, projectID uuid.UUID) ([]ListProjectKeyAppsRow, error) {
+	rows, err := q.db.Query(ctx, listProjectKeyApps, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProjectKeyAppsRow{}
+	for rows.Next() {
+		var i ListProjectKeyAppsRow
+		if err := rows.Scan(
+			&i.KeyID,
+			&i.AppID,
+			&i.AppSlug,
+			&i.AppName,
+			&i.FirstSeenAt,
+			&i.LastSeenAt,
 		); err != nil {
 			return nil, err
 		}
@@ -145,10 +278,13 @@ func (q *Queries) ListProjectAPIKeys(ctx context.Context, projectID uuid.UUID) (
 }
 
 const lockProjectAPIKey = `-- name: LockProjectAPIKey :one
-SELECT id, name, prefix, scopes, key_hash, revoked_at
-FROM api_keys
-WHERE id = $1 AND project_id = $2
-FOR UPDATE
+SELECT k.id, k.name, k.prefix, k.scopes, k.app_ids, k.environments, k.key_hash, k.revoked_at, k.created_at, k.expires_at, k.last_used_at,
+       k.last_used_sdk, k.last_used_ip, k.rate_limit_per_minute, k.rotated_from, k.rotated_to,
+       u.id AS creator_id, u.name AS creator_name, u.email AS creator_email
+FROM api_keys k
+LEFT JOIN users u ON u.id = k.created_by AND u.deleted_at IS NULL
+WHERE k.id = $1 AND k.project_id = $2
+FOR UPDATE OF k
 `
 
 type LockProjectAPIKeyParams struct {
@@ -157,15 +293,29 @@ type LockProjectAPIKeyParams struct {
 }
 
 type LockProjectAPIKeyRow struct {
-	ID        uuid.UUID
-	Name      string
-	Prefix    string
-	Scopes    []string
-	KeyHash   string
-	RevokedAt *time.Time
+	ID                 uuid.UUID
+	Name               string
+	Prefix             string
+	Scopes             []string
+	AppIds             []uuid.UUID
+	Environments       []string
+	KeyHash            string
+	RevokedAt          *time.Time
+	CreatedAt          time.Time
+	ExpiresAt          *time.Time
+	LastUsedAt         *time.Time
+	LastUsedSdk        *string
+	LastUsedIp         *netip.Addr
+	RateLimitPerMinute *int32
+	RotatedFrom        *uuid.UUID
+	RotatedTo          *uuid.UUID
+	CreatorID          *uuid.UUID
+	CreatorName        *string
+	CreatorEmail       *string
 }
 
-// A key of the project, row-locked for the rest of the transaction.
+// A key of the project, row-locked for the rest of the transaction, with
+// its creator (NULL when unknown or the account is deleted).
 func (q *Queries) LockProjectAPIKey(ctx context.Context, arg LockProjectAPIKeyParams) (LockProjectAPIKeyRow, error) {
 	row := q.db.QueryRow(ctx, lockProjectAPIKey, arg.ID, arg.ProjectID)
 	var i LockProjectAPIKeyRow
@@ -174,10 +324,55 @@ func (q *Queries) LockProjectAPIKey(ctx context.Context, arg LockProjectAPIKeyPa
 		&i.Name,
 		&i.Prefix,
 		&i.Scopes,
+		&i.AppIds,
+		&i.Environments,
 		&i.KeyHash,
 		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.LastUsedAt,
+		&i.LastUsedSdk,
+		&i.LastUsedIp,
+		&i.RateLimitPerMinute,
+		&i.RotatedFrom,
+		&i.RotatedTo,
+		&i.CreatorID,
+		&i.CreatorName,
+		&i.CreatorEmail,
 	)
 	return i, err
+}
+
+const markAPIKeyRotated = `-- name: MarkAPIKeyRotated :exec
+UPDATE api_keys SET rotated_to = $1, expires_at = $2
+WHERE id = $3 AND rotated_to IS NULL
+`
+
+type MarkAPIKeyRotatedParams struct {
+	RotatedTo *uuid.UUID
+	ExpiresAt *time.Time
+	ID        uuid.UUID
+}
+
+// Links a rotated key to its successor and sets when it stops working (the
+// end of the overlap window).
+func (q *Queries) MarkAPIKeyRotated(ctx context.Context, arg MarkAPIKeyRotatedParams) error {
+	_, err := q.db.Exec(ctx, markAPIKeyRotated, arg.RotatedTo, arg.ExpiresAt, arg.ID)
+	return err
+}
+
+const markAppFirstSeen = `-- name: MarkAppFirstSeen :exec
+UPDATE apps SET first_seen_at = $1 WHERE id = $2 AND first_seen_at IS NULL
+`
+
+type MarkAppFirstSeenParams struct {
+	SeenAt *time.Time
+	ID     uuid.UUID
+}
+
+func (q *Queries) MarkAppFirstSeen(ctx context.Context, arg MarkAppFirstSeenParams) error {
+	_, err := q.db.Exec(ctx, markAppFirstSeen, arg.SeenAt, arg.ID)
+	return err
 }
 
 const revokeAPIKey = `-- name: RevokeAPIKey :one
@@ -194,10 +389,75 @@ func (q *Queries) RevokeAPIKey(ctx context.Context, id uuid.UUID) (string, error
 }
 
 const touchAPIKey = `-- name: TouchAPIKey :exec
-UPDATE api_keys SET last_used_at = now() WHERE id = $1
+UPDATE api_keys
+SET last_used_at  = now(),
+    last_used_sdk = CASE WHEN $1::bool THEN $2::text ELSE last_used_sdk END,
+    last_used_ip  = CASE WHEN $1::bool THEN $3::inet ELSE last_used_ip END
+WHERE id = $4
 `
 
-func (q *Queries) TouchAPIKey(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.Exec(ctx, touchAPIKey, id)
+type TouchAPIKeyParams struct {
+	RecordUse bool
+	Sdk       *string
+	Ip        *netip.Addr
+	ID        uuid.UUID
+}
+
+// Records a use of the key. With record_use (an ingest request) the SDK and
+// client IP of that request replace the previous ones; NULL clears them.
+func (q *Queries) TouchAPIKey(ctx context.Context, arg TouchAPIKeyParams) error {
+	_, err := q.db.Exec(ctx, touchAPIKey,
+		arg.RecordUse,
+		arg.Sdk,
+		arg.Ip,
+		arg.ID,
+	)
+	return err
+}
+
+const updateAPIKeyAccess = `-- name: UpdateAPIKeyAccess :exec
+UPDATE api_keys SET scopes = $1, app_ids = $2::uuid[],
+    rate_limit_per_minute = $3::integer,
+    environments = $4::text[]
+WHERE id = $5
+`
+
+type UpdateAPIKeyAccessParams struct {
+	Scopes             []string
+	AppIds             []uuid.UUID
+	RateLimitPerMinute *int32
+	Environments       []string
+	ID                 uuid.UUID
+}
+
+// Replaces a key's scopes, app scope (NULL = every app), per-key ingest
+// rate limit (NULL = none) and environments (NULL = every environment).
+func (q *Queries) UpdateAPIKeyAccess(ctx context.Context, arg UpdateAPIKeyAccessParams) error {
+	_, err := q.db.Exec(ctx, updateAPIKeyAccess,
+		arg.Scopes,
+		arg.AppIds,
+		arg.RateLimitPerMinute,
+		arg.Environments,
+		arg.ID,
+	)
+	return err
+}
+
+const upsertAPIKeyApp = `-- name: UpsertAPIKeyApp :exec
+INSERT INTO api_key_apps (key_id, app_id, first_seen_at, last_seen_at)
+VALUES ($1, $2, $3, $3)
+ON CONFLICT (key_id, app_id)
+DO UPDATE SET last_seen_at = GREATEST(api_key_apps.last_seen_at, EXCLUDED.last_seen_at)
+`
+
+type UpsertAPIKeyAppParams struct {
+	KeyID  uuid.UUID
+	AppID  uuid.UUID
+	SeenAt time.Time
+}
+
+// Records that key_id sent records for app_id at seen_at.
+func (q *Queries) UpsertAPIKeyApp(ctx context.Context, arg UpsertAPIKeyAppParams) error {
+	_, err := q.db.Exec(ctx, upsertAPIKeyApp, arg.KeyID, arg.AppID, arg.SeenAt)
 	return err
 }

@@ -2,6 +2,8 @@
 import "./node.js";
 
 export { ApiLensClient, DROP_REASONS } from "./client.js";
+export { describeAppChoice, resolveAppId } from "./app.js";
+export type { AppIdSource } from "./app.js";
 export {
   CAPTURE_EVERYTHING,
   applyRemotePolicy,

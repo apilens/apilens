@@ -5,6 +5,7 @@ package migrations_test
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -1019,5 +1020,305 @@ func TestPostgresDefaultAppsMigrationBackfills(t *testing.T) {
 	}
 	if got := apps(); !slices.Equal(got, want) {
 		t.Fatalf("apps after re-apply = %v, want %v", got, want)
+	}
+}
+
+// TestPostgresAlertRuleSDKGroupsMigration checks 00028 and 00029: alert
+// rules filtering by a dashboard consumer group get the group's name (the
+// SDK consumer group they now match), then the dashboard group tables go.
+func TestPostgresAlertRuleSDKGroupsMigration(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.DownTo(ctx, 27); err != nil {
+		t.Fatalf("roll back to 00027: %v", err)
+	}
+	if !tableExists(t, pool, "consumer_groups") || !tableExists(t, pool, "consumer_group_members") {
+		t.Fatal("00029 down should recreate the consumer group tables")
+	}
+
+	// Two projects, each with an app and a dashboard group.
+	const (
+		shop, blog         = "00000000-0000-0000-0000-00000000000a", "00000000-0000-0000-0000-00000000000b"
+		shopApp, blogApp   = "00000000-0000-0000-0000-0000000000a1", "00000000-0000-0000-0000-0000000000b1"
+		partners, blogTeam = "00000000-0000-0000-0000-0000000000a2", "00000000-0000-0000-0000-0000000000b2"
+		deleted            = "00000000-0000-0000-0000-0000000000ff"
+	)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	exec(`INSERT INTO organizations (id, slug, name) VALUES (gen_random_uuid(), 'acme', 'Acme')`)
+	for _, p := range []struct{ id, slug, app, group, name string }{
+		{shop, "shop", shopApp, partners, "Partners"},
+		{blog, "blog", blogApp, blogTeam, "Blog team"},
+	} {
+		exec(`INSERT INTO projects (id, org_id, slug, name) SELECT $1::uuid, id, $2::text, $2::text FROM organizations WHERE slug = 'acme'`, p.id, p.slug)
+		exec(`INSERT INTO apps (id, project_id, slug, name) VALUES ($1, $2, 'api', 'API')`, p.app, p.id)
+		exec(`INSERT INTO consumer_groups (id, project_id, name) VALUES ($1, $2, $3)`, p.group, p.id, p.name)
+	}
+	exec(`INSERT INTO consumer_group_members (project_id, consumer_id, group_id) VALUES ($1, 'alice', $2)`, shop, partners)
+
+	// Rules of shop, by name, with their filters before 00028.
+	before := map[string]string{
+		"group":          `{"group": "` + partners + `"}`,
+		"group and more": `{"group": "` + partners + `", "consumer": "alice", "endpoint": "GET /a"}`,
+		"other project":  `{"group": "` + blogTeam + `"}`,
+		"deleted group":  `{"group": "` + deleted + `"}`,
+		"no group":       `{"endpoint": "POST /b"}`,
+		"no filters":     `{}`,
+	}
+	for name, f := range before {
+		exec(`INSERT INTO alert_rules (id, project_id, app_id, environment, name, metric, condition, threshold, window_s, every_s, filters, updated_at)
+			VALUES (gen_random_uuid(), $1, $2, 'production', $3, 'traffic', 'gt', 0, 300, 60, $4::jsonb, '2026-01-01T00:00:00Z')`, shop, shopApp, name, f)
+	}
+	check := func(stage string, want map[string]string) {
+		t.Helper()
+		rows, err := pool.Query(ctx, `SELECT name, filters::text, updated_at = '2026-01-01T00:00:00Z' FROM alert_rules`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		got := map[string]string{}
+		for rows.Next() {
+			var name, f string
+			var untouched bool
+			if err := rows.Scan(&name, &f, &untouched); err != nil {
+				t.Fatal(err)
+			}
+			if !untouched {
+				t.Errorf("%s: rule %q updated_at changed", stage, name)
+			}
+			got[name] = f
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		for name, w := range want {
+			if got[name] != w {
+				t.Errorf("%s: rule %q filters = %s, want %s", stage, name, got[name], w)
+			}
+		}
+	}
+	after := map[string]string{
+		"group":          `{"group": "Partners"}`,
+		"group and more": `{"group": "Partners", "consumer": "alice", "endpoint": "GET /a"}`,
+		// Another project's group, or one deleted since, is left as is: as a
+		// group name it matches no requests, as the rule counted nobody before.
+		"other project": before["other project"],
+		"deleted group": before["deleted group"],
+		"no group":      before["no group"],
+		"no filters":    before["no filters"],
+	}
+
+	if _, err := provider.UpTo(ctx, 28); err != nil {
+		t.Fatalf("apply 00028: %v", err)
+	}
+	check("after 00028", after)
+
+	// Down maps the names back to the project's groups.
+	if _, err := provider.DownTo(ctx, 27); err != nil {
+		t.Fatalf("roll back 00028: %v", err)
+	}
+	check("after 00028 down", before)
+
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("apply 00028 and 00029: %v", err)
+	}
+	check("after 00029", after)
+	if tableExists(t, pool, "consumer_groups") || tableExists(t, pool, "consumer_group_members") {
+		t.Fatal("00029 should drop the consumer group tables")
+	}
+}
+
+// TestPostgresAPIKeyCreatorMigrationBackfills checks 00030: api_keys gains
+// created_by, backfilled from the api_key.created audit events (keys without
+// one stay NULL), and the last-use columns; Down drops them.
+func TestPostgresAPIKeyCreatorMigrationBackfills(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.DownTo(ctx, 29); err != nil {
+		t.Fatalf("roll back to 00029: %v", err)
+	}
+	const user, audited, unknown = "00000000-0000-4000-8000-0000000000a1", "00000000-0000-4000-8000-0000000000b1", "00000000-0000-4000-8000-0000000000b2"
+	for _, q := range []string{
+		`INSERT INTO users (id, email) VALUES ('` + user + `', 'creator@example.com')`,
+		`INSERT INTO organizations (id, slug, name) VALUES (gen_random_uuid(), 'acme', 'Acme')`,
+		`INSERT INTO projects (id, org_id, slug, name) SELECT gen_random_uuid(), id, 'shop', 'Shop' FROM organizations`,
+		`INSERT INTO api_keys (id, project_id, name, prefix, key_hash)
+		 SELECT '` + audited + `', id, 'audited', 'apl_live_aaaaaaa', repeat('a', 64) FROM projects`,
+		`INSERT INTO api_keys (id, project_id, name, prefix, key_hash)
+		 SELECT '` + unknown + `', id, 'unknown', 'apl_live_bbbbbbb', repeat('b', 64) FROM projects`,
+		`INSERT INTO audit_events (user_id, actor_user_id, event, metadata)
+		 VALUES ('` + user + `', '` + user + `', 'api_key.created', '{"key_id": "` + audited + `"}')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := provider.UpTo(ctx, 30); err != nil {
+		t.Fatalf("apply 00030: %v", err)
+	}
+	var auditedBy, unknownBy string
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT coalesce(created_by::text, '') FROM api_keys WHERE id = $1),
+		(SELECT coalesce(created_by::text, '') FROM api_keys WHERE id = $2)`, audited, unknown).Scan(&auditedBy, &unknownBy); err != nil {
+		t.Fatal(err)
+	}
+	if auditedBy != user || unknownBy != "" {
+		t.Fatalf("created_by after 00030: audited %q, unknown %q", auditedBy, unknownBy)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE api_keys SET last_used_sdk = 'apilenss/0.5.0', last_used_ip = '203.0.113.7'`); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := provider.DownTo(ctx, 29); err != nil {
+		t.Fatalf("roll back 00030: %v", err)
+	}
+	var cols int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_name = 'api_keys'
+		AND column_name IN ('created_by', 'last_used_sdk', 'last_used_ip')`).Scan(&cols); err != nil {
+		t.Fatal(err)
+	}
+	if cols != 0 {
+		t.Fatalf("00030 down left %d columns", cols)
+	}
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply: %v", err)
+	}
+}
+
+// TestPostgresAuditScopeMigration checks 00031 on a database with existing
+// events: org and project ids are backfilled from metadata, org events get
+// the actor's name, user_id becomes ON DELETE SET NULL, and down restores
+// the cascade and drops the new columns.
+func TestPostgresAuditScopeMigration(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.MigratedPostgres(t)
+
+	db := stdlib.OpenDBFromPool(pool)
+	t.Cleanup(func() { _ = db.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.PostgresFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.DownTo(ctx, 30); err != nil {
+		t.Fatalf("roll back to 00030: %v", err)
+	}
+
+	const (
+		ada  = "00000000-0000-0000-0000-0000000000ad"
+		org  = "00000000-0000-0000-0000-0000000000a1"
+		proj = "00000000-0000-0000-0000-0000000000b1"
+	)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	exec(`INSERT INTO users (id, email, name) VALUES ($1, 'ada@example.com', 'Ada')`, ada)
+	for _, e := range []struct{ event, meta string }{
+		{"user.updated", `{"fields": ["name"]}`},
+		{"org.created", `{"org_id": "` + org + `", "slug": "acme"}`},
+		{"capture_policy.updated", `{"org_id": "` + org + `", "project_id": "` + proj + `"}`},
+		{"login.failed", `{"org_id": "not-a-uuid"}`},
+	} {
+		exec(`INSERT INTO audit_events (user_id, actor_user_id, event, metadata) VALUES ($1, $1, $2, $3::jsonb)`, ada, e.event, e.meta)
+	}
+
+	if _, err := provider.UpTo(ctx, 31); err != nil {
+		t.Fatalf("apply 00031: %v", err)
+	}
+	type row struct{ org, project, actorLabel string }
+	scoped := func() map[string]row {
+		t.Helper()
+		rows, err := pool.Query(ctx, `SELECT event, coalesce(org_id::text, ''), coalesce(project_id::text, ''), coalesce(actor_label, '') FROM audit_events`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		got := map[string]row{}
+		for rows.Next() {
+			var ev string
+			var r row
+			if err := rows.Scan(&ev, &r.org, &r.project, &r.actorLabel); err != nil {
+				t.Fatal(err)
+			}
+			got[ev] = r
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	want := map[string]row{
+		"user.updated":           {},
+		"org.created":            {org, "", "Ada"},
+		"capture_policy.updated": {org, proj, "Ada"},
+		"login.failed":           {},
+	}
+	if got := scoped(); !maps.Equal(got, want) {
+		t.Fatalf("after 00031 = %v, want %v", got, want)
+	}
+	for _, idx := range []string{"audit_events_org_created", "audit_events_project_created"} {
+		if !tableExists(t, pool, idx) {
+			t.Errorf("index %s missing", idx)
+		}
+	}
+	fkAction := func() string {
+		t.Helper()
+		var action string
+		if err := pool.QueryRow(ctx, `SELECT confdeltype::text FROM pg_constraint WHERE conname = 'audit_events_user_id_fkey'`).Scan(&action); err != nil {
+			t.Fatal(err)
+		}
+		return action
+	}
+	if a := fkAction(); a != "n" {
+		t.Errorf("user_id on delete = %q, want n (SET NULL)", a)
+	}
+
+	if _, err := provider.DownTo(ctx, 30); err != nil {
+		t.Fatalf("roll back 00031: %v", err)
+	}
+	if a := fkAction(); a != "c" {
+		t.Errorf("user_id on delete after down = %q, want c (CASCADE)", a)
+	}
+	var cols int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns
+		WHERE table_name = 'audit_events' AND column_name IN ('org_id', 'project_id', 'target_type', 'target_id', 'target_label', 'request_id', 'changes', 'actor_label')`).Scan(&cols); err != nil {
+		t.Fatal(err)
+	}
+	if cols != 0 {
+		t.Errorf("%d new columns left after down", cols)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_events`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 4 {
+		t.Errorf("events after down = %d, want 4", n)
+	}
+
+	if err := migrations.UpPostgres(ctx, pool, testutil.Logger(t)); err != nil {
+		t.Fatalf("re-apply 00031: %v", err)
+	}
+	if got := scoped(); !maps.Equal(got, want) {
+		t.Fatalf("after re-apply = %v, want %v", got, want)
 	}
 }

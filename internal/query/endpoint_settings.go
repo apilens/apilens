@@ -15,6 +15,7 @@ import (
 
 	"github.com/apilens/apilens/internal/authz"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
+	"github.com/apilens/apilens/internal/identity/audit"
 	"github.com/apilens/apilens/internal/platform/authn"
 	"github.com/apilens/apilens/internal/platform/server"
 )
@@ -190,39 +191,72 @@ func (s *Service) putEndpointSettings(ctx context.Context, projects ProjectAutho
 	if err != nil {
 		return nil, internalError("app lookup", err)
 	}
-	if err := authorizeManage(ctx, projects, p, app); err != nil {
+	target, err := authorizeManage(ctx, projects, p, app)
+	if err != nil {
 		return nil, err
 	}
 	uid := p.UserID
-	row, err := store.UpsertEndpointSettings(ctx, db.UpsertEndpointSettingsParams{
-		AppID: app.ID, Method: strings.ToUpper(in.Method), Path: in.Path,
-		ExpectedStatusCodes: codes, LatencyThresholdMs: threshold, Excluded: in.Body.Excluded, UpdatedBy: &uid,
-	})
-	if err != nil {
-		return nil, internalError("save endpoint settings", err)
+	method := strings.ToUpper(in.Method)
+	var row db.EndpointSetting
+	if err := audited(ctx, s, target, store, func(q *db.Queries) EndpointSettingsStore { return q }, func(store EndpointSettingsStore) (*audit.Event, error) {
+		previous := endpointSettingsValues(toEndpointSettings(db.EndpointSetting{AppID: app.ID, Method: method, Path: in.Path}))
+		switch cur, err := store.GetEndpointSettings(ctx, db.GetEndpointSettingsParams{AppID: app.ID, Method: method, Path: in.Path}); {
+		case err == nil:
+			previous = endpointSettingsValues(toEndpointSettings(cur))
+		case !errors.Is(err, pgx.ErrNoRows):
+			return nil, internalError("endpoint settings", err)
+		}
+		row, err = store.UpsertEndpointSettings(ctx, db.UpsertEndpointSettingsParams{
+			AppID: app.ID, Method: method, Path: in.Path,
+			ExpectedStatusCodes: codes, LatencyThresholdMs: threshold, Excluded: in.Body.Excluded, UpdatedBy: &uid,
+		})
+		if err != nil {
+			return nil, internalError("save endpoint settings", err)
+		}
+		changes := audit.Diff(previous, endpointSettingsValues(toEndpointSettings(row)))
+		if changes == nil {
+			return nil, nil
+		}
+		return &audit.Event{
+			Kind:    audit.EndpointSettingsUpdated,
+			Target:  audit.Target{Type: "endpoint", ID: app.ID.String() + " " + method + " " + in.Path, Label: method + " " + in.Path},
+			Changes: changes,
+			Meta:    map[string]any{"app_id": app.ID.String(), "app": app.Slug, "method": method, "path": in.Path},
+		}, nil
+	}); err != nil {
+		return nil, err
 	}
 	return &endpointSettingsOutput{Body: toEndpointSettings(row)}, nil
 }
 
-// authorizeManage checks that p may change the settings of app's project.
-func authorizeManage(ctx context.Context, projects ProjectAuthorizer, p authn.Principal, app db.GetSettingsAppRow) error {
+// authorizeManage checks that p may change the settings of app's project
+// and returns the project.
+func authorizeManage(ctx context.Context, projects ProjectAuthorizer, p authn.Principal, app db.GetSettingsAppRow) (authz.Target, error) {
 	if projects == nil {
-		return huma.Error503ServiceUnavailable("authorization backend unavailable, retry later")
+		return authz.Target{}, huma.Error503ServiceUnavailable("authorization backend unavailable, retry later")
 	}
 	t, err := projects.AuthorizeProject(ctx, p, app.ProjectSlug, authz.ProjectManageCapture)
 	switch {
 	case err == nil && t.ProjectID == app.ProjectID:
-		return nil
+		return t, nil
 	case err == nil, errors.Is(err, authz.ErrNoResource):
 		// The slug now names another project (the app's was deleted), or
 		// the caller cannot view the project.
-		return huma.Error404NotFound("app not found")
+		return authz.Target{}, huma.Error404NotFound("app not found")
 	case errors.Is(err, authz.ErrForbidden):
-		return huma.Error403Forbidden("changing endpoint settings needs a project admin")
+		return authz.Target{}, huma.Error403Forbidden("changing endpoint settings needs a project admin")
 	case errors.Is(err, authz.ErrUnavailable):
-		return huma.Error503ServiceUnavailable("authorization backend unavailable, retry later")
+		return authz.Target{}, huma.Error503ServiceUnavailable("authorization backend unavailable, retry later")
 	default:
-		return internalError("authorization", err)
+		return authz.Target{}, internalError("authorization", err)
+	}
+}
+
+// endpointSettingsValues are the settings as their audit changes record
+// them.
+func endpointSettingsValues(e EndpointSettings) map[string]any {
+	return map[string]any{
+		"expected_status_codes": e.ExpectedStatusCodes, "latency_threshold_ms": e.LatencyThresholdMs, "excluded": e.Excluded,
 	}
 }
 

@@ -1,0 +1,28 @@
+/* Shared chart hover (components/charts). Tokens from tokens.css only. The tooltip is a neutral
+   surface; series color appears only as each row's swatch, next to the series name, so a value is
+   never told apart by color alone. */
+.ct-box { position: relative; touch-action: pan-y; outline: none; }
+.ct-box:focus-visible { box-shadow: 0 0 0 2px var(--accent-ink); border-radius: var(--radius-sm); }
+
+.ct-tip { position: absolute; z-index: 5; width: max-content; max-width: min(280px, 100%); padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-1); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18); font: 400 12px/18px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); pointer-events: none; }
+.ct-tip--above { bottom: calc(100% + 6px); }
+.ct-tip--inside { top: 4px; }
+.ct-tip__title { margin: 0; color: var(--ink-muted); white-space: nowrap; }
+.ct-tip__rows { display: grid; gap: 0; margin: 2px 0 0; }
+.ct-tip__row { display: flex; justify-content: space-between; gap: var(--space-4); }
+.ct-tip__row dt { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-muted); white-space: nowrap; }
+.ct-tip__row dd { margin: 0; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.ct-tip__swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+
+/* SVG marks: the line chart crosshair and the hovered point. */
+.ct-cross { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
+.ct-dot { fill: var(--surface-1); stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.ct-dot-html { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border: 2px solid var(--accent); border-radius: 50%; background: var(--surface-1); pointer-events: none; }
+.ct-bar-hover { fill: color-mix(in srgb, var(--ink) 8%, transparent); }
+
+.ct-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .ct-tip { animation: ct-in 80ms ease-out; }
+  @keyframes ct-in { from { opacity: 0; } }
+}

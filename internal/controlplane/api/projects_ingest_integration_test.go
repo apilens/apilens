@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	appsvc "github.com/apilens/apilens/internal/controlplane/apps"
 	"github.com/apilens/apilens/internal/controlplane/catalog"
 	"github.com/apilens/apilens/internal/controlplane/store/db"
 	"github.com/apilens/apilens/internal/ingest"
@@ -47,7 +48,7 @@ func TestNewProjectAcceptsEventsWithSlugAppID(t *testing.T) {
 	key := f.mustCreateKey(t, owner, "checkout", "Install", "ingest")
 
 	sink := &recordingSink{}
-	apps := catalog.NewAppResolver(db.New(f.pool), time.Minute)
+	apps := catalog.NewAppResolver(db.New(f.pool), time.Minute).WithProvisioner(appsvc.NewProvisioner(f.pool, nil, appsvc.Limits{}))
 	edge := ingest.New(f.verifier, apps, sink, config.IngestConfig{MaxBodyBytes: 1 << 20, MaxRecordsPerRequest: 1000},
 		slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	mux := http.NewServeMux()
@@ -76,8 +77,11 @@ func TestNewProjectAcceptsEventsWithSlugAppID(t *testing.T) {
 		t.Fatalf("rows = %+v, want project %s app %s", sink.requests, p.ID, appID)
 	}
 
-	// Other identifiers are still rejected.
-	if rec := send("ghost"); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Invalid app identifiers") {
+	// Other app names create the app (the key may create apps by default).
+	if rec := send("ghost"); rec.Code != http.StatusOK {
 		t.Fatalf("unknown app: %d %s", rec.Code, rec.Body)
+	}
+	if n := f.count(t, `SELECT count(*) FROM apps WHERE project_id = $1 AND slug = 'ghost' AND created_by = 'sdk'`, p.ID); n != 1 {
+		t.Fatalf("ghost app rows = %d", n)
 	}
 }

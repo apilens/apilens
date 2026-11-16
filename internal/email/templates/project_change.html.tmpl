@@ -1,0 +1,13 @@
+{{template "layout" .}}
+{{- define "content" -}}
+{{- $c := project .change .project .actor .detail -}}
+<p style="margin:0 0 16px 0;">{{$c.Summary}}</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Project</td><td style="padding:2px 0;">{{.project}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Changed by</td><td style="padding:2px 0;">{{.actor}}</td></tr>
+<tr><td class="muted" style="padding:2px 16px 2px 0;color:#556070;">Time</td><td style="padding:2px 0;">{{datetime .time}}</td></tr>
+</table>
+<p style="margin:0 0 24px 0;">If this change was expected, there is nothing to do.</p>
+<p style="margin:0 0 24px 0;"><a class="button" href="{{link (print "/" (seg .slug) $c.Path)}}" style="display:inline-block;padding:10px 20px;border-radius:6px;background:#5b4bff;color:#ffffff;font-weight:600;text-decoration:none;">{{$c.Button}}</a></p>
+<p class="muted" style="margin:0;color:#556070;">You get this email because you are an admin of {{.project}}. You can turn off these emails in your <a href="{{link "/settings"}}">account settings</a>.</p>
+{{- end}}

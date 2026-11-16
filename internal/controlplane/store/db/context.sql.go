@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -43,7 +44,9 @@ func (q *Queries) GetContextUser(ctx context.Context, id uuid.UUID) (User, error
 }
 
 const listUserProjects = `-- name: ListUserProjects :many
-SELECT p.id, p.org_id, p.slug, p.name
+SELECT p.id, p.org_id, p.slug, p.name, p.paused_at,
+       (SELECT count(*) FROM apps a
+        WHERE a.project_id = p.id AND a.deleted_at IS NULL)::int AS app_count
 FROM memberships m
 JOIN organizations o ON o.id = m.org_id AND o.deleted_at IS NULL
 JOIN projects p ON p.org_id = o.id AND p.deleted_at IS NULL
@@ -52,14 +55,18 @@ ORDER BY p.org_id, p.name, p.slug
 `
 
 type ListUserProjectsRow struct {
-	ID    uuid.UUID
-	OrgID uuid.UUID
-	Slug  string
-	Name  string
+	ID       uuid.UUID
+	OrgID    uuid.UUID
+	Slug     string
+	Name     string
+	PausedAt *time.Time
+	AppCount int32
 }
 
 // The active projects of every active organization the user belongs to
-// (memberships_user, then projects_org), by organization then name.
+// (memberships_user, then projects_org), by organization then name, with
+// the number of active apps of each (apps_project_slug_active) and when
+// ingest was paused for it (NULL while ingest is accepted).
 func (q *Queries) ListUserProjects(ctx context.Context, userID uuid.UUID) ([]ListUserProjectsRow, error) {
 	rows, err := q.db.Query(ctx, listUserProjects, userID)
 	if err != nil {
@@ -74,6 +81,8 @@ func (q *Queries) ListUserProjects(ctx context.Context, userID uuid.UUID) ([]Lis
 			&i.OrgID,
 			&i.Slug,
 			&i.Name,
+			&i.PausedAt,
+			&i.AppCount,
 		); err != nil {
 			return nil, err
 		}

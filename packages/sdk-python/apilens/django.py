@@ -12,6 +12,7 @@ from .client._attributes import (
     set_request_attribute,
     span_attributes,
 )
+from .client._app import resolve_and_log_app_id
 from .client._env import load_env_config
 from .client._capture import CaptureContext, _normalize_path, _to_int, capture_response
 from .client._exclusions import RequestExcluder
@@ -149,7 +150,7 @@ def _get_client_from_settings() -> ApiLensClient:
 class ApiLensDjangoMiddleware:
     """Django middleware for DRF + Django Ninja.
 
-    **Setup** — add to ``MIDDLEWARE`` and two required settings::
+    **Setup** — add to ``MIDDLEWARE`` and set the API key (``APILENS_APP_ID`` is optional)::
 
         # settings.py
         MIDDLEWARE = [
@@ -157,7 +158,8 @@ class ApiLensDjangoMiddleware:
             "apilens.django.ApiLensDjangoMiddleware",
         ]
         APILENS_API_KEY = "apilens_xxx"   # project-level key from the dashboard
-        APILENS_APP_ID  = "my-django-app" # slug of the app being instrumented
+        APILENS_APP_ID  = "my-django-app" # optional app name (else env APILENS_APP_ID /
+                                          # OTEL_SERVICE_NAME, else the default app)
 
     **Identifying consumers** — two options:
 
@@ -202,9 +204,11 @@ class ApiLensDjangoMiddleware:
         self.get_response = get_response
         self.client = _get_client_from_settings()
         self.project_slug = getattr(settings, "APILENS_PROJECT_SLUG", "")
-        self.app_id = _setting(settings, "APP_ID", "", env)
-        if not self.app_id:
-            raise RuntimeError("APILENS_APP_ID is required (Django setting or environment variable)")
+        # Optional: setting > APILENS_APP_ID > OTEL_SERVICE_NAME > "" (the
+        # project's default app). Free-form; the server slugifies it.
+        self.app_id = resolve_and_log_app_id(
+            getattr(settings, "APILENS_APP_ID", "") or "", source="APILENS_APP_ID setting"
+        )
         self.environment = _setting(settings, "ENVIRONMENT", None, env)
         # APILENS_CAPTURE_PROFILE ("metadata" | "redacted" | "full") sets the
         # defaults of the capture flags below; each flag's own setting or env

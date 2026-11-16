@@ -2,7 +2,7 @@
    muted ink (context), 4xx --warn and 5xx --error, the p95 line the accent. Every chart has a
    legend, so no series is told apart by color alone. At phone width the tiles go two by two and the
    table stacks into labelled lines, never scrolling sideways. */
-.tr { max-width: 1120px; margin: 0 auto; padding: var(--space-8) var(--space-8) var(--space-16); }
+/* Page width and gutters come from .page (styles/page.css). */
 .tr-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
 .tr-muted { color: var(--ink-muted); }
 
@@ -62,7 +62,16 @@
 .tr-grid { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .tr-base { stroke: var(--border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .tr-hit { fill: transparent; }
-.tr-bucket:hover .tr-hit, .tr-hit:hover { fill: var(--surface-2); }
+/* The hovered (or keyboard-picked) bucket: its slot is shaded, line charts add a crosshair and dots. */
+.tr-hit.is-on { fill: var(--surface-2); }
+.tr-plot--hover { cursor: crosshair; }
+.tr-dot { pointer-events: none; }
+.tr-dot.ep-c-p50 { stroke: var(--ink-muted); }
+.tr-dot.ep-c-p75 { stroke: var(--info); }
+.tr-dot.ep-c-p95, .tr-dot--accent { stroke: var(--accent); }
+.tr-dot.ep-c-4xx { stroke: var(--warn); fill: var(--surface-1); }
+.tr-dot.ep-c-5xx { stroke: var(--error); fill: var(--surface-1); }
+.ct-tip__swatch.tr-sw-line { background: var(--accent); }
 .tr-fill-ok { fill: var(--ink-muted); background: var(--ink-muted); }
 .tr-fill-4xx { fill: var(--warn); background: var(--warn); }
 .tr-fill-5xx { fill: var(--error); background: var(--error); }
@@ -83,6 +92,9 @@
 .tr-ep__link code { font: 400 13px/20px var(--font-mono); }
 .tr-row:hover .tr-ep__link code { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
 .tr-empty { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--ink-muted); }
+/* A paged table card: the shared Pagination sits under the rows, on the card's hairline. */
+.tr-card--table > .pg, .tr-card--table > nav.pg { border-top: 1px solid var(--border); }
+.tr-cap { margin: 0; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
 
 @media (prefers-reduced-motion: reduce) {
   .tr-live__dot, .tr-livenum.is-new { animation: none; }
@@ -96,7 +108,6 @@
 }
 
 @media (max-width: 760px) {
-  .tr { padding: var(--space-4) var(--space-4) var(--space-12); }
   .tr-tile__value { font-size: 20px; line-height: 28px; }
   .tr-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .tr-table, .tr-table tbody, .tr-table tr, .tr-table td { display: block; width: auto; }
@@ -107,3 +118,7 @@
   .tr-table td.tr-ep { display: block; padding-bottom: var(--space-2); }
   .tr-table td.tr-ep::before { content: none; }
 }
+
+/* An interactive sparkline (shared chart hover): a taller hit area than the 24px line. */
+.tr-spark--hover { cursor: crosshair; }
+.tr-spark--hover svg { display: block; width: 100%; height: 100%; overflow: visible; }
