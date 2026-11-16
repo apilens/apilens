@@ -31,6 +31,14 @@ describe("sidebarHref", () => {
     expect(sidebarHref("shop", "explore", new URLSearchParams(`range=&env=${"x".repeat(65)}`))).toBe("/shop/explore");
   });
 
+  it("carries env=all only to the pages that read it as all environments (#993)", () => {
+    const current = new URLSearchParams("range=6h&env=all");
+    expect(sidebarHref("shop", "errors", current)).toBe("/shop/errors?range=6h&env=all");
+    expect(sidebarHref("shop", "performance", current)).toBe("/shop/performance?range=6h&env=all");
+    expect(sidebarHref("shop", "explore", current)).toBe("/shop/explore?range=6h");
+    expect(withScope("/shop/changes", current)).toBe("/shop/changes?range=6h");
+  });
+
   it("encodes the values it carries", () => {
     expect(sidebarHref("shop", "traffic", new URLSearchParams("env=eu+west%2F1"))).toBe("/shop/traffic?env=eu+west%2F1");
   });

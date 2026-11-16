@@ -130,11 +130,21 @@ async function queryDown(down: boolean) {
   });
 }
 
+/**
+ * `url` reading all environments unless it names one: a URL without `env` reads the project's
+ * production environment (#993), and these specs seed and check the all-environments numbers.
+ */
+function allEnvs(url: string): string {
+  const u = new URL(url, "http://x");
+  if (!u.searchParams.has("env")) u.searchParams.set("env", "all");
+  return `${u.pathname}${u.search}`;
+}
+
 async function signIn(page: Page, next = PAGE, seeds: Record<string, unknown> = {}) {
   const res = await fetch(`${IDENTITY}/__fake/handoff`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ next, ...seeds }),
+    body: JSON.stringify({ next: allEnvs(next), ...seeds }),
   });
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
@@ -265,7 +275,7 @@ test("Response times tab: percentiles, Apdex, the p50/p75/p95 trend and the hist
   await expect(page.getByRole("img", { name: /Response time percentiles/ })).toHaveAttribute("aria-label", /in the last 7 days, 5xx responses/);
   expect((await reads()).at(-1)?.query).toEqual({ range: "7d", status: "5xx" });
   // Tabs keep the scope.
-  await expect(tabs(page).getByRole("link", { name: "Data transferred" })).toHaveAttribute("href", `${PAGE}?tab=transfer&range=7d&status=5xx`);
+  await expect(tabs(page).getByRole("link", { name: "Data transferred" })).toHaveAttribute("href", `${PAGE}?tab=transfer&range=7d&env=all&status=5xx`);
 });
 
 test("Data transferred tab: bytes in and out, the in/out series and both size histograms", async ({ page }) => {
@@ -399,8 +409,8 @@ test.describe("with several apps", () => {
     await expect(page.getByRole("img", { name: /Requests by status/ })).toHaveAttribute("aria-label", /1,200 requests in the last 24 hours for Billing/);
     expect((await reads()).at(-1)?.query).toEqual({ range: "24h", app: BILLING_ID });
     // Tabs and the Traffic link keep the app.
-    await expect(tabs(page).getByRole("link", { name: "Errors" })).toHaveAttribute("href", `${PAGE}?tab=errors&app=${BILLING_ID}`);
-    await expect(page.locator(".pagehead").getByRole("link", { name: "Traffic" })).toHaveAttribute("href", `/shop/traffic?app=${BILLING_ID}`);
+    await expect(tabs(page).getByRole("link", { name: "Errors" })).toHaveAttribute("href", `${PAGE}?tab=errors&range=24h&env=all&app=${BILLING_ID}`);
+    await expect(page.locator(".pagehead").getByRole("link", { name: "Traffic" })).toHaveAttribute("href", `/shop/traffic?range=24h&env=all&app=${BILLING_ID}`);
   });
 
   test("across all apps the tabs do not claim one app's settings", async ({ page }) => {
@@ -408,9 +418,9 @@ test.describe("with several apps", () => {
     await seedPerApp();
     await signIn(page, `${PAGE}?tab=errors`);
     await expect(tiles(page).locator(".tr-tile__value").last()).toHaveText("Per app");
-    await page.goto(`${PAGE}?tab=latency`);
+    await page.goto(allEnvs(`${PAGE}?tab=latency`));
     await expect(tiles(page).locator(".tr-tile__sub").last()).toHaveText("Excellent, target set per app");
-    await page.goto(`${PAGE}?tab=latency&app=${SHOP_ID}`);
+    await page.goto(allEnvs(`${PAGE}?tab=latency&app=${SHOP_ID}`));
     await expect(tiles(page).locator(".tr-tile__sub").last()).toHaveText("Excellent, target app default");
   });
 
@@ -433,12 +443,12 @@ test.describe("with several apps", () => {
     await expect(page.getByRole("status").filter({ hasText: "Settings saved for Billing." })).toBeVisible();
 
     // Billing's page shows them; Shop's does not.
-    await page.goto(`${PAGE}?tab=errors&app=${BILLING_ID}`);
+    await page.goto(allEnvs(`${PAGE}?tab=errors&app=${BILLING_ID}`));
     await expect(tiles(page).locator(".tr-tile__value").last()).toHaveText("404");
-    await page.goto(`${PAGE}?tab=errors&app=${SHOP_ID}`);
+    await page.goto(allEnvs(`${PAGE}?tab=errors&app=${SHOP_ID}`));
     await expect(tiles(page).locator(".tr-tile__value").last()).toHaveText("None");
     // Scoped to Billing, the dialog opens on Billing.
-    await page.goto(`${PAGE}?app=${BILLING_ID}`);
+    await page.goto(allEnvs(`${PAGE}?app=${BILLING_ID}`));
     await page.getByRole("button", { name: "Endpoint settings" }).click();
     await expect(dialog.getByRole("combobox", { name: "App" })).toHaveValue(BILLING_ID);
     await expect(codes).toHaveValue("404");
@@ -453,7 +463,7 @@ test("says so when the endpoint had no requests, and when a tab cannot load", as
 
   await seed();
   await queryDown(true);
-  await page.goto(`${PAGE}?tab=latency`);
+  await page.goto(allEnvs(`${PAGE}?tab=latency`));
   const alert = page.getByRole("alert").filter({ hasText: "We couldn’t load response times just now." });
   await expect(alert).toBeVisible();
   await queryDown(false);
@@ -479,7 +489,7 @@ test("screenshots", async ({ page }) => {
     await page.evaluate((t) => localStorage.setItem("theme", t), theme);
     await page.emulateMedia({ colorScheme: theme as "light" | "dark" });
     for (const tab of ["requests", "errors", "latency", "transfer"]) {
-      await page.goto(`${PAGE}?tab=${tab}`);
+      await page.goto(allEnvs(`${PAGE}?tab=${tab}`));
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: width > 500 ? 900 : 844 });
         await page.screenshot({ path: `${dir}/endpoint-${tab}-${theme}-${width}.png`, fullPage: true });

@@ -6,6 +6,7 @@
 import { RANGE_LABEL } from "./consumers";
 import type { EndpointSettings, PutEndpointSettingsRequest, QueryRange } from "./identity";
 import { DEFAULT_PER, type PageOptions, parsePage } from "./pagination";
+import { envParam } from "./scope-defaults";
 import { DEFAULT_RANGE, TRAFFIC_RANGES } from "./traffic";
 
 export const ERRORS_TABS = [
@@ -82,7 +83,7 @@ export function parseErrorsQuery(params: SearchParams): ErrorsState {
 }
 
 /**
- * The page URL for `q`, leaving defaults out. The modal (code, view and its list's page) belongs to
+ * The page URL for `q`, leaving defaults out (a range and env always go in, #993). The modal (code, view and its list's page) belongs to
  * the status tab. Links that change the tab, range or environment pass `page: 1` (the reader starts
  * again at the top); `per` is a preference and stays.
  */
@@ -90,8 +91,8 @@ export function errorsHref(project: string, q: Partial<ErrorsState>): string {
   const p = new URLSearchParams();
   const tab = q.tab ?? DEFAULT_TAB;
   if (tab !== DEFAULT_TAB) p.set("tab", tab);
-  if (q.range && q.range !== DEFAULT_RANGE) p.set("range", q.range);
-  if (q.env) p.set("env", q.env);
+  if (q.range) p.set("range", q.range);
+  if (q.env !== undefined) p.set("env", envParam(q.env));
   if (q.page && q.page > 1) p.set("page", String(q.page));
   if (q.per && q.per !== DEFAULT_PER) p.set("per", String(q.per));
   if (tab === "status" && q.code && isErrorCode(q.code)) {

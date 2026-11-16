@@ -4,7 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { type AnonymousData, type ConsumersData, ConsumersView, type DetailState } from "@/components/consumers/consumers";
 import { getContext, getSession } from "@/lib/auth/server";
 import { pickConsumerSdks } from "@/lib/consumer-setup";
-import { type ConsumersQuery, consumersHref, errorsOf, parseConsumersQuery } from "@/lib/consumers";
+import { CONSUMER_RANGES, type ConsumersQuery, DEFAULT_RANGE, consumersHref, errorsOf, parseConsumersQuery } from "@/lib/consumers";
 import {
   type CallOptions,
   type ConsumerDetail,
@@ -17,6 +17,7 @@ import {
 } from "@/lib/identity";
 import { type PageState, type SearchParams, clampPage, pageOffset, parsePage } from "@/lib/pagination";
 import { findProject } from "@/lib/scope";
+import { withScopeDefaults } from "@/lib/scope-defaults";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 
 export const metadata: Metadata = { title: "Consumers" };
@@ -122,13 +123,22 @@ async function loadAnonymous(project: string, q: ConsumersQuery, next: string): 
 // (or the SDK groups roll-up), and one user's requests, errors and top endpoints.
 export default async function ConsumersPage({ params, searchParams }: { params: Promise<{ project: string }>; searchParams: Promise<SearchParams> }) {
   const { project } = await params;
-  const sp = await searchParams;
-  const q = parseConsumersQuery(sp);
-  const page = parsePage(sp);
-  const next = consumersHref(project, q);
+  const raw = await searchParams;
+  const next = consumersHref(project, parseConsumersQuery(raw));
   const context = await getContext(next);
   const found = findProject(context, project);
   if (!found) notFound();
+  // No range in the URL (#993): the range that covers the project's first data.
+  const { params: sp } = await withScopeDefaults(raw, {
+    firstAt: async () => {
+      const s = await read(next, (o) => identity().ingestStatus(project, o));
+      return s === null || s === 404 ? null : s.first_at;
+    },
+    ranges: CONSUMER_RANGES,
+    fallbackRange: DEFAULT_RANGE,
+  });
+  const q = parseConsumersQuery(sp);
+  const page = parsePage(sp);
 
   const data = await load(project, q, page, next);
 

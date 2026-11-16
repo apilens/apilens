@@ -142,7 +142,7 @@ test("charts unique users new vs returning, with exact numbers on hover, and lis
   const rows = usersTable(page).locator("tbody tr");
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0).getByRole("cell").nth(0)).toHaveText("Priya Shahusr_1f3a9c");
-  await expect(rows.nth(0).getByRole("cell").nth(1).getByRole("link", { name: "Acme Corp" })).toHaveAttribute("href", "/shop/consumers?group=Acme+Corp");
+  await expect(rows.nth(0).getByRole("cell").nth(1).getByRole("link", { name: "Acme Corp" })).toHaveAttribute("href", "/shop/consumers?range=24h&group=Acme+Corp");
   await expect(rows.nth(0).getByRole("cell").nth(2)).toHaveText("1,200");
   await expect(rows.nth(0).getByRole("cell").nth(3)).toHaveText("36 (3.0%)");
   await expect(rows.nth(1).getByRole("cell").nth(0)).toHaveText("usr_8b3e26New");
@@ -231,12 +231,12 @@ test("opens a user's detail: group, top endpoints, Explore link and paged reques
 
   const panel = page.getByRole("region", { name: "Priya Shah" });
   await expect(panel.getByRole("heading", { level: 2, name: "Priya Shah" })).toBeVisible();
-  await expect(panel.getByRole("link", { name: "Acme Corp" }).first()).toHaveAttribute("href", "/shop/consumers?group=Acme+Corp");
+  await expect(panel.getByRole("link", { name: "Acme Corp" }).first()).toHaveAttribute("href", "/shop/consumers?range=24h&group=Acme+Corp");
   await expect(panel.getByRole("link", { name: "View requests in Explore" })).toHaveAttribute("href", "/shop/explore?range=24h&consumer_id=usr_1f3a9c");
   await expect(panel.locator(".cs-tiles--panel dd").first()).toHaveText("1,200");
   const endpoints = panel.getByRole("table", { name: "Top endpoints" });
   await expect(endpoints.locator("tbody tr")).toHaveCount(2);
-  await expect(endpoints.getByRole("link", { name: "GET /orders/{id}" })).toHaveAttribute("href", "/shop/endpoints/GET/%2Forders%2F%7Bid%7D");
+  await expect(endpoints.getByRole("link", { name: "GET /orders/{id}" })).toHaveAttribute("href", "/shop/endpoints/GET/%2Forders%2F%7Bid%7D?range=24h");
 
   const chart = panel.getByRole("group", { name: /Requests over time/ });
   await chart.focus();
