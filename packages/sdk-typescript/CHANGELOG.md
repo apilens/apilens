@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Full exception payload: the exception log renders `name: message`, the
+  stack, every `Caused by:` from `error.cause` (depth 10, cycle-safe) and
+  every `AggregateError` member; a non-`Error` throw sends `String(value)`
+  plus a JSON preview. The payload cap rises from 8,000 chars (head only) to
+  64 KiB keeping head and tail. New log attributes `exception.type`,
+  `exception.message`, `exception.chain_depth`. New `stackTraceLimit` option
+  (default 50) raises `Error.stackTraceLimit` at init unless the app already
+  set it higher.
 - Errors are never sampled: a request whose handler threw (whatever status
   the app answered) or that answered 5xx is always kept, with its spans and
   error log, whatever `sampleRate`, `sampleOnRequest`, `sampleOnResponse` or

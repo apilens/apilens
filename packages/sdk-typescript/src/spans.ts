@@ -35,6 +35,7 @@ import {
   type SpanSink,
   type TraceContext,
 } from "./trace.js";
+import { exceptionContent, MAX_EXCEPTION_PAYLOAD_CHARS, truncateHeadTail } from "./exception.js";
 import type { ApiLensLogRecord, ApiLensSpanRecord } from "./types.js";
 
 export const ENV_CAPTURE_SPANS = "APILENS_CAPTURE_SPANS";
@@ -44,7 +45,6 @@ const MAX_ATTRIBUTE_VALUE_CHARS = 512;
 const MAX_NAME_CHARS = 256;
 const MAX_URL_CHARS = 512;
 const MAX_LOG_MESSAGE_CHARS = 4000;
-const MAX_LOG_PAYLOAD_CHARS = 8000;
 /** Child spans held per request until it is known to be sampled in. */
 export const MAX_PENDING_SPANS = 256;
 
@@ -156,6 +156,8 @@ export class SpanRecorder {
       message: string;
       payload: string;
       loggerName: string;
+      /** `exception.type`, `exception.message`, `exception.chain_depth` for a thrown error. */
+      attributes?: Record<string, string>;
       method: string;
       path: string;
       statusCode: number;
@@ -180,7 +182,8 @@ export class SpanRecorder {
       consumer_group: log.consumerGroup || "",
       trace_id: ctx?.traceId || "",
       span_id: ctx?.spanId || "",
-      payload: String(log.payload || "").slice(0, MAX_LOG_PAYLOAD_CHARS),
+      payload: truncateHeadTail(String(log.payload || ""), MAX_EXCEPTION_PAYLOAD_CHARS),
+      ...(log.attributes ? { attributes: cleanAttributes(log.attributes) } : {}),
       release: "",
       commit: "",
     };
@@ -443,22 +446,18 @@ export function instrumentOutboundHttp(): void {
   }
 }
 
-/** Error log message and payload (the stack) for a failed request. */
+/**
+ * Error log message, payload and attributes for a failed request: the full
+ * exception (causes and AggregateError members included) for a thrown value.
+ */
 export function errorLogContent(
   error: unknown,
   statusCode: number,
   method: string,
   path: string,
-): { message: string; payload: string; loggerName: string } {
+): { message: string; payload: string; loggerName: string; attributes?: Record<string, string> } {
   if (error !== undefined && error !== null) {
-    if (error instanceof Error) {
-      return {
-        message: `${error.name || "Error"}: ${error.message}`.trim(),
-        payload: String(error.stack || ""),
-        loggerName: "apilens.exception",
-      };
-    }
-    return { message: `Error: ${String(error)}`, payload: "", loggerName: "apilens.exception" };
+    return { ...exceptionContent(error), loggerName: "apilens.exception" };
   }
   return { message: `HTTP ${statusCode} on ${method} ${path}`, payload: "", loggerName: "apilens.http" };
 }

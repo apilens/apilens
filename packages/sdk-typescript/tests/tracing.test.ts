@@ -30,7 +30,7 @@ const SPAN_FIELDS = [
   "status_code", "timestamp", "trace_id",
 ];
 const LOG_FIELDS = [
-  "app_id", "commit", "consumer_group", "consumer_id", "consumer_name", "endpoint_method",
+  "app_id", "attributes", "commit", "consumer_group", "consumer_id", "consumer_name", "endpoint_method",
   "endpoint_path", "environment", "level", "logger_name", "message", "payload",
   "project_slug", "release", "span_id", "status_code", "timestamp", "trace_id",
 ];
@@ -296,6 +296,11 @@ describe("Express tracing (e2e)", () => {
     });
     expect(logs[0].payload).toContain("TypeError: card declined");
     expect(logs[0].payload).toContain("tracing.test.ts");
+    expect(logs[0].attributes).toEqual({
+      "exception.type": "TypeError",
+      "exception.message": "card declined",
+      "exception.chain_depth": "0",
+    });
   });
 
   it("records the error when Express' default handler answers", async () => {

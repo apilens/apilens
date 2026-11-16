@@ -398,6 +398,17 @@ log whatever `sampleRate`, `sampleOnRequest`, `sampleOnResponse` or the remote
 sample rate say. The error log is sent with tracing off too (without a trace
 id). Only turning capture off (`enabled: false`, or remotely) drops it.
 
+The exception log carries the **full exception**: `name: message`, the stack,
+then each `Caused by:` from `error.cause` (up to 10 levels, cycle-safe) and
+each `AggregateError` member. A thrown non-`Error` value is sent as
+`String(value)` plus a JSON preview. The payload is capped at 64 KiB keeping
+the head and the tail (`…[N chars truncated]…` in the middle), so both the
+raised error and its root cause survive. The log also carries the attributes
+`exception.type`, `exception.message` and `exception.chain_depth` (the number
+of `cause` links). V8 keeps only 10 frames per stack, so the middleware raises
+`Error.stackTraceLimit` to 50 at init (`stackTraceLimit` option); a limit your
+app already set higher is left alone.
+
 Nothing to call — a clean request has no trace messages; a failing one does.
 This is the only thing written to `/v1/logs`; it is not a general logging API.
 

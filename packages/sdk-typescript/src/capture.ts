@@ -21,6 +21,7 @@ import type { IncomingHttpHeaders } from "node:http";
 
 import { ApiLensClient } from "./client.js";
 import { resolveConfig } from "./env.js";
+import { applyStackTraceLimit } from "./exception.js";
 import { RequestExcluder } from "./exclusions.js";
 import { effectiveConfig } from "./metadata.js";
 import { Sampler } from "./sampling.js";
@@ -570,6 +571,8 @@ export class CaptureCore {
     // whenever capture is on. Trace ids, request + outbound spans follow
     // captureSpans; APILENS_CAPTURE_SPANS=false wins over code.
     if (this.enabled) {
+      // Deeper stacks for the exception log (V8 keeps 10 frames by default).
+      applyStackTraceLimit(config.stackTraceLimit);
       this.logRecorder = new SpanRecorder(
         client,
         client.config.appId,

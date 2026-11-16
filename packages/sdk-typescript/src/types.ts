@@ -111,8 +111,13 @@ export type ApiLensLogRecord = {
   consumer_group: string;
   trace_id: string;
   span_id: string;
-  /** The stack trace, when the request failed with an error. */
+  /**
+   * The full exception (stack, causes, AggregateError members; 64 KiB
+   * head+tail cap), when the request failed with an error.
+   */
   payload: string;
+  /** `exception.type`, `exception.message`, `exception.chain_depth` on an exception log. */
+  attributes?: Record<string, string>;
   release: string;
   commit: string;
 };
@@ -343,6 +348,12 @@ export type ApiLensExpressConfig = ApiLensClientConfig & {
    * regardless of this option.
    */
   captureSpans?: boolean;
+  /**
+   * `Error.stackTraceLimit` applied at init (default 50, V8's own is 10) so
+   * the exception log carries deep stacks. Never lowers a limit the app
+   * already set higher.
+   */
+  stackTraceLimit?: number;
   /** `service_name` on spans (default: the app id). */
   serviceName?: string;
   getConsumer?: (req: unknown, res: unknown) => ApiLensConsumer | string | null | undefined;
