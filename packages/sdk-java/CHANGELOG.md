@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Delivery without silent loss: a batch that fails with 408/429/5xx or a
+  network error is retried with backoff for up to `maxRetryDuration`
+  (default 300 s, `APILENS_MAX_RETRY_SECONDS`, `apilens.max-retry-duration`)
+  instead of 3 attempts; `maxRetries` now defaults to `-1` (no attempt cap).
+  A 200 partial accept drops only the refused records (`invalid`,
+  `app_rejected`). Every drop is counted per signal and reason, logged at
+  `WARNING` (at most once a minute) and reported in the next heartbeat's
+  `dropped` field, reset once a heartbeat is accepted.
+- JVM shutdown hook: a client not managed by Spring flushes its queues when
+  the JVM exits. The flush of `shutdown()` and the hook is bounded by
+  `shutdownTimeout` (default 5 s); records still unsent then are counted as
+  `shutdown`. `registerShutdownHook(false)` turns the hook off; the Spring
+  Boot auto-configuration does, since Spring closes the client itself.
 - Logged exceptions: Spring Boot attaches a Logback appender (and a Log4j2
   appender when Log4j2 is the logging system) that ships every event logged at
   `ERROR` with a throwable as an `apilens.exception` log with the full

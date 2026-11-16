@@ -360,7 +360,10 @@ auto-configuration.
 | `timeout` | `Duration.ofSeconds(5)` | Per-request HTTP timeout. |
 | `maxQueueSize` | `10_000` | Record cap per queue; oldest records drop once full. |
 | `maxQueueBytes` | `64 * 1024 * 1024` | Memory cap shared by the request, span and log queues (estimated bytes); oldest records drop once exceeded. |
-| `maxRetries` | `3` | Retry attempts per batch for 408, 429, 5xx and network errors (full-jitter exponential backoff, or the server's `Retry-After`). |
+| `maxRetryDuration` | `Duration.ofSeconds(300)` | How long a batch that failed with 408, 429, 5xx or a network error keeps being retried (full-jitter exponential backoff, or the server's `Retry-After`) before it is dropped as `retries_exhausted`. |
+| `maxRetries` | `-1` (no cap) | Optional cap on retry attempts per batch; `-1` leaves only `maxRetryDuration`. |
+| `registerShutdownHook` | `true` | Register a JVM shutdown hook that flushes the queues (bounded by `shutdownTimeout`) when the process exits without `client.shutdown()`. The Spring Boot auto-configuration turns it off, since Spring closes the client itself. |
+| `shutdownTimeout` | `Duration.ofSeconds(5)` | Upper bound on the flush of `client.shutdown()` and the shutdown hook; records still unsent at the deadline are dropped and counted as `shutdown`. |
 | `compress` | `true` | gzip each batch (`Content-Encoding: gzip`) on the background flush thread. `false` sends plain JSON. |
 | `verifyTls` | `true` | Verify the ingest server's TLS certificate. |
 | `caBundlePath` | `""` | Custom CA bundle (PEM) for TLS verification; replaces the system trust store. |
@@ -433,8 +436,8 @@ fails at startup.
 | `serviceName` | `appId` | Service name shown on spans. |
 | `getConsumer` | — | Register an `ApiLensConsumerResolver` (MVC) or `ApiLensWebFluxConsumerResolver` (WebFlux) bean, or pass it to the filter constructor (see [consumer attribution](#consumer-attribution)). |
 | `maskRequestBody` / `maskResponseBody` | `null` | `BiFunction<RequestInfo/ResponseInfo, byte[], byte[]>` callbacks on the captured (truncated) raw body; see [body mask callbacks](#body-capture-and-mask-callbacks). |
-| `flushOnShutdown` | always | The Spring bean's destroy method (`client.shutdown()`) flushes the queue when the context closes; outside Spring call `client.shutdown()` yourself. |
-| `shutdownTimeout` | **not available** | Python only. The shutdown flush has no separate bound; each batch it sends is bounded by `timeout` and `maxRetries`. |
+| `flushOnShutdown` | always | The Spring bean's destroy method (`client.shutdown()`) flushes the queue when the context closes; outside Spring a JVM shutdown hook does it (`registerShutdownHook`). |
+| `shutdownTimeout` | `5s` | A client option (`ApiLensConfig.shutdownTimeout`, `apilens.shutdown-timeout`): the shutdown flush stops at this deadline. |
 | `excludePaths` | `[]` | Regexes for paths to skip entirely (no record, span or log), e.g. `^/health$`. Matched case-insensitively against the path without query string. `APILENS_EXCLUDE_PATHS` (comma-separated env var) adds to it. An invalid regex fails at startup. |
 | `excludeUserAgents` | `[]` | Regexes for `User-Agent` values to skip entirely, e.g. `^uptimerobot`. Case-insensitive search. `APILENS_EXCLUDE_USER_AGENTS` (comma-separated env var) adds to it. |
 | `defaultExclusions` | `true` | Skip the [built-in health/probe exclusions](#default-exclusions) (applied before `excludePaths`). `false` turns them off; your own `excludePaths` / `excludeUserAgents` still apply. |
@@ -610,7 +613,9 @@ variable overrides `application.properties`.
 | `APILENS_MAX_QUEUE_BYTES` | `maxQueueBytes` | long | `67108864` |
 | `APILENS_MAX_BATCH_BYTES` | `maxBatchBytes` | int | `4194304` |
 | `APILENS_COMPRESS` | `compress` | bool | `true` |
-| `APILENS_MAX_RETRIES` | `maxRetries` | int | `3` |
+| `APILENS_MAX_RETRIES` | `maxRetries` | int | `-1` (no cap) |
+| `APILENS_MAX_RETRY_SECONDS` | `maxRetryDuration` | seconds | `300` |
+| `APILENS_SHUTDOWN_TIMEOUT` | `shutdownTimeout` | seconds | `5` |
 | `APILENS_SERVICE_NAME` | `serviceName` | string | app id |
 | `APILENS_SEND_HEARTBEAT` | `sendHeartbeat` | bool; `false` wins over code | `true` |
 | `APILENS_SEND_METADATA` | `sendMetadata` | bool; `false` wins over code | `true` |
@@ -647,7 +652,9 @@ description and default.
 | `apilens.max-queue-bytes` | `67108864` (64 MB) | Estimated bytes all three queues may hold together. |
 | `apilens.max-batch-bytes` | `4194304` (4 MB) | Upper bound on one ingest request body (min `1024`). |
 | `apilens.compress` | `true` | Gzip batch bodies. |
-| `apilens.max-retries` | `3` | Retries for 408, 429, 5xx and network errors. |
+| `apilens.max-retry-duration` | `300s` | How long a batch that failed with 408, 429, 5xx or a network error is retried before it is dropped. |
+| `apilens.max-retries` | `-1` (no cap) | Optional cap on retry attempts; `-1` leaves only `apilens.max-retry-duration`. |
+| `apilens.shutdown-timeout` | `5s` | Upper bound on the flush when the application context closes. |
 | `apilens.retry-backoff-base` / `apilens.retry-backoff-max` | `250ms` / `5s` | Full-jitter backoff bounds. |
 | `apilens.enabled` | `true` | Master switch: `false` sends nothing. |
 | `apilens.user-agent` | `apilens-java-sdk/<version>` | User-Agent of ingest requests. |
@@ -710,8 +717,9 @@ try (var client = new ApiLensClient(ApiLensConfig.builder()
 ```
 
 `client.captureSpan(SpanRecord)` and `client.captureLog(LogRecord)` queue spans
-and logs the same way. try-with-resources flushes on exit; otherwise call
-`client.shutdown()` before your process ends. `client.droppedCount()` reports
+and logs the same way. try-with-resources flushes on exit; otherwise the
+client's JVM shutdown hook flushes when the process exits (at most
+`shutdownTimeout`, 5 s by default). `client.droppedCount()` reports
 records shed under backpressure and `client.dropCounts()` breaks that total
 down by reason (see [Reliability & performance](#reliability--performance)).
 
@@ -738,7 +746,10 @@ serverless and proxies are covered end to end in the
   | `queue_full` | The queue reached `maxQueueSize`; the oldest record was dropped. |
   | `queue_bytes` | Queued bytes would exceed `maxQueueBytes`; the oldest record(s) were dropped. |
   | `non_retryable` | Ingest rejected the batch with a 4xx other than 408/429; it is not retried. |
-  | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) after `maxRetries`. |
+  | `retries_exhausted` | The batch still failed (network, timeout, 408, 429, 5xx) after `maxRetryDuration` (300 s). |
+  | `invalid` | Ingest answered 200 but refused this record as invalid (partial accept); the rest of the batch was stored. |
+  | `app_rejected` | Ingest answered 200 but refused this record because of its app or environment. |
+  | `shutdown` | Still queued or unsent when the shutdown flush reached `shutdownTimeout`. |
   | `truncated` | Not a drop: one record was larger than `maxBatchBytes` on its own, so its payloads were cut before sending. Not counted in `droppedCount()`. |
 
 - **Size-bounded batches.** A POST is cut at `batchSize` records or
@@ -746,16 +757,23 @@ serverless and proxies are covered end to end in the
   comes first, so a backlog of large records goes out as several requests
   instead of one oversized body that ingest would reject whole. A single record
   over the cap is truncated (payloads first) rather than dropped.
-- **Resilient delivery.** 408, 429, 5xx, timeouts and network errors retry up to
-  `maxRetries` times with full-jitter exponential backoff (between
-  `retryBackoffBase` and `retryBackoffMax`), so many instances do not retry in
-  lockstep. A `Retry-After` header takes precedence, capped at 60 s. Any other
-  4xx drops the batch immediately; a 401 logs one clear message.
+- **Resilient delivery.** 408, 429, 5xx, timeouts and network errors are
+  retried for up to `maxRetryDuration` (300 s) with full-jitter exponential
+  backoff (between `retryBackoffBase` and `retryBackoffMax`), so a short ingest
+  outage loses nothing and many instances do not retry in lockstep. A
+  `Retry-After` header takes precedence, capped at 60 s. Any other 4xx drops the
+  batch immediately; a 401 logs one clear message. A 200 that refuses some
+  records (partial accept) drops only those.
+- **No silent loss.** Every dropped record is counted by reason, logged at
+  `WARNING` (at most once a minute) and reported to ingest in the next
+  heartbeat (`dropped`, per signal and reason), where Ingest health shows it.
 - **Never throws into your app.** All SDK errors are caught and logged under
   the `java.util.logging` logger `apilens` — raise it to `FINE` while
   debugging.
 - **Graceful shutdown.** Under Spring Boot the client bean's destroy method
-  flushes the queue and sends the final heartbeat.
+  flushes the queue and sends the final heartbeat. Without Spring, a JVM
+  shutdown hook does the same when the process exits. Either way the flush
+  takes at most `shutdownTimeout` (5 s).
 
 ---
 

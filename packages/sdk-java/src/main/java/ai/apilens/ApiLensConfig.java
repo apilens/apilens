@@ -25,6 +25,12 @@ public final class ApiLensConfig {
   public static final String ENV_OTEL_SERVICE_NAME = "OTEL_SERVICE_NAME";
   /** {@link #appIdSource()} of a value set with {@link Builder#appId}. */
   public static final String APP_ID_SOURCE_CONFIG = "appId";
+  /** {@link #maxRetries()} value meaning no attempt cap: only {@link #maxRetryDuration()} applies. */
+  public static final int UNLIMITED_RETRIES = -1;
+  /** Default {@link #maxRetryDuration()}: a failed batch is retried for up to 5 minutes (D7). */
+  public static final Duration DEFAULT_MAX_RETRY_DURATION = Duration.ofSeconds(300);
+  /** Default {@link #shutdownTimeout()}. */
+  public static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(5);
 
   private final String apiKey;
   private final String projectSlug;
@@ -47,6 +53,7 @@ public final class ApiLensConfig {
   private final int maxBatchBytes;
   private final boolean compress;
   private final int maxRetries;
+  private final Duration maxRetryDuration;
   private final Duration retryBackoffBase;
   private final Duration retryBackoffMax;
   private final boolean enabled;
@@ -56,6 +63,8 @@ public final class ApiLensConfig {
   private final Duration heartbeatInterval;
   private final boolean sendMetadata;
   private final String metadataPath;
+  private final boolean registerShutdownHook;
+  private final Duration shutdownTimeout;
 
   private ApiLensConfig(Builder builder) {
     this.apiKey = Strings.clean(builder.apiKey);
@@ -82,6 +91,7 @@ public final class ApiLensConfig {
     this.maxBatchBytes = builder.maxBatchBytes;
     this.compress = builder.compress;
     this.maxRetries = builder.maxRetries;
+    this.maxRetryDuration = builder.maxRetryDuration;
     this.retryBackoffBase = builder.retryBackoffBase;
     this.retryBackoffMax = builder.retryBackoffMax;
     this.enabled = builder.enabled;
@@ -91,6 +101,8 @@ public final class ApiLensConfig {
     this.heartbeatInterval = builder.heartbeatInterval;
     this.sendMetadata = builder.sendMetadata;
     this.metadataPath = Strings.firstNonBlank(builder.metadataPath, "metadata");
+    this.registerShutdownHook = builder.registerShutdownHook;
+    this.shutdownTimeout = builder.shutdownTimeout;
   }
 
   public static Builder builder() {
@@ -143,6 +155,8 @@ public final class ApiLensConfig {
     set(env.integer("APILENS_MAX_BATCH_BYTES"), builder::maxBatchBytes);
     set(env.bool("APILENS_COMPRESS"), builder::compress);
     set(env.integer("APILENS_MAX_RETRIES"), builder::maxRetries);
+    set(env.seconds("APILENS_MAX_RETRY_SECONDS"), builder::maxRetryDuration);
+    set(env.seconds("APILENS_SHUTDOWN_TIMEOUT"), builder::shutdownTimeout);
     return builder;
   }
 
@@ -270,8 +284,34 @@ public final class ApiLensConfig {
     return compress;
   }
 
+  /**
+   * Cap on retry attempts of one failed batch; {@link #UNLIMITED_RETRIES} (the default) leaves
+   * only {@link #maxRetryDuration()}.
+   */
   public int maxRetries() {
     return maxRetries;
+  }
+
+  /**
+   * How long a batch that failed with 408/429/5xx or a network error is retried (with backoff)
+   * before it is dropped as {@code retries_exhausted}; default 300 seconds.
+   */
+  public Duration maxRetryDuration() {
+    return maxRetryDuration;
+  }
+
+  /**
+   * Whether the client registers a JVM shutdown hook that flushes the queues (bounded by {@link
+   * #shutdownTimeout()}) when the JVM exits without {@link ApiLensClient#close()}. On by default;
+   * the Spring Boot auto-configuration turns it off because Spring closes the client itself.
+   */
+  public boolean registerShutdownHook() {
+    return registerShutdownHook;
+  }
+
+  /** Upper bound on the flush done by {@link ApiLensClient#shutdown()} and the shutdown hook. */
+  public Duration shutdownTimeout() {
+    return shutdownTimeout;
   }
 
   public Duration retryBackoffBase() {
@@ -359,7 +399,10 @@ public final class ApiLensConfig {
     private long maxQueueBytes = 64L * 1024 * 1024;
     private int maxBatchBytes = 4 * 1024 * 1024;
     private boolean compress = true;
-    private int maxRetries = 3;
+    private int maxRetries = UNLIMITED_RETRIES;
+    private Duration maxRetryDuration = DEFAULT_MAX_RETRY_DURATION;
+    private boolean registerShutdownHook = true;
+    private Duration shutdownTimeout = DEFAULT_SHUTDOWN_TIMEOUT;
     private Duration retryBackoffBase = Duration.ofMillis(250);
     private Duration retryBackoffMax = Duration.ofSeconds(5);
     private boolean enabled = true;
@@ -474,8 +517,27 @@ public final class ApiLensConfig {
       return this;
     }
 
+    /** Cap on retry attempts; default {@link ApiLensConfig#UNLIMITED_RETRIES} (window only). */
     public Builder maxRetries(int maxRetries) {
       this.maxRetries = maxRetries;
+      return this;
+    }
+
+    /** How long a failed batch is retried before it is dropped; default 300 seconds. */
+    public Builder maxRetryDuration(Duration maxRetryDuration) {
+      this.maxRetryDuration = maxRetryDuration == null ? DEFAULT_MAX_RETRY_DURATION : maxRetryDuration;
+      return this;
+    }
+
+    /** Register a JVM shutdown hook that flushes on exit; on by default. */
+    public Builder registerShutdownHook(boolean registerShutdownHook) {
+      this.registerShutdownHook = registerShutdownHook;
+      return this;
+    }
+
+    /** Upper bound on the shutdown flush; default 5 seconds. */
+    public Builder shutdownTimeout(Duration shutdownTimeout) {
+      this.shutdownTimeout = shutdownTimeout == null ? DEFAULT_SHUTDOWN_TIMEOUT : shutdownTimeout;
       return this;
     }
 
@@ -540,8 +602,14 @@ public final class ApiLensConfig {
       if (maxBatchBytes < MIN_BATCH_BYTES) {
         throw new IllegalArgumentException("maxBatchBytes must be >= " + MIN_BATCH_BYTES);
       }
-      if (maxRetries < 0) {
-        throw new IllegalArgumentException("maxRetries must be >= 0");
+      if (maxRetries < UNLIMITED_RETRIES) {
+        throw new IllegalArgumentException("maxRetries must be >= 0, or -1 for no attempt cap");
+      }
+      if (maxRetryDuration.isNegative()) {
+        throw new IllegalArgumentException("maxRetryDuration must be >= 0");
+      }
+      if (shutdownTimeout.isNegative()) {
+        throw new IllegalArgumentException("shutdownTimeout must be >= 0");
       }
       if (flushInterval.isNegative() || flushInterval.isZero()) {
         throw new IllegalArgumentException("flushInterval must be > 0");
