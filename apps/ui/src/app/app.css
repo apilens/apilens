@@ -457,6 +457,23 @@ button.cp-av--btn:active { background: var(--border-strong); }
   .app-mobilebar .cp-sbtn { width: 36px; height: 36px; border: 0; background: transparent; }
 }
 
+/* Mobile bar context (#998): project / page, then the open incident count. */
+.app-mobilebar { gap: 8px; }
+.mb-ctx { flex: 1; min-width: 0; margin: 0; display: flex; align-items: baseline; gap: 6px; font: 500 14px/20px var(--font-sans); color: var(--ink); white-space: nowrap; }
+.mb-scope { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-muted); font-weight: 400; }
+.mb-sep { color: var(--ink-muted); }
+.mb-view { flex: none; }
+.mb-badge { flex: none; display: inline-flex; align-items: center; height: 22px; padding: 0 8px; margin-right: 4px; border-radius: 11px; background: var(--warn-soft); color: var(--warn); font: 500 12px/1 var(--font-mono); text-decoration: none; }
+.mb-badge:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-ink); }
+
+/* Sidebar section headings (#998): Monitor, Catalog, Configure, 16px apart. In the collapsed
+   rail the headings hide and a hairline separates the groups. */
+.cp-side .side-nav--main { gap: 16px; }
+.cp-side:not(.is-collapsed) .side-nav--settings { margin-top: 16px; }
+.cp-side .side-group .cp-sh { padding: 0 10px 4px; font: 500 12px/16px var(--font-sans); letter-spacing: 0; text-transform: none; color: var(--ink-muted); }
+.cp-side.is-collapsed .side-nav--main { gap: 0; }
+.cp-side.is-collapsed .side-nav--settings { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+
 /* ───────── Sidebar foot: account (opens upward) + collapse ───────── */
 .side-foot { gap: 8px; }
 .me-btn { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; transition: background-color 80ms ease; }
