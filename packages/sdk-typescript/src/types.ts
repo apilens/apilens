@@ -177,7 +177,25 @@ export type ApiLensClientConfig = {
    * which sends what is queued plus a due heartbeat and the metadata report.
    */
   flushMode?: ApiLensFlushMode;
+  /**
+   * Optional cap on retries of one batch. Default: no cap; a batch is retried
+   * until `maxRetrySeconds` has passed.
+   */
   maxRetries?: number;
+  /**
+   * How long one batch keeps being retried (408/429/5xx/network errors) with
+   * backoff before it is dropped as `retries_exhausted` (default 300 s).
+   */
+  maxRetrySeconds?: number;
+  /**
+   * Flush what is queued when the process exits (`beforeExit`, `SIGTERM`,
+   * `SIGINT`; Node, background flush mode). Default true. The signal is not
+   * swallowed: when no other listener handles it, it is raised again after
+   * the flush, so the process still exits.
+   */
+  flushOnShutdown?: boolean;
+  /** Upper bound on the flush at shutdown or exit, in ms (default 5000). */
+  shutdownTimeoutMs?: number;
   /** Full-jitter exponential backoff for 408/429/5xx/network errors. */
   retryBackoffBaseMs?: number;
   retryBackoffMaxMs?: number;
@@ -213,7 +231,12 @@ export type ApiLensDropReason =
   | "queue_bytes"
   | "non_retryable"
   | "retries_exhausted"
+  | "shutdown"
+  | "server_rejected"
   | "truncated";
+
+/** The signals the client queues and reports drops for. */
+export type ApiLensSignal = "requests" | "spans" | "logs";
 
 export type ApiLensClientStats = {
   queuedRecords: number;
@@ -221,6 +244,9 @@ export type ApiLensClientStats = {
   sentBatches: number;
   sentRecords: number;
   failedBatches: number;
+  /** Estimated bytes held by the span and log queues. */
+  queuedSpanBytes: number;
+  queuedLogBytes: number;
   /** Records lost for any reason (sum of dropCounts minus `truncated`). */
   droppedCount: number;
   dropCounts: Record<ApiLensDropReason, number>;

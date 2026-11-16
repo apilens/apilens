@@ -17,6 +17,19 @@
 - The error log is sent for every thrown error, ERROR for a 5xx and WARN
   below 500, and no longer depends on span capture (`captureSpans: false` /
   `APILENS_CAPTURE_SPANS=false` send it without a trace id).
+- No silent loss: a failing batch is retried with backoff for up to
+  `maxRetrySeconds` (default 300) instead of 3 attempts (`maxRetries` is now
+  an optional cap); one batch retries at a time. Drops are counted per signal
+  (`client.signalDropCounts()`) and sent in the heartbeat's `dropped` field
+  until a heartbeat is accepted. The span and log queues are bounded by
+  `maxQueueBytes` too, and an oversize span or log is truncated (`payload`
+  and `message` head and tail kept, then attributes) instead of dropped. A
+  200 that leaves records out (`invalid` / `rejected`) counts them as
+  `server_rejected`. On Node the client flushes on `beforeExit`, `SIGTERM`
+  and `SIGINT` (`flushOnShutdown`, default on; the signal is raised again
+  when the app has no listener of its own), and `handleShutdown` is bounded
+  by `shutdownTimeoutMs` (default 5000); still-queued records count as
+  `shutdown`.
 
 - Koa middleware (`apilens-js-sdk/koa`: `apiLensKoa`, `instrumentKoa`,
   `setConsumer`) with the route template from `@koa/router`'s

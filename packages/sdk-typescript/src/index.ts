@@ -113,6 +113,7 @@ export type {
   ApiLensFlushMode,
   ApiLensLogRecord,
   ApiLensRecord,
+  ApiLensSignal,
   ApiLensRecordInput,
   ApiLensSpanRecord,
   CaptureProfile,
