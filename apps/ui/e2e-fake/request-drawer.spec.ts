@@ -162,9 +162,16 @@ test("opens a row in the drawer and shows every tab", async ({ page, context }) 
 
   // Trace: the spans as a waterfall, parent first, children by start; the failed span says so.
   await tab(page, "Trace").click();
-  await expect(panel(page).locator(".rd-wf__row .rd-wf__name > span:first-child")).toHaveText(["POST /orders", "GET cart", "SELECT orders"]);
-  await expect(panel(page).locator(".rd-wf__row.is-error")).toHaveCount(1);
+  await expect(panel(page).locator(".rd-wf__label")).toHaveText(["POST /orders", "GET cart", "SELECT orders"]);
+  await expect(panel(page).locator(".rd-wf__item.is-error")).toHaveCount(1);
   await expect(panel(page).getByText("3 spans over 84 ms")).toBeVisible();
+  // A span opens to its full name and timing, and closes again.
+  const span = panel(page).getByRole("button", { name: /GET cart/ });
+  await span.click();
+  await expect(span).toHaveAttribute("aria-expanded", "true");
+  await expect(panel(page).locator(".rd-wf__full")).toHaveText("GET cart");
+  await span.click();
+  await expect(panel(page).locator(".rd-wf__full")).toHaveCount(0);
 
   // Logs: oldest first, timed from the request, with their span.
   await tab(page, "Logs").click();

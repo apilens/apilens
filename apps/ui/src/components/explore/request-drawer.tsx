@@ -371,37 +371,88 @@ function eventPreview(e: StreamEvent): string {
   return typeof e.data === "string" ? e.data : "";
 }
 
-/** A server-sent event stream: one row per event, its data opening as a JSON tree. */
+/** The disclosure arrow of an expandable row; CSS turns it down while the row is open. */
+function Chevron() {
+  return (
+    <svg className="rd-chev" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M6 3.5 10.5 8 6 12.5" />
+    </svg>
+  );
+}
+
+/** Which rows of a list are open, with Expand all / Collapse all. */
+function useOpenRows(count: number) {
+  const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set());
+  const toggle = useCallback(
+    (i: number) =>
+      setOpen((cur) => {
+        const next = new Set(cur);
+        if (next.has(i)) next.delete(i);
+        else next.add(i);
+        return next;
+      }),
+    [],
+  );
+  const all = useCallback(() => setOpen(new Set(Array.from({ length: count }, (_, i) => i))), [count]);
+  const none = useCallback(() => setOpen(new Set()), []);
+  return { open, toggle, all, none };
+}
+
+/** The bar over an expandable list: what clicking a row does, and Expand all / Collapse all. */
+function ListBar({ hint, anyOpen, onAll, onNone }: { hint: string; anyOpen: boolean; onAll: () => void; onNone: () => void }) {
+  return (
+    <div className="rd-listbar">
+      <span className="rd-listbar__hint">{hint}</span>
+      <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onAll}>
+        Expand all
+      </button>
+      <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={onNone} disabled={!anyOpen}>
+        Collapse all
+      </button>
+    </div>
+  );
+}
+
+/** A server-sent event stream: one row per event; clicking a row opens its data as a JSON tree. */
 function EventStream({ events }: { events: StreamEvent[] }) {
+  const { open, toggle, all, none } = useOpenRows(events.length);
+  const id = useId();
   return (
     <>
       <p className="rd-meta">
-        {events.length} {events.length === 1 ? "event" : "events"}
+        {events.length} {events.length === 1 ? "event" : "events"} in the stream, in the order they were sent
       </p>
-      <ol className="rd-events">
-        {events.map((e, i) => {
-          const preview = eventPreview(e);
-          return (
-            <li key={i}>
-              <details>
-                <summary>
+      <div className="rd-list">
+        <ListBar hint="Click an event to see its data; click again to close it." anyOpen={open.size > 0} onAll={all} onNone={none} />
+        <ol className="rd-events">
+          {events.map((e, i) => {
+            const preview = eventPreview(e);
+            const isOpen = open.has(i);
+            return (
+              <li key={i} className={isOpen ? "is-open" : undefined}>
+                <button type="button" className="rd-events__row" aria-expanded={isOpen} aria-controls={`${id}-${i}`} onClick={() => toggle(i)}>
+                  <Chevron />
                   <span className="rd-events__n">{i + 1}</span>
                   <code className="rd-events__name">{e.event}</code>
                   {preview ? <span className="rd-events__preview">{preview}</span> : null}
                   {e.partial ? <span className="rd-events__cut">cut at the capture limit</span> : null}
-                </summary>
-                {e.data !== null && typeof e.data === "object" ? (
-                  <JsonView value={e.data} />
-                ) : (
-                  <pre className="rd-pre">
-                    <Marked text={e.text} />
-                  </pre>
-                )}
-              </details>
-            </li>
-          );
-        })}
-      </ol>
+                </button>
+                {isOpen ? (
+                  <div className="rd-events__data" id={`${id}-${i}`}>
+                    {e.data !== null && typeof e.data === "object" ? (
+                      <JsonView value={e.data} />
+                    ) : (
+                      <pre className="rd-pre">
+                        <Marked text={e.text} />
+                      </pre>
+                    )}
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+      </div>
     </>
   );
 }
@@ -542,6 +593,8 @@ function ValidationTable({ errors }: { errors: { loc: string; msg: string; type:
 
 function Waterfall({ spans, traced }: { spans: TraceSpan[]; traced: boolean }) {
   const { rows, total } = useMemo(() => waterfall(spans), [spans]);
+  const { open, toggle, all, none } = useOpenRows(rows.length);
+  const id = useId();
   if (!rows.length) {
     return <p className="rd-empty">{traced ? "No spans were reported for this request’s trace." : "This request has no trace id, so there is no trace to show."}</p>;
   }
@@ -550,26 +603,88 @@ function Waterfall({ spans, traced }: { spans: TraceSpan[]; traced: boolean }) {
       <p className="rd-meta">
         {rows.length === 1 ? "1 span" : `${rows.length} spans`} over {formatLatency(total)}
       </p>
-      <ol className="rd-wf">
-        {rows.map(({ span: s, depth, offset, width }) => {
-          const failed = spanFailed(s);
-          return (
-            <li key={s.span_id} className={`rd-wf__row${failed ? " is-error" : ""}`}>
-              <div className="rd-wf__name" style={{ paddingLeft: depth * 14 }} title={s.name}>
-                <span>{s.name || s.span_id}</span>
-                {s.service_name ? <span className="rd-wf__svc">{s.service_name}</span> : null}
-              </div>
-              <div className="rd-wf__track">
-                <span className="rd-wf__bar" style={{ left: `${offset}%`, width: `${width}%` }} />
-              </div>
-              <div className="rd-wf__dur">
-                {formatLatency(s.duration_ms)}
-                {failed ? <span className="rd-wf__err">Error</span> : null}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+      <div className="rd-list">
+        <ListBar hint="Click a span for its full name, timing and attributes." anyOpen={open.size > 0} onAll={all} onNone={none} />
+        <ol className="rd-wf">
+          {rows.map(({ span: s, depth, offset, width }, i) => {
+            const failed = spanFailed(s);
+            const isOpen = open.has(i);
+            const attrs = Object.entries(s.attributes ?? {});
+            return (
+              <li key={s.span_id} className={`rd-wf__item${failed ? " is-error" : ""}${isOpen ? " is-open" : ""}`}>
+                <button type="button" className="rd-wf__row" aria-expanded={isOpen} aria-controls={`${id}-${i}`} onClick={() => toggle(i)}>
+                  <span className="rd-wf__name" style={{ paddingLeft: depth * 14 }}>
+                    <Chevron />
+                    <span className="rd-wf__text">
+                      <span className="rd-wf__label" title={s.name}>
+                        {s.name || s.span_id}
+                      </span>
+                      {s.service_name ? <span className="rd-wf__svc">{s.service_name}</span> : null}
+                    </span>
+                  </span>
+                  <span className="rd-wf__track">
+                    <span className="rd-wf__bar" style={{ left: `${offset}%`, width: `${width}%` }} />
+                  </span>
+                  <span className="rd-wf__dur">
+                    {formatLatency(s.duration_ms)}
+                    {failed ? <span className="rd-wf__err">Error</span> : null}
+                  </span>
+                </button>
+                {isOpen ? (
+                  <div className="rd-wf__detail" id={`${id}-${i}`}>
+                    <p className="rd-wf__full">{s.name || s.span_id}</p>
+                    <dl className="rd-dl">
+                      <div>
+                        <dt>Starts</dt>
+                        <dd>+{formatLatency((offset / 100) * total)} into the trace</dd>
+                      </div>
+                      <div>
+                        <dt>Duration</dt>
+                        <dd>{formatLatency(s.duration_ms)}</dd>
+                      </div>
+                      <div>
+                        <dt>Status</dt>
+                        <dd>
+                          {s.status || "ok"}
+                          {s.status_code ? ` · ${s.status_code}` : ""}
+                        </dd>
+                      </div>
+                      {s.kind ? (
+                        <div>
+                          <dt>Kind</dt>
+                          <dd>{s.kind}</dd>
+                        </div>
+                      ) : null}
+                      {s.service_name ? (
+                        <div>
+                          <dt>Service</dt>
+                          <dd>{s.service_name}</dd>
+                        </div>
+                      ) : null}
+                      <div>
+                        <dt>Span id</dt>
+                        <dd>
+                          <code>{s.span_id}</code>
+                        </dd>
+                      </div>
+                      {attrs.map(([k, v]) => (
+                        <div key={k}>
+                          <dt>
+                            <code>{k}</code>
+                          </dt>
+                          <dd>
+                            <Marked text={v} />
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+      </div>
     </section>
   );
 }
