@@ -34,14 +34,28 @@ describe("remembered account storage", () => {
   it("round-trips email and timestamp, and 'Not you?' forgets it", () => {
     const s = memory();
     expect(readRememberedAccount(s)).toBeNull();
-    rememberAccount("  ada@example.com ", 1_700_000_000_000, s);
+    rememberAccount("  ada@example.com ", undefined, 1_700_000_000_000, s);
     expect(readRememberedAccount(s)).toEqual({ email: "ada@example.com", at: 1_700_000_000_000 });
     forgetAccount(s);
     expect(readRememberedAccount(s)).toBeNull();
   });
 
+  it("remembers how the account signed in", () => {
+    const s = memory();
+    rememberAccount("ada@example.com", "passkey", 1, s);
+    expect(readRememberedAccount(s)).toEqual({ email: "ada@example.com", at: 1, method: "passkey" });
+    rememberAccount("ada@example.com", "email", 2, s);
+    expect(readRememberedAccount(s)?.method).toBe("email");
+  });
+
+  it("keeps the account but drops a method it does not know", () => {
+    const s = memory();
+    s.m.set(REMEMBERED_ACCOUNT_KEY, '{"email":"ada@example.com","at":1,"method":"carrier-pigeon"}');
+    expect(readRememberedAccount(s)).toEqual({ email: "ada@example.com", at: 1 });
+  });
+
   it("falls back to nothing when storage is blocked", () => {
-    expect(() => rememberAccount("ada@example.com", 1, blocked)).not.toThrow();
+    expect(() => rememberAccount("ada@example.com", "email", 1, blocked)).not.toThrow();
     expect(readRememberedAccount(blocked)).toBeNull();
     expect(() => forgetAccount(blocked)).not.toThrow();
     expect(readRememberedAccount(null)).toBeNull();
@@ -63,7 +77,7 @@ describe("remembered account storage", () => {
 
   it("ignores a blank email", () => {
     const s = memory();
-    rememberAccount("   ", 1, s);
+    rememberAccount("   ", "email", 1, s);
     expect(s.m.size).toBe(0);
   });
 });

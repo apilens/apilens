@@ -1,5 +1,7 @@
 // POST /api/auth/passkeys/login/verify {challenge_id, credential, remember?, next?}: finishes a
-// passkey sign-in with the browser's assertion. Sets the session cookie and answers `{ok: true, next}`.
+// passkey sign-in with the browser's assertion. Sets the session cookie and answers
+// `{ok: true, next, email}`: `email` is the account the passkey belongs to (the browser picked it,
+// so the page did not know it), remembered on this device for the next sign-in.
 import type { NextRequest } from "next/server";
 import {
   callContext,
@@ -23,7 +25,7 @@ export async function POST(req: NextRequest) {
       { challenge_id: challengeId, response: credential, remember },
       callContext(req),
     );
-    return await signedIn(bundle, remember, requestedNext(body));
+    return await signedIn(bundle, remember, requestedNext(body), { email: bundle.user.email });
   } catch (err) {
     return fromError(err);
   }

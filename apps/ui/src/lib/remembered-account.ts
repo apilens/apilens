@@ -1,5 +1,6 @@
 // The account last signed in on this device (#314), shown first on the sign-in page. It lives
-// in `localStorage` as `{email, at}`: written after a successful sign-in, cleared by "Not you?".
+// in `localStorage` as `{email, at, method?}`: written after a successful sign-in, cleared by
+// "Not you?". `method` is how that sign-in happened, so the next one can go straight to it.
 // Storage can be blocked (private windows, disabled site data) or hold junk, so every access is
 // wrapped and anything unexpected reads as "nothing remembered": the page then shows the email
 // field.
@@ -9,11 +10,18 @@
 /** `localStorage` key holding the remembered account. */
 export const REMEMBERED_ACCOUNT_KEY = "apilens.remembered-account";
 
+/** How the remembered account last signed in on this device. */
+export type RememberedMethod = "passkey" | "email";
+
 export interface RememberedAccount {
   email: string;
   /** When it was last used to sign in, in ms since the epoch. */
   at: number;
+  /** Absent for values written before methods were remembered: treated as unknown. */
+  method?: RememberedMethod;
 }
+
+const METHODS: readonly string[] = ["passkey", "email"] satisfies RememberedMethod[];
 
 /** The subset of `Storage` used here, so tests can pass a fake. */
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -33,21 +41,31 @@ export function readRememberedAccount(store: StorageLike | null = storage()): Re
     if (!raw) return null;
     const v: unknown = JSON.parse(raw);
     if (typeof v !== "object" || v === null) return null;
-    const { email, at } = v as Record<string, unknown>;
+    const { email, at, method } = v as Record<string, unknown>;
     if (typeof email !== "string" || !email.includes("@") || email.length > 320) return null;
     if (typeof at !== "number" || !Number.isFinite(at)) return null;
-    return { email, at };
+    // An unknown method (a newer build's, or junk) only loses the shortcut, not the account.
+    return typeof method === "string" && METHODS.includes(method) ? { email, at, method: method as RememberedMethod } : { email, at };
   } catch {
     return null;
   }
 }
 
-/** Remembers `email` as the account last used on this device. Silently does nothing if blocked. */
-export function rememberAccount(email: string, now = Date.now(), store: StorageLike | null = storage()): void {
+/**
+ * Remembers `email` as the account last used on this device, signed in with `method`. Silently
+ * does nothing if blocked.
+ */
+export function rememberAccount(
+  email: string,
+  method?: RememberedMethod,
+  now = Date.now(),
+  store: StorageLike | null = storage(),
+): void {
   const value = email.trim();
   if (!value) return;
+  const account: RememberedAccount = method ? { email: value, at: now, method } : { email: value, at: now };
   try {
-    store?.setItem(REMEMBERED_ACCOUNT_KEY, JSON.stringify({ email: value, at: now } satisfies RememberedAccount));
+    store?.setItem(REMEMBERED_ACCOUNT_KEY, JSON.stringify(account));
   } catch {
     // Blocked or full storage: the next sign-in just starts from the email field.
   }

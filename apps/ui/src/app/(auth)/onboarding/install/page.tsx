@@ -6,7 +6,7 @@ import { getContext, getSession } from "@/lib/auth/server";
 import { env } from "@/lib/env";
 import { type ApiKey, identity, isApiError } from "@/lib/identity";
 import { POSTURE_PARAM, appIdFor, postureOf, savedKeyState } from "@/lib/install";
-import { effectiveMethod, savedInstrument } from "@/lib/instrument";
+import { savedInstrument } from "@/lib/instrument";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 
 export const metadata: Metadata = { title: "Install" };
@@ -33,9 +33,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   // No project to install into yet: create one first.
   if (!project) redirect("/onboarding/project");
   const choice = savedInstrument(answers);
-  const method = effectiveMethod(choice);
   // Nothing picked to install yet: pick it first.
-  if (!choice.language || !method) redirect("/onboarding/instrument");
+  if (!choice.language) redirect("/onboarding/instrument");
   // Only the saved key's id is known here; the raw key was shown once, when it was created.
   const saved = savedKeyState(answers.api_key_id, answers.api_key_id ? await loadKeys(project.slug) : []);
   return (
@@ -44,7 +43,6 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
       reached={reached}
       project={{ slug: project.slug, name: project.name }}
       language={choice.language}
-      method={method}
       appId={appIdFor(project.slug)}
       ingestUrl={env().publicIngestUrl}
       saved={saved}

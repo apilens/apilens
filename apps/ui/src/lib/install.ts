@@ -1,8 +1,8 @@
 // "Install" onboarding step (#333): the ingest key it creates and the snippets it renders with that
-// key for the language and method picked on the instrument step (#332). Pure, so every snippet
+// key for the language picked on the instrument step (#332). Pure, so every snippet
 // can be unit tested against the SDK READMEs (packages/sdk-*) and the README quick start.
 import type { ApiKey, ApiKeyScope } from "./identity";
-import { type Method, languageOf } from "./instrument";
+import { languageOf } from "./instrument";
 
 /** Name of the key the step creates, as it then shows in Project settings → API keys. */
 export const INSTALL_KEY_NAME = "Onboarding";
@@ -30,11 +30,6 @@ export function sdkBaseUrl(ingestUrl: string): string {
   return `${ingestUrl.replace(/\/+$/, "")}/v1`;
 }
 
-/** Where OpenTelemetry exporters send traces and logs: the edge's `/otlp`. */
-export function otlpEndpoint(ingestUrl: string): string {
-  return `${ingestUrl.replace(/\/+$/, "")}/otlp`;
-}
-
 export interface Snippet {
   id: string;
   /** Shown in the code block's header. */
@@ -44,13 +39,12 @@ export interface Snippet {
 
 export interface SnippetInput {
   language: string | undefined;
-  method: Method | undefined;
   /** The raw key while it is known; undefined renders {@link KEY_PLACEHOLDER}. */
   apiKey?: string;
   appId: string;
   /** `APILENS_PUBLIC_INGEST_URL`, no trailing slash. */
   ingestUrl: string;
-  /** The SDK's capture profile; undefined renders {@link DEFAULT_POSTURE}. OTLP snippets ignore it. */
+  /** The SDK's capture profile; undefined renders {@link DEFAULT_POSTURE}. */
   posture?: Posture;
 }
 
@@ -227,38 +221,11 @@ function sdkSnippets(language: string, key: string, appId: string, ingestUrl: st
   }
 }
 
-/**
- * The OpenTelemetry exporter environment for any language: OTLP/HTTP to the edge's `/otlp`, the
- * key as `X-API-Key`, and the app as the `apilens.app` resource attribute (`service.name` too, so
- * traces read well elsewhere). The edge takes traces and logs, not metrics.
- */
-function otlpSnippets(key: string, appId: string, ingestUrl: string): Snippet[] {
-  return [
-    {
-      id: "env",
-      title: "Environment",
-      code: [
-        `export OTEL_EXPORTER_OTLP_ENDPOINT=${otlpEndpoint(ingestUrl)}`,
-        "export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf",
-        `export OTEL_EXPORTER_OTLP_HEADERS=x-api-key=${key}`,
-        `export OTEL_SERVICE_NAME=${appId}`,
-        `export OTEL_RESOURCE_ATTRIBUTES=apilens.app=${appId}`,
-        "export OTEL_TRACES_EXPORTER=otlp",
-        "export OTEL_LOGS_EXPORTER=otlp",
-        "export OTEL_METRICS_EXPORTER=none",
-      ].join("\n"),
-    },
-  ];
-}
-
-/** The snippets for `language` and `method`, in the order to follow them; empty when none apply. */
-export function snippetsFor({ language, method, apiKey, appId, ingestUrl, posture = DEFAULT_POSTURE }: SnippetInput): Snippet[] {
+/** The SDK snippets for `language`, in the order to follow them; empty for a language without one. */
+export function snippetsFor({ language, apiKey, appId, ingestUrl, posture = DEFAULT_POSTURE }: SnippetInput): Snippet[] {
   const lang = languageOf(language);
   if (!lang) return [];
-  const key = apiKey || KEY_PLACEHOLDER;
-  if (method === "sdk" && lang.sdk) return sdkSnippets(lang.id, key, appId, ingestUrl, posture);
-  if (method === "otlp" && lang.otlp) return otlpSnippets(key, appId, ingestUrl);
-  return [];
+  return sdkSnippets(lang.id, apiKey || KEY_PLACEHOLDER, appId, ingestUrl, posture);
 }
 
 /** The key the install step created, as the step reads it back once the raw key is gone. */

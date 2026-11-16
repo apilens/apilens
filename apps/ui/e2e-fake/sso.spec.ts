@@ -25,15 +25,16 @@ async function sessionCookie(page: Page) {
 test("sign-in: an enforced domain replaces the email code with the org's SSO and signs in", async ({ page }) => {
   const emailStarts = countEmailStarts(page);
   await page.goto("/sign-in?next=%2Facme%2Frequests");
-  await expect(page.getByRole("button", { name: "Email code" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
   await page.getByLabel("Work email").fill("ada@acme.example.com");
 
   const link = ssoLink(page, "Acme");
   await expect(link).toBeVisible();
   await expect(link).toHaveClass(/ah-btn--primary/);
-  await expect(page.getByRole("button", { name: "Email code" })).toHaveCount(0);
-  // The generic SSO button gives way to the org's own.
+  await expect(page.getByRole("button", { name: "Continue" })).toHaveCount(0);
+  // The generic SSO button gives way to the org's own, and the org refuses passkeys.
   await expect(page.getByRole("button", { name: "SSO", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Passkey", exact: true })).toHaveCount(0);
 
   const href = new URL((await link.getAttribute("href")) ?? "");
   expect(href.origin + href.pathname).toBe(`${IDENTITY}/api/v1/auth/sso/acme/start`);
@@ -63,14 +64,13 @@ test("sign-in: Enter on an enforced domain goes to the IdP, never sending a code
   expect(emailStarts).toHaveLength(0);
 });
 
-test("sign-in: SSO that is not enforced is a secondary button next to the email code", async ({ page }) => {
+test("sign-in: SSO that is not enforced is a secondary button under Continue", async ({ page }) => {
   await page.goto("/sign-in");
   await page.getByLabel("Work email").fill("ada@beta.example.com");
   const link = ssoLink(page, "Beta");
   await expect(link).toBeVisible();
   await expect(link).toHaveClass(/ah-btn--secondary/);
-  await expect(page.getByRole("button", { name: "Email code" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue with a passkey" })).toHaveClass(/ah-btn--primary/);
+  await expect(page.getByRole("button", { name: "Continue" })).toHaveClass(/ah-btn--primary/);
 
   // A domain without SSO takes it away again.
   await page.getByLabel("Work email").fill("ada@example.com");
@@ -82,7 +82,7 @@ test("sign-in: a failed lookup still never sends a code; sso_required shows the 
   await page.route("**/api/auth/sso/lookup", (route) => route.abort());
   await page.goto("/sign-in?next=%2Facme%2Fendpoints");
   await page.getByLabel("Work email").fill("ada@acme.example.com");
-  await page.getByRole("button", { name: "Email code" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("status").filter({ hasText: "Your organization requires single sign-on." })).toBeVisible();
   const link = ssoLink(page);

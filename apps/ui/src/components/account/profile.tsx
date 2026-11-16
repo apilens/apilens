@@ -176,7 +176,7 @@ function EmailCard({ email, onChanged }: { email: string; onChanged: (email: str
       onChanged(result.user.email);
       // The sign-in page suggests the last account used on this browser; keep it pointing here.
       const remembered = readRememberedAccount();
-      if (remembered && remembered.email.toLowerCase() === old.toLowerCase()) rememberAccount(result.user.email);
+      if (remembered && remembered.email.toLowerCase() === old.toLowerCase()) rememberAccount(result.user.email, remembered.method);
       cancel();
       setStatus({ tone: "ok", text: "Email changed. Your other devices were signed out." });
     });

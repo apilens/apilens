@@ -15,6 +15,7 @@ import {
   verifyRateLimitMessage,
   wrongCodeMessage,
 } from "@/lib/email-verify";
+import { passkeyError, passkeysSupported, signInWithPasskey } from "@/lib/auth/passkeys";
 import { rememberAccount } from "@/lib/remembered-account";
 import { KeepSignedIn } from "./keep-signed-in";
 import { BackNext, ObIcon, ObShell } from "./ob";
@@ -29,7 +30,8 @@ type Problem =
   | { kind: "rate_limited" }
   | { kind: "network" }
   | { kind: "error"; code: string }
-  | { kind: "resend"; message: string };
+  | { kind: "resend"; message: string }
+  | { kind: "passkey"; message: string };
 
 /** Whole seconds from a query value, or 0. */
 function secondsParam(raw: string | null): number {
@@ -72,6 +74,10 @@ export function Verify() {
   const [left, setLeft] = useCountdown(secondsParam(params.get("retry_after")));
   // A verify rate limit (429 `rate_limited`) blocks checking codes until it runs out.
   const [wait, setWait] = useCountdown(0);
+  // Signing in, a passkey is the way out when the email is slow (read after mount: SSR has none).
+  const [passkeys, setPasskeys] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  useEffect(() => setPasskeys(signin && passkeysSupported()), [signin]);
 
   // No address to check a code against: start over.
   useEffect(() => {
@@ -100,7 +106,7 @@ export function Verify() {
       next: asked ?? (signin ? undefined : NEW_USER_PATH),
     });
     if (res.kind === "signed_in" || res.kind === "2fa_required") {
-      if (signin) rememberAccount(email);
+      if (signin) rememberAccount(email, "email");
       router.replace(res.next);
       return; // keep the loading state until the next page replaces this one
     }
@@ -155,6 +161,22 @@ export function Verify() {
     }
   };
 
+  const passkey = async () => {
+    if (passkeyBusy || sending) return;
+    setPasskeyBusy(true);
+    setProblem(null);
+    const res = await signInWithPasskey({ mediation: "optional", email, next: asked, remember });
+    if (res.ok) {
+      rememberAccount(res.email ?? email, "passkey");
+      router.replace(res.next);
+      return; // keep the loading state until the next page replaces this one
+    }
+    setPasskeyBusy(false);
+    const message = passkeyError(res.code);
+    if (message) setProblem({ kind: "passkey", message });
+    input.current?.focus();
+  };
+
   const problemText = (() => {
     switch (problem?.kind) {
       case "invalid_code":
@@ -170,6 +192,7 @@ export function Verify() {
       case "error":
         return verifyErrorMessage(problem.code);
       case "resend":
+      case "passkey":
         return problem.message;
       default:
         return null;
@@ -290,6 +313,18 @@ export function Verify() {
           <ObIcon name="redo" />
           {left > 0 ? `Resend in ${countdown(left)}` : "Resend code"}
         </button>
+        {passkeys ? (
+          <button
+            type="button"
+            className={`ah-btn ah-btn--ghost ah-btn--sm${passkeyBusy ? " is-loading" : ""}`}
+            onClick={passkey}
+            disabled={passkeyBusy || sending}
+            aria-busy={passkeyBusy || undefined}
+          >
+            <ObIcon name="finger" />
+            Use a passkey instead
+          </button>
+        ) : null}
       </div>
     </ObShell>
   );

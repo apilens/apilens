@@ -180,6 +180,57 @@ describe("signInWithPasskey", () => {
     expect(await signInWithPasskey({ mediation: "optional" }, e)).toEqual({ ok: false, code: "passkey_unknown" });
   });
 
+  it("asks the provider to drop a passkey the server no longer knows", async () => {
+    const { e } = env(
+      [
+        { status: 200, body: OPTIONS },
+        { status: 401, body: { ok: false, code: "passkey_unknown" } },
+      ],
+      async () => fakeAssertion(),
+    );
+    const signal = vi.fn(async () => {});
+    (e.PublicKeyCredential as { signalUnknownCredential?: unknown }).signalUnknownCredential = signal;
+    await signInWithPasskey({ mediation: "optional" }, e);
+    expect(signal).toHaveBeenCalledWith({ rpId: "localhost", credentialId: fakeAssertion().id });
+  });
+
+  it("does not signal for other failures, and survives a signal that throws", async () => {
+    const failedOnce = env(
+      [
+        { status: 200, body: OPTIONS },
+        { status: 401, body: { ok: false, code: "passkey_failed" } },
+      ],
+      async () => fakeAssertion(),
+    );
+    const signal = vi.fn(async () => {});
+    (failedOnce.e.PublicKeyCredential as { signalUnknownCredential?: unknown }).signalUnknownCredential = signal;
+    await signInWithPasskey({ mediation: "optional" }, failedOnce.e);
+    expect(signal).not.toHaveBeenCalled();
+
+    const throwing = env(
+      [
+        { status: 200, body: OPTIONS },
+        { status: 401, body: { ok: false, code: "passkey_unknown" } },
+      ],
+      async () => fakeAssertion(),
+    );
+    (throwing.e.PublicKeyCredential as { signalUnknownCredential?: unknown }).signalUnknownCredential = () => {
+      throw new TypeError("not supported");
+    };
+    expect(await signInWithPasskey({ mediation: "optional" }, throwing.e)).toEqual({ ok: false, code: "passkey_unknown" });
+  });
+
+  it("returns the signed-in account's email when the server names it", async () => {
+    const { e } = env(
+      [
+        { status: 200, body: OPTIONS },
+        { status: 200, body: { ok: true, next: "/", email: "ada@example.com" } },
+      ],
+      async () => fakeAssertion(),
+    );
+    expect(await signInWithPasskey({ mediation: "optional" }, e)).toEqual({ ok: true, next: "/", email: "ada@example.com" });
+  });
+
   it("maps a failed options call, a transport failure and an off-origin next", async () => {
     const limited = env([{ status: 429, body: { ok: false, code: "rate_limited" } }], async () => fakeAssertion());
     expect(await signInWithPasskey({ mediation: "optional" }, limited.e)).toEqual({ ok: false, code: "rate_limited" });

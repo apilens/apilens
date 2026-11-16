@@ -286,8 +286,9 @@ export async function signedIn(
   bundle: SessionBundle,
   remember: boolean,
   next: string | undefined,
+  extra: Record<string, unknown> = {},
 ): Promise<NextResponse> {
-  const res = success(next ?? safeNext(bundle.next));
+  const res = success(next ?? safeNext(bundle.next), extra);
   await setSessionCookie(res, bundle, remember);
   clearPreAuthCookie(res);
   return res;

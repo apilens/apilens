@@ -81,14 +81,21 @@ test("tab order reaches the form before the brand panel", async ({ page }) => {
   }
 });
 
-test("sign-in tab order: email, passkey, then the other methods", async ({ page }) => {
+test("sign-in tab order: email, Continue, then the other methods", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await open(page, "/sign-in", "Welcome back");
   await expect(page.getByLabel("Work email")).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "Continue with a passkey" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Continue" })).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "Email code" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Passkey", exact: true })).toBeFocused();
+});
+
+test("sign-in: a passkey autofill that cannot start says nothing", async ({ page }) => {
+  await page.route("**/api/auth/passkeys/login/options", (route) => route.fulfill({ status: 503, json: { ok: false, code: "unavailable" } }));
+  await open(page, "/sign-in", "Welcome back");
+  await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
+  await expect(page.locator(".ob-err")).toHaveCount(0);
 });
 
 test("errors are tied to their field with aria-invalid and aria-describedby", async ({ page }) => {

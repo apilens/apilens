@@ -191,6 +191,10 @@ type IdentityConfig struct {
 	RefreshTokenTTLShort time.Duration `koanf:"refresh_token_ttl_short"`
 	EmailCodeTTL         time.Duration `koanf:"email_code_ttl"`
 	EmailCodeMaxAttempts int           `koanf:"email_code_max_attempts"`
+	// DevEmailCode, when set, is the code every sign-in email carries instead
+	// of a random one, so local sign-ins need no inbox. Six digits. Refused
+	// unless public_ui_url is on localhost: never set it anywhere real.
+	DevEmailCode string `koanf:"dev_email_code"`
 	// PreAuthTTL bounds the window between the first factor and MFA.
 	PreAuthTTL time.Duration `koanf:"pre_auth_ttl"`
 	// RecoveryDelay is the cooling-off period between requesting account
@@ -664,6 +668,23 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// devEmailCodeRE is the shape of identity.dev_email_code: a six-digit code.
+var devEmailCodeRE = regexp.MustCompile(`^[0-9]{6}$`)
+
+// isLocalURL reports whether raw is an http(s) URL on localhost or a loopback address.
+func isLocalURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // validateIdentity checks the identity section. The key encryption key is
 // required only when the identity role runs, but is checked whenever set.
 func (c *Config) validateIdentity() []error {
@@ -682,6 +703,14 @@ func (c *Config) validateIdentity() []error {
 	}
 	if !isHTTPURL(id.PublicUIURL) {
 		errs = append(errs, fmt.Errorf("identity.public_ui_url %q: want an absolute http(s) URL", id.PublicUIURL))
+	}
+	if id.DevEmailCode != "" {
+		if !devEmailCodeRE.MatchString(id.DevEmailCode) {
+			errs = append(errs, errors.New("identity.dev_email_code: want 6 digits"))
+		}
+		if !isLocalURL(id.PublicUIURL) {
+			errs = append(errs, fmt.Errorf("identity.dev_email_code is only allowed when identity.public_ui_url is on localhost, not %q", id.PublicUIURL))
+		}
 	}
 	for _, o := range id.WebAuthn.Origins {
 		if !isHTTPURL(o) {

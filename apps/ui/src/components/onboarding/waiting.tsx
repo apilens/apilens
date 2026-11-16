@@ -4,14 +4,13 @@ import Link from "next/link";
 import { unstable_rethrow } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { finishInstallLater } from "@/app/(auth)/onboarding/install/actions";
-import type { Method } from "@/lib/instrument";
+import { sdkBaseUrl } from "@/lib/install";
 import {
   BACKOFF_AFTER_MS,
   TROUBLESHOOT_AFTER_MS,
   type WaitState,
   createPoller,
   errorState,
-  expectedEndpoint,
   ingestStatusPath,
   pollResult,
   statusLine,
@@ -46,12 +45,10 @@ export function Waiting({
   step = 4,
   reached = step,
   project,
-  method,
   appId,
   ingestUrl,
 }: Partial<StepProps> & {
   project: { slug: string; name: string };
-  method: Method;
   appId: string;
   ingestUrl: string;
 }) {
@@ -124,7 +121,7 @@ export function Waiting({
   const received = state === "received";
   const live = state === "waiting" || state === "slow";
   const busy = leaving || pending || received;
-  const endpoint = expectedEndpoint(method, ingestUrl);
+  const endpoint = sdkBaseUrl(ingestUrl);
   const curl = { id: "curl", title: "Send a test request", code: testRequestCurl(ingestUrl, appId) };
 
   return (
@@ -205,12 +202,12 @@ export function Waiting({
           <ol className="wt-list">
             <li>
               <b>Has the service handled a request?</b>
-              <span>{method === "sdk" ? "The SDK reports the requests your service serves." : "The exporter sends spans for the requests your service serves."} Call any endpoint once it has restarted with the snippet.</span>
+              <span>The SDK reports the requests your service serves. Call any endpoint once it has restarted with the snippet.</span>
             </li>
             <li>
               <b>Is the key pasted?</b>
               <span>
-                The service’s environment needs {method === "sdk" ? <code>APILENS_API_KEY</code> : <code>OTEL_EXPORTER_OTLP_HEADERS</code>} set to the key from the install step. Lost it?{" "}
+                The service’s environment needs <code>APILENS_API_KEY</code> set to the key from the install step. Lost it?{" "}
                 <Link className="cp-link" href="/onboarding/install">
                   Create a new key
                 </Link>
@@ -219,7 +216,7 @@ export function Waiting({
             <li>
               <b>Is the base URL right?</b>
               <span>
-                {method === "sdk" ? "The SDK’s base URL" : <code>OTEL_EXPORTER_OTLP_ENDPOINT</code>} must be <code>{endpoint}</code>.
+                The SDK’s base URL must be <code>{endpoint}</code>.
               </span>
             </li>
             <li>

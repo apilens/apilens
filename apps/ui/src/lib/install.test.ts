@@ -7,7 +7,6 @@ import {
   type Posture,
   appIdFor,
   installKeyError,
-  otlpEndpoint,
   postureOf,
   privacyDocsUrl,
   savedKeyState,
@@ -17,16 +16,15 @@ import {
 
 const KEY = "apl_live_0123456789abcdef0123456789abcdef";
 const base = { appId: "checkout", ingestUrl: "https://ingest.example.com", apiKey: KEY };
-const code = (language: string, method: "sdk" | "otlp", extra: Partial<typeof base> = {}) =>
-  snippetsFor({ ...base, ...extra, language, method })
+const code = (language: string, extra: Partial<typeof base> = {}) =>
+  snippetsFor({ ...base, ...extra, language })
     .map((s) => s.code)
     .join("\n---\n");
 
 describe("ingest URLs", () => {
-  it("adds the SDK and OTLP paths to APILENS_PUBLIC_INGEST_URL", () => {
+  it("adds the SDK path to APILENS_PUBLIC_INGEST_URL", () => {
     expect(sdkBaseUrl("http://localhost:8080")).toBe("http://localhost:8080/v1");
     expect(sdkBaseUrl("https://ingest.example.com/")).toBe("https://ingest.example.com/v1");
-    expect(otlpEndpoint("http://localhost:8080")).toBe("http://localhost:8080/otlp");
   });
 
   it("uses the project slug as the app id", () => {
@@ -36,7 +34,7 @@ describe("ingest URLs", () => {
 
 describe("snippetsFor: SDK", () => {
   it("Python matches the README quick start (FastAPI middleware, base_url on the edge)", () => {
-    const snippets = snippetsFor({ ...base, language: "python", method: "sdk" });
+    const snippets = snippetsFor({ ...base, language: "python" });
     expect(snippets.map((s) => s.id)).toEqual(["install", "env", "code", "posture-env"]);
     expect(snippets[0].code).toBe("pip install apilenss");
     expect(snippets[1].code).toBe(`export APILENS_API_KEY=${KEY}`);
@@ -48,7 +46,7 @@ describe("snippetsFor: SDK", () => {
   });
 
   it("Node.js matches the TypeScript SDK README (Express useApiLens)", () => {
-    const out = code("node", "sdk");
+    const out = code("node");
     expect(out).toContain("npm install apilens-js-sdk");
     expect(out).toContain('import { useApiLens } from "apilens-js-sdk/express";');
     expect(out).toContain("apiKey: process.env.APILENS_API_KEY,");
@@ -58,7 +56,7 @@ describe("snippetsFor: SDK", () => {
   });
 
   it("Java matches the Java SDK README (Maven dependency, Spring properties)", () => {
-    const out = code("java", "sdk");
+    const out = code("java");
     expect(out).toContain("<artifactId>apilens-java-sdk</artifactId>");
     expect(out).toContain("apilens.api-key=${APILENS_API_KEY}");
     expect(out).toContain("apilens.app-id=checkout");
@@ -66,39 +64,21 @@ describe("snippetsFor: SDK", () => {
   });
 
   it("is empty for a language without an SDK", () => {
-    expect(snippetsFor({ ...base, language: "go", method: "sdk" })).toEqual([]);
-  });
-});
-
-describe("snippetsFor: OTLP", () => {
-  it.each(["python", "go", "dotnet", "ruby"])("%s gets the exporter environment for the edge", (language) => {
-    const snippets = snippetsFor({ ...base, language, method: "otlp" });
-    expect(snippets).toHaveLength(1);
-    const env = snippets[0].code.split("\n");
-    expect(env).toContain("export OTEL_EXPORTER_OTLP_ENDPOINT=https://ingest.example.com/otlp");
-    expect(env).toContain("export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf");
-    expect(env).toContain(`export OTEL_EXPORTER_OTLP_HEADERS=x-api-key=${KEY}`);
-    expect(env).toContain("export OTEL_RESOURCE_ATTRIBUTES=apilens.app=checkout");
-    expect(env).toContain("export OTEL_METRICS_EXPORTER=none");
-  });
-
-  it("is empty for a language without an OTLP path", () => {
-    expect(snippetsFor({ ...base, language: "browser", method: "otlp" })).toEqual([]);
+    expect(snippetsFor({ ...base, language: "go" })).toEqual([]);
   });
 });
 
 describe("snippetsFor: the key", () => {
   it("shows a placeholder once the raw key is gone, never a masked key", () => {
-    const out = code("python", "sdk", { apiKey: undefined });
+    const out = code("python", { apiKey: undefined });
     expect(out).toContain(`export APILENS_API_KEY=${KEY_PLACEHOLDER}`);
     expect(out).not.toContain(KEY);
-    expect(code("node", "otlp", { apiKey: "" })).toContain(`x-api-key=${KEY_PLACEHOLDER}`);
+    expect(code("node", { apiKey: "" })).toContain(KEY_PLACEHOLDER);
   });
 
-  it("is empty for an unknown language or method", () => {
-    expect(snippetsFor({ ...base, language: "cobol", method: "sdk" })).toEqual([]);
-    expect(snippetsFor({ ...base, language: "python", method: "url-check" })).toEqual([]);
-    expect(snippetsFor({ ...base, language: undefined, method: undefined })).toEqual([]);
+  it("is empty for an unknown language", () => {
+    expect(snippetsFor({ ...base, language: "cobol" })).toEqual([]);
+    expect(snippetsFor({ ...base, language: undefined })).toEqual([]);
   });
 });
 
@@ -146,7 +126,7 @@ describe("installKeyError", () => {
 
 describe("capture posture (#601)", () => {
   const sdk = (language: string, posture?: Posture) =>
-    snippetsFor({ ...base, language, method: "sdk", posture })
+    snippetsFor({ ...base, language, posture })
       .map((s) => s.code)
       .join("\n---\n");
   const ALL: Posture[] = ["metadata", "redacted", "full"];
@@ -196,13 +176,6 @@ describe("capture posture (#601)", () => {
     expect(sdk("python")).toContain('capture_profile="metadata"');
     expect(sdk("node")).toContain('captureProfile: "metadata"');
     expect(sdk("java")).toContain("apilens.capture-profile=metadata");
-  });
-
-  it("leaves OpenTelemetry snippets alone: the posture is an SDK setting", () => {
-    const out = snippetsFor({ ...base, language: "python", method: "otlp", posture: "full" })
-      .map((s) => s.code)
-      .join("\n");
-    expect(out).not.toContain("APILENS_CAPTURE_PROFILE");
   });
 
   it("links the docs' data privacy page at its capture profiles", () => {

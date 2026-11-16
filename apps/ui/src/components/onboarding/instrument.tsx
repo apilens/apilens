@@ -3,19 +3,7 @@
 import { type KeyboardEvent, type ReactNode, useRef, useState } from "react";
 import type { OnboardingAnswers } from "@/lib/identity";
 import { DEFAULT_POSTURE, POSTURES, POSTURE_PARAM, type Posture, privacyDocsUrl } from "@/lib/install";
-import {
-  LANGUAGES,
-  METHODS,
-  type Method,
-  RUNTIMES,
-  effectiveMethod,
-  languageEnabled,
-  languageOf,
-  methodsFor,
-  recommend,
-  recommendReason,
-  savedInstrument,
-} from "@/lib/instrument";
+import { LANGUAGES, RUNTIMES, SDK_METHOD, savedInstrument, sdkReason } from "@/lib/instrument";
 import { LINKS, extLink } from "@/lib/links";
 import { radioKeyTarget, radioTabStop } from "@/lib/radio-group";
 import { BackNext, Brand, ObIcon, type ObIconName, ObShell, type StepProps } from "./ob";
@@ -92,34 +80,15 @@ interface RadioProps {
   onClick: () => void;
 }
 
-const METHOD_COPY: Record<Method, { title: string; icon: ObIconName }> = {
-  sdk: { title: "APILens SDK", icon: "code" },
-  otlp: { title: "OpenTelemetry (OTLP)", icon: "link" },
-  "url-check": { title: "Check a URL", icon: "eye" },
-};
-
 const POSTURE_ICON: Record<Posture, ObIconName> = { metadata: "lock", redacted: "eye", full: "code" };
 
-function methodDetail(method: Method, language: string | undefined): string {
-  const lang = languageOf(language);
-  if (method === "sdk") return lang?.sdk ? `Install ${lang.sdk} and add its middleware.` : "No APILens SDK for this language yet.";
-  if (method === "otlp") return "Export traces and logs from OpenTelemetry to APILens.";
-  return "Uptime and latency of a public endpoint, from outside.";
-}
-
-/** "A, B and C". */
-function listOf(items: string[]): string {
-  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
-}
-
 /**
- * "How do you want to instrument?" (#332), step 3: the language (only those with an APILens SDK
- * or an OpenTelemetry path can be picked), where it runs, and the method, which starts on the one
- * `recommend` picks for the two. Continue saves `language`, `runtime` and `method` and goes on to
- * `/onboarding/install`. `answers` are the saved onboarding answers (#327), so a refresh resumes
- * with them; `project` is the project being instrumented. With the SDK it also asks for the capture
- * posture (#601), which goes on to the install step as `?capture=` and sets its snippets'
- * `capture_profile`; `posture` is the one to start on (from that parameter when coming back).
+ * "What are you instrumenting?" (#332), step 3. Instrumentation is the APILens SDK only, so the
+ * step asks for the language (one with an SDK), where it runs, and the capture posture (#601).
+ * Continue saves `language`, `runtime` and `method` ("sdk") and goes on to `/onboarding/install`
+ * with the posture as `?capture=`, which sets the snippets' `capture_profile`. `answers` are the
+ * saved onboarding answers (#327), so a refresh resumes with them; `project` is the project being
+ * instrumented; `posture` is the one to start on (from that parameter when coming back).
  */
 export function Instrument({
   step = 3,
@@ -131,27 +100,19 @@ export function Instrument({
   const [choice, setChoice] = useState(() => savedInstrument(answers));
   const [posture, setPosture] = useState<Posture>(initialPosture);
   const { go, pending } = useOnboardingContinue(reached);
-  const method = effectiveMethod(choice);
-  const recommended = recommend(choice.language, choice.runtime);
-  const available = methodsFor(choice.language);
-  const ok = Boolean(choice.language && choice.runtime && method);
-
-  const languages = LANGUAGES.map((l) => ({ ...l, disabled: !languageEnabled(l) }));
-  const soon = languages.filter((l) => l.disabled);
-  const methods = METHODS.map((m) => ({ id: m, disabled: !available.includes(m) }));
+  const ok = Boolean(choice.language && choice.runtime);
 
   const next = () => {
-    if (!ok || !method) return;
+    if (!ok) return;
     // The install step renders from these answers, so it opens once they are saved.
-    const href = method === "sdk" ? `/onboarding/install?${POSTURE_PARAM}=${posture}` : "/onboarding/install";
-    go("install", href, { language: choice.language, runtime: choice.runtime, method }, undefined, true);
+    go("install", `/onboarding/install?${POSTURE_PARAM}=${posture}`, { language: choice.language, runtime: choice.runtime, method: SDK_METHOD }, undefined, true);
   };
 
   return (
     <ObShell
       eyebrow="02:31 AM"
       headline={["Two lines of code,", "every request."]}
-      body="Pick how your service reports in. You can add more services and languages later."
+      body="The APILens SDK adds one middleware to your service. You can add more services later."
       receipt={
         <>
           middleware · <b>1 line</b> · requests, errors and traces
@@ -161,14 +122,14 @@ export function Instrument({
       step={step}
       reached={reached}
       badge="code"
-      title="How do you want to instrument?"
+      title="What are you instrumenting?"
       lead={
         project ? (
           <>
-            Tell us what <b>{project}</b> runs on and we’ll recommend the quickest way in.
+            Tell us what <b>{project}</b> is written in and where it runs, and the next step gives you its SDK snippet.
           </>
         ) : (
-          "Tell us what your service runs on and we’ll recommend the quickest way in."
+          "Tell us what your service is written in and where it runs, and the next step gives you its SDK snippet."
         )
       }
       footer={<BackNext back="/onboarding/project" nextLabel="Continue" disabled={!ok || pending} loading={pending} onNext={next} />}
@@ -180,7 +141,7 @@ export function Instrument({
         <RadioGroup
           labelledBy="ins-language"
           className="ob-opts ins-langs"
-          items={languages}
+          items={LANGUAGES}
           value={choice.language}
           onChange={(id) => setChoice((c) => ({ ...c, language: id }))}
           render={(l, { key, ...props }) => (
@@ -190,11 +151,6 @@ export function Instrument({
             </button>
           )}
         />
-        {soon.length > 0 ? (
-          <p className="ins-soon">
-            {listOf(soon.map((l) => l.label))} {soon.length === 1 ? "is" : "are"} coming soon.
-          </p>
-        ) : null}
       </div>
       <div className="ob-f">
         <p className="ob-l" id="ins-runtime">
@@ -214,81 +170,46 @@ export function Instrument({
             </button>
           )}
         />
-      </div>
-      <div className="ob-f">
-        <p className="ob-l" id="ins-method">
-          Method
-        </p>
-        {choice.language ? (
-          <RadioGroup
-            labelledBy="ins-method"
-            className="ob-opts ins-methods"
-            items={methods}
-            value={method}
-            onChange={(id) => setChoice((c) => ({ ...c, method: id as Method }))}
-            render={(m, { key, ...props }) => {
-              const copy = METHOD_COPY[m.id];
-              const later = m.id === "url-check";
-              return (
-                <button key={key} {...props} className={`ob-opt ins-opt${props["aria-checked"] ? " on" : ""}`}>
-                  <span className="ti">
-                    <ObIcon name={copy.icon} />
-                  </span>
-                  <span className="ins-tx">
-                    <b>
-                      {copy.title}
-                      {m.id === recommended ? <span className="ins-tag">Recommended</span> : null}
-                      {later ? <span className="ins-tag muted">Later</span> : null}
-                    </b>
-                    <small>{props["aria-checked"] && choice.runtime ? recommendReason(m.id, choice.language, choice.runtime) : methodDetail(m.id, choice.language)}</small>
-                  </span>
-                  <span className="mk">{props["aria-checked"] ? <ObIcon name="done" /> : null}</span>
-                </button>
-              );
-            }}
-          />
-        ) : (
+        {choice.language && choice.runtime ? (
           <div className="ob-note">
             <ObIcon name="info" />
-            <span>Pick a language to see the recommended method.</span>
+            <span>{sdkReason(choice.language, choice.runtime)}</span>
           </div>
-        )}
+        ) : null}
       </div>
-      {method === "sdk" ? (
-        <div className="ob-f">
-          <p className="ob-l" id="ins-posture">
-            What the SDK captures<small>change it any time with one setting</small>
-          </p>
-          <RadioGroup
-            labelledBy="ins-posture"
-            className="ob-opts ins-methods"
-            items={POSTURES}
-            value={posture}
-            onChange={(id) => setPosture(id as Posture)}
-            render={(p, { key, ...props }) => (
-              <button key={key} {...props} className={`ob-opt ins-opt${props["aria-checked"] ? " on" : ""}`}>
-                <span className="ti">
-                  <ObIcon name={POSTURE_ICON[p.id]} />
-                </span>
-                <span className="ins-tx">
-                  <b>
-                    {p.label}
-                    {p.id === DEFAULT_POSTURE ? <span className="ins-tag">Recommended</span> : null}
-                  </b>
-                  <small>{p.consequence}</small>
-                </span>
-                <span className="mk">{props["aria-checked"] ? <ObIcon name="done" /> : null}</span>
-              </button>
-            )}
-          />
-          <p className="ins-soon">
-            The next step’s snippet sets this posture and a starter redaction list.{" "}
-            <a className="cp-link" {...extLink(privacyDocsUrl(LINKS.docs))}>
-              What each posture sends
-            </a>
-          </p>
-        </div>
-      ) : null}
+      <div className="ob-f">
+        <p className="ob-l" id="ins-posture">
+          What the SDK captures<small>change it any time with one setting</small>
+        </p>
+        <RadioGroup
+          labelledBy="ins-posture"
+          className="ob-opts ins-methods"
+          items={POSTURES}
+          value={posture}
+          onChange={(id) => setPosture(id as Posture)}
+          render={(p, { key, ...props }) => (
+            <button key={key} {...props} className={`ob-opt ins-opt${props["aria-checked"] ? " on" : ""}`}>
+              <span className="ti">
+                <ObIcon name={POSTURE_ICON[p.id]} />
+              </span>
+              <span className="ins-tx">
+                <b>
+                  {p.label}
+                  {p.id === DEFAULT_POSTURE ? <span className="ins-tag">Recommended</span> : null}
+                </b>
+                <small>{p.consequence}</small>
+              </span>
+              <span className="mk">{props["aria-checked"] ? <ObIcon name="done" /> : null}</span>
+            </button>
+          )}
+        />
+        <p className="ins-soon">
+          The next step’s snippet sets this posture and a starter redaction list.{" "}
+          <a className="cp-link" {...extLink(privacyDocsUrl(LINKS.docs))}>
+            What each posture sends
+          </a>
+        </p>
+      </div>
     </ObShell>
   );
 }

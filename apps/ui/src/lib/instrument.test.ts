@@ -1,88 +1,46 @@
 import { describe, expect, it } from "vitest";
-import {
-  LANGUAGES,
-  METHODS,
-  RUNTIMES,
-  effectiveMethod,
-  languageEnabled,
-  methodsFor,
-  recommend,
-  recommendReason,
-  savedInstrument,
-} from "./instrument";
+import { LANGUAGES, RUNTIMES, SDK_METHOD, languageOf, savedInstrument, sdkReason } from "./instrument";
 import { onboardingAnswersSchema } from "./onboarding-save";
 
 describe("choices", () => {
-  it("offers the ten languages and four runtimes of the step", () => {
-    expect(LANGUAGES.map((l) => l.label)).toEqual(["Python", "Node.js", "Java", "Go", ".NET", "PHP", "Ruby", "Browser", "iOS", "Android"]);
+  it("offers the languages with an APILens SDK and the four runtimes", () => {
+    expect(LANGUAGES.map((l) => l.label)).toEqual(["Python", "Node.js", "Java"]);
+    expect(LANGUAGES.every((l) => l.sdk)).toBe(true);
     expect(RUNTIMES.map((r) => r.id)).toEqual(["kubernetes", "docker", "serverless", "laptop"]);
-  });
-
-  it("enables only languages with an SDK or an OTLP path", () => {
-    expect(LANGUAGES.filter(languageEnabled).map((l) => l.id)).toEqual(["python", "node", "java", "go", "dotnet", "php", "ruby"]);
   });
 
   it("uses ids the onboarding API accepts as answers", () => {
     for (const l of LANGUAGES) expect(onboardingAnswersSchema.safeParse({ language: l.id }).success).toBe(true);
     for (const r of RUNTIMES) expect(onboardingAnswersSchema.safeParse({ runtime: r.id }).success).toBe(true);
-    for (const m of METHODS) expect(onboardingAnswersSchema.safeParse({ method: m }).success).toBe(true);
+    expect(onboardingAnswersSchema.safeParse({ method: SDK_METHOD }).success).toBe(true);
+  });
+
+  it("finds a language by id", () => {
+    expect(languageOf("java")?.sdk).toBe("ai.apilens:apilens-java-sdk");
+    expect(languageOf("go")).toBeUndefined();
+    expect(languageOf(undefined)).toBeUndefined();
   });
 });
 
-describe("methodsFor", () => {
-  it.each([
-    ["python", ["sdk", "otlp"]],
-    ["java", ["sdk", "otlp"]],
-    ["go", ["otlp"]],
-    ["ios", []],
-    ["cobol", []],
-    [undefined, []],
-  ])("%s → %j", (lang, methods) => {
-    expect(methodsFor(lang)).toEqual(methods);
+describe("sdkReason", () => {
+  it("says why the SDK suits the runtime", () => {
+    expect(sdkReason("python", "laptop")).toContain("install the Python SDK");
+    expect(sdkReason("node", "serverless")).toContain("Wrap your handler");
+    expect(sdkReason("java", "kubernetes")).toContain("One middleware");
+    expect(sdkReason(undefined, undefined)).toContain("One middleware");
   });
 });
 
-describe("recommend", () => {
-  it("recommends the SDK where there is one, on every runtime", () => {
-    for (const r of RUNTIMES) {
-      expect(recommend("node", r.id)).toBe("sdk");
-      expect(recommend("python", r.id)).toBe("sdk");
-    }
+describe("savedInstrument", () => {
+  it("keeps saved answers it can still offer", () => {
+    expect(savedInstrument({ language: "python", runtime: "docker", method: "sdk" })).toEqual({ language: "python", runtime: "docker" });
   });
 
-  it("recommends OpenTelemetry for languages without an SDK", () => {
-    expect(recommend("go", "kubernetes")).toBe("otlp");
-    expect(recommend("ruby", "laptop")).toBe("otlp");
+  it("drops a language without an SDK and an unknown runtime", () => {
+    expect(savedInstrument({ language: "go", runtime: "mainframe", method: "otlp" })).toEqual({ language: undefined, runtime: undefined });
   });
 
-  it("recommends nothing for a language with no path", () => {
-    expect(recommend("android", "docker")).toBeUndefined();
-    expect(recommend(undefined, undefined)).toBeUndefined();
-  });
-
-  it("explains the recommendation per runtime", () => {
-    expect(recommendReason("sdk", "python", "laptop")).toContain("Python SDK");
-    expect(recommendReason("sdk", "node", "serverless")).toContain("no agent or sidecar");
-    expect(recommendReason("otlp", "go", "kubernetes")).toContain("Collector");
-    expect(recommendReason("otlp", "go", "docker")).toContain("OpenTelemetry SDK for Go");
-  });
-});
-
-describe("savedInstrument / effectiveMethod", () => {
-  it("resumes from the saved answers", () => {
-    expect(savedInstrument({ language: "java", runtime: "kubernetes", method: "otlp" })).toEqual({ language: "java", runtime: "kubernetes", method: "otlp" });
-  });
-
-  it("drops answers the step can no longer offer", () => {
-    expect(savedInstrument({ language: "ios", runtime: "mainframe", method: "sdk" })).toEqual({});
-    expect(savedInstrument({ language: "go", method: "sdk" })).toEqual({ language: "go" });
-    expect(savedInstrument({ language: "python", method: "url-check" })).toEqual({ language: "python" });
-  });
-
-  it("keeps a picked method while the language can use it, else falls back to the recommendation", () => {
-    expect(effectiveMethod({ language: "python", runtime: "docker" })).toBe("sdk");
-    expect(effectiveMethod({ language: "python", runtime: "docker", method: "otlp" })).toBe("otlp");
-    expect(effectiveMethod({ language: "go", runtime: "docker", method: "sdk" })).toBe("otlp");
-    expect(effectiveMethod({})).toBeUndefined();
+  it("starts empty with no answers", () => {
+    expect(savedInstrument({})).toEqual({ language: undefined, runtime: undefined });
   });
 });

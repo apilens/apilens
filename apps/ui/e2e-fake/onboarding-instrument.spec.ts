@@ -1,10 +1,10 @@
-// "How do you want to instrument?" (#332) against the fake identity: language, runtime and method
-// radio groups are keyboard navigable, the recommended method follows the language, Continue saves
-// the answers and goes on to the install step, and a refresh resumes with them.
+// "What are you instrumenting?" (#332) against the fake identity: only languages with an APILens SDK
+// are offered, the language, runtime and posture radio groups are keyboard navigable, Continue
+// saves the answers and goes on to the install step, and a refresh resumes with them.
 import AxeBuilder from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 
-const TITLE = "How do you want to instrument?";
+const TITLE = "What are you instrumenting?";
 
 /** Signs a new fake user in, creates organization `org` and project `project`, landing on the instrument step. */
 async function toInstrumentStep(page: Page, org: string, project: string) {
@@ -26,20 +26,23 @@ async function toInstrumentStep(page: Page, org: string, project: string) {
   await expect(page.getByRole("heading", { name: TITLE })).toBeVisible();
 }
 
-test("instrument: keyboard radio groups, recommended method, saved answers", async ({ page }) => {
-  await toInstrumentStep(page, "Vandelay", "Vandelay Imports");
+test("instrument: SDK languages only, keyboard radio groups, saved answers", async ({ page }) => {
+  await toInstrumentStep(page, "Vandelay", "Vandelay Latex");
   await expect(page.locator('.ob-st[aria-current="step"]')).toHaveText("Instrument");
-  await expect(page.locator(".ob-p").first()).toContainText("Vandelay Imports");
+  await expect(page.locator(".ob-p").first()).toContainText("Vandelay Latex");
 
   const languages = page.getByRole("radiogroup", { name: "Language" });
   const runtimes = page.getByRole("radiogroup", { name: "Where it runs" });
   const cont = page.getByRole("button", { name: "Continue" });
   await expect(cont).toBeDisabled();
-  // Languages without an SDK or OTLP path can't be picked.
-  for (const name of ["Browser", "iOS", "Android"]) await expect(languages.getByRole("radio", { name })).toBeDisabled();
+  // Only languages with an APILens SDK, and no other way to instrument.
+  await expect(languages.getByRole("radio")).toHaveText(["Python", "Node.js", "Java"]);
+  await expect(page.getByRole("radiogroup", { name: "Method" })).toHaveCount(0);
+  await expect(page.getByText(/OpenTelemetry|coming soon/i)).toHaveCount(0);
 
-  // One Tab stop per group; arrows move and check, wrapping past the disabled ones.
+  // One Tab stop per group; arrows move and check, wrapping at the ends.
   const python = languages.getByRole("radio", { name: "Python" });
+  const java = languages.getByRole("radio", { name: "Java" });
   await python.focus();
   await page.keyboard.press("ArrowRight");
   const node = languages.getByRole("radio", { name: "Node.js" });
@@ -47,48 +50,33 @@ test("instrument: keyboard radio groups, recommended method, saved answers", asy
   await expect(node).toHaveAttribute("aria-checked", "true");
   await expect(languages.locator('[tabindex="0"]')).toHaveCount(1);
   await page.keyboard.press("End");
-  await expect(languages.getByRole("radio", { name: "Ruby" })).toBeFocused();
+  await expect(java).toBeFocused();
   await page.keyboard.press("ArrowRight");
   await expect(python).toBeFocused();
   await expect(python).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("ArrowLeft");
-  await expect(languages.getByRole("radio", { name: "Ruby" })).toHaveAttribute("aria-checked", "true");
-  await page.keyboard.press("Home");
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("ArrowRight");
-  await expect(languages.getByRole("radio", { name: "Java" })).toHaveAttribute("aria-checked", "true");
+  await expect(java).toHaveAttribute("aria-checked", "true");
 
   // Tab leaves the language group for the runtime group.
   await page.keyboard.press("Tab");
   await expect(runtimes.getByRole("radio", { name: /^Kubernetes/ })).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(runtimes.getByRole("radio", { name: /^Docker or VM/ })).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator(".ob-note")).toContainText("One middleware captures every request");
 
-  // The SDK is recommended for Java and checked; URL checks come later.
-  const methods = page.getByRole("radiogroup", { name: "Method" });
-  await expect(methods.getByRole("radio", { name: /^APILens SDK/ })).toHaveAttribute("aria-checked", "true");
-  await expect(methods.getByRole("radio", { name: /^APILens SDK/ })).toContainText("Recommended");
-  await expect(methods.getByRole("radio", { name: /^Check a URL/ })).toBeDisabled();
-  // Go has no SDK: OpenTelemetry is recommended instead.
-  await languages.getByRole("radio", { name: "Go" }).click();
-  await expect(methods.getByRole("radio", { name: /^APILens SDK/ })).toBeDisabled();
-  await expect(methods.getByRole("radio", { name: /^OpenTelemetry/ })).toHaveAttribute("aria-checked", "true");
-
-  // Pick Java with OTLP over the recommendation, then Continue saves and moves on.
-  await languages.getByRole("radio", { name: "Java" }).click();
-  await methods.getByRole("radio", { name: /^OpenTelemetry/ }).focus();
-  await page.keyboard.press("ArrowUp");
-  await page.keyboard.press("ArrowDown");
-  await expect(methods.getByRole("radio", { name: /^OpenTelemetry/ })).toHaveAttribute("aria-checked", "true");
+  // The capture posture starts on the recommended one; Continue saves and moves on with it.
+  const postures = page.getByRole("radiogroup", { name: /^What the SDK captures/ });
+  await expect(postures.getByRole("radio", { name: /^Metadata only/ })).toHaveAttribute("aria-checked", "true");
+  await postures.getByRole("radio", { name: /^Redacted/ }).click();
   await expect(cont).toBeEnabled();
   await cont.click();
-  await page.waitForURL((url) => url.pathname === "/onboarding/install");
+  await page.waitForURL((url) => url.pathname === "/onboarding/install" && url.searchParams.get("capture") === "redacted");
+  await expect(page.locator(".ob-p").first()).toContainText("the Java SDK");
 
   // Coming back resumes with the saved answers.
   await page.goto("/onboarding/instrument");
   await expect(languages.getByRole("radio", { name: "Java" })).toHaveAttribute("aria-checked", "true");
   await expect(runtimes.getByRole("radio", { name: /^Docker or VM/ })).toHaveAttribute("aria-checked", "true");
-  await expect(methods.getByRole("radio", { name: /^OpenTelemetry/ })).toHaveAttribute("aria-checked", "true");
 });
 
 // #332: visual check of the instrument step in light and dark at 1440 and 390 px, with axe finding

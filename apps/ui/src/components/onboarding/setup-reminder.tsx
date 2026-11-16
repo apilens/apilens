@@ -18,7 +18,7 @@ export function SetupReminder({ project }: { project: string }) {
     <div className="ob-notice ob-notice--warn setup-reminder" role="status">
       <ObIcon name="info" />
       <p>
-        Finish setting up: add the SDK or an OpenTelemetry exporter with an ingest key to start seeing requests.{" "}
+        Finish setting up: add the APILens SDK with an ingest key to start seeing requests.{" "}
         <Link className="cp-link" href={keysPath(project)}>
           API keys
         </Link>

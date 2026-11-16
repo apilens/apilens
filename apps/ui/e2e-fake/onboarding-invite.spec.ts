@@ -28,7 +28,6 @@ async function toWaitingStep(page: Page, org: string, project: string): Promise<
   await page.waitForURL((url) => url.pathname === "/onboarding/instrument");
   await page.getByRole("radio", { name: "Python", exact: true }).click();
   await page.getByRole("radio", { name: /^Docker or VM/ }).click();
-  await page.getByRole("radiogroup", { name: "Method" }).getByRole("radio", { name: /^APILens SDK/ }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.waitForURL((url) => url.pathname === "/onboarding/install");
   const key = page.getByRole("textbox", { name: "Ingest key" });

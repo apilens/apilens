@@ -150,6 +150,9 @@ type Service struct {
 type Options struct {
 	// Now is the clock used for expiry. Nil means time.Now.
 	Now func() time.Time
+	// FixedCode, when set, replaces the random code in every email (local
+	// development only; config refuses it off localhost). The link stays random.
+	FixedCode string
 }
 
 // New returns a Service over store.
@@ -158,7 +161,14 @@ func New(store Store, opts Options) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{store: store, now: now, rand: newSecrets}
+	secrets := newSecrets
+	if fixed := opts.FixedCode; fixed != "" {
+		secrets = func() (string, string, error) {
+			link, _, err := newSecrets()
+			return link, fixed, err
+		}
+	}
+	return &Service{store: store, now: now, rand: secrets}
 }
 
 // IssueOptions are the optional facts stored with an email.

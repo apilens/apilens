@@ -6,7 +6,6 @@ import {
   type PollResult,
   createPoller,
   errorState,
-  expectedEndpoint,
   ingestStatusPath,
   pollDelay,
   pollResult,
@@ -62,11 +61,6 @@ describe("status line", () => {
 describe("troubleshooting", () => {
   it("routes through the Route Handler", () => {
     expect(ingestStatusPath("kramerica-oil")).toBe("/api/projects/kramerica-oil/ingest-status");
-  });
-
-  it("names the endpoint the method sends to", () => {
-    expect(expectedEndpoint("sdk", "https://ingest.example.com/")).toBe("https://ingest.example.com/v1");
-    expect(expectedEndpoint("otlp", "https://ingest.example.com")).toBe("https://ingest.example.com/otlp");
   });
 
   it("builds a curl to the edge's /v1/requests with the key from the environment", () => {

@@ -574,7 +574,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		Jobs:       a.jobs,
 	}, a.logger).Register(a.server.API())
 	identity.NewEmailStart(a.cfg.Identity, identity.EmailStartDeps{
-		Tokens: emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{}),
+		Tokens: emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{FixedCode: a.cfg.Identity.DevEmailCode}),
 		Users:  identitydb.New(a.pool),
 		Jobs:   a.jobs,
 		Audit:  audit.New(a.pool),
@@ -586,7 +586,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 	controlplaneapi.NewInvitationLinks(orgs.NewInvitations(a.pool, audit.New(a.pool), a.jobs), limiter,
 		ratelimit.Rate(a.cfg.Identity.RateLimits.InvitationLookupPerIP), a.logger).Register(a.server.API())
 	identity.NewEmailVerify(a.cfg.Identity, identity.EmailVerifyDeps{
-		Codes:    emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{}),
+		Codes:    emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{FixedCode: a.cfg.Identity.DevEmailCode}),
 		Users:    identity.NewPGSignInUsers(a.pool),
 		Sessions: sessions,
 		PreAuth:  identity.NewValkeyPreAuthStore(a.valkey),
@@ -627,7 +627,7 @@ func (a *App) initIdentity(ctx context.Context) (modules.Service, error) {
 		Sessions:  sessions,
 		Audit:     audit.New(a.pool),
 	}, a.logger).Register(a.server.API())
-	codes := emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{})
+	codes := emailauth.New(emailauth.NewStore(a.pool), emailauth.Options{FixedCode: a.cfg.Identity.DevEmailCode})
 	identity.NewEmailChange(emailchange.New(a.pool, codes, a.jobs), a.logger).Register(a.server.API())
 	rp, err := passkey.NewRelyingParty(a.cfg.Identity.WebAuthn)
 	if err != nil {

@@ -152,6 +152,8 @@
 .cp-budget i { display: block; height: 100%; background: var(--ink-muted); border-radius: 3px; }
 .cp-budget i.w { background: var(--warn); } .cp-budget i.e { background: var(--error); }
 .cp-link { color: var(--accent-ink); text-decoration: none; font-weight: 500; }
+button.cp-link { padding: 0; border: 0; background: none; font: inherit; font-weight: 500; color: var(--accent-ink); cursor: pointer; }
+button.cp-link:disabled { cursor: default; opacity: .6; }
 
 /* ───────── Auth & setup ───────── */
 .au { width: 1440px; height: 920px; background: var(--bg); position: relative; overflow: hidden; }

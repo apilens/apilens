@@ -375,7 +375,7 @@ describe("passkeys", () => {
     const { json, text, setCookies } = await call("passkeys/login/verify", {
       body: { challenge_id: "ch_1", credential, remember: true },
     });
-    expect(json).toEqual({ ok: true, next: "/" });
+    expect(json).toEqual({ ok: true, next: "/", email: "ada@example.com" });
     expectNoTokens(text);
     expect(seen[0].body).toEqual({ challenge_id: "ch_1", response: credential, remember: true });
     expect(await session.open(cookieValue(setCookies, session.SESSION_COOKIE_NAME), SECRET)).toMatchObject({

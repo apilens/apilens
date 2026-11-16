@@ -260,6 +260,21 @@ func TestLatest(t *testing.T) {
 	}
 }
 
+func TestFixedCode(t *testing.T) {
+	c := &clock{t: time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)}
+	s := New(&fakeStore{now: c.now}, Options{Now: c.now, FixedCode: "211226"})
+	first, second := mustIssue(t, s), mustIssue(t, s)
+	if first.Code != "211226" || second.Code != "211226" {
+		t.Fatalf("codes = %q, %q; want the fixed code", first.Code, second.Code)
+	}
+	if first.LinkToken == second.LinkToken || !validLinkToken(first.LinkToken) {
+		t.Fatal("link tokens must stay random")
+	}
+	if _, err := s.VerifyCode(context.Background(), email, "211-226"); err != nil {
+		t.Fatalf("verify fixed code: %v", err)
+	}
+}
+
 func TestVerifyCode(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {

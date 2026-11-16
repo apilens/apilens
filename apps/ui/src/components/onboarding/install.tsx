@@ -5,7 +5,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState, useTransition
 import { type InstallKey, createInstallKey, finishInstallLater } from "@/app/(auth)/onboarding/install/actions";
 import { maskedKey } from "@/lib/api-keys";
 import { DEFAULT_POSTURE, POSTURES, POSTURE_PARAM, type Posture, type SavedKey, type Snippet, privacyDocsUrl, snippetsFor } from "@/lib/install";
-import { type Method, languageOf } from "@/lib/instrument";
+import { languageOf } from "@/lib/instrument";
 import { LINKS, extLink } from "@/lib/links";
 import { BackNext, ObIcon, ObShell, type StepProps } from "./ob";
 import { useOnboardingContinue, useOnboardingToast } from "./progress";
@@ -84,7 +84,7 @@ function RawKey({ apiKey }: { apiKey: InstallKey }) {
 /**
  * "Install" (#333), step 4: on the first visit it creates an ingest key named "Onboarding" on the
  * project (its id is saved in the onboarding answers, the raw key is not) and shows it once, with
- * a copy button, and the snippets for the language and method picked on the instrument step (#332)
+ * a copy button, and the SDK snippets for the language picked on the instrument step (#332)
  * filled in with it, the app id and `APILENS_PUBLIC_INGEST_URL`. On a revisit the raw key is gone:
  * the key shows masked and "Create a new key" makes another. Continue goes on to wait for the
  * first request; "I'll do this later" finishes onboarding and opens the project with a reminder.
@@ -94,7 +94,6 @@ export function Install({
   reached = step,
   project,
   language,
-  method,
   appId,
   ingestUrl,
   saved,
@@ -102,11 +101,10 @@ export function Install({
 }: Partial<StepProps> & {
   project: { slug: string; name: string };
   language: string;
-  method: Method;
   appId: string;
   ingestUrl: string;
   saved: SavedKey;
-  /** The capture posture picked on the instrument step (#601); SDK snippets set it. */
+  /** The capture posture picked on the instrument step (#601); the snippets set it. */
   posture?: Posture;
 }) {
   const [apiKey, setApiKey] = useState<InstallKey | null>(null);
@@ -151,9 +149,8 @@ export function Install({
       }
     });
 
-  const snippets = snippetsFor({ language, method, apiKey: apiKey?.key, appId, ingestUrl, posture });
+  const snippets = snippetsFor({ language, apiKey: apiKey?.key, appId, ingestUrl, posture });
   const lang = languageOf(language)?.label ?? language;
-  const how = method === "sdk" ? `the ${lang} SDK` : `OpenTelemetry for ${lang}`;
   const busy = creating || pending || leaving;
 
   let keyBody: ReactNode;
@@ -221,10 +218,10 @@ export function Install({
       title="Install"
       lead={
         <>
-          Send <b>{project.name}</b>’s requests to APILens with {how}.
+          Send <b>{project.name}</b>’s requests to APILens with the {lang} SDK.
         </>
       }
-      footer={<BackNext back={method === "sdk" ? `/onboarding/instrument?${POSTURE_PARAM}=${posture}` : "/onboarding/instrument"} nextLabel="Continue" disabled={busy} loading={pending} onNext={() => go("waiting", "/onboarding/waiting")} />}
+      footer={<BackNext back={`/onboarding/instrument?${POSTURE_PARAM}=${posture}`} nextLabel="Continue" disabled={busy} loading={pending} onNext={() => go("waiting", "/onboarding/waiting")} />}
       below={
         <>
           Not ready to change code?{" "}
@@ -242,20 +239,18 @@ export function Install({
       </div>
       <div className="ob-f ins-snippets">
         <p className="ob-l">
-          {method === "sdk" ? "Add the SDK" : "Point your exporter at APILens"}
+          Add the SDK
           <small>app id {appId}</small>
         </p>
         {snippets.map((s) => (
           <CodeBlock key={s.id} snippet={s} />
         ))}
-        {method === "sdk" ? (
-          <p className="ins-status">
-            Capture posture: <b>{POSTURES.find((p) => p.id === posture)?.label}</b>, plus a starter redaction list on top of the built-in masking.{" "}
-            <a className="cp-link" {...extLink(privacyDocsUrl(LINKS.docs))}>
-              Data privacy docs
-            </a>
-          </p>
-        ) : null}
+        <p className="ins-status">
+          Capture posture: <b>{POSTURES.find((p) => p.id === posture)?.label}</b>, plus a starter redaction list on top of the built-in masking.{" "}
+          <a className="cp-link" {...extLink(privacyDocsUrl(LINKS.docs))}>
+            Data privacy docs
+          </a>
+        </p>
       </div>
     </ObShell>
   );

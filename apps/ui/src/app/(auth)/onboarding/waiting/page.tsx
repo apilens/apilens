@@ -5,7 +5,7 @@ import { requireOnboardingStep } from "@/lib/auth/onboarding";
 import { getContext } from "@/lib/auth/server";
 import { env } from "@/lib/env";
 import { appIdFor } from "@/lib/install";
-import { effectiveMethod, savedInstrument } from "@/lib/instrument";
+import { savedInstrument } from "@/lib/instrument";
 
 export const metadata: Metadata = { title: "Waiting for your first request" };
 
@@ -18,15 +18,13 @@ export default async function Page() {
   const project = ctx.orgs.flatMap((o) => o.projects).find((p) => p.slug === answers.project_slug);
   // No project to wait on yet: create one first.
   if (!project) redirect("/onboarding/project");
-  // Nothing picked to install yet: the troubleshooting needs the method.
-  const method = effectiveMethod(savedInstrument(answers));
-  if (!method) redirect("/onboarding/instrument");
+  // No language picked yet: pick one first.
+  if (!savedInstrument(answers).language) redirect("/onboarding/instrument");
   return (
     <Waiting
       step={step}
       reached={reached}
       project={{ slug: project.slug, name: project.name }}
-      method={method}
       appId={appIdFor(project.slug)}
       ingestUrl={env().publicIngestUrl}
     />

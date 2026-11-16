@@ -91,7 +91,6 @@ test("sign-up → verify → organization → project → key → first event �
   // Instrument with the APILens SDK, then take the key the install step shows once.
   await page.getByRole("radio", { name: "Python", exact: true }).click();
   await page.getByRole("radio", { name: /^Docker or VM/ }).click();
-  await page.getByRole("radiogroup", { name: "Method" }).getByRole("radio", { name: /^APILens SDK/ }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await at(page, "/onboarding/install");
   const keyField = page.getByRole("textbox", { name: "Ingest key" });

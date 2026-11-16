@@ -5,8 +5,8 @@
 import AxeBuilder from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 
-/** Signs a new fake user in and walks onboarding up to the install step with `language` over `method`. */
-async function toInstallStep(page: Page, org: string, project: string, language: string, method: RegExp) {
+/** Signs a new fake user in and walks onboarding up to the install step with `language`. */
+async function toInstallStep(page: Page, org: string, project: string, language: string) {
   await page.goto("/sign-in");
   await page.locator("a.ah-btn").filter({ hasText: /^GitHub$/ }).click();
   await page.getByRole("link", { name: "Authorize" }).click();
@@ -23,7 +23,6 @@ async function toInstallStep(page: Page, org: string, project: string, language:
   await page.waitForURL((url) => url.pathname === "/onboarding/instrument");
   await page.getByRole("radio", { name: language, exact: true }).click();
   await page.getByRole("radio", { name: /^Docker or VM/ }).click();
-  await page.getByRole("radiogroup", { name: "Method" }).getByRole("radio", { name: method }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.waitForURL((url) => url.pathname === "/onboarding/install");
   await expect(page.getByRole("heading", { name: "Install" })).toBeVisible();
@@ -33,7 +32,7 @@ const keyField = (page: Page) => page.getByRole("textbox", { name: "Ingest key" 
 
 test("install: one key shown once, snippets with it, masked after navigation", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await toInstallStep(page, "Kramerica", "Kramerica Oil", "Python", /^APILens SDK/);
+  await toInstallStep(page, "Kramerica", "Kramerica Oil", "Python");
 
   // The key is created on the first visit and shown in full.
   await expect(keyField(page)).toHaveValue(/^apl_live_[\w-]+$/);
@@ -74,19 +73,18 @@ test("install: one key shown once, snippets with it, masked after navigation", a
   await expect(page.getByRole("row").filter({ hasText: "Onboarding" })).toHaveCount(2);
 });
 
-test("install: OTLP shows the exporter environment; later finishes onboarding with a reminder", async ({ page }) => {
-  await toInstallStep(page, "Pendant Publishing", "Pendant Books", "Go", /^OpenTelemetry/);
-  await expect(keyField(page)).toHaveValue(/^apl_live_[\w-]+$/);
-  const raw = await keyField(page).inputValue();
-  const env = page.locator(".ob-code pre").filter({ hasText: "OTEL_EXPORTER_OTLP_ENDPOINT" });
-  await expect(env).toContainText("export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:8080/otlp");
-  await expect(env).toContainText(`export OTEL_EXPORTER_OTLP_HEADERS=x-api-key=${raw}`);
-  await expect(env).toContainText("export OTEL_RESOURCE_ATTRIBUTES=apilens.app=pendant-books");
+test("install: Java gets the SDK snippets; later finishes onboarding with a reminder", async ({ page }) => {
+  await toInstallStep(page, "Pendant Publishing", "Pendant Books", "Java");
+  await expect(page.getByRole("heading", { name: "Install" })).toBeVisible();
+  await expect(page.locator(".ob-p").first()).toContainText("the Java SDK");
+  await expect(page.locator(".ob-code pre").filter({ hasText: "apilens-java-sdk" })).toBeVisible();
+  await expect(page.locator(".ob-code pre").filter({ hasText: "apilens.app-id=pendant-books" })).toBeVisible();
 
   await page.getByRole("button", { name: "I’ll do this later" }).click();
   await page.waitForURL((url) => url.pathname.startsWith("/pendant-books/") && url.searchParams.get("setup") === "later");
   const reminder = page.getByRole("status").filter({ hasText: "Finish setting up" });
   await expect(reminder).toBeVisible();
+  await expect(reminder).toContainText("add the APILens SDK");
   await expect(reminder.getByRole("link", { name: "API keys" })).toHaveAttribute("href", "/pendant-books/settings/keys");
   // Onboarding is finished: its pages send the user to a project (the fake's last one).
   await page.goto("/onboarding/install");
@@ -97,7 +95,7 @@ test("install: OTLP shows the exporter environment; later finishes onboarding wi
 // no serious or critical violations. Screenshots: `AUTH_SHOTS=<dir> pnpm test:e2e:fake onboarding-install`.
 test("install passes axe in light and dark at 1440 and 390 px", async ({ page }) => {
   test.setTimeout(120_000);
-  await toInstallStep(page, "Vandelay Industries", "Latex Exports", "Node.js", /^APILens SDK/);
+  await toInstallStep(page, "Vandelay Industries", "Latex Exports", "Node.js");
   await expect(keyField(page)).toHaveValue(/^apl_live_[\w-]+$/);
   for (const theme of ["light", "dark"] as const) {
     await page.evaluate((t) => localStorage.setItem("theme", t), theme);

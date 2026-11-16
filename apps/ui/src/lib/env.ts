@@ -21,7 +21,7 @@ export interface ServerEnv {
    */
   publicApiUrl: string;
   /**
-   * Public base URL SDKs and OpenTelemetry exporters send events to (the edge, port 8080), no
+   * Public base URL the SDKs send events to (the edge, port 8080), no
    * trailing slash: the onboarding install snippets use it. Defaults to `http://localhost:8080`.
    */
   publicIngestUrl: string;

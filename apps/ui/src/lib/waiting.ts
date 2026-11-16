@@ -4,8 +4,7 @@
 // waits and the test request it offers. Pure, or with its clock and timers injected, so the
 // schedule and the hidden-tab pause can be unit tested.
 import type { IngestStatus } from "./identity";
-import { otlpEndpoint, sdkBaseUrl } from "./install";
-import type { Method } from "./instrument";
+import { sdkBaseUrl } from "./install";
 
 /** Poll every 3 s at first, every 10 s once two minutes have gone by. */
 export const POLL_FAST_MS = 3_000;
@@ -73,11 +72,6 @@ export function statusLine(state: WaitState): string {
 /** The state an error code puts the screen in: access problems are final, the rest are retried. */
 export function errorState(code: string): WaitState {
   return code === "forbidden" || code === "not_found" ? "forbidden" : "error";
-}
-
-/** Where the SDK or the OTLP exporter must send to, for the troubleshooting list. */
-export function expectedEndpoint(method: Method, ingestUrl: string): string {
-  return method === "otlp" ? otlpEndpoint(ingestUrl) : sdkBaseUrl(ingestUrl);
 }
 
 /**

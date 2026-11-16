@@ -13,7 +13,7 @@ const FAKE_EDGE = "http://127.0.0.1:18080";
 const INGEST_URL = "http://localhost:8080";
 
 /** Signs a new fake user in, walks onboarding to the waiting step and returns the ingest key it showed. */
-async function toWaitingStep(page: Page, org: string, project: string, method: RegExp): Promise<string> {
+async function toWaitingStep(page: Page, org: string, project: string): Promise<string> {
   await page.goto("/sign-in");
   await page.locator("a.ah-btn").filter({ hasText: /^GitHub$/ }).click();
   await page.getByRole("link", { name: "Authorize" }).click();
@@ -30,7 +30,6 @@ async function toWaitingStep(page: Page, org: string, project: string, method: R
   await page.waitForURL((url) => url.pathname === "/onboarding/instrument");
   await page.getByRole("radio", { name: "Python", exact: true }).click();
   await page.getByRole("radio", { name: /^Docker or VM/ }).click();
-  await page.getByRole("radiogroup", { name: "Method" }).getByRole("radio", { name: method }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.waitForURL((url) => url.pathname === "/onboarding/install");
   const key = page.getByRole("textbox", { name: "Ingest key" });
@@ -60,7 +59,7 @@ test("waiting: polls, pauses while hidden, troubleshoots, and moves on when a re
   page.on("request", (r) => {
     if (r.url().includes("/api/projects/seinfeld-api/ingest-status")) polls += 1;
   });
-  const raw = await toWaitingStep(page, "Seinfeld", "Seinfeld API", /^APILens SDK/);
+  const raw = await toWaitingStep(page, "Seinfeld", "Seinfeld API");
 
   // Polling: every 3 s at first.
   await expect(statusLine(page)).toHaveText("No requests yet. Checking every 3 seconds.");
@@ -109,14 +108,11 @@ test("waiting: polls, pauses while hidden, troubleshoots, and moves on when a re
   }).toPass();
 });
 
-test("waiting: OTLP troubleshooting names the exporter; open the project anyway", async ({ page }) => {
+test("waiting: open the project anyway", async ({ page }) => {
   await page.clock.install();
-  await toWaitingStep(page, "Costanza", "Costanza Bets", /^OpenTelemetry/);
+  await toWaitingStep(page, "Costanza", "Costanza Bets");
   await page.clock.runFor(3 * 60_000);
-  const trouble = page.locator(".wt-trouble");
-  await expect(trouble).toContainText("OTEL_EXPORTER_OTLP_ENDPOINT");
-  await expect(trouble).toContainText(`${INGEST_URL}/otlp`);
-  await expect(trouble).toContainText("localhost:8080");
+  await expect(page.locator(".wt-trouble")).toContainText("localhost:8080");
 
   await page.getByRole("button", { name: "Open the project anyway" }).click();
   await page.waitForURL((url) => url.pathname.startsWith("/costanza-bets/") && url.searchParams.get("setup") === "later");
@@ -127,7 +123,7 @@ test("waiting: OTLP troubleshooting names the exporter; open the project anyway"
 test("waiting passes axe in light and dark at 1440 and 390 px", async ({ page }) => {
   test.setTimeout(120_000);
   await page.clock.install();
-  await toWaitingStep(page, "Del Boca Vista", "Del Boca Waits", /^APILens SDK/);
+  await toWaitingStep(page, "Del Boca Vista", "Del Boca Waits");
   for (const theme of ["light", "dark"] as const) {
     await page.evaluate((t) => localStorage.setItem("theme", t), theme);
     for (const width of [1440, 390]) {

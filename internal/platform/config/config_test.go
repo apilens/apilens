@@ -300,6 +300,38 @@ func TestWebAuthnRPIDValidation(t *testing.T) {
 	}
 }
 
+func TestIdentityDevEmailCode(t *testing.T) {
+	cfg, err := Load("", []string{kekEnv}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Identity.DevEmailCode != "" {
+		t.Fatalf("dev_email_code should default to empty, got %q", cfg.Identity.DevEmailCode)
+	}
+
+	for _, ui := range []string{"http://localhost:3000", "http://127.0.0.1:3000", "http://app.localhost"} {
+		cfg, err = Load("", []string{kekEnv, "APILENS_IDENTITY__PUBLIC_UI_URL=" + ui, "APILENS_IDENTITY__DEV_EMAIL_CODE=211226"}, nil)
+		if err != nil {
+			t.Fatalf("public_ui_url=%s: %v", ui, err)
+		}
+		if cfg.Identity.DevEmailCode != "211226" {
+			t.Fatalf("dev_email_code = %q", cfg.Identity.DevEmailCode)
+		}
+	}
+
+	for _, tc := range []struct{ ui, code, want string }{
+		{"https://app.example.com", "211226", "only allowed when identity.public_ui_url is on localhost"},
+		{"http://localhost.example.com", "211226", "only allowed when identity.public_ui_url is on localhost"},
+		{"http://localhost:3000", "12345", "want 6 digits"},
+		{"http://localhost:3000", "abcdef", "want 6 digits"},
+	} {
+		_, err := Load("", []string{kekEnv, "APILENS_IDENTITY__PUBLIC_UI_URL=" + tc.ui, "APILENS_IDENTITY__DEV_EMAIL_CODE=" + tc.code}, nil)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("ui=%s code=%s: err = %v, want %q", tc.ui, tc.code, err, tc.want)
+		}
+	}
+}
+
 func TestIdentityCORSOrigins(t *testing.T) {
 	cfg, err := Load("", []string{kekEnv}, nil)
 	if err != nil {

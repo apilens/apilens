@@ -1,9 +1,11 @@
-// "Continue with a passkey" on the sign-in page (#319). Two entry points share one ceremony:
+// Passkey sign-in (#319). Every entry point shares one ceremony:
 //
-//   - the button: `mediation: "optional"`, the browser's passkey sheet;
+//   - `mediation: "optional"`, the browser's passkey sheet: sign-in's Continue for an account
+//     this device last signed in to with a passkey, its "Passkey" button, and the code screen's
+//     "Use a passkey instead";
 //   - on mount: `mediation: "conditional"`, passkeys offered in the email field's autofill
-//     (`autoComplete="email webauthn"`). The page cancels it with an AbortController when the
-//     user picks another method.
+//     (`autoComplete="username webauthn"`). The page cancels it with an AbortController before
+//     any other method starts (only one WebAuthn request may be pending).
 //
 // Ceremony: `POST /api/auth/passkeys/login/options` → `navigator.credentials.get()` →
 // `POST /api/auth/passkeys/login/verify` (sets the session cookie) → `{ok: true, next}`.
@@ -12,7 +14,8 @@
 
 export type PasskeyMediation = "optional" | "conditional";
 
-export type PasskeyResult = { ok: true; next: string } | { ok: false; code: string };
+/** `email`: the signed-in account, when the server said (a discoverable passkey names no one up front). */
+export type PasskeyResult = { ok: true; next: string; email?: string } | { ok: false; code: string };
 
 /** `code` of a ceremony the user (or the page, via the AbortSignal) cancelled. Never shown. */
 export const PASSKEY_CANCELLED = "cancelled";
@@ -28,6 +31,8 @@ export interface PasskeyEnv {
 export interface PublicKeyCredentialStatics {
   isConditionalMediationAvailable?: () => Promise<boolean>;
   parseRequestOptionsFromJSON?: (json: unknown) => PublicKeyCredentialRequestOptions;
+  /** WebAuthn Signal API (Chrome 132+): tells the passkey provider a credential is gone. */
+  signalUnknownCredential?: (options: { rpId: string; credentialId: string }) => Promise<void>;
 }
 
 function browserEnv(): PasskeyEnv {
@@ -157,11 +162,12 @@ const isAbort = (err: unknown, signal?: AbortSignal) =>
 
 /**
  * Runs one passkey sign-in. `email` (optional) narrows the browser's choice to that account's
- * passkeys; `next` is where to land. Never throws: a dismissed sheet or an aborted `signal` is
+ * passkeys; `next` is where to land; `remember` asks for the long session (as "Keep me signed in"
+ * does). Never throws: a dismissed sheet or an aborted `signal` is
  * `{ok: false, code: "cancelled"}`, transport failures are `network_error`.
  */
 export async function signInWithPasskey(
-  input: { mediation: PasskeyMediation; signal?: AbortSignal; email?: string; next?: string },
+  input: { mediation: PasskeyMediation; signal?: AbortSignal; email?: string; next?: string; remember?: boolean },
   env: PasskeyEnv = browserEnv(),
 ): Promise<PasskeyResult> {
   const { mediation, signal } = input;
@@ -186,11 +192,26 @@ export async function signInWithPasskey(
 
     const body: Json = { challenge_id: challengeId, credential: assertionToJSON(credential) };
     if (input.next) body.next = input.next;
+    if (input.remember !== undefined) body.remember = input.remember;
     const verified = await post(env, "/api/auth/passkeys/login/verify", body, signal);
     if (verified.status < 300 && verified.data.ok === true && sameOrigin(verified.data.next)) {
-      return { ok: true, next: verified.data.next };
+      const signedInAs = verified.data.email;
+      return typeof signedInAs === "string" && signedInAs.includes("@")
+        ? { ok: true, next: verified.data.next, email: signedInAs }
+        : { ok: true, next: verified.data.next };
     }
-    return failed(verified.status, verified.data);
+    const result = failed(verified.status, verified.data);
+    // A passkey the server no longer knows (deleted from the account) still sits on the device:
+    // ask the provider to drop it so it stops being offered. Best effort, never awaited.
+    const rpId = options.publicKey.rpId;
+    if (!result.ok && result.code === "passkey_unknown" && typeof rpId === "string") {
+      try {
+        void env.PublicKeyCredential?.signalUnknownCredential?.({ rpId, credentialId: credential.id })?.catch(() => {});
+      } catch {
+        // Older browsers: nothing to signal.
+      }
+    }
+    return result;
   } catch (err) {
     if (isAbort(err, signal)) return { ok: false, code: PASSKEY_CANCELLED };
     if (err instanceof TypeError) return { ok: false, code: "network_error" };

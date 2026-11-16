@@ -26,7 +26,6 @@ async function toWaitingStep(page: Page, org: string, project: string): Promise<
   await page.waitForURL((url) => url.pathname === "/onboarding/instrument");
   await page.getByRole("radio", { name: "Python", exact: true }).click();
   await page.getByRole("radio", { name: /^Docker or VM/ }).click();
-  await page.getByRole("radiogroup", { name: "Method" }).getByRole("radio", { name: /^APILens SDK/ }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.waitForURL((url) => url.pathname === "/onboarding/install");
   const key = page.getByRole("textbox", { name: "Ingest key" });
@@ -95,7 +94,7 @@ test("first data: the latest requests, endpoint count and p95 from the query API
 
 test("first data: open project finishes onboarding on the project's home view", async ({ page }) => {
   test.setTimeout(60_000);
-  await toFirstData(page, "Vandelay", "Vandelay Imports", "vandelay-imports");
+  await toFirstData(page, "Pennypacker", "Vandelay Imports", "vandelay-imports");
   await page.getByRole("button", { name: "Open project" }).click();
   await page.waitForURL((url) => url.pathname === "/vandelay-imports/incidents" && !url.searchParams.has("setup"));
   // Onboarding is finished: its pages now send the user to a project.
@@ -105,7 +104,7 @@ test("first data: open project finishes onboarding on the project's home view", 
 
 test("first data: a failing query API shows a retry, which loads the rows once it answers", async ({ page, request }) => {
   test.setTimeout(60_000);
-  await toFirstData(page, "Kramerica", "Kramerica Industries", "kramerica-industries");
+  await toFirstData(page, "Peterman", "Kramerica Industries", "kramerica-industries");
   await request.post(`${FAKE_EDGE}/__fake/query-down`, { data: { project: "kramerica-industries", down: true } });
   await page.reload();
   await expect(page.locator(".fd-failed")).toContainText("We couldn’t load your requests just now.");

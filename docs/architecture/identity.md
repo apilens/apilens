@@ -482,6 +482,7 @@ SHA-256 is stored. Lifetime is `identity.refresh_token_ttl` (30 days) with
 | `identity.access_token_ttl` | `15m` |
 | `identity.refresh_token_ttl` / `refresh_token_ttl_short` | `720h` / `24h` |
 | `identity.email_code_ttl` / `email_code_max_attempts` | `15m` / `5` |
+| `identity.dev_email_code` | empty. Six digits that every sign-in email uses instead of a random code, for local development. Refused unless `public_ui_url` is on localhost |
 | `identity.pre_auth_ttl` | `5m` |
 | `identity.recovery_delay` | `24h` |
 | OAuth state / handoff code | 10 min / 60 s |
