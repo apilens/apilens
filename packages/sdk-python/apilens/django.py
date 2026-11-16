@@ -44,10 +44,12 @@ from .client.middleware import (
 from .client._shutdown import DEFAULT_SHUTDOWN_TIMEOUT, env_flush_on_shutdown, register_atexit
 from .client._profile import normalize_profile, profile_defaults
 from .client._validation import MAX_VALIDATION_BODY_BYTES, parse_validation_errors
+from .client.log_handler import install_log_handler, normalize_capture_logs
 from .client.spans import (
     configure_spans,
     env_spans_enabled,
     hold_child_spans,
+    mark_exception_reported,
     record_span,
     release_child_spans,
 )
@@ -321,6 +323,15 @@ class ApiLensDjangoMiddleware:
                 environment=self.environment,
                 service_name=getattr(settings, "APILENS_SERVICE_NAME", "") or self.app_id,
             )
+        # APILENS_CAPTURE_LOGS ("errors" default, "off"): ERROR records the app
+        # logs (``logger.exception``) become logs on the current trace.
+        self.capture_logs = normalize_capture_logs(
+            _setting(settings, "CAPTURE_LOGS", "errors", env), name="APILENS_CAPTURE_LOGS"
+        )
+        if self.capture_logs != "off":
+            install_log_handler(
+                self.client, app_id=self.app_id, environment=self.environment, link_spans=self.capture_spans
+            )
         # Graceful shutdown: Django has no lifespan hook (and request_finished
         # never fires for the last batch), so flush from ``atexit`` — gunicorn
         # / uwsgi / runserver workers exit normally on SIGTERM. Bounded by
@@ -339,6 +350,8 @@ class ApiLensDjangoMiddleware:
     def process_exception(self, request, exception):
         """Django calls this when a view raises — stash it so ``__call__``'s
         finally can log the exception (with traceback) against the trace."""
+        # Reported by ``__call__``; django.request logs it again afterwards.
+        mark_exception_reported(exception)
         try:
             setattr(request, "_apilens_exc", exception)
         except Exception:

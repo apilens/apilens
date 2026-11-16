@@ -33,6 +33,7 @@ from ._env import env_defaults
 from ._exception import describe_exception
 from ._profile import CaptureProfile, normalize_profile
 from ._exclusions import RequestExcluder
+from .log_handler import CaptureLogs, install_log_handler, normalize_capture_logs
 from ._metadata import start_asgi_metadata, start_wsgi_metadata
 from ._policy import ALLOW_ALL, Policy, policy_for
 from ._routes import resolve_endpoint_path
@@ -64,6 +65,7 @@ from .spans import (
     configure_spans,
     env_spans_enabled,
     hold_child_spans,
+    mark_exception_reported,
     record_error_log,
     record_span,
     release_child_spans,
@@ -140,6 +142,10 @@ def _maybe_record_error(
     """
     if not _is_error(exc, status_code):
         return
+    if exc is not None:
+        # Frameworks and servers log the exception again after this; the
+        # logging handler skips it.
+        mark_exception_reported(exc)
     message, payload, attributes = _error_message(exc, status_code, method, path)
     record_error_log(
         trace_id=trace_id,
@@ -510,6 +516,7 @@ class ApiLensASGIMiddleware:
         capture_headers: bool = True,
         capture_validation_errors: bool = True,
         capture_spans: bool = True,
+        capture_logs: CaptureLogs = "errors",
         service_name: str = "",
         max_payload_bytes: int = 65536,
         redact_query_params: list[str] | None = None,
@@ -614,6 +621,11 @@ class ApiLensASGIMiddleware:
                 environment=environment,
                 service_name=service_name or app_id,
             )
+        # ERROR records the app logs (``logger.exception``) become logs on the
+        # current trace via a root-logger handler; "off" leaves logging alone.
+        self.capture_logs = normalize_capture_logs(capture_logs)
+        if self.capture_logs != "off":
+            install_log_handler(client, app_id=app_id, environment=environment, link_spans=self.capture_spans)
         # Graceful shutdown: flush on the ASGI ``lifespan`` shutdown event, with
         # an ``atexit`` fallback for servers that never send one. Bounded by
         # ``shutdown_timeout`` seconds. APILENS_FLUSH_ON_SHUTDOWN=false disables.
@@ -1004,6 +1016,7 @@ class ApiLensWSGIMiddleware:
         capture_payloads: bool = True,
         capture_headers: bool = True,
         capture_spans: bool = True,
+        capture_logs: CaptureLogs = "errors",
         service_name: str = "",
         max_payload_bytes: int = 65536,
         redact_query_params: list[str] | None = None,
@@ -1078,6 +1091,11 @@ class ApiLensWSGIMiddleware:
                 environment=environment,
                 service_name=service_name or app_id,
             )
+        # ERROR records the app logs (``logger.exception``) become logs on the
+        # current trace via a root-logger handler; "off" leaves logging alone.
+        self.capture_logs = normalize_capture_logs(capture_logs)
+        if self.capture_logs != "off":
+            install_log_handler(client, app_id=app_id, environment=environment, link_spans=self.capture_spans)
         # Graceful shutdown: WSGI has no lifespan, so flush from ``atexit``
         # (gunicorn/uwsgi workers exit normally on SIGTERM), bounded by
         # ``shutdown_timeout`` seconds. APILENS_FLUSH_ON_SHUTDOWN=false disables.
