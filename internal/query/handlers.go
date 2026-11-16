@@ -232,7 +232,7 @@ type summaryOutput struct {
 		P95Ms             float64   `json:"p95_ms" doc:"95th percentile response time, in milliseconds (t-digest estimate)."`
 		P99Ms             float64   `json:"p99_ms" doc:"99th percentile response time, in milliseconds (t-digest estimate)."`
 		RequestsPerMinute float64   `json:"requests_per_minute" doc:"requests / minutes of the range."`
-		Apdex             *float64  `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied <= T < tolerating <= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; null without requests."`
+		Apdex             *float64  `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied <= T < tolerating <= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; requests answered with a 5xx the endpoint does not expect are frustrated whatever their response time; null without requests."`
 	}
 }
 
@@ -394,7 +394,7 @@ type endpoint struct {
 	ErrorRate    float64  `json:"error_rate" doc:"(client_errors + server_errors) / requests; 0 without requests."`
 	P50Ms        float64  `json:"p50_ms" doc:"Median response time, in milliseconds."`
 	P95Ms        float64  `json:"p95_ms" doc:"95th percentile response time, in milliseconds."`
-	Apdex        *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 against the endpoint's latency threshold (else its app's, else 500 ms); null without requests."`
+	Apdex        *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 against the endpoint's latency threshold (else its app's, else 500 ms), unexpected 5xx responses counted as frustrated; null without requests."`
 	// DiscoveredOnly marks a route an app declared in its metadata that had
 	// no traffic in the range; its counts are zero.
 	DiscoveredOnly bool `json:"discovered_only" doc:"True for a route an app declared (POST /v1/metadata) without traffic in the range; its counts are zero and it is listed after the endpoints with traffic."`

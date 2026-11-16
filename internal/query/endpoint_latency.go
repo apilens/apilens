@@ -34,7 +34,7 @@ type LatencySummary struct {
 	P90Ms    float64  `json:"p90_ms" doc:"90th percentile response time, in milliseconds."`
 	P95Ms    float64  `json:"p95_ms" doc:"95th percentile response time, in milliseconds."`
 	P99Ms    float64  `json:"p99_ms" doc:"99th percentile response time, in milliseconds."`
-	Apdex    *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 over raw requests, against the endpoint's latency threshold (else its app's, else 500 ms); null without requests."`
+	Apdex    *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 over raw requests, against the endpoint's latency threshold (else its app's, else 500 ms), unexpected 5xx responses counted as frustrated; null without requests."`
 }
 
 type latencyPoint struct {

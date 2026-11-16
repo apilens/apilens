@@ -18,18 +18,21 @@ import (
 	"github.com/apilens/apilens/internal/platform/server"
 )
 
-// Apdex (Application Performance Index) scores response times against a
-// threshold T in milliseconds:
+// Apdex (Application Performance Index) scores requests against a response
+// time threshold T in milliseconds, counting server errors as frustrated:
 //
-//	satisfied  response_time_ms <= T
-//	tolerating T < response_time_ms <= 4T
-//	frustrated response_time_ms > 4T
+//	satisfied  status_code < 500 AND response_time_ms <= T
+//	tolerating status_code < 500 AND T < response_time_ms <= 4T
+//	frustrated status_code >= 500, or response_time_ms > 4T
 //
 //	apdex = (satisfied + tolerating / 2) / requests
 //
-// so 1 means every request was satisfied and 0 that every one frustrated.
-// The score only looks at response times; status codes do not change it.
-// It is null when there are no requests. T of a request is, in order of
+// so 1 means every request was satisfied and 0 that every one frustrated:
+// an endpoint answering only 5xx scores 0 however fast it is. A 5xx status
+// code its endpoint's settings mark as expected is not an error, so the
+// request is scored by its response time alone. 4xx responses are the
+// client's doing and are scored by response time too. The score is null
+// when there are no requests. T of a request is, in order of
 // precedence, the latency_threshold_ms of its endpoint's settings
 // (app, method, route template), the app-wide latency_threshold_ms of its
 // app, then defaultApdexThresholdMs. Apdex is counted over raw
@@ -60,6 +63,8 @@ type AppSettingsStore interface {
 type apdexThresholds struct {
 	endpoints []endpointThreshold
 	apps      []appThreshold
+	// rules hold the expected status codes, which are not server errors.
+	rules metricRules
 }
 
 type endpointThreshold struct {
@@ -74,9 +79,13 @@ type appThreshold struct {
 
 // apdexThresholds loads the thresholds of project.
 func (s *Service) apdexThresholds(ctx context.Context, project uuid.UUID) (apdexThresholds, error) {
+	rules, err := s.endpointRules(ctx, project)
+	if err != nil {
+		return apdexThresholds{}, err
+	}
 	store, ok := s.catalog.(apdexStore)
 	if !ok {
-		return apdexThresholds{}, nil
+		return apdexThresholds{rules: rules}, nil
 	}
 	eps, err := store.ListProjectEndpointLatencyThresholds(ctx, project)
 	if err != nil {
@@ -86,7 +95,7 @@ func (s *Service) apdexThresholds(ctx context.Context, project uuid.UUID) (apdex
 	if err != nil {
 		return apdexThresholds{}, internalError("apdex thresholds", err)
 	}
-	var t apdexThresholds
+	t := apdexThresholds{rules: rules}
 	for _, r := range eps {
 		t.endpoints = append(t.endpoints, endpointThreshold{endpointKey{app: r.AppID, method: r.Method, path: r.Path}, r.LatencyThresholdMs})
 	}
@@ -118,6 +127,27 @@ func (t apdexThresholds) expr() (string, []any) {
 	return "multiIf(" + strings.Join(terms, ", ") + ")", args
 }
 
+// notServerError is the ClickHouse predicate of a raw api_requests row that
+// may be satisfied or tolerating: its status code is below 500, or a 5xx
+// its endpoint expects.
+func (t apdexThresholds) notServerError() (string, []any) {
+	if pred, args := t.rules.expectedPredicate(); pred != "" {
+		return "(status_code < 500 OR " + pred + ")", args
+	}
+	return "status_code < 500", nil
+}
+
+// selectCounts is the WITH and count columns of an Apdex query; its
+// arguments come before those of the rest of the query.
+func (t apdexThresholds) selectCounts() (with, counts string, args []any) {
+	expr, targs := t.expr()
+	ok, oargs := t.notServerError()
+	return "WITH " + expr + " AS apdex_t, " + ok + " AS apdex_ok",
+		"count(), countIf(apdex_ok AND response_time_ms <= apdex_t), " +
+			"countIf(apdex_ok AND response_time_ms > apdex_t AND response_time_ms <= 4 * apdex_t)",
+		append(append([]any{}, targs...), oargs...)
+}
+
 // apdexCounts are the requests of an Apdex score by outcome.
 type apdexCounts struct {
 	requests, satisfied, tolerating uint64
@@ -137,13 +167,12 @@ func (c apdexCounts) score() *float64 {
 // String expression over api_requests (” for a single total) from fixed
 // expressions in this package, never from input.
 func (s *Service) apdex(ctx context.Context, t apdexThresholds, where string, args []any, key string) (map[string]apdexCounts, error) {
-	expr, targs := t.expr()
+	with, counts, targs := t.selectCounts()
 	rows, err := s.ch.Query(ctx, `
-		WITH `+expr+` AS apdex_t
-		SELECT `+key+` AS k, count(), countIf(response_time_ms <= apdex_t),
-		       countIf(response_time_ms > apdex_t AND response_time_ms <= 4 * apdex_t)
+		`+with+`
+		SELECT `+key+` AS k, `+counts+`
 		FROM api_requests WHERE `+where+`
-		GROUP BY k`, append(append([]any{}, targs...), args...)...)
+		GROUP BY k`, append(targs, args...)...)
 	if err != nil {
 		return nil, internalError("apdex", err)
 	}

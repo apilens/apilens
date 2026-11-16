@@ -80,6 +80,7 @@ describe("apdex gauge", () => {
 
   it("explains the formula and where T comes from", () => {
     expect(apdexExplanation()).toContain("Apdex = (satisfied + tolerating / 2) / requests.");
+    expect(apdexExplanation().join(" ")).toMatch(/server error \(5xx\)/);
     expect(apdexExplanation(null).at(-1)).toBe("T is the endpoint’s own threshold, else its app’s, else 500 ms.");
     expect(apdexExplanation({ name: "Billing", thresholdMs: 250 }).at(-1)).toBe("T is the endpoint’s own threshold, else its app’s (Billing: 250 ms), else 500 ms.");
   });

@@ -4121,7 +4121,7 @@
         "additionalProperties": false,
         "properties": {
           "apdex": {
-            "description": "Apdex score from 0 to 1 against the endpoint's latency threshold (else its app's, else 500 ms); null without requests.",
+            "description": "Apdex score from 0 to 1 against the endpoint's latency threshold (else its app's, else 500 ms), unexpected 5xx responses counted as frustrated; null without requests.",
             "format": "double",
             "type": [
               "number",
@@ -7101,7 +7101,7 @@
         "additionalProperties": false,
         "properties": {
           "apdex": {
-            "description": "Apdex score from 0 to 1 over raw requests, against the endpoint's latency threshold (else its app's, else 500 ms); null without requests.",
+            "description": "Apdex score from 0 to 1 over raw requests, against the endpoint's latency threshold (else its app's, else 500 ms), unexpected 5xx responses counted as frustrated; null without requests.",
             "format": "double",
             "type": [
               "number",
@@ -11565,7 +11565,7 @@
             "type": "string"
           },
           "apdex": {
-            "description": "Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied \u003c= T \u003c tolerating \u003c= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; null without requests.",
+            "description": "Apdex score from 0 to 1, (satisfied + tolerating / 2) / requests with satisfied \u003c= T \u003c tolerating \u003c= 4T, where T is the endpoint's latency threshold, else its app's, else 500 ms; requests answered with a 5xx the endpoint does not expect are frustrated whatever their response time; null without requests.",
             "format": "double",
             "type": [
               "number",
