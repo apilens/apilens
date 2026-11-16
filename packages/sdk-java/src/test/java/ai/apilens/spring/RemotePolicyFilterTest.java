@@ -126,6 +126,45 @@ class RemotePolicyFilterTest {
   }
 
   @Test
+  void disabledPolicyWinsOverErrors() throws Exception {
+    try (HeartbeatStub stub = HeartbeatStub.start()) {
+      stub.heartbeatReplies(Reply.ok(HeartbeatStub.policy(new RemotePolicy(false, 1.0, true, true, true, null))));
+      ApiLensClient client = client(stub);
+      assertTrue(client.sendHeartbeat());
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(client, ApiLensSpringOptions.builder().build());
+
+      org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () ->
+          filter.doFilter(new MockHttpServletRequest("GET", "/orders/1"), new MockHttpServletResponse(),
+              (req, res) -> {
+                throw new IllegalStateException("boom");
+              }));
+      client.flushAll();
+
+      assertTrue(stub.received().stream().noneMatch(r -> !r.path().endsWith("/heartbeat")),
+          "remote enabled=false sends no record, span or log, even for an error");
+    }
+  }
+
+  @Test
+  void remoteSampleRateZeroStillKeepsErrors() throws Exception {
+    try (HeartbeatStub stub = HeartbeatStub.start()) {
+      stub.heartbeatReplies(Reply.ok(HeartbeatStub.policy(new RemotePolicy(true, 0.0, true, true, true, null))));
+      ApiLensClient client = client(stub);
+      assertTrue(client.sendHeartbeat());
+      ApiLensSpringFilter filter = new ApiLensSpringFilter(
+          client, ApiLensSpringOptions.builder().build(), null, () -> 0.5);
+
+      filter.doFilter(new MockHttpServletRequest("GET", "/orders/1"), new MockHttpServletResponse(),
+          (req, res) -> ((HttpServletResponse) res).setStatus(500));
+      client.flushAll();
+
+      JsonNode record = stub.requests().get(0).body().get("requests").get(0);
+      assertTrue(record.get("sampled").asBoolean(), "a remote sample rate never drops an error");
+      assertTrue(stub.received().stream().anyMatch(r -> r.path().endsWith("/logs")), "error log sent");
+    }
+  }
+
+  @Test
   void filterRegistersItsEnvironmentForHeartbeats() throws Exception {
     try (HeartbeatStub stub = HeartbeatStub.start()) {
       ApiLensClient client = client(stub);

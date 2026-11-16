@@ -271,9 +271,13 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
     int finalStatusCode = statusCode;
     double elapsedMs = Math.max((System.nanoTime() - startedNanos) / 1_000_000.0, 0.0);
     ApiLensConsumer consumer = resolveConsumer(exchange);
+    boolean isError = error != null || finalStatusCode >= 500;
     // Sampled out: the base record is still sent (sampled=false) so metrics stay exact, but
-    // without headers, bodies, span or error log. The remote sample rate only ever drops more.
-    boolean sampled = sampler.onResponse(sampling, () -> new SampleResponseInfo(
+    // without headers, bodies or span. The remote sample rate only ever drops more.
+    // Errors are never sampled (D1): a request that failed or answered 5xx is always kept, even
+    // at sampleRate 0 or when a sampling callback drops it. Remote enabled=false still wins,
+    // because shouldNotFilter bypasses the filter entirely.
+    boolean sampled = isError || sampler.onResponse(sampling, () -> new SampleResponseInfo(
         requestInfo(request), endpointPath, finalStatusCode, elapsedMs, consumer, sampling.callback()))
         && policy.keeps(random);
     int maxPayloadBytes = policy.limitPayloadBytes(options.maxPayloadBytes());
@@ -326,7 +330,6 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
         .build());
 
     if (sampled && options.captureSpans()) {
-      boolean isError = error != null || finalStatusCode >= 500;
       client.captureSpan(SpanRecord.builder()
           .timestamp(startedAt)
           .environment(options.environment())
@@ -342,10 +345,12 @@ public class ApiLensWebFilter implements WebFilter, Ordered {
           .projectSlug(client.config().projectSlug())
           .appId(client.config().appId())
           .build());
+    }
 
-      if (isError) {
-        captureErrorLog(error, finalStatusCode, method, endpointPath, trace, consumer);
-      }
+    // The exception log does not depend on span capture (D2): captureSpans=false turns spans
+    // off, never exceptions.
+    if (isError) {
+      captureErrorLog(error, finalStatusCode, method, endpointPath, trace, consumer);
     }
   }
 

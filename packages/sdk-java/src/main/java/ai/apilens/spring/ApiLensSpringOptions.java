@@ -285,8 +285,8 @@ public final class ApiLensSpringOptions {
   }
 
   /**
-   * Fraction of requests, in {@code [0.0, 1.0]}, whose detail (headers, bodies, span, error log)
-   * is kept when no sampling callback decides. Every request still sends its base record
+   * Fraction of requests, in {@code [0.0, 1.0]}, whose detail (headers, bodies, span) is kept
+   * when no sampling callback decides. A request that threw or answered 5xx is always kept. Every request still sends its base record
    * ({@code sampled=false} when dropped), so metrics are unaffected. Defaults to {@code 1.0}.
    */
   public double sampleRate() {
