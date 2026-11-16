@@ -83,6 +83,7 @@ Accepted by `ApiLensMiddleware` (FastAPI), `instrument_app`/`instrument_flask`, 
 | `sample_on_request` | `None` | `(RequestInfo) -> bool \| float \| None` evaluated before the handler; overrides `sample_rate` per request. |
 | `sample_on_response` | `None` | `(ResponseInfo) -> bool \| float \| None` evaluated after the response; can drop a kept request's detail, never un-drop one. |
 | `capture_spans` | `True` | Automatic tracing + error-trace capture. |
+| `capture_db_spans` | `True` | Database statements (SQLAlchemy, Django ORM, psycopg, asyncpg) become `db` spans with literals replaced by `?`. Needs `capture_spans`. |
 | `capture_logs` | `"errors"` | Ship `ERROR` log records (with `logger.exception` stacks) to the trace; `"off"` disables. |
 | `service_name` | `""` | Span service name (defaults to the app id). |
 | `get_consumer` | `None` | Centralized consumer resolver — see [Consumer identification](/sdk-reference/consumers). |
@@ -132,6 +133,7 @@ parsed values as a dict.
 | `APILENS_CAPTURE_IP` | `capture_ip` | bool; `false` wins over code | `true` |
 | `APILENS_ANONYMIZE_IP` | `anonymize_ip` | bool; `true` wins over code | `false` |
 | `APILENS_CAPTURE_SPANS` | `capture_spans` | bool; `false` wins over code | `true` |
+| `APILENS_CAPTURE_DB_SPANS` | `capture_db_spans` | bool | `true` |
 | `APILENS_CAPTURE_LOGS` | `capture_logs` | `errors` or `off` | `errors` |
 | `APILENS_BATCH_SIZE` | `batch_size` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flush_interval` | float (seconds) | `3.0` |

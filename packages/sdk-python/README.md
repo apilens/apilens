@@ -445,6 +445,17 @@ except PaymentError:
 Turn it off with `capture_logs="off"` (Django: `APILENS_CAPTURE_LOGS = "off"`,
 env: `APILENS_CAPTURE_LOGS=off`).
 
+### Database spans
+
+While spans are on, every SQL statement run during a request becomes a child
+`db` span with `db.system`, `db.operation` and `db.statement`, its duration and,
+when it raised, `error.type`. Covered: SQLAlchemy (engine events), the Django
+ORM (`connection.execute_wrapper`), psycopg 3 and asyncpg. The statement is
+obfuscated before it leaves the app: every literal (strings, numbers,
+comments) becomes `?` and it is capped at 2 KiB; bound parameters are never
+read. Turn them off with `capture_db_spans=False` (Django:
+`APILENS_CAPTURE_DB_SPANS = False`, env: `APILENS_CAPTURE_DB_SPANS=false`).
+
 ### Propagating the trace
 
 `apilens.current_trace_id()`, `current_span_id()`, and `current_traceparent()`
@@ -580,6 +591,7 @@ Accepted by `ApiLensASGIMiddleware` / `ApiLensWSGIMiddleware`, and by the
 | `capture_locals` | `False` | Add a `Locals:` section per frame to exception traces: innermost 10 frames, up to 20 names each, `repr` capped at 256 chars, sensitive names and `key=value` pairs masked. Modules, functions and classes are skipped. Always off under the `metadata` and `redacted` profiles. Python only. |
 | `capture_content_types` | `DEFAULT_CAPTURE_CONTENT_TYPES` | Media-type globs whose bodies are captured (default `application/json`, `application/*+json`, `text/*`, `application/x-www-form-urlencoded`); replaces the defaults. Other bodies are never buffered and are stored as `[<content-type>, N bytes omitted]`. |
 | `capture_spans` | `True` | Emit trace spans for this app. |
+| `capture_db_spans` | `True` | Database statements become `db` spans (needs `capture_spans`). |
 | `capture_logs` | `"errors"` | Ship `ERROR` log records (with `logger.exception` stacks) to the trace; `"off"` disables. |
 | `service_name` | `app_id` | Service name shown on spans. |
 | `get_consumer` | `None` | Optional resolver callback (see [consumer attribution](#consumer-attribution)). |
@@ -762,6 +774,7 @@ parsed values as a dict.
 | `APILENS_CAPTURE_IP` | `capture_ip` | bool; `false` wins over code | `true` |
 | `APILENS_ANONYMIZE_IP` | `anonymize_ip` | bool; `true` wins over code | `false` |
 | `APILENS_CAPTURE_SPANS` | `capture_spans` | bool; `false` wins over code | `true` |
+| `APILENS_CAPTURE_DB_SPANS` | `capture_db_spans` | bool | `true` |
 | `APILENS_CAPTURE_LOGS` | `capture_logs` | `errors` or `off` | `errors` |
 | `APILENS_BATCH_SIZE` | `batch_size` | int | `200` |
 | `APILENS_FLUSH_INTERVAL` | `flush_interval` | float (seconds) | `3.0` |
