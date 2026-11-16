@@ -192,7 +192,8 @@
 //                                                  alert writes answer 403 without alerts.manage
 //   POST /__fake/alerts {trigger?: {rule, value}, resolve?: rule, reset?}
 //                                                  test hook: the evaluator's part: open an event for the rule
-//                                                  named `rule`, resolve its open one, or forget every rule,
+//                                                  named `rule` (notified only when it has a channel),
+//                                                  resolve its open one, or forget every rule,
 //                                                  channel and event
 //   GET  /api/v1/apps/{id}/ingest-stats?project=shop&days=
 //                                                  the app's ingest-edge counters per UTC day (#602):
@@ -3266,7 +3267,8 @@ async function alerts(req: IncomingMessage, res: ServerResponse, path: string, u
       const r = alertRules.find((x) => x.name === trigger.rule);
       if (!r) return problem(res, 404, "not_found"), true;
       const at = new Date(Date.now() - (trigger.minutes_ago ?? 0) * 60_000).toISOString();
-      alertEvents.unshift({ id: randomUUID(), rule_id: r.id, state: "triggered", value: Number(trigger.value ?? 0), started_at: at, ended_at: null, notified_at: at });
+      // A rule with no channel notifies nobody (#978).
+      alertEvents.unshift({ id: randomUUID(), rule_id: r.id, state: "triggered", value: Number(trigger.value ?? 0), started_at: at, ended_at: null, notified_at: ((r.channel_ids as string[]) ?? []).length ? at : null });
     }
     if (typeof b.resolve === "string") {
       const r = alertRules.find((x) => x.name === b.resolve);

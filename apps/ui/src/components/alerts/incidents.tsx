@@ -5,6 +5,7 @@ import {
   INCIDENTS_RANGES,
   OPEN_PAGING,
   RESOLVED_PAGING,
+  channelsHref,
   conditionText,
   eventDuration,
   formatMetric,
@@ -18,6 +19,7 @@ import type { Incident, IncidentsRange } from "@/lib/identity";
 import { type PageOptions, type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { formatExact } from "@/lib/passkey-settings";
 import { Pagination } from "../pagination/pagination";
+import { ObIcon } from "../onboarding/ob";
 import { AlertsHeader, Empty, LoadFailed, StatusBadge } from "./common";
 
 /**
@@ -27,7 +29,10 @@ import { AlertsHeader, Empty, LoadFailed, StatusBadge } from "./common";
  * Each rule links to its timeline. `incidents` is null when the API could not answer; `apps`
  * names the app ids (empty when unknown). `now` is the load time, so relative times render the
  * same on the server and in the browser. Each list is paged on its own (`params` is the page's
- * search params): open incidents under `?opage=`, resolved ones under `?page=`.
+ * search params): open incidents under `?opage=`, resolved ones under `?page=`. `channels` is how
+ * many alert channels the project has (null when unknown): with none, a banner says nobody is
+ * notified and links to add one (#978). `silent` holds the ids of rules with no channel, whose
+ * incidents say nobody is notified rather than "not notified yet".
  */
 export function IncidentsView({
   project,
@@ -38,6 +43,8 @@ export function IncidentsView({
   now,
   notice,
   params = {},
+  channels = null,
+  silent = [],
 }: {
   project: string;
   projectName: string;
@@ -48,14 +55,29 @@ export function IncidentsView({
   now: number;
   /** Shown above the title (the onboarding setup reminder). */
   notice?: ReactNode;
+  channels?: number | null;
+  silent?: string[];
 }) {
   const label = INCIDENTS_RANGES.find((r) => r.value === range)?.label ?? range;
   const open = (incidents ?? []).filter((i) => i.open);
   const resolved = (incidents ?? []).filter((i) => !i.open);
+  const quiet = new Set(silent);
   return (
     <div className="page al">
       {notice}
       <AlertsHeader project={project} projectName={projectName} tab="incidents" title="Incidents" lead="Alert rules that breached their threshold: open ones first, then everything resolved in the range." />
+
+      {channels === 0 ? (
+        <div className="al-notice al-notice--warn al-nobody" role="note">
+          <ObIcon name="info" />
+          <p>
+            Nobody is notified: this project has no alert channels.{" "}
+            <Link className="cp-link" href={channelsHref(project)}>
+              Add a channel
+            </Link>
+          </p>
+        </div>
+      ) : null}
 
       <div className="al-bar">
         <h2>
@@ -77,7 +99,7 @@ export function IncidentsView({
           {open.length === 0 ? (
             <Empty>No open incidents. Every alert rule is within its threshold.</Empty>
           ) : (
-            <IncidentTable label="Open incidents" project={project} rows={open} apps={apps} now={now} params={params} paging={OPEN_PAGING} />
+            <IncidentTable label="Open incidents" project={project} rows={open} apps={apps} quiet={quiet} now={now} params={params} paging={OPEN_PAGING} />
           )}
 
           <div className="al-bar">
@@ -99,7 +121,7 @@ export function IncidentsView({
               ) : null}
             </Empty>
           ) : (
-            <IncidentTable label="Resolved incidents" project={project} rows={resolved} apps={apps} now={now} params={params} paging={RESOLVED_PAGING} />
+            <IncidentTable label="Resolved incidents" project={project} rows={resolved} apps={apps} quiet={quiet} now={now} params={params} paging={RESOLVED_PAGING} />
           )}
         </>
       )}
@@ -112,6 +134,7 @@ function IncidentTable({
   project,
   rows: all,
   apps,
+  quiet,
   now,
   params,
   paging,
@@ -120,6 +143,7 @@ function IncidentTable({
   project: string;
   rows: Incident[];
   apps: Record<string, string>;
+  quiet: Set<string>;
   now: number;
   params: SearchParams;
   paging: PageOptions;
@@ -143,7 +167,7 @@ function IncidentTable({
         </thead>
         <tbody>
           {rows.map((i) => (
-            <IncidentRow key={i.rule_id} project={project} i={i} app={apps[i.app_id]} now={now} />
+            <IncidentRow key={i.rule_id} project={project} i={i} app={apps[i.app_id]} quiet={quiet.has(i.rule_id)} now={now} />
           ))}
         </tbody>
       </table>
@@ -152,8 +176,10 @@ function IncidentTable({
   );
 }
 
-function IncidentRow({ project, i, app, now }: { project: string; i: Incident; app: string | undefined; now: number }) {
+function IncidentRow({ project, i, app, quiet, now }: { project: string; i: Incident; app: string | undefined; quiet: boolean; now: number }) {
   const e = i.latest;
+  // A rule with no channel never notifies anyone: say so rather than "not notified yet".
+  const unsent = quiet ? ", no channel, nobody notified" : null;
   return (
     <tr>
       <td className="al-first">
@@ -182,12 +208,12 @@ function IncidentRow({ project, i, app, now }: { project: string; i: Incident; a
           {e.ended_at ? (
             <>
               Resolved after {eventDuration(e, now)}
-              {e.notified_at ? "" : ", no notification sent"}
+              {e.notified_at ? "" : (unsent ?? ", no notification sent")}
             </>
           ) : (
             <>
               Ongoing for {eventDuration(e, now)}
-              {e.notified_at ? ", notified" : ", not notified yet"}
+              {e.notified_at ? ", notified" : (unsent ?? ", not notified yet")}
             </>
           )}
         </span>

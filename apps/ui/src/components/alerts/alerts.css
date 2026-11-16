@@ -21,6 +21,10 @@
 .al-notice svg { flex: none; width: 16px; height: 16px; margin-top: 3px; color: var(--ink-muted); }
 .al-notice--error { border-color: color-mix(in srgb, var(--error) 35%, var(--border)); background: var(--error-soft); }
 .al-notice--error svg { color: var(--error); }
+.al-notice--warn { border-color: color-mix(in srgb, var(--warn) 35%, var(--border)); background: var(--warn-soft); }
+.al-notice--warn svg { color: var(--warn); }
+/* The "nobody is notified" banner between the header and the Open bar (#978). */
+.al > .pagehead + .al-nobody { margin-bottom: var(--space-6); }
 .al-notice + .al-card, .al-card + .al-notice { margin-top: var(--space-4); }
 
 .al-card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); overflow: hidden; }
