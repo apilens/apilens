@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
+import java.util.function.LongConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -15,6 +16,11 @@ public final class TraceContext {
   private static final Pattern TRACEPARENT =
       Pattern.compile("^[\\da-fA-F]{2}-([\\da-fA-F]{32})-([\\da-fA-F]{16})-[\\da-fA-F]{2}(?:-.*)?$");
   private static final ThreadLocal<TraceContext> CURRENT = new ThreadLocal<>();
+  /**
+   * Child spans (outbound HTTP, database) kept per request. Spans past it are not sent; for a
+   * kept request they are counted as {@code span_cap} drops (D8).
+   */
+  public static final int MAX_CHILD_SPANS = 2000;
 
   private final String traceId;
   private final String spanId;
@@ -24,7 +30,10 @@ public final class TraceContext {
   private final Object childLock = new Object();
   private List<SpanRecord> heldChildSpans = new ArrayList<>();
   private Consumer<SpanRecord> childSink;
+  private LongConsumer capDropSink;
   private boolean childrenReleased;
+  private int childSpanCount;
+  private long cappedChildSpans;
 
   private TraceContext(String traceId, String spanId, String parentSpanId) {
     this.traceId = traceId;
@@ -82,22 +91,34 @@ public final class TraceContext {
    * Records a finished child span of this request. Until the server filter calls {@link
    * #releaseChildSpans}, the span is held, because a request's spans are kept or dropped with it
    * (a sampled-out request that fails is still kept, D1). A span finishing after the release
-   * follows the verdict.
+   * follows the verdict. Spans past {@link #MAX_CHILD_SPANS} are not kept, only counted.
    */
   public void recordChildSpan(SpanRecord span) {
     if (span == null || traceId.isEmpty()) {
       return;
     }
-    Consumer<SpanRecord> sink;
+    Consumer<SpanRecord> sink = null;
+    LongConsumer capSink = null;
     synchronized (childLock) {
-      if (!childrenReleased) {
-        heldChildSpans.add(span);
-        return;
+      if (childSpanCount >= MAX_CHILD_SPANS) {
+        if (!childrenReleased) {
+          cappedChildSpans++;
+          return;
+        }
+        capSink = capDropSink;
+      } else {
+        childSpanCount++;
+        if (!childrenReleased) {
+          heldChildSpans.add(span);
+          return;
+        }
+        sink = childSink;
       }
-      sink = childSink;
     }
     if (sink != null) {
       sink.accept(span);
+    } else if (capSink != null) {
+      capSink.accept(1);
     }
   }
 
@@ -106,18 +127,34 @@ public final class TraceContext {
    * afterwards follow the same verdict. Only the first call has an effect.
    */
   public void releaseChildSpans(boolean keep, Consumer<SpanRecord> sink) {
+    releaseChildSpans(keep, sink, null);
+  }
+
+  /**
+   * Same as {@link #releaseChildSpans(boolean, Consumer)}; when {@code keep}, {@code capDrops}
+   * is told how many child spans went over {@link #MAX_CHILD_SPANS}, now and afterwards. Spans
+   * of a request that is not kept are not drops.
+   */
+  public void releaseChildSpans(boolean keep, Consumer<SpanRecord> sink, LongConsumer capDrops) {
     List<SpanRecord> held;
+    long capped;
     synchronized (childLock) {
       if (childrenReleased) {
         return;
       }
       childrenReleased = true;
       childSink = keep ? sink : null;
+      capDropSink = keep ? capDrops : null;
       held = heldChildSpans;
       heldChildSpans = List.of();
+      capped = cappedChildSpans;
+      cappedChildSpans = 0;
     }
     if (keep && sink != null) {
       held.forEach(sink);
+    }
+    if (keep && capDrops != null && capped > 0) {
+      capDrops.accept(capped);
     }
   }
 
