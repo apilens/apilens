@@ -188,3 +188,4 @@ const round = (n: number) => Math.round(n * 10) / 10;
 export const CONSUMERS_LOAD_FAILED = "We couldn’t load consumers just now.";
 export const CONSUMER_LOAD_FAILED = "We couldn’t load this consumer just now.";
 export const GROUPS_LOAD_FAILED = "We couldn’t load consumer groups just now.";
+export const ANONYMOUS_LOAD_FAILED = "We couldn’t load anonymous callers just now.";

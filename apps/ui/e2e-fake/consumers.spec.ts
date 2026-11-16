@@ -269,6 +269,86 @@ test("says so when there are no users, no groups, or no such user", async ({ pag
   await expect(page.getByRole("status").filter({ hasText: "There’s no user with this id in this project." })).toBeVisible();
 });
 
+const ANONYMOUS = {
+  totals: split(2843, 120, 9),
+  callers: [
+    { ip_address: "203.0.113.7", user_agent: "curl/8.7.1", last_seen: ago(1), ...split(2100, 100, 9) },
+    { ip_address: "198.51.100.23", user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15", last_seen: ago(12), ...split(743, 20, 0) },
+  ],
+};
+
+async function seedApps(apps: Record<string, unknown>[]) {
+  const res = await fetch(`${IDENTITY}/__fake/apps`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apps }) });
+  expect(res.status).toBe(204);
+}
+
+const report = (framework: string) => ({
+  environment: "production",
+  framework,
+  framework_version: "1",
+  runtime_version: "1",
+  sdk_version: "0.1.0",
+  config: {},
+  received_at: ago(5),
+});
+
+test("anonymous traffic: the request count, the SDK snippets picked from the project's apps, and the top callers linking to Explore", async ({ page }) => {
+  await seed({ summary: { consumers: 0, new: 0, returning: 0 }, points: [], consumers: [], anonymous: ANONYMOUS });
+  await seedApps([
+    { id: "11111111-1111-4111-8111-111111111111", slug: "orders", name: "Orders", environments: [report("Spring MVC")] },
+    { id: "22222222-2222-4222-8222-222222222222", slug: "web", name: "Web", environments: [report("FastAPI")] },
+  ]);
+  try {
+    await signIn(page);
+    await expect(page.getByRole("status").filter({ hasText: "No identified users in the last 24 hours, but 2,843 anonymous requests arrived." })).toBeVisible();
+
+    // Snippets: one tab per SDK the apps run, the first app's first; arrow keys switch.
+    const identify = page.getByRole("region", { name: "Identify your users" });
+    const tabs = identify.getByRole("tablist", { name: "SDK" }).getByRole("tab");
+    await expect(tabs).toHaveText(["Spring", "Python"]);
+    await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+    const panel = identify.getByRole("tabpanel");
+    await expect(panel).toContainText("ApiLensConsumers.setConsumer(user.getId(), user.getEmail(), user.getPlan());");
+    await expect(panel.getByRole("link", { name: "Identifying consumers with Spring MVC" })).toHaveAttribute("href", /setup-guides\/spring-mvc#identify-consumers$/);
+    await tabs.first().focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+    await expect(panel).toContainText("set_consumer(request, identifier=user.id, name=user.name, group=user.plan)");
+    await expect(panel.getByRole("link", { name: "Identifying consumers with FastAPI" })).toHaveAttribute("href", /setup-guides\/fastapi#identify-consumers$/);
+
+    // The fallback table: top callers by client IP / user agent, each IP opening Explore.
+    const callers = page.getByRole("region", { name: "Top callers by client IP / user agent" });
+    await expect(callers.locator("dd")).toHaveText(["2,843", "129 4.5%"]);
+    const table = callers.getByRole("table");
+    await expect(table.getByRole("columnheader")).toHaveText(["Client IP", "User agent", "Requests", "Errors", "Last seen"]);
+    const rows = table.locator("tbody tr");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.first()).toContainText("curl/8.7.1");
+    await expect(rows.first()).toContainText("2,100");
+    const ip = rows.first().getByRole("link", { name: "203.0.113.7" });
+    const href = new URL((await ip.getAttribute("href")) ?? "", "http://x");
+    expect(href.pathname).toBe("/shop/explore");
+    expect(href.searchParams.get("ip")).toBe("203.0.113.7");
+
+    const a11y = await new AxeBuilder({ page }).include(".cs").analyze();
+    expect(a11y.violations).toEqual([]);
+
+    // Every SDK when no app reported a framework.
+    await seedApps([]);
+    await page.reload();
+    await expect(identify.getByRole("tablist", { name: "SDK" }).getByRole("tab")).toHaveText(["Python", "Express", "Spring"]);
+    await identify.getByRole("tab", { name: "Express" }).click();
+    await expect(identify.getByRole("tabpanel")).toContainText("setConsumer(req, { id: req.user.id, name: req.user.email, group: req.user.plan });");
+
+    // At phone width the callers stack, without sideways scrolling.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(rows).toHaveCount(2);
+    expect(await page.locator(".app-main").evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+  } finally {
+    await seedApps([]);
+  }
+});
+
 test("says so when the query API cannot answer, with a way to try again", async ({ page }) => {
   await seed();
   await queryDown(true);

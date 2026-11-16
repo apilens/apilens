@@ -1648,6 +1648,24 @@ export interface ConsumerDetail {
   recent_errors: RequestRow[] | null;
 }
 
+/** One client IP and user agent pair of `GET /anonymous-callers` (#989), as stored with its requests. */
+export interface AnonymousCaller extends StatusSplit {
+  /** Empty when not captured. */
+  ip_address: string;
+  /** Empty when not captured. */
+  user_agent: string;
+  last_seen: string;
+}
+
+/** `GET /anonymous-callers`: the range's requests without a consumer, and their top callers. */
+export interface AnonymousCallers {
+  range: string;
+  from: string;
+  to: string;
+  totals: StatusSplit;
+  callers: AnonymousCaller[] | null;
+}
+
 /** One SDK-reported group of `GET /consumer-groups`. */
 export interface ConsumerGroupTraffic extends StatusSplit {
   group: string;
@@ -2706,6 +2724,8 @@ export function createClient(config: ClientConfig) {
       q: { range?: QueryRange; search?: string; sort?: GroupSortKey; limit?: number; offset?: number },
       o: Authed,
     ) => request<ConsumerGroupsTraffic>("GET", "/consumer-groups", { ...o, query: { project: projectSlug, ...q } }),
+    listAnonymousCallers: (projectSlug: string, q: { range?: QueryRange; limit?: number }, o: Authed) =>
+      request<AnonymousCallers>("GET", "/anonymous-callers", { ...o, query: { project: projectSlug, ...q } }),
 
     projectApps: (projectSlug: string, o: Authed) =>
       request<ProjectApps>("GET", "/project", { ...o, query: { project: projectSlug } }),

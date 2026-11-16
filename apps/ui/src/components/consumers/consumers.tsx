@@ -1,4 +1,6 @@
+import { type ConsumerSdk, exploreIpHref } from "@/lib/consumer-setup";
 import {
+  ANONYMOUS_LOAD_FAILED,
   CONSUMERS_LOAD_FAILED,
   CONSUMER_LOAD_FAILED,
   CONSUMER_RANGES,
@@ -19,18 +21,28 @@ import {
 import { exploreHref } from "@/lib/explore";
 import { NO_FILTERS } from "@/lib/explore-filters";
 import { formatAgo } from "@/lib/first-data";
-import type { ConsumerDetail, ConsumerGroupsTraffic, ConsumerRow, ConsumersList, QueryRange, RequestRow } from "@/lib/identity";
+import type { AnonymousCallers, ConsumerDetail, ConsumerGroupsTraffic, ConsumerRow, ConsumersList, QueryRange, RequestRow } from "@/lib/identity";
 import type { SearchParams } from "@/lib/pagination";
 import { endpointHref } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
 import { Pagination } from "../pagination/pagination";
 import { type Series, Sparkline, StackedBars } from "./charts";
+import { IdentifyConsumers } from "./identify-consumers";
 import "./consumers.css";
 
-export type DetailState = { kind: "ok"; consumer: ConsumerDetail } | { kind: "missing" } | { kind: "error" };
+/**
+ * What the page read when no user is identified in the range (#989): the requests without a consumer
+ * and their top callers (null when the API could not answer), and the SDKs the project's apps run.
+ */
+export interface AnonymousData {
+  callers: AnonymousCallers | null;
+  sdks: ConsumerSdk[];
+}
+
+export type DetailState ={ kind: "ok"; consumer: ConsumerDetail } | { kind: "missing" } | { kind: "error" };
 /** What the page read: the consumers list, the groups roll-up or one consumer; null when the API could not answer. */
 export type ConsumersData =
-  | { view: "consumers"; list: ConsumersList | null }
+  | { view: "consumers"; list: ConsumersList | null; anonymous?: AnonymousData }
   | { view: "groups"; groups: ConsumerGroupsTraffic | null }
   | { view: "detail"; detail: DetailState };
 
@@ -114,7 +126,7 @@ export function ConsumersView({
       ) : data.list === null ? (
         <LoadFailed text={CONSUMERS_LOAD_FAILED} href={consumersHref(project, q)} />
       ) : (
-        <ConsumersList project={project} q={q} params={params} list={data.list} now={now} />
+        <ConsumersList project={project} q={q} params={params} list={data.list} anonymous={data.anonymous} now={now} />
       )}
     </div>
   );
@@ -213,7 +225,21 @@ const USER_SORTS: readonly [GroupSort, string][] = [
 ];
 const GROUP_SORTS: readonly [GroupSort, string][] = [["consumers", "Users"], ...USER_SORTS];
 
-function ConsumersList({ project, q, params, list, now }: { project: string; q: ConsumersQuery; params: SearchParams; list: ConsumersList; now: number }) {
+function ConsumersList({
+  project,
+  q,
+  params,
+  list,
+  anonymous,
+  now,
+}: {
+  project: string;
+  q: ConsumersQuery;
+  params: SearchParams;
+  list: ConsumersList;
+  anonymous?: AnonymousData;
+  now: number;
+}) {
   const consumers = list.consumers ?? [];
   const points = list.points ?? [];
   const s = list.summary;
@@ -225,7 +251,9 @@ function ConsumersList({ project, q, params, list, now }: { project: string; q: 
     <>
       {q.group ? <GroupHeader project={project} q={q} list={list} /> : null}
 
-      {nobody ? (
+      {nobody && !q.group && anonymous ? (
+        <AnonymousTraffic project={project} q={q} anonymous={anonymous} now={now} />
+      ) : nobody ? (
         <Notice>
           {q.group
             ? `No user in ${q.group} called the API in the last ${range}. The group shows up here when the SDK reports it with a user’s requests.`
@@ -305,6 +333,102 @@ function ConsumersList({ project, q, params, list, now }: { project: string; q: 
           </section>
         </>
       )}
+    </>
+  );
+}
+
+/**
+ * No user identified in the range (#989): how many requests arrived anyway, how to identify users
+ * (the SDK snippets that set the consumer and its group) and, meanwhile, the top anonymous callers
+ * by client IP and user agent, each linking to its requests in Explore.
+ */
+function AnonymousTraffic({ project, q, anonymous, now }: { project: string; q: ConsumersQuery; anonymous: AnonymousData; now: number }) {
+  const range = RANGE_LABEL[q.range];
+  const a = anonymous.callers;
+  const count = a?.totals.requests ?? 0;
+  const callers = a?.callers ?? [];
+  return (
+    <>
+      <Notice>
+        {count > 0
+          ? `No identified users in the last ${range}, but ${formatCount(count)} anonymous ${count === 1 ? "request" : "requests"} arrived. Set the consumer on each request in the SDK (your user’s id, and a name and group if you have them) and your users show up here.`
+          : `No identified users in the last ${range}. Set the consumer on each request in the SDK (your user’s id, and a name and group if you have them) and they show up here.`}
+      </Notice>
+
+      <section className="cs-card cs-card--setup" aria-labelledby="cs-identify">
+        <div className="cs-card__head">
+          <h2 id="cs-identify">Identify your users</h2>
+        </div>
+        <p className="cs-note cs-note--lead">Once your auth knows who is calling, pass the user’s id, a name and the company or plan they belong to as the group.</p>
+        <IdentifyConsumers sdks={anonymous.sdks} />
+      </section>
+
+      {a === null ? (
+        <LoadFailed text={ANONYMOUS_LOAD_FAILED} href={consumersHref(project, q)} />
+      ) : count > 0 ? (
+        <section className="cs-card cs-card--table" aria-labelledby="cs-callers">
+          <div className="cs-tablehead">
+            <h2 id="cs-callers">Top callers by client IP / user agent</h2>
+            <dl className="cs-tiles">
+              <div>
+                <dt>Anonymous requests</dt>
+                <dd>{formatCount(count)}</dd>
+              </div>
+              <div>
+                <dt>Errors</dt>
+                <dd>
+                  {formatCount(errorsOf(a.totals))} <span className="cs-tiles__sub">{formatRate(errorsOf(a.totals), count)}</span>
+                </dd>
+              </div>
+            </dl>
+          </div>
+          <table className="cs-table" aria-labelledby="cs-callers">
+            <thead>
+              <tr>
+                <th scope="col">Client IP</th>
+                <th scope="col">User agent</th>
+                <th scope="col" className="cs-num">
+                  Requests
+                </th>
+                <th scope="col" className="cs-num">
+                  Errors
+                </th>
+                <th scope="col">Last seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {callers.map((c) => (
+                <tr key={`${c.ip_address}\u0000${c.user_agent}`} className="cs-row">
+                  <td className="cs-who" data-label="Client IP">
+                    {c.ip_address ? (
+                      <a className="cs-name cs-mono" href={exploreIpHref(project, q.range, c.ip_address)} title={`View requests from ${c.ip_address} in Explore`}>
+                        {c.ip_address}
+                      </a>
+                    ) : (
+                      <span className="cs-muted">Not captured</span>
+                    )}
+                  </td>
+                  <td data-label="User agent" className="cs-ua">
+                    {c.user_agent ? <code title={c.user_agent}>{c.user_agent}</code> : <span className="cs-muted">Not captured</span>}
+                  </td>
+                  <td className="cs-num" data-label="Requests">
+                    {formatCount(c.requests)}
+                  </td>
+                  <td className="cs-num" data-label="Errors">
+                    <ErrorCount s={c} />
+                  </td>
+                  <td data-label="Last seen">
+                    <time dateTime={c.last_seen} title={c.last_seen}>
+                      {formatAgo(c.last_seen, now)}
+                    </time>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="cs-note cs-note--card">Requests the SDK sent without a consumer, grouped by the client IP and user agent stored with them. An IP opens its requests in Explore.</p>
+        </section>
+      ) : null}
     </>
   );
 }

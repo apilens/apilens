@@ -821,6 +821,108 @@
         ],
         "type": "object"
       },
+      "AnonymousCaller": {
+        "additionalProperties": false,
+        "properties": {
+          "client_errors": {
+            "description": "Requests with a 4xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ip_address": {
+            "description": "Client IP address as stored with the requests; empty when not captured.",
+            "type": "string"
+          },
+          "last_seen": {
+            "description": "Last anonymous request from this IP and user agent in the range.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "requests": {
+            "description": "All requests.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_errors": {
+            "description": "Requests with a 5xx status code.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "successful": {
+            "description": "Requests with a status code below 400.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "user_agent": {
+            "description": "User-Agent header as stored with the requests; empty when not captured.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ip_address",
+          "user_agent",
+          "last_seen",
+          "requests",
+          "successful",
+          "client_errors",
+          "server_errors"
+        ],
+        "type": "object"
+      },
+      "AnonymousCallersOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AnonymousCallersOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "callers": {
+            "description": "The client IP and user agent pairs with the most requests without a consumer in the range (at most limit), most requests first.",
+            "items": {
+              "$ref": "#/components/schemas/AnonymousCaller"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "from": {
+            "description": "Start of the range (inclusive, bucket-aligned).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "range": {
+            "description": "Time range of the response: 1h, 6h, 24h or 7d.",
+            "type": "string"
+          },
+          "to": {
+            "description": "End of the range (exclusive, bucket-aligned).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/StatusSplit",
+            "description": "Requests in the range without a consumer, by outcome."
+          }
+        },
+        "required": [
+          "range",
+          "from",
+          "to",
+          "totals",
+          "callers"
+        ],
+        "type": "object"
+      },
       "AppEnvironmentReport": {
         "additionalProperties": false,
         "properties": {
@@ -12720,6 +12822,104 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/anonymous-callers": {
+      "get": {
+        "description": "The requests of the range the SDK sent without a consumer, by outcome, and the client IP and user agent pairs that made the most of them, with their last request. Requests with a consumer are left out. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "operationId": "list-anonymous-callers",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Most callers to list.",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 10,
+              "description": "Most callers to list.",
+              "format": "int64",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnonymousCallersOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Requests without a consumer, and their top callers by client IP and user agent",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
     "/api/v1/apps/{id}/capture-policy": {
       "get": {
         "description": "Returns the remote capture policy of the app. Needs `view` on its project (any member, including viewers). An app without a saved policy captures everything (enabled, `sample_rate` 1, headers and bodies on, no extra payload cap). SDKs receive the policy on heartbeat; edges pick a change up within the app cache TTL (`ingest.app_cache_ttl`, 60 s by default). An unknown app, or one in a project the caller cannot view, answers 404 `not_found`, so the cases cannot be told apart.",
