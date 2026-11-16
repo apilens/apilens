@@ -14,10 +14,33 @@ import secrets
 
 _TRACEPARENT_RE = re.compile(r"^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$")
 
-_trace_ctx: contextvars.ContextVar[tuple[str, str] | None] = contextvars.ContextVar(
+class _RequestTrace:
+    """The trace of the request being handled; ``ended`` once its response is done.
+
+    Mutable on purpose: a task spawned during a request (a lazily started server,
+    a worker loop) copies the context and would otherwise keep the request's
+    trace forever, filing every later outbound call under a long-finished
+    request. Marking the shared object ended hides it from those copies too.
+    """
+
+    __slots__ = ("trace_id", "span_id", "ended")
+
+    def __init__(self, trace_id: str, span_id: str) -> None:
+        self.trace_id = trace_id
+        self.span_id = span_id
+        self.ended = False
+
+
+_trace_ctx: contextvars.ContextVar[_RequestTrace | None] = contextvars.ContextVar(
     "apilens_trace_ctx",
     default=None,
 )
+
+
+def _live_trace() -> _RequestTrace | None:
+    """The current request's trace, or None outside a request or once it has ended."""
+    trace = _trace_ctx.get()
+    return trace if trace is not None and not trace.ended else None
 
 
 # Whether the current request's detail (spans, logs) is sampled in. Child
@@ -67,11 +90,14 @@ def begin_request_trace(traceparent: str | None) -> tuple[str, str, str, context
     trace_id = parsed[0] if parsed else generate_trace_id()
     parent_span_id = parsed[1] if parsed else ""
     span_id = generate_span_id()
-    token = _trace_ctx.set((trace_id, span_id))
+    token = _trace_ctx.set(_RequestTrace(trace_id, span_id))
     return trace_id, span_id, parent_span_id, token
 
 
 def end_request_trace(token: contextvars.Token) -> None:
+    trace = _trace_ctx.get()
+    if trace is not None:
+        trace.ended = True
     _trace_ctx.reset(token)
 
 
@@ -95,14 +121,14 @@ def current_trace_id() -> str:
     Use this to stamp your own log records so APILens can correlate them
     with the request that emitted them.
     """
-    ctx = _trace_ctx.get()
-    return ctx[0] if ctx else ""
+    ctx = _live_trace()
+    return ctx.trace_id if ctx else ""
 
 
 def current_span_id() -> str:
     """Span id of the request currently being handled ("" outside a request)."""
-    ctx = _trace_ctx.get()
-    return ctx[1] if ctx else ""
+    ctx = _live_trace()
+    return ctx.span_id if ctx else ""
 
 
 def current_traceparent() -> str:
@@ -110,7 +136,7 @@ def current_traceparent() -> str:
 
     Returns "" when called outside a request.
     """
-    ctx = _trace_ctx.get()
+    ctx = _live_trace()
     if not ctx:
         return ""
-    return f"00-{ctx[0]}-{ctx[1]}-01"
+    return f"00-{ctx.trace_id}-{ctx.span_id}-01"
