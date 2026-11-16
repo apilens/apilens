@@ -30,18 +30,18 @@ describe("performance URL state", () => {
   });
 
   it("builds the page URL leaving defaults out", () => {
-    expect(performanceHref("shop", { range: "24h", env: "", app: "" })).toBe("/shop/performance");
+    expect(performanceHref("shop", { range: "24h", env: "", app: "" })).toBe("/shop/performance?range=24h&env=all");
     expect(performanceHref("shop", { range: "7d", env: "prod eu", app: BILLING })).toBe(`/shop/performance?range=7d&env=prod+eu&app=${BILLING}`);
   });
 
   it("opens an endpoint's Response times tab keeping the scope", () => {
     const q = { range: "24h" as const, env: "", app: "" };
-    expect(endpointLatencyHref("shop", { method: "post", path: "/charge" }, q)).toBe("/shop/endpoints/POST/%2Fcharge?tab=latency");
+    expect(endpointLatencyHref("shop", { method: "post", path: "/charge" }, q)).toBe("/shop/endpoints/POST/%2Fcharge?range=24h&env=all&tab=latency");
     expect(endpointLatencyHref("shop", { method: "GET", path: "/orders/{id}" }, { ...q, range: "1h", env: "production" })).toBe(
       "/shop/endpoints/GET/%2Forders%2F%7Bid%7D?range=1h&env=production&tab=latency",
     );
     // A row is one app's endpoint (#976): its link opens scoped to that app.
-    expect(endpointLatencyHref("shop", { app_id: BILLING, method: "GET", path: "/charge" }, q)).toBe(`/shop/endpoints/GET/%2Fcharge?app=${BILLING}&tab=latency`);
+    expect(endpointLatencyHref("shop", { app_id: BILLING, method: "GET", path: "/charge" }, q)).toBe(`/shop/endpoints/GET/%2Fcharge?range=24h&env=all&app=${BILLING}&tab=latency`);
   });
 
   it("puts the scope in words", () => {

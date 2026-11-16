@@ -40,9 +40,9 @@ describe("parseConsumersQuery", () => {
 });
 
 describe("consumersHref", () => {
-  it("leaves defaults out and encodes the consumer", () => {
+  it("leaves defaults out but always carries the range (#993) and encodes the consumer", () => {
     expect(consumersHref("shop", {})).toBe("/shop/consumers");
-    expect(consumersHref("shop", DEFAULTS as never)).toBe("/shop/consumers");
+    expect(consumersHref("shop", DEFAULTS as never)).toBe("/shop/consumers?range=24h");
     expect(consumersHref("shop", { range: "7d", consumer: "acme/eu 1", tab: "errors" })).toBe("/shop/consumers?range=7d&consumer=acme%2Feu+1&tab=errors");
     expect(consumersHref("shop", { group: "Acme Corp", q: "priya", sort: "errors" })).toBe("/shop/consumers?group=Acme+Corp&q=priya&sort=errors");
     expect(groupHref("shop", "Umbrella Health", "1h")).toBe("/shop/consumers?range=1h&group=Umbrella+Health");

@@ -4,6 +4,7 @@
 import { isAppId } from "./capture-policy";
 import { RANGE_LABEL, niceMax } from "./consumers";
 import type { EndpointTraffic, NamedApp, QueryRange, TrafficPoint } from "./identity";
+import { envParam } from "./scope-defaults";
 
 export const TRAFFIC_RANGES: readonly QueryRange[] = ["1h", "6h", "24h", "7d"];
 export const DEFAULT_RANGE: QueryRange = "24h";
@@ -62,14 +63,14 @@ export function appName(apps: readonly NamedApp[] | null | undefined, id: string
 
 function scopeParams(q: Partial<TrafficState>): string {
   const p = new URLSearchParams();
-  if (q.range && q.range !== DEFAULT_RANGE) p.set("range", q.range);
-  if (q.env) p.set("env", q.env);
+  if (q.range) p.set("range", q.range);
+  if (q.env !== undefined) p.set("env", envParam(q.env));
   if (q.app) p.set("app", q.app);
   const s = p.toString();
   return s ? `?${s}` : "";
 }
 
-/** The page URL for `q`, leaving defaults out. */
+/** The page URL for `q`, leaving defaults out; a range and env always go in, a URL without them reads the smart defaults (#993). */
 export function trafficHref(project: string, q: Partial<TrafficState>): string {
   return `/${encodeURIComponent(project)}/traffic${scopeParams(q)}`;
 }

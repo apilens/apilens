@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { EnvMemory } from "@/components/env-memory";
 import { type AppThresholdLoad, PerformanceView } from "@/components/performance/performance";
 import { getContext, getSession } from "@/lib/auth/server";
 import { type AppSettings, type CallOptions, type EndpointTraffic, type ProjectApps, type RequestRow, type TrafficLatency, identity, isApiError } from "@/lib/identity";
 import { PERF_ENDPOINTS_LIMIT, type PerformanceState, SLOWEST_LIMIT, parsePerformanceQuery, performanceHref } from "@/lib/performance";
 import { findProject } from "@/lib/scope";
+import { withScopeDefaults } from "@/lib/scope-defaults";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
+import { DEFAULT_RANGE, TRAFFIC_RANGES } from "@/lib/traffic";
 
 export const metadata: Metadata = { title: "Performance" };
 
@@ -46,12 +49,19 @@ async function readThreshold(project: string, q: PerformanceState, next: string)
 // environment in the URL. Saving a threshold refreshes the page, so the Apdex is read again.
 export default async function PerformancePage({ params, searchParams }: { params: Promise<{ project: string }>; searchParams: Promise<SearchParams> }) {
   const { project } = await params;
-  const sp = await searchParams;
-  const q = parsePerformanceQuery(sp);
-  const next = performanceHref(project, q);
+  const raw = await searchParams;
+  const next = performanceHref(project, parsePerformanceQuery(raw));
   const context = await getContext(next);
   const found = findProject(context, project);
   if (!found) notFound();
+  // No range or env in the URL (#993): the range that covers the project's first data, production.
+  const { params: sp, envExplicit } = await withScopeDefaults(raw, {
+    environments: found.project.environments ?? [],
+    firstAt: async () => (await read(next, (o) => identity().ingestStatus(project, o)))?.first_at,
+    ranges: TRAFFIC_RANGES,
+    fallbackRange: DEFAULT_RANGE,
+  });
+  const q = parsePerformanceQuery(sp);
 
   // `?app=` (#976) narrows the reads to one app; without it they count all apps.
   const scope = { range: q.range, env: q.env, ...(q.app ? { app: q.app } : {}) };
@@ -65,6 +75,7 @@ export default async function PerformancePage({ params, searchParams }: { params
 
   return (
     <AppShell context={context} project={project} view="performance">
+      <EnvMemory project={project} env={q.env} explicit={envExplicit} environments={found.project.environments ?? []} />
       <PerformanceView
         project={project}
         projectName={found.project.name}

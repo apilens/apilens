@@ -75,7 +75,7 @@ describe("parseEndpointRef", () => {
 describe("endpointPageHref", () => {
   it("encodes method and path as one segment each and leaves defaults out", () => {
     expect(endpointPageHref("shop", EP, {})).toBe("/shop/endpoints/GET/%2Forders%2F%7Bid%7D");
-    expect(endpointPageHref("shop", EP, { tab: "requests", range: "24h", status: "all" })).toBe("/shop/endpoints/GET/%2Forders%2F%7Bid%7D");
+    expect(endpointPageHref("shop", EP, { tab: "requests", range: "24h", status: "all" })).toBe("/shop/endpoints/GET/%2Forders%2F%7Bid%7D?range=24h");
   });
 
   it("keeps the scope", () => {

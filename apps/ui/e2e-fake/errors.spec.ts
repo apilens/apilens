@@ -28,11 +28,21 @@ async function seed(rows: unknown[] = ROWS, requests = [2000, 2200, 1800, 2200],
   expect(res.status).toBe(204);
 }
 
+/**
+ * `url` reading all environments unless it names one: a URL without `env` reads the project's
+ * production environment (#993), and these specs seed and check the all-environments numbers.
+ */
+function allEnvs(url: string): string {
+  const u = new URL(url, "http://x");
+  if (!u.searchParams.has("env")) u.searchParams.set("env", "all");
+  return `${u.pathname}${u.search}`;
+}
+
 async function signIn(page: Page, next = PAGE, seeds: Record<string, unknown> = {}) {
   const res = await fetch(`${IDENTITY}/__fake/handoff`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ next, ...seeds }),
+    body: JSON.stringify({ next: allEnvs(next), ...seeds }),
   });
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
@@ -91,7 +101,7 @@ test("Status codes tab: tiles, 4xx/5xx over time and the status table", async ({
   // The scope is in the URL and every link keeps it.
   await page.getByRole("navigation", { name: "Time range" }).getByRole("link", { name: "7d" }).click();
   await page.waitForURL(/range=7d/);
-  await expect(statusTable(page).getByRole("link", { name: "404 Not Found" })).toHaveAttribute("href", `${PAGE}?range=7d&code=404`);
+  await expect(statusTable(page).getByRole("link", { name: "404 Not Found" })).toHaveAttribute("href", `${PAGE}?range=7d&env=all&code=404`);
 });
 
 test("Status codes tab: tiles compare with the previous window, and hide that without one (#1000)", async ({ page }) => {
@@ -162,7 +172,7 @@ test("a status code opens its detail: summary and frequency, consumers and per-e
   await expect(orders).toContainText("GET /invoices/{id}");
   await expect(orders).toContainText("210 responses, 2 consumers, last Nov 5, 2026, 10:30 AM UTC");
   await expect(orders).toContainText("No validation errors, no server exceptions");
-  await expect(orders.getByRole("link", { name: "Endpoint errors" })).toHaveAttribute("href", "/shop/endpoints/GET/%2Finvoices%2F%7Bid%7D?tab=errors");
+  await expect(orders.getByRole("link", { name: "Endpoint errors" })).toHaveAttribute("href", "/shop/endpoints/GET/%2Finvoices%2F%7Bid%7D?tab=errors&range=24h&env=all");
 
   // Escape closes the modal and leaves the code out of the URL.
   await page.keyboard.press("Escape");
@@ -176,9 +186,9 @@ test("the details tab points at validation errors and server exceptions", async 
   const item = modal(page, "422 Unprocessable Content").getByRole("list", { name: "Endpoints" }).getByRole("listitem");
   await expect(item).toContainText("POST /invoices");
   await expect(item).toContainText("80 with validation errors, no server exceptions");
-  await expect(item.getByRole("link", { name: "Endpoint errors" })).toHaveAttribute("href", "/shop/endpoints/POST/%2Finvoices?tab=errors");
+  await expect(item.getByRole("link", { name: "Endpoint errors" })).toHaveAttribute("href", "/shop/endpoints/POST/%2Finvoices?tab=errors&range=24h&env=all");
 
-  await page.goto(`${PAGE}?code=500&view=details`);
+  await page.goto(allEnvs(`${PAGE}?code=500&view=details`));
   await expect(modal(page, "500 Internal Server Error").getByRole("listitem")).toContainText("No validation errors, 2 server exceptions");
 });
 
@@ -217,7 +227,7 @@ test("marking a status code as expected updates the error rate on every surface"
   await expect(issues.locator("tbody tr").filter({ hasText: "/invoices/{id}" })).toHaveText([/500/]);
 
   // The endpoint's own settings now list 404 as expected.
-  await page.goto("/shop/endpoints/GET/%2Finvoices%2F%7Bid%7D?tab=errors");
+  await page.goto(allEnvs("/shop/endpoints/GET/%2Finvoices%2F%7Bid%7D?tab=errors&range=24h&env=all"));
   await page.getByRole("button", { name: "Endpoint settings" }).click();
   await expect(page.getByRole("dialog", { name: "Endpoint settings" }).getByRole("textbox", { name: "Expected status codes" })).toHaveValue("404");
 });
@@ -237,7 +247,7 @@ test("Issues tab: failed requests by endpoint and status, each opening the endpo
   await expect(issues.getByRole("columnheader")).toHaveText(["Endpoint", "Status", "Responses", "Consumers", "Last seen"]);
   await expect(issues.locator("tbody tr")).toHaveCount(4);
   await expect(issues.locator("tbody tr").nth(0).getByRole("cell")).toHaveText(["GET /invoices/{id}", "404", "210", "2", "Nov 5, 2026, 10:30 AM UTC"]);
-  await expect(issues.getByRole("link", { name: "POST /invoices" })).toHaveAttribute("href", "/shop/endpoints/POST/%2Finvoices?tab=errors&env=production");
+  await expect(issues.getByRole("link", { name: "POST /invoices" })).toHaveAttribute("href", "/shop/endpoints/POST/%2Finvoices?tab=errors&range=24h&env=production");
   const a11y = await new AxeBuilder({ page }).include(".er").analyze();
   expect(a11y.violations).toEqual([]);
 });
@@ -253,7 +263,7 @@ test("says so when there were no requests or no errors, and when the dashboard c
   await expect(page.getByRole("status").filter({ hasText: "No error responses in the last 1 hour." })).toBeVisible();
 
   await seed(ROWS, [2000, 2200, 1800, 2200], true);
-  await page.goto(PAGE);
+  await page.goto(allEnvs(PAGE));
   const alert = page.getByRole("alert").filter({ hasText: "We couldn’t load errors just now." });
   await expect(alert).toBeVisible();
   await seed();
@@ -268,7 +278,7 @@ test("stacks at phone width without sideways scrolling", async ({ page }) => {
   await expect(statusTable(page).locator("tbody tr")).toHaveCount(3);
   const overflow = await page.locator(".app-main").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
-  await page.goto(`${PAGE}?code=404&view=details`);
+  await page.goto(allEnvs(`${PAGE}?code=404&view=details`));
   await expect(modal(page, "404 Not Found")).toBeVisible();
   const wide = await modal(page, "404 Not Found").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(wide).toBeLessThanOrEqual(0);
@@ -288,7 +298,7 @@ test("screenshots", async ({ page }) => {
       ["details", `${PAGE}?code=404&view=details`],
       ["issues", `${PAGE}?tab=issues`],
     ]) {
-      await page.goto(url);
+      await page.goto(allEnvs(url));
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: width > 500 ? 900 : 844 });
         await page.screenshot({ path: `${dir}/errors-${name}-${theme}-${width}.png`, fullPage: true });

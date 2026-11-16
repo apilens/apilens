@@ -36,7 +36,7 @@ describe("parseErrorsQuery", () => {
 describe("errorsHref", () => {
   it("leaves defaults out", () => {
     expect(errorsHref("shop", {})).toBe("/shop/errors");
-    expect(errorsHref("shop", { tab: "status", range: "24h", env: "", code: null, view: "summary" })).toBe("/shop/errors");
+    expect(errorsHref("shop", { tab: "status", range: "24h", env: "", code: null, view: "summary" })).toBe("/shop/errors?range=24h&env=all");
   });
 
   it("keeps the scope and the open status code", () => {

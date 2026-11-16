@@ -66,11 +66,21 @@ async function seed(on = true, down = false, extra: Record<string, unknown> = {}
   await post("/__fake/performance", on ? { project: "shop", latency: LATENCY, samples_ms: SAMPLES, endpoints: ENDPOINTS, slowest: SLOWEST, down, ...extra } : { project: "shop" });
 }
 
+/**
+ * `url` reading all environments unless it names one: a URL without `env` reads the project's
+ * production environment (#993), and these specs seed and check the all-environments numbers.
+ */
+function allEnvs(url: string): string {
+  const u = new URL(url, "http://x");
+  if (!u.searchParams.has("env")) u.searchParams.set("env", "all");
+  return `${u.pathname}${u.search}`;
+}
+
 async function signIn(page: Page, next = PAGE, seeds: Record<string, unknown> = {}) {
   const res = await fetch(`${IDENTITY}/__fake/handoff`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ next, ...seeds }),
+    body: JSON.stringify({ next: allEnvs(next), ...seeds }),
   });
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
@@ -163,7 +173,7 @@ test("shows percentile tiles and trend, the Apdex gauge, the histogram, the slow
   await expect(rows.nth(0).getByRole("cell")).toHaveText(["POST /charge", "4,200", "520 ms", "36.4 min", "86.4%"]);
   await expect(rows.nth(1).getByRole("cell")).toHaveText(["GET /orders/{id}", "8,200", "42 ms", "5.7 min", "13.6%"]);
   // Each endpoint opens its Response times tab, where its own threshold is set.
-  await expect(rows.nth(0).getByRole("link")).toHaveAttribute("href", "/shop/endpoints/POST/%2Fcharge?tab=latency");
+  await expect(rows.nth(0).getByRole("link")).toHaveAttribute("href", "/shop/endpoints/POST/%2Fcharge?range=24h&env=all&tab=latency");
   // The old endpoints-by-p95 table repeated Traffic's; it is gone.
   await expect(page.getByRole("table", { name: "Endpoints by p95 response time" })).toHaveCount(0);
 
@@ -244,7 +254,7 @@ test("keeps range and environment in the URL", async ({ page }) => {
   await seed();
   await signIn(page);
   await page.getByRole("navigation", { name: "Time range" }).getByRole("link", { name: "1h" }).click();
-  await page.waitForURL((url) => url.search === "?range=1h");
+  await page.waitForURL((url) => url.search === "?range=1h&env=all");
   await page.getByLabel("Environment").selectOption("production");
   await page.waitForURL((url) => url.search === "?range=1h&env=production");
   await expect(page.getByRole("img", { name: /Response time percentiles/ })).toHaveAttribute("aria-label", /in the last 1 hour in production/);
@@ -284,7 +294,7 @@ test.describe("with several apps (#976)", () => {
     const table = page.getByRole("table", { name: "Endpoints by time spent" });
     await expect(table.getByRole("columnheader")).toHaveText(["Endpoint", "App", "Requests", "Average", "Time spent", "Share"]);
     await expect(table.locator("tbody tr").first().getByRole("cell").nth(1)).toHaveText("Billing");
-    await expect(table.getByRole("link", { name: "POST /charge" })).toHaveAttribute("href", `/shop/endpoints/POST/%2Fcharge?app=${billing}&tab=latency`);
+    await expect(table.getByRole("link", { name: "POST /charge" })).toHaveAttribute("href", `/shop/endpoints/POST/%2Fcharge?range=24h&env=all&app=${billing}&tab=latency`);
     const slowest = page.getByRole("table", { name: "Slowest requests" });
     await expect(slowest.getByRole("columnheader")).toHaveText(["Request", "App", "Status", "Time", "Response time"]);
     await expect(slowest.locator("tbody tr").first().getByRole("cell").nth(1)).toHaveText("Billing");
@@ -348,7 +358,7 @@ test("says so when there were no requests, and when the report cannot load", asy
   await expect(tiles(page)).toHaveCount(0);
 
   await seed(true, true);
-  await page.goto(PAGE);
+  await page.goto(allEnvs(PAGE));
   await expect(page.getByRole("alert").filter({ hasText: "We couldn’t load response times just now." })).toBeVisible();
-  await expect(page.getByRole("alert").getByRole("link", { name: "Try again" }).first()).toHaveAttribute("href", PAGE);
+  await expect(page.getByRole("alert").getByRole("link", { name: "Try again" }).first()).toHaveAttribute("href", `${PAGE}?range=24h&env=all`);
 });

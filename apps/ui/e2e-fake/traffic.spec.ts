@@ -60,11 +60,21 @@ async function queryDown(down: boolean) {
   });
 }
 
+/**
+ * `url` reading all environments unless it names one: a URL without `env` reads the project's
+ * production environment (#993), and these specs seed and check the all-environments numbers.
+ */
+function allEnvs(url: string): string {
+  const u = new URL(url, "http://x");
+  if (!u.searchParams.has("env")) u.searchParams.set("env", "all");
+  return `${u.pathname}${u.search}`;
+}
+
 async function signIn(page: Page, next = PAGE) {
   const res = await fetch(`${IDENTITY}/__fake/handoff`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ next }),
+    body: JSON.stringify({ next: allEnvs(next) }),
   });
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
@@ -199,7 +209,7 @@ test("draws the charts before JavaScript runs", async ({ browser }) => {
   });
   const { code } = (await res.json()) as { code: string };
   await page.goto(`/auth/callback?code=${code}`);
-  await page.goto(PAGE);
+  await page.goto(allEnvs(PAGE));
   const svg = page.getByRole("img", { name: /Requests by status/ });
   await expect(svg).toHaveAttribute("viewBox", "0 0 960 160");
   await expect(svg.locator(".tr-fill-ok")).toHaveCount(4);
@@ -210,7 +220,7 @@ test("opens an endpoint's detail from its row, keeping the scope", async ({ page
   await seed();
   await signIn(page, `${PAGE}?range=7d`);
   const link = endpointsTable(page).getByRole("link", { name: "POST /charge" });
-  await expect(link).toHaveAttribute("href", "/shop/endpoints/POST/%2Fcharge?range=7d");
+  await expect(link).toHaveAttribute("href", "/shop/endpoints/POST/%2Fcharge?range=7d&env=all");
   // The link covers its row: a click anywhere on the row follows it.
   const row = endpointsTable(page).locator("tbody tr").nth(1);
   await row.scrollIntoViewIfNeeded();
@@ -243,6 +253,42 @@ test("filters by range and environment, kept in the URL", async ({ page }) => {
   await expect(ranges.getByRole("link", { name: "7d" })).toHaveAttribute("href", "/shop/traffic?range=7d&env=production");
 });
 
+test("without a range or environment in the URL: the range covering the first data, production, then the last choice (#993)", async ({ page }) => {
+  const ingested = (last_at: string | null) =>
+    fetch(`${IDENTITY}/__fake/ingested`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "shop", last_at }) });
+  await seed();
+  // A project whose first request arrived 30 minutes ago reads the last hour, in production.
+  await ingested(new Date(Date.now() - 30 * 60_000).toISOString());
+  try {
+    const res = await fetch(`${IDENTITY}/__fake/handoff`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ next: PAGE }) });
+    const { code } = (await res.json()) as { code: string };
+    await page.goto(`/auth/callback?code=${code}`);
+    await page.waitForURL((url) => url.pathname === PAGE);
+    const ranges = page.getByRole("navigation", { name: "Time range" });
+    const env = page.getByRole("combobox", { name: "Environment" });
+    await expect(ranges.getByRole("link", { name: "1h" })).toHaveAttribute("aria-current", "page");
+    await expect(env).toHaveValue("production");
+    await expect(page.getByRole("img", { name: /Requests by status/ })).toHaveAttribute("aria-label", /in the last 1 hour in production/);
+    // Every range link names its range, so 24h stays 24h.
+    await expect(ranges.getByRole("link", { name: "24h" })).toHaveAttribute("href", "/shop/traffic?range=24h&env=production");
+
+    // Three days of data: the last 7 days.
+    await ingested(new Date(Date.now() - 3 * 86_400_000).toISOString());
+    await page.goto(PAGE);
+    await expect(ranges.getByRole("link", { name: "7d" })).toHaveAttribute("aria-current", "page");
+
+    // The last environment chosen is remembered for the project, "All environments" too.
+    await env.selectOption("");
+    await page.waitForURL((url) => url.searchParams.get("env") === "all");
+    await page.goto(PAGE);
+    await page.waitForURL((url) => url.searchParams.get("env") === "all");
+    await expect(env).toHaveValue("");
+    await expect(tiles(page)).toHaveText(["12,400", "3.0%", "413 ms", "0.91"]);
+  } finally {
+    await ingested(null);
+  }
+});
+
 test("the range and environment travel with the sidebar (#992)", async ({ page }) => {
   await seed();
   await signIn(page, "/shop/traffic?range=7d&env=production");
@@ -273,7 +319,7 @@ test("pages the endpoints table in the URL, starting again at page 1 when the sc
   await expect(endpointsTable(page).locator("tbody tr")).toHaveCount(5);
   await expect(endpointsTable(page).getByRole("link", { name: "GET /items/29" })).toBeVisible();
   // A page past the end shows the last page.
-  await page.goto(`${PAGE}?page=9`);
+  await page.goto(allEnvs(`${PAGE}?page=9`));
   await expect(pages).toContainText("Showing 26–30 of 30");
   // A narrower scope drops the page; one page of rows has no controls.
   await page.getByRole("combobox", { name: "Environment" }).selectOption("production");
@@ -523,7 +569,7 @@ test("the row menu excludes an endpoint from metrics", async ({ page }) => {
   await expect(endpointsTable(page).getByRole("link", { name: "POST /charge" })).toHaveCount(0);
 
   // Its endpoint page says so and can include it again.
-  await page.goto("/shop/endpoints/POST/%2Fcharge");
+  await page.goto(allEnvs("/shop/endpoints/POST/%2Fcharge"));
   await expect(page.locator(".ep-badge")).toHaveText("Excluded from dashboards");
 });
 
@@ -600,7 +646,7 @@ test("filters by app, All apps by default, with an App column whose rows open sc
   await expect(rows.nth(0).getByRole("cell").nth(1)).toHaveText("Shop");
   await expect(rows.nth(1).getByRole("cell").nth(1)).toHaveText("Billing");
   // A row is one app's endpoint: its link and its settings menu are that app's.
-  await expect(endpointsTable(page).getByRole("link", { name: "POST /charge" })).toHaveAttribute("href", `/shop/endpoints/POST/%2Fcharge?app=${billing}`);
+  await expect(endpointsTable(page).getByRole("link", { name: "POST /charge" })).toHaveAttribute("href", `/shop/endpoints/POST/%2Fcharge?range=24h&env=all&app=${billing}`);
   await endpointsTable(page).getByRole("button", { name: "Settings for POST /charge" }).click();
   await expect(rowMenu(page, "POST /charge").getByRole("menuitemradio", { name: "Billing" })).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("Escape");
@@ -614,7 +660,7 @@ test("filters by app, All apps by default, with an App column whose rows open sc
   await expect(rows).toHaveCount(1);
   await expect(rows.first().getByRole("cell").first()).toHaveText("POST /charge");
   // The range links keep the app.
-  await expect(page.getByRole("navigation", { name: "Time range" }).getByRole("link", { name: "7d" })).toHaveAttribute("href", `/shop/traffic?range=7d&app=${billing}`);
+  await expect(page.getByRole("navigation", { name: "Time range" }).getByRole("link", { name: "7d" })).toHaveAttribute("href", `/shop/traffic?range=7d&env=all&app=${billing}`);
 
   const a11y = await new AxeBuilder({ page }).include(".tr").analyze();
   expect(a11y.violations).toEqual([]);

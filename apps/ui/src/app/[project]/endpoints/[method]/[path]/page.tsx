@@ -2,11 +2,14 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { EndpointView, type SettingsLoad, type TabLoad } from "@/components/endpoint/endpoint";
+import { EnvMemory } from "@/components/env-memory";
 import { getContext, getSession } from "@/lib/auth/server";
 import { type EndpointRef, type EndpointState, endpointPageHref, parseEndpointQuery, parseEndpointRef } from "@/lib/endpoint-detail";
 import { type CallOptions, type EndpointSettings, type ProjectApps, identity, isApiError } from "@/lib/identity";
 import { findProject } from "@/lib/scope";
+import { withScopeDefaults } from "@/lib/scope-defaults";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
+import { DEFAULT_RANGE, TRAFFIC_RANGES } from "@/lib/traffic";
 
 type Params = { project: string; method: string; path: string };
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -71,17 +74,25 @@ export default async function EndpointPage({ params, searchParams }: { params: P
   const { project, method, path } = await params;
   const ep = parseEndpointRef(method, path);
   if (!ep) notFound();
-  const sp = await searchParams;
-  const q = parseEndpointQuery(sp);
-  const next = endpointPageHref(project, ep, q);
+  const raw = await searchParams;
+  const next = endpointPageHref(project, ep, parseEndpointQuery(raw));
   const context = await getContext(next);
   const found = findProject(context, project);
   if (!found) notFound();
+  // No range or env in the URL (#993): the range that covers the project's first data, production.
+  const { params: sp, envExplicit } = await withScopeDefaults(raw, {
+    environments: found.project.environments ?? [],
+    firstAt: async () => (await read(next, (o) => identity().ingestStatus(project, o)))?.first_at,
+    ranges: TRAFFIC_RANGES,
+    fallbackRange: DEFAULT_RANGE,
+  });
+  const q = parseEndpointQuery(sp);
 
   const [tab, settings] = await Promise.all([readTab(project, ep, q, next), readSettings(project, ep, q, next)]);
 
   return (
     <AppShell context={context} project={project} view="traffic">
+      <EnvMemory project={project} env={q.env} explicit={envExplicit} environments={found.project.environments ?? []} />
       <EndpointView
         project={project}
         projectName={found.project.name}

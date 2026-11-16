@@ -63,12 +63,12 @@ export function parseConsumersQuery(params: SearchParams): ConsumersQuery {
 }
 
 /**
- * The page URL for `q`, leaving defaults out. It never carries `page`: every link built here (a
+ * The page URL for `q`, leaving defaults out (a range always goes in, #993). It never carries `page`: every link built here (a
  * range, view, filter, search, sort or tab change) starts again at page 1.
  */
 export function consumersHref(project: string, q: Partial<ConsumersQuery>): string {
   const p = new URLSearchParams();
-  if (q.range && q.range !== DEFAULT_RANGE) p.set("range", q.range);
+  if (q.range) p.set("range", q.range);
   if (q.consumer) {
     p.set("consumer", q.consumer);
     if (q.tab === "errors") p.set("tab", "errors");

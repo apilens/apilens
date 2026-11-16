@@ -6,6 +6,7 @@ import { RANGE_LABEL } from "./consumers";
 import { exploreHref } from "./explore";
 import { NO_FILTERS } from "./explore-filters";
 import type { AppSettings, EndpointTraffic, QueryRange, RequestRow } from "./identity";
+import { envParam } from "./scope-defaults";
 import { DEFAULT_RANGE, TRAFFIC_RANGES, endpointHref, formatLatency, parseAppParam } from "./traffic";
 
 /** The Apdex threshold T when neither the endpoint nor its app sets one, in ms. */
@@ -45,11 +46,11 @@ export function parsePerformanceQuery(params: SearchParams): PerformanceState {
   };
 }
 
-/** The page URL for `q`, leaving defaults out. */
+/** The page URL for `q`, leaving defaults out; a range and env always go in, a URL without them reads the smart defaults (#993). */
 export function performanceHref(project: string, q: Partial<PerformanceState>): string {
   const p = new URLSearchParams();
-  if (q.range && q.range !== DEFAULT_RANGE) p.set("range", q.range);
-  if (q.env) p.set("env", q.env);
+  if (q.range) p.set("range", q.range);
+  if (q.env !== undefined) p.set("env", envParam(q.env));
   if (q.app) p.set("app", q.app);
   const s = p.toString();
   return `/${encodeURIComponent(project)}/performance${s ? `?${s}` : ""}`;

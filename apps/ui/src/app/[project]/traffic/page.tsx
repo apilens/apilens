@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { EnvMemory } from "@/components/env-memory";
 import { TrafficView } from "@/components/traffic/traffic";
 import { getContext, getSession } from "@/lib/auth/server";
 import { visibleEnvironments } from "@/lib/environments";
@@ -15,8 +16,9 @@ import {
   isApiError,
 } from "@/lib/identity";
 import { findProject } from "@/lib/scope";
+import { withScopeDefaults } from "@/lib/scope-defaults";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
-import { ENDPOINTS_LIMIT, parseTrafficQuery, trafficHref } from "@/lib/traffic";
+import { DEFAULT_RANGE, ENDPOINTS_LIMIT, TRAFFIC_RANGES, parseTrafficQuery, trafficHref } from "@/lib/traffic";
 
 export const metadata: Metadata = { title: "Traffic" };
 
@@ -38,12 +40,19 @@ async function read<T>(next: string, fn: (o: CallOptions & { accessToken: string
 // endpoints table, scoped by the range and environment in the URL.
 export default async function TrafficPage({ params, searchParams }: { params: Promise<{ project: string }>; searchParams: Promise<SearchParams> }) {
   const { project } = await params;
-  const sp = await searchParams;
-  const q = parseTrafficQuery(sp);
-  const next = trafficHref(project, q);
+  const raw = await searchParams;
+  const next = trafficHref(project, parseTrafficQuery(raw));
   const context = await getContext(next);
   const found = findProject(context, project);
   if (!found) notFound();
+  // No range or env in the URL (#993): the range that covers the project's first data, production.
+  const { params: sp, envExplicit } = await withScopeDefaults(raw, {
+    environments: found.project.environments ?? [],
+    firstAt: async () => (await read(next, (o) => identity().ingestStatus(project, o)))?.first_at,
+    ranges: TRAFFIC_RANGES,
+    fallbackRange: DEFAULT_RANGE,
+  });
+  const q = parseTrafficQuery(sp);
 
   // `?app=` (#976) narrows every read to one app; without it they count all apps.
   const scope = { range: q.range, env: q.env, ...(q.app ? { app: q.app } : {}) };
@@ -60,6 +69,7 @@ export default async function TrafficPage({ params, searchParams }: { params: Pr
 
   return (
     <AppShell context={context} project={project} view="traffic">
+      <EnvMemory project={project} env={q.env} explicit={envExplicit} environments={found.project.environments ?? []} />
       <TrafficView
         project={project}
         projectName={found.project.name}

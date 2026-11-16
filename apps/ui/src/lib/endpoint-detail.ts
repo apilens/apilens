@@ -3,6 +3,7 @@
 // formatting, settings input), unit-tested in endpoint-detail.test.ts.
 import { RANGE_LABEL } from "./consumers";
 import type { EndpointSettings, LatencyBucket, PutEndpointSettingsRequest, QueryRange, SizeBucket, StatusClass } from "./identity";
+import { envParam } from "./scope-defaults";
 import { DEFAULT_RANGE, TRAFFIC_RANGES, parseAppParam } from "./traffic";
 
 export const ENDPOINT_TABS = [
@@ -82,12 +83,12 @@ export function parseEndpointRef(method: string, path: string): EndpointRef | nu
   return { method: method.toUpperCase(), path: template };
 }
 
-/** The page URL for the endpoint in state `q`, leaving defaults out. */
+/** The page URL for the endpoint in state `q`, leaving defaults out; a range and env always go in (#993). */
 export function endpointPageHref(project: string, ep: EndpointRef, q: Partial<EndpointState>): string {
   const p = new URLSearchParams();
   if (q.tab && q.tab !== DEFAULT_TAB) p.set("tab", q.tab);
-  if (q.range && q.range !== DEFAULT_RANGE) p.set("range", q.range);
-  if (q.env) p.set("env", q.env);
+  if (q.range) p.set("range", q.range);
+  if (q.env !== undefined) p.set("env", envParam(q.env));
   if (q.status && q.status !== "all") p.set("status", q.status);
   if (q.consumer) p.set("consumer", q.consumer);
   if (q.app) p.set("app", q.app);
