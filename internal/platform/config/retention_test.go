@@ -10,7 +10,7 @@ func TestRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := cfg.Retention; r != (RetentionConfig{Requests: 90, Logs: 30, Spans: 30, Rollups1m: 30, Rollups1h: 400}) {
+	if r := cfg.Retention; r != (RetentionConfig{Requests: 90, Logs: 90, Spans: 90, Rollups1m: 30, Rollups1h: 400}) {
 		t.Fatalf("default retention = %+v", r)
 	}
 	cfg, err = Load("", []string{kekEnv, "APILENS_RETENTION__LOGS=7", "APILENS_RETENTION__ROLLUPS_1H=730"}, nil)

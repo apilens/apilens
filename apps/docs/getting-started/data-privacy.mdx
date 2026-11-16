@@ -423,8 +423,8 @@ Telemetry is stored in ClickHouse and deleted automatically by table TTL. Retent
 | Data | Config key | Default | Allowed |
 |---|---|---|---|
 | **Requests** (`api_requests`): the request log and request detail with headers, bodies, query strings, IPs and validation errors | `retention.requests` | **90 days** | 1 to 3650 |
-| **Logs** (`api_logs`): log records sent by the SDK, shown with a request's trace | `retention.logs` | 30 days | 1 to 3650 |
-| **Spans** (`api_spans`): the trace waterfall in request detail | `retention.spans` | 30 days | 1 to 3650 |
+| **Logs** (`api_logs`): log records sent by the SDK, shown with a request's trace | `retention.logs` | **90 days** | 1 to 3650 |
+| **Spans** (`api_spans`): the trace waterfall in request detail | `retention.spans` | **90 days** | 1 to 3650 |
 | **Per-minute metrics** (`api_requests_1m`): short-range charts | `retention.rollups_1m` | 30 days | 1 to 400 |
 | **Hourly metrics** (`api_requests_1h`): long-range charts; counts and latencies only, no payloads | `retention.rollups_1h` | 400 days | 30 to 3650 |
 | **Deploys** (`api_deploys`): deploy markers on charts and the deploy comparison | fixed | 400 days | |

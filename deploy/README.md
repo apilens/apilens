@@ -111,12 +111,13 @@ Limits and windows for project access, API keys, project deletion, the audit log
 | `APILENS_INGEST__RECORD_KEY_IP` | `ingest.record_key_ip` | `true` | Record the client IP of each API key's last ingest request (personal data, for access reviews). `false` stops recording and clears it on next use |
 | `APILENS_AUDIT__RETENTION` | `audit.retention` | `400` | Days audit events are kept. At least `30`, or `0` to keep them forever |
 | `APILENS_RETENTION__REQUESTS` | `retention.requests` | `90` | Days requests are kept (1 to 3650) |
-| `APILENS_RETENTION__LOGS` | `retention.logs` | `30` | Days logs are kept (1 to 3650) |
-| `APILENS_RETENTION__SPANS` | `retention.spans` | `30` | Days spans are kept (1 to 3650) |
+| `APILENS_RETENTION__LOGS` | `retention.logs` | `90` | Days logs are kept (1 to 3650) |
+| `APILENS_RETENTION__SPANS` | `retention.spans` | `90` | Days spans are kept (1 to 3650) |
 | `APILENS_RETENTION__ROLLUPS_1M` | `retention.rollups_1m` | `30` | Days per-minute rollups are kept (1 to 400) |
 | `APILENS_RETENTION__ROLLUPS_1H` | `retention.rollups_1h` | `400` | Days per-hour rollups are kept (30 to 3650) |
 
 A value out of range stops APILens at start-up with a message naming the key. Retention is per install: every project shares it. `migrate` applies the `retention.*` periods to the ClickHouse table TTLs. Shortening one deletes the older data, so `migrate` refuses until you run it once with `-confirm-retention-change` (`docker compose run --rm migrate migrate -confirm-retention-change`).
+Logs and spans default to 90 days since ClickHouse migration 00005; an install that sets `APILENS_RETENTION__LOGS` or `__SPANS` to the old 30 days explicitly must confirm that once.
 
 ### Token signing keys
 
