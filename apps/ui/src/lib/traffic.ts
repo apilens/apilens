@@ -165,6 +165,85 @@ export const latencyTop = (values: readonly number[]) => niceMax(Math.max(0, ...
 
 const round = (n: number) => Math.round(n * 10) / 10;
 
-export const TRAFFIC_LOAD_FAILED = "We couldn’t load traffic just now.";
+// Endpoints table sort (#1001) ------------------------------------------------------------------
+
+/** The columns the endpoints table sorts by, as `?sort=` names them. */
+export const ENDPOINT_SORT_KEYS = ["endpoint", "app", "requests", "client_errors", "server_errors", "p50", "p95", "apdex"] as const;
+export type EndpointSortKey = (typeof ENDPOINT_SORT_KEYS)[number];
+export type SortDir = "asc" | "desc";
+export interface EndpointSort {
+  key: EndpointSortKey;
+  dir: SortDir;
+}
+
+/** The table's order without `?sort=`: busiest first, as the API lists them. */
+export const DEFAULT_ENDPOINT_SORT: EndpointSort = { key: "requests", dir: "desc" };
+
+/** Which way a column sorts first: names A to Z, numbers largest (or, for Apdex, worst) first. */
+export function firstDir(key: EndpointSortKey): SortDir {
+  return key === "endpoint" || key === "app" || key === "apdex" ? "asc" : "desc";
+}
+
+/** Reads `?sort=&dir=`; an unknown column is the default order, an unknown direction the column's first. */
+export function parseEndpointSort(params: SearchParams): EndpointSort {
+  const key = first(params.sort);
+  if (!ENDPOINT_SORT_KEYS.includes(key as EndpointSortKey)) return DEFAULT_ENDPOINT_SORT;
+  const dir = first(params.dir);
+  return { key: key as EndpointSortKey, dir: dir === "asc" || dir === "desc" ? dir : firstDir(key as EndpointSortKey) };
+}
+
+/**
+ * The `?sort=&dir=` a column header links to: the column in its first direction, or the other way
+ * when it is already the order. The default order leaves both out.
+ */
+export function nextEndpointSort(current: EndpointSort, key: EndpointSortKey): { sort: string | null; dir: string | null } {
+  const dir: SortDir = current.key === key ? (current.dir === "asc" ? "desc" : "asc") : firstDir(key);
+  if (key === DEFAULT_ENDPOINT_SORT.key && dir === DEFAULT_ENDPOINT_SORT.dir) return { sort: null, dir: null };
+  return { sort: key, dir };
+}
+
+/** A header's `aria-sort`: its direction when it is the order, else none. */
+export function ariaSort(current: EndpointSort, key: EndpointSortKey): "ascending" | "descending" | undefined {
+  if (current.key !== key) return undefined;
+  return current.dir === "asc" ? "ascending" : "descending";
+}
+
+/**
+ * The endpoints in `sort` order; ties keep the API's order (busiest first). An endpoint without an
+ * Apdex (no requests) sorts last either way; `appLabel` names a row's app for the App column.
+ */
+export function sortEndpoints(endpoints: readonly EndpointTraffic[], sort: EndpointSort, appLabel: (id: string) => string = (id) => id): EndpointTraffic[] {
+  const sign = sort.dir === "asc" ? 1 : -1;
+  const value = (e: EndpointTraffic): number | string | null => {
+    switch (sort.key) {
+      case "endpoint":
+        return `${e.path} ${e.method.toUpperCase()}`;
+      case "app":
+        return appLabel(e.app_id);
+      case "requests":
+        return e.requests;
+      case "client_errors":
+        return e.client_errors;
+      case "server_errors":
+        return e.server_errors;
+      case "p50":
+        return e.p50_ms;
+      case "p95":
+        return e.p95_ms;
+      case "apdex":
+        return e.apdex === null || e.apdex === undefined || !Number.isFinite(e.apdex) ? null : e.apdex;
+    }
+  };
+  return endpoints
+    .map((e, i) => ({ e, i, v: value(e) }))
+    .sort((a, b) => {
+      if (a.v === null || b.v === null) return a.v === b.v ? a.i - b.i : a.v === null ? 1 : -1;
+      const c = typeof a.v === "string" ? a.v.localeCompare(b.v as string) : a.v - (b.v as number);
+      return c !== 0 ? c * sign : a.i - b.i;
+    })
+    .map((x) => x.e);
+}
+
+export const TRAFFIC_LOAD_FAILED ="We couldn’t load traffic just now.";
 export const TIMESERIES_LOAD_FAILED = "We couldn’t load traffic over time just now.";
 export const ENDPOINTS_LOAD_FAILED = "We couldn’t load endpoints just now.";

@@ -7,18 +7,24 @@ import {
   TIMESERIES_LOAD_FAILED,
   TRAFFIC_LOAD_FAILED,
   TRAFFIC_RANGES,
+  type EndpointSort,
+  type EndpointSortKey,
   type TrafficState,
   apdexRating,
   appName,
   appOptions,
+  ariaSort,
   endpointHref,
   formatApdex,
   formatLatency,
+  nextEndpointSort,
+  parseEndpointSort,
   scopeText,
+  sortEndpoints,
   statusRows,
   trafficHref,
 } from "@/lib/traffic";
-import { type SearchParams, parsePage, slicePage } from "@/lib/pagination";
+import { type SearchParams, hrefWithoutPage, parsePage, slicePage } from "@/lib/pagination";
 import { ScopeSelect } from "../endpoint/filters";
 import { EndpointRowMenu, EndpointRowMenus } from "../endpoint/row-menu";
 import { ObIcon } from "../onboarding/ob";
@@ -60,7 +66,10 @@ export function TrafficView({
 }) {
   // Every endpoint the API listed, paged here; the range and environment links leave `page` out,
   // so they start again at page 1, and a page past the end (the list shrank while live) clamps.
-  const page = slicePage(endpoints ?? [], parsePage(params));
+  // Sorted by the column in `?sort=&dir=` (#1001) before paging, so a page is a slice of the order.
+  const sort = parseEndpointSort(params);
+  const page = slicePage(sortEndpoints(endpoints ?? [], sort, (id) => appName(apps, id)), parsePage(params));
+  const sortHref = (key: EndpointSortKey) => hrefWithoutPage(trafficHref(project, {}), params, nextEndpointSort(sort, key));
   const scope = scopeText(q, q.app ? appName(apps, q.app) : undefined);
   // The App column (#976): which app serves each row, when the rows can be of several apps.
   const appColumn = apps && apps.length > 1 && !q.app ? apps : null;
@@ -132,10 +141,10 @@ export function TrafficView({
               <>
                 {apps && apps.length > 0 ? (
                   <EndpointRowMenus project={project} apps={apps}>
-                    <EndpointsTable project={project} q={q} endpoints={page.rows} apps={appColumn} menus />
+                    <EndpointsTable project={project} q={q} endpoints={page.rows} apps={appColumn} sort={sort} sortHref={sortHref} menus />
                   </EndpointRowMenus>
                 ) : (
-                  <EndpointsTable project={project} q={q} endpoints={page.rows} apps={appColumn} />
+                  <EndpointsTable project={project} q={q} endpoints={page.rows} apps={appColumn} sort={sort} sortHref={sortHref} />
                 )}
                 <Pagination pathname={trafficHref(project, {})} params={params} total={page.window.total} label="Endpoints pages" />
                 {endpoints.length >= ENDPOINTS_LIMIT ? <p className="tr-cap">The {formatCount(ENDPOINTS_LIMIT)} busiest endpoints are listed.</p> : null}
@@ -234,6 +243,8 @@ function EndpointsTable({
   endpoints,
   apps = null,
   menus = false,
+  sort,
+  sortHref,
 }: {
   project: string;
   q: TrafficState;
@@ -241,31 +252,27 @@ function EndpointsTable({
   /** The project's apps when the table shows the App column; null leaves it out. */
   apps?: NamedApp[] | null;
   menus?: boolean;
+  /** The table's order (#1001) and the link each header sorts by. */
+  sort: EndpointSort;
+  sortHref: (key: EndpointSortKey) => string;
 }) {
+  const header = (key: EndpointSortKey, label: string, num = true) => (
+    <SortHeader sort={sort} col={key} href={sortHref(key)} num={num}>
+      {label}
+    </SortHeader>
+  );
   return (
     <table className="tr-table" aria-label="Endpoints">
       <thead>
         <tr>
-          <th scope="col">Endpoint</th>
-          {apps ? <th scope="col">App</th> : null}
-          <th scope="col" className="tr-num">
-            Requests
-          </th>
-          <th scope="col" className="tr-num">
-            4xx
-          </th>
-          <th scope="col" className="tr-num">
-            5xx
-          </th>
-          <th scope="col" className="tr-num">
-            p50
-          </th>
-          <th scope="col" className="tr-num">
-            p95
-          </th>
-          <th scope="col" className="tr-num">
-            Apdex
-          </th>
+          {header("endpoint", "Endpoint", false)}
+          {apps ? header("app", "App", false) : null}
+          {header("requests", "Requests")}
+          {header("client_errors", "4xx")}
+          {header("server_errors", "5xx")}
+          {header("p50", "p50")}
+          {header("p95", "p95")}
+          {header("apdex", "Apdex")}
           {menus ? (
             <th scope="col">
               <span className="ep-vh">Settings</span>
@@ -313,6 +320,21 @@ function EndpointsTable({
         ))}
       </tbody>
     </table>
+  );
+}
+
+/**
+ * A sortable column header (#1001): a link ordering the table by the column, the other way when it
+ * already is; `aria-sort` names the current order.
+ */
+function SortHeader({ sort, col, href, num, children }: { sort: EndpointSort; col: EndpointSortKey; href: string; num: boolean; children: string }) {
+  const dir = ariaSort(sort, col);
+  return (
+    <th scope="col" className={num ? "tr-num" : undefined} aria-sort={dir}>
+      <a className="tr-sort" href={href}>
+        {children}
+      </a>
+    </th>
   );
 }
 

@@ -28,10 +28,31 @@ const LATENCY = {
 // Satisfied within 500 ms: 100, 300; tolerating within 2 s: 900; frustrated: 3000. Apdex 0.63.
 const SAMPLES = [100, 300, 900, 3000];
 
+// Time spent (#1001): /orders/{id} 8,200 × 42 ms, /charge 4,200 × 520 ms.
 const ENDPOINTS = [
-  { method: "GET", path: "/orders/{id}", requests: 8200, client_errors: 290, server_errors: 2, error_rate: 0.035, p50_ms: 31, p95_ms: 220.4, apdex: 0.97 },
-  { method: "POST", path: "/charge", requests: 4200, client_errors: 20, server_errors: 60, error_rate: 0.019, p50_ms: 410, p95_ms: 1820, apdex: 0.61 },
-  { method: "GET", path: "/health", requests: 0, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 0, p95_ms: 0, apdex: null, discovered_only: true },
+  { method: "GET", path: "/orders/{id}", requests: 8200, client_errors: 290, server_errors: 2, error_rate: 0.035, p50_ms: 31, p95_ms: 220.4, total_time_ms: 344_400, apdex: 0.97 },
+  { method: "POST", path: "/charge", requests: 4200, client_errors: 20, server_errors: 60, error_rate: 0.019, p50_ms: 410, p95_ms: 1820, total_time_ms: 2_184_000, apdex: 0.61 },
+  { method: "GET", path: "/health", requests: 0, client_errors: 0, server_errors: 0, error_rate: 0, p50_ms: 0, p95_ms: 0, total_time_ms: 0, apdex: null, discovered_only: true },
+];
+
+// The slowest requests (#1001), in no order: the fake sorts them.
+const request = (id: string, method: string, path: string, raw: string, status: number, ms: number, ts: string, environment = "production") => ({
+  id,
+  timestamp: ts,
+  method,
+  path,
+  raw_path: raw,
+  status_code: status,
+  response_time_ms: ms,
+  environment,
+  consumer_id: "",
+  consumer_name: "",
+  trace_id: `trace-${id}`,
+});
+const SLOWEST = [
+  request("req_orders", "GET", "/orders/{id}", "/orders/42", 200, 1240, "2026-11-05T09:40:11.002Z"),
+  request("req_charge", "POST", "/charge", "/charge?retry=1", 504, 2310.4, "2026-11-05T10:12:03.214Z"),
+  request("req_stage", "POST", "/charge", "/charge", 200, 980, "2026-11-05T08:01:00.000Z", "staging"),
 ];
 
 async function post(path: string, body: unknown) {
@@ -41,8 +62,8 @@ async function post(path: string, body: unknown) {
 
 // The endpoints and the outage come with the performance seed, never `/__fake/traffic` or
 // `/__fake/query-down`, which the Traffic and endpoint tests may be using at the same time.
-async function seed(on = true, down = false) {
-  await post("/__fake/performance", on ? { project: "shop", latency: LATENCY, samples_ms: SAMPLES, endpoints: ENDPOINTS, down } : { project: "shop" });
+async function seed(on = true, down = false, extra: Record<string, unknown> = {}) {
+  await post("/__fake/performance", on ? { project: "shop", latency: LATENCY, samples_ms: SAMPLES, endpoints: ENDPOINTS, slowest: SLOWEST, down, ...extra } : { project: "shop" });
 }
 
 async function signIn(page: Page, next = PAGE, seeds: Record<string, unknown> = {}) {
@@ -72,7 +93,7 @@ test.afterEach(async () => {
   await seed(false);
 });
 
-test("shows percentile tiles and trend, the Apdex gauge, the histogram and the endpoints by p95", async ({ page }) => {
+test("shows percentile tiles and trend, the Apdex gauge, the histogram, the slowest requests and time spent", async ({ page }) => {
   await seed();
   await signIn(page);
   await expect(page.getByRole("heading", { level: 1, name: "Performance" })).toBeVisible();
@@ -117,15 +138,34 @@ test("shows percentile tiles and trend, the Apdex gauge, the histogram and the e
   await expect(bar.locator(".ct-tip__title")).toHaveText("20–50 ms");
   await expect(bar.locator("dd").first()).toHaveText("4,600");
 
-  // Slowest p95 first; routes without traffic have no response times to rank.
-  const table = page.getByRole("table", { name: "Endpoints by p95 response time" });
-  await expect(table.getByRole("columnheader")).toHaveText(["Endpoint", "Requests", "p50", "p95", "Apdex"]);
+  // The slowest requests (#1001), slowest first, each opening in Explore on that request.
+  await expect(page.getByRole("heading", { level: 2, name: "Slowest requests" })).toBeVisible();
+  const slowest = page.getByRole("table", { name: "Slowest requests" });
+  await expect(slowest.getByRole("columnheader")).toHaveText(["Request", "Status", "Time", "Response time"]);
+  await expect(slowest.getByRole("columnheader", { name: "Response time" })).toHaveAttribute("aria-sort", "descending");
+  const slow = slowest.locator("tbody tr");
+  await expect(slow).toHaveCount(3);
+  await expect(slow.nth(0).getByRole("cell")).toHaveText(["POST /charge?retry=1", "504", "Nov 5, 10:12:03 UTC", "2.31 s"]);
+  await expect(slow.nth(1).getByRole("cell")).toHaveText(["GET /orders/42", "200", "Nov 5, 09:40:11 UTC", "1.24 s"]);
+  await expect(slow.nth(2).getByRole("cell").last()).toHaveText("980 ms");
+  await expect(slow.nth(0).getByRole("link")).toHaveAttribute(
+    "href",
+    "/shop/explore?range=24h&env=production&method=POST&path=%2Fcharge&latency_min=2310&request=req_charge",
+  );
+
+  // Time spent (#1001): requests × average, most first; routes without traffic have no time to rank.
+  await expect(page.getByRole("heading", { level: 2, name: "Time spent" })).toBeVisible();
+  const table = page.getByRole("table", { name: "Endpoints by time spent" });
+  await expect(table.getByRole("columnheader")).toHaveText(["Endpoint", "Requests", "Average", "Time spent", "Share"]);
+  await expect(table.getByRole("columnheader", { name: "Time spent" })).toHaveAttribute("aria-sort", "descending");
   const rows = table.locator("tbody tr");
   await expect(rows).toHaveCount(2);
-  await expect(rows.nth(0).getByRole("cell")).toHaveText(["POST /charge", "4,200", "410 ms", "1.82 s", "0.61"]);
-  await expect(rows.nth(1).getByRole("cell")).toHaveText(["GET /orders/{id}", "8,200", "31 ms", "220 ms", "0.97"]);
+  await expect(rows.nth(0).getByRole("cell")).toHaveText(["POST /charge", "4,200", "520 ms", "36.4 min", "86.4%"]);
+  await expect(rows.nth(1).getByRole("cell")).toHaveText(["GET /orders/{id}", "8,200", "42 ms", "5.7 min", "13.6%"]);
   // Each endpoint opens its Response times tab, where its own threshold is set.
   await expect(rows.nth(0).getByRole("link")).toHaveAttribute("href", "/shop/endpoints/POST/%2Fcharge?tab=latency");
+  // The old endpoints-by-p95 table repeated Traffic's; it is gone.
+  await expect(page.getByRole("table", { name: "Endpoints by p95 response time" })).toHaveCount(0);
 
   const a11y = await new AxeBuilder({ page }).include(".pf").analyze();
   expect(a11y.violations).toEqual([]);
@@ -204,6 +244,10 @@ test.describe("with several apps (#976)", () => {
         { ...ENDPOINTS[0], app_id: shop },
         { ...ENDPOINTS[1], app_id: billing },
       ],
+      slowest: [
+        { ...SLOWEST[0], app_id: shop },
+        { ...SLOWEST[1], app_id: billing },
+      ],
     });
   });
 
@@ -217,10 +261,13 @@ test.describe("with several apps (#976)", () => {
     const app = page.getByRole("combobox", { name: "App" });
     await expect(app).toHaveValue("");
     await expect(app.getByRole("option")).toHaveText(["All apps", "Shop", "Billing"]);
-    const table = page.getByRole("table", { name: "Endpoints by p95 response time" });
-    await expect(table.getByRole("columnheader")).toHaveText(["Endpoint", "App", "Requests", "p50", "p95", "Apdex"]);
+    const table = page.getByRole("table", { name: "Endpoints by time spent" });
+    await expect(table.getByRole("columnheader")).toHaveText(["Endpoint", "App", "Requests", "Average", "Time spent", "Share"]);
     await expect(table.locator("tbody tr").first().getByRole("cell").nth(1)).toHaveText("Billing");
     await expect(table.getByRole("link", { name: "POST /charge" })).toHaveAttribute("href", `/shop/endpoints/POST/%2Fcharge?app=${billing}&tab=latency`);
+    const slowest = page.getByRole("table", { name: "Slowest requests" });
+    await expect(slowest.getByRole("columnheader")).toHaveText(["Request", "App", "Status", "Time", "Response time"]);
+    await expect(slowest.locator("tbody tr").first().getByRole("cell").nth(1)).toHaveText("Billing");
     // Across apps T differs, so the explanation names no one app's threshold.
     await expect(page.locator("[role=tooltip]")).toContainText("T is the endpoint’s own threshold, else its app’s, else 500 ms.");
 
@@ -241,8 +288,11 @@ test.describe("with several apps (#976)", () => {
     // Scoped to Billing: its rows only, its threshold scores the Apdex and the dialog opens on it.
     await app.selectOption({ label: "Billing" });
     await page.waitForURL(new RegExp(`app=${billing}`));
-    await expect(table.getByRole("columnheader")).toHaveText(["Endpoint", "Requests", "p50", "p95", "Apdex"]);
+    await expect(table.getByRole("columnheader")).toHaveText(["Endpoint", "Requests", "Average", "Time spent", "Share"]);
     await expect(table.locator("tbody tr")).toHaveCount(1);
+    // The slowest requests read the app in scope too.
+    await expect(slowest.locator("tbody tr")).toHaveCount(1);
+    await expect(slowest.locator("tbody tr").first().getByRole("cell").first()).toHaveText("POST /charge?retry=1");
     await expect(apdexValue(page)).toHaveText("0.88");
     await expect(page.locator("[role=tooltip]")).toContainText("(Billing: 1000 ms)");
     await expect(page.getByRole("img", { name: /Response time percentiles/ })).toHaveAttribute("aria-label", /in the last 24 hours for Billing/);
@@ -256,11 +306,20 @@ test("stacks at phone width without sideways scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await seed();
   await signIn(page);
-  await expect(page.getByRole("table", { name: "Endpoints by p95 response time" }).locator("tbody tr")).toHaveCount(2);
+  await expect(page.getByRole("table", { name: "Endpoints by time spent" }).locator("tbody tr")).toHaveCount(2);
+  await expect(page.getByRole("table", { name: "Slowest requests" }).locator("tbody tr")).toHaveCount(3);
   await page.getByRole("button", { name: "How Apdex is scored" }).focus();
   await expect(page.locator("[role=tooltip]")).toBeVisible();
   const overflow = await page.locator(".app-main").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test("says so when the slowest requests cannot load, and still ranks time spent", async ({ page }) => {
+  await seed(true, false, { slowest_down: true });
+  await signIn(page);
+  await expect(page.getByRole("alert").filter({ hasText: "We couldn’t load the slowest requests just now." })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Slowest requests" })).toHaveCount(0);
+  await expect(page.getByRole("table", { name: "Endpoints by time spent" }).locator("tbody tr")).toHaveCount(2);
 });
 
 test("says so when there were no requests, and when the report cannot load", async ({ page }) => {

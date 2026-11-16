@@ -18,7 +18,7 @@ var documentedOperations = []string{
 	"get-project", "get-traffic-summary", "get-traffic-timeseries", "get-traffic-latency", "list-endpoints",
 	"get-endpoint-requests", "get-endpoint-latency", "get-endpoint-transfer", "get-endpoint-errors",
 	"get-endpoint-settings", "put-endpoint-settings", "get-app-settings", "put-app-settings",
-	"list-requests", "get-request-timeline", "get-request", "get-trace",
+	"list-requests", "get-request-timeline", "list-slowest-requests", "get-request", "get-trace",
 	"create-request-export", "get-request-export", "cancel-request-export", "download-request-export",
 	"list-saved-views", "get-saved-view", "create-saved-view", "update-saved-view", "delete-saved-view",
 	"list-consumers", "get-consumer", "list-consumer-group-traffic", "list-anonymous-callers",

@@ -125,6 +125,7 @@ func Register(api huma.API, s *Service, guard *authz.Guard) {
 	huma.Register(api, op("list-deploys", http.MethodGet, "/api/v1/deploys", "Deploy markers in a time range"), s.deploys)
 	registerErrorStatus(api, s)
 	registerTrafficLatency(api, s)
+	registerSlowestRequests(api, s)
 	registerDeployChanges(api, s)
 	registerDeployDetail(api, s)
 	registerIngestStatus(api, s, guard)
@@ -411,6 +412,7 @@ type endpoint struct {
 	ErrorRate    float64  `json:"error_rate" doc:"(client_errors + server_errors) / requests; 0 without requests."`
 	P50Ms        float64  `json:"p50_ms" doc:"Median response time, in milliseconds."`
 	P95Ms        float64  `json:"p95_ms" doc:"95th percentile response time, in milliseconds."`
+	TotalTimeMs  float64  `json:"total_time_ms" doc:"Sum of the response times of the range's requests, in milliseconds (requests × average): where the API spends its time."`
 	Apdex        *float64 `json:"apdex" required:"true" nullable:"true" doc:"Apdex score from 0 to 1 against the endpoint's latency threshold (else its app's, else 500 ms), unexpected 5xx responses counted as frustrated; null without requests."`
 	// DiscoveredOnly marks a route an app declared in its metadata that had
 	// no traffic in the range; its counts are zero.
@@ -457,7 +459,7 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 		return nil, err
 	}
 	rows, err := s.ch.Query(qctx, fmt.Sprintf(`
-		SELECT app_id, method, path, sum(requests) AS total, sum(client_errors), sum(server_errors), %s
+		SELECT app_id, method, path, sum(requests) AS total, sum(client_errors), sum(server_errors), sum(latency_sum_ms), %s
 		FROM %s WHERE %s AND bucket >= ? AND bucket < ?
 		GROUP BY app_id, method, path ORDER BY total DESC, path, method, app_id LIMIT ?`, quantiles, w.table, where),
 		append(args, w.from, w.to, in.Limit)...)
@@ -473,7 +475,7 @@ func (s *Service) endpoints(ctx context.Context, in *endpointsInput) (*endpoints
 			app uuid.UUID
 			q   []float32
 		)
-		if err := rows.Scan(&app, &e.Method, &e.Path, &e.Requests, &e.ClientErrors, &e.ServerErrors, &q); err != nil {
+		if err := rows.Scan(&app, &e.Method, &e.Path, &e.Requests, &e.ClientErrors, &e.ServerErrors, &e.TotalTimeMs, &q); err != nil {
 			return nil, internalError("endpoints", err)
 		}
 		e.AppID = app.String()

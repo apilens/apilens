@@ -4301,6 +4301,11 @@
             "format": "int64",
             "minimum": 0,
             "type": "integer"
+          },
+          "total_time_ms": {
+            "description": "Sum of the response times of the range's requests, in milliseconds (requests × average): where the API spends its time.",
+            "format": "double",
+            "type": "number"
           }
         },
         "required": [
@@ -4313,6 +4318,7 @@
           "error_rate",
           "p50_ms",
           "p95_ms",
+          "total_time_ms",
           "apdex",
           "discovered_only"
         ],
@@ -11465,6 +11471,34 @@
         "required": [
           "from_bytes",
           "count"
+        ],
+        "type": "object"
+      },
+      "SlowestRequestsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SlowestRequestsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "requests": {
+            "description": "Slowest first, then newest first; each id opens GET /api/v1/requests/{id}.",
+            "items": {
+              "$ref": "#/components/schemas/RequestRow"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "requests"
         ],
         "type": "object"
       },
@@ -29168,6 +29202,115 @@
           }
         ],
         "summary": "Request log: filtered requests, newest first, with cursor pagination",
+        "tags": [
+          "Dashboard"
+        ]
+      }
+    },
+    "/api/v1/requests/slowest": {
+      "get": {
+        "description": "The raw requests of the range (or one environment, or one app) with the longest response time, slowest first (ties: newest first). Endpoints excluded from metrics are left out. Callers authenticate with a project read key or a user session; with a session, project names the project and the caller needs project.view. An ingest key answers 403.",
+        "operationId": "list-slowest-requests",
+        "parameters": [
+          {
+            "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+            "explode": false,
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "description": "Project slug. Required with a user session (the caller needs project.view); optional with a read key, where it must name the key's own project.",
+              "examples": [
+                "shop"
+              ],
+              "maxLength": 63,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Time range ending now.",
+            "explode": false,
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "24h",
+              "description": "Time range ending now.",
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name; empty means all.",
+            "explode": false,
+            "in": "query",
+            "name": "env",
+            "schema": {
+              "description": "Environment name; empty means all.",
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+            "explode": false,
+            "in": "query",
+            "name": "app",
+            "schema": {
+              "description": "App id; empty means every app of the project. An app of another project matches nothing.",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Most requests to list.",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 10,
+              "description": "Most requests to list.",
+              "format": "int64",
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlowestRequestsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorModel"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "readKey": []
+          }
+        ],
+        "summary": "Slowest requests: the requests of the range with the longest response time",
         "tags": [
           "Dashboard"
         ]

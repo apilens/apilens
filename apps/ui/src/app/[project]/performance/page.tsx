@@ -3,8 +3,8 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { type AppThresholdLoad, PerformanceView } from "@/components/performance/performance";
 import { getContext, getSession } from "@/lib/auth/server";
-import { type AppSettings, type CallOptions, type EndpointTraffic, type ProjectApps, type TrafficLatency, identity, isApiError } from "@/lib/identity";
-import { PERF_ENDPOINTS_LIMIT, type PerformanceState, parsePerformanceQuery, performanceHref } from "@/lib/performance";
+import { type AppSettings, type CallOptions, type EndpointTraffic, type ProjectApps, type RequestRow, type TrafficLatency, identity, isApiError } from "@/lib/identity";
+import { PERF_ENDPOINTS_LIMIT, type PerformanceState, SLOWEST_LIMIT, parsePerformanceQuery, performanceHref } from "@/lib/performance";
 import { findProject } from "@/lib/scope";
 import { isSessionExpired, redirectToRefresh } from "@/lib/server-session";
 
@@ -42,7 +42,7 @@ async function readThreshold(project: string, q: PerformanceState, next: string)
 }
 
 // Performance (#595): p50/p75/p95 tiles and trend, the Apdex gauge, the response-time histogram,
-// the endpoints by p95 and the app-wide response time threshold, scoped by the range and
+// the slowest requests, the endpoints by time spent (#1001) and the app-wide response time threshold, scoped by the range and
 // environment in the URL. Saving a threshold refreshes the page, so the Apdex is read again.
 export default async function PerformancePage({ params, searchParams }: { params: Promise<{ project: string }>; searchParams: Promise<SearchParams> }) {
   const { project } = await params;
@@ -55,9 +55,11 @@ export default async function PerformancePage({ params, searchParams }: { params
 
   // `?app=` (#976) narrows the reads to one app; without it they count all apps.
   const scope = { range: q.range, env: q.env, ...(q.app ? { app: q.app } : {}) };
-  const [latency, endpoints, threshold] = await Promise.all([
+  const [latency, endpoints, slowest, threshold] = await Promise.all([
     read<TrafficLatency>(next, (o) => identity().trafficLatency(project, scope, o)),
     read<{ endpoints: EndpointTraffic[] | null }>(next, (o) => identity().listEndpoints(project, { ...scope, limit: PERF_ENDPOINTS_LIMIT }, o)),
+    // Slowest requests (#1001): where "why is it slow" ends, at one request.
+    read<{ requests: RequestRow[] | null }>(next, (o) => identity().slowestRequests(project, { ...scope, limit: SLOWEST_LIMIT }, o)),
     readThreshold(project, q, next),
   ]);
 
@@ -70,8 +72,8 @@ export default async function PerformancePage({ params, searchParams }: { params
         query={q}
         latency={latency}
         endpoints={endpoints === null ? null : (endpoints.endpoints ?? [])}
+        slowest={slowest === null ? null : (slowest.requests ?? [])}
         threshold={threshold}
-        params={sp}
       />
     </AppShell>
   );
