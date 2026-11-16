@@ -37,8 +37,10 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.DoubleSupplier;
 import java.util.function.Function;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import java.util.function.ToIntFunction;
 import java.util.logging.Level;
@@ -51,8 +53,15 @@ import java.util.logging.Logger;
  * ({@code maxQueueSize}, per queue) and by estimated bytes ({@code maxQueueBytes}, shared);
  * either limit drops the oldest records first. A background thread cuts batches at {@code
  * batchSize} records or {@code maxBatchBytes}, gzips them, and retries 408/429/5xx/network
- * errors with full-jitter backoff, honouring {@code Retry-After}. Any other 4xx drops the
- * batch at once. {@link #stats()} reports what happened.
+ * errors with full-jitter backoff, honouring {@code Retry-After}, for up to {@code
+ * maxRetryDuration} (default 300 s). Any other 4xx drops the batch at once; a 200 that refuses
+ * some records (partial accept) drops only those. Every dropped record is counted by signal and
+ * reason, logged at WARNING (at most once a minute) and reported to ingest in the next heartbeat
+ * ({@code dropped}). {@link #stats()} reports what happened.
+ *
+ * <p>Unless {@code registerShutdownHook} is off (the Spring Boot auto-configuration turns it
+ * off and closes the client itself), a running client registers a JVM shutdown hook that
+ * flushes the queues, bounded by {@code shutdownTimeout} (default 5 s).
  *
  * <p>A second daemon thread sends {@code POST /v1/heartbeat} for every registered app (the
  * configured {@code appId} and any {@link #registerApp}): on start, every {@code
@@ -68,13 +77,20 @@ public class ApiLensClient implements AutoCloseable {
   public static final String DROP_QUEUE_BYTES = "queue_bytes";
   /** Ingest rejected the batch with a non-retryable 4xx. */
   public static final String DROP_NON_RETRYABLE = "non_retryable";
-  /** The batch still failed after {@code maxRetries}. */
+  /** The batch still failed after {@code maxRetryDuration} (or {@code maxRetries}). */
   public static final String DROP_RETRIES_EXHAUSTED = "retries_exhausted";
+  /** Ingest answered 200 but refused the record as invalid (partial accept). */
+  public static final String DROP_INVALID = "invalid";
+  /** Ingest answered 200 but refused the record because of its app or environment. */
+  public static final String DROP_APP_REJECTED = "app_rejected";
+  /** Still queued or unsent when {@link #shutdown()} ran out of {@code shutdownTimeout}. */
+  public static final String DROP_SHUTDOWN = "shutdown";
   /** Not a drop: a record was shortened to fit {@code maxBatchBytes} and still sent. */
   public static final String DROP_TRUNCATED = "truncated";
   /** Every key of {@link ClientStats#dropCounts()}. */
   public static final List<String> DROP_REASONS = List.of(
-      DROP_QUEUE_FULL, DROP_QUEUE_BYTES, DROP_NON_RETRYABLE, DROP_RETRIES_EXHAUSTED, DROP_TRUNCATED);
+      DROP_QUEUE_FULL, DROP_QUEUE_BYTES, DROP_NON_RETRYABLE, DROP_RETRIES_EXHAUSTED, DROP_INVALID,
+      DROP_APP_REJECTED, DROP_SHUTDOWN, DROP_TRUNCATED);
 
   /** {@code sdk_name} in heartbeats. */
   public static final String SDK_NAME = "apilens-java-sdk";
@@ -92,6 +108,8 @@ public class ApiLensClient implements AutoCloseable {
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final Duration NON_RETRYABLE_LOG_INTERVAL = Duration.ofMinutes(5);
   private static final Duration DROP_LOG_INTERVAL = Duration.ofMinutes(1);
+  /** How long shutdown waits for an interrupted background flush to count its batch. */
+  private static final Duration SHUTDOWN_GRACE = Duration.ofMillis(200);
   private static final int MAX_LOGGED_BODY_BYTES = 1024;
   private static final int MAX_RESPONSE_BYTES = 64 * 1024;
   private static final java.util.regex.Pattern API_KEY_NAME_SEPARATORS =
@@ -110,6 +128,8 @@ public class ApiLensClient implements AutoCloseable {
   private final List<RecordQueue<?>> queues;
   private long queuedBytes;
   private final Map<String, AtomicLong> drops = new LinkedHashMap<>();
+  /** Drops not yet reported in an accepted heartbeat: signal -> reason -> records. */
+  private final Map<String, Map<String, AtomicLong>> unreportedDrops = new ConcurrentHashMap<>();
   private final AtomicLong sentBatches = new AtomicLong();
   private final AtomicLong sentRecords = new AtomicLong();
   private final AtomicLong failedBatches = new AtomicLong();
@@ -119,11 +139,16 @@ public class ApiLensClient implements AutoCloseable {
   private final AtomicLong lastDropLogNanos = new AtomicLong(System.nanoTime() - DROP_LOG_INTERVAL.toNanos());
   private final AtomicLong lastLoggedDropped = new AtomicLong();
   private final AtomicBoolean flushSubmitted = new AtomicBoolean();
+  /** {@link #nanoClock} time {@link #shutdown()} must be done by; 0 while not shutting down. */
+  private volatile long shutdownDeadline;
+  private final AtomicReference<Thread> shutdownHook = new AtomicReference<>();
 
   /** Waits between retries; replaced in tests. */
   volatile Sleeper sleeper = duration -> Thread.sleep(duration.toMillis());
   /** Jitter source in {@code [0, 1)}; replaced in tests. */
   volatile DoubleSupplier random = () -> ThreadLocalRandom.current().nextDouble();
+  /** Clock of the retry window and the shutdown deadline; replaced in tests. */
+  volatile LongSupplier nanoClock = System::nanoTime;
 
   private volatile ScheduledExecutorService executor;
 
@@ -135,6 +160,8 @@ public class ApiLensClient implements AutoCloseable {
   private final Duration heartbeatInterval;
   /** Registered app -> System.nanoTime() the next heartbeat is due. */
   private final Map<AppKey, Long> heartbeatDue = new ConcurrentHashMap<>();
+  /** The configured app: its heartbeats carry the client's drop counts. */
+  private final AppKey primaryApp;
   private final Object heartbeatSendLock = new Object();
   private final Set<Integer> heartbeatRejectionsLogged = ConcurrentHashMap.newKeySet();
   private volatile RemotePolicy remotePolicy = RemotePolicy.CAPTURE_EVERYTHING;
@@ -174,6 +201,7 @@ public class ApiLensClient implements AutoCloseable {
     logQueue = new RecordQueue<>(
         "logs", config::logsPath, record -> record.toWire(config), LogRecord::estimatedBytes);
     queues = List.of(requestQueue, spanQueue, logQueue);
+    primaryApp = appKey(config.appId(), config.environment());
     registerApp(config.appId(), config.environment());
 
     if (config.enabled() && autoStart) {
@@ -250,9 +278,12 @@ public class ApiLensClient implements AutoCloseable {
     long intervalMs = Math.max(config.flushInterval().toMillis(), 1);
     service.scheduleWithFixedDelay(this::flushSafely, intervalMs, intervalMs, TimeUnit.MILLISECONDS);
     startHeartbeats();
+    registerShutdownHook();
   }
 
+  /** Stops the background threads without flushing; removes the JVM shutdown hook. */
   public void stop() {
+    removeShutdownHook();
     ScheduledExecutorService service = executor;
     executor = null;
     if (service != null) {
@@ -272,16 +303,103 @@ public class ApiLensClient implements AutoCloseable {
 
   /**
    * Flushes the queues when {@code flush} is true, sends the final heartbeat ({@code
-   * final=true}) when heartbeats are running, and stops the background threads.
+   * final=true}, carrying the drop counts) when heartbeats are running, and stops the background
+   * threads. The flush takes at most {@code shutdownTimeout}: retries stop at that deadline, and
+   * whatever is still queued or unsent then is dropped and counted as {@link #DROP_SHUTDOWN}.
    */
   public void shutdown(boolean flush) {
+    removeShutdownHook();
+    long deadline = nanoClock.getAsLong() + config.shutdownTimeout().toNanos();
+    shutdownDeadline = deadline == 0 ? 1 : deadline;
+    ScheduledExecutorService service = executor;
+    executor = null;
+    if (service != null) {
+      // A flush already running on the background thread finishes (bounded by the deadline).
+      service.shutdown();
+    }
     if (flush) {
       flushAll();
     }
+    if (service != null) {
+      try {
+        if (!service.awaitTermination(Math.max(remainingNanos(), 0L), TimeUnit.NANOSECONDS)) {
+          // Past the deadline: interrupt a retry still waiting so it counts its batch.
+          service.shutdownNow();
+          service.awaitTermination(SHUTDOWN_GRACE.toMillis(), TimeUnit.MILLISECONDS);
+        }
+      } catch (InterruptedException ex) {
+        Thread.currentThread().interrupt();
+      }
+    }
+    discardQueued(DROP_SHUTDOWN);
+    logDrops(true);
     if (heartbeatExecutor != null) {
       sendHeartbeat(true);
     }
     stop();
+  }
+
+  /** Nanoseconds left before the shutdown deadline; {@link Long#MAX_VALUE} while not shutting down. */
+  private long remainingNanos() {
+    long deadline = shutdownDeadline;
+    return deadline == 0 ? Long.MAX_VALUE : deadline - nanoClock.getAsLong();
+  }
+
+  /** Drops (and counts) every queued record. */
+  private void discardQueued(String reason) {
+    synchronized (queueLock) {
+      for (RecordQueue<?> queue : queues) {
+        if (queue.size() > 0) {
+          drop(queue.key, reason, queue.size());
+          queue.items.clear();
+          queuedBytes -= queue.bytes;
+          queue.bytes = 0;
+        }
+      }
+    }
+  }
+
+  // ---- JVM shutdown hook ------------------------------------------------
+
+  /** The registered JVM shutdown hook; {@code null} when none is registered. */
+  Thread shutdownHook() {
+    return shutdownHook.get();
+  }
+
+  private void registerShutdownHook() {
+    if (!config.registerShutdownHook() || shutdownHook.get() != null) {
+      return;
+    }
+    Thread hook = new Thread(this::runShutdownHook, "apilens-shutdown");
+    if (!shutdownHook.compareAndSet(null, hook)) {
+      return;
+    }
+    try {
+      Runtime.getRuntime().addShutdownHook(hook);
+    } catch (IllegalStateException | SecurityException ex) {
+      // The JVM is already exiting, or hooks are not allowed: nothing to register.
+      shutdownHook.compareAndSet(hook, null);
+    }
+  }
+
+  private void removeShutdownHook() {
+    Thread hook = shutdownHook.getAndSet(null);
+    if (hook == null || hook == Thread.currentThread()) {
+      return;
+    }
+    try {
+      Runtime.getRuntime().removeShutdownHook(hook);
+    } catch (IllegalStateException | SecurityException ex) {
+      // The JVM is already exiting; the hook runs (or ran) and finds nothing left to do.
+    }
+  }
+
+  private void runShutdownHook() {
+    try {
+      shutdown(true);
+    } catch (RuntimeException ex) {
+      LOGGER.log(Level.WARNING, "API Lens shutdown flush failed", ex);
+    }
   }
 
   @Override
@@ -335,12 +453,16 @@ public class ApiLensClient implements AutoCloseable {
    * the constructor. Registering an app twice does nothing.
    */
   public void registerApp(String appId, String environment) {
+    heartbeatDue.putIfAbsent(appKey(appId, environment), System.nanoTime());
+  }
+
+  private AppKey appKey(String appId, String environment) {
     // "" is the project's default app (no app name configured); its heartbeats carry app_id "".
     String app = Strings.clean(appId);
     String env = Strings.isBlank(environment)
         ? config.environment()
         : environment.trim().toLowerCase(Locale.ROOT);
-    heartbeatDue.putIfAbsent(new AppKey(app, env), System.nanoTime());
+    return new AppKey(app, env);
   }
 
   /**
@@ -438,8 +560,17 @@ public class ApiLensClient implements AutoCloseable {
     synchronized (heartbeatSendLock) {
       Duration next = heartbeatInterval;
       try {
-        Object body = stripApiKeyFields(heartbeatPayload(key.appId(), key.environment(), finalBeat));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> body =
+            (Map<String, Object>) stripApiKeyFields(heartbeatPayload(key.appId(), key.environment(), finalBeat));
+        // The client's drops ride on the configured app's heartbeat only, so they count once.
+        Map<String, Map<String, Long>> dropped = key.equals(primaryApp) ? unreportedDrops() : Map.of();
+        if (!dropped.isEmpty()) {
+          body.put("dropped", dropped);
+        }
         byte[] raw = post(config.heartbeatPath(), MAPPER.writeValueAsBytes(body), false, true);
+        // Accepted: these drops are reported; newer ones wait for the next heartbeat.
+        markReported(dropped);
         applyHeartbeatResponse(raw);
         return true;
       } catch (ApiLensHttpException ex) {
@@ -491,6 +622,41 @@ public class ApiLensClient implements AutoCloseable {
       return;
     }
     LOGGER.fine("API Lens heartbeat failed: " + describe(ex));
+  }
+
+  /**
+   * Drops not yet reported in an accepted heartbeat, per signal ({@code requests}, {@code spans},
+   * {@code logs}) and reason: the heartbeat's {@code dropped} field. Truncated records were sent
+   * and are not part of it.
+   */
+  public Map<String, Map<String, Long>> unreportedDrops() {
+    Map<String, Map<String, Long>> out = new LinkedHashMap<>();
+    for (RecordQueue<?> queue : queues) {
+      Map<String, AtomicLong> reasons = unreportedDrops.get(queue.key);
+      if (reasons == null) {
+        continue;
+      }
+      Map<String, Long> counts = new LinkedHashMap<>();
+      for (String reason : DROP_REASONS) {
+        AtomicLong n = reasons.get(reason);
+        if (n != null && n.get() > 0) {
+          counts.put(reason, n.get());
+        }
+      }
+      if (!counts.isEmpty()) {
+        out.put(queue.key, counts);
+      }
+    }
+    return out;
+  }
+
+  private void markReported(Map<String, Map<String, Long>> reported) {
+    reported.forEach((signal, reasons) -> {
+      Map<String, AtomicLong> pending = unreportedDrops.get(signal);
+      if (pending != null) {
+        reasons.forEach((reason, n) -> pending.get(reason).addAndGet(-n));
+      }
+    });
   }
 
   private static Long currentPid() {
@@ -706,12 +872,12 @@ public class ApiLensClient implements AutoCloseable {
       if (size > config.maxQueueBytes()) {
         // A single record over the whole budget would evict everything and
         // still not fit: shed it instead.
-        drop(DROP_QUEUE_BYTES, 1);
+        drop(queue.key, DROP_QUEUE_BYTES, 1);
         return;
       }
       if (queue.size() >= config.maxQueueSize()) {
         pollFirst(queue);
-        drop(DROP_QUEUE_FULL, 1);
+        drop(queue.key, DROP_QUEUE_FULL, 1);
       }
       while (queuedBytes + size > config.maxQueueBytes()) {
         // Oldest from this queue first; once it is empty, from whichever
@@ -721,7 +887,7 @@ public class ApiLensClient implements AutoCloseable {
           break;
         }
         pollFirst(victim);
-        drop(DROP_QUEUE_BYTES, 1);
+        drop(victim.key, DROP_QUEUE_BYTES, 1);
       }
       queue.items.addLast(new Queued<>(record, size));
       queue.bytes += size;
@@ -748,8 +914,13 @@ public class ApiLensClient implements AutoCloseable {
         .orElse(null);
   }
 
-  private void drop(String reason, long count) {
+  private void drop(String signal, String reason, long count) {
     drops.get(reason).addAndGet(count);
+    if (!DROP_TRUNCATED.equals(reason)) {
+      unreportedDrops.computeIfAbsent(signal, s -> new ConcurrentHashMap<>())
+          .computeIfAbsent(reason, r -> new AtomicLong())
+          .addAndGet(count);
+    }
   }
 
   private void submitFlush() {
@@ -780,6 +951,10 @@ public class ApiLensClient implements AutoCloseable {
 
   private <T> int flushQueue(RecordQueue<T> queue) {
     while (true) {
+      if (remainingNanos() <= 0) {
+        // Past the shutdown deadline: shutdown() counts what is left.
+        return 0;
+      }
       List<Queued<T>> taken = take(queue, config.batchSize());
       if (taken.isEmpty()) {
         return 0;
@@ -792,7 +967,6 @@ public class ApiLensClient implements AutoCloseable {
       if (sendWithRetry(queue, batch)) {
         return batch.count;
       }
-      LOGGER.fine("API Lens ingest failed; dropped batch of " + batch.count + " " + queue.key);
       return 0;
     }
   }
@@ -846,7 +1020,7 @@ public class ApiLensClient implements AutoCloseable {
         json = MAPPER.writeValueAsBytes(wire);
       } catch (JsonProcessingException ex) {
         LOGGER.log(Level.FINE, "API Lens could not serialise a record; dropping it", ex);
-        drop(DROP_NON_RETRYABLE, 1);
+        drop(queue.key, DROP_NON_RETRYABLE, 1);
         continue;
       }
       int separator = count > 0 ? 1 : 0;
@@ -857,10 +1031,10 @@ public class ApiLensClient implements AutoCloseable {
       if (json.length > limit) {
         json = truncate(wire, limit);
         if (json == null) {
-          drop(DROP_QUEUE_BYTES, 1);
+          drop(queue.key, DROP_QUEUE_BYTES, 1);
           continue;
         }
-        drop(DROP_TRUNCATED, 1);
+        drop(queue.key, DROP_TRUNCATED, 1);
       }
       if (separator > 0) {
         body.write(',');
@@ -931,15 +1105,16 @@ public class ApiLensClient implements AutoCloseable {
       }
     }
 
+    // Retried with backoff until maxRetryDuration has passed since the first attempt (D7), or
+    // until the shutdown deadline, whichever comes first.
+    long windowEnd = nanoClock.getAsLong() + config.maxRetryDuration().toNanos();
     String reason = DROP_RETRIES_EXHAUSTED;
     Exception lastFailure = null;
-    for (int attempt = 0; attempt <= config.maxRetries(); attempt += 1) {
+    for (int attempt = 0; ; attempt += 1) {
       Duration retryAfter = null;
       try {
-        post(queue.path.get(), body, gzipped);
-        sentBatches.incrementAndGet();
-        sentRecords.addAndGet(batch.count);
-        lastSuccessAt = Instant.now();
+        byte[] answer = post(queue.path.get(), body, gzipped, true);
+        accepted(queue, batch.count, answer);
         return true;
       } catch (ApiLensHttpException ex) {
         lastFailure = ex;
@@ -956,12 +1131,27 @@ public class ApiLensClient implements AutoCloseable {
         lastFailure = ex;
         break;
       }
-      if (attempt >= config.maxRetries()) {
+      if (config.maxRetries() != ApiLensConfig.UNLIMITED_RETRIES && attempt >= config.maxRetries()) {
+        break;
+      }
+      long left = windowEnd - nanoClock.getAsLong();
+      long toDeadline = remainingNanos();
+      if (toDeadline <= left) {
+        left = toDeadline;
+        if (left <= 0) {
+          reason = DROP_SHUTDOWN;
+        }
+      }
+      if (left <= 0) {
         break;
       }
       Duration delay = retryAfter != null
           ? retryAfter
           : Delivery.backoff(attempt, config.retryBackoffBase(), config.retryBackoffMax(), random.getAsDouble());
+      if (delay.toNanos() > left) {
+        // The last attempt goes out when the window (or the shutdown deadline) ends.
+        delay = Duration.ofNanos(left);
+      }
       LOGGER.fine("API Lens ingest attempt " + (attempt + 1) + " failed (" + describe(lastFailure)
           + "); retrying in " + delay.toMillis() + "ms");
       try {
@@ -972,14 +1162,62 @@ public class ApiLensClient implements AutoCloseable {
       }
     }
 
-    drop(reason, batch.count);
+    if (!DROP_NON_RETRYABLE.equals(reason) && remainingNanos() <= 0) {
+      reason = DROP_SHUTDOWN;
+    }
+    drop(queue.key, reason, batch.count);
     failedBatches.incrementAndGet();
     lastError = describe(lastFailure);
-    if (DROP_RETRIES_EXHAUSTED.equals(reason)) {
-      LOGGER.log(Level.WARNING, "API Lens ingest failed after retries; dropping batch of "
-          + batch.count + " " + queue.key, lastFailure);
-    }
+    // Logged at WARNING by logDrops (rate-limited), not once per batch.
+    LOGGER.fine("API Lens ingest failed (" + reason + "); dropped batch of " + batch.count + " " + queue.key);
     return false;
+  }
+
+  /**
+   * A batch answered 2xx. Ingest accepts batches partially: {@code invalid} counts records it
+   * refused on their own and {@code rejected[].records} those refused because of their app; both
+   * are dropped (and counted), the rest were stored.
+   */
+  private void accepted(RecordQueue<?> queue, int count, byte[] answer) {
+    long invalid = 0;
+    long rejected = 0;
+    String detail = null;
+    if (answer != null && answer.length > 0) {
+      try {
+        JsonNode data = MAPPER.readTree(answer);
+        if (data != null && data.isObject()) {
+          invalid = Math.max(data.path("invalid").asLong(0), 0);
+          for (JsonNode app : data.path("rejected")) {
+            long n = Math.max(app.path("records").asLong(0), 0);
+            rejected += n;
+            if (detail == null && n > 0) {
+              detail = Strings.firstNonBlank(app.path("detail").asText(""), app.path("error").asText(""));
+            }
+          }
+          JsonNode first = data.path("errors").path(0);
+          if (invalid > 0 && first.isObject()) {
+            detail = "record " + first.path("index").asInt() + ": " + first.path("reason").asText("");
+          }
+        }
+      } catch (IOException ex) {
+        // Not JSON (an older ingest): the whole batch was accepted.
+      }
+    }
+    invalid = Math.min(invalid, count);
+    rejected = Math.min(rejected, count - invalid);
+    sentBatches.incrementAndGet();
+    sentRecords.addAndGet(count - invalid - rejected);
+    lastSuccessAt = Instant.now();
+    if (invalid > 0) {
+      drop(queue.key, DROP_INVALID, invalid);
+    }
+    if (rejected > 0) {
+      drop(queue.key, DROP_APP_REJECTED, rejected);
+    }
+    if (invalid + rejected > 0) {
+      lastError = "ingest refused " + (invalid + rejected) + " of " + count + " " + queue.key
+          + (Strings.isBlank(detail) ? "" : " (" + detail + ")");
+    }
   }
 
   private static String describe(Exception ex) {
@@ -1009,19 +1247,26 @@ public class ApiLensClient implements AutoCloseable {
         + " (not retried): " + (ex.body().isEmpty() ? "<empty body>" : ex.body()));
   }
 
-  /** Log new drops at INFO at most once a minute. */
   private void logDrops() {
+    logDrops(false);
+  }
+
+  /** Log new drops at WARNING, at most once a minute unless {@code force} (shutdown). */
+  private void logDrops(boolean force) {
     long dropped = droppedCount();
     long previous = lastLoggedDropped.get();
     long now = System.nanoTime();
     long lastLog = lastDropLogNanos.get();
-    if (dropped <= previous || now - lastLog < DROP_LOG_INTERVAL.toNanos()) {
+    if (dropped <= previous || (!force && now - lastLog < DROP_LOG_INTERVAL.toNanos())) {
       return;
     }
     if (lastDropLogNanos.compareAndSet(lastLog, now)) {
       lastLoggedDropped.set(dropped);
-      LOGGER.info("API Lens dropped " + (dropped - previous) + " records (total " + dropped + "): "
-          + dropCounts());
+      Map<String, Long> counts = new LinkedHashMap<>(dropCounts());
+      counts.values().removeIf(n -> n == 0);
+      String error = lastError;
+      LOGGER.warning("API Lens dropped " + (dropped - previous) + " records (total " + dropped + "): "
+          + counts + (Strings.isBlank(error) ? "" : "; last error: " + error));
     }
   }
 
@@ -1033,8 +1278,14 @@ public class ApiLensClient implements AutoCloseable {
   private byte[] post(String path, byte[] body, boolean gzipped, boolean readResponse)
       throws IOException, InterruptedException {
     URI endpoint = resolveEndpoint(path);
+    Duration timeout = config.timeout();
+    long left = remainingNanos();
+    if (left < timeout.toNanos()) {
+      // Shutting down: no request outlives the shutdown deadline.
+      timeout = Duration.ofNanos(Math.max(left, 1_000_000L));
+    }
     HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint)
-        .timeout(config.timeout())
+        .timeout(timeout)
         .header("Content-Type", "application/json")
         .header("X-API-Key", config.apiKey())
         .header("User-Agent", config.userAgent());
