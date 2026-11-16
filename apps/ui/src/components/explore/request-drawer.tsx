@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Fragment, type KeyboardEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { consumerOf, formatBytes, isSampledOut, latencyTone, statusClass } from "@/lib/explore";
 import { shownPath } from "@/lib/first-data";
 import type { RequestDetail, RequestDetailRead, RequestRow, TraceLog, TraceSpan } from "@/lib/identity";
@@ -29,7 +29,7 @@ import {
   spanName,
   waterfall,
 } from "@/lib/request-detail";
-import { type ExceptionBlock, type StackFrame, exceptionLog, frameLocation, parseException } from "@/lib/stack-trace";
+import { EXCEPTION_LOGGER, type ExceptionBlock, type StackFrame, exceptionLog, frameLocation, parseException } from "@/lib/stack-trace";
 import { formatLatency } from "@/lib/traffic";
 import { ObIcon } from "../onboarding/ob";
 
@@ -54,6 +54,8 @@ export function RequestDrawer({ project, row, onClose }: { project: string; row:
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [tab, setTab] = useState<DrawerTab>("overview");
+  /** Set when a log's link opened the Trace tab, so its Exception section takes focus. */
+  const [focusException, setFocusException] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const titleId = useId();
   const tabsId = useId();
@@ -99,6 +101,7 @@ export function RequestDrawer({ project, row, onClose }: { project: string; row:
     if (next === null) return;
     e.preventDefault();
     setTab(next);
+    setFocusException(false);
     document.getElementById(`${tabsId}-${next}-tab`)?.focus();
   };
 
@@ -153,7 +156,10 @@ export function RequestDrawer({ project, row, onClose }: { project: string; row:
               aria-controls={`${tabsId}-panel`}
               aria-selected={tab === t.slug}
               tabIndex={tab === t.slug ? 0 : -1}
-              onClick={() => setTab(t.slug)}
+              onClick={() => {
+                setTab(t.slug);
+                setFocusException(false);
+              }}
             >
               {t.label}
               {counts[t.slug] ? <span className="rd-count">{counts[t.slug]}</span> : null}
@@ -178,7 +184,15 @@ export function RequestDrawer({ project, row, onClose }: { project: string; row:
               </button>
             </Notice>
           ) : (
-            <Panel tab={tab} data={load.data} />
+            <Panel
+              tab={tab}
+              data={load.data}
+              focusException={focusException}
+              onShowException={() => {
+                setTab("trace");
+                setFocusException(true);
+              }}
+            />
           )}
         </div>
       </div>
@@ -197,7 +211,17 @@ function Notice({ children, error = false }: { children: ReactNode; error?: bool
 
 const SAMPLED_OUT = "Sampled out: the SDK kept a base record of this request without headers or bodies.";
 
-function Panel({ tab, data }: { tab: DrawerTab; data: RequestDetailRead }) {
+function Panel({
+  tab,
+  data,
+  focusException,
+  onShowException,
+}: {
+  tab: DrawerTab;
+  data: RequestDetailRead;
+  focusException: boolean;
+  onShowException: () => void;
+}) {
   const r = data.request;
   switch (tab) {
     case "overview":
@@ -218,9 +242,9 @@ function Panel({ tab, data }: { tab: DrawerTab; data: RequestDetailRead }) {
     case "validation":
       return <ValidationTable errors={r.validation_errors ?? []} />;
     case "trace":
-      return <TraceView spans={data.spans ?? []} logs={data.logs ?? []} at={r.timestamp} traced={Boolean(r.trace_id)} />;
+      return <TraceView spans={data.spans ?? []} logs={data.logs ?? []} at={r.timestamp} traced={Boolean(r.trace_id)} focusException={focusException} />;
     case "logs":
-      return <Logs logs={data.logs ?? []} spans={data.spans ?? []} at={r.timestamp} traced={Boolean(r.trace_id)} />;
+      return <Logs logs={data.logs ?? []} spans={data.spans ?? []} at={r.timestamp} traced={Boolean(r.trace_id)} onShowException={onShowException} />;
   }
 }
 
@@ -487,7 +511,19 @@ function ValidationTable({ errors }: { errors: { loc: string; msg: string; type:
  * log, then the waterfall. A span opens its detail below the waterfall: status, attributes and
  * events, an `exception` event rendered like the exception above.
  */
-function TraceView({ spans, logs, at, traced }: { spans: TraceSpan[]; logs: TraceLog[]; at: string; traced: boolean }) {
+function TraceView({
+  spans,
+  logs,
+  at,
+  traced,
+  focusException = false,
+}: {
+  spans: TraceSpan[];
+  logs: TraceLog[];
+  at: string;
+  traced: boolean;
+  focusException?: boolean;
+}) {
   const exc = useMemo(() => exceptionLog(logs), [logs]);
   return (
     <>
@@ -497,6 +533,7 @@ function TraceView({ spans, logs, at, traced }: { spans: TraceSpan[]; logs: Trac
           payload={exc.payload || exc.message}
           type={exc.attributes?.["exception.type"]}
           message={exc.attributes?.["exception.message"]}
+          autoFocus={focusException}
         />
       ) : null}
       <Waterfall spans={spans} at={at} traced={traced} />
@@ -509,7 +546,27 @@ function TraceView({ spans, logs, at, traced }: { spans: TraceSpan[]; logs: Trac
  * frames (the raised one open), the app's own frames emphasised. A payload that parses as no
  * known stack shows as raw text. Copy copies the payload exactly as stored.
  */
-function ExceptionView({ label, payload, type, message }: { label: string; payload: string; type?: string; message?: string }) {
+function ExceptionView({
+  label,
+  payload,
+  type,
+  message,
+  autoFocus = false,
+}: {
+  label: string;
+  payload: string;
+  type?: string;
+  message?: string;
+  /** Focus the section when it mounts: a log's "View the exception" link opened it. */
+  autoFocus?: boolean;
+}) {
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!autoFocus) return;
+    const el = sectionRef.current;
+    el?.focus({ preventScroll: true });
+    el?.scrollIntoView({ block: "start" });
+  }, [autoFocus]);
   const parsed = useMemo(() => parseException(payload), [payload]);
   const [copied, setCopied] = useState<string | null>(null);
   const head = parsed.blocks[0];
@@ -524,7 +581,7 @@ function ExceptionView({ label, payload, type, message }: { label: string; paylo
     }
   };
   return (
-    <section className="rd-section rd-exc" aria-label={label}>
+    <section ref={sectionRef} className="rd-section rd-exc" aria-label={label} tabIndex={autoFocus ? -1 : undefined}>
       <div className="rd-exc__bar">
         <h3 className="rd-h">{label}</h3>
         <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={copy} disabled={!payload} aria-disabled={!payload || undefined}>
@@ -709,13 +766,39 @@ function AttrTable({ attrs, label }: { attrs: [string, string][]; label: string 
 
 // ---------------------------------------------------------------- logs
 
-function Logs({ logs, spans, at, traced }: { logs: TraceLog[]; spans: TraceSpan[]; at: string; traced: boolean }) {
+/**
+ * The Logs tab (#925): one row per log, oldest first. A row expands to the log's payload
+ * (monospace, scrollable, copied exactly as stored) and its attributes; the `apilens.exception`
+ * log links to the Exception section of the Trace tab.
+ */
+function Logs({
+  logs,
+  spans,
+  at,
+  traced,
+  onShowException,
+}: {
+  logs: TraceLog[];
+  spans: TraceSpan[];
+  at: string;
+  traced: boolean;
+  onShowException: () => void;
+}) {
+  const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set());
+  const baseId = useId();
   if (!logs.length) {
     return <p className="rd-empty">{traced ? "No logs were reported for this request’s trace." : "This request has no trace id, so no logs are linked to it."}</p>;
   }
+  const toggle = (i: number) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
   return (
     <table className="rd-table rd-table--logs">
-      <caption className="rd-cap">Logs of this request’s trace, oldest first. Times are from the start of the request.</caption>
+      <caption className="rd-cap">Logs of this request’s trace, oldest first. Times are from the start of the request. Select a log to see its payload and attributes.</caption>
       <thead>
         <tr>
           <th scope="col">Time</th>
@@ -726,26 +809,90 @@ function Logs({ logs, spans, at, traced }: { logs: TraceLog[]; spans: TraceSpan[
       <tbody>
         {logs.map((l, i) => {
           const span = spanName(spans, l);
+          const on = open.has(i);
+          const detailId = `${baseId}-log-${i}`;
           return (
-            <tr key={`${l.timestamp}#${i}`}>
-              <td className="rd-num">
-                <time dateTime={l.timestamp} title={formatExact(l.timestamp)}>
-                  {offsetMs(l.timestamp, at)}
-                </time>
-              </td>
-              <td>
-                <span className={`rd-level rd-level--${levelTone(l.level)}`}>{l.level || "log"}</span>
-              </td>
-              <td>
-                <span className="rd-logmsg">
-                  <Marked text={l.message} />
-                </span>
-                {span ? <span className="rd-logspan">in {span}</span> : null}
-              </td>
-            </tr>
+            <Fragment key={`${l.timestamp}#${i}`}>
+              <tr className={on ? "is-open" : undefined}>
+                <td className="rd-num">
+                  <time dateTime={l.timestamp} title={formatExact(l.timestamp)}>
+                    {offsetMs(l.timestamp, at)}
+                  </time>
+                </td>
+                <td>
+                  <span className={`rd-level rd-level--${levelTone(l.level)}`}>{l.level || "log"}</span>
+                </td>
+                <td>
+                  <button type="button" className="rd-logbtn" aria-expanded={on} aria-controls={on ? detailId : undefined} onClick={() => toggle(i)}>
+                    <svg className="rd-logbtn__chev" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M6 4l4 4-4 4" />
+                    </svg>
+                    <span className="rd-logbtn__text">
+                      <span className="rd-logmsg">
+                        <Marked text={l.message} />
+                      </span>
+                      {span ? <span className="rd-logspan">in {span}</span> : null}
+                    </span>
+                  </button>
+                </td>
+              </tr>
+              {on ? (
+                <tr className="rd-logrow">
+                  <td colSpan={3} id={detailId}>
+                    <LogDetail log={l} onShowException={onShowException} />
+                  </td>
+                </tr>
+              ) : null}
+            </Fragment>
           );
         })}
       </tbody>
     </table>
+  );
+}
+
+function LogDetail({ log: l, onShowException }: { log: TraceLog; onShowException: () => void }) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const attrs = Object.entries(l.attributes ?? {});
+  const payload = l.payload ?? "";
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(payload);
+      setCopied("Copied the payload.");
+    } catch {
+      setCopied("Couldn’t copy. Your browser blocked the clipboard.");
+    }
+  };
+  return (
+    <div className="rd-logdetail">
+      {l.logger_name === EXCEPTION_LOGGER ? (
+        <p className="rd-logdetail__exc">
+          This log is the request’s exception.{" "}
+          <button type="button" className="rd-linkbtn" onClick={onShowException}>
+            View the exception
+          </button>
+        </p>
+      ) : null}
+      <div className="rd-exc__bar">
+        <h3 className="rd-h rd-h--sub">Payload</h3>
+        {payload ? (
+          <button type="button" className="ah-btn ah-btn--ghost ah-btn--sm" onClick={copy}>
+            Copy payload
+          </button>
+        ) : null}
+      </div>
+      <p className="rd-copied rd-logdetail__copied" role="status">
+        {copied}
+      </p>
+      {payload ? (
+        <pre className="rd-pre rd-logdetail__payload" tabIndex={0} aria-label="Log payload">
+          <Marked text={payload} />
+        </pre>
+      ) : (
+        <p className="rd-empty">No payload was reported for this log.</p>
+      )}
+      <h3 className="rd-h rd-h--sub">Attributes</h3>
+      {attrs.length ? <AttrTable attrs={attrs} label="Log attributes" /> : <p className="rd-empty">No attributes were reported for this log.</p>}
+    </div>
   );
 }
