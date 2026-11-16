@@ -3,7 +3,7 @@ import "./node.js";
 import type { NextFunction, Request, Response } from "express";
 
 import type { ApiLensClient } from "./client.js";
-import { CaptureCore, recordRequestError, requestError } from "./capture.js";
+import { CaptureCore, keepFirstRequestError, requestError } from "./capture.js";
 import { buildExpressMetadata, type FrameworkInfo } from "./metadata.js";
 import { expressRouteTemplate } from "./routes.js";
 import type { ApiLensConsumer, ApiLensExpressConfig } from "./types.js";
@@ -48,8 +48,48 @@ type ExpressAppLike = {
 
 /** Records the error and passes it on unchanged. Arity 4 marks it as error middleware. */
 function apilensErrorRecorder(err: unknown, req: Request, _res: Response, next: NextFunction): void {
-  recordRequestError(req, err);
+  keepFirstRequestError(req, err);
   next(err);
+}
+
+const PATCHED = Symbol.for("apilens.express.layerErrorPatched");
+
+/**
+ * Keep a request's error at the earliest error middleware position. Express
+ * hands a pending error to each layer after the one that raised it
+ * (`Layer#handleError` on Express 5, `Layer#handle_error` on Express 4), in
+ * the app, every sub-router and every route. Wrapping that method on the
+ * shared Layer prototype keeps the error before any error middleware runs,
+ * so a handler that answers the request itself (one inside a sub-router, or
+ * one that swaps the error for another) does not hide the raised error.
+ * Never throws: the app-level recorder below still runs without it.
+ */
+function patchLayerErrorHandling(stack: unknown): void {
+  try {
+    const layer: unknown = Array.isArray(stack) ? stack[0] : undefined;
+    if (!layer || typeof layer !== "object") {
+      return;
+    }
+    const proto = Object.getPrototypeOf(layer) as Record<string | symbol, unknown> | null;
+    if (!proto || proto[PATCHED]) {
+      return;
+    }
+    proto[PATCHED] = true;
+    for (const name of ["handleError", "handle_error"]) {
+      const original = proto[name];
+      if (typeof original !== "function") {
+        continue;
+      }
+      proto[name] = function (this: unknown, error: unknown, req: unknown, ...rest: unknown[]) {
+        if (req && typeof req === "object" && error !== "route" && error !== "router") {
+          keepFirstRequestError(req, error);
+        }
+        return original.call(this, error, req, ...rest);
+      };
+    }
+  } catch {
+    // Leave error capture to the app-level recorder.
+  }
 }
 
 /**
@@ -75,6 +115,7 @@ function installErrorRecorder(app: unknown, middleware: unknown): void {
       router = target.router;
     }
     const stack = router?.stack;
+    patchLayerErrorHandling(stack);
     if (!Array.isArray(stack) || stack.length === 0) {
       return;
     }

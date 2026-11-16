@@ -9,6 +9,12 @@
   `--unhandled-rejections` mode is honoured and an app listener stays in
   charge. New `captureException(err, { level })` ships an error the app
   caught, tied to the current request's trace.
+- Errors handled by the app's own error handlers still ship their stack: an
+  Express error middleware (in the app or a sub-router, also one that swaps
+  the error), a Fastify `setErrorHandler`, a NestJS exception filter (errors
+  from handlers, guards, pipes and Nest middleware), a Koa try/catch error
+  middleware and Hono `onError`. The error closest to where it was raised is
+  the one reported, once per request.
 - Full exception payload: the exception log renders `name: message`, the
   stack, every `Caused by:` from `error.cause` (depth 10, cycle-safe) and
   every `AggregateError` member; a non-`Error` throw sends `String(value)`

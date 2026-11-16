@@ -123,9 +123,16 @@ export function requestBodyBytes(body: unknown, contentType: string, maxBytes: n
 /** The error that reached an adapter's error hook, by (raw Node) request. */
 const requestErrors = new WeakMap<object, unknown>();
 
-/** Remember `err` as the error of `req`, for the request's error log. */
-export function recordRequestError(req: object, err: unknown): void {
-  requestErrors.set(req, err);
+/**
+ * Remember `err` as the error of `req`, for the request's error log, unless
+ * one is already kept: the first hook to see an error (the one closest to
+ * where it was raised) wins over a user error handler that later swaps it
+ * for another, and a request reports at most one error.
+ */
+export function keepFirstRequestError(req: object, err: unknown): void {
+  if (err !== undefined && err !== null && !requestErrors.has(req)) {
+    requestErrors.set(req, err);
+  }
 }
 
 /** The error recorded for `req`, if any. */
