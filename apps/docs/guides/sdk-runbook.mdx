@@ -209,8 +209,9 @@ API Lens ingest rejected a batch of <n> records with status <status> (not retrie
 | `app "<name>" was not created: <n> new apps were already created … in the last hour` (`app_rate_limit`) | `ingest.max_new_apps_per_hour` reached, usually an app name that changes per process. | Use a stable app name (`APILENS_APP_ID`); it clears after the hour. |
 | `project_slug must match the API key project '<slug>'` | `project_slug` names another project. | Drop `project_slug`; the key identifies the project. |
 | `at most 1000 records per request (got <n>)` | `batch_size` above what ingest accepts. | Set `batch_size` to 1,000 or less. |
-| `requests[<i>].timestamp is missing or out of range` | The host clock is far off. | Fix NTP on the host. |
 | `heartbeat must not contain an api_key field` | A custom heartbeat or metadata payload carries a key. | Remove it; the SDKs strip such fields themselves. |
+
+A single bad record (a timestamp out of range, a span without W3C ids, a field of the wrong type) does not refuse the batch: the other records are stored, the answer is `200` with `invalid` (how many records were refused) and `errors` (up to 20 `{index, reason}` entries, `index` being the record's position in the batch), and **Ingest health** counts them as rejected with reason `invalid`. A `reason` of `requests[<i>].timestamp is missing or out of range` means the host clock is far off: fix NTP on the host. Only a body that is not JSON of the expected shape is refused as a whole, with `400` `invalid_body`.
 
 ### 403 and 409 for an app
 

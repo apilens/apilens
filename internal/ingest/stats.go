@@ -19,7 +19,7 @@ import (
 //
 //   - accepted:  records stored (apilens_ingest_records_total{result="accepted"})
 //   - rejected:  records refused by the project quota or dropped as invalid
-//     from an OTLP export (apilens_ingest_records_total{result="rejected"})
+//     from a batch or an OTLP export (apilens_ingest_records_total{result="rejected"})
 //   - truncated: request record fields cut to the server-side cap
 //     (apilens_ingest_truncated_total)
 //   - masked:    records in which the server-side privacy policy masked at
@@ -163,6 +163,11 @@ func (e *Edge) flushStats(ctx context.Context, t tally) {
 // attributes them to their apps on a best-effort basis: an identifier that
 // does not resolve is counted in Prometheus only.
 func (e *Edge) rejectRecords(ctx context.Context, projectID uuid.UUID, signal string, idents []string, t tally) {
+	e.rejectRecordsFor(ctx, projectID, signal, idents, t.call().reason, t)
+}
+
+// rejectRecordsFor is rejectRecords with an explicit health reason.
+func (e *Edge) rejectRecordsFor(ctx context.Context, projectID uuid.UUID, signal string, idents []string, reason string, t tally) {
 	e.records.WithLabelValues(signal, "rejected").Add(float64(len(idents)))
 	distinct := map[string]bool{}
 	var lookup []string
@@ -181,7 +186,6 @@ func (e *Edge) rejectRecords(ctx context.Context, projectID uuid.UUID, signal st
 	if err != nil {
 		return
 	}
-	reason := t.call().reason
 	for _, id := range idents {
 		if appID, ok := res.Apps[id]; ok {
 			t.reject(appID, reason, 1)

@@ -222,16 +222,17 @@ func TestLegacyErrors(t *testing.T) {
 		"deleted proj":   {path: "/v1/requests", body: validRequest, verifier: fakeVerifier{err: apikeys.ErrProjectDeleted}, code: 403, contains: "project_deleted"},
 		"slug mismatch":  {path: "/v1/requests", body: strings.Replace(validRequest, `"shop"`, `"other"`, 1), code: 422, contains: "project_slug"},
 		"unknown app":    {path: "/v1/requests", body: strings.Replace(validRequest, `"storefront"`, `"ghost"`, 1), code: 403, contains: "cannot create apps"},
-		"bad timestamp":  {path: "/v1/requests", body: strings.Replace(validRequest, "2026-10-22T11:59:00.123456+00:00", "yesterday", 1), code: 422},
-		"future ts":      {path: "/v1/requests", body: strings.Replace(validRequest, "2026-10-22T11:59", "2027-10-22T11:59", 1), code: 422},
+		"bad timestamp":  {path: "/v1/requests", body: strings.Replace(validRequest, "2026-10-22T11:59:00.123456+00:00", "yesterday", 1), code: 200, contains: `"accepted":0,"invalid":1`},
+		"future ts":      {path: "/v1/requests", body: strings.Replace(validRequest, "2026-10-22T11:59", "2027-10-22T11:59", 1), code: 200, contains: "out of range"},
 		"empty batch":    {path: "/v1/requests", body: `{"requests":[]}`, code: 422},
-		"invalid json":   {path: "/v1/requests", body: `{"requests":`, code: 422},
+		"invalid json":   {path: "/v1/requests", body: `{"requests":`, code: 400, contains: "invalid_body"},
+		"not an array":   {path: "/v1/requests", body: `{"requests":{}}`, code: 400},
 		"wrong type":     {path: "/v1/requests", body: validRequest, headers: map[string]string{"Content-Type": "text/plain"}, code: 415},
 		"bad encoding":   {path: "/v1/requests", body: validRequest, headers: map[string]string{"Content-Encoding": "br"}, code: 415},
 		"overloaded":     {path: "/v1/requests", body: validRequest, sinkErr: pipeline.ErrOverloaded, code: 503, contains: "overloaded"},
 		"insert failure": {path: "/v1/requests", body: validRequest, sinkErr: errors.New("clickhouse down"), code: 503},
-		"span bad ids":   {path: "/v1/traces", body: `{"spans":[{"app_id":"storefront","timestamp":"2026-10-22T11:00:00Z","trace_id":"xyz","span_id":"00f067aa0ba902b7"}]}`, code: 422},
-		"deploy no rel":  {path: "/v1/deploys", body: `{"deploys":[{"release":""}]}`, code: 422},
+		"span bad ids":   {path: "/v1/traces", body: `{"spans":[{"app_id":"storefront","timestamp":"2026-10-22T11:00:00Z","trace_id":"xyz","span_id":"00f067aa0ba902b7"}]}`, code: 200, contains: "W3C hex ids"},
+		"deploy no rel":  {path: "/v1/deploys", body: `{"deploys":[{"release":""}]}`, code: 200, contains: "release is required"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
