@@ -28,11 +28,13 @@ function points() {
   });
 }
 
-async function createRule(page: Page, name: string, metric: string, threshold: string) {
+async function createRule(page: Page, name: string, metric: string, threshold: string, condition?: string) {
   await page.goto("/shop/incidents/rules/new");
   const form = page.getByRole("form", { name: "New alert rule" });
   await form.getByLabel("Name").fill(name);
   await form.getByLabel("Metric").selectOption({ label: metric });
+  // Picking a metric brings its default condition (#982): Requests start at "is below".
+  if (condition) await form.getByLabel("When it").selectOption({ label: condition });
   await form.getByLabel("Threshold").fill(threshold);
   await form.getByRole("button", { name: "Create rule" }).click();
   await page.waitForURL("**/shop/incidents/rules");
@@ -51,13 +53,13 @@ const CASES = [
   { metric: "Errors (4xx + 5xx)", threshold: "5", heading: "Errors (4xx + 5xx) over the last 6 hours", read: "Errors (4xx + 5xx) per 5 min: 10, Threshold: > 5" },
   { metric: "Error rate (4xx + 5xx)", threshold: "5", heading: "Error rate (4xx + 5xx) over the last 6 hours", read: "Error rate (4xx + 5xx): 50.0%, Threshold: > 5.0%" },
   { metric: "p95 response time", threshold: "500", heading: "p95 response time over the last 6 hours", read: "p95 response time: 900 ms, Threshold: > 500 ms" },
-  { metric: "Requests", threshold: "15", heading: "Requests over the last 6 hours", read: "Requests per 5 min: 20, Threshold: > 15" },
+  { metric: "Requests", condition: "is above", threshold: "15", heading: "Requests over the last 6 hours", read: "Requests per 5 min: 20, Threshold: > 15" },
 ];
 
 for (const c of CASES) {
   test(`charts ${c.metric} against its threshold with the incident shaded`, async ({ page }) => {
     await signIn(page, "/shop/incidents/rules/new");
-    await createRule(page, `${c.metric} rule`, c.metric, c.threshold);
+    await createRule(page, `${c.metric} rule`, c.metric, c.threshold, "condition" in c ? c.condition : undefined);
     await post("/__fake/alerts", { trigger: { rule: `${c.metric} rule`, value: 1, minutes_ago: 50 } });
     await page.goto("/shop/incidents");
     await page.getByRole("link", { name: `${c.metric} rule` }).click();

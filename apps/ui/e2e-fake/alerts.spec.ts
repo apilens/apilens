@@ -74,6 +74,9 @@ test("create a channel and a rule, then see its incident open and resolve", asyn
   await page.getByRole("link", { name: "New rule" }).click();
   await page.waitForURL("**/shop/incidents/rules/new");
   const form = page.getByRole("form", { name: "New alert rule" });
+  // The name follows the rule's summary (#982) until it is typed; cleared, it is required.
+  await expect(form.getByLabel("Name")).toHaveValue("Error rate (4xx + 5xx) > 5.0% over 5 min");
+  await form.getByLabel("Name").fill("");
   await form.getByRole("button", { name: "Create rule" }).click();
   await expect(form.getByText("Use a name of 1 to 128 characters.")).toBeVisible();
   await form.getByLabel("Name").fill("Checkout error rate");
@@ -366,4 +369,74 @@ test("says nobody is notified while the project has no channel, and links to add
   await page.goto("/shop/incidents");
   await expect(page.getByRole("table", { name: "Open incidents" })).toBeVisible();
   await expect(page.getByText("Nobody is notified")).toHaveCount(0);
+});
+
+// #982: the editor previews the threshold against the app's last 24 hours.
+async function seedApps(apps: Record<string, unknown>[]) {
+  const res = await fetch(`${IDENTITY}/__fake/apps`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apps }) });
+  expect(res.status).toBe(204);
+}
+
+/** 48 half-hour buckets of 100 requests and 1 error, with two error spikes (the first two buckets long). */
+function spikyPoints() {
+  const start = Date.parse("2026-11-15T00:00:00Z");
+  return Array.from({ length: 48 }, (_, i) => {
+    const spike = i === 10 || i === 11 || i === 30;
+    return { ts: new Date(start + i * 1800_000).toISOString(), requests: 100, client_errors: spike ? 10 : 1, server_errors: spike ? 10 : 0, p95_ms: spike ? 1500 : 300 };
+  });
+}
+
+test("the rule editor previews the threshold against the last 24 hours and counts breaches", async ({ page }) => {
+  await seedApps([{ id: "app-preview", slug: "shop", name: "Shop", traffic: { points: spikyPoints() } }]);
+  try {
+    await signIn(page, "/shop/incidents/rules/new");
+    const form = page.getByRole("form", { name: "New alert rule" });
+    const preview = form.getByRole("region", { name: "Preview" });
+    // Error rate > 5%: two spikes.
+    await expect(preview.getByRole("status")).toHaveText("Would have breached 2 times in the last 24 hours.");
+    await expect(preview.getByRole("img")).toHaveAttribute("aria-label", /breaching at > 5\.0%/);
+    await expect(preview.locator("svg rect.al-c-open")).toHaveCount(3);
+    await expect(preview.locator("svg line.al-threshold")).toHaveCount(1);
+    // Typing the threshold recounts in place.
+    await form.getByLabel("Threshold").fill("50");
+    await expect(preview.getByRole("status")).toHaveText("Would not have breached in the last 24 hours.");
+    await expect(preview.locator("svg rect.al-c-open")).toHaveCount(0);
+    await form.getByLabel("Threshold").fill("10");
+    await expect(preview.getByRole("status")).toHaveText("Would have breached 2 times in the last 24 hours.");
+    const a11y = await new AxeBuilder({ page }).include(".al").analyze();
+    expect(a11y.violations).toEqual([]);
+  } finally {
+    await seedApps([]);
+  }
+});
+
+test("picking a metric brings its default threshold until one is typed, and the name follows", async ({ page }) => {
+  await signIn(page, "/shop/incidents/rules/new");
+  const form = page.getByRole("form", { name: "New alert rule" });
+  const metric = form.getByLabel("Metric");
+  await metric.selectOption({ label: "p95 response time" });
+  await expect(form.getByLabel("Threshold")).toHaveValue("1000");
+  await expect(form.getByLabel("When it")).toHaveValue("gt");
+  await expect(form.getByLabel("Name")).toHaveValue("p95 response time > 1 s over 5 min");
+  await metric.selectOption({ label: "Apdex" });
+  await expect(form.getByLabel("Threshold")).toHaveValue("0.85");
+  await expect(form.getByLabel("When it")).toHaveValue("lt");
+  await expect(form.getByRole("region", { name: "Preview" })).toContainText("No preview for Apdex yet");
+  // Typed: the next metric keeps it; a typed name stays.
+  await form.getByLabel("Threshold").fill("0.7");
+  await metric.selectOption({ label: "Server error rate (5xx)" });
+  await expect(form.getByLabel("Threshold")).toHaveValue("0.7");
+  await form.getByLabel("Name").fill("Checkout 5xx");
+  await form.getByLabel("Threshold").fill("2");
+  await expect(form.getByLabel("Name")).toHaveValue("Checkout 5xx");
+});
+
+test("an environment no traffic was seen from warns without blocking", async ({ page }) => {
+  await signIn(page, "/shop/incidents/rules/new");
+  const form = page.getByRole("form", { name: "New alert rule" });
+  await form.getByLabel("Environment").fill("prodution");
+  await expect(form.getByText("No traffic seen from prodution; did you mean production?")).toBeVisible();
+  await expect(form.getByLabel("Environment")).not.toHaveAttribute("aria-invalid", "true");
+  await form.getByLabel("Environment").fill("production");
+  await expect(form.getByText(/No traffic seen from/)).toHaveCount(0);
 });
