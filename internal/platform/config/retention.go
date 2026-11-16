@@ -26,8 +26,8 @@ type RetentionBound struct {
 // the schema was created with) and their allowed ranges.
 var RetentionBounds = []RetentionBound{
 	{Key: "requests", Default: 90, Min: 1, Max: 3650},
-	{Key: "logs", Default: 30, Min: 1, Max: 3650},
-	{Key: "spans", Default: 30, Min: 1, Max: 3650},
+	{Key: "logs", Default: 90, Min: 1, Max: 3650},
+	{Key: "spans", Default: 90, Min: 1, Max: 3650},
 	{Key: "rollups_1m", Default: 30, Min: 1, Max: 400},
 	{Key: "rollups_1h", Default: 400, Min: 30, Max: 3650},
 }

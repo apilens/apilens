@@ -124,7 +124,7 @@ func TestRetention(t *testing.T) {
 	}
 
 	// Defaults: the periods the schema was created with.
-	want := map[string]int{"requests": 90, "logs": 30, "spans": 30, "rollups_1m": 30, "rollups_1h": 400, "deploys": 400}
+	want := map[string]int{"requests": 90, "logs": 90, "spans": 90, "rollups_1m": 30, "rollups_1h": 400, "deploys": 400}
 	if got := periods(); !maps.Equal(got, want) {
 		t.Fatalf("default retention = %v, want %v", got, want)
 	}
@@ -142,7 +142,7 @@ func TestRetention(t *testing.T) {
 	// changes nothing (not even the lengthening in the same run).
 	shorten := []string{"APILENS_RETENTION__REQUESTS=120", "APILENS_RETENTION__ROLLUPS_1H=730", "APILENS_RETENTION__LOGS=7", "APILENS_RETENTION__SPANS=60"}
 	code, out := migrate(shorten)
-	if code == 0 || !strings.Contains(out, "retention.logs 30 -> 7 days (table api_logs)") || !strings.Contains(out, "-confirm-retention-change") {
+	if code == 0 || !strings.Contains(out, "retention.logs 90 -> 7 days (table api_logs)") || !strings.Contains(out, "-confirm-retention-change") {
 		t.Fatalf("shorten without flag: exit %d: %s", code, out)
 	}
 	if got := periods(); !maps.Equal(got, want) {

@@ -8,8 +8,8 @@ import type { RetentionSignal, RetentionSignalKey } from "./identity";
 /** The signals an install may change, with the default and the allowed range in days. */
 export const RETENTION_LIMITS: Partial<Record<RetentionSignalKey, { default: number; min: number; max: number }>> = {
   requests: { default: 90, min: 1, max: 3650 },
-  logs: { default: 30, min: 1, max: 3650 },
-  spans: { default: 30, min: 1, max: 3650 },
+  logs: { default: 90, min: 1, max: 3650 },
+  spans: { default: 90, min: 1, max: 3650 },
   rollups_1m: { default: 30, min: 1, max: 400 },
   rollups_1h: { default: 400, min: 30, max: 3650 },
 };

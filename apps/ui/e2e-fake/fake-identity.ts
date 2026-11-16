@@ -3835,8 +3835,8 @@ function measuredDeletedProjects(): Record<string, unknown>[] {
 function measuredRetention(): Record<string, unknown>[] {
   return [
     { key: "requests", label: "Requests", period_days: 90, configurable: true, covers: "Individual requests: the request log, request detail with headers and bodies, consumers and exports." },
-    { key: "logs", label: "Logs", period_days: 30, configurable: true, covers: "Application log records sent by the SDK, shown with a request's trace." },
-    { key: "spans", label: "Spans", period_days: 30, configurable: true, covers: "Trace spans: the waterfall in request detail." },
+    { key: "logs", label: "Logs", period_days: 90, configurable: true, covers: "Application log records sent by the SDK, shown with a request's trace." },
+    { key: "spans", label: "Spans", period_days: 90, configurable: true, covers: "Trace spans: the waterfall in request detail." },
     { key: "rollups_1m", label: "Per-minute metrics", period_days: 30, configurable: true, covers: "Per-minute traffic, error and latency aggregates behind short-range charts." },
     { key: "rollups_1h", label: "Hourly metrics", period_days: 400, configurable: true, covers: "Hourly traffic, error and latency aggregates behind long-range charts." },
     { key: "deploys", label: "Deploys", period_days: 400, configurable: false, covers: "Deploy markers on charts and the deploy comparison." },

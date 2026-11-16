@@ -72,7 +72,7 @@ test("shows the install defaults", async ({ page }) => {
   await signIn(page, RETENTION, ["project.read", "project.update", "project.delete"]);
   const table = card(page, "Retention periods").getByRole("table");
   await expect(table.getByRole("rowheader").locator(".rt-label")).toHaveText(["Requests", "Logs", "Spans", "Per-minute metrics", "Hourly metrics", "Deploys"]);
-  await expect(table.locator(".rt-period")).toHaveText(["90 days", "30 days", "30 days", "30 days", "400 days", "400 daysFixed"]);
+  await expect(table.locator(".rt-period")).toHaveText(["90 days", "90 days", "90 days", "30 days", "400 days", "400 daysFixed"]);
 });
 
 test("says so when the install reports no periods", async ({ page }) => {
