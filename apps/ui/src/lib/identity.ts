@@ -1253,6 +1253,22 @@ export interface TrafficSummary {
   current_per_minute?: number;
   /** Apdex from 0 to 1 against each endpoint's latency threshold (else its app's, else 500 ms); null without requests. */
   apdex?: number | null;
+  /** The same totals over the window just before the range (#1000); absent when it had no requests. */
+  previous?: TrafficSummaryTotals;
+}
+
+/** `GET /traffic/summary` → previous: the totals of the window before the range. */
+export interface TrafficSummaryTotals {
+  from: string;
+  to: string;
+  requests: number;
+  client_errors: number;
+  server_errors: number;
+  error_rate: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  apdex: number | null;
 }
 
 /** One row of `GET /traffic/endpoints`: one per app, method and path (#974). */
@@ -2407,6 +2423,8 @@ export interface ErrorStatuses {
   to: string;
   bucket_seconds: number;
   summary: ErrorSplit;
+  /** Requests and errors of the window just before the range (#1000); absent when it had no requests. */
+  previous?: ErrorSplit;
   points: (ErrorSplit & { ts: string })[] | null;
   /** Occurrences of each error status code per bucket, aligned with points, in statuses order. */
   series: { status_code: number; counts: number[] | null }[] | null;
@@ -2475,6 +2493,8 @@ export interface TrafficLatency {
   to: string;
   bucket_seconds: number;
   summary: EndpointLatency["summary"];
+  /** The summary of the window just before the range (#1000); absent when it had no requests. */
+  previous?: EndpointLatency["summary"];
   points: EndpointLatency["points"];
   /** 14 log-spaced buckets. */
   histogram: LatencyBucket[] | null;

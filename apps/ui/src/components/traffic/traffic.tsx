@@ -1,4 +1,5 @@
 import { formatCount, formatPerMinute } from "@/lib/consumers";
+import { compare } from "@/lib/compare";
 import { formatPercent, ratio } from "@/lib/format";
 import type { EndpointTraffic, NamedApp, QueryRange, TrafficPoint, TrafficSummary } from "@/lib/identity";
 import {
@@ -32,6 +33,7 @@ import { PageHeader } from "../page-header";
 import { Pagination } from "../pagination/pagination";
 import { RangePicker } from "../range-picker";
 import { LatencyChart, Sparkline, StatusChart } from "./charts";
+import { CompareLine } from "./compare";
 import { EnvPicker } from "./env-picker";
 import { LiveControl, LiveNumber } from "./live";
 import "./traffic.css";
@@ -171,6 +173,7 @@ function LoadFailed({ text, href }: { text: string; href: string }) {
 function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points: TrafficPoint[]; range: QueryRange }) {
   const errors = s.client_errors + s.server_errors;
   const rating = apdexRating(s.apdex);
+  const p = s.previous;
   return (
     <dl className="tr-tiles">
       <div>
@@ -183,6 +186,7 @@ function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points:
             {formatPerMinute(s.requests_per_minute)} per minute
             {s.current_per_minute != null && ` · now ${formatCount(s.current_per_minute)}/min`}
           </span>
+          <CompareLine comparison={compare(s.requests, p?.requests, { kind: "relative", better: "neither", range })} />
           <Sparkline
             values={points.map((p) => p.requests)}
             hover={{ label: "Requests", range, points: points.map((p) => ({ ts: p.ts, text: formatCount(p.requests) })) }}
@@ -198,6 +202,7 @@ function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points:
           <span className="tr-tile__sub">
             {formatCount(s.client_errors)} 4xx, {formatCount(s.server_errors)} 5xx
           </span>
+          <CompareLine comparison={p ? compare(ratio(errors, s.requests), ratio(p.client_errors + p.server_errors, p.requests), { kind: "rate", better: "down", range }) : null} />
           <Sparkline
             values={points.map((p) => (p.requests > 0 ? (p.client_errors + p.server_errors) / p.requests : 0))}
             hover={{
@@ -217,6 +222,7 @@ function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points:
           <span className="tr-tile__sub">
             p50 {formatLatency(s.p50_ms)}, p99 {formatLatency(s.p99_ms)}
           </span>
+          <CompareLine comparison={compare(s.p95_ms, p?.p95_ms, { kind: "relative", better: "down", range })} />
           <Sparkline values={points.map((p) => p.p95_ms)} hover={{ label: "p95", range, points: points.map((p) => ({ ts: p.ts, text: formatLatency(p.p95_ms) })) }} />
         </dd>
       </div>
@@ -227,6 +233,7 @@ function Tiles({ summary: s, points, range }: { summary: TrafficSummary; points:
             <LiveNumber text={formatApdex(s.apdex)} />
           </span>
           <span className="tr-tile__sub">{rating ?? "No requests to score"}</span>
+          <CompareLine comparison={compare(s.apdex, p?.apdex, { kind: "score", better: "up", range })} />
           <span className="tr-spark" aria-hidden="true" />
         </dd>
       </div>

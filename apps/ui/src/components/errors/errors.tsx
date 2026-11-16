@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { type Comparison, compare } from "@/lib/compare";
 import { formatPercent, ratio } from "@/lib/format";
 import { RANGE_LABEL, consumerLabel, formatCount } from "@/lib/consumers";
 import { endpointPageHref } from "@/lib/endpoint-detail";
@@ -28,6 +29,7 @@ import { PageHeader } from "../page-header";
 import { Pagination } from "../pagination/pagination";
 import { RangePicker } from "../range-picker";
 import { Sparkline } from "../traffic/charts";
+import { CompareLine } from "../traffic/compare";
 import { CountBars } from "./charts";
 import { ErrorModal, MarkExpected } from "./modal";
 import "../traffic/traffic.css";
@@ -127,7 +129,7 @@ function LoadFailed({ text, href }: { text: string; href: string }) {
   );
 }
 
-function Tiles({ tiles }: { tiles: { label: string; value: string; sub: string }[] }) {
+function Tiles({ tiles }: { tiles: { label: string; value: string; sub: string; compare?: Comparison | null }[] }) {
   return (
     <dl className="tr-tiles er-tiles">
       {tiles.map((t) => (
@@ -136,6 +138,7 @@ function Tiles({ tiles }: { tiles: { label: string; value: string; sub: string }
           <dd>
             <span className="tr-tile__value">{t.value}</span>
             <span className="tr-tile__sub">{t.sub}</span>
+            <CompareLine comparison={t.compare ?? null} />
           </dd>
         </div>
       ))}
@@ -181,6 +184,7 @@ const EndpointName = ({ method, path }: { method: string; path: string }) => (
 function StatusTab({ project, q, data }: { project: string; q: ErrorsState; data: ErrorStatuses | null }) {
   if (data === null) return <LoadFailed text={STATUSES_LOAD_FAILED} href={errorsHref(project, q)} />;
   const s = data.summary;
+  const p = data.previous;
   if (s.requests === 0) {
     return (
       <div className="tr-notice" role="status">
@@ -195,10 +199,30 @@ function StatusTab({ project, q, data }: { project: string; q: ErrorsState; data
     <>
       <Tiles
         tiles={[
-          { label: "Requests", value: formatCount(s.requests), sub: `in ${errorsScopeText(q)}` },
-          { label: "Error rate", value: formatPercent(ratio(s.client_errors + s.server_errors, s.requests)), sub: `${formatCount(s.client_errors + s.server_errors)} errors` },
-          { label: "Client errors (4xx)", value: formatCount(s.client_errors), sub: `${formatPercent(s.client_error_rate)} of requests` },
-          { label: "Server errors (5xx)", value: formatCount(s.server_errors), sub: `${formatPercent(s.server_error_rate)} of requests` },
+          {
+            label: "Requests",
+            value: formatCount(s.requests),
+            sub: `in ${errorsScopeText(q)}`,
+            compare: compare(s.requests, p?.requests, { kind: "relative", better: "neither", range: q.range }),
+          },
+          {
+            label: "Error rate",
+            value: formatPercent(ratio(s.client_errors + s.server_errors, s.requests)),
+            sub: `${formatCount(s.client_errors + s.server_errors)} errors`,
+            compare: p ? compare(ratio(s.client_errors + s.server_errors, s.requests), ratio(p.client_errors + p.server_errors, p.requests), { kind: "rate", better: "down", range: q.range }) : null,
+          },
+          {
+            label: "Client errors (4xx)",
+            value: formatCount(s.client_errors),
+            sub: `${formatPercent(s.client_error_rate)} of requests`,
+            compare: compare(s.client_error_rate, p?.client_error_rate, { kind: "rate", better: "down", range: q.range }),
+          },
+          {
+            label: "Server errors (5xx)",
+            value: formatCount(s.server_errors),
+            sub: `${formatPercent(s.server_error_rate)} of requests`,
+            compare: compare(s.server_error_rate, p?.server_error_rate, { kind: "rate", better: "down", range: q.range }),
+          },
         ]}
       />
       <Card id="er-time" title="Errors over time">

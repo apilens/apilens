@@ -34,6 +34,7 @@ type trafficLatencyOutput struct {
 		Summary       LatencySummary  `json:"summary" doc:"Percentiles are t-digest estimates; apdex scores each request against its endpoint's latency threshold, else its app's, else 500 ms."`
 		Points        []latencyPoint  `json:"points" doc:"One point per bucket of the range, zero-filled."`
 		Histogram     []latencyBucket `json:"histogram" doc:"Response-time histogram over raw requests, always 14 log-spaced buckets with edges (ms) 0, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, +inf; empty buckets have count 0."`
+		Previous      *LatencySummary `json:"previous,omitempty" doc:"The summary over the window of the same length just before the range, the baseline of the comparison on the tiles; left out when that window has no requests."`
 	}
 }
 
@@ -65,6 +66,18 @@ func (s *Service) trafficLatency(ctx context.Context, in *appRangeInput) (*traff
 	b.Summary, b.Points, b.Histogram, err = s.latencyReport(ctx, p.ProjectID, w, w.table, "bucket", rollLatency, where, args, rawWhere, rawArgs)
 	if err != nil {
 		return nil, err
+	}
+	pw := w.previous()
+	qctx, cancel := queryCtx(ctx)
+	defer cancel()
+	prev, err := s.latencySummary(qctx, p.ProjectID, pw.table, rollLatency,
+		scope+" AND bucket >= ? AND bucket < ?", append(append([]any{}, sargs...), pw.from, pw.to),
+		scope+" AND timestamp >= ? AND timestamp < ?", append(append([]any{}, sargs...), pw.from, pw.to))
+	if err != nil {
+		return nil, err
+	}
+	if prev.Requests > 0 {
+		b.Previous = &prev
 	}
 	return out, nil
 }
