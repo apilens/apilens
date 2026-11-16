@@ -6,14 +6,15 @@
 // tapped or reached with the arrow keys to read its exact values, so no series is told apart by
 // color alone.
 import { formatBucket, formatCount, niceMax, stackBars } from "@/lib/consumers";
-import { formatBytes, formatPercent, formatShare } from "@/lib/endpoint-detail";
+import { formatPercent } from "@/lib/format";
+import { formatBytes } from "@/lib/endpoint-detail";
 import type { QueryRange } from "@/lib/identity";
 import { formatLatency, lineY, linePath } from "@/lib/traffic";
 import { PLOT_HEIGHT as H, LineMarks, Plot, type PlotHover, TimeAxis } from "../traffic/charts";
 
 /** What a chart's values are; the server passes the name (functions cannot cross to the client). */
 export type Unit = "count" | "ms" | "bytes" | "percent";
-const FORMAT: Record<Unit, (v: number) => string> = { count: formatCount, ms: formatLatency, bytes: formatBytes, percent: formatPercent };
+const FORMAT: Record<Unit, (v: number) => string> = { count: formatCount, ms: formatLatency, bytes: formatBytes, percent: (v) => formatPercent(v / 100) };
 
 export interface Series<K extends string> {
   key: K;
@@ -168,7 +169,7 @@ export function Histogram({
     title: (i) => buckets[i].label,
     rows: (i) => [
       { label: valueLabel, value: FORMAT[unit](buckets[i].count) },
-      { label: "Share", value: formatShare(total > 0 ? buckets[i].count / total : 0) },
+      { label: "Share", value: formatPercent(total > 0 ? buckets[i].count / total : 0) },
     ],
   };
   return (

@@ -83,7 +83,7 @@ test("shows records per day, by app and environment, rejections by reason and th
   const quota = card(page, "Quota");
   const meter = quota.getByRole("meter", { name: "Bytes today" });
   await expect(meter).toHaveAttribute("aria-valuenow", "31");
-  await expect(meter).toHaveAttribute("aria-valuetext", "3.1 MB of 10 MB today (31%)");
+  await expect(meter).toHaveAttribute("aria-valuetext", "3.1 MB of 10 MB today (31.0%)");
   await expect(quota.getByRole("definition")).toHaveText(["1,000 records a minute", "10 MB", "60"]);
 });
 

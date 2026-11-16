@@ -90,14 +90,6 @@ export const consumerLabel = (c: { consumer_id: string; consumer_name: string })
 
 export const errorsOf = (s: Pick<StatusSplit, "client_errors" | "server_errors">) => s.client_errors + s.server_errors;
 
-/** An error rate (0..1) as a percentage: `0%`, `<0.1%`, `2.4%`. */
-export function formatRate(errors: number, requests: number): string {
-  if (requests <= 0 || errors <= 0) return "0%";
-  const rate = errors / requests;
-  if (rate < 0.001) return "<0.1%";
-  return `${(rate * 100).toFixed(1)}%`;
-}
-
 const COUNT = new Intl.NumberFormat("en-US");
 export const formatCount = (n: number) => COUNT.format(n);
 

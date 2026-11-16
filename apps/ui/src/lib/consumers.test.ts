@@ -5,7 +5,6 @@ import {
   consumersHref,
   formatBucket,
   formatPerMinute,
-  formatRate,
   groupHref,
   niceMax,
   parseConsumersQuery,
@@ -73,9 +72,6 @@ describe("formatting", () => {
   });
 
   it("formats rates, per-minute and buckets", () => {
-    expect(formatRate(0, 0)).toBe("0%");
-    expect(formatRate(1, 2000)).toBe("<0.1%");
-    expect(formatRate(12, 500)).toBe("2.4%");
     expect(formatPerMinute(0)).toBe("0");
     expect(formatPerMinute(0.04)).toBe("<0.1");
     expect(formatPerMinute(2.44)).toBe("2.4");

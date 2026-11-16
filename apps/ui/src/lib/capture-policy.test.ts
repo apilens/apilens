@@ -8,7 +8,6 @@ import {
   draftOf,
   effectiveRows,
   formatCap,
-  formatRate,
   isAppId,
   percentText,
   policyValues,
@@ -86,7 +85,6 @@ describe("samePolicy and policyValues", () => {
 
 describe("formatting", () => {
   it("formats rates and caps", () => {
-    expect(formatRate(0.25)).toBe("25%");
     expect(formatCap(null)).toBe("No cap");
     expect(formatCap(65536)).toBe("65,536 bytes (64 KiB)");
     expect(formatCap(1048576)).toBe("1,048,576 bytes (1 MiB)");
@@ -107,7 +105,7 @@ describe("effectiveRows", () => {
     );
     expect(rows.map((r) => [r.label, r.policy, r.sdk, r.effective, r.narrowedBySdk])).toEqual([
       ["Capture", "On", null, "On", false],
-      ["Sample rate", "50%", "25%", "25%", true],
+      ["Sample rate", "50.0%", "25.0%", "25.0%", true],
       ["Headers", "On", "Off", "Off", true],
       ["Request bodies", "Off", "On", "Off", false],
       ["Response bodies", "On", "On", "On", false],
@@ -117,7 +115,7 @@ describe("effectiveRows", () => {
 
   it("follows the policy for settings the SDK did not report, and the SDK's cap when the policy has none", () => {
     const rows = effectiveRows(DEFAULT_POLICY, { max_payload_bytes: "4096", sample_rate: "lots" });
-    expect(rows.find((r) => r.label === "Sample rate")).toMatchObject({ sdk: null, effective: "100%" });
+    expect(rows.find((r) => r.label === "Sample rate")).toMatchObject({ sdk: null, effective: "100.0%" });
     expect(rows.find((r) => r.label === "Headers")).toMatchObject({ sdk: null, effective: "On" });
     expect(rows.find((r) => r.label === "Body size cap")).toMatchObject({ sdk: "4,096 bytes (4 KiB)", effective: "4,096 bytes (4 KiB)", narrowedBySdk: true });
   });

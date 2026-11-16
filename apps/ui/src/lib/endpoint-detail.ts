@@ -150,19 +150,6 @@ export function sizeBucketLabel(b: Pick<SizeBucket, "from_bytes" | "to_bytes">):
   return fu === tu ? `${fv}–${tv} ${tu}` : `${from}–${to}`;
 }
 
-/** A value already in percent (0 to 100): `0%`, `<0.1%`, `2.5%`, `12%`. */
-export function formatPercent(v: number): string {
-  if (!Number.isFinite(v) || v <= 0) return "0%";
-  if (v < 0.1) return "<0.1%";
-  return `${v < 10 ? v.toFixed(1).replace(/\.0$/, "") : Math.round(v)}%`;
-}
-
-/** A share from 0 to 1 as a percentage: `0%`, `<0.1%`, `12.5%`. */
-export function formatShare(share: number): string {
-  if (!Number.isFinite(share) || share <= 0) return "0%";
-  if (share < 0.001) return "<0.1%";
-  return `${(Math.min(1, share) * 100).toFixed(1)}%`;
-}
 
 // Settings ---------------------------------------------------------------------------------
 

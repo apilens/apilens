@@ -1,4 +1,5 @@
 import { keysPath } from "@/lib/api-keys";
+import { formatPercent, ratio } from "@/lib/format";
 import { APPS_PAGE, inactiveApps, lastDataText, newApps, originText, rejectionFixes, rejectionHeadline, rejectionLine, rejectionRows } from "@/lib/app-manage";
 import {
   APPS_LOAD_FAILED,
@@ -16,7 +17,7 @@ import {
   sdkUpdate,
   sdkVersions,
 } from "@/lib/apps";
-import { RANGE_LABEL, formatCount, formatPerMinute, formatRate } from "@/lib/consumers";
+import { RANGE_LABEL, formatCount, formatPerMinute } from "@/lib/consumers";
 import type { AppRejections, AppStatus, ManagedApp, NamedApp, TrafficPoint, TrafficSummary } from "@/lib/identity";
 import { dropSummary } from "@/lib/ingest-health";
 import type { SearchParams } from "@/lib/pagination";
@@ -171,7 +172,7 @@ function AppCard({ project, data: { app, managed, status, summary, points }, now
             </div>
             <div>
               <dt>Error rate</dt>
-              <dd>{formatRate(summary.client_errors + summary.server_errors, summary.requests)}</dd>
+              <dd>{formatPercent(ratio(summary.client_errors + summary.server_errors, summary.requests))}</dd>
             </div>
             <div>
               <dt>p95</dt>

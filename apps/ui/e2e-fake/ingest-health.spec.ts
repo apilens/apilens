@@ -55,7 +55,7 @@ test("shows the edge counters, the SDK drops by reason and links to the runbook"
 
   // Totals over the last 7 days, with shares.
   const tiles = edge(page).getByRole("definition");
-  await expect(tiles).toHaveText(["1,900Records stored", "1005% of received", "90.5% of accepted", "1005.3% of accepted"]);
+  await expect(tiles).toHaveText(["1,900Records stored", "1005.0% of received", "90.5% of accepted", "1005.3% of accepted"]);
   // No SDK drops reported: nothing extra (#927).
   await expect(edge(page).getByRole("table", { name: "Dropped by the SDK, by reason" })).toHaveCount(0);
   await expect(edge(page)).toContainText("Records Shop sent in the last 7 days (UTC)");

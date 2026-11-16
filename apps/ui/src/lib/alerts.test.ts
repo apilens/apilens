@@ -113,7 +113,7 @@ describe("metrics", () => {
   });
 
   it("summarizes rules", () => {
-    expect(conditionText("error_rate", "gt", 0.02)).toBe("> 2%");
+    expect(conditionText("error_rate", "gt", 0.02)).toBe("> 2.0%");
     expect(conditionText("apdex", "lt", 0.85)).toBe("< 0.85");
     expect(ruleSummary(RULE)).toBe("Error rate (4xx + 5xx) > 2.5% over 5 min");
     expect(scheduleText(RULE)).toBe("every 1 min");

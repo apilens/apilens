@@ -1,8 +1,9 @@
 "use client";
 
 import { ChartAnnounce, ChartTooltip, Crosshair, type TooltipRow } from "@/components/charts/chart-tooltip";
+import { formatPercent } from "@/lib/format";
 import { useChartHover } from "@/components/charts/use-chart-hover";
-import { formatMinute, formatRate, minuteOffsetText, p95LinePath, p95Scale } from "@/lib/changes";
+import { formatMinute, minuteOffsetText, p95LinePath, p95Scale } from "@/lib/changes";
 import { pointX, tooltipText } from "@/lib/chart-hover";
 import { niceMax } from "@/lib/consumers";
 import { formatCount } from "@/lib/first-data";
@@ -43,8 +44,8 @@ export function DeployChart({ series, deployMinute, release }: { series: readonl
   const rows: TooltipRow[] = pt
     ? [
         { label: "Requests", value: formatCount(pt.requests) },
-        { label: "4xx", value: `${formatCount(pt.client_errors)}${pt.requests > 0 ? ` (${formatRate(pt.client_errors / pt.requests)})` : ""}`, swatch: "chd-fill-4xx" },
-        { label: "5xx", value: `${formatCount(pt.server_errors)}${pt.requests > 0 ? ` (${formatRate(pt.server_errors / pt.requests)})` : ""}`, swatch: "chd-fill-5xx" },
+        { label: "4xx", value: `${formatCount(pt.client_errors)}${pt.requests > 0 ? ` (${formatPercent(pt.client_errors / pt.requests)})` : ""}`, swatch: "chd-fill-4xx" },
+        { label: "5xx", value: `${formatCount(pt.server_errors)}${pt.requests > 0 ? ` (${formatPercent(pt.server_errors / pt.requests)})` : ""}`, swatch: "chd-fill-5xx" },
         { label: "p95", value: pt.requests > 0 ? formatLatency(pt.p95_ms) : "–", swatch: "chd-fill-line" },
       ]
     : [];

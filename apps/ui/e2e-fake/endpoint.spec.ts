@@ -204,7 +204,7 @@ test("Errors tab: error rates, status codes, validation errors and server except
   await expect(page.getByRole("list", { name: "Error rate legend" }).getByRole("listitem")).toHaveText(["4xx rate", "5xx rate"]);
   await expect(chart.locator("path.ep-line")).toHaveCount(2);
   const rate = await tipAt(page, /^Error rate\. Use the arrow keys/, 1);
-  await expect(rate.locator("dd")).toHaveText(["4%", "<0.1%"]);
+  await expect(rate.locator("dd")).toHaveText(["4.0%", "<0.1%"]);
 
   const statuses = page.getByRole("table", { name: "Error status codes" });
   await expect(statuses.locator("tbody tr")).toHaveCount(3);

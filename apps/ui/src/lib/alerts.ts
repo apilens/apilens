@@ -14,6 +14,7 @@ import type {
   IncidentsRange,
 } from "./identity";
 import type { PageOptions } from "./pagination";
+import { formatPercent } from "./format";
 
 // ---------------------------------------------------------------- routes
 
@@ -151,10 +152,9 @@ const COUNT = new Intl.NumberFormat("en-US");
 export function formatMetric(metric: AlertMetric, value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "–";
   switch (unitOf(metric)) {
-    case "rate": {
-      const pct = value * 100;
-      return `${Number(pct.toFixed(pct !== 0 && Math.abs(pct) < 1 ? 2 : 1))}%`;
-    }
+    case "rate":
+      // Two decimals under 1% so a 0.25% threshold reads as entered.
+      return formatPercent(value, { digits: value > 0 && value < 0.01 ? 2 : 1 });
     case "ms":
       return value >= 1000 ? `${Number((value / 1000).toFixed(2))} s` : `${Math.round(value)} ms`;
     case "score":

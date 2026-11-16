@@ -28,7 +28,7 @@ export type { TooltipRow };
  * series with its exact, formatted value. Rendered inside the plot box (`position: relative`, see
  * `.ct-box`), centred on `x` and kept inside the box's width. It is aria-hidden: screen readers get
  * the same text from <ChartAnnounce>. Format values with the lib formatters (formatCount,
- * formatLatency, formatRate, formatShare, formatBytes…), never raw numbers.
+ * formatLatency, formatPercent, formatBytes…), never raw numbers.
  */
 export function ChartTooltip({
   x,

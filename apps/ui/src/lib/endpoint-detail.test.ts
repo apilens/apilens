@@ -5,7 +5,6 @@ import {
   endpointPageHref,
   endpointScopeText,
   formatBytes,
-  formatShare,
   isExpected,
   latencyBucketLabel,
   loadSettingsError,
@@ -126,10 +125,6 @@ describe("formatting", () => {
     expect(sizeBucketLabel({ from_bytes: 256, to_bytes: 1024 })).toBe("256 B–1 KB");
     expect(sizeBucketLabel({ from_bytes: 1024, to_bytes: 4096 })).toBe("1–4 KB");
     expect(sizeBucketLabel({ from_bytes: 4194304 })).toBe("≥4 MB");
-  });
-
-  it("formats a share", () => {
-    expect([0, 0.0004, 0.125, 2].map(formatShare)).toEqual(["0%", "<0.1%", "12.5%", "100.0%"]);
   });
 
   it("names the tab that failed to load", () => {

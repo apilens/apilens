@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { RANGE_LABEL, consumerLabel, formatCount, formatPerMinute, formatRate } from "@/lib/consumers";
+import { formatPercent, ratio } from "@/lib/format";
+import { RANGE_LABEL, consumerLabel, formatCount, formatPerMinute } from "@/lib/consumers";
 import {
   ENDPOINT_TABS,
   type EndpointRef,
@@ -9,8 +10,6 @@ import {
   endpointPageHref,
   endpointScopeText,
   formatBytes,
-  formatPercent,
-  formatShare,
   latencyBucketLabel,
   sizeBucketLabel,
   tabLoadFailed,
@@ -295,9 +294,9 @@ function RequestsTab({ data, project, endpoint, q, pager }: { data: EndpointRequ
       <Tiles
         tiles={[
           { label: "Requests", value: formatCount(s.requests), sub: `${formatPerMinute(s.requests_per_minute)} per minute` },
-          { label: "Successful", value: formatCount(s.successful), sub: `${formatRate(s.successful, s.requests)} of requests` },
-          { label: "Client errors (4xx)", value: formatCount(s.client_errors), sub: `${formatRate(s.client_errors, s.requests)} of requests` },
-          { label: "Server errors (5xx)", value: formatCount(s.server_errors), sub: `${formatRate(s.server_errors, s.requests)} of requests` },
+          { label: "Successful", value: formatCount(s.successful), sub: `${formatPercent(ratio(s.successful, s.requests))} of requests` },
+          { label: "Client errors (4xx)", value: formatCount(s.client_errors), sub: `${formatPercent(ratio(s.client_errors, s.requests))} of requests` },
+          { label: "Server errors (5xx)", value: formatCount(s.server_errors), sub: `${formatPercent(ratio(s.server_errors, s.requests))} of requests` },
         ]}
       />
       <Card id="ep-req-time" title="Requests over time">
@@ -381,8 +380,8 @@ function ErrorsTab({ data, q, settings, perApp, pager }: { data: EndpointErrors;
       <Tiles
         tiles={[
           { label: "Requests", value: formatCount(s.requests), sub: `in ${endpointScopeText(q)}` },
-          { label: "Client error rate", value: formatPercent(s.client_error_rate * 100), sub: `${formatCount(s.client_errors)} 4xx` },
-          { label: "Server error rate", value: formatPercent(s.server_error_rate * 100), sub: `${formatCount(s.server_errors)} 5xx` },
+          { label: "Client error rate", value: formatPercent(s.client_error_rate), sub: `${formatCount(s.client_errors)} 4xx` },
+          { label: "Server error rate", value: formatPercent(s.server_error_rate), sub: `${formatCount(s.server_errors)} 5xx` },
           // Expected codes are set per app: across several apps no one list applies (#976).
           perApp
             ? { label: "Expected status codes", value: "Per app", sub: "pick an app to see them" }
@@ -392,7 +391,7 @@ function ErrorsTab({ data, q, settings, perApp, pager }: { data: EndpointErrors;
       <Card id="ep-err-time" title="Error rate over time">
         <LinesChart
           label="Error rate"
-          summary={`${formatPercent(s.client_error_rate * 100)} client and ${formatPercent(s.server_error_rate * 100)} server errors in ${endpointScopeText(q)}.`}
+          summary={`${formatPercent(s.client_error_rate)} client and ${formatPercent(s.server_error_rate)} server errors in ${endpointScopeText(q)}.`}
           rows={rows}
           series={[
             { key: "client", label: "4xx rate", className: "ep-c-4xx" },
@@ -433,7 +432,7 @@ function ErrorsTab({ data, q, settings, perApp, pager }: { data: EndpointErrors;
                       {formatCount(r.count)}
                     </td>
                     <td className="tr-num" data-label="Share">
-                      {formatShare(r.share)}
+                      {formatPercent(r.share)}
                     </td>
                     <td className="tr-num" data-label="Consumers">
                       {formatCount(r.consumers)}

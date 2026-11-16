@@ -89,7 +89,7 @@ test("create a channel and a rule, then see its incident open and resolve", asyn
   await expect(rules.locator("tbody tr")).toHaveCount(1);
   await expect(rules.locator("tbody tr").first()).toContainText("Checkout error rate");
   await expect(rules.locator("tbody tr").first()).toContainText("Shop · production · POST /checkout");
-  await expect(rules.locator("tbody tr").first()).toContainText("Error rate (4xx + 5xx) > 2% over 5 min");
+  await expect(rules.locator("tbody tr").first()).toContainText("Error rate (4xx + 5xx) > 2.0% over 5 min");
   await expect(rules.locator("tbody tr").first()).toContainText("every 1 min");
   await expect(rules.locator("tbody tr").first()).toContainText("On-call");
   await expect(rules.locator("tbody tr").first()).toContainText("Not evaluated yet");
@@ -104,7 +104,7 @@ test("create a channel and a rule, then see its incident open and resolve", asyn
   await expect(row).toContainText("Checkout error rate");
   await expect(row).toContainText("Triggered");
   await expect(row).toContainText("3.4%");
-  await expect(row).toContainText("threshold > 2%");
+  await expect(row).toContainText("threshold > 2.0%");
   await expect(row).toContainText("Started 12m ago");
   await expect(row).toContainText(/Ongoing for 1[12] min, notified/);
   await expect(badge(page)).toHaveText("1");
@@ -184,7 +184,7 @@ test("the rule editor alerts on server errors (5xx) apart from client errors (4x
   await form.getByRole("button", { name: "Create rule" }).click();
   await page.waitForURL("**/shop/incidents/rules");
   const row = page.getByRole("table", { name: "Alert rules" }).locator("tbody tr").first();
-  await expect(row).toContainText("Server error rate (5xx) > 1% over 5 min");
+  await expect(row).toContainText("Server error rate (5xx) > 1.0% over 5 min");
 });
 
 test("members see alerts read-only", async ({ page }) => {
@@ -230,7 +230,7 @@ test("a rule's timeline pages its incidents with Newer and Older, and charts the
   const chart = page.getByRole("group", { name: /^Value of each incident/ });
   await chart.focus();
   await chart.press("End");
-  await expect(page.locator(".al-chart .ct-sr")).toHaveText(/Value: 10%, Threshold: > 5%, Ongoing for/);
+  await expect(page.locator(".al-chart .ct-sr")).toHaveText(/Value: 10.0%, Threshold: > 5.0%, Ongoing for/);
 
   await pages.getByRole("link", { name: "Older" }).click();
   await expect(page).toHaveURL(/cursor=/);

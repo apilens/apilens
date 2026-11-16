@@ -65,7 +65,7 @@ test("Status codes tab: tiles, 4xx/5xx over time and the status table", async ({
 
   await expect(tiles(page).locator("dt")).toHaveText(["Requests", "Error rate", "Client errors (4xx)", "Server errors (5xx)"]);
   await expect(tiles(page).locator(".tr-tile__value")).toHaveText(["8,200", "4.0%", "330", "2"]);
-  await expect(tiles(page).locator(".tr-tile__sub")).toHaveText(["in the last 24 hours", "332 errors", "4% of requests", "<0.1% of requests"]);
+  await expect(tiles(page).locator(".tr-tile__sub")).toHaveText(["in the last 24 hours", "332 errors", "4.0% of requests", "<0.1% of requests"]);
 
   await expect(page.getByRole("list", { name: "Errors by status class legend" }).getByRole("listitem")).toHaveText(["4xx", "5xx"]);
   const chart = page.getByRole("img", { name: /Errors by status class/ });
