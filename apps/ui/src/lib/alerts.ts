@@ -14,6 +14,7 @@ import type {
   IncidentsRange,
 } from "./identity";
 import type { PageOptions } from "./pagination";
+import { formatAgo } from "./first-data";
 import { formatPercent } from "./format";
 
 // ---------------------------------------------------------------- routes
@@ -99,6 +100,38 @@ export function eventDuration(e: Pick<AlertEvent, "started_at" | "ended_at">, no
   const end = e.ended_at ? Date.parse(e.ended_at) : now;
   if (Number.isNaN(end)) return "";
   return formatSpan((end - start) / 1000);
+}
+
+/** A list heading's count as a screen reader says it: `1 incident`, `4 incidents`. */
+export function incidentCount(n: number): string {
+  return `${n} ${n === 1 ? "incident" : "incidents"}`;
+}
+
+/** The value that opened an incident, apart from where the rule stands now: `Triggered at 3.4%`. */
+export function triggeredText(metric: AlertMetric, value: number | null | undefined): string {
+  return `Triggered at ${formatMetric(metric, value)}`;
+}
+
+/**
+ * Where a rule stands at its latest check, and when that was: `Now 2.0% · checked 40s ago`.
+ * `Not evaluated yet` before the first check.
+ */
+export function currentText(rule: Pick<AlertRule, "metric" | "state">, now: number): string {
+  const s = rule.state;
+  if (!s) return "Not evaluated yet";
+  const ago = formatAgo(s.evaluated_at, now);
+  return `Now ${formatMetric(rule.metric, s.value)}${ago ? ` · checked ${ago}` : ""}`;
+}
+
+/**
+ * Whether anyone was told about an incident, when nobody was: `Not yet` while it is open,
+ * `No notification sent` once resolved, and `No channel, nobody notified` when its rule has no
+ * channel (#978). Null once a notification went out (the page shows when).
+ */
+export function unnotifiedText(e: Pick<AlertEvent, "ended_at" | "notified_at">, noChannel: boolean): string | null {
+  if (e.notified_at) return null;
+  if (noChannel) return "No channel, nobody notified";
+  return e.ended_at ? "No notification sent" : "Not yet";
 }
 
 // ---------------------------------------------------------------- metrics

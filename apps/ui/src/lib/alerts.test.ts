@@ -5,10 +5,12 @@ import {
   checkChannelDraft,
   checkRuleDraft,
   conditionText,
+  currentText,
   eventDuration,
   filterParts,
   formatMetric,
   formatSpan,
+  incidentCount,
   incidentsHref,
   incidentsRange,
   isCron,
@@ -23,6 +25,8 @@ import {
   splitAddresses,
   testError,
   thresholdUnit,
+  triggeredText,
+  unnotifiedText,
 } from "./alerts";
 import type { AlertRule } from "./identity";
 
@@ -241,6 +245,32 @@ describe("channel form", () => {
     expect(isHookUrl("https://example.com/hook#x")).toBe(false);
     expect(isHookUrl("not a url")).toBe(false);
     expect(splitAddresses("a@example.com;b@example.com\nc@example.com")).toHaveLength(3);
+  });
+});
+
+describe("incident copy", () => {
+  const now = Date.parse("2026-11-05T10:12:00Z");
+
+  it("counts a list for screen readers", () => {
+    expect(incidentCount(1)).toBe("1 incident");
+    expect(incidentCount(4)).toBe("4 incidents");
+    expect(incidentCount(0)).toBe("0 incidents");
+  });
+
+  it("says which value triggered, apart from the value now", () => {
+    expect(triggeredText("traffic", 28)).toBe("Triggered at 28");
+    expect(triggeredText("error_rate", 0.034)).toBe("Triggered at 3.4%");
+    const state = { status: "triggered" as const, since: "2026-11-05T10:00:00Z", evaluated_at: "2026-11-05T10:11:20Z", value: 20, breached: true };
+    expect(currentText({ metric: "traffic", state }, now)).toBe("Now 20 · checked 40s ago");
+    expect(currentText({ metric: "traffic", state: { ...state, evaluated_at: "" } }, now)).toBe("Now 20");
+    expect(currentText({ metric: "traffic", state: undefined }, now)).toBe("Not evaluated yet");
+  });
+
+  it("says whether anyone was notified", () => {
+    expect(unnotifiedText({ ended_at: null, notified_at: "2026-11-05T10:01:00Z" }, false)).toBeNull();
+    expect(unnotifiedText({ ended_at: null, notified_at: null }, false)).toBe("Not yet");
+    expect(unnotifiedText({ ended_at: "2026-11-05T10:05:00Z", notified_at: null }, false)).toBe("No notification sent");
+    expect(unnotifiedText({ ended_at: null, notified_at: null }, true)).toBe("No channel, nobody notified");
   });
 });
 
