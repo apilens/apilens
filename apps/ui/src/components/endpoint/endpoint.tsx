@@ -7,6 +7,7 @@ import {
   type EndpointScope,
   type EndpointState,
   STATUS_CLASSES,
+  endpointExploreScope,
   endpointPageHref,
   endpointScopeText,
   formatBytes,
@@ -15,6 +16,7 @@ import {
   tabLoadFailed,
   tabTakesStatus,
 } from "@/lib/endpoint-detail";
+import { bucketHrefs, exploreHrefFor } from "@/lib/explore";
 import type { EndpointErrors, EndpointLatency, EndpointRequests, EndpointSettings, EndpointTransfer, NamedApp } from "@/lib/identity";
 import { type PageKeys, type SearchParams, parsePage, slicePage } from "@/lib/pagination";
 import { formatExact } from "@/lib/passkey-settings";
@@ -82,6 +84,8 @@ export function EndpointView({
   // The settings the page shows are those of the app in scope only; across apps they differ.
   const saved = scoped ? settings.settings : null;
   const scope = { ...q, appLabel: q.app ? appName(apps, q.app) : undefined };
+  // The endpoint's requests in Explore (#977), in the page's scope.
+  const explore = endpointExploreScope(ep, q);
 
   return (
     <div className="page tr ep">
@@ -110,6 +114,9 @@ export function EndpointView({
           </dl>
           {saved?.excluded ? <span className="ah-badge ep-badge">Excluded from dashboards</span> : null}
           {apps && app && settings.settings ? <SettingsMenu key={app.id} project={project} endpoint={ep} apps={apps} app={app} settings={settings.settings} /> : null}
+          <a className="tr-btn ep-explore" href={exploreHrefFor(project, explore)}>
+            View requests
+          </a>
         </div>
         {app && !settings.settings ? (
           <p className="ep-note" role="status">
@@ -305,6 +312,7 @@ function RequestsTab({ data, project, endpoint, q, pager }: { data: EndpointRequ
           summary={`${formatCount(s.requests)} requests in ${endpointScopeText(q)}: ${formatCount(s.client_errors)} 4xx and ${formatCount(s.server_errors)} 5xx.`}
           rows={points}
           range={q.range}
+          hrefs={bucketHrefs(project, endpointExploreScope(endpoint, q), points)}
         />
       </Card>
       <Card id="ep-consumers" title="Top consumers" table>

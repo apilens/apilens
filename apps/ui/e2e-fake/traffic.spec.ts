@@ -221,11 +221,12 @@ test("opens an endpoint's detail from its row, keeping the scope", async ({ page
   await signIn(page, `${PAGE}?range=7d`);
   const link = endpointsTable(page).getByRole("link", { name: "POST /charge" });
   await expect(link).toHaveAttribute("href", "/shop/endpoints/POST/%2Fcharge?range=7d&env=all");
-  // The link covers its row: a click anywhere on the row follows it.
+  // The link covers its row: a click anywhere on the row follows it, but for the error counts and
+  // p95, which open their requests in Explore (#977).
   const row = endpointsTable(page).locator("tbody tr").nth(1);
   await row.scrollIntoViewIfNeeded();
-  const cell = await row.getByRole("cell").nth(3).boundingBox();
-  if (!cell) throw new Error("the 5xx cell has no box");
+  const cell = await row.getByRole("cell").nth(1).boundingBox();
+  if (!cell) throw new Error("the Requests cell has no box");
   await page.mouse.click(cell.x + cell.width / 2, cell.y + cell.height / 2);
   await page.waitForURL((url) => url.pathname === "/shop/endpoints/POST/%2Fcharge");
 });

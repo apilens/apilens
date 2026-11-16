@@ -12,6 +12,7 @@
 .ct-tip__row { display: flex; justify-content: space-between; gap: var(--space-4); }
 .ct-tip__row dt { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-muted); white-space: nowrap; }
 .ct-tip__row dd { margin: 0; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.ct-tip__hint { margin: 4px 0 0; color: var(--ink-muted); white-space: nowrap; }
 .ct-tip__swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
 
 /* SVG marks: the line chart crosshair and the hovered point. */

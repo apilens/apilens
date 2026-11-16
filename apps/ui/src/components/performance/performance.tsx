@@ -1,7 +1,7 @@
 import { compare } from "@/lib/compare";
 import { formatCount } from "@/lib/consumers";
 import { latencyBucketLabel } from "@/lib/endpoint-detail";
-import { logTime, statusClass } from "@/lib/explore";
+import { exploreHrefFor, logTime, statusClass } from "@/lib/explore";
 import { formatPercent } from "@/lib/format";
 import type { AppSettings, EndpointTraffic, NamedApp, QueryRange, RequestRow, TrafficLatency } from "@/lib/identity";
 import {
@@ -125,7 +125,7 @@ export function PerformanceView({
         </div>
       ) : (
         <>
-          <Tiles latency={latency} explanation={explanation} range={q.range} />
+          <Tiles latency={latency} explanation={explanation} range={q.range} p95Href={exploreHrefFor(project, { range: q.range, env: q.env, app: q.app, latency_min: latency.summary.p95_ms })} />
           <section className="tr-card" aria-labelledby="pf-over-time">
             <h2 id="pf-over-time">Response time over time</h2>
             <LinesChart
@@ -186,7 +186,18 @@ function LoadFailed({ text, href }: { text: string; href: string }) {
   );
 }
 
-function Tiles({ latency, explanation, range }: { latency: TrafficLatency; explanation: readonly string[]; range: QueryRange }) {
+function Tiles({
+  latency,
+  explanation,
+  range,
+  p95Href,
+}: {
+  latency: TrafficLatency;
+  explanation: readonly string[];
+  range: QueryRange;
+  /** The requests at p95 or slower in Explore (#977). */
+  p95Href: string;
+}) {
   const s = latency.summary;
   const prev = latency.previous;
   const points = latency.points ?? [];
@@ -202,7 +213,13 @@ function Tiles({ latency, explanation, range }: { latency: TrafficLatency; expla
           <dt>{t.label}</dt>
           <dd>
             <span className="tr-tile__value">
-              <LiveNumber text={formatLatency(t.value)} />
+              {t.key === "p95_ms" && s.requests > 0 && t.value > 0 ? (
+                <a className="tr-drill" href={p95Href} title="See the requests at p95 or slower in Explore" aria-label={`p95 ${formatLatency(t.value)}: requests at p95 or slower in Explore`}>
+                  <LiveNumber text={formatLatency(t.value)} />
+                </a>
+              ) : (
+                <LiveNumber text={formatLatency(t.value)} />
+              )}
             </span>
             <span className="tr-tile__sub">{t.sub}</span>
             <CompareLine comparison={compare(t.value, prev?.[t.key], { kind: "relative", better: "down", range })} />

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkSettings,
   checkSettingsDraft,
+  endpointExploreScope,
   endpointPageHref,
   endpointScopeText,
   formatBytes,
@@ -87,6 +88,17 @@ describe("endpointPageHref", () => {
   it("is where the Traffic table links", () => {
     expect(endpointPageHref("shop", EP, { range: "7d" })).toBe(endpointHref("shop", EP, { range: "7d" }));
     expect(endpointPageHref("shop", EP, { range: "7d", app: BILLING })).toBe(endpointHref("shop", EP, { range: "7d", app: BILLING }));
+  });
+});
+
+describe("endpointExploreScope (#977)", () => {
+  const q = parseEndpointQuery({ range: "6h", env: "production", app: BILLING, consumer: "acme", status: "5xx" });
+  it("is the endpoint in the page's scope, with the consumer and status class", () => {
+    expect(endpointExploreScope(EP, q)).toEqual({ range: "6h", env: "production", app: BILLING, method: "GET", path: "/orders/{id}", consumer_id: "acme", status: "5xx" });
+  });
+  it("leaves the status out where the tab does not read it, or for all statuses", () => {
+    expect(endpointExploreScope(EP, { ...q, tab: "errors" }).status).toBe("");
+    expect(endpointExploreScope(EP, { ...q, status: "all" }).status).toBe("");
   });
 });
 
