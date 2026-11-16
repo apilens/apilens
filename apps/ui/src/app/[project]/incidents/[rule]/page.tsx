@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { getContext } from "@/lib/auth/server";
 import { EVENTS_PAGE, incidentHref } from "@/lib/alerts";
 import { type SearchParams, parseTrail, trailCursor } from "@/lib/pagination";
+import { incidentLinks } from "@/lib/incident-links";
 import { chartRange, hasSeries } from "@/lib/incident-metric";
 import { findProject } from "@/lib/scope";
 import { appNames, load, loadApps, loadRule } from "../load";
@@ -53,6 +54,7 @@ export default async function IncidentPage({ params, searchParams }: { params: P
           now={now}
           series={series}
           range={range}
+          links={incidentLinks(project, rule, apps, events?.events?.[0]?.started_at, now)}
         />
       )}
     </AppShell>

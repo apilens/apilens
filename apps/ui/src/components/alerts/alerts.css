@@ -5,6 +5,8 @@
 .al-lead { margin: var(--space-2) 0 0; font: 400 14px/22px var(--font-sans); color: var(--ink-muted); max-width: 680px; }
 .al-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-6); }
 .al-head .os-tabs { flex: 1 1 100%; }
+/* An incident's drill-downs and rule actions (#979): they wrap under the title at phone width. */
+.al-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .al > .pagehead { margin-bottom: var(--space-6); }
 .al > .pagehead + .al-bar { margin-top: 0; }
 .al-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin: var(--space-6) 0 var(--space-4); }

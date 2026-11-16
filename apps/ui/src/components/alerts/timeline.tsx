@@ -2,6 +2,7 @@ import Link from "next/link";
 import { conditionText, currentText, eventDuration, filterParts, formatMetric, formatSpan, incidentHref, incidentsHref, metricLabel, ruleHref, ruleSummary, scheduleText } from "@/lib/alerts";
 import { formatAgo } from "@/lib/first-data";
 import type { AlertEvent, AlertRule, TrafficTimeseries } from "@/lib/identity";
+import type { IncidentLinks } from "@/lib/incident-links";
 import { hasSeries, noSeriesText } from "@/lib/incident-metric";
 import { type SearchParams, trailHrefs } from "@/lib/pagination";
 import { formatExact } from "@/lib/passkey-settings";
@@ -9,6 +10,7 @@ import { Pagination } from "../pagination/pagination";
 import { Empty, LoadFailed, StatusBadge } from "./common";
 import { IncidentChart } from "./incident-chart";
 import { MetricChart } from "./metric-chart";
+import { RuleToggle } from "./rule-toggle";
 
 /**
  * `/<project>/incidents/<rule>` (#610): one alert rule's incidents as a timeline, newest first:
@@ -19,6 +21,7 @@ import { MetricChart } from "./metric-chart";
  * answer; `params` are the page's search params. `now` is the load time. Above the timeline the
  * rule's metric over `range` against its threshold (#980): `series` is its app and environment's
  * timeseries, null when the API could not answer (unused for a metric without a series).
+ * `links` are where the incident drills down to (#979): Explore, Errors, the endpoint and the app.
  */
 export function IncidentTimeline({
   project,
@@ -31,6 +34,7 @@ export function IncidentTimeline({
   now,
   series,
   range,
+  links,
 }: {
   project: string;
   projectName: string;
@@ -42,6 +46,7 @@ export function IncidentTimeline({
   now: number;
   series: TrafficTimeseries | null;
   range: "6h" | "24h";
+  links: IncidentLinks;
 }) {
   const pages = trailHrefs(incidentHref(project, rule.id), params, nextCursor);
   return (
@@ -56,9 +61,23 @@ export function IncidentTimeline({
           <h1 className="cp-lede">{rule.name}</h1>
           <p className="al-lead">{rule.description || ruleSummary(rule)}</p>
         </div>
-        <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={ruleHref(project, rule.id)}>
-          View rule
-        </Link>
+        <div className="al-actions" role="group" aria-label="Incident actions">
+          <Link className="ah-btn ah-btn--primary ah-btn--sm" href={links.requests.href}>
+            {links.requests.label}
+          </Link>
+          <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={links.errors.href}>
+            {links.errors.label}
+          </Link>
+          {links.endpoint ? (
+            <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={links.endpoint.href}>
+              {links.endpoint.label}
+            </Link>
+          ) : null}
+          <Link className="ah-btn ah-btn--secondary ah-btn--sm" href={ruleHref(project, rule.id)}>
+            View rule
+          </Link>
+          <RuleToggle project={project} rule={rule} />
+        </div>
       </header>
 
       <dl className="al-summary">
@@ -75,7 +94,14 @@ export function IncidentTimeline({
         <div>
           <dt>Scope</dt>
           <dd>
-            {[app ?? "Unknown app", rule.environment, ...filterParts(rule)].join(" · ")}
+            {links.app ? (
+              <Link className="cp-link" href={links.app}>
+                {app ?? "Unknown app"}
+              </Link>
+            ) : (
+              (app ?? "Unknown app")
+            )}
+            {[rule.environment, ...filterParts(rule)].map((part) => ` · ${part}`).join("")}
           </dd>
         </div>
         <div>
